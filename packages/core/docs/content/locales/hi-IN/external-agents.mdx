@@ -380,7 +380,7 @@ MCP सर्वर प्रत्येक कॉलर को डिफ़ॉ
 
 ```ts
 export default createAgentChatPlugin({
-  appId: "analytics",
+  appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
     writes: "ask_app_only",
@@ -389,6 +389,8 @@ export default createAgentChatPlugin({
   },
 });
 ```
+
+यह नीति का सामान्य उदाहरण है। Analytics जानबूझकर `authenticatedReads: "off"` सेट करता है और केवल समीक्षा किए गए `connectorCatalog` actions को उपलब्ध कराता है।
 
 `authenticatedReads: "auto"` केवल उन actions को जोड़ता है जो स्पष्ट रूप से ये सभी घोषित करते हैं:
 
@@ -404,7 +406,9 @@ Core के `db-schema` और `db-query` को स्वचालित बा
 
 यह नाम-आधारित सख्त बहिष्करण है, केवल मेटाडेटा की चूक नहीं: सामान्य डेटाबेस/seed/ब्राउज़र-सत्र/एक्सटेंशन/संदर्भ-एक्सरे टूल कभी भी स्वचालित रूप से उजागर नहीं होते, भले ही भविष्य का कोई बदलाव गलती से इनमें से किसी एक को पूर्ण authenticated-read फ़्लैग सेट के साथ चिह्नित कर दे — उन्हें हमेशा एक स्पष्ट `connectorCatalog` प्रविष्टि की आवश्यकता होती है।
 
-एजेंट चलने से पहले सत्यापित Slack DM को Agent Native संगठन के किसी मौजूदा सदस्य से मिलाया जाता है और workspace/user पहचान लिंक सहेजा जाता है। इससे बने user/org संदर्भ में उस उपयोगकर्ता के संसाधन, निर्देश और skills लोड होते हैं। जिन workspace सदस्यों का प्रोफ़ाइल सफलतापूर्वक मिला है लेकिन ईमेल उपलब्ध नहीं है या वे अभी संगठन के सदस्य नहीं हैं, वे इसके बजाय संगठन-स्कोप वाले अनाम service principal के रूप में चलते हैं — साझा चैनलों वाली संगठन-व्यापी दृश्यता के उसी स्तर पर — साथ में एजेंट को दिखाई देने वाला नोट और व्यक्तिगत पहुँच पाने का तरीका बताने वाली एक बार की Slack सूचना। प्रोफ़ाइल लोड न होने, मेहमान या बाहरी (Slack Connect) सदस्य होने, या workspace के किसी संगठन से न जुड़े होने पर संदेश को चुपचाप छोड़ने के बजाय विनम्र अस्वीकृति भेजी जाती है। साझा Slack चैनल service principal का उपयोग करते हैं और किसी प्रतिभागी की निजी permissions नहीं लेते। Managed OAuth और generated Slack app manifest दोनों bot scope `users:read.email` मांगते हैं। नया scope देने के लिए मौजूदा installations को reconnect/reinstall करना होगा; पुराने bot-token installations को इसे Slack में manually जोड़ना होगा। इसके बिना DM व्यक्तिगत पहुँच के बजाय संगठन-स्कोप वाले अनाम स्तर में चलते हैं।
+`resolveExecutionContext` देने वाला ऐप इस डिफ़ॉल्ट पहचान क्रम को स्पष्ट रूप से बदल देता है। उसके resolver को principal लौटाने से पहले असत्यापित callers, guests, external members और unlinked workspaces को स्वतंत्र रूप से अस्वीकार करना होगा।
+
+एजेंट चलने से पहले सत्यापित Slack DM को Agent Native संगठन के किसी मौजूदा सदस्य से मिलाया जाता है और workspace/user पहचान लिंक सहेजा जाता है। इससे बने user/org संदर्भ में उस उपयोगकर्ता के संसाधन, निर्देश और skills लोड होते हैं। डिफ़ॉल्ट रूप से सफलतापूर्वक प्रोफ़ाइल मिले ऐसे workspace सदस्य अस्वीकार किए जाते हैं जिनका ईमेल उपलब्ध नहीं है या जो अभी संगठन के सदस्य नहीं हैं। ऐप इन सदस्यों को संगठन-स्कोप वाले अनाम service principal के रूप में चलाने के लिए स्पष्ट रूप से `allowAnonymousOrgScopedSlackDm: true` सेट कर सकते हैं — साझा चैनलों वाली संगठन-व्यापी दृश्यता के उसी स्तर पर, लेकिन कभी भी उपयोगकर्ता-निजी पहुँच के साथ नहीं — साथ में एजेंट को दिखाई देने वाला नोट और व्यक्तिगत पहुँच पाने का तरीका बताने वाली एक बार की Slack सूचना। यह opt-in प्रोफ़ाइल लोड न होने, असत्यापित callers, guests, external (Slack Connect) members या किसी संगठन से न जुड़े workspace को कभी अनुमति नहीं देता; उन्हें विनम्र अस्वीकृति मिलती है। साझा Slack चैनल service principal का उपयोग करते हैं और किसी प्रतिभागी की निजी permissions नहीं लेते। Managed OAuth और generated Slack app manifest दोनों bot scope `users:read.email` मांगते हैं। नया scope देने के लिए मौजूदा installations को reconnect/reinstall करना होगा; पुराने bot-token installations को इसे Slack में manually जोड़ना होगा। इसके बिना DM fail closed होते हैं, जब तक ऐप स्पष्ट रूप से `allowAnonymousOrgScopedSlackDm` सक्षम न करे।
 
 ### पूर्ण स्तरीय (केवल स्पष्ट ऑप्ट-इन) {#full-tier}
 

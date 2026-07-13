@@ -364,7 +364,7 @@ export async function markTaskFailed(
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_pending_tasks
-          SET status = ?, updated_at = ?, error_message = ?, payload = ?
+          SET status = ?, updated_at = ?, error_message = ?, payload = ?, external_event_key = NULL
           WHERE id = ?`,
     args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });

@@ -382,7 +382,7 @@ Aplicativos que desejam que as ferramentas de leitura direta funcionem sem mante
 
 ```ts
 export default createAgentChatPlugin({
-  appId: "analytics",
+  appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
     writes: "ask_app_only",
@@ -391,6 +391,8 @@ export default createAgentChatPlugin({
   },
 });
 ```
+
+Este é um exemplo genérico da política. O Analytics define intencionalmente `authenticatedReads: "off"` e expõe somente as actions revisadas de `connectorCatalog`.
 
 `authenticatedReads: "auto"` adiciona somente actions que declaram explicitamente todos os itens a seguir:
 
@@ -406,7 +408,9 @@ Os `db-schema` e `db-query` do Core não são expostos automaticamente como leit
 
 Trata-se de uma exclusão rígida baseada em nome, não apenas uma omissão de metadados: ferramentas genéricas de banco de dados, seed, sessão de navegador, extensões e raio X de contexto nunca são expostas automaticamente, mesmo que uma mudança futura marque acidentalmente uma delas com o conjunto completo de flags de leitura autenticada — elas sempre exigem uma entrada explícita em `connectorCatalog`.
 
-Antes de o agente ser executado, uma DM verificada do Slack é associada a um membro existente da organização Agent Native e o vínculo de identidade entre workspace e usuário é salvo. O contexto resultante de usuário/organização carrega os recursos, as instruções e as skills desse usuário. Membros do workspace cujo perfil foi carregado, mas cujo e-mail está ausente ou que ainda não pertencem à organização, são executados como um principal de serviço anônimo com escopo da organização — o mesmo nível de visibilidade para toda a organização usado pelos canais compartilhados — com uma observação visível ao agente e um aviso único no Slack explicando como obter acesso pessoal. Falhas no carregamento do perfil, convidados e membros externos (Slack Connect), e workspaces não conectados a uma organização recebem uma resposta educada de recusa em vez de a mensagem ser descartada silenciosamente. Canais compartilhados do Slack usam um principal de serviço e não herdam as permissões privadas de um participante. O OAuth gerenciado e o manifesto gerado do aplicativo Slack solicitam o escopo de bot `users:read.email`. Instalações existentes precisam ser reconectadas/reinstaladas para conceder um escopo recém-adicionado; instalações antigas com token de bot precisam adicioná-lo manualmente no Slack. Sem ele, as DMs são executadas no nível anônimo com escopo da organização, e não com acesso pessoal.
+Um aplicativo que fornece `resolveExecutionContext` substitui explicitamente essa cadeia de identidade padrão. O resolver deve rejeitar de forma independente autores não verificados, convidados, membros externos e workspaces não vinculados antes de retornar um principal.
+
+Antes de o agente ser executado, uma DM verificada do Slack é associada a um membro existente da organização Agent Native e o vínculo de identidade entre workspace e usuário é salvo. O contexto resultante de usuário/organização carrega os recursos, as instruções e as skills desse usuário. Por padrão, membros do workspace cujo perfil foi carregado, mas cujo e-mail está ausente ou que ainda não pertencem à organização, são recusados. Os aplicativos podem definir explicitamente `allowAnonymousOrgScopedSlackDm: true` para executar esses membros como um principal de serviço anônimo com escopo da organização — o mesmo nível de visibilidade para toda a organização usado pelos canais compartilhados, mas nunca acesso privado do usuário — com uma observação visível ao agente e um aviso único no Slack explicando como obter acesso pessoal. Essa opção nunca admite falhas no carregamento do perfil, autores não verificados, convidados, membros externos (Slack Connect) ou workspaces não conectados a uma organização; esses casos recebem uma resposta educada de recusa. Canais compartilhados do Slack usam um principal de serviço e não herdam as permissões privadas de um participante. O OAuth gerenciado e o manifesto gerado do aplicativo Slack solicitam o escopo de bot `users:read.email`. Instalações existentes precisam ser reconectadas/reinstaladas para conceder um escopo recém-adicionado; instalações antigas com token de bot precisam adicioná-lo manualmente no Slack. Sem ele, as DMs são recusadas, a menos que o aplicativo habilite explicitamente `allowAnonymousOrgScopedSlackDm`.
 
 ### Nível completo (somente aceitação explícita) {#full-tier}
 

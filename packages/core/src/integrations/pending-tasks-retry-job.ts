@@ -115,7 +115,8 @@ export async function retryStuckPendingTasks(
                SET status = 'failed',
                    updated_at = ?,
                    error_message = COALESCE(error_message, ?),
-                   payload = '{}'
+                   payload = '{}',
+                   external_event_key = NULL
              WHERE id = ?
                AND status = ?
           `,

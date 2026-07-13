@@ -439,6 +439,13 @@ export interface IntegrationsPluginOptions {
     incoming: IncomingMessage,
   ) => IntegrationExecutionContext | Promise<IntegrationExecutionContext>;
   /**
+   * Explicitly allow an unlinked, verified Slack workspace member to run a DM
+   * with the installation organization's shared/service visibility. Disabled
+   * by default: DM identity resolution fails closed unless an app deliberately
+   * accepts this wider access tier.
+   */
+  allowAnonymousOrgScopedSlackDm?: boolean;
+  /**
    * Optional preprocessor for inbound platform messages. Can intercept special
    * commands (such as `/link`) before the agent loop runs.
    */

@@ -76,6 +76,9 @@ describe("pending task retry job", () => {
     expect((executeMock.mock.calls[1]?.[0] as { sql: string }).sql).toContain(
       "payload = '{}'",
     );
+    expect((executeMock.mock.calls[1]?.[0] as { sql: string }).sql).toContain(
+      "external_event_key = NULL",
+    );
     expect(fetch).not.toHaveBeenCalled();
   });
 

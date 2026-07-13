@@ -382,7 +382,7 @@ Apps, deren direkte Lesetools ohne lange Zulassungsliste funktionieren sollen, k
 
 ```ts
 export default createAgentChatPlugin({
-  appId: "analytics",
+  appId: "example-app",
   externalAgents: {
     authenticatedReads: "auto",
     writes: "ask_app_only",
@@ -391,6 +391,8 @@ export default createAgentChatPlugin({
   },
 });
 ```
+
+Dies ist ein allgemeines Richtlinienbeispiel. Analytics setzt `authenticatedReads: "off"` absichtlich und stellt nur die geprüften `connectorCatalog`-Actions bereit.
 
 `authenticatedReads: "auto"` fügt nur Actions hinzu, die ausdrücklich alle folgenden Merkmale deklarieren:
 
@@ -406,7 +408,9 @@ Core-`db-schema` und `db-query` werden nicht automatisch als externe Lesezugriff
 
 Dies ist ein harter, namensbasierter Ausschluss und keine bloße Auslassung in den Metadaten: generische Datenbank-, Seed-, Browser-Sitzungs-, Erweiterungs- und Kontext-Röntgen-Tools werden niemals automatisch freigegeben, selbst wenn eine zukünftige Änderung eines davon versehentlich mit dem vollständigen Satz an Flags für authentifizierte Lesezugriffe versieht — sie benötigen immer einen expliziten `connectorCatalog`-Eintrag.
 
-Eine verifizierte Slack-DM wird vor dem Start des Agenten einem bestehenden Mitglied der Agent-Native-Organisation zugeordnet und als Identitätsverknüpfung zwischen Workspace und Benutzer gespeichert. Der daraus entstehende Benutzer-/Organisationskontext lädt die Ressourcen, Anweisungen und Skills dieses Benutzers. Erfolgreich geladene Workspace-Mitglieder, deren E-Mail-Adresse fehlt oder die noch kein Organisationsmitglied sind, werden stattdessen als anonymer, auf die Organisation begrenzter Service-Principal ausgeführt — mit derselben organisationsweiten Sichtbarkeit wie gemeinsame Kanäle. Der Agent erhält dazu einen sichtbaren Hinweis, und Slack erklärt einmalig, wie persönlicher Zugriff erlangt werden kann. Bei fehlgeschlagener Profilladung, Gästen und externen Mitgliedern (Slack Connect) sowie Workspaces ohne Organisationsverknüpfung wird höflich abgelehnt, statt die Nachricht stillschweigend zu verwerfen. Gemeinsame Slack-Kanäle verwenden einen Service-Principal und übernehmen keine privaten Berechtigungen eines Teilnehmers. Managed OAuth und das generierte Slack-App-Manifest fordern den Bot-Scope `users:read.email`. Bestehende Installationen müssen erneut verbunden/installiert werden, um einen neu hinzugefügten Scope zu gewähren; ältere Bot-Token-Installationen müssen ihn in Slack manuell hinzufügen. Ohne diesen Scope werden DMs in der anonymen, organisationsbegrenzten Stufe statt mit persönlichem Zugriff ausgeführt.
+Eine App, die `resolveExecutionContext` bereitstellt, ersetzt diese standardmäßige Identitätsprüfung ausdrücklich. Ihr Resolver muss nicht verifizierte Aufrufer, Gäste, externe Mitglieder und nicht verknüpfte Workspaces eigenständig ablehnen, bevor er einen Principal zurückgibt.
+
+Eine verifizierte Slack-DM wird vor dem Start des Agenten einem bestehenden Mitglied der Agent-Native-Organisation zugeordnet und als Identitätsverknüpfung zwischen Workspace und Benutzer gespeichert. Der daraus entstehende Benutzer-/Organisationskontext lädt die Ressourcen, Anweisungen und Skills dieses Benutzers. Standardmäßig werden erfolgreich geladene Workspace-Mitglieder abgelehnt, wenn ihre E-Mail-Adresse fehlt oder sie noch kein Organisationsmitglied sind. Apps können ausdrücklich `allowAnonymousOrgScopedSlackDm: true` setzen, um diese Mitglieder stattdessen als anonymen, auf die Organisation begrenzten Service-Principal auszuführen — mit derselben organisationsweiten Sichtbarkeit wie gemeinsame Kanäle, aber niemals mit benutzerprivatem Zugriff. Der Agent erhält dazu einen sichtbaren Hinweis, und Slack erklärt einmalig, wie persönlicher Zugriff erlangt werden kann. Dieses Opt-in lässt niemals fehlgeschlagene Profilladungen, nicht verifizierte Aufrufer, Gäste, externe Mitglieder (Slack Connect) oder Workspaces ohne Organisationsverknüpfung zu; diese werden höflich abgelehnt, statt die Nachricht stillschweigend zu verwerfen. Gemeinsame Slack-Kanäle verwenden einen Service-Principal und übernehmen keine privaten Berechtigungen eines Teilnehmers. Managed OAuth und das generierte Slack-App-Manifest fordern den Bot-Scope `users:read.email`. Bestehende Installationen müssen erneut verbunden/installiert werden, um einen neu hinzugefügten Scope zu gewähren; ältere Bot-Token-Installationen müssen ihn in Slack manuell hinzufügen. Ohne diesen Scope werden DMs abgelehnt, sofern die App `allowAnonymousOrgScopedSlackDm` nicht ausdrücklich aktiviert.
 
 ### Vollständige Stufe (nur explizites Opt-in) {#full-tier}
 

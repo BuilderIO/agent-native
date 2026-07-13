@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { slackAdapter } from "./adapters/slack.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
@@ -31,6 +30,7 @@ const claimPendingTaskMock = vi.hoisted(() => vi.fn());
 const markTaskCompletedMock = vi.hoisted(() => vi.fn());
 const markTaskFailedMock = vi.hoisted(() => vi.fn());
 const markTaskRetryableMock = vi.hoisted(() => vi.fn());
+const insertPendingTaskMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
@@ -81,7 +81,7 @@ vi.mock("./pending-tasks-store.js", () => ({
   claimPendingTask: claimPendingTaskMock,
   getPendingTask: vi.fn(),
   getNextPendingTaskIdForThread: vi.fn(async () => null),
-  insertPendingTask: vi.fn(),
+  insertPendingTask: insertPendingTaskMock,
   isDuplicateEventError: vi.fn(() => false),
   markTaskCompleted: markTaskCompletedMock,
   markTaskFailed: markTaskFailedMock,
@@ -222,6 +222,7 @@ describe("integrations plugin routes", () => {
   const originalA2ASecret = process.env.A2A_SECRET;
 
   afterEach(() => {
+    vi.unstubAllGlobals();
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     process.env.NODE_ENV = originalNodeEnv;
@@ -493,6 +494,126 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  it("delivers persisted system notices from the fresh task processor", async () => {
+    process.env.NODE_ENV = "development";
+    const sendSystemNotice = vi.fn(async () => {});
+    const noticeAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      sendSystemNotice,
+    };
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "A1:T1:D1:4.4",
+      text: "",
+      senderId: "U1",
+      tenantId: "T1",
+      conversationType: "dm",
+      platformContext: { teamId: "T1", channelId: "D1" },
+      timestamp: Date.now(),
+    };
+    claimPendingTaskMock.mockResolvedValueOnce({
+      id: "notice-task",
+      platform: "slack",
+      externalThreadId: incoming.externalThreadId,
+      payload: JSON.stringify({
+        kind: "system-notice",
+        incoming,
+        text: "Please reconnect Slack.",
+        dedupeKey: "decline:T1:U1:unverified",
+        dedupeTtlMs: 300_000,
+      }),
+      ownerEmail: "integration@slack",
+      orgId: null,
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [noticeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "notice-task" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(sendSystemNotice).toHaveBeenCalledWith(
+      expect.objectContaining({ externalThreadId: incoming.externalThreadId }),
+      "Please reconnect Slack.",
+      {
+        dedupeKey: "decline:T1:U1:unverified",
+        dedupeTtlMs: 300_000,
+      },
+    );
+    expect(processIntegrationTaskMock).not.toHaveBeenCalled();
+    expect(markTaskCompletedMock).toHaveBeenCalledWith("notice-task");
+  });
+
+  it("retries persisted system notices when delivery fails", async () => {
+    process.env.NODE_ENV = "development";
+    const sendSystemNotice = vi.fn(async () => {
+      throw new Error("Slack bot token not configured for system notice");
+    });
+    const noticeAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      sendSystemNotice,
+    };
+    const incoming = {
+      platform: "slack",
+      externalThreadId: "A1:T1:D1:5.5",
+      text: "",
+      senderId: "U1",
+      tenantId: "T1",
+      conversationType: "dm",
+      platformContext: { teamId: "T1", channelId: "D1" },
+      timestamp: Date.now(),
+    };
+    claimPendingTaskMock.mockResolvedValueOnce({
+      id: "notice-task-retry",
+      platform: "slack",
+      externalThreadId: "system-notice:notice-task-retry",
+      payload: JSON.stringify({
+        kind: "system-notice",
+        incoming,
+        text: "Please reconnect Slack.",
+      }),
+      ownerEmail: "integration@slack",
+      orgId: null,
+      status: "processing",
+      attempts: 1,
+      errorMessage: null,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+      completedAt: null,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [noticeAdapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/process-task",
+      "POST",
+      { taskId: "notice-task-retry" },
+    );
+
+    expect(result.status).toBe(500);
+    expect(sendSystemNotice).toHaveBeenCalledTimes(1);
+    expect(markTaskRetryableMock).toHaveBeenCalledWith(
+      "notice-task-retry",
+      "Slack bot token not configured for system notice",
+    );
+    expect(markTaskCompletedMock).not.toHaveBeenCalled();
+  });
+
   it("reschedules transient processor failures without terminally scrubbing the task", async () => {
     process.env.NODE_ENV = "development";
     claimPendingTaskMock.mockResolvedValueOnce(claimedTask(1));
@@ -680,8 +801,11 @@ describe("integrations plugin routes", () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
     });
-    // Simulate a slow Slack API. Webhook acknowledgement must not wait for it.
-    const sendSystemNotice = vi.fn(() => new Promise<void>(() => undefined));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const sendSystemNotice = vi.fn(async () => {});
     const slackDmAdapter: PlatformAdapter = {
       ...adapter,
       platform: "slack",
@@ -720,11 +844,23 @@ describe("integrations plugin routes", () => {
 
     expect(result.status).toBe(200);
     expect(result.body).toBe("ok");
-    expect(sendSystemNotice).toHaveBeenCalledTimes(1);
-    expect(sendSystemNotice).toHaveBeenCalledWith(
-      expect.objectContaining({ conversationType: "dm" }),
-      "This assistant is only available to members of this workspace's organization.",
+    expect(sendSystemNotice).not.toHaveBeenCalled();
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
       expect.objectContaining({
+        platform: "slack",
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+        externalEventKey: expect.stringContaining(
+          "system-notice:decline:T1:U1:guest:",
+        ),
+      }),
+    );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted).toEqual(
+      expect.objectContaining({
+        kind: "system-notice",
+        text: "This assistant is only available to members of this workspace's organization.",
         dedupeKey: "decline:T1:U1:guest",
         dedupeTtlMs: 5 * 60 * 1_000,
       }),
@@ -732,11 +868,74 @@ describe("integrations plugin routes", () => {
     expect(handleWebhookMock).not.toHaveBeenCalled();
   });
 
+  it("keeps persisted system notices out of the user thread queue", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:notice-lane",
+        text: "hello",
+        senderId: "U1",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    resolveDefaultExecutionContextMock.mockRejectedValueOnce(
+      new IntegrationIdentityDeclinedError(
+        "guest",
+        "guest member declined",
+        "Members only.",
+      ),
+    );
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+      }),
+    );
+    expect(insertPendingTaskMock.mock.calls[0][0].externalThreadId).not.toBe(
+      "A1:T1:D1:notice-lane",
+    );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted.incoming.externalThreadId).toBe("A1:T1:D1:notice-lane");
+  });
+
   it("does not let a legacy owner resolver bypass a declined Slack DM identity", async () => {
     getIntegrationConfigMock.mockResolvedValueOnce({
       configData: { enabled: true },
     });
     const sendSystemNotice = vi.fn(async () => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
     const resolveOwner = vi.fn(async () => "legacy-owner@example.com");
     const slackDmAdapter: PlatformAdapter = {
       ...adapter,
@@ -776,14 +975,183 @@ describe("integrations plugin routes", () => {
     );
 
     expect(result.status).toBe(200);
-    expect(sendSystemNotice).toHaveBeenCalledTimes(1);
+    expect(sendSystemNotice).not.toHaveBeenCalled();
+    expect(insertPendingTaskMock).toHaveBeenCalledTimes(1);
     expect(resolveOwner).not.toHaveBeenCalled();
     expect(handleWebhookMock).not.toHaveBeenCalled();
   });
 
-  it("dedupes repeated decline replies per sender and reason", async () => {
-    // Use the real Slack adapter's sendSystemNotice (with a stubbed fetch) so
-    // the adapter-side dedupe slot is actually exercised end-to-end.
+  it("lets a custom execution-context resolver fully own Slack DM identity resolution", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:custom-auth",
+        text: "hello",
+        senderId: "U-custom",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    const resolveExecutionContext = vi.fn(async () => ({
+      ownerEmail: "custom-auth@example.test",
+      orgId: "org-custom",
+      principalType: "member" as const,
+    }));
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveExecutionContext,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveDefaultExecutionContextMock).not.toHaveBeenCalled();
+    expect(resolveExecutionContext).toHaveBeenCalledTimes(1);
+    expect(handleWebhookMock).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        ownerEmail: "custom-auth@example.test",
+        orgId: "org-custom",
+      }),
+    );
+  });
+
+  it("fails closed for unlinked Slack DM members unless the anonymous org tier is explicitly enabled", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:2.2",
+        text: "hello",
+        senderId: "U-unlinked",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    resolveDefaultExecutionContextMock.mockResolvedValueOnce({
+      ownerEmail: "integration@slack",
+      orgId: "org-qa",
+      principalType: "service",
+      anonymousMember: true,
+    });
+    const resolveOwner = vi.fn(async () => "cross-org-sender@example.test");
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      appId: "mail",
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      resolveOwner,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(handleWebhookMock).not.toHaveBeenCalled();
+    expect(resolveOwner).not.toHaveBeenCalled();
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+        externalEventKey: expect.stringContaining(
+          "system-notice:anonymous-tier-disabled:T1:U-unlinked:",
+        ),
+      }),
+    );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted.text).toContain("users:read.email scope");
+  });
+
+  it("allows the anonymous Slack DM org tier only with explicit plugin opt-in", async () => {
+    getIntegrationConfigMock.mockResolvedValueOnce({
+      configData: { enabled: true },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => new Response("ok")),
+    );
+    const slackDmAdapter: PlatformAdapter = {
+      ...adapter,
+      platform: "slack",
+      label: "Slack",
+      parseIncomingMessage: async () => ({
+        platform: "slack",
+        externalThreadId: "A1:T1:D1:3.3",
+        text: "hello",
+        senderId: "U-opted-in",
+        tenantId: "T1",
+        conversationType: "dm",
+        platformContext: { teamId: "T1", channelId: "D1" },
+        timestamp: Date.now(),
+      }),
+      sendSystemNotice: vi.fn(async () => {}),
+    };
+    resolveDefaultExecutionContextMock.mockResolvedValueOnce({
+      ownerEmail: "integration@slack",
+      orgId: "org-qa",
+      principalType: "service",
+      anonymousMember: true,
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({
+      adapters: [slackDmAdapter],
+      systemPrompt: "Base prompt.",
+      allowAnonymousOrgScopedSlackDm: true,
+    })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/webhook",
+      "POST",
+      { event: "message" },
+    );
+
+    expect(result.status).toBe(200);
+    expect(handleWebhookMock).toHaveBeenCalledTimes(1);
+    expect(insertPendingTaskMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        externalThreadId: expect.stringMatching(/^system-notice:notice-/),
+        externalEventKey: expect.stringContaining(
+          "system-notice:anonymous-tier:T1:U-opted-in:",
+        ),
+      }),
+    );
+  });
+
+  it("persists stable decline dedupe keys per sender and reason", async () => {
     const fetchMock = vi.fn(
       async () =>
         new Response(JSON.stringify({ ok: true }), {
@@ -795,9 +1163,6 @@ describe("integrations plugin routes", () => {
     try {
       getIntegrationConfigMock.mockResolvedValue({
         configData: { enabled: true },
-      });
-      const realSlack = slackAdapter({
-        resolveBotToken: async () => "xoxb-example-not-real",
       });
       const slackDmAdapter: PlatformAdapter = {
         ...adapter,
@@ -813,7 +1178,7 @@ describe("integrations plugin routes", () => {
           platformContext: { teamId: "T-dedupe", channelId: "D-dedupe" },
           timestamp: Date.now(),
         }),
-        sendSystemNotice: realSlack.sendSystemNotice,
+        sendSystemNotice: vi.fn(async () => {}),
       };
       const declineWith = (
         reason: ConstructorParameters<
@@ -842,25 +1207,28 @@ describe("integrations plugin routes", () => {
           },
         );
 
-      // First decline posts the polite reply.
       declineWith("unverified");
       const first = await post();
       expect(first.status).toBe(200);
       expect(first.body).toBe("ok");
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(insertPendingTaskMock).toHaveBeenCalledTimes(1);
 
-      // Same sender + same reason within the window: silent ack, no repeat.
       declineWith("unverified");
       const second = await post();
       expect(second.status).toBe(200);
       expect(second.body).toBe("ok");
-      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(insertPendingTaskMock).toHaveBeenCalledTimes(2);
+      expect(insertPendingTaskMock.mock.calls[0][0].externalEventKey).toBe(
+        insertPendingTaskMock.mock.calls[1][0].externalEventKey,
+      );
 
-      // Different reason for the same sender is a different message: sends.
       declineWith("guest");
       const third = await post();
       expect(third.status).toBe(200);
-      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(insertPendingTaskMock).toHaveBeenCalledTimes(3);
+      expect(insertPendingTaskMock.mock.calls[2][0].externalEventKey).not.toBe(
+        insertPendingTaskMock.mock.calls[1][0].externalEventKey,
+      );
       expect(handleWebhookMock).not.toHaveBeenCalled();
     } finally {
       vi.unstubAllGlobals();

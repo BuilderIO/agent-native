@@ -883,7 +883,7 @@ describe("session replay", () => {
       "https://app.example.test/embed?token=%3Credacted%3E",
     );
     expect(object.attributes.data).toBe(
-      "https://app.example.test/file?token=object-secret",
+      "https://app.example.test/file?token=%3Credacted%3E",
     );
     expect(video.attributes).toMatchObject({
       src: "https://cdn.example.test/demo.mp4?token=signed-video",
@@ -990,7 +990,7 @@ describe("session replay", () => {
       "https://app.example.test/next?token=%3Credacted%3E",
     );
     expect(objectMutation.attributes.data).toBe(
-      "https://app.example.test/next-file?token=rotated-object",
+      "https://app.example.test/next-file?token=%3Credacted%3E",
     );
     expect(videoMutation.attributes.poster).toBe(
       "https://cdn.example.test/next-poster.png?token=rotated-poster",
@@ -2390,6 +2390,39 @@ describe("session replay", () => {
       );
       expect(lastBody.events[0].data.href).toBe(`/transient-${status}`);
       await replay.stopSessionReplay();
+    },
+  );
+
+  it.each([401, 403, 404])(
+    "bounds persistent HTTP %s retries and stops the rejected episode",
+    async (status) => {
+      const { fetchMock } = installBrowser(
+        "https://app.agent-native.com/inbox",
+      );
+      fetchMock.mockResolvedValue(
+        new Response("still unavailable", { status }),
+      );
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+      let recordOptions: any;
+      recordMock.mockImplementation((options) => {
+        recordOptions = options;
+        return vi.fn();
+      });
+      const replay = await freshSessionReplay();
+      await replay.startSessionReplay({
+        publicKey: "anpk_test",
+        endpoint: "https://analytics.example.test/session-replay",
+        maxEventsPerBatch: 1,
+        flushIntervalMs: 100_000,
+      });
+
+      recordOptions.emit({ type: 3, data: { href: `/persistent-${status}` } });
+      await waitForAssertion(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+      await replay.flushSessionReplay("retry");
+      await replay.flushSessionReplay("retry");
+
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(replay.isSessionReplayActive()).toBe(false);
     },
   );
 

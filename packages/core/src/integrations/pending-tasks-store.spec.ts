@@ -209,6 +209,7 @@ describe("integration pending task store", () => {
       "{}",
       "discord-task-failed",
     ]);
+    expect(terminalUpdates[1].sql).toContain("external_event_key = NULL");
   });
 
   it("keeps the inbound payload when rescheduling a transient failure", async () => {
