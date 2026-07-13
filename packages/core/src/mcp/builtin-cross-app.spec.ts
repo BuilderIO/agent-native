@@ -652,6 +652,7 @@ describe("ask_app — org-directory routing", () => {
       userEmail: "caller@acme.com",
       orgDomain: "acme.com",
       orgSecret: "org-secret",
+      requestOrigin: "https://calendar.acme.com",
     });
     expect(result.routedVia).toBe("a2a");
     expect(result.app).toBe("calendar");

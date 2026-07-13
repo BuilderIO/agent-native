@@ -818,6 +818,7 @@ async function routeAskOverA2A(
     userEmail: auth.userEmail,
     orgDomain: auth.orgDomain,
     orgSecret: auth.orgSecret,
+    requestOrigin: options?.requestOrigin,
     // Bound the wait — cross-app A2A polls async by default.
     timeoutMs: 5 * 60_000,
   });

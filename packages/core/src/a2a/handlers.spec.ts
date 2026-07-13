@@ -282,6 +282,51 @@ describe("handleJsonRpc", () => {
     expect(task.status.message.parts[0].text).toBe("custom response");
   });
 
+  it("uses the receiving request origin instead of metadata for sync calls", async () => {
+    const event = mockEvent();
+    event.req = {
+      headers: new Headers({
+        host: "target.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.requestOrigin ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: { requestOrigin: "https://attacker.example.test" },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    expect(result.result.status.message.parts[0].text).toBe(
+      "https://target.example.test",
+    );
+  });
+
   it("passes the H3 event through sync message/send handler context", async () => {
     const event = mockEvent();
     const eventAwareConfig: A2AConfig = {
@@ -1182,6 +1227,12 @@ describe("handleJsonRpc", () => {
     event.context = {
       __a2aVerifiedEmail: "alice+qa@agent-native.test",
     };
+    event.req = {
+      headers: new Headers({
+        host: "workspace.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
 
     const result = await handleJsonRpc(
       {
@@ -1190,7 +1241,7 @@ describe("handleJsonRpc", () => {
         method: "message/send",
         params: {
           async: true,
-          metadata: { requestOrigin: "https://workspace.example.test" },
+          metadata: { requestOrigin: "https://attacker.example.test" },
           message: {
             role: "user",
             parts: [{ type: "text", text: "hi" }],

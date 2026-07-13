@@ -79,6 +79,31 @@ function requestOriginFromEvent(event: any | undefined): string | undefined {
 }
 
 /**
+ * Prefer the origin resolved from the receiving request. Metadata is only a
+ * compatibility fallback for callers that invoke the handler without an H3
+ * event (for example, direct unit/test harnesses); an actual HTTP request
+ * must not be able to steer links or service-token URLs to another host.
+ */
+function requestOriginForContext(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+): string | undefined {
+  return requestOriginFromEvent(event) ?? requestOriginFromMetadata(metadata);
+}
+
+function trustedA2AMetadata(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const trusted = { ...metadata };
+  const requestOrigin = requestOriginForContext(metadata, event);
+  if (requestOrigin) trusted.requestOrigin = requestOrigin;
+  else delete trusted.requestOrigin;
+  return trusted;
+}
+
+/**
  * Hard cap on how long a task may sit in submitted/working (never reaching
  * `processing`) before the dispatch-retry loop in
  * `refireStuckAsyncTaskIfNeeded` gives up and fails it. Without this, a
@@ -204,7 +229,12 @@ export async function processA2ATaskFromQueue(
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
-  const requestOrigin = requestOriginFromMetadata(processorMeta);
+  // The processor metadata was created by the authenticated inbound handler
+  // from that request's resolved origin. Prefer it over the processor event,
+  // whose host may be an internal worker/dispatch origin. Legacy tasks that
+  // predate this metadata fall back to the processor event.
+  const requestOrigin =
+    requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
     (processorMeta.contextId as string | null | undefined) ?? undefined;
   const callerMetadata =
@@ -403,7 +433,7 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
   const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
-  const requestOrigin = requestOriginFromMetadata(metadata);
+  const requestOrigin = requestOriginForContext(metadata, event);
 
   return runWithRequestContext(
     {
@@ -570,17 +600,17 @@ async function handleSend(
     // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
-    const requestOrigin =
-      requestOriginFromMetadata(metadata) ?? requestOriginFromEvent(event);
+    const requestOrigin = requestOriginForContext(metadata, event);
+    const safeMetadata = trustedA2AMetadata(metadata, event);
 
     const taskMetadata: Record<string, unknown> = {
-      ...(metadata ?? {}),
+      ...(safeMetadata ?? {}),
       __a2a_processor: {
         verifiedEmail,
         orgDomainHint,
         ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
-        callerMetadata: metadata ?? null,
+        callerMetadata: safeMetadata ?? null,
       },
     };
     const task = await createTask(
@@ -616,7 +646,12 @@ async function handleSend(
     );
     await updateTask(task.id, { state: "working" });
 
-    const ctx = makeHandlerContext(task.id, contextId, metadata, event);
+    const ctx = makeHandlerContext(
+      task.id,
+      contextId,
+      trustedA2AMetadata(metadata, event),
+      event,
+    );
 
     try {
       const result = getHandler(config)(message, ctx.context);
@@ -698,7 +733,7 @@ async function handleStream(
     const { context, artifacts } = makeHandlerContext(
       task.id,
       contextId,
-      metadata,
+      trustedA2AMetadata(metadata, event),
       event,
     );
 
