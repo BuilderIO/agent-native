@@ -434,7 +434,11 @@ describe("ask_app — honest routing metadata", () => {
       { role: "user", parts: [{ type: "text", text: "hello" }] },
       {
         async: true,
-        metadata: { userEmail: "caller@acme.com", orgDomain: "acme.com" },
+        metadata: {
+          userEmail: "caller@acme.com",
+          orgDomain: "acme.com",
+          requestOrigin: "https://mail.example.com",
+        },
       },
     );
     expect(result).toMatchObject({
