@@ -992,11 +992,12 @@ function ReplayPlayer({
                   type="button"
                   className={cn(
                     "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
-                    // INTENTIONAL — DO NOT REMOVE `cursor-none` while playing.
-                    // The recorded cursor is the meaningful pointer here;
-                    // hiding the viewer's stationary pointer keeps the
-                    // Mac-style replay cursor easy to follow.
-                    playing ? "cursor-none" : "cursor-pointer",
+                    // INTENTIONAL — KEEP THE VIEWER CURSOR VISIBLE.
+                    // The recorded cursor is a separate overlay, while this
+                    // button owns the live hover target for pause/play. Do
+                    // not add `cursor-none`: it makes the user's cursor
+                    // disappear when they move over the preview.
+                    "cursor-pointer",
                   )}
                   disabled={disabled}
                   aria-label={

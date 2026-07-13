@@ -51,15 +51,13 @@ describe("session replay event normalization", () => {
       "utf8",
     );
 
-    expect(pageSource).toContain('playing ? "cursor-none" : "cursor-pointer"');
+    expect(pageSource).toContain('"cursor-pointer"');
+    expect(pageSource).not.toContain('"cursor-none"');
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse::before",
     );
     expect(globalStyles).toContain('url("./assets/replay-cursor.svg")');
     expect(globalStyles).toContain("drop-shadow(0 1px 1px");
-    expect(globalStyles).toContain(
-      "transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5))",
-    );
     expect(globalStyles).toContain("width: 1.44rem;");
     expect(globalStyles).toContain("height: 1.92rem;");
     expect(globalStyles).toContain(
@@ -70,7 +68,7 @@ describe("session replay event normalization", () => {
     );
     expect(cursorAsset).toContain('fill="#000000"');
     expect(cursorAsset).toContain('stroke="#FFFFFF"');
-    expect(cursorAsset).toContain('stroke-width="2.9"');
+    expect(cursorAsset).toContain('stroke-width="4.35"');
     expect(cursorAsset).toContain('stroke-linejoin="round"');
     expect(cursorAsset).toContain('stroke-linecap="round"');
     expect(cursorAsset).toContain('shape-rendering="geometricPrecision"');

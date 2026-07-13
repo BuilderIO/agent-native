@@ -17,7 +17,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { signupAttributionFromCookieHeader } from "./attribution.js";
 import {
@@ -281,7 +281,11 @@ export function getOrigin(event: H3Event): string {
 
 /** App mount prefix, if the template is served under APP_BASE_PATH. */
 export function getAppBasePath(): string {
-  return getConfiguredAppBasePath();
+  // Vite statically replaces VITE_* values in the server bundle during the
+  // build, but Netlify/Nitro does not necessarily expose those build vars at
+  // runtime. Keep auth and OAuth path matching aligned with the SSR handler by
+  // falling back to import.meta.env (including BASE_URL).
+  return getAppBasePathFromViteEnv();
 }
 
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
