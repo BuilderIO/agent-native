@@ -566,12 +566,12 @@ function purgeEmbedStartUrls(
   if (Array.isArray(value)) {
     if (seen.has(value)) return "[circular result]";
     seen.add(value);
+    // An embed marker in one array item puts the whole result in the embed
+    // routing context. Credential fields in sibling items must not survive
+    // just because the marker lives elsewhere in the array.
+    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out = value.map((item) =>
-      purgeEmbedStartUrls(
-        item,
-        seen,
-        embedContext || containsEmbedRoutingSignal(item),
-      ),
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
     );
     seen.delete(value);
     return out;
@@ -1770,6 +1770,14 @@ export async function createMCPServerForRequest(
           Array.isArray(toolVisibility) &&
           toolVisibility.length > 0 &&
           toolVisibility.every((v) => v === "app");
+        const readOnlyStructuredResult =
+          entry.readOnly === true &&
+          rawResultForClient &&
+          typeof rawResultForClient === "object"
+            ? Array.isArray(rawResultForClient)
+              ? { items: rawResultForClient }
+              : rawResultForClient
+            : undefined;
         const structuredContent = mcpAppResource
           ? mcpAppStructuredContent(rawResultForClient, responseMeta)
           : isAppOnlyVisibility &&
@@ -1777,11 +1785,8 @@ export async function createMCPServerForRequest(
               typeof rawResult === "object" &&
               !Array.isArray(rawResult)
             ? (rawResult as Record<string, unknown>)
-            : entry.readOnly === true &&
-                rawResult &&
-                typeof rawResult === "object" &&
-                !Array.isArray(rawResult)
-              ? mcpAppStructuredContent(rawResultForClient, responseMeta)
+            : readOnlyStructuredResult
+              ? mcpAppStructuredContent(readOnlyStructuredResult, responseMeta)
               : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)

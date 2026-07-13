@@ -2860,6 +2860,86 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect(out.result.content[0].text).toContain("customer-support-ticket-42");
   });
 
+  it("sanitizes ticket fields across read-only array siblings when one item carries embed routing", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "read-array": {
+          tool: { description: "Read records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "business-record", ticket: "sibling-ticket-must-not-leak" },
+            {
+              embedTargetPath: "/private/thread/42",
+              safe: "keep this record",
+            },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 164,
+        method: "tools/call",
+        params: { name: "read-array", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [{ id: "business-record" }, { safe: "keep this record" }],
+    });
+    expect(JSON.stringify(out.result.content)).not.toContain(
+      "sibling-ticket-must-not-leak",
+    );
+  });
+
+  it("preserves top-level read-only arrays in structuredContent", async () => {
+    const readConfig = {
+      ...config,
+      actions: {
+        "list-records": {
+          tool: { description: "List records" },
+          http: { method: "GET" as const },
+          readOnly: true,
+          run: async () => [
+            { id: "record-1", status: "ready" },
+            { id: "record-2", status: "failed" },
+          ],
+        },
+      },
+    };
+
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 165,
+        method: "tools/call",
+        params: { name: "list-records", arguments: {} },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: readConfig,
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.structuredContent).toEqual({
+      items: [
+        { id: "record-1", status: "ready" },
+        { id: "record-2", status: "failed" },
+      ],
+    });
+    expect(out.result.content[0].text).toContain('"record-1"');
+  });
+
   it("propagates embed sanitization to credential siblings", async () => {
     const readConfig = {
       ...config,
