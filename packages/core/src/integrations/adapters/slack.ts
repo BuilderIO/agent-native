@@ -538,12 +538,12 @@ export function slackAdapter(
         const token = await resolveBotToken(incoming);
         if (!token) {
           if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
-          return;
+          throw new Error("Slack bot token not configured for system notice");
         }
         const channelId = incoming.platformContext.channelId;
         if (typeof channelId !== "string" || !channelId) {
           if (dedupeKey) slackSystemNoticeCache.delete(dedupeKey);
-          return;
+          throw new Error("Slack channel id missing for system notice");
         }
         const threadTs =
           typeof incoming.platformContext.threadTs === "string"

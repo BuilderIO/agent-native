@@ -161,6 +161,29 @@ describe("slackAdapter", () => {
     ).resolves.toEqual(verifiedIncoming);
   });
 
+  it("rejects system notice delivery when no Slack bot token can be resolved", async () => {
+    const adapter = slackAdapter({
+      resolveBotToken: async () => undefined,
+    });
+
+    await expect(
+      adapter.sendSystemNotice?.(
+        {
+          platform: "slack",
+          externalThreadId: "A123:T123:D123:1.2",
+          text: "",
+          senderId: "U123",
+          tenantId: "T123",
+          conversationType: "dm",
+          platformContext: { teamId: "T123", channelId: "D123" },
+          timestamp: Date.now(),
+        },
+        "Please reconnect Slack.",
+        { dedupeKey: "missing-token" },
+      ),
+    ).rejects.toThrow("Slack bot token not configured for system notice");
+  });
+
   it("maps Slack Connect strangers to external member trust", async () => {
     const adapter = slackAdapter({
       resolveBotToken: async () => "xoxb-example-not-real",

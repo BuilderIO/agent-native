@@ -668,6 +668,7 @@ export function createIntegrationsPlugin(
         1,
         opts?.dedupeTtlMs ?? SYSTEM_NOTICE_DEDUPE_TTL_MS,
       );
+      const noticeThreadId = `system-notice:${taskId}`;
       const payload: IntegrationSystemNoticeTaskPayload = {
         kind: "system-notice",
         incoming,
@@ -679,7 +680,10 @@ export function createIntegrationsPlugin(
         await insertPendingTask({
           id: taskId,
           platform: incoming.platform,
-          externalThreadId: incoming.externalThreadId,
+          // System notices are auxiliary delivery work, not the user's agent
+          // run. Give each notice its own queue lane so a retrying notice cannot
+          // block the real message task for this Slack/Telegram thread.
+          externalThreadId: noticeThreadId,
           payload: JSON.stringify(payload),
           ownerEmail: `integration@${incoming.platform}`,
           externalEventKey: opts?.dedupeKey
