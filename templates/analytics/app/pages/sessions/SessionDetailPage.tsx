@@ -712,6 +712,7 @@ function ReplayPlayer({
     if (!stageRootRef.current) return;
     let cancelled = false;
     let localReplayer: any = null;
+    let stopCursorVisibilityObserver = () => {};
 
     async function loadReplay() {
       const replayEvents = eventsRef.current;
@@ -762,6 +763,8 @@ function ReplayPlayer({
       // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
       // at the iframe boundary while retaining historical visual resources.
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
+      stopCursorVisibilityObserver =
+        hideReplayCursorUntilPosition(localReplayer);
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
@@ -828,6 +831,7 @@ function ReplayPlayer({
 
     return () => {
       cancelled = true;
+      stopCursorVisibilityObserver();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       try {
@@ -2281,6 +2285,32 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
     if (hasFullSnapshot && hasMeta) return true;
   }
   return false;
+}
+
+function hideReplayCursorUntilPosition(replayer: any): () => void {
+  const cursor = replayer?.mouse as HTMLElement | undefined;
+  if (!cursor || typeof MutationObserver === "undefined") return () => {};
+
+  let observer: MutationObserver | null = null;
+  const revealWhenPositioned = () => {
+    if (!cursor.style.left || !cursor.style.top) return;
+    cursor.classList.add("has-position");
+    observer?.disconnect();
+    observer = null;
+  };
+
+  cursor.classList.remove("has-position");
+  observer = new MutationObserver(revealWhenPositioned);
+  observer.observe(cursor, {
+    attributes: true,
+    attributeFilter: ["style"],
+  });
+  revealWhenPositioned();
+
+  return () => {
+    observer?.disconnect();
+    observer = null;
+  };
 }
 
 export function replayViewportDimensions(

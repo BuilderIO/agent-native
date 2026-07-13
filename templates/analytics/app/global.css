@@ -262,6 +262,7 @@
   background: transparent;
   background-image: none;
   box-shadow: none;
+  visibility: hidden;
   /* The stage is fit-to-container, but the recorded cursor should stay at a
      normal on-screen size. The stage supplies the inverse scale variable. */
   transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5));
@@ -270,6 +271,10 @@
     left 80ms linear,
     top 80ms linear;
   pointer-events: none;
+}
+
+.an-replay-stage-root .replayer-mouse.has-position {
+  visibility: visible;
 }
 
 .an-replay-stage-root .replayer-mouse::before {

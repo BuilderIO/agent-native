@@ -56,6 +56,12 @@ describe("session replay event normalization", () => {
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse::before",
     );
+    expect(pageSource).toContain("hideReplayCursorUntilPosition");
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.has-position",
+    );
+    expect(globalStyles).toContain("visibility: hidden;");
+    expect(globalStyles).toContain("visibility: visible;");
     expect(globalStyles).toContain('url("./assets/replay-cursor.svg")');
     expect(globalStyles).toContain("drop-shadow(0 1px 1px");
     expect(globalStyles).toContain("width: 1.44rem;");
