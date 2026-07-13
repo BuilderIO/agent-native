@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.99.1
+
+### Patch Changes
+
+- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
+- 7effaba: Fix mounted app auth and OAuth URL resolution when Vite build-time base paths are not present in the runtime environment.
+- 7effaba: Make delegated agent retries and agent-team runs use the model-aware output budget, so MCP/A2A investigations and background sub-agents can reach real data tools across model families.
+- Updated dependencies [7effaba]
+  - @agent-native/toolkit@0.4.10
+
 ## 0.99.0
 
 ### Minor Changes

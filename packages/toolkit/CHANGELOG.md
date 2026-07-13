@@ -1,5 +1,11 @@
 # @agent-native/toolkit
 
+## 0.4.10
+
+### Patch Changes
+
+- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
+
 ## 0.4.9
 
 ### Patch Changes
