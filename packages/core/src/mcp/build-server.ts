@@ -580,13 +580,7 @@ function purgeEmbedStartUrls(
     if (seen.has(value)) return "[circular result]";
     seen.add(value);
     const entries = Object.entries(value as Record<string, unknown>);
-    const localEmbedContext =
-      embedContext ||
-      entries.some(
-        ([key, val]) =>
-          EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
-          (typeof val === "string" && isEmbedStartUrl(val)),
-      );
+    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out: Record<string, unknown> = {};
     for (const [key, val] of entries) {
       if (
