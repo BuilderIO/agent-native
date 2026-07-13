@@ -1,7 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
-<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="8 4 12 20">
-  <polygon fill="#FFFFFF" points="8.2,20.9 8.2,4.9 19.8,16.5 13,16.5 12.6,16.6" />
-  <polygon fill="#FFFFFF" points="17.3,21.6 13.7,23.1 9,12 12.7,10.5" />
-  <rect x="12.5" y="13.6" transform="matrix(0.9221 -0.3871 0.3871 0.9221 -5.7605 6.5909)" width="2" height="8" />
-  <polygon points="9.2,7.3 9.2,18.5 12.2,15.6 12.6,15.5 17.4,15.5" />
+<svg version="1.1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 21 28">
+  <path
+    d="M 2.5 1.8 C 2.2 1.5 1.8 1.7 1.8 2.1 V 21.9 C 1.8 22.5 2.5 22.8 2.9 22.4 L 8 17.5 L 12.1 26.2 C 12.3 26.7 12.9 26.9 13.4 26.7 L 16.4 25.3 C 16.9 25.1 17.1 24.5 16.9 24 L 12.8 15.4 H 19.3 C 20 15.4 20.3 14.5 19.8 14 Z"
+    fill="#000000"
+    stroke="#FFFFFF"
+    stroke-width="1.4"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+    paint-order="stroke fill"
+  />
 </svg>

@@ -254,8 +254,8 @@
 .an-replay-stage-root .replayer-mouse {
   position: absolute;
   z-index: 2;
-  width: 1.125rem;
-  height: 1.5rem;
+  width: 0.9rem;
+  height: 1.2rem;
   border-radius: 0;
   background: transparent;
   background-image: none;

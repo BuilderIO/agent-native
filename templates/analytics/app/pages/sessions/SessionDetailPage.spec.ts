@@ -60,11 +60,15 @@ describe("session replay event normalization", () => {
     expect(globalStyles).toContain(
       "transform: scale(var(--an-replay-cursor-scale, 1))",
     );
+    expect(globalStyles).toContain("width: 0.9rem;");
+    expect(globalStyles).toContain("height: 1.2rem;");
     expect(pageSource).toContain(
       '"--an-replay-cursor-scale": String(1 / fitScale)',
     );
-    expect(cursorAsset).toContain('fill="#FFFFFF"');
-    expect(cursorAsset).toContain("<polygon");
+    expect(cursorAsset).toContain('fill="#000000"');
+    expect(cursorAsset).toContain('stroke="#FFFFFF"');
+    expect(cursorAsset).toContain('stroke-linejoin="round"');
+    expect(cursorAsset).toContain('stroke-linecap="round"');
     expect(globalStyles).toContain(
       ".an-replay-stage-root .replayer-mouse.active::after",
     );
