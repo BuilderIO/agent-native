@@ -438,9 +438,7 @@ describe("McpClientManager", () => {
       const firstPartyPayload = decodeJwtPayload(
         httpCallHeaders[0].Authorization.replace(/^Bearer\s+/i, ""),
       );
-      expect(firstPartyPayload.aud).toBe(
-        "https://assets.example.com/_agent-native/mcp",
-      );
+      expect(firstPartyPayload.aud).toBe("https://assets.example.com/mcp");
       expect(httpCallHeaders[0]["x-agent-native-mcp-inline-apps"]).toBe("1");
       expect(httpCallHeaders[1].Authorization).toBe("Bearer third-party-token");
       expect(
@@ -508,7 +506,7 @@ describe("McpClientManager", () => {
     expect(payload.org_id).toBe("org-123");
     expect(payload.scope).toBe("mcp-connect");
     expect(payload.agent_native_first_party_mcp).toBe(true);
-    expect(payload.aud).toBe("https://assets.example.com/_agent-native/mcp");
+    expect(payload.aud).toBe("https://assets.example.com/mcp");
   });
 
   it("throws a clear error for unknown server prefixes", async () => {

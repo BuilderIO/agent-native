@@ -213,7 +213,8 @@ export async function resolveWorkspace(
 /**
  * Resolve the local app the stdio proxy should connect its MCP HTTP client
  * to. Honours an explicit `--app` / appId and `--port` / explicit port.
- * Returns the chosen app's origin (where `/_agent-native/mcp` is mounted).
+ * Returns the chosen app's origin (where `/mcp` is mounted; the legacy
+ * `/_agent-native/mcp` alias is supported too).
  *
  * Order of precedence:
  *   1. explicit `port` → http://127.0.0.1:<port>

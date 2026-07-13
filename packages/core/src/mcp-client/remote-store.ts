@@ -438,22 +438,22 @@ function normalizeEndpointPath(pathname: string): string {
   return pathname.replace(/\/+$/, "") || "/";
 }
 
-function expectedFirstPartyMcpUrl(appUrl: string): URL | null {
+function expectedFirstPartyMcpUrls(appUrl: string): URL[] {
   try {
-    return new URL(`${appUrl.replace(/\/+$/, "")}/_agent-native/mcp`);
+    const base = appUrl.replace(/\/+$/, "");
+    return [new URL(`${base}/mcp`), new URL(`${base}/_agent-native/mcp`)];
   } catch {
-    return null;
+    return [];
   }
 }
 
 function sameFirstPartyMcpEndpoint(endpointUrl: URL, appUrl: string): boolean {
-  const expected = expectedFirstPartyMcpUrl(appUrl);
-  if (!expected) return false;
-  return (
-    endpointUrl.origin === expected.origin &&
-    normalizeEndpointPath(endpointUrl.pathname) ===
-      normalizeEndpointPath(expected.pathname) &&
-    endpointUrl.search === expected.search
+  return expectedFirstPartyMcpUrls(appUrl).some(
+    (expected) =>
+      endpointUrl.origin === expected.origin &&
+      normalizeEndpointPath(endpointUrl.pathname) ===
+        normalizeEndpointPath(expected.pathname) &&
+      endpointUrl.search === expected.search,
   );
 }
 

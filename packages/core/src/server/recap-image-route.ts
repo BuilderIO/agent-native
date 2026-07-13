@@ -5,7 +5,7 @@
  *     Auth: `Authorization: Bearer <token>` — accepts the SAME tokens the MCP /
  *     action surface accepts: a legacy `sessions` bearer (desktop/native) OR a
  *     connect-minted MCP OAuth access token (the `agent-native connect` token,
- *     audience-bound to this app's `{origin}/_agent-native/mcp` resource). A
+ *     audience-bound to this app's `{origin}/mcp` resource). A
  *     normal browser session cookie is also accepted. Rejects unauthenticated
  *     callers with 401.
  *     Body: raw `image/png` bytes, or JSON `{ "pngBase64": "..." }`. Capped at
@@ -74,13 +74,13 @@ async function resolveUploadSession(
   if (!authHeader || !bearer) return null;
 
   try {
-    const [{ getMcpOAuthResource }, { verifyAuth, resolveOrgIdFromDomain }] =
+    const [{ getMcpOAuthAudiences }, { verifyAuth, resolveOrgIdFromDomain }] =
       await Promise.all([
         import("../mcp/oauth-route.js"),
         import("../mcp/build-server.js"),
       ]);
     const result = await verifyAuth(authHeader, undefined, {
-      resourceUrl: getMcpOAuthResource(event),
+      resourceUrl: getMcpOAuthAudiences(event),
       allowDevOpen: false,
     });
     const identity = result.authed ? result.identity : undefined;

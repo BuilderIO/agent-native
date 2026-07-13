@@ -39,17 +39,19 @@ function trimEndpointPath(pathname: string, suffix: string): string | null {
   return normalized.slice(0, -suffix.length) || "/";
 }
 
+const MCP_PUBLIC_PATH = "/mcp";
+const MCP_LEGACY_PATH = "/_agent-native/mcp";
+
 export function getMcpUrl(
   url: string,
   options: AgentEndpointOptions = {},
 ): string {
   const parsed = appUrl(url, options);
-  const trimmed = trimEndpointPath(parsed.pathname, "/_agent-native/mcp");
-  if (trimmed !== null) {
-    parsed.pathname = `${trimmed.replace(/\/$/, "")}/_agent-native/mcp`;
-  } else {
-    parsed.pathname = `${parsed.pathname.replace(/\/$/, "")}/_agent-native/mcp`;
-  }
+  const trimmed =
+    trimEndpointPath(parsed.pathname, MCP_LEGACY_PATH) ??
+    trimEndpointPath(parsed.pathname, MCP_PUBLIC_PATH);
+  const basePath = (trimmed ?? parsed.pathname).replace(/\/$/, "");
+  parsed.pathname = `${basePath}${MCP_PUBLIC_PATH}`;
   parsed.search = "";
   parsed.hash = "";
   return parsed.toString();

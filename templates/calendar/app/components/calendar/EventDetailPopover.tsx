@@ -11,7 +11,6 @@ import {
   IconMapPin,
   IconUser,
   IconVideo,
-  IconGlobe,
   IconRefresh,
   IconBell,
   IconChevronRight,
@@ -86,7 +85,6 @@ import {
   dateTimeInTimezoneToIso,
   formatRecurrenceText,
   formatReminderText,
-  formatTimezoneLabel,
   getEventEndValidationMessage,
   getLocalTimezone,
   getRecurrencePreset,
@@ -1274,17 +1272,6 @@ export function EventDetailPopover({
     ? t("eventForm.loadingRepeat")
     : formatRecurrenceText(recurrenceRules) ||
       (isRecurringEvent ? t("eventForm.repeats") : null);
-  // Show the browser's local timezone offset (this is what the user sees times in)
-  const localOffsetMinutes = -new Date().getTimezoneOffset();
-  const localOffsetSign = localOffsetMinutes >= 0 ? "+" : "-";
-  const localOffsetH = Math.floor(Math.abs(localOffsetMinutes) / 60);
-  const localOffsetM = Math.abs(localOffsetMinutes) % 60;
-  const tzLabel = event.startTimeZone
-    ? formatTimezoneLabel(event.startTimeZone)
-    : localOffsetM
-      ? `GMT${localOffsetSign}${localOffsetH}:${String(localOffsetM).padStart(2, "0")}`
-      : `GMT${localOffsetSign}${localOffsetH}`;
-
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
       if (!newOpen && open) {
@@ -1725,12 +1712,6 @@ export function EventDetailPopover({
                   onAddAttendee={handleAddAttendee}
                 />
               )}
-
-              {/* Timezone */}
-              <div className="flex items-center gap-3 py-1.5">
-                <IconGlobe className="h-4 w-4 shrink-0 text-muted-foreground" />
-                <span className="text-sm text-muted-foreground">{tzLabel}</span>
-              </div>
 
               {/* Recurrence */}
               {editingField === "recurrence" ? (

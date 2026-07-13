@@ -271,7 +271,7 @@ Le framework monte ses propres routes sous `/_agent-native/`. Traitez cet espace
 | `/_agent-native/extensions/*`    | Extensions d'exécution et proxy d'extension (alias hérité : `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | Intégrations de messagerie/webhook                                                    |
 | `/_agent-native/a2a`             | Agent à agent JSON-RPC                                                                |
-| `/_agent-native/mcp`             | Point de terminaison MCP                                                              |
+| `/mcp`                           | Point de terminaison MCP                                                              |
 | `/_agent-native/onboarding/*`    | Liste de contrôle de configuration                                                    |
 | `/_agent-native/observability/*` | Traces, retours, évaluations, expériences                                             |
 | `/_agent-native/file-upload`     | Point de terminaison du fournisseur de téléchargement de fichiers                     |
@@ -467,4 +467,4 @@ const handler = createProductionAgentHandler({
 - [**Base de données**](/docs/database) — le modèle `getDb()`/`schema` importé par les routes personnalisées et les actions
 - [**Sécurité**](/docs/security#access-guards) — `accessFilter`/`assertAccess` et le modèle complet de portée des données
 - [**Messagerie**](/docs/messaging) — le modèle canonique de file d'attente d'intégration pour les webhooks entrants
-- [**Protocole MCP**](/docs/mcp-protocol) — le point de terminaison `/_agent-native/mcp` que ce serveur monte automatiquement
+- [**Protocole MCP**](/docs/mcp-protocol) — le point de terminaison `/mcp` que ce serveur monte automatiquement

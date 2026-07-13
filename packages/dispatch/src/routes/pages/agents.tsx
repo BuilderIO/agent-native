@@ -1,5 +1,4 @@
 import {
-  agentNativePath,
   useActionMutation,
   useActionQuery,
   useT,
@@ -39,7 +38,7 @@ interface McpAccessState {
 }
 
 function dispatchMcpUrl(): string {
-  const path = agentNativePath("/_agent-native/mcp");
+  const path = "/mcp";
   if (typeof window === "undefined") return path;
   return new URL(path, window.location.origin).href;
 }

@@ -194,6 +194,25 @@ describe("recap agent failure summaries", () => {
     expect(summary).toContain("Bearer [redacted]");
   });
 
+  it("surfaces Codex provider quota failures from JSONL output", () => {
+    const result = [
+      JSON.stringify({
+        type: "error",
+        message: "Quota exceeded. Check your plan and billing details.",
+      }),
+      JSON.stringify({
+        type: "turn.failed",
+        error: {
+          message: "Quota exceeded. Check your plan and billing details.",
+        },
+      }),
+    ].join("\n");
+
+    expect(summarizeAgentResult("codex", result)).toContain(
+      "Quota exceeded. Check your plan and billing details.",
+    );
+  });
+
   it("recovers failure summaries from local agent result files", () => {
     const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-agent-"));
     try {
@@ -3292,6 +3311,12 @@ describe("reusable workflow file structure", () => {
     expect(content).not.toContain("steps.mcp_smoke.outputs.ok == 'true'");
     expect(content).not.toContain("recap mcp-config");
     expect(content).toContain("RECAP_AGENT_SUMMARY:");
+    expect(content).toContain(
+      "Visual recap agent failed with a non-retryable provider error",
+    );
+    expect(content).toContain(
+      "GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary",
+    );
     expect(content).toContain("--failure-summary");
     expect(content).toContain("--stderr-file");
     expect(content).toContain("--exit-code-file");

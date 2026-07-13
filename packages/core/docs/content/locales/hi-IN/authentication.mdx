@@ -219,7 +219,7 @@ ACCESS_TOKENS=token1,token2,token3
 प्रत्येक ऐप का MCP एंडपॉइंट एक मानक संरक्षित MCP संसाधन के रूप में कार्य कर सकता है। OAuth-सक्षम क्लाइंट को केवल दूरस्थ MCP URL के साथ कॉन्फ़िगर किया जा सकता है:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 अप्रमाणित MCP अनुरोध `/.well-known/oauth-protected-resource` की ओर इशारा करते हुए एक `WWW-Authenticate` चुनौती लौटाते हैं। क्लाइंट तब ऐप के OAuth मेटाडेटा को खोजता है, गतिशील रूप से एक सार्वजनिक क्लाइंट को पंजीकृत करता है, ऐप के प्राधिकरण पृष्ठ को खोलता है, और एक्सेस और रीफ्रेश टोकन के लिए PKCE के साथ एक प्राधिकरण कोड का आदान-प्रदान करता है।

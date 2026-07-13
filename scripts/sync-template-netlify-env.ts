@@ -403,35 +403,24 @@ function buildTemplateEnvPlan(
   };
 }
 
-function isLoopbackUrl(value: string): boolean {
-  try {
-    const hostname = new URL(value).hostname.toLowerCase();
-    return (
-      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-    );
-  } catch {
-    return false;
-  }
-}
-
-function normalizeProductionUrlEntry(
+export function normalizeProductionUrlEntry(
   template: string,
   context: string,
   key: string,
   value: string,
 ): { value: string; normalized: boolean } {
-  if (
-    context !== "production" ||
-    !PRODUCTION_URL_KEYS.has(key) ||
-    !isLoopbackUrl(value)
-  ) {
+  if (context !== "production" || !PRODUCTION_URL_KEYS.has(key)) {
     return { value, normalized: false };
   }
 
   const prodUrl = TEMPLATE_PROD_URL_BY_NAME.get(template);
-  return prodUrl
-    ? { value: prodUrl, normalized: true }
-    : { value, normalized: false };
+  if (!prodUrl || value === prodUrl) {
+    return { value, normalized: false };
+  }
+
+  // This syncs first-party Netlify sites. A local workspace URL must never
+  // become the production auth origin because Google validates the exact URI.
+  return { value: prodUrl, normalized: true };
 }
 
 function netlifyEnvUrl(

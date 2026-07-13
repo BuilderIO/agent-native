@@ -219,7 +219,7 @@ ACCESS_TOKENS=token1,token2,token3
 每個應用程式的 MCP 端點都可以充當標準受保護的 MCP 資源。支援 OAuth 的用戶端只能設定遠端 MCP URL：
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 未經驗證的 MCP 請求返回指向 `/.well-known/oauth-protected-resource` 的 `WWW-Authenticate` 質詢。然後，用戶端發現應用程式的 OAuth 中繼資料，動態註冊公開用戶端，開啟應用程式的授權頁面，並與 PKCE 交換授權程式碼以取得存取和重新整理權杖。

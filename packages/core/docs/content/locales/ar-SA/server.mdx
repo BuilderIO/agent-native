@@ -269,7 +269,7 @@ export default runMigrations(
 | `/_agent-native/extensions/*`    | امتدادات وقت التشغيل ووكيل الامتداد (الاسم المستعار القديم: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | عمليات تكامل المراسلة/الخطاف التلقائي على الويب                                       |
 | `/_agent-native/a2a`             | من وكيل إلى وكيل JSON-RPC                                                             |
-| `/_agent-native/mcp`             | نقطة نهاية MCP                                                                        |
+| `/mcp`                           | نقطة نهاية MCP                                                                        |
 | `/_agent-native/onboarding/*`    | قائمة التحقق من الإعداد                                                               |
 | `/_agent-native/observability/*` | التتبعات والملاحظات والتقييمات والتجارب                                               |
 | `/_agent-native/file-upload`     | نقطة نهاية موفر تحميل الملفات                                                         |
@@ -465,4 +465,4 @@ const handler = createProductionAgentHandler({
 - [**قاعدة البيانات**](/docs/database) — نمط `getDb()`/`schema` الذي تستورده المسارات المخصصة والإجراءات
 - [**الأمان**](/docs/security#access-guards) — `accessFilter`/`assertAccess` ونموذج تحديد نطاق البيانات الكامل
 - [**المراسلة**](/docs/messaging) — نمط قائمة انتظار التكامل القياسي للـ webhooks الواردة
-- [**بروتوكول MCP**](/docs/mcp-protocol) — نقطة النهاية `/_agent-native/mcp` التي يثبّتها هذا الخادم تلقائيًا
+- [**بروتوكول MCP**](/docs/mcp-protocol) — نقطة النهاية `/mcp` التي يثبّتها هذا الخادم تلقائيًا

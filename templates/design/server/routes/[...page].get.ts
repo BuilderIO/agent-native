@@ -84,9 +84,7 @@ export default defineEventHandler(async (event) => {
   const headers = new Headers(response.headers);
   headers.delete("content-length");
   if (token) {
-    headers.set("Cache-Control", "private, max-age=0, no-store");
     headers.set("Referrer-Policy", "no-referrer");
-    setResponseHeader(event, "Cache-Control", "private, max-age=0, no-store");
     setResponseHeader(event, "Referrer-Policy", "no-referrer");
   }
 

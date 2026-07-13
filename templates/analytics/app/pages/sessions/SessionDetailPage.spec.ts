@@ -37,7 +37,7 @@ describe("session replay event normalization", () => {
     expect(shouldPublishReplayClockUpdate(1_000, 1_100, 110, NaN)).toBe(false);
   });
 
-  it("keeps both the viewer pointer and rrweb's arrow cursor visible", () => {
+  it("keeps the high-contrast replay cursor visible while playing", () => {
     const pageSource = readFileSync(
       new URL("./SessionDetailPage.tsx", import.meta.url),
       "utf8",
@@ -46,17 +46,40 @@ describe("session replay event normalization", () => {
       new URL("../../global.css", import.meta.url),
       "utf8",
     );
+    const cursorAsset = readFileSync(
+      new URL("../../assets/replay-cursor.svg", import.meta.url),
+      "utf8",
+    );
 
-    expect(pageSource).not.toContain('playing ? "cursor-none"');
-    expect(pageSource).toContain("z-20 cursor-pointer");
+    expect(pageSource).toContain('"cursor-pointer"');
+    expect(pageSource).not.toContain('"cursor-none"');
     expect(globalStyles).toContain(
-      ".an-replay-stage-root .replayer-mouse::after",
+      ".an-replay-stage-root .replayer-mouse::before",
     );
-    expect(globalStyles).toMatch(
-      /\.an-replay-stage-root \.replayer-mouse::after\s*\{[^}]*opacity:\s*0;/,
+    expect(pageSource).toContain("hideReplayCursorUntilPosition");
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.has-position",
     );
-    expect(globalStyles).not.toContain(
-      ".an-replay-stage-root .replayer-mouse {",
+    expect(globalStyles).toContain("visibility: hidden;");
+    expect(globalStyles).toContain("visibility: visible;");
+    expect(globalStyles).toContain('url("./assets/replay-cursor.svg")');
+    expect(globalStyles).toContain("drop-shadow(0 1px 1px");
+    expect(globalStyles).toContain("width: 1.44rem;");
+    expect(globalStyles).toContain("height: 1.92rem;");
+    expect(globalStyles).toContain(
+      "transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5))",
+    );
+    expect(pageSource).toContain(
+      '"--an-replay-cursor-scale": String(1 / fitScale)',
+    );
+    expect(cursorAsset).toContain('fill="#000000"');
+    expect(cursorAsset).toContain('stroke="#FFFFFF"');
+    expect(cursorAsset).toContain('stroke-width="4.35"');
+    expect(cursorAsset).toContain('stroke-linejoin="round"');
+    expect(cursorAsset).toContain('stroke-linecap="round"');
+    expect(cursorAsset).toContain('shape-rendering="geometricPrecision"');
+    expect(globalStyles).toContain(
+      ".an-replay-stage-root .replayer-mouse.active::after",
     );
   });
 

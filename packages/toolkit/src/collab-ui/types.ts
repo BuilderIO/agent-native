@@ -74,12 +74,22 @@ function normalizeCollabEmail(email: string): string {
 export function dedupeCollabUsersByEmail(users: CollabUser[]): CollabUser[] {
   const byEmail = new Map<string, CollabUser>();
   for (const user of users) {
+    // Awareness is a network boundary. Older clients or partially-written
+    // states can contain a malformed user payload; ignore it instead of
+    // letting a missing email reach normalizeCollabEmail().
+    if (!user || typeof user.email !== "string") continue;
     const email = normalizeCollabEmail(user.email);
     if (!email || byEmail.has(email)) continue;
     byEmail.set(email, {
-      name: user.name || emailToName(email),
+      name:
+        typeof user.name === "string" && user.name.trim()
+          ? user.name
+          : emailToName(email),
       email,
-      color: user.color || emailToColor(email),
+      color:
+        typeof user.color === "string" && user.color.trim()
+          ? user.color
+          : emailToColor(email),
     });
   }
   return Array.from(byEmail.values());

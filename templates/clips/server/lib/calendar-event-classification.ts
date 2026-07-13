@@ -77,3 +77,31 @@ export function isPersonalSoloCalendarEvent(args: {
     return Boolean(email && selfEmails.has(email));
   });
 }
+
+/**
+ * True when a calendar event has no active attendee besides the current user.
+ * This is intentionally broader than the title-based personal-event helper:
+ * desktop meeting reminders should not surface for any self-only event.
+ */
+export function isSoloCalendarEvent(args: {
+  account: CalendarAccountForEventClassification;
+  event: CalendarEvent;
+  currentUserEmail?: string | null;
+}): boolean {
+  const selfEmails = new Set(
+    [args.currentUserEmail, args.account.email, args.account.ownerEmail]
+      .map(normalizeEmail)
+      .filter((email): email is string => Boolean(email)),
+  );
+
+  const organizerEmail = normalizeEmail(args.event.organizer?.email);
+  if (organizerEmail && !selfEmails.has(organizerEmail)) return false;
+
+  const activeAttendees = (args.event.attendees ?? []).filter(
+    (attendee) => attendee.responseStatus !== "declined",
+  );
+  return activeAttendees.every((attendee) => {
+    const email = normalizeEmail(attendee.email);
+    return Boolean(email && selfEmails.has(email));
+  });
+}

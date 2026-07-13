@@ -124,7 +124,7 @@ The command installs three commands: `/visual-plan`, `/visual-recap`, and
 
 If you are using a chat-based host that accepts MCP connector URLs directly
 (rather than a CLI-configured client), connect the hosted Plans connector at
-`https://plan.agent-native.com/_agent-native/mcp` — see [MCP Clients](/docs/mcp-clients) for client-specific setup.
+`https://plan.agent-native.com/mcp` — see [MCP Clients](/docs/mcp-clients) for client-specific setup.
 
 Authentication is a one-time browser sign-in at setup — this is intended, and it
 is what lets the agent persist and share the plans it generates. What the auth
@@ -267,7 +267,7 @@ Sharing and commenting are the workflows that need an account:
   cross-device or team review) requires signing in. Google sign-in appears when
   the standard Google OAuth env vars are configured.
 
-The hosted Plans connector lives at `https://plan.agent-native.com/_agent-native/mcp`.
+The hosted Plans connector lives at `https://plan.agent-native.com/mcp`.
 Never put shared secrets in skill files.
 
 ## Local-files privacy mode {#local-files}
@@ -475,7 +475,7 @@ pnpm dev
 The hosted app-backed skill uses:
 
 - App: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 The local template is useful when you are developing Plans itself, testing local persistence, or running a fully self-hosted review surface.
 

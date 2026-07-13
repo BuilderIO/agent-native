@@ -1,5 +1,30 @@
 # @agent-native/core
 
+## 0.99.1
+
+### Patch Changes
+
+- 7effaba: Ignore malformed collaboration presence payloads and keep recoverable server chat timeout handoffs out of Sentry error issues.
+- 7effaba: Fix mounted app auth and OAuth URL resolution when Vite build-time base paths are not present in the runtime environment.
+- 7effaba: Make delegated agent retries and agent-team runs use the model-aware output budget, so MCP/A2A investigations and background sub-agents can reach real data tools across model families.
+- Updated dependencies [7effaba]
+  - @agent-native/toolkit@0.4.10
+
+## 0.99.0
+
+### Minor Changes
+
+- 3c3a59d: Return durable task handles for long-running MCP agent requests and expose
+  grant-checked status polling instead of holding one MCP tool call open for the
+  full agent run.
+
+### Patch Changes
+
+- 3c3a59d: Add Atlassian Rovo MCP to the built-in integration catalog with Jira setup guidance.
+- 3c3a59d: Keep delegated A2A agent runs aligned with interactive prompt context and request-scoped browser access.
+- 3c3a59d: Keep anonymous SSR shells long-cacheable across hosting providers and keep viewer-specific data on client/API paths.
+- 3c3a59d: Add `/mcp` as the canonical public MCP URL while preserving `/_agent-native/mcp` for existing clients.
+
 ## 0.98.17
 
 ### Patch Changes

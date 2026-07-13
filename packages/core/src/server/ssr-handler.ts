@@ -18,6 +18,7 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
@@ -318,6 +319,7 @@ function removeDocumentCsp(headers: Headers): void {
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
+    isMcpPublicPath(pathname) ||
     pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_agent_native/") ||
     pathname.startsWith("/_agent-native/") ||

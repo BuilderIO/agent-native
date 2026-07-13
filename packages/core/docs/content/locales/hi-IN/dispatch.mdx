@@ -113,16 +113,16 @@ Slack, ईमेल, टेलीग्राम और व्हाट्सए
 
 ### एकीकृत MCP गेटवे
 
-डिस्पैच बाहरी एजेंटों के लिए एकल MCP कनेक्टर हो सकता है: Claude, ChatGPT, Codex, या कर्सर में एक बार `https://dispatch.agent-native.com/_agent-native/mcp` जोड़ें, और प्रति ऐप एक कनेक्टर के बजाय एक प्राधिकरण प्रत्येक स्वीकृत कार्यक्षेत्र ऐप तक पहुंचता है। संपूर्ण कनेक्ट फ़्लो, ऐप अनुदान, OAuth और इनलाइन MCP ऐप पूर्वावलोकन के लिए [External Agents](/docs/external-agents) देखें।
+डिस्पैच बाहरी एजेंटों के लिए एकल MCP कनेक्टर हो सकता है: Claude, ChatGPT, Codex, या कर्सर में एक बार `https://dispatch.agent-native.com/mcp` जोड़ें, और प्रति ऐप एक कनेक्टर के बजाय एक प्राधिकरण प्रत्येक स्वीकृत कार्यक्षेत्र ऐप तक पहुंचता है। संपूर्ण कनेक्ट फ़्लो, ऐप अनुदान, OAuth और इनलाइन MCP ऐप पूर्वावलोकन के लिए [External Agents](/docs/external-agents) देखें।
 
-<Endpoint id="doc-block-n41avw" method="POST" path="/_agent-native/mcp" summary={"एकीकृत MCP गेटवे समापन बिंदु"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
+<Endpoint id="doc-block-n41avw" method="POST" path="/mcp" summary={"एकीकृत MCP गेटवे समापन बिंदु"} auth="Standard remote MCP OAuth, handled by the framework. The granted-app set scopes which workspace apps the connector can reach." responses={[
   {
     "status": "200",
     "description": "MCP JSON-RPC response — tools, resources, and MCP App UI resources aggregated across granted workspace apps."
   }
 ]}>
 
-The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/_agent-native/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
+The single MCP connector URL external agents add (e.g. `https://dispatch.agent-native.com/mcp`). One authorization here reaches every **granted** workspace app instead of wiring one connector per app. App grants, OAuth, and inline MCP App previews are covered in [External Agents](/docs/external-agents).
 
 </Endpoint>
 

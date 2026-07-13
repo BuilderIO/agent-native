@@ -337,6 +337,10 @@ export async function startTranscriptionCapture(
       mic,
       captureSystem,
       voiceProcessing: opts?.voiceProcessing,
+      // Recordings only persist final segments. Meetings use the same engine
+      // directly and retain live partials, but repeatedly inferring partials
+      // here burns CPU without any recording UI consuming them.
+      emitPartials: false,
     });
     console.log(
       `[clips-recorder] transcription started (${engine} mic${captureSystem ? "+system" : ""})`,
@@ -367,6 +371,7 @@ export async function startTranscriptionCapture(
           mic,
           captureSystem,
           voiceProcessing: opts?.voiceProcessing,
+          emitPartials: false,
         });
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.

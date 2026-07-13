@@ -158,6 +158,19 @@ function calendarDayAfter(parts: { year: number; month: number; day: number }) {
   };
 }
 
+function calendarDayBefore(parts: {
+  year: number;
+  month: number;
+  day: number;
+}) {
+  const prev = new Date(Date.UTC(parts.year, parts.month - 1, parts.day - 1));
+  return {
+    year: prev.getUTCFullYear(),
+    month: prev.getUTCMonth() + 1,
+    day: prev.getUTCDate(),
+  };
+}
+
 function zonedTimeToUtc(
   parts: { year: number; month: number; day: number },
   hour: number,
@@ -203,6 +216,47 @@ export function nextDailyRunAt(
     candidate = zonedTimeToUtc(calendarDayAfter(today), hour, minute, timezone);
   }
   return candidate.toISOString();
+}
+
+export function lastDailyRunAt(
+  timeOfDay: string,
+  timeZone: string,
+  from: Date = new Date(),
+): string {
+  const [hour, minute] = assertTimeOfDay(timeOfDay).split(":").map(Number);
+  const timezone = assertTimezone(timeZone);
+  const today = getZonedParts(from, timezone);
+  let candidate = zonedTimeToUtc(today, hour, minute, timezone);
+  if (candidate.getTime() > from.getTime()) {
+    candidate = zonedTimeToUtc(
+      calendarDayBefore(today),
+      hour,
+      minute,
+      timezone,
+    );
+  }
+  return candidate.toISOString();
+}
+
+const DASHBOARD_REPORT_RETRY_WINDOW_MS = 60 * 60 * 1000;
+const DASHBOARD_REPORT_RETRY_DELAY_MS = 10 * 60 * 1000;
+
+export function dashboardReportRetryAt(
+  sub: DashboardReportSubscription,
+  now: Date = new Date(),
+): string | null {
+  if (!sub.enabled) return null;
+  try {
+    const anchor = Date.parse(lastDailyRunAt(sub.timeOfDay, sub.timezone, now));
+    if (now.getTime() - anchor < DASHBOARD_REPORT_RETRY_WINDOW_MS) {
+      return new Date(
+        now.getTime() + DASHBOARD_REPORT_RETRY_DELAY_MS,
+      ).toISOString();
+    }
+    return null;
+  } catch {
+    return null;
+  }
 }
 
 function rowToSubscription(row: any): DashboardReportSubscription {
@@ -477,6 +531,7 @@ export async function markDashboardReportResult(
   sub: DashboardReportSubscription,
   status: "success" | "error",
   error?: string,
+  options?: { nextRunAt?: string },
 ): Promise<void> {
   const now = nowIso();
   const db = getDb() as any;
@@ -486,7 +541,8 @@ export async function markDashboardReportResult(
       lastStatus: status,
       lastError: error ? error.slice(0, 500) : null,
       nextRunAt: sub.enabled
-        ? nextDailyRunAt(sub.timeOfDay, sub.timezone, new Date())
+        ? (options?.nextRunAt ??
+          nextDailyRunAt(sub.timeOfDay, sub.timezone, new Date()))
         : null,
       updatedAt: now,
     })

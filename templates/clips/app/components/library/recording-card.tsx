@@ -13,7 +13,7 @@ import {
   IconAlertTriangle,
 } from "@tabler/icons-react";
 import { useCallback, useMemo, useState } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { ViewedByPopover } from "@/components/sharing/viewed-by-popover";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
@@ -85,7 +85,6 @@ export function RecordingCard({
   onTrash,
   readOnly = false,
 }: RecordingCardProps) {
-  const navigate = useNavigate();
   const t = useT();
   const { formatDate, formatRelativeTime } = useFormatters();
   const [hovered, setHovered] = useState(false);
@@ -141,26 +140,23 @@ export function RecordingCard({
 
   const recordingPath = `/r/${recording.id}`;
 
-  const handleOpen = useCallback(
-    (event: React.MouseEvent<HTMLElement>) => {
-      const shouldOpenNewTab =
-        event.button === 1 ||
-        (event.button === 0 && (event.metaKey || event.ctrlKey));
-
-      if (shouldOpenNewTab) {
-        event.preventDefault();
-        event.stopPropagation();
-        window.open(recordingPath, "_blank", "noopener,noreferrer");
+  const handleLinkClick = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      if (
+        !selectionMode ||
+        event.button !== 0 ||
+        event.metaKey ||
+        event.ctrlKey ||
+        event.shiftKey ||
+        event.altKey
+      ) {
         return;
       }
 
-      if (selectionMode) {
-        onToggleSelect?.(recording.id);
-      } else {
-        navigate(recordingPath);
-      }
+      event.preventDefault();
+      onToggleSelect?.(recording.id);
     },
-    [navigate, onToggleSelect, recording.id, recordingPath, selectionMode],
+    [onToggleSelect, recording.id, selectionMode],
   );
 
   const handleCheckbox = useCallback(
@@ -182,8 +178,6 @@ export function RecordingCard({
   return (
     <div
       role="article"
-      onClick={handleOpen}
-      onAuxClick={handleOpen}
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
       className={cn(
@@ -193,8 +187,15 @@ export function RecordingCard({
         selected && "ring-2 ring-primary border-primary",
       )}
     >
+      <Link
+        to={recordingPath}
+        aria-label={displayTitle}
+        onClick={handleLinkClick}
+        className="absolute inset-0 z-0 rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-inset"
+      />
+
       {/* Thumbnail */}
-      <div className="relative aspect-video bg-muted overflow-hidden">
+      <div className="relative z-10 aspect-video overflow-hidden bg-muted pointer-events-none">
         {displayThumbnail ? (
           // eslint-disable-next-line jsx-a11y/alt-text
           <img
@@ -229,7 +230,7 @@ export function RecordingCard({
         {canSelect && (selectionMode || hovered || selected) && (
           <div
             onClick={handleCheckbox}
-            className="absolute top-2 start-2 flex h-5 w-5 items-center justify-center rounded bg-background/90 border border-border"
+            className="pointer-events-auto absolute top-2 start-2 flex h-5 w-5 items-center justify-center rounded border border-border bg-background/90"
           >
             <Checkbox
               checked={selected}
@@ -285,7 +286,7 @@ export function RecordingCard({
                 <button
                   type="button"
                   onClick={handleRemoveFailed}
-                  className="rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
+                  className="pointer-events-auto rounded border border-border px-1.5 py-0.5 text-[10px] text-foreground hover:bg-accent"
                 >
                   {t("clipsFinalRaw.remove")}
                 </button>
@@ -296,7 +297,7 @@ export function RecordingCard({
       </div>
 
       {/* Body */}
-      <div className="flex-1 p-3 space-y-2">
+      <div className="relative z-10 flex-1 space-y-2 p-3 pointer-events-none">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
             {hasDefaultTitle ? (
@@ -319,7 +320,7 @@ export function RecordingCard({
               {recording.viewCount > 0 && !readOnly ? (
                 <ViewedByPopover
                   recordingId={recording.id}
-                  className="underline-offset-2 hover:underline hover:text-foreground"
+                  className="pointer-events-auto underline-offset-2 hover:underline hover:text-foreground"
                 >
                   {t("clipsFinalRaw.viewsCount", {
                     count: recording.viewCount,
@@ -341,7 +342,7 @@ export function RecordingCard({
             <DropdownMenu>
               <DropdownMenuTrigger asChild onClick={(e) => e.stopPropagation()}>
                 <button
-                  className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  className="pointer-events-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
                   aria-label={t("clipsFinalRaw.recordingMenu")}
                 >
                   <IconDots className="h-4 w-4" />

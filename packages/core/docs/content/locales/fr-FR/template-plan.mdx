@@ -114,7 +114,7 @@ La commande installe trois commandes : `/visual-plan`, `/visual-recap` et `/visu
 
 Si vous utilisez un hôte basé sur le chat qui accepte directement les connecteurs MCP URL
 (plutôt qu'un client configuré avec CLI), connectez le connecteur Plans hébergés à
-`https://plan.agent-native.com/_agent-native/mcp` : voir [MCP Clients](/docs/mcp-clients) pour la configuration spécifique au client.
+`https://plan.agent-native.com/mcp` : voir [MCP Clients](/docs/mcp-clients) pour la configuration spécifique au client.
 
 L'authentification consiste en une connexion unique au navigateur lors de la configuration : c'est prévu, et c'est le cas
 est ce qui permet à l'agent de persister et de partager les plans qu'il génère. Quelle est l'authentification
@@ -253,7 +253,7 @@ Le partage et les commentaires sont les workflows qui nécessitent un compte :
   examen multi-appareils ou d'équipe) nécessite une connexion. La connexion à Google apparaît lorsque
   les variables d'environnement Google OAuth standard sont configurées.
 
-Le connecteur Plans hébergé se trouve sur `https://plan.agent-native.com/_agent-native/mcp`.
+Le connecteur Plans hébergé se trouve sur `https://plan.agent-native.com/mcp`.
 Ne mettez jamais de secrets partagés dans les fichiers de compétences.
 
 ## Mode de confidentialité des fichiers locaux {#local-files}
@@ -452,7 +452,7 @@ pnpm dev
 La compétence basée sur l'application hébergée utilise :
 
 - Application : `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 Le modèle local est utile lorsque vous développez Plans lui-même, testez la persistance locale ou exécutez une surface de révision entièrement auto-hébergée.
 

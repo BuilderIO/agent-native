@@ -1,5 +1,5 @@
 import { IconUsersGroup, IconVideo } from "@tabler/icons-react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { cn } from "@/lib/utils";
 
@@ -19,15 +19,13 @@ interface SpaceCardProps {
 }
 
 export function SpaceCard({ space, className }: SpaceCardProps) {
-  const navigate = useNavigate();
   const color = space.color || "hsl(var(--primary))";
   const members = space.memberEmails ?? [];
   const initial = (space.name.trim().slice(0, 1) || "S").toUpperCase();
 
   return (
-    <button
-      type="button"
-      onClick={() => navigate(`/spaces/${space.id}`)}
+    <Link
+      to={`/spaces/${space.id}`}
       className={cn(
         "group flex flex-col overflow-hidden rounded-lg border border-border bg-card text-start",
         "hover:border-primary/40",
@@ -92,6 +90,6 @@ export function SpaceCard({ space, className }: SpaceCardProps) {
           </div>
         )}
       </div>
-    </button>
+    </Link>
   );
 }

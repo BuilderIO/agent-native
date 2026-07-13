@@ -272,7 +272,32 @@ export default {
 ```
 
 Preset ids are `context7`, `sentry`, `notion`, `semgrep`, `linear`,
-`supabase`, `neon`, and `stripe`.
+`atlassian`, `supabase`, `neon`, and `stripe`.
+
+### Atlassian / Jira
+
+The Atlassian preset uses Atlassian Rovo MCP's OAuth 2.1 endpoint,
+`https://mcp.atlassian.com/v1/mcp/authv2`, and exposes Jira and Confluence
+tools. Creating Jira tickets requires the Atlassian permissions that cover
+Jira writes; the user still only sees the projects and content allowed by
+their Atlassian account.
+
+Atlassian organization admins can control whether an OAuth client is allowed
+to connect. Before connecting, an admin may need to add the app's actual HTTPS
+origin to the trusted-domain list under **Atlassian Administration → Rovo →
+Rovo MCP server → Domains**, and enable the required **Read**, **Write**, and
+**Search** permissions under **Permissions**. The domain must be the host where
+the agent-native app runs; do not copy `https://builder.io/**` to another
+deployment unless that is its actual origin. See Atlassian's [Rovo MCP setup
+guide](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)
+and [admin controls](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/).
+
+The catalog supplies the endpoint and setup guidance. The generic settings
+form stores the endpoint and optional encrypted headers; it does not replace
+Atlassian's interactive OAuth consent flow. Use an OAuth-capable MCP client or
+runtime when Atlassian requires interactive OAuth. If the provider or runtime
+supports a static bearer token, follow its approved secret-management path and
+never paste tokens into prompts or committed config.
 
 ### How to connect a remote MCP server
 
@@ -292,7 +317,7 @@ Two scopes are supported:
 
 Adds and removes hot-reload into the running MCP manager — no process restart, and no server restart. The new `mcp__<scope>-<name>__*` tools appear to the agent on the next message and are searchable via `tool-search`.
 
-HTTPS URLs are accepted everywhere; plain `http://` is only allowed for `localhost` during development. Optional auth goes in as a Bearer token that's sent via `Authorization: Bearer …` on every request.
+HTTPS URLs are accepted everywhere; plain `http://` is only allowed for `localhost` during development. Optional auth goes in as a Bearer token that's sent via `Authorization: Bearer …` on every request. OAuth-only providers, including Atlassian Rovo MCP, require the provider's OAuth flow instead of a static header.
 
 Under the hood these servers are persisted in the framework's `settings` table under the key `u:<email>:mcp-servers-remote` (Personal) or `o:<orgId>:mcp-servers-remote` (Team) and merged with `mcp.config.json` on startup.
 
@@ -355,7 +380,9 @@ pull its org-scope MCP servers automatically. Dispatch is the conventional hub
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">org-scope MCP servers</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -469,7 +496,7 @@ Reports which configured servers connected, the total live tool count, the merge
 
 Individual MCP server failures never take down the agent:
 
-- A misconfigured `command` → the server is skipped, its error appears in `/mcp/status` under `errors.<server-id>`, and every other server continues to work.
+- A misconfigured `command` → the server is skipped, its error appears in `/_agent-native/mcp/status` under `errors.<server-id>`, and every other server continues to work.
 - The MCP SDK is missing from `node_modules` → all MCP functionality is skipped with a warning; agent chat keeps working with zero MCP tools.
 - Running in an edge runtime → MCP client is a no-op.
 

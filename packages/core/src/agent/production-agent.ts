@@ -1820,6 +1820,15 @@ export type AgentLoopFinalResponseGuardResult =
        * guard/model combination from looping indefinitely.
        */
       maxRetries?: number;
+      /**
+       * A rejected final answer is a recovery path, not a normal compact
+       * first request. When true, expose the complete active registry before
+       * the corrective retry so the model can reach the tool the guard is
+       * asking for without depending on a second, model-specific tool-search
+       * round trip. The registry is still limited to tools already exposed to
+       * this run; hidden/agentTool=false actions are never added.
+       */
+      expandToolSurface?: boolean;
     };
 
 export type AgentLoopFinalResponseGuard = (
@@ -3701,6 +3710,18 @@ export async function runAgentLoop(opts: {
             ? 1
             : Math.max(0, Math.min(3, Math.trunc(guard.maxRetries ?? 1)));
         if (finalGuardRetries < maxGuardRetries) {
+          // Compact starter catalogs are an optimization for the first model
+          // request. Once a guard rejects a final answer, preserving that
+          // compact surface can make the corrective instruction impossible to
+          // satisfy: the requested data action may still be behind
+          // tool-search, and some models spend the entire retry narrating the
+          // discovery step instead of calling it. Let guards opt into the
+          // full *already-authorized* run registry for the retry. This is
+          // intentionally handled in the shared loop so A2A/MCP and every
+          // model family get the same recovery behavior.
+          if (typeof guard !== "string" && guard.expandToolSurface) {
+            expandActiveTools([...availableToolMap.keys()]);
+          }
           finalGuardRetries += 1;
           send({ type: "clear" });
           messages.push({

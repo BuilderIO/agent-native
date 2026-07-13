@@ -5,6 +5,7 @@ import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { formatAttendeeLocalTime } from "../../lib/attendee-local-time";
 import { EventAttendeesSection } from "./EventAttendeesSection";
 
 const rsvpMutate = vi.hoisted(() => vi.fn());
@@ -124,6 +125,61 @@ describe("EventAttendeesSection attendee controls", () => {
     expect(guestOptions).toBeTruthy();
     expect(attendeeDetails!.contains(guestOptions)).toBe(false);
     expect(document.querySelector("button button")).toBeNull();
+  });
+
+  it("shows the event zone for the organizer and the browser zone for self", () => {
+    const event: CalendarEvent = {
+      id: "event-timezones",
+      title: "Timezone check",
+      description: "",
+      location: "",
+      start: "2024-06-15T18:30:00.000Z",
+      end: "2024-06-15T19:00:00.000Z",
+      startTimeZone: "America/Halifax",
+      allDay: false,
+      source: "google",
+      accountEmail: "saee@example.com",
+      responseStatus: "accepted",
+      createdAt: "2024-06-15T17:00:00.000Z",
+      updatedAt: "2024-06-15T17:00:00.000Z",
+      attendees: [
+        {
+          email: "sami@example.com",
+          displayName: "Sami",
+          organizer: true,
+          responseStatus: "accepted",
+        },
+        {
+          email: "saee@example.com",
+          displayName: "Saee",
+          self: true,
+          responseStatus: "accepted",
+        },
+      ],
+    };
+    const browserTimeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    const browserLabel = formatAttendeeLocalTime(event.start, browserTimeZone);
+    const organizerLabel = formatAttendeeLocalTime(
+      event.start,
+      "America/Halifax",
+    );
+
+    act(() => {
+      root.render(<EventAttendeesSection event={event} />);
+    });
+
+    const attendeeRows = Array.from(
+      document.querySelectorAll('[data-testid="attendee-details"]'),
+    );
+    const organizerRow = attendeeRows.find((row) =>
+      row.textContent?.includes("sami@example.com"),
+    );
+    const selfRow = attendeeRows.find((row) =>
+      row.textContent?.includes("saee@example.com"),
+    );
+
+    expect(organizerRow?.textContent).toContain(organizerLabel);
+    expect(selfRow?.textContent).toContain(browserLabel);
   });
 
   it("submits a recurring response with Cmd+Enter from the note", () => {

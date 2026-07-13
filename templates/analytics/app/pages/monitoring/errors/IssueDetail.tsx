@@ -102,7 +102,7 @@ export function IssueDetail({
                   {statusLabel(issue.status)}
                 </span>
               </div>
-              <h2 className="truncate text-lg font-semibold text-foreground">
+              <h2 className="break-words text-lg font-semibold text-foreground">
                 {issue.title}
               </h2>
               {issue.culprit ? (

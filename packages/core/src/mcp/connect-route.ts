@@ -1,20 +1,21 @@
 /**
- * `/_agent-native/mcp/connect` — frictionless external-agent connection.
+ * `/mcp/connect` — frictionless external-agent connection. The legacy
+ * `/_agent-native/mcp/connect` alias is mounted by the core route plugin.
  *
  * A logged-in user on a deployed agent-native app (e.g. mail.agent-native.com)
  * mints a per-user, scoped, revocable MCP bearer token WITHOUT ever copying a
  * shared deployment secret. Two surfaces:
  *
- *   1. Browser  — `GET /connect` renders a minimal in-app page (same inline
+ *   1. Browser  — `GET /mcp/connect` renders a minimal in-app page (same inline
  *      HTML approach as the auth pages). The Authorize button POSTs to
  *      `/connect/token`, then shows the ready-to-paste `.mcp.json` entry, the
  *      `agent-native connect <origin>` one-liner, and the user's existing
  *      tokens with Revoke buttons.
  *   2. CLI      — an OAuth-2.0-device-authorization-style flow:
- *        POST /connect/device/start      (unauth)  → device_code + user_code
- *        GET  /connect?user_code=…       (browser) → user signs in & approves
- *        POST /connect/device/authorize  (session) → binds user to the code
- *        POST /connect/device/poll       (unauth)  → mints + returns the token
+ *        POST /mcp/connect/device/start      (unauth)  → device_code + user_code
+ *        GET  /mcp/connect?user_code=…       (browser) → user signs in & approves
+ *        POST /mcp/connect/device/authorize  (session) → binds user to the code
+ *        POST /mcp/connect/device/poll       (unauth)  → mints + returns the token
  *
  * When A2A_SECRET exists, the minted token reuses the existing A2A signer
  * (`signA2AToken`) and adds a random `jti` + `scope: "mcp-connect"` claim so
@@ -64,6 +65,7 @@ import {
   MCP_OAUTH_DEFAULT_SCOPE,
   signMcpOAuthAccessToken,
 } from "./oauth-token.js";
+import { MCP_PUBLIC_ROUTE_PREFIX } from "./route-paths.js";
 
 /** Device-flow poll interval hint (seconds). */
 const DEVICE_POLL_INTERVAL_S = 3;
@@ -383,7 +385,7 @@ function mcpResultPayload(
 }
 
 function mcpResourceUrl(appUrl: string): string {
-  return `${appUrl}/_agent-native/mcp`;
+  return `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -415,7 +417,7 @@ function renderConnectPage(params: {
     params;
   const safeEmail = escapeHtml(email);
   const safeApp = escapeHtml(appName);
-  const mcpUrl = `${appUrl}/_agent-native/mcp`;
+  const mcpUrl = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}`;
   const safeMcpUrl = escapeHtml(mcpUrl);
   const safeServerId = escapeHtml(serverId);
   const safeClaudeCodeCmd = escapeHtml(
@@ -948,7 +950,7 @@ function renderConnectPage(params: {
 </div>
 <script>
 (function () {
-  var BASE = ${JSON.stringify(joinAppPath(connectBasePath, "/_agent-native/mcp/connect"))};
+  var BASE = ${JSON.stringify(joinAppPath(connectBasePath, MCP_PUBLIC_ROUTE_PREFIX + "/connect"))};
   var USER_CODE = ${JSON.stringify(safeUserCode || null)};
   var msgEl = document.getElementById("msg");
   var connectionsEl = document.getElementById("connections");
@@ -1182,10 +1184,11 @@ function renderConnectPage(params: {
 // ---------------------------------------------------------------------------
 
 /**
- * Handle a `/_agent-native/mcp/connect[...]` request. `subpath` is the part
- * after `/connect` (empty string = the page itself, otherwise e.g.
- * `/token`, `/device/start`). The core-routes-plugin computes it from the
- * stripped event path so this module stays mount-agnostic.
+ * Handle a `/mcp/connect[...]` request. The legacy
+ * `/_agent-native/mcp/connect` alias is mounted too. `subpath` is the part
+ * after `/connect` (empty string = the page itself, otherwise e.g. `/token`,
+ * `/device/start`). The core-routes-plugin computes it from the stripped event
+ * path so this module stays mount-agnostic.
  */
 export async function handleMcpConnect(
   event: H3Event,
@@ -1291,7 +1294,7 @@ export async function handleMcpConnect(
     if (method !== "POST") return json({ error: "Method not allowed" }, 405);
     try {
       const row = await createDeviceCode();
-      const verificationUri = `${appUrl}/_agent-native/mcp/connect`;
+      const verificationUri = `${appUrl}${MCP_PUBLIC_ROUTE_PREFIX}/connect`;
       return json({
         device_code: row.deviceCode,
         user_code: row.userCode,

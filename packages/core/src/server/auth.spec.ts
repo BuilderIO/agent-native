@@ -915,7 +915,12 @@ describe("server/auth", () => {
         .find((arg: unknown) => typeof arg === "function");
       expect(guard).toBeTypeOf("function");
 
-      for (const path of ["/_agent-native/mcp", "/_agent-native/mcp/"]) {
+      for (const path of [
+        "/_agent-native/mcp",
+        "/_agent-native/mcp/",
+        "/mcp",
+        "/mcp/",
+      ]) {
         await expect(guard(createMockEvent({ path }))).resolves.toBeUndefined();
       }
 

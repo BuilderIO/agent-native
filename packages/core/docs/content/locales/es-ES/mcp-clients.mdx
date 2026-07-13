@@ -246,6 +246,18 @@ Esto significa que los usuarios que han instalado la extensión claude-in-chrome
 
 Los servidores MCP (Protocolo de contexto modelo) le brindan a su agente nuevas capacidades, como conectarse a Zapier, Cloudflare, Composio o las herramientas internas de su empresa. Una vez conectado, el agente puede utilizar esas herramientas al igual que las integradas.
 
+Los identificadores de los ajustes preestablecidos son `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+`atlassian`, `supabase`, `neon` y `stripe`.
+
+### Atlassian / Jira
+
+El ajuste preestablecido de Atlassian usa el punto de conexión OAuth 2.1 de Atlassian Rovo MCP,
+`https://mcp.atlassian.com/v1/mcp/authv2`, y proporciona herramientas de Jira y Confluence. Para crear incidencias de Jira se necesitan los permisos de Atlassian que permiten escribir en Jira; el usuario solo puede ver los proyectos y el contenido a los que su cuenta de Atlassian tiene acceso.
+
+Los administradores de una organización de Atlassian pueden controlar si un cliente OAuth tiene permiso para conectarse. Antes de establecer la conexión, es posible que un administrador deba añadir el origen HTTPS real de la aplicación a la lista de dominios de confianza en **Administración de Atlassian → Rovo → Servidor Rovo MCP → Dominios** y habilitar los permisos necesarios de **Lectura**, **Escritura** y **Búsqueda** en **Permisos**. El dominio debe ser el host en el que se ejecuta la aplicación agent-native; no copie `https://builder.io/**` en otro despliegue salvo que ese sea su origen real. Consulte la [guía de configuración de Rovo MCP](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/) y los [controles de administración](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/) de Atlassian.
+
+El catálogo proporciona el punto de conexión y las instrucciones de configuración. El formulario de configuración genérico guarda el punto de conexión y los encabezados cifrados opcionales, pero no sustituye el flujo de consentimiento OAuth interactivo de Atlassian. Use un cliente o un entorno de ejecución MCP compatible con OAuth cuando Atlassian requiera OAuth interactivo. Si el proveedor o el entorno de ejecución admite un token Bearer estático, siga el método aprobado para administrar secretos y nunca pegue tokens en prompts ni en archivos de configuración enviados al repositorio.
+
 ### Cómo conectar un servidor MCP remoto
 
 1. **Nombre del servidor**: una etiqueta breve para su propia referencia (por ejemplo, "zapier", "slack-tools").
@@ -264,7 +276,7 @@ Se admiten dos ámbitos:
 
 Agrega y elimina la recarga en caliente en el administrador MCP en ejecución: sin reinicio del proceso ni reinicio del servidor. Las nuevas herramientas `mcp__<scope>-<name>__*` le aparecen al agente en el siguiente mensaje y se pueden buscar a través de `tool-search`.
 
-HTTPS URL se aceptan en todas partes; `http://` simple solo se permite para `localhost` durante el desarrollo. La autenticación opcional se ingresa como un token de portador que se envía a través de `Authorization: Bearer …` en cada solicitud.
+HTTPS URL se aceptan en todas partes; `http://` simple solo se permite para `localhost` durante el desarrollo. La autenticación opcional se ingresa como un token de portador que se envía a través de `Authorization: Bearer …` en cada solicitud. Los proveedores que solo admiten OAuth, incluido Atlassian Rovo MCP, requieren el flujo OAuth del proveedor en lugar de un encabezado estático.
 
 En el fondo, estos servidores persisten en la tabla `settings` del marco bajo la clave `u:<email>:mcp-servers-remote` (Personal) o `o:<orgId>:mcp-servers-remote` (Equipo) y se fusionan con `mcp.config.json` al inicio.
 
@@ -294,7 +306,9 @@ El envío es el centro convencional: ya coordina todas las aplicaciones.
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted"
       >servidores MCP con alcance de organización</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -456,7 +470,7 @@ Utilice esto para crear sugerencias de incorporación de "Claude-in-chrome detec
 
 Las fallas individuales del servidor MCP nunca desactivan el agente:
 
-- Un `command` mal configurado → se omite el servidor, su error aparece en `/mcp/status` debajo de `errors.<server-id>` y todos los demás servidores continúan funcionando.
+- Un `command` mal configurado → se omite el servidor, su error aparece en `/_agent-native/mcp/status` debajo de `errors.<server-id>` y todos los demás servidores continúan funcionando.
 - Falta el MCP SDK en `node_modules` → todas las funciones de MCP se omiten con una advertencia; El chat del agente sigue funcionando sin herramientas MCP.
 - Ejecutar en un tiempo de ejecución perimetral → El cliente MCP no funciona.
 

@@ -540,6 +540,8 @@ export async function callAgent(
     userEmail?: string;
     orgDomain?: string;
     orgSecret?: string;
+    /** Origin used to build links back to the receiving app. */
+    requestOrigin?: string;
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
      * cross-app calls that may exceed a synchronous serverless request budget.
@@ -571,6 +573,7 @@ export async function callAgent(
   const metadata: Record<string, unknown> = {};
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
+  if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
 
   // Default to async + poll. The receiving A2A server's `_process-task` route
   // runs the handler in a fresh function execution (cross-platform queue

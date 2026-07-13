@@ -219,7 +219,7 @@ La configuration de ces variables ne génère jamais de page de connexion par je
 Le point de terminaison MCP de chaque application peut agir comme une ressource MCP protégée standard. Les clients compatibles OAuth peuvent être configurés uniquement avec le MCP URL distant :
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 Les requêtes MCP non authentifiées renvoient un défi `WWW-Authenticate` pointant vers `/.well-known/oauth-protected-resource`. Le client découvre ensuite les métadonnées OAuth de l'application, enregistre dynamiquement un client public, ouvre la page d'autorisation de l'application et échange un code d'autorisation avec PKCE pour les jetons d'accès et d'actualisation.
