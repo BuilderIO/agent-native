@@ -7,6 +7,8 @@ export const INITIAL_TOOL_NAMES = [
   // named user's session/error question does not depend on an indirect
   // tool-search round before the agent can inspect its evidence.
   "get-error-issue",
+  "create-session-replay-agent-link",
+  "get-session-replay-events",
   "get-session-replay-summary",
   "get-session-replay-timeline",
   "list-error-issues",
@@ -14,8 +16,6 @@ export const INITIAL_TOOL_NAMES = [
   "list-analyses",
   "get-analysis",
   "save-analysis",
-  "rename-analysis",
-  "delete-analysis",
   "get-sql-dashboard",
   "mutate-dashboard",
   "generate-chart",
