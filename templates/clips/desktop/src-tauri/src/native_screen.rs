@@ -102,12 +102,6 @@ fn audio_filter_chain(downmix: bool, denoise: bool, mic_pregain: bool) -> String
 }
 const NATIVE_CAPTURE_MAX_LONG_EDGE: u32 = 1280;
 const NATIVE_CAPTURE_FPS: u32 = 24;
-const USE_CUSTOM_SCREENCAPTUREKIT_PIPELINE: bool = true;
-// Live upload: stream the recording to the server in chunks WHILE it is being
-// recorded, instead of waiting for stop+finalize. Only effective with the
-// custom pipeline, which writes a fragmented (append-only) MP4 so already
-// uploaded byte ranges never change.
-const UPLOAD_CHUNKS_WHILE_RECORDING: bool = true;
 
 // Custom ScreenCaptureKit capture engine: AVAssetWriter fragmented-MP4
 // writer, live audio mixer, and the AVFoundation FFI glue live in a child
@@ -959,6 +953,13 @@ pub async fn native_fullscreen_recording_begin(
 
     #[cfg(target_os = "macos")]
     {
+        // Best-effort, non-blocking: keep the server-controlled feature flag
+        // cache warm using the session creds this call already has. Never
+        // delays recording start — a stale/default cache is used for THIS
+        // recording if the fetch hasn't landed yet; the result applies to
+        // the next one.
+        crate::remote_flags::spawn_refresh(server_url.clone(), cookie.clone(), auth_token.clone());
+
         let is_warmed = {
             let guard = state.inner.lock().map_err(|e| e.to_string())?;
             guard
@@ -1982,8 +1983,7 @@ fn start_segment_backend(
         // safe_id isn't needed on macOS — the segment path is pre-computed by
         // the caller. Consume to silence the unused-variable warning.
         let _ = safe_id;
-        let custom_pipeline = USE_CUSTOM_SCREENCAPTUREKIT_PIPELINE;
-        let sck_result = if custom_pipeline {
+        let sck_result = if crate::remote_flags::current().use_custom_sck_pipeline {
             start_custom_screencapturekit_backend_at(
                 app,
                 segment_path,
@@ -3208,8 +3208,10 @@ fn start_screencapturekit_recording(
     let target_display_id = tray_display_id(app);
     let path = pending_recording_path(app, safe_id, "mp4")?;
     let _ = std::fs::remove_file(&path);
+    let use_custom_sck_pipeline = crate::remote_flags::current().use_custom_sck_pipeline;
     eprintln!(
-        "[clips-tray] starting ScreenCaptureKit recording -> {}",
+        "[clips-tray] starting ScreenCaptureKit recording. use_custom_sck_pipeline = {}, path -> {}",
+        use_custom_sck_pipeline,
         path.display()
     );
     let check_path = path.parent().unwrap_or(&path);
@@ -3227,7 +3229,7 @@ fn start_screencapturekit_recording(
             );
         }
     }
-    let (backend, width, height) = if USE_CUSTOM_SCREENCAPTUREKIT_PIPELINE {
+    let (backend, width, height) = if use_custom_sck_pipeline {
         start_custom_screencapturekit_backend_at(
             app,
             &path,

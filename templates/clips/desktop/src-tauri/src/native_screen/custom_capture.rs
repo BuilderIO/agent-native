@@ -425,7 +425,7 @@ impl CustomScreenCaptureWriter {
         #[link(name = "UniformTypeIdentifiers", kind = "framework")]
         extern "C" {}
 
-        let segmented = UPLOAD_CHUNKS_WHILE_RECORDING;
+        let segmented = crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled;
         unsafe {
             let writer_cls = av_class_named("AVAssetWriter")
                 .ok_or_else(|| "AVAssetWriter missing".to_string())?;

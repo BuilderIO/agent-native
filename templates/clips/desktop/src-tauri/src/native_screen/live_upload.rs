@@ -86,7 +86,7 @@ pub(super) fn attach_live_uploader_to_session(
     has_audio: bool,
     has_camera: bool,
 ) {
-    if !UPLOAD_CHUNKS_WHILE_RECORDING {
+    if !crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled {
         eprintln!("[live-upload] disabled by feature flag; skipping for {recording_id}");
         return;
     }
