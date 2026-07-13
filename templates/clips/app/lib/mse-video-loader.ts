@@ -121,6 +121,33 @@ export class MseVideoLoader {
     }
   }
 
+  /**
+   * Update the authoritative duration after construction. Recording metadata
+   * polling can deliver a later/larger value while the same asset is playing;
+   * apply it to the live `MediaSource` (and the seek-estimation math) instead
+   * of forcing a loader rebuild, which would revoke the object URL and restart
+   * playback from byte zero.
+   */
+  setDuration(durationMs: number): void {
+    if (this.destroyed) return;
+    if (!Number.isFinite(durationMs) || durationMs <= 0) return;
+    if (durationMs === this.opts.durationMs) return;
+    this.opts.durationMs = durationMs;
+    // Only writable while the source is open and no append is in flight;
+    // otherwise `onSourceOpen`/seek re-read `opts.durationMs`, so a skip here
+    // is harmless.
+    try {
+      if (
+        this.mediaSource.readyState === "open" &&
+        !this.sourceBuffer?.updating
+      ) {
+        this.mediaSource.duration = durationMs / 1000;
+      }
+    } catch {
+      // Setting duration can still throw on a mid-update source buffer; ignore.
+    }
+  }
+
   private fail(err: unknown): void {
     if (this.destroyed) return;
     this.opts.onFatal(err);

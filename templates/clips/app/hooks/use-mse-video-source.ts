@@ -65,6 +65,13 @@ export function useMseVideoSource({
   const [objectUrl, setObjectUrl] = useState<string | undefined>(undefined);
   const loaderRef = useRef<MseVideoLoader | null>(null);
 
+  // Latest duration, kept in a ref so the (deliberately duration-independent)
+  // rebuild effect below seeds a freshly created loader with the current value
+  // even if it changed during the async sniff. Updating a ref in render is
+  // side-effect-free and safe.
+  const durationMsRef = useRef(durationMs);
+  durationMsRef.current = durationMs;
+
   useEffect(() => {
     loaderRef.current?.destroy();
     loaderRef.current = null;
@@ -89,7 +96,7 @@ export function useMseVideoSource({
         try {
           const loader = new MseVideoLoader({
             url: sourceUrl,
-            durationMs,
+            durationMs: durationMsRef.current,
             video,
             onFatal: () => {
               if (cancelled) return;
@@ -115,9 +122,18 @@ export function useMseVideoSource({
       loaderRef.current?.destroy();
       loaderRef.current = null;
     };
-    // videoRef is a stable ref object.
+    // videoRef is a stable ref object. `durationMs` is intentionally excluded:
+    // it only seeds the timeline and is pushed to the live loader by the effect
+    // below, so a metadata-poll update must not rebuild the loader (which would
+    // revoke the object URL and restart playback from byte zero).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [eligible, sourceUrl, durationMs]);
+  }, [eligible, sourceUrl]);
+
+  // Recording metadata polling can raise the DB duration while the same
+  // fragmented asset is still playing; apply it to the live loader in place.
+  useEffect(() => {
+    loaderRef.current?.setDuration(durationMs);
+  }, [durationMs]);
 
   const fallbackToNative = useCallback(() => {
     loaderRef.current?.destroy();
