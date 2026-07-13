@@ -37,7 +37,14 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Link,
   useSearchParams,
@@ -1094,11 +1101,15 @@ function LibraryKitSelector({
   );
 }
 
-function AllAssetsBrowser() {
+function AllAssetsBrowser({
+  foldersByLibraryId = {},
+}: {
+  foldersByLibraryId?: Record<string, any[]>;
+}) {
   const t = useT();
   const navigate = useNavigate();
   const [query, setQuery] = useState("");
-  const [assetTab, setAssetTab] = useState<AssetTab>("all");
+  const [assetTab, setAssetTab] = useState<AssetTab>("drafts");
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
@@ -1166,6 +1177,17 @@ function AllAssetsBrowser() {
     void copyStandaloneSelection(payload);
   }
 
+  const isDraftsTab = assetTab === "drafts";
+
+  useEffect(() => {
+    void writeClientAppState(`navigation:${getBrowserTabId()}`, {
+      view: "library",
+      selection: "all",
+      tab: assetTab,
+      search: query.trim() || undefined,
+    });
+  }, [assetTab, query]);
+
   return (
     <div className="flex min-w-0 flex-col">
       <div className="border-b border-border px-4 py-3 md:px-6">
@@ -1176,7 +1198,9 @@ function AllAssetsBrowser() {
               onValueChange={(value) => setAssetTab(value as AssetTab)}
             >
               <TabsList className="h-9">
-                <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                <TabsTrigger value="drafts">
+                  {t("library.drafts")}
+                </TabsTrigger>
                 <TabsTrigger value="generated">
                   {t("library.generated")}
                 </TabsTrigger>
@@ -1185,24 +1209,28 @@ function AllAssetsBrowser() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <Badge
-              variant="secondary"
-              className="h-6 max-w-full rounded-full px-2 text-xs"
-            >
-              {assetCountLabel}
-            </Badge>
+            {!isDraftsTab && (
+              <Badge
+                variant="secondary"
+                className="h-6 max-w-full rounded-full px-2 text-xs"
+              >
+                {assetCountLabel}
+              </Badge>
+            )}
           </div>
-          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
-            <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              type="search"
-              value={query}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("library.searchAssets")}
-              className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            />
-          </div>
+          {!isDraftsTab && (
+            <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
+              <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <input
+                type="search"
+                value={query}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder={t("library.searchAssets")}
+                className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1278,7 +1306,20 @@ function AllAssetsBrowser() {
       )}
 
       <main className="p-4 md:p-6">
-        {isLoading ? (
+        {isDraftsTab ? (
+          <LibraryCandidateStage
+            activeLibraryId={null}
+            foldersByLibraryId={foldersByLibraryId}
+            inline
+            emptyState={
+              <div className="flex min-h-64 items-center justify-center text-center">
+                <div className="max-w-sm text-sm text-muted-foreground">
+                  {t("library.noDrafts")}
+                </div>
+              </div>
+            }
+          />
+        ) : isLoading ? (
           <div className="assets-library-grid grid grid-cols-2 gap-4">
             {Array.from({ length: 12 }).map((_, index) => (
               <Skeleton key={index} className="aspect-[4/3] rounded-lg" />
@@ -1594,12 +1635,14 @@ function LibraryCandidateStage({
   variantScopeId = null,
   onUseAsset,
   inline = false,
+  emptyState = null,
 }: {
   activeLibraryId?: string | null;
   foldersByLibraryId?: Record<string, any[]>;
   variantScopeId?: string | null;
   onUseAsset?: (asset: Asset) => void;
   inline?: boolean;
+  emptyState?: ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1677,9 +1720,9 @@ function LibraryCandidateStage({
   );
   const totalCount = slots.length + draftAssets.length;
 
-  if (totalCount === 0) return null;
+  if (totalCount === 0) return emptyState ? <>{emptyState}</> : null;
   const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
-  if (!stageLibraryId) return null;
+  if (!stageLibraryId) return emptyState ? <>{emptyState}</> : null;
 
   function invalidateStage(
     libraryIdToInvalidate: string | null = stageLibraryId,
@@ -1983,22 +2026,22 @@ export function LibraryWorkspace({
               </Button>
             </div>
           ) : routeSelectedLibraryId || hasLibraries ? (
-            <>
-              <LibraryCandidateStage
-                activeLibraryId={routeSelectedLibraryId}
-                foldersByLibraryId={foldersByLibraryId}
-              />
-              <div className="min-w-0">
-                {routeSelectedLibraryId ? (
+            <div className="min-w-0">
+              {routeSelectedLibraryId ? (
+                <>
+                  <LibraryCandidateStage
+                    activeLibraryId={routeSelectedLibraryId}
+                    foldersByLibraryId={foldersByLibraryId}
+                  />
                   <BrandKitDetailRoute
                     libraryId={routeSelectedLibraryId}
                     headerMode="actions"
                   />
-                ) : (
-                  <AllAssetsBrowser />
-                )}
-              </div>
-            </>
+                </>
+              ) : (
+                <AllAssetsBrowser foldersByLibraryId={foldersByLibraryId} />
+              )}
+            </div>
           ) : (
             <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
           )}
