@@ -2562,8 +2562,14 @@ export function createIntegrationsPlugin(
             executionContext = defaultExecutionContext;
             if (defaultExecutionContext.anonymousMember) {
               if (!options?.allowAnonymousOrgScopedSlackDm) {
-                const noticeText =
-                  "I couldn't match your Slack account to an organization member, so I can't run this request. Ask an organization admin to add your Slack email, then try again.";
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `I couldn't match your Slack account to an organization member, so I can't run this request. Ask an organization admin to add ${senderEmail}, then try again.`
+                  : "I couldn't verify your Slack account email, so I can't run this request. Ask an organization admin to reconnect Slack with the users:read.email scope, then try again.";
                 if (adapter.sendSystemNotice) {
                   try {
                     await enqueueSystemNotice(event, incoming, noticeText, {

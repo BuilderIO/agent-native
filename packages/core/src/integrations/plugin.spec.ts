@@ -1038,6 +1038,10 @@ describe("integrations plugin routes", () => {
         ),
       }),
     );
+    const persisted = JSON.parse(
+      insertPendingTaskMock.mock.calls[0][0].payload,
+    );
+    expect(persisted.text).toContain("users:read.email scope");
   });
 
   it("allows the anonymous Slack DM org tier only with explicit plugin opt-in", async () => {
