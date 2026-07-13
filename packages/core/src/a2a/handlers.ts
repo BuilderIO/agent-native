@@ -8,6 +8,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getOrigin } from "../server/google-oauth.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
@@ -61,6 +62,17 @@ function requestOriginFromMetadata(
     const url = new URL(raw);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
     return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestOriginFromEvent(event: any | undefined): string | undefined {
+  if (!event) return undefined;
+  try {
+    return requestOriginFromMetadata({
+      requestOrigin: getOrigin(event as any),
+    });
   } catch {
     return undefined;
   }
@@ -558,7 +570,8 @@ async function handleSend(
     // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
-    const requestOrigin = requestOriginFromMetadata(metadata);
+    const requestOrigin =
+      requestOriginFromMetadata(metadata) ?? requestOriginFromEvent(event);
 
     const taskMetadata: Record<string, unknown> = {
       ...(metadata ?? {}),

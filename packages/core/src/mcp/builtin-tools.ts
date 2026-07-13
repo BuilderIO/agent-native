@@ -786,7 +786,11 @@ async function routeAskOverA2A(
   origin: string,
   id: string,
   message: string,
-  options?: { durable?: boolean; maxWaitMs?: number },
+  options?: {
+    durable?: boolean;
+    maxWaitMs?: number;
+    requestOrigin?: string;
+  },
 ): Promise<
   { app: string; routedVia: "a2a"; response: string } | AskAppTaskResult
 > {
@@ -796,7 +800,7 @@ async function routeAskOverA2A(
         app: id,
         origin: agentNativeA2AEndpoint(origin),
         routedVia: "a2a",
-        requestOrigin: origin,
+        requestOrigin: options.requestOrigin ?? origin,
       },
       message,
       options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
@@ -860,7 +864,7 @@ async function resolveAskAppStatusRoute(
       app: dirMatch.id,
       origin: agentNativeA2AEndpoint(dirMatch.a2aUrl),
       routedVia: "a2a",
-      requestOrigin: dirMatch.a2aUrl,
+      requestOrigin: dirMatch.url,
     };
   }
 
@@ -934,6 +938,7 @@ function askAppTool(
             {
               durable: useDurableA2A,
               maxWaitMs,
+              requestOrigin: targetApp.origin,
             },
           );
         } catch (err: any) {
@@ -967,6 +972,7 @@ function askAppTool(
               {
                 durable: useDurableA2A,
                 maxWaitMs,
+                requestOrigin: dirMatch.url,
               },
             );
           } catch (err: any) {

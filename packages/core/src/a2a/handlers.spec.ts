@@ -13,6 +13,8 @@ const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 
 // Mock h3's setResponseStatus and setResponseHeader
 vi.mock("h3", () => ({
+  getHeader: (event: any, name: string) =>
+    event.req?.headers?.get?.(name) ?? event.node?.req?.headers?.[name],
   setResponseStatus: (event: any, code: number) => {
     event._status = code;
   },
@@ -1228,6 +1230,81 @@ describe("handleJsonRpc", () => {
     );
     expect(followup.result.status.message.parts[0].text).toBe(
       "alice+qa@agent-native.test|https://workspace.example.test",
+    );
+  });
+
+  it("captures the inbound origin for legacy async callers without metadata", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async () => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: getRequestContext()?.requestOrigin ?? "none",
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    event.req = {
+      headers: new Headers({
+        host: "legacy.example.test",
+        "x-forwarded-proto": "https",
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "hi" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+    expect(result.error).toBeUndefined();
+
+    const { getTask } = await import("./task-store.js");
+    expect(
+      (await getTask(result.result.id))?.metadata?.__a2a_processor,
+    ).toEqual(
+      expect.objectContaining({
+        requestOrigin: "https://legacy.example.test",
+      }),
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+
+    const followupEvent = mockEvent();
+    followupEvent.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      followupEvent,
+      contextConfig,
+    );
+    expect(followup.result.status.message.parts[0].text).toBe(
+      "https://legacy.example.test",
     );
   });
 
