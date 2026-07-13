@@ -1252,9 +1252,12 @@ export function createAgentChatPlugin(
 
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
+          const { getOwnerActiveApiKey } =
+            await import("../agent/production-agent.js");
+          const ownerApiKey = await getOwnerActiveApiKey(userEmail);
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
-            apiKey: options?.apiKey,
+            apiKey: ownerApiKey ?? options?.apiKey,
             appId: options?.appId,
           });
 
@@ -1524,9 +1527,15 @@ export function createAgentChatPlugin(
             ? { externalAgents: options.externalAgents }
             : {}),
           askAgent: async (message: string) => {
+            const ownerEmail = getRequestUserEmail();
+            const { getOwnerActiveApiKey } =
+              await import("../agent/production-agent.js");
+            const ownerApiKey = ownerEmail
+              ? await getOwnerActiveApiKey(ownerEmail)
+              : undefined;
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
-              apiKey: options?.apiKey,
+              apiKey: ownerApiKey ?? options?.apiKey,
               appId: options?.appId,
             });
             const mcpModelCandidate =
