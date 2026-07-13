@@ -86,12 +86,15 @@ pub(super) fn attach_live_uploader_to_session(
     has_audio: bool,
     has_camera: bool,
 ) {
-    if !crate::remote_flags::current().custom_sck_pipeline_live_upload_enabled {
-        eprintln!("[live-upload] disabled by feature flag; skipping for {recording_id}");
-        return;
-    }
-    if !session.custom_pipeline {
-        eprintln!("[live-upload] not the custom pipeline; skipping for {recording_id}");
+    let segmented_writer = matches!(
+        session.backend.as_ref(),
+        Some(NativeFullscreenBackend::CustomScreenCaptureKit { writer, .. })
+            if writer.segmented()
+    );
+    if !segmented_writer {
+        eprintln!(
+            "[live-upload] writer not in append-only segmented mode (live upload off at writer creation, or not the custom pipeline); skipping for {recording_id}"
+        );
         return;
     }
     if session.live_upload.is_some() {
@@ -105,6 +108,15 @@ pub(super) fn attach_live_uploader_to_session(
             return;
         }
     };
+
+    let has_auth = auth_token.is_some_and(|t| !t.trim().is_empty())
+        || cookie.is_some_and(|c| !c.trim().is_empty());
+    if !has_auth {
+        eprintln!(
+            "[live-upload] no auth credentials yet (session not fully propagated?); skipping live upload for {recording_id}, will upload at stop"
+        );
+        return;
+    }
     eprintln!(
         "[live-upload] attaching uploader for {recording_id}: file={} server={server_url} has_audio={has_audio} has_camera={has_camera} size={:?}",
         session.path.display(),

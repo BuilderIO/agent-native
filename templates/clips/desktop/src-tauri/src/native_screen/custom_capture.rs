@@ -598,20 +598,19 @@ impl CustomScreenCaptureWriter {
         self.started.load(Ordering::SeqCst)
     }
 
-    /// Accumulated pause offset in seconds.
-    fn pause_offset_seconds(&self) -> f64 {
+    /// Accumulated pause offset in seconds. Every appended sample skips this
+    /// much wall-clock time so a pause/resume leaves no gap in the file.
+    pub(super) fn pause_offset(&self) -> f64 {
         f64::from_bits(self.pause_offset_bits.load(Ordering::SeqCst))
     }
 
-    /// Add `seconds` to the accumulated pause offset. Called on resume so
-    /// every subsequently appended sample skips the paused wall-clock gap.
-    pub(super) fn add_pause_offset(&self, seconds: f64) {
-        if seconds <= 0.0 {
-            return;
-        }
-        let next = self.pause_offset_seconds() + seconds;
+    /// Set the accumulated pause offset (clamped to non-negative). Resume reads
+    /// the prior value, applies `prior + paused_for` once the replacement stream
+    /// is about to start, and restores the prior value if startup fails — so a
+    /// failed-then-retried resume never double-counts the same pause.
+    pub(super) fn set_pause_offset(&self, seconds: f64) {
         self.pause_offset_bits
-            .store(next.to_bits(), Ordering::SeqCst);
+            .store(seconds.max(0.0).to_bits(), Ordering::SeqCst);
     }
 
     /// Route one SCK sample buffer to the right writer input. Mixed-mode
@@ -669,7 +668,7 @@ impl CustomScreenCaptureWriter {
                 let Some(base) = guard.session_start_time else {
                     return;
                 };
-                let pause_offset = self.pause_offset_seconds();
+                let pause_offset = self.pause_offset();
                 match retimed_sample_copy(sample, &timing, base, pause_offset) {
                     Ok(copy) => {
                         self.append_sample_ptr(&mut guard, &input, copy.as_ptr());
@@ -715,7 +714,7 @@ impl CustomScreenCaptureWriter {
         let Ok(mut mixer_guard) = mixer.lock() else {
             return;
         };
-        mixer_guard.set_pause_offset(self.pause_offset_seconds());
+        mixer_guard.set_pause_offset(self.pause_offset());
         mixer_guard.push(source, &interleaved, pts_seconds);
         if !self.started.load(Ordering::SeqCst) {
             return;
@@ -2085,16 +2084,23 @@ impl CustomCaptureResume {
     /// append-only file — the live uploader is never interrupted, exactly like
     /// a watchdog stream rebuild.
     pub(crate) fn resume(&self, paused_for: Duration) -> Result<(), String> {
-        self.handler
-            .writer
-            .add_pause_offset(paused_for.as_secs_f64());
+        let writer = &self.handler.writer;
+        let prev_offset = writer.pause_offset();
 
-        let new_stream = build_custom_scstream(&self.params, &self.handler, &self.watch)
-            .and_then(|s| {
-                s.start_capture()
-                    .map(|()| s)
-                    .map_err(|e| format!("resume start_capture failed: {e:?}"))
-            })?;
+        // Build the replacement stream FIRST: a build failure must not shift the
+        // timeline. The session stays paused and can be retried — and a retry
+        // re-measures `paused_for` from the same (uncleared) pause instant, so
+        // advancing the offset here would compound on every failed attempt.
+        let new_stream = build_custom_scstream(&self.params, &self.handler, &self.watch)?;
+
+        // Apply the pause gap just before the stream starts delivering, so the
+        // first rebased frame already skips it. Roll back if startup fails so
+        // the failed attempt leaves the offset exactly as it was.
+        writer.set_pause_offset(prev_offset + paused_for.as_secs_f64());
+        if let Err(err) = new_stream.start_capture() {
+            writer.set_pause_offset(prev_offset);
+            return Err(format!("resume start_capture failed: {err:?}"));
+        }
 
         // Stop any lingering paused stream, then swap the fresh one in under
         // the same lock the watchdog uses so the two never feed at once.

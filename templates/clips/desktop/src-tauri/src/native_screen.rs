@@ -1609,9 +1609,17 @@ pub async fn native_fullscreen_recording_pause(
         }
     }
 
-    // Live upload assumes a single append-only file. Pausing makes the
-    // recording multi-segment, so abandon the in-flight uploader; the stop path
-    // resets the partial chunks and re-uploads the consolidated file.
+    // Fallback hard-pause path for pipelines the soft pause above does NOT
+    // cover: the stock recorder, the custom pipeline with live upload off, and
+    // a pause before the first frame. (When live upload is on, the soft pause
+    // handles it and returns before reaching here, keeping the uploader alive.)
+    //
+    // Live upload assumes a single append-only file — the uploader tails one
+    // growing file by byte offset. In these pipelines, pause finalizes that
+    // file and resume starts a brand-new one (multi-segment), which stop later
+    // stitches together into different bytes, so those offsets would be
+    // meaningless. Abandon the in-flight uploader here; the stop path then
+    // resets the partial chunks and re-uploads the consolidated file whole.
     #[cfg(target_os = "macos")]
     if let Some(live) = session.live_upload.take() {
         eprintln!(
