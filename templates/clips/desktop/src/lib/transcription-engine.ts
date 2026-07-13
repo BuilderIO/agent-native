@@ -185,7 +185,7 @@ export function appendFinalTranscript(
   }
 
   const uniqueSegments = event.segments.filter((segment) => {
-    const segText = seg.text?.trim();
+    const segText = segment.text?.trim();
     if (!segText) return false;
 
     return !segments.some((existing) =>

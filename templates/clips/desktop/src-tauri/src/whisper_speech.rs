@@ -392,9 +392,7 @@ mod macos {
         let mut out = Vec::new();
         for segment in state.as_iter() {
             let text = segment.to_string();
-            if is_speech(&text)
-                && segment.no_speech_probability() < MAX_NO_SPEECH_PROBABILITY
-            {
+            if is_speech(&text) && segment.no_speech_probability() < MAX_NO_SPEECH_PROBABILITY {
                 // whisper timestamps are in centiseconds → ms.
                 out.push((
                     segment.start_timestamp() * 10,
@@ -440,6 +438,10 @@ mod macos {
             && had_voice
             && have_secs > 0.5
             && since_last_infer > Duration::from_millis(1200)
+    }
+
+    fn utterance_finalize_due(have_secs: f32, silence: Duration) -> bool {
+        (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
     }
 
     fn worker(stream: Arc<WhisperStream>, ctx: Arc<WhisperContext>) {
@@ -511,7 +513,7 @@ mod macos {
 
             // Finalize on a real pause (>0.8 s silence with >0.4 s speech) or
             // when the buffer grows too long to keep as one utterance.
-            if (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0 {
+            if utterance_finalize_due(have_secs, silence) {
                 // Only transcribe if the utterance actually contained voice —
                 // otherwise we'd feed whisper silence and get a hallucinated
                 // "you" / "Thank you.".
@@ -923,7 +925,7 @@ mod macos {
 
         use super::{
             partial_inference_due, should_use_combined_sck_capture, split_mic_capture_options,
-            SessionOwner,
+            utterance_finalize_due, SessionOwner,
         };
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
@@ -951,6 +953,13 @@ mod macos {
                 1.0,
                 Duration::from_millis(1200)
             ));
+        }
+
+        #[test]
+        fn recording_mode_keeps_silence_and_long_utterance_finalization() {
+            assert!(utterance_finalize_due(1.0, Duration::from_millis(801)));
+            assert!(utterance_finalize_due(25.1, Duration::ZERO));
+            assert!(!utterance_finalize_due(25.0, Duration::from_millis(100)));
         }
 
         #[test]
