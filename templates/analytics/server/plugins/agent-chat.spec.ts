@@ -59,6 +59,12 @@ describe("Analytics agent Plan mode policy", () => {
     expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
       "agent_chat_stuck_detected",
     );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "create-session-replay-agent-link first",
+    );
+    expect(ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE).toContain(
+      "detailed error text, stacks, request metadata",
+    );
   });
 
   it("routes data-dictionary lookup on demand with compact guidance", () => {
