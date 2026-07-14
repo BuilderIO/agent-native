@@ -123,7 +123,9 @@ function maxRisk(
   return riskRank(next) > riskRank(current) ? next : current;
 }
 
-export function reviewPreparePriority(changeSet: ContentDatabaseSourceChangeSet) {
+export function reviewPreparePriority(
+  changeSet: ContentDatabaseSourceChangeSet,
+) {
   if (changeSet.state === "pending_push") return 0;
   if (changeSet.state === "staged_revision") return 1;
   return 2;

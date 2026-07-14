@@ -876,6 +876,8 @@ const messages = {
     retry: "Retry",
     reviewBeforeTheyReachBuilder: "在傳送到 Builder 前審核。",
     reviewDiff: "審核差異",
+    reviewDiffDescription: "在任何內容傳送到 Builder 前載入完整的內容差異。",
+    loadingCompleteBuilderDiff: "正在載入完整的 Builder 差異…",
     sampleMatches: "範例匹配",
     showAll: "顯示全部",
     sortAscending: "升序排序",

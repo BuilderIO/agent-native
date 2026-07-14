@@ -926,7 +926,8 @@ function DatabaseTable({
     builderReviewPreviewQuery.data &&
     builderReviewSource &&
     builderReviewPreviewQuery.data.sourceId === builderReviewSource.id &&
-    builderReviewPreviewQuery.data.sourceTable === builderReviewSource.sourceTable
+    builderReviewPreviewQuery.data.sourceTable ===
+      builderReviewSource.sourceTable
       ? builderReviewPreviewQuery.data
       : null;
   const builderReviewChangeSets = useMemo(
@@ -3244,7 +3245,8 @@ export function databaseBuilderReviewBelongsToSource(
   authoritativeChangeSetIds?: string[],
 ) {
   const sourceChangeSetIds = new Set(
-    authoritativeChangeSetIds ?? source.changeSets.map((changeSet) => changeSet.id),
+    authoritativeChangeSetIds ??
+      source.changeSets.map((changeSet) => changeSet.id),
   );
   return review.rows.every((row) => sourceChangeSetIds.has(row.changeSetId));
 }
@@ -8053,35 +8055,35 @@ function DatabaseSettingsSourcePanel({
         </div>
 
         <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  {conflictChangeSets.length > 0
-                    ? `${conflictChangeSets.length} change${
-                        conflictChangeSets.length === 1 ? "" : "s"
-                      } need review`
-                    : reviewableBuilderChangeSets.length > 0
-                      ? `${reviewableBuilderChangeSets.length} change${
-                          reviewableBuilderChangeSets.length === 1 ? "" : "s"
-                        } ready to push`
-                      : "Check for local content changes"}
-                </div>
-                <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  Loads the complete content diff before anything reaches Builder.
-                </div>
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">
+                {conflictChangeSets.length > 0
+                  ? `${conflictChangeSets.length} change${
+                      conflictChangeSets.length === 1 ? "" : "s"
+                    } need review`
+                  : reviewableBuilderChangeSets.length > 0
+                    ? `${reviewableBuilderChangeSets.length} change${
+                        reviewableBuilderChangeSets.length === 1 ? "" : "s"
+                      } ready to push`
+                    : "Check for local content changes"}
               </div>
-              <Button
-                type="button"
-                size="sm"
-                className="shrink-0"
-                disabled={!canEdit || selectedSourceReviewControlPending}
-                onClick={() => onReviewBuilderUpdate(selectedSource.id)}
-              >
-                <IconCheck className="mr-1.5 size-3.5" />
-                {dbText("reviewDiff")}
-              </Button>
+              <div className="mt-0.5 break-words text-xs text-muted-foreground">
+                {dbText("reviewDiffDescription")}
+              </div>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              disabled={!canEdit || selectedSourceReviewControlPending}
+              onClick={() => onReviewBuilderUpdate(selectedSource.id)}
+            >
+              <IconCheck className="mr-1.5 size-3.5" />
+              {dbText("reviewDiff")}
+            </Button>
           </div>
+        </div>
 
         {selectedSource.bodyHydration ? (
           <BuilderBodyHydrationCard

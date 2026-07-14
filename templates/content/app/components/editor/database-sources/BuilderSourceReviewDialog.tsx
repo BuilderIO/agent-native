@@ -379,12 +379,7 @@ export function BuilderSourceReviewDialog({
         ? current
         : next;
     });
-  }, [
-    autoSelectReviewRows,
-    open,
-    reviewRowIdsKey,
-    selectionChangeSetIdMap,
-  ]);
+  }, [autoSelectReviewRows, open, reviewRowIdsKey, selectionChangeSetIdMap]);
   useEffect(() => {
     if (!open || !allowPublicationTransitionControls) {
       setTransitionSelections({});
@@ -911,7 +906,7 @@ export function BuilderSourceReviewDialog({
           ) : pending ? (
             <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
               <Spinner className="size-4" />
-              Loading the complete Builder diff…
+              {t("database.loadingCompleteBuilderDiff")}
             </div>
           ) : error ? (
             <div

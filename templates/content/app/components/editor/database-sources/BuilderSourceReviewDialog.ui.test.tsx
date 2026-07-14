@@ -285,7 +285,9 @@ describe("BuilderSourceReviewDialog row selection", () => {
         />,
       );
     });
-    expect(document.body.textContent).toContain("Loading the complete Builder diff");
+    expect(document.body.textContent).toContain(
+      "Loading the complete Builder diff",
+    );
     expect(document.body.textContent).not.toContain(
       "database.noPendingLocalBuilderChanges",
     );

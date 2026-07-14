@@ -310,6 +310,9 @@ const databaseMessages = {
   retry: "Retry",
   reviewBeforeTheyReachBuilder: "Review before they reach Builder.",
   reviewDiff: "Review diff",
+  reviewDiffDescription:
+    "Loads the complete content diff before anything reaches Builder.",
+  loadingCompleteBuilderDiff: "Loading the complete Builder diff…",
   sampleMatches: "Sample matches",
   showAll: "Show all",
   sortAscending: "Sort ascending",
@@ -4406,6 +4409,8 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription: "在任何内容发送到 Builder 之前加载完整的内容差异。",
+    loadingCompleteBuilderDiff: "正在加载完整的 Builder 差异…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     saveForEveryone: "为所有人保存",
@@ -4520,6 +4525,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Carga la diferencia completa del contenido antes de enviar nada a Builder.",
+    loadingCompleteBuilderDiff: "Cargando la diferencia completa de Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4633,6 +4641,10 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Charge la comparaison complète du contenu avant tout envoi à Builder.",
+    loadingCompleteBuilderDiff:
+      "Chargement de la comparaison complète de Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4746,6 +4758,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Lädt den vollständigen Inhaltsvergleich, bevor etwas an Builder gesendet wird.",
+    loadingCompleteBuilderDiff: "Vollständiger Builder-Vergleich wird geladen…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4859,6 +4874,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Carrega a comparação completa do conteúdo antes de enviar algo ao Builder.",
+    loadingCompleteBuilderDiff: "Carregando a comparação completa do Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4972,6 +4990,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "يحمّل الفرق الكامل للمحتوى قبل إرسال أي شيء إلى Builder.",
+    loadingCompleteBuilderDiff: "جارٍ تحميل فرق Builder الكامل…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -5080,6 +5101,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription:
+      "Builder に送信する前に、コンテンツの完全な差分を読み込みます。",
+    loadingCompleteBuilderDiff: "Builder の完全な差分を読み込んでいます…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     sortAscending: "升序排序",
@@ -5188,6 +5212,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription:
+      "Builder로 전송하기 전에 전체 콘텐츠 차이를 불러옵니다.",
+    loadingCompleteBuilderDiff: "전체 Builder 차이를 불러오는 중…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     sortAscending: "升序排序",
@@ -5300,6 +5327,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "दृश्य का नाम बदलें",
     reviewBeforeTheyReachBuilder: "Builder तक पहुंचने से पहले समीक्षा करें।",
     reviewDiff: "अंतर की समीक्षा करें",
+    reviewDiffDescription:
+      "Builder तक कुछ भी भेजने से पहले सामग्री का पूरा अंतर लोड करता है।",
+    loadingCompleteBuilderDiff: "Builder का पूरा अंतर लोड हो रहा है…",
     sampleMatches: "नमूना मिलान",
     showAll: "सभी दिखाएं",
     sortAscending: "आरोही क्रम में सॉर्ट करें",

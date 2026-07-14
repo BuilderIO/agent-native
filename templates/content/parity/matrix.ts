@@ -422,6 +422,7 @@ export const parityMatrix: ParityRow[] = [
       "execute-builder-source-execution",
       "prepare-builder-source-execution",
       "prepare-builder-source-review",
+      "preview-builder-source-review",
       "review-content-database-source-change-set",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
