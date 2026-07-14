@@ -138,6 +138,9 @@ describe("Builder preview callback relay", () => {
     const relay = makeRelay();
     const event = callbackEvent(relay.state);
     expect(
+      verifyBuilderPreviewRelayStateForCallback(relay.state, { now: NOW }),
+    ).toEqual(relay.payload);
+    expect(
       shouldBypassAuthForBuilderConnect(
         event,
         "/_agent-native/builder/callback",
