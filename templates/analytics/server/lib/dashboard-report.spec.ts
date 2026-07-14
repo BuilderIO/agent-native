@@ -34,6 +34,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/shared", () => ({
   EMBED_MODE_QUERY_PARAM: "__an_embed",
+  EMBED_SESSION_COOKIE: "an_embed_session",
   EMBED_TOKEN_QUERY_PARAM: "__an_embed_token",
 }));
 
