@@ -5,7 +5,6 @@ import {
 } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
-  IconAppWindow,
   IconBellRinging,
   IconCalendar,
   IconCheck,
@@ -24,7 +23,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import { PageHeader } from "@/components/library/page-header";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
@@ -52,7 +50,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -465,7 +462,7 @@ function MeetingNotesSteps() {
   );
 }
 
-function MeetingNotesGuide({ showDesktopCta }: { showDesktopCta: boolean }) {
+function MeetingNotesGuide() {
   const t = useT();
   return (
     <section className="mb-6 rounded-lg border border-border bg-accent/20 p-4">
@@ -478,16 +475,6 @@ function MeetingNotesGuide({ showDesktopCta }: { showDesktopCta: boolean }) {
             {t("meetingsRoute.howToTriggerDescription")}
           </p>
         </div>
-        {showDesktopCta && (
-          <CaptureInstallButton
-            size="sm"
-            variant="secondary"
-            className="h-8 w-fit shrink-0 gap-1.5 cursor-pointer"
-          >
-            <IconAppWindow className="h-4 w-4" />
-            {t("meetingsRoute.getDesktopApp")}
-          </CaptureInstallButton>
-        )}
       </div>
       <MeetingNotesSteps />
     </section>
@@ -696,14 +683,12 @@ function CalendarAccountMenu({
 function MeetingsHeader({
   query,
   onQueryChange,
-  showDesktopCta,
   calendarAccounts,
   onConnected,
   onDisconnected,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
-  showDesktopCta: boolean;
   calendarAccounts: CalendarAccount[];
   onConnected?: () => void | Promise<void>;
   onDisconnected?: () => void;
@@ -792,7 +777,6 @@ export default function MeetingsIndexRoute() {
   }, [query]);
 
   const queryClient = useQueryClient();
-  const { shouldShowSidebarLink: showDesktopCta } = useDesktopPromo();
 
   const accounts = useActionQuery<{ accounts: CalendarAccount[] } | undefined>(
     "list-calendar-accounts",
@@ -996,7 +980,6 @@ export default function MeetingsIndexRoute() {
         <MeetingsHeader
           query={query}
           onQueryChange={setQuery}
-          showDesktopCta={showDesktopCta}
           calendarAccounts={calendarAccounts}
           onConnected={handleCalendarConnected}
           onDisconnected={handleCalendarDisconnected}
@@ -1018,7 +1001,6 @@ export default function MeetingsIndexRoute() {
       <MeetingsHeader
         query={query}
         onQueryChange={setQuery}
-        showDesktopCta={showDesktopCta}
         calendarAccounts={calendarAccounts}
         onConnected={handleCalendarConnected}
         onDisconnected={handleCalendarDisconnected}
@@ -1028,9 +1010,7 @@ export default function MeetingsIndexRoute() {
         <CalendarReauthBanner onReconnect={handleReconnectCalendar} />
       )}
 
-      {hasCalendar && meetings.length === 0 && (
-        <MeetingNotesGuide showDesktopCta={showDesktopCta} />
-      )}
+      {hasCalendar && meetings.length === 0 && <MeetingNotesGuide />}
 
       {nothingAtAll ? (
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">
