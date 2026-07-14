@@ -3,6 +3,9 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 // In-memory stand-in for the settings table so we can inspect what is
 // persisted at rest (the whole point of this fix).
 const store = new Map<string, { value: unknown }>();
+const readAppSecret = vi.fn();
+
+vi.mock("../secrets/storage.js", () => ({ readAppSecret }));
 
 vi.mock("../settings/store.js", () => ({
   getSetting: async (key: string) => store.get(key) ?? null,
@@ -15,6 +18,8 @@ vi.mock("../settings/store.js", () => ({
 beforeEach(() => {
   process.env.SECRETS_ENCRYPTION_KEY = "credentials-spec-key";
   store.clear();
+  readAppSecret.mockReset();
+  readAppSecret.mockResolvedValue(null);
 });
 
 describe("credentials encryption at rest", () => {
@@ -59,6 +64,71 @@ describe("credentials encryption at rest", () => {
         orgId: "org-1",
       }),
     ).toBe("org-secret");
+  });
+
+  it("reads org app secrets synced from the Dispatch vault", async () => {
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "org" &&
+      ref.scopeId === "org-1" &&
+      ref.key === "HUBSPOT_ACCESS_TOKEN"
+        ? { value: "vault-hubspot-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("HUBSPOT_ACCESS_TOKEN", {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe("vault-hubspot-token");
+    expect(readAppSecret.mock.calls.map(([ref]) => ref)).toEqual([
+      {
+        key: "HUBSPOT_ACCESS_TOKEN",
+        scope: "user",
+        scopeId: "member@example.test",
+      },
+      {
+        key: "HUBSPOT_ACCESS_TOKEN",
+        scope: "org",
+        scopeId: "org-1",
+      },
+    ]);
+  });
+
+  it("reads solo workspace app secrets when there is no active org", async () => {
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "workspace" && ref.scopeId === "solo:owner@example.test"
+        ? { value: "solo-vault-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("GONG_ACCESS_KEY", {
+        userEmail: "owner@example.test",
+      }),
+    ).resolves.toBe("solo-vault-token");
+  });
+
+  it("keeps a legacy user override ahead of shared app secrets", async () => {
+    store.set("u:member@example.test:credential:STRIPE_KEY", {
+      value: "personal-legacy-token",
+    });
+    readAppSecret.mockImplementation(async (ref: any) =>
+      ref.scope === "org"
+        ? { value: "shared-org-token", last4: "oken", updatedAt: 1 }
+        : null,
+    );
+    const { resolveCredential } = await import("./index.js");
+
+    await expect(
+      resolveCredential("STRIPE_KEY", {
+        userEmail: "member@example.test",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe("personal-legacy-token");
+    expect(readAppSecret).toHaveBeenCalledTimes(1);
   });
 
   it("returns undefined when the encryption key rotated (cannot decrypt)", async () => {

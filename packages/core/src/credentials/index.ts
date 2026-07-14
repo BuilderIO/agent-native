@@ -3,6 +3,7 @@ import {
   decryptSecretValue,
   isEncryptedSecretValue,
 } from "../secrets/crypto.js";
+import { readAppSecret, type SecretRef } from "../secrets/storage.js";
 import { getSetting, putSetting, deleteSetting } from "../settings/store.js";
 
 const SETTING_PREFIX = "credential:";
@@ -41,6 +42,20 @@ async function readCredentialSetting(
   }
 }
 
+async function readScopedAppSecret(
+  key: string,
+  scope: SecretRef["scope"],
+  scopeId: string,
+): Promise<string | undefined> {
+  try {
+    return (await readAppSecret({ key, scope, scopeId }))?.value;
+  } catch {
+    // Older databases may not have app_secrets yet. Keep the legacy
+    // credential store available while the table bootstraps.
+    return undefined;
+  }
+}
+
 /**
  * Resolve a credential from one explicit legacy SQL credential scope.
  *
@@ -61,22 +76,34 @@ export async function resolveCredentialForScope(
 }
 
 /**
- * Resolve a credential, scoped to the caller's user (and falling back to
- * the active org's shared credential, if any).
+ * Resolve a credential across the encrypted app_secrets store and the legacy
+ * settings-backed credential store. User overrides win, followed by the
+ * active org/workspace shared value.
  *
  * SECURITY: NEVER reads from process.env. Env vars are global to the
- * deployment and would leak across users in a multi-tenant app. The only
- * sources are per-user / per-org rows in the SQL `settings` table.
+ * deployment and would leak across users in a multi-tenant app.
  *
- * Storage keys (priority order):
- *   1. u:<email>:credential:<KEY>   — per-user override
- *   2. o:<orgId>:credential:<KEY>   — per-org shared credential (if orgId given)
+ * Read order:
+ *   1. user-scoped app_secrets
+ *   2. user-scoped legacy settings credential
+ *   3. org-scoped app_secrets
+ *   4. legacy workspace-scoped app_secrets for the org
+ *   5. org-scoped legacy settings credential
+ *
+ * Without an active org, step 3 is replaced by the solo workspace scope.
  */
 export async function resolveCredential(
   key: string,
   ctx: CredentialContext,
 ): Promise<string | undefined> {
   if (!ctx?.userEmail) return undefined;
+
+  const userSecret = await readScopedAppSecret(
+    key,
+    "user",
+    ctx.userEmail,
+  );
+  if (userSecret) return userSecret;
 
   const userSetting = await resolveCredentialForScope(key, {
     ...ctx,
@@ -85,10 +112,24 @@ export async function resolveCredential(
   if (userSetting) return userSetting;
 
   if (ctx.orgId) {
+    const orgSecret = await readScopedAppSecret(key, "org", ctx.orgId);
+    if (orgSecret) return orgSecret;
+
+    const workspaceSecret = await readScopedAppSecret(
+      key,
+      "workspace",
+      ctx.orgId,
+    );
+    if (workspaceSecret) return workspaceSecret;
+
     return resolveCredentialForScope(key, { ...ctx, scope: "org" });
   }
 
-  return undefined;
+  return readScopedAppSecret(
+    key,
+    "workspace",
+    `solo:${ctx.userEmail}`,
+  );
 }
 
 /**
