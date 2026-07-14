@@ -137,6 +137,10 @@ import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
 import {
+  getCodexLoginLaunchSpec,
+  spawnDetached,
+} from "./codex-login-launcher.js";
+import {
   ComputerControlBroker,
   DesktopComputerMcpBridge,
   EphemeralScreenObserver,
@@ -4462,29 +4466,6 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   };
 }
 
-function spawnDetached(
-  command: string,
-  args: string[],
-  cwd: string,
-): CodeAgentTerminalResult {
-  try {
-    const child = spawn(command, args, {
-      cwd,
-      detached: true,
-      stdio: "ignore",
-      windowsHide: false,
-    });
-    child.unref();
-    return { ok: true, cwd };
-  } catch (err) {
-    return {
-      ok: false,
-      cwd,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
 function getHomeDirectory(): string {
   try {
     return app.getPath("home");
@@ -6732,7 +6713,9 @@ function quoteWindowsCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
+async function openTerminalForCodeAgents(
+  request?: unknown,
+): Promise<CodeAgentTerminalResult> {
   const cwd = resolveCodeAgentsTerminalCwd(request);
   if (process.platform === "darwin") {
     return spawnDetached("open", ["-a", "Terminal", cwd], cwd);
@@ -6756,6 +6739,30 @@ function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
     cwd,
     error: `Opening a terminal is not supported on ${process.platform}.`,
   };
+}
+
+function isCommandAvailable(command: string): boolean {
+  try {
+    return (
+      spawnSync("which", [command], {
+        stdio: "ignore",
+      }).status === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function openCodexLoginTerminal(): Promise<CodeAgentTerminalResult> {
+  const cwd = getHomeDirectory();
+  const launch = getCodexLoginLaunchSpec(
+    process.platform,
+    process.platform === "linux" ? isCommandAvailable : undefined,
+  );
+  if (!launch.ok) return { ok: false, cwd, error: launch.error };
+  return spawnDetached(launch.command, launch.args, cwd, undefined, {
+    waitForExit: process.platform === "darwin",
+  });
 }
 
 function readPackageMetadata(packagePath: string): {
@@ -7054,7 +7061,7 @@ function withLocalCodexProviderStatus(
   if (!codex.available) return settings;
   const provider = {
     id: "codex" as const,
-    label: "Codex CLI",
+    label: "ChatGPT subscription",
     configured: codex.authenticated,
     configuredKeys: [] as CodeAgentProviderCredentialKey[],
     missingKeys: [] as CodeAgentProviderCredentialKey[],
@@ -7180,11 +7187,11 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
       if (codex.available) {
         models.push({
           engine: CODEX_CLI_ENGINE_NAME,
-          engineLabel: "Codex",
+          engineLabel: "This computer",
           model: CODEX_CLI_DEFAULT_MODEL,
           label: "Codex CLI default",
           description:
-            "Use the local Codex CLI and its signed-in ChatGPT/API auth.",
+            "Run locally through your signed-in ChatGPT subscription.",
           configured: codex.authenticated,
         });
       }
@@ -7591,6 +7598,7 @@ registerCodeAgentsIpc({
   readCodeAgentProjectsState,
   chooseCodeAgentProject,
   openTerminalForCodeAgents,
+  openCodeAgentCodexLogin: openCodexLoginTerminal,
   getRemoteConnectorStatus,
   setRemoteConnectorEnabled,
   pairRemoteCodeAgentConnector,
