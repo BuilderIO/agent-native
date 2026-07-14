@@ -581,6 +581,19 @@ describe("integration webhook handler engine resolution", () => {
     { timeout: 15_000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
+      runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+        send({
+          type: "tool_done",
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "hidden_request",
+            createdDocumentTitle: "Hidden request",
+            urlPath: "/page/hidden_request",
+            verification: { found: true },
+          }),
+        });
+        send({ type: "text", text: "Created, but delivery failed." });
+      });
 
       await processIntegrationTask(pendingTask(), {
         adapter: createAdapter(vi.fn(async () => undefined)),
@@ -597,6 +610,7 @@ describe("integration webhook handler engine resolution", () => {
       const persisted = JSON.parse(persistedData as string);
       const assistant = persisted.messages.at(-1);
       expect(assistant.metadata.integrationDelivery).toBeUndefined();
+      expect(assistant.metadata.integrationArtifacts).toBeUndefined();
     },
   );
 

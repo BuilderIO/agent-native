@@ -119,30 +119,76 @@ describe("appendA2AArtifactLinks", () => {
     ]);
   });
 
-  it.each([
-    "edit-image",
-    "restyle-image",
-    "save-generated-asset",
-    "export-asset",
-  ])("retains image identity from the %s write alias", (tool) => {
+  it.each(["edit-image", "restyle-image", "save-generated-asset"])(
+    "retains image identity from the %s write alias",
+    (tool) => {
+      expect(
+        extractA2AArtifactIdentities([
+          {
+            tool,
+            result: JSON.stringify({
+              assetId: "asset_target",
+              title: "Target image",
+              pageUrl: "/assets/asset_target",
+            }),
+          },
+        ]),
+      ).toEqual([
+        {
+          resourceType: "image",
+          id: "asset_target",
+          sourceAction: tool,
+          titleAtAction: "Target image",
+          url: "/assets/asset_target",
+        },
+      ]);
+    },
+  );
+
+  it("retains image exports but excludes video exports from image identity", () => {
     expect(
       extractA2AArtifactIdentities([
         {
-          tool,
+          tool: "export-asset",
           result: JSON.stringify({
-            assetId: "asset_target",
-            title: "Target image",
-            pageUrl: "/assets/asset_target",
+            assetId: "image_target",
+            artifactType: "image",
+            pageUrl: "/assets/image_target",
+          }),
+        },
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "video_target",
+            artifactType: "video",
+            pageUrl: "/assets/video_target",
           }),
         },
       ]),
     ).toEqual([
       {
         resourceType: "image",
-        id: "asset_target",
-        sourceAction: tool,
-        titleAtAction: "Target image",
-        url: "/assets/asset_target",
+        id: "image_target",
+        sourceAction: "export-asset",
+        url: "/assets/image_target",
+      },
+    ]);
+  });
+
+  it("retains the stable identity of an empty design shell", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_shell", title: "Launch" }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "design",
+        id: "design_shell",
+        sourceAction: "create-design",
+        titleAtAction: "Launch",
       },
     ]);
   });

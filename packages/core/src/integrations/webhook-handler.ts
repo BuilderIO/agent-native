@@ -1568,10 +1568,10 @@ async function persistThreadData(
     if (assistantMsg) {
       if (deliveredResponse) {
         assistantMsg.metadata.integrationDelivery = deliveredResponse;
-      }
-      const artifactIdentities = extractA2AArtifactIdentities(toolResults);
-      if (artifactIdentities.length > 0) {
-        assistantMsg.metadata.integrationArtifacts = artifactIdentities;
+        const artifactIdentities = extractA2AArtifactIdentities(toolResults);
+        if (artifactIdentities.length > 0) {
+          assistantMsg.metadata.integrationArtifacts = artifactIdentities;
+        }
       }
     }
 

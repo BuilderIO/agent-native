@@ -668,10 +668,16 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
       toolResult.tool === "get-asset" ||
       toolResult.tool === "save-generated-image" ||
       toolResult.tool === "save-generated-asset" ||
-      toolResult.tool === "export-image" ||
-      toolResult.tool === "export-asset"
+      toolResult.tool === "export-image"
     ) {
       addImageArtifact(images, parsed);
+      continue;
+    }
+
+    if (toolResult.tool === "export-asset") {
+      if (stringValue(parsed.artifactType) === "image") {
+        addImageArtifact(images, parsed);
+      }
       continue;
     }
 
@@ -838,6 +844,14 @@ export function extractA2AArtifactIdentities(
         sourceAction: result.tool,
         titleAtAction: image.title,
         url: image.url,
+      });
+    }
+    for (const design of artifacts.designShells) {
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        titleAtAction: design.title,
       });
     }
     for (const design of artifacts.generatedDesigns) {
