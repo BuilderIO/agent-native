@@ -438,8 +438,6 @@ const messages = {
       "링크가 있는 사람은 누구나 볼 수 있습니다. 댓글을 달거나 반응하려면 로그인하세요.",
     shareRecording: "녹음 공유",
     shareTitle: '"{{title}}" 공유',
-    human: "사람",
-    agent: "에이전트",
     link: "링크",
     invite: "초대",
     embed: "임베드",

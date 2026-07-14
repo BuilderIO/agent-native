@@ -3,4 +3,4 @@ type: improved
 date: 2026-07-14
 ---
 
-Share dialogs once again distinguish links for people from temporary links for agents.
+The Share dialog once again makes separate links for people and agents easy to find.

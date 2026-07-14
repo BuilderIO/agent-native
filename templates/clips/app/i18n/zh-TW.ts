@@ -420,8 +420,6 @@ const messages = {
     publicDescription: "知道連結的任何人都可以檢視 - 登入後發表評論或做出反應",
     shareRecording: "分享錄音",
     shareTitle: "分享“{{title}}”",
-    human: "人類",
-    agent: "Agent",
     link: "連結",
     invite: "邀請",
     embed: "嵌入",

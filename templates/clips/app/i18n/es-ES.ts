@@ -450,8 +450,6 @@ const messages = {
       "Cualquiera que tenga el enlace puede verlo: inicie sesión para comentar o reaccionar.",
     shareRecording: "Compartir grabación",
     shareTitle: 'Compartir "{{title}}"',
-    human: "Persona",
-    agent: "Agente",
     link: "Enlace",
     invite: "Invitar",
     embed: "Insertar",

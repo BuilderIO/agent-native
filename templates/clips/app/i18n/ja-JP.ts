@@ -445,8 +445,6 @@ const messages = {
       "リンクを知っている人は誰でも閲覧できます。コメントしたり反応するにはサインインしてください",
     shareRecording: "録画を共有する",
     shareTitle: "「{{title}}」をシェアする",
-    human: "人間",
-    agent: "エージェント",
     link: "リンク",
     invite: "招待",
     embed: "埋め込み",

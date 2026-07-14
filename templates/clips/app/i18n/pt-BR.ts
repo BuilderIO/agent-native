@@ -447,8 +447,6 @@ const messages = {
       "Qualquer pessoa com o link pode visualizar – faça login para comentar ou reagir",
     shareRecording: "Compartilhar gravação",
     shareTitle: 'Compartilhe "{{title}}"',
-    human: "Pessoa",
-    agent: "Agente",
     link: "Traduzido: Link",
     invite: "Convidar",
     embed: "Incorporar",

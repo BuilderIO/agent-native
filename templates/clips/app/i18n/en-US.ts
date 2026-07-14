@@ -436,8 +436,6 @@ const messages = {
     shareRecording: "Share recording",
     sharePlainTitle: "Share {{title}}",
     shareTitle: 'Share "{{title}}"',
-    human: "Human",
-    agent: "Agent",
     link: "Link",
     invite: "Invite",
     embed: "Embed",

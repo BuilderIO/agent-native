@@ -453,8 +453,6 @@ const messages = {
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
     shareTitle: "Teile „{{title}}“",
-    human: "Mensch",
-    agent: "Agent",
     link: "Übersetzt: Link",
     invite: "Einladen",
     embed: "Einbetten",
