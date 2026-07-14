@@ -63,10 +63,10 @@ export interface UseRunStuckDetectionOptions {
    */
   backgroundStuckThresholdMs?: number;
   /**
-   * Threshold for a claimed durable background worker that is still sending
-   * fresh process heartbeats. These workers can legitimately spend up to the
-   * 12-minute tool/no-progress window on large Design, Plan, or Assets work.
-   * Default 13 minutes, matching the durable chunk handoff boundary.
+   * Legacy upper bound for a claimed durable background worker that is still
+   * sending fresh process heartbeats. Informational quiet-run UI is never
+   * delayed past `backgroundStuckThresholdMs`; this option can only request an
+   * earlier notice for live workers. Default 13 minutes.
    */
   liveBackgroundStuckThresholdMs?: number;
   /** Poll interval. Default 5_000ms. */
@@ -127,6 +127,49 @@ export function useRunStuckDetection({
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let heartbeatExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const scheduleHeartbeatExpiry = (
+      runId: string | null,
+      heartbeatAt: number | null,
+      heartbeatSinceMs: number | null,
+    ) => {
+      if (heartbeatExpiryTimer) clearTimeout(heartbeatExpiryTimer);
+      heartbeatExpiryTimer = null;
+      if (
+        runId == null ||
+        heartbeatAt == null ||
+        heartbeatSinceMs == null ||
+        heartbeatSinceMs < 0 ||
+        heartbeatSinceMs >= FRESH_BACKGROUND_HEARTBEAT_MS
+      ) {
+        return;
+      }
+
+      // `heartbeatSinceMs` is computed from the server clock, but it is only a
+      // snapshot. Expire that snapshot against elapsed local time so a hung or
+      // failing follow-up poll cannot claim the worker is alive forever and
+      // indefinitely hide Retry. Comparing a duration is safe from client/server
+      // clock skew; a later successful poll replaces this timer with fresh data.
+      const expiresInMs = FRESH_BACKGROUND_HEARTBEAT_MS - heartbeatSinceMs + 1;
+      heartbeatExpiryTimer = setTimeout(() => {
+        if (cancelled) return;
+        setState((current) => {
+          if (
+            current.runId !== runId ||
+            current.heartbeatAt !== heartbeatAt ||
+            current.heartbeatSinceMs == null ||
+            current.heartbeatSinceMs >= FRESH_BACKGROUND_HEARTBEAT_MS
+          ) {
+            return current;
+          }
+          return {
+            ...current,
+            heartbeatSinceMs: FRESH_BACKGROUND_HEARTBEAT_MS,
+          };
+        });
+      }, expiresInMs);
+    };
 
     const poll = async () => {
       if (cancelled) return;
@@ -160,18 +203,21 @@ export function useRunStuckDetection({
             dispatchMode === "foreground-self-chain" ||
             dispatchMode?.startsWith("background") === true;
           // A claimed durable worker with a fresh heartbeat can legitimately
-          // be waiting on a bounded long-running tool/sub-agent call. Showing
-          // Retry at the generic 3-minute continuation threshold aborts healthy
-          // work and starts the same call again. Let the worker's own 12-minute
-          // watchdog act first; a dead/stale heartbeat still gets the earlier
-          // background fallback below.
+          // be waiting on a bounded long-running tool/sub-agent call. Still
+          // surface informational status at the normal background threshold;
+          // RunStuckBanner uses the fresh heartbeat to withhold Retry while
+          // keeping an explicit Cancel available. The legacy live-worker
+          // threshold may make that notice earlier, but never later.
           const liveBackgroundWorker =
             dispatchMode === "background-processing" &&
             heartbeatSinceMs != null &&
             heartbeatSinceMs >= 0 &&
             heartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
           const effectiveThresholdMs = liveBackgroundWorker
-            ? liveBackgroundStuckThresholdMs
+            ? Math.min(
+                backgroundStuckThresholdMs,
+                liveBackgroundStuckThresholdMs,
+              )
             : serverContinued
               ? backgroundStuckThresholdMs
               : stuckThresholdMs;
@@ -180,6 +226,11 @@ export function useRunStuckDetection({
             data.status === "running" &&
             stuckSinceMs != null &&
             stuckSinceMs > effectiveThresholdMs,
+          );
+          scheduleHeartbeatExpiry(
+            data.runId ?? null,
+            heartbeatAt,
+            heartbeatSinceMs,
           );
           setState({
             isStuck,
@@ -218,6 +269,7 @@ export function useRunStuckDetection({
     return () => {
       cancelled = true;
       if (timer) clearTimeout(timer);
+      if (heartbeatExpiryTimer) clearTimeout(heartbeatExpiryTimer);
     };
   }, [
     threadId,

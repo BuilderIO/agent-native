@@ -323,10 +323,17 @@ export function RunStuckBanner({
   };
 
   const handleRetry = async () => {
-    // Defense in depth: the button is hidden while `inFlightWork` is true
-    // (see render below), but guard the handler itself too so an abort can
-    // never be triggered against live work through this path.
-    if (!state.runId || busy.type !== "none" || inFlightWork) return;
+    // Defense in depth: Retry is hidden while a background worker is still
+    // heartbeating or work is explicitly in flight (see render below). Guard
+    // the handler too so this path cannot abort a run the server says is alive.
+    if (
+      !state.runId ||
+      busy.type !== "none" ||
+      backgroundWorkerStillAlive ||
+      inFlightWork
+    ) {
+      return;
+    }
     const runId = state.runId;
     setBusy({ type: "retry", runId });
     trackEvent("agent_chat_stuck_retry", {
@@ -380,7 +387,7 @@ export function RunStuckBanner({
           </span>
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          {inFlightWork ? null : (
+          {stillWorking ? null : (
             <button
               type="button"
               onClick={handleRetry}
