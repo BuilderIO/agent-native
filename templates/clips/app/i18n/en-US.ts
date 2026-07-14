@@ -637,6 +637,9 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     transcriptCleanup: "AI transcript cleanup",
     transcriptCleanupDescription:
       "Off by default. When on, an AI pass rewrites the transcript for punctuation and readability after transcription. It can occasionally reword technical terms — the original transcript is always kept, so nothing is lost.",
+    backupTranscription: "Cloud backup transcription",
+    backupTranscriptionDescription:
+      "On by default. When no local transcript was captured, the recording's audio is sent to your connected cloud provider (Builder.io credits or Groq) to transcribe. Turn off to keep audio strictly on this device — such clips then stay untranscribed.",
     notifications: "Notifications",
     emailNotifications: "Email notifications",
     emailNotificationsDescription:

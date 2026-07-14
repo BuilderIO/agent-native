@@ -655,6 +655,9 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     transcriptCleanup: "Nettoyage IA de la transcription",
     transcriptCleanupDescription:
       "Désactivé par défaut. Une fois activé, une passe d'IA réécrit la transcription après sa génération pour la ponctuation et la lisibilité. Elle peut parfois reformuler des termes techniques — la transcription d'origine est toujours conservée, rien n'est perdu.",
+    backupTranscription: "Transcription de secours dans le cloud",
+    backupTranscriptionDescription:
+      "Activé par défaut. Si aucune transcription locale n'a été capturée, l'audio de l'enregistrement est envoyé à votre fournisseur cloud connecté (crédits Builder.io ou Groq) pour transcription. Désactivez pour garder l'audio strictement sur cet appareil — ces clips resteront alors sans transcription.",
     notifications: "Alertes",
     emailNotifications: "Notifications par e-mail",
     emailNotificationsDescription:

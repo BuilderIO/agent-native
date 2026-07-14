@@ -643,6 +643,25 @@ async function failAudioOnlyPreparation({
 // botched real recordings before (a Gemini pass once rewrote a transcript
 // into unrelated text). The native/whisper transcript is the product; users
 // who want the extra polish enable cleanup explicitly in Settings.
+// Cloud backup transcription is a per-user choice (default ON): when the
+// local transcript is missing, the audio leaves the machine for Builder or
+// Groq. Privacy-minded setups turn this off and keep clips untranscribed
+// unless the local engine produced text.
+async function backupTranscriptionEnabled(): Promise<boolean> {
+  const userEmail = getRequestUserEmail();
+  if (userEmail) {
+    const userSettings = await getUserSetting(
+      userEmail,
+      CLIPS_USER_PREFS_KEY,
+    ).catch(() => null);
+    if (userSettings && "backupTranscriptionEnabled" in userSettings) {
+      return userSettings.backupTranscriptionEnabled !== false;
+    }
+  }
+  const settings = await getSetting(CLIPS_USER_PREFS_KEY).catch(() => null);
+  return settings?.backupTranscriptionEnabled !== false;
+}
+
 async function transcriptCleanupEnabled(): Promise<boolean> {
   const userEmail = getRequestUserEmail();
   if (userEmail) {
@@ -1252,7 +1271,11 @@ const requestTranscriptAction = defineAction({
       );
     };
 
-    if (await inRecordingScope(() => resolveHasBuilderPrivateKey())) {
+    const cloudBackupEnabled = await backupTranscriptionEnabled();
+    if (
+      cloudBackupEnabled &&
+      (await inRecordingScope(() => resolveHasBuilderPrivateKey()))
+    ) {
       if (!regeneratingReadyTranscript) {
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
@@ -1458,7 +1481,9 @@ const requestTranscriptAction = defineAction({
     // key is configured but a native transcript already exists
     // (from Web Speech API or macOS Speech during recording), preserve it instead of
     // clobbering it with "pending" then "failed".
-    const provider = await inRecordingScope(() => pickProvider(userEmail));
+    const provider = cloudBackupEnabled
+      ? await inRecordingScope(() => pickProvider(userEmail))
+      : null;
     if (!provider) {
       const preserved = await preserveReadyTranscriptIfAvailable({
         db,
@@ -1467,9 +1492,11 @@ const requestTranscriptAction = defineAction({
       });
       if (preserved) return preserved;
 
-      const reason = builderError
-        ? "No native transcript was captured, and backup transcription could not finish. Retry transcription or check microphone and speech permissions."
-        : "No transcript was captured by native speech recognition, and no backup transcription provider is configured.";
+      const reason = !cloudBackupEnabled
+        ? "No local transcript was captured, and cloud backup transcription is turned off in Settings."
+        : builderError
+          ? "No native transcript was captured, and backup transcription could not finish. Retry transcription or check microphone and speech permissions."
+          : "No transcript was captured by native speech recognition, and no backup transcription provider is configured.";
       await upsertTranscriptRow(db, {
         recordingId: args.recordingId,
         ownerEmail,

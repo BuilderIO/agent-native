@@ -660,6 +660,9 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     transcriptCleanup: "KI-Transkriptbereinigung",
     transcriptCleanupDescription:
       "Standardmäßig aus. Wenn aktiviert, überarbeitet ein KI-Durchlauf das Transkript nach der Transkription für Zeichensetzung und Lesbarkeit. Fachbegriffe können dabei gelegentlich umformuliert werden — das Original-Transkript bleibt immer erhalten, es geht nichts verloren.",
+    backupTranscription: "Cloud-Backup-Transkription",
+    backupTranscriptionDescription:
+      "Standardmäßig an. Wenn kein lokales Transkript erfasst wurde, wird die Tonspur an den verbundenen Cloud-Anbieter (Builder.io-Credits oder Groq) zur Transkription gesendet. Ausschalten hält Audio strikt auf diesem Gerät — solche Clips bleiben dann ohne Transkript.",
     notifications: "Benachrichtigungen",
     emailNotifications: "E-Mail-Benachrichtigungen",
     emailNotificationsDescription:

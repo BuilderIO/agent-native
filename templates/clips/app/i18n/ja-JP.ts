@@ -648,6 +648,9 @@ Clips のユーザー向けの主な変更はここに記録されます。コ�
     transcriptCleanup: "AIによる文字起こしクリーンアップ",
     transcriptCleanupDescription:
       "デフォルトはオフです。オンにすると、文字起こし後にAIが句読点や読みやすさのために書き直します。専門用語が言い換えられることがあります — 元の文字起こしは常に保持され、失われることはありません。",
+    backupTranscription: "クラウドバックアップ文字起こし",
+    backupTranscriptionDescription:
+      "デフォルトはオンです。ローカルの文字起こしが得られなかった場合、録画の音声が接続済みのクラウドプロバイダー（Builder.ioクレジットまたはGroq）に送信されて文字起こしされます。オフにすると音声はこのデバイスから出ません — その場合、該当クリップは文字起こしなしのままになります。",
     notifications: "通知",
     emailNotifications: "メール通知",
     emailNotificationsDescription:

@@ -16,6 +16,12 @@
 //!
 use tauri::AppHandle;
 
+/// Final transcripts emitted since the current session started — logged at
+/// stop so a silent session (0 finals despite real speech) is visible in
+/// tray-timings.log.
+pub(crate) static FINALS_EMITTED: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
 #[tauri::command]
 pub async fn whisper_transcription_start(
     app: AppHandle,
@@ -39,7 +45,9 @@ pub async fn whisper_transcription_start(
                 "owner": owner,
             }),
         );
-        macos::start(
+        FINALS_EMITTED.store(0, std::sync::atomic::Ordering::Relaxed);
+        let diag_app = app.clone();
+        let result = macos::start(
             app,
             language,
             mic_device_id,
@@ -48,7 +56,16 @@ pub async fn whisper_transcription_start(
             voice_processing,
             macos::SessionOwner::from_param(owner),
         )
-        .await
+        .await;
+        crate::diag::tray_diag(
+            &diag_app,
+            serde_json::json!({
+                "event": "whisper-start-result",
+                "ok": result.is_ok(),
+                "error": result.as_ref().err().cloned(),
+            }),
+        );
+        result
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -89,6 +106,14 @@ pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
         macos::stop(&app);
+        crate::diag::tray_diag(
+            &app,
+            serde_json::json!({
+                "event": "whisper-stopped",
+                "finalsEmitted": FINALS_EMITTED
+                    .load(std::sync::atomic::Ordering::Relaxed),
+            }),
+        );
         Ok(())
     }
     #[cfg(not(target_os = "macos"))]
@@ -366,6 +391,8 @@ mod macos {
                     text: t.trim().to_string(),
                 })
                 .collect();
+            crate::whisper_speech::FINALS_EMITTED
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let _ = self.app.emit(
                 event,
                 TranscriptPayload {
@@ -440,6 +467,14 @@ mod macos {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("[whisper-{}] create_state failed: {e}", stream.source);
+                crate::diag::tray_diag(
+                    &stream.app,
+                    serde_json::json!({
+                        "event": "whisper-worker-failed",
+                        "source": stream.source,
+                        "error": format!("{e}"),
+                    }),
+                );
                 let _ = stream.app.emit(
                     "pill:error",
                     serde_json::json!({ "error": format!("Transcription worker ({}) failed: {e}", stream.source) }),

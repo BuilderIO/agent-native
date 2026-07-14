@@ -610,6 +610,9 @@ const messages = {
     transcriptCleanup: "AI 逐字稿清理",
     transcriptCleanupDescription:
       "預設關閉。開啟後，逐字稿完成後會由 AI 重寫文字以改善標點與可讀性。專業術語偶爾可能被改寫 — 原始逐字稿永遠保留，不會遺失任何內容。",
+    backupTranscription: "雲端備援逐字稿",
+    backupTranscriptionDescription:
+      "預設開啟。當未擷取到本機逐字稿時，錄影音訊會傳送到已連接的雲端服務（Builder.io 額度或 Groq）進行轉寫。關閉後音訊嚴格保留在本裝置上 — 此類剪輯將維持無逐字稿狀態。",
     notifications: "通知",
     emailNotifications: "郵件通知",
     emailNotificationsDescription:

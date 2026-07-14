@@ -30,6 +30,13 @@ export type ClipsUserPrefs = ClipsAiPrefs & {
   emailNotifications?: boolean;
   displayName?: string;
   transcriptCleanupEnabled?: boolean;
+  /**
+   * Cloud backup transcription (Builder credits / Groq) when the local
+   * transcript is missing or failed. Default ON — turning it off keeps
+   * recording audio strictly on-device; clips without a local transcript
+   * then stay untranscribed.
+   */
+  backupTranscriptionEnabled?: boolean;
 };
 
 export function isIncludeFullVideoInAiEnabled(

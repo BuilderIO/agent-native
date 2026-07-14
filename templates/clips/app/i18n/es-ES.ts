@@ -655,6 +655,9 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     transcriptCleanup: "Limpieza del transcript con IA",
     transcriptCleanupDescription:
       "Desactivado por defecto. Al activarlo, una pasada de IA reescribe la transcripción tras generarse para mejorar puntuación y legibilidad. A veces puede reformular términos técnicos — la transcripción original siempre se conserva, no se pierde nada.",
+    backupTranscription: "Transcripción de respaldo en la nube",
+    backupTranscriptionDescription:
+      "Activado por defecto. Si no se capturó una transcripción local, el audio de la grabación se envía a tu proveedor de nube conectado (créditos de Builder.io o Groq) para transcribirlo. Desactívalo para mantener el audio estrictamente en este dispositivo — esos clips quedarán sin transcripción.",
     notifications: "Notificaciones",
     emailNotifications: "Notificaciones por correo",
     emailNotificationsDescription:

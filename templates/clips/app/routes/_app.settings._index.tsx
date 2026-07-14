@@ -166,6 +166,7 @@ interface ClipsUserSettings {
   emailNotifications?: boolean;
   displayName?: string;
   transcriptCleanupEnabled?: boolean;
+  backupTranscriptionEnabled?: boolean;
   includeFullVideoInAi?: boolean;
 }
 
@@ -429,6 +430,8 @@ export default function SettingsIndexRoute() {
   const [displayName, setDisplayName] = useState("");
   const [transcriptCleanupEnabled, setTranscriptCleanupEnabled] =
     useState(false);
+  const [backupTranscriptionEnabled, setBackupTranscriptionEnabled] =
+    useState(true);
   const [s3Values, setS3Values] = useState<Record<string, string>>({});
   const [s3Errors, setS3Errors] = useState<Record<string, string>>({});
   const [clearingS3, setClearingS3] = useState(false);
@@ -494,6 +497,7 @@ export default function SettingsIndexRoute() {
       setEmailNotifications(v.emailNotifications ?? true);
       setDisplayName(v.displayName ?? "");
       setTranscriptCleanupEnabled(v.transcriptCleanupEnabled === true);
+      setBackupTranscriptionEnabled(v.backupTranscriptionEnabled !== false);
       setLoading(false);
     });
     return () => {
@@ -513,6 +517,7 @@ export default function SettingsIndexRoute() {
         emailNotifications,
         displayName: displayName.trim() || undefined,
         transcriptCleanupEnabled,
+        backupTranscriptionEnabled,
       });
       toast.success(t("settings.saved"));
     } catch (err) {
@@ -1492,6 +1497,25 @@ export default function SettingsIndexRoute() {
                       id="transcript-cleanup"
                       checked={transcriptCleanupEnabled}
                       onCheckedChange={setTranscriptCleanupEnabled}
+                      disabled={loading}
+                    />
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-4">
+                    <div>
+                      <Label
+                        htmlFor="backup-transcription"
+                        className="cursor-pointer"
+                      >
+                        {t("settings.backupTranscription")}
+                      </Label>
+                      <p className="text-xs text-muted-foreground mt-0.5">
+                        {t("settings.backupTranscriptionDescription")}
+                      </p>
+                    </div>
+                    <Switch
+                      id="backup-transcription"
+                      checked={backupTranscriptionEnabled}
+                      onCheckedChange={setBackupTranscriptionEnabled}
                       disabled={loading}
                     />
                   </div>

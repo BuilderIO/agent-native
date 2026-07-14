@@ -617,6 +617,9 @@ Clips 中所有面向用户的重要更改都会记录在这里。你可以随�
     transcriptCleanup: "AI 转写清理",
     transcriptCleanupDescription:
       "默认关闭。开启后，转写完成会由 AI 重写文本以改善标点和可读性。专业术语偶尔可能被改写 — 原始转写始终保留，不会丢失任何内容。",
+    backupTranscription: "云端备用转写",
+    backupTranscriptionDescription:
+      "默认开启。当未捕获到本地转写时，录制的音频会发送到已连接的云服务（Builder.io 额度或 Groq）进行转写。关闭后音频严格保留在本设备上 — 此类剪辑将保持无转写状态。",
     notifications: "通知",
     emailNotifications: "邮件通知",
     emailNotificationsDescription:

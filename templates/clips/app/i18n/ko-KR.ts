@@ -641,6 +641,9 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     transcriptCleanup: "AI 자막 정리",
     transcriptCleanupDescription:
       "기본값은 꺼짐입니다. 켜면 전사 후 AI가 구두점과 가독성을 위해 텍스트를 다듬습니다. 전문 용어가 다르게 바뀔 수 있습니다 — 원본 전사는 항상 보존되므로 손실되지 않습니다.",
+    backupTranscription: "클라우드 백업 전사",
+    backupTranscriptionDescription:
+      "기본값은 켜짐입니다. 로컬 전사가 캡처되지 않으면 녹화 오디오가 연결된 클라우드 제공자(Builder.io 크레딧 또는 Groq)로 전송되어 전사됩니다. 끄면 오디오가 이 기기를 벗어나지 않으며, 해당 클립은 전사 없이 유지됩니다.",
     notifications: "알림",
     emailNotifications: "이메일 알림",
     emailNotificationsDescription:

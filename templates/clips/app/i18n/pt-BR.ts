@@ -652,6 +652,9 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     transcriptCleanup: "Limpeza da transcrição com IA",
     transcriptCleanupDescription:
       "Desativado por padrão. Quando ativado, uma passada de IA reescreve a transcrição após a geração para melhorar pontuação e legibilidade. Termos técnicos podem ocasionalmente ser reformulados — a transcrição original é sempre preservada, nada se perde.",
+    backupTranscription: "Transcrição de backup na nuvem",
+    backupTranscriptionDescription:
+      "Ativado por padrão. Se nenhuma transcrição local foi capturada, o áudio da gravação é enviado ao provedor de nuvem conectado (créditos do Builder.io ou Groq) para transcrever. Desative para manter o áudio estritamente neste dispositivo — esses clipes ficarão sem transcrição.",
     notifications: "Notificações",
     emailNotifications: "Notificações por e-mail",
     emailNotificationsDescription:
