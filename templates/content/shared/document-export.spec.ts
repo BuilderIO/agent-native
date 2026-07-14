@@ -61,6 +61,46 @@ describe("document export", () => {
     expect(exportPayload.content).not.toContain("$`E = mc^2`$");
   });
 
+  it("renders inline math inside emphasis and links", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Styled equations",
+      content: [
+        "**Energy is $`E = mc^2`$ here.**",
+        "",
+        "[Solve *$`x^2 = 4`$*](https://example.com/solve)",
+      ].join("\n"),
+      format: "html",
+    });
+
+    expect(exportPayload.content).toMatch(
+      /<strong>Energy is <span class="math-inline">.*<\/span> here\.<\/strong>/,
+    );
+    expect(exportPayload.content).toMatch(
+      /<a href="https:\/\/example\.com\/solve">Solve <em><span class="math-inline">.*<\/span><\/em><\/a>/,
+    );
+    expect(exportPayload.content).not.toContain("**Energy");
+    expect(exportPayload.content).not.toContain("[Solve");
+  });
+
+  it("keeps equation delimiters literal inside code spans", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Equation source",
+      content: [
+        "Use ``$`E = mc^2`$`` to write inline math.",
+        "",
+        "`before` $`x^2`$ `after`",
+      ].join("\n"),
+      format: "html",
+    });
+
+    expect(exportPayload.content).toContain("<code>$`E = mc^2`$</code>");
+    expect(exportPayload.content).toContain("<code>before</code>");
+    expect(exportPayload.content).toContain("<code>after</code>");
+    expect(exportPayload.content.match(/class="math-inline"/g)).toHaveLength(1);
+  });
+
   it("keeps canonical math source in Markdown exports", () => {
     const source = "Inline $`E = mc^2`$.\n\n$$\nx^2\n$$";
     const exportPayload = buildDocumentExport({
