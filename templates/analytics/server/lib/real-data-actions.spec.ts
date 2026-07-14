@@ -817,9 +817,35 @@ describe("incomplete evidence detection", () => {
     expect(hasDashboardConstructionAttempt([])).toBe(false);
   });
 
-  it("still blocks inventing metrics without a data query", () => {
+  it("does not treat authoring/saving a SQL dashboard alone as construction progress", () => {
+    // update-dashboard/mutate-dashboard can author brand-new SQL panels, so
+    // calling them with no prior inspection/clone step must not be enough to
+    // bypass the real-data guard for an invented dashboard.
     expect(
-      draftClaimsAnalyticsMetrics("Company B has 12,450 active users"),
+      hasDashboardConstructionAttempt([
+        { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "mutate-dashboard", content: "{}" },
+      ]),
+    ).toBe(false);
+    // But it's fine alongside a real inspection/clone step.
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-extension", content: "{}" },
+        { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("still blocks inventing metrics without a data query", () => {
+    expect(draftClaimsAnalyticsMetrics("Company B has 12,450 users")).toBe(
+      true,
+    );
+    expect(
+      draftClaimsAnalyticsMetrics("Company B signups increased last week"),
     ).toBe(true);
     expect(
       draftClaimsAnalyticsMetrics(
