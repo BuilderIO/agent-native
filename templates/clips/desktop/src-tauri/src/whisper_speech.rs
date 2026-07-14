@@ -21,6 +21,14 @@ use tauri::AppHandle;
 /// tray-timings.log.
 pub(crate) static FINALS_EMITTED: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
+/// Raw audio samples pushed by the mic / system capture callbacks since the
+/// current session started. Zero at stop = the capture callbacks never fired
+/// (permission/stream problem); nonzero with zero finals = whisper saw only
+/// silence or the workers failed downstream.
+pub(crate) static MIC_SAMPLES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+pub(crate) static SYSTEM_SAMPLES: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 #[tauri::command]
 pub async fn whisper_transcription_start(
@@ -46,6 +54,8 @@ pub async fn whisper_transcription_start(
             }),
         );
         FINALS_EMITTED.store(0, std::sync::atomic::Ordering::Relaxed);
+        MIC_SAMPLES.store(0, std::sync::atomic::Ordering::Relaxed);
+        SYSTEM_SAMPLES.store(0, std::sync::atomic::Ordering::Relaxed);
         let diag_app = app.clone();
         let result = macos::start(
             app,
@@ -111,6 +121,10 @@ pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
             serde_json::json!({
                 "event": "whisper-stopped",
                 "finalsEmitted": FINALS_EMITTED
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                "micSamples": MIC_SAMPLES
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                "systemSamples": SYSTEM_SAMPLES
                     .load(std::sync::atomic::Ordering::Relaxed),
             }),
         );
@@ -315,6 +329,12 @@ mod macos {
         /// deliberately deferred to the worker so we never allocate/compute on
         /// the realtime audio thread.
         fn push(&self, frames: &[f32]) {
+            let counter = if self.source == "mic" {
+                &crate::whisper_speech::MIC_SAMPLES
+            } else {
+                &crate::whisper_speech::SYSTEM_SAMPLES
+            };
+            counter.fetch_add(frames.len() as u64, Ordering::Relaxed);
             if let Ok(mut buf) = self.buf.lock() {
                 buf.extend_from_slice(frames);
             }
