@@ -19,6 +19,7 @@ import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
   encryptSharedSecretValue as encryptValue,
   decryptSharedSecretValue as decryptValue,
+  decryptSecretValue as decryptLegacyValue,
 } from "./crypto.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
@@ -95,7 +96,8 @@ async function ensureTable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Encryption — see ./crypto.ts (shared with per-user credentials)
+// Encryption — see ./crypto.ts. app_secrets uses the workspace-shared key so
+// rows can be read by any app granted access to the same workspace vault.
 // ---------------------------------------------------------------------------
 
 /**
@@ -201,6 +203,20 @@ export interface ReadSecretResult {
   updatedAt: number;
 }
 
+/**
+ * Read the shared-key format and retain compatibility with rows written before
+ * app_secrets moved to its workspace-shared encryption boundary. The legacy
+ * fallback is only useful when the current app owns the old row; sibling apps
+ * will receive shared-key ciphertext after the next vault sync or update.
+ */
+function decryptAppSecretValue(encrypted: string): string {
+  try {
+    return decryptValue(encrypted);
+  } catch {
+    return decryptLegacyValue(encrypted);
+  }
+}
+
 type AppSecretsReadQuery = { sql: string; args: unknown[] };
 
 /**
@@ -249,7 +265,7 @@ export async function readAppSecret(
   });
   if (rows.length === 0) return null;
   try {
-    const value = decryptValue(rows[0].encrypted_value as string);
+    const value = decryptAppSecretValue(rows[0].encrypted_value as string);
     return {
       value,
       last4: last4(value),
@@ -281,7 +297,7 @@ export async function readAppSecrets(args: {
     const key = String(row.key ?? "");
     if (!key) continue;
     try {
-      const value = decryptValue(row.encrypted_value as string);
+      const value = decryptAppSecretValue(row.encrypted_value as string);
       results.set(key, {
         value,
         last4: last4(value),
@@ -337,7 +353,7 @@ export async function readAppSecretMeta(
   const row = rows[0];
   let last4Value = "";
   try {
-    const value = decryptValue(row.encrypted_value as string);
+    const value = decryptAppSecretValue(row.encrypted_value as string);
     last4Value = last4(value);
   } catch {
     last4Value = "";
@@ -372,7 +388,7 @@ export async function listAppSecretsForScope(
   return rows.map((row) => {
     let last4Value = "";
     try {
-      const value = decryptValue(row.encrypted_value as string);
+      const value = decryptAppSecretValue(row.encrypted_value as string);
       last4Value = last4(value);
     } catch {
       last4Value = "";

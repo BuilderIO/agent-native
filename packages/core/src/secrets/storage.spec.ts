@@ -233,6 +233,51 @@ describe("secrets storage CRUD (real sqlite)", () => {
     expect(read!.updatedAt).toBeGreaterThan(0);
   });
 
+  it("round-trips workspace secrets across app-scoped deployments", async () => {
+    const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
+    const originalDispatchKey = process.env.DISPATCH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    const originalCoachKey = process.env.COACH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+
+    try {
+      process.env.SECRETS_ENCRYPTION_KEY = "workspace-shared-material";
+      process.env.DISPATCH_SECRETS_ENCRYPTION_KEY = "dispatch-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+      process.env.COACH_SECRETS_ENCRYPTION_KEY = "coach-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+
+      process.env.APP_NAME = "dispatch"; // guard:allow-env-credential — test switches between deploy-level app scopes.
+      await mod.writeAppSecret({
+        scope: "org",
+        scopeId: "org_42",
+        key: "ACADEMY_CONVEX_SITE_URL",
+        value: "https://academy.example.test",
+      });
+
+      process.env.APP_NAME = "coach"; // guard:allow-env-credential — test switches between deploy-level app scopes.
+      await expect(
+        mod.readAppSecret({
+          scope: "org",
+          scopeId: "org_42",
+          key: "ACADEMY_CONVEX_SITE_URL",
+        }),
+      ).resolves.toMatchObject({
+        value: "https://academy.example.test",
+      });
+    } finally {
+      if (originalAppName === undefined)
+        delete process.env.APP_NAME; // guard:allow-env-credential — test restores deploy-level app scope.
+      else process.env.APP_NAME = originalAppName; // guard:allow-env-credential — test restores deploy-level app scope.
+      if (originalDispatchKey === undefined)
+        delete process.env.DISPATCH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      else process.env.DISPATCH_SECRETS_ENCRYPTION_KEY = originalDispatchKey; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      if (originalCoachKey === undefined)
+        delete process.env.COACH_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      else process.env.COACH_SECRETS_ENCRYPTION_KEY = originalCoachKey; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      if (originalSharedKey === undefined)
+        delete process.env.SECRETS_ENCRYPTION_KEY;
+      else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+    }
+  });
+
   it("reads several scoped secrets in one projected query", async () => {
     await mod.writeAppSecret({ ...userRef, value: "openai-example" });
     await mod.writeAppSecret({
