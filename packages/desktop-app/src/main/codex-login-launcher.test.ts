@@ -108,4 +108,47 @@ describe("getCodexLoginLaunchSpec", () => {
     });
     expect(child.unref).not.toHaveBeenCalled();
   });
+
+  it("waits for wrapper exit status when requested", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      unref: () => void;
+    };
+    child.unref = vi.fn();
+    const launch = spawnDetached(
+      "/usr/bin/osascript",
+      [],
+      "/tmp",
+      () => child as never,
+      { waitForExit: true },
+    );
+
+    child.emit("spawn");
+    child.emit("close", 0, null);
+
+    await expect(launch).resolves.toEqual({ ok: true, cwd: "/tmp" });
+    expect(child.unref).not.toHaveBeenCalled();
+  });
+
+  it("reports a wrapper's non-zero exit instead of claiming success", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      unref: () => void;
+    };
+    child.unref = vi.fn();
+    const launch = spawnDetached(
+      "/usr/bin/osascript",
+      [],
+      "/tmp",
+      () => child as never,
+      { waitForExit: true },
+    );
+
+    child.emit("spawn");
+    child.emit("close", 1, null);
+
+    await expect(launch).resolves.toEqual({
+      ok: false,
+      cwd: "/tmp",
+      error: "Process exited with code 1.",
+    });
+  });
 });

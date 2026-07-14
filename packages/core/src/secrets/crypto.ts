@@ -143,6 +143,11 @@ export function getSharedSecretEncryptionKey(): Buffer {
   );
 }
 
+/** Whether this deployment has stable workspace-shared key material. */
+export function hasSharedSecretEncryptionKeyMaterial(): boolean {
+  return Boolean(sharedEncryptionKeyMaterial());
+}
+
 function encryptWithKey(plaintext: string, key: Buffer): string {
   const { createCipheriv, randomBytes } = requireNodeCrypto();
   const iv = randomBytes(12);

@@ -17,9 +17,11 @@ import { randomUUID } from "node:crypto";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
+  encryptSecretValue as encryptLegacyValue,
   encryptSharedSecretValue as encryptValue,
   decryptSharedSecretValue as decryptValue,
   decryptSecretValue as decryptLegacyValue,
+  hasSharedSecretEncryptionKeyMaterial,
 } from "./crypto.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
@@ -62,6 +64,11 @@ async function ensureTable(): Promise<void> {
           "url_allowlist",
           `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS url_allowlist TEXT`,
         );
+        await ensureColumnExists(
+          "app_secrets",
+          "shared_encrypted_value",
+          `ALTER TABLE app_secrets ADD COLUMN IF NOT EXISTS shared_encrypted_value TEXT`,
+        );
         return;
       }
 
@@ -87,6 +94,16 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists — expected
       }
+
+      // Additive migration: workspace-shared ciphertext. Keep the legacy
+      // encrypted_value column so older app versions remain readable.
+      try {
+        await client.execute(
+          `ALTER TABLE app_secrets ADD COLUMN shared_encrypted_value TEXT`,
+        );
+      } catch {
+        // Column already exists — expected
+      }
     })().catch((err) => {
       _initPromise = undefined;
       throw err;
@@ -96,8 +113,9 @@ async function ensureTable(): Promise<void> {
 }
 
 // ---------------------------------------------------------------------------
-// Encryption — see ./crypto.ts. app_secrets uses the workspace-shared key so
-// rows can be read by any app granted access to the same workspace vault.
+// Encryption — see ./crypto.ts. Keep encrypted_value on the legacy app-key
+// format for mixed-version deployments, and add shared_encrypted_value when a
+// stable workspace key is configured so sibling apps can read the same row.
 // ---------------------------------------------------------------------------
 
 /**
@@ -143,7 +161,14 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   }
   const client = getDbExec();
   const now = Date.now();
-  const encrypted = encryptValue(value);
+  // Dual-write during rollout: old readers continue using encrypted_value,
+  // while new readers prefer the nullable shared ciphertext. An app-only
+  // deployment leaves the shared column null; on an update, an existing
+  // shared ciphertext is preserved by the upsert below.
+  const encrypted = encryptLegacyValue(value);
+  const sharedEncrypted = hasSharedSecretEncryptionKeyMaterial()
+    ? encryptValue(value)
+    : null;
   const id = randomUUID();
 
   // Atomic upsert by (scope, scope_id, key). Previously this was a
@@ -157,10 +182,11 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   // keeps its original id (any stored references stay stable); only a
   // genuinely new row gets the freshly generated `id`. This syntax is
   // portable across SQLite (UPSERT since 3.24) and Postgres.
-  const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, description, url_allowlist, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (scope, scope_id, key) DO UPDATE SET
       encrypted_value = excluded.encrypted_value,
+      shared_encrypted_value = COALESCE(excluded.shared_encrypted_value, app_secrets.shared_encrypted_value),
       description = excluded.description,
       url_allowlist = excluded.url_allowlist,
       updated_at = excluded.updated_at`;
@@ -170,6 +196,7 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
     scopeId,
     key,
     encrypted,
+    sharedEncrypted,
     description ?? null,
     urlAllowlist ?? null,
     now,
@@ -211,34 +238,65 @@ export interface ReadSecretResult {
  */
 interface DecryptedAppSecretValue {
   value: string;
+  /** True when the app-scoped fallback decrypted encrypted_value. */
   usedLegacyKey: boolean;
+  /** True when shared_encrypted_value was not the source of the plaintext. */
+  needsSharedCiphertext: boolean;
 }
 
-function decryptAppSecretValue(encrypted: string): DecryptedAppSecretValue {
+function decryptAppSecretValue(
+  encrypted: string,
+  sharedEncrypted?: string | null,
+): DecryptedAppSecretValue {
+  if (sharedEncrypted) {
+    try {
+      return {
+        value: decryptValue(sharedEncrypted),
+        usedLegacyKey: false,
+        needsSharedCiphertext: false,
+      };
+    } catch {
+      // Fall through to the legacy column. A partially migrated row may have
+      // a stale shared ciphertext while the old app-key value is valid.
+    }
+  }
   try {
-    return { value: decryptValue(encrypted), usedLegacyKey: false };
+    return {
+      value: decryptValue(encrypted),
+      usedLegacyKey: false,
+      needsSharedCiphertext: true,
+    };
   } catch {
-    return { value: decryptLegacyValue(encrypted), usedLegacyKey: true };
+    return {
+      value: decryptLegacyValue(encrypted),
+      usedLegacyKey: true,
+      needsSharedCiphertext: true,
+    };
   }
 }
 
 /**
- * Upgrade a row that was encrypted with the old app-scoped key. This is
+ * Populate the shared column without touching encrypted_value. This is
  * intentionally best-effort: a read must still succeed if a deployment's DB
- * role cannot update the row. The ciphertext predicate prevents a concurrent
- * write from being overwritten, and leaving `updated_at` untouched preserves
- * the row's user-visible ordering/metadata.
+ * role cannot update the row. The NULL predicate prevents a concurrent writer
+ * from overwriting newly-populated shared ciphertext, and leaving updated_at
+ * untouched preserves the row's user-visible ordering/metadata.
  */
-async function reencryptLegacyAppSecret(
+async function populateSharedAppSecret(
   id: unknown,
-  encrypted: string,
   value: string,
 ): Promise<void> {
-  if (id === undefined || id === null) return;
+  if (
+    id === undefined ||
+    id === null ||
+    !hasSharedSecretEncryptionKeyMaterial()
+  ) {
+    return;
+  }
   try {
     await getDbExec().execute({
-      sql: `UPDATE app_secrets SET encrypted_value = ? WHERE id = ? AND encrypted_value = ?`,
-      args: [encryptValue(value), id, encrypted],
+      sql: `UPDATE app_secrets SET shared_encrypted_value = ? WHERE id = ? AND shared_encrypted_value IS NULL`,
+      args: [encryptValue(value), id],
     });
   } catch {
     // Migration is opportunistic. Preserve the successful read if the update
@@ -289,15 +347,18 @@ export async function readAppSecret(
 ): Promise<ReadSecretResult | null> {
   const { key, scope, scopeId } = ref;
   const { rows } = await executeAppSecretsRead({
-    sql: `SELECT encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    sql: `SELECT encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
   try {
     const encrypted = rows[0].encrypted_value as string;
-    const decrypted = decryptAppSecretValue(encrypted);
-    if (decrypted.usedLegacyKey) {
-      await reencryptLegacyAppSecret(rows[0].id, encrypted, decrypted.value);
+    const decrypted = decryptAppSecretValue(
+      encrypted,
+      rows[0].shared_encrypted_value as string | null,
+    );
+    if (decrypted.needsSharedCiphertext) {
+      await populateSharedAppSecret(rows[0].id, decrypted.value);
     }
     return {
       value: decrypted.value,
@@ -322,7 +383,7 @@ export async function readAppSecrets(args: {
 
   const placeholders = keys.map(() => "?").join(", ");
   const { rows } = await executeAppSecretsRead({
-    sql: `SELECT key, encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
+    sql: `SELECT key, encrypted_value, shared_encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
   const results = new Map<string, ReadSecretResult>();
@@ -331,9 +392,12 @@ export async function readAppSecrets(args: {
     if (!key) continue;
     try {
       const encrypted = row.encrypted_value as string;
-      const decrypted = decryptAppSecretValue(encrypted);
-      if (decrypted.usedLegacyKey) {
-        await reencryptLegacyAppSecret(row.id, encrypted, decrypted.value);
+      const decrypted = decryptAppSecretValue(
+        encrypted,
+        row.shared_encrypted_value as string | null,
+      );
+      if (decrypted.needsSharedCiphertext) {
+        await populateSharedAppSecret(row.id, decrypted.value);
       }
       results.set(key, {
         value: decrypted.value,
@@ -383,7 +447,7 @@ export async function readAppSecretMeta(
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    sql: `SELECT id, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
@@ -391,9 +455,12 @@ export async function readAppSecretMeta(
   let last4Value = "";
   try {
     const encrypted = row.encrypted_value as string;
-    const decrypted = decryptAppSecretValue(encrypted);
-    if (decrypted.usedLegacyKey) {
-      await reencryptLegacyAppSecret(row.id, encrypted, decrypted.value);
+    const decrypted = decryptAppSecretValue(
+      encrypted,
+      row.shared_encrypted_value as string | null,
+    );
+    if (decrypted.needsSharedCiphertext) {
+      await populateSharedAppSecret(row.id, decrypted.value);
     }
     last4Value = last4(decrypted.value);
   } catch {
@@ -423,7 +490,7 @@ export async function listAppSecretsForScope(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT id, key, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
+    sql: `SELECT id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
     args: [scope, scopeId],
   });
   const results: SecretMeta[] = [];
@@ -431,9 +498,12 @@ export async function listAppSecretsForScope(
     let last4Value = "";
     try {
       const encrypted = row.encrypted_value as string;
-      const decrypted = decryptAppSecretValue(encrypted);
-      if (decrypted.usedLegacyKey) {
-        await reencryptLegacyAppSecret(row.id, encrypted, decrypted.value);
+      const decrypted = decryptAppSecretValue(
+        encrypted,
+        row.shared_encrypted_value as string | null,
+      );
+      if (decrypted.needsSharedCiphertext) {
+        await populateSharedAppSecret(row.id, decrypted.value);
       }
       last4Value = last4(decrypted.value);
     } catch {

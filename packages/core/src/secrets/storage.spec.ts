@@ -87,7 +87,9 @@ describe("secrets storage bootstrap", () => {
 
     expect(execute).toHaveBeenCalledTimes(1);
     expect(execute.mock.calls[0]?.[0]).toMatchObject({
-      sql: expect.stringMatching(/^SELECT encrypted_value, updated_at/),
+      sql: expect.stringMatching(
+        /^SELECT encrypted_value, shared_encrypted_value/,
+      ),
     });
   });
 
@@ -114,11 +116,15 @@ describe("secrets storage bootstrap", () => {
     const allSql = execute.mock.calls.map(([input]) =>
       typeof input === "string" ? input : input.sql,
     );
-    expect(allSql[0]).toMatch(/^SELECT encrypted_value, updated_at/);
+    expect(allSql[0]).toMatch(
+      /^SELECT encrypted_value, shared_encrypted_value/,
+    );
     expect(allSql).toContainEqual(
       expect.stringContaining("CREATE TABLE IF NOT EXISTS app_secrets"),
     );
-    expect(allSql.at(-1)).toMatch(/^SELECT encrypted_value, updated_at/);
+    expect(allSql.at(-1)).toMatch(
+      /^SELECT encrypted_value, shared_encrypted_value/,
+    );
   });
 
   it("does not bootstrap for unrelated database failures", async () => {
@@ -305,21 +311,49 @@ describe("secrets storage CRUD (real sqlite)", () => {
       // Existing rows remain readable after the deployment adds the preferred
       // workspace key; the storage read path falls back to the old app key.
       const beforeMigration = sqlite
-        .prepare(`SELECT encrypted_value, updated_at FROM app_secrets`)
-        .get() as { encrypted_value: string; updated_at: number };
+        .prepare(
+          `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
+        )
+        .get() as {
+        encrypted_value: string;
+        shared_encrypted_value: string | null;
+        updated_at: number;
+      };
       process.env.SECRETS_ENCRYPTION_KEY = "new-workspace-shared-material";
       await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
         value: "legacy-deployment-secret",
       });
       const afterMigration = sqlite
-        .prepare(`SELECT encrypted_value, updated_at FROM app_secrets`)
-        .get() as { encrypted_value: string; updated_at: number };
-      expect(afterMigration.encrypted_value).not.toBe(
+        .prepare(
+          `SELECT encrypted_value, shared_encrypted_value, updated_at FROM app_secrets`,
+        )
+        .get() as {
+        encrypted_value: string;
+        shared_encrypted_value: string | null;
+        updated_at: number;
+      };
+      expect(afterMigration.encrypted_value).toBe(
         beforeMigration.encrypted_value,
       );
+      expect(afterMigration.shared_encrypted_value).not.toBeNull();
       expect(afterMigration.updated_at).toBe(beforeMigration.updated_at);
-      expect(decryptSharedSecretValue(afterMigration.encrypted_value)).toBe(
-        "legacy-deployment-secret",
+      expect(
+        decryptSharedSecretValue(afterMigration.shared_encrypted_value!),
+      ).toBe("legacy-deployment-secret");
+
+      // An older app version can update the legacy column while preserving
+      // the shared ciphertext written by a newer sibling.
+      const sharedBeforeLegacyWrite = afterMigration.shared_encrypted_value;
+      delete process.env.SECRETS_ENCRYPTION_KEY;
+      await mod.writeAppSecret({
+        ...userRef,
+        value: "updated-by-legacy-app",
+      });
+      const afterLegacyWrite = sqlite
+        .prepare(`SELECT shared_encrypted_value FROM app_secrets`)
+        .get() as { shared_encrypted_value: string | null };
+      expect(afterLegacyWrite.shared_encrypted_value).toBe(
+        sharedBeforeLegacyWrite,
       );
     } finally {
       if (originalAppName === undefined)
@@ -498,8 +532,10 @@ describe("secrets storage CRUD (real sqlite)", () => {
     // Simulate a tampered / key-rotated row by overwriting the ciphertext with
     // a syntactically-encrypted-but-undecryptable value.
     sqlite
-      .prepare(`UPDATE app_secrets SET encrypted_value = ?`)
-      .run("v1:dead:beef:cafe");
+      .prepare(
+        `UPDATE app_secrets SET encrypted_value = ?, shared_encrypted_value = ?`,
+      )
+      .run("v1:dead:beef:cafe", "v1:dead:beef:cafe");
 
     // readAppSecret swallows decryption errors and reports "missing" so the
     // ciphertext never escapes up the stack.

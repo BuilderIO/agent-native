@@ -6760,7 +6760,9 @@ async function openCodexLoginTerminal(): Promise<CodeAgentTerminalResult> {
     process.platform === "linux" ? isCommandAvailable : undefined,
   );
   if (!launch.ok) return { ok: false, cwd, error: launch.error };
-  return spawnDetached(launch.command, launch.args, cwd);
+  return spawnDetached(launch.command, launch.args, cwd, undefined, {
+    waitForExit: process.platform === "darwin",
+  });
 }
 
 function readPackageMetadata(packagePath: string): {

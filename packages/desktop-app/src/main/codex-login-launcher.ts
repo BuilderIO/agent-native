@@ -29,6 +29,11 @@ type SpawnProcess = (
   options: SpawnOptions,
 ) => ChildProcess;
 
+export interface DetachedLaunchOptions {
+  /** Wait for wrapper commands (such as macOS osascript) to exit. */
+  waitForExit?: boolean;
+}
+
 /** Spawn a detached process and resolve only after spawn or error is known. */
 export function spawnDetached(
   command: string,
@@ -36,6 +41,7 @@ export function spawnDetached(
   cwd: string,
   spawnProcess: SpawnProcess = (nextCommand, nextArgs, options) =>
     spawn(nextCommand, nextArgs, options),
+  { waitForExit = false }: DetachedLaunchOptions = {},
 ): Promise<DetachedLaunchResult> {
   return new Promise((resolve) => {
     let settled = false;
@@ -59,7 +65,24 @@ export function spawnDetached(
           error: err instanceof Error ? err.message : String(err),
         });
       };
+      const onClose = (code: number | null, signal: NodeJS.Signals | null) => {
+        if (code === 0) {
+          finish({ ok: true, cwd });
+          return;
+        }
+        finish({
+          ok: false,
+          cwd,
+          error: `Process exited with ${
+            signal ? `signal ${signal}` : `code ${code ?? "unknown"}`
+          }.`,
+        });
+      };
       child.once("spawn", () => {
+        if (waitForExit) {
+          child.once("close", onClose);
+          return;
+        }
         child.removeListener("error", onError);
         child.unref();
         finish({ ok: true, cwd });
