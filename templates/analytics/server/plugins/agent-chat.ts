@@ -228,7 +228,7 @@ export function realDataFinalGuard(
   // Dashboard construction/template-clone turns may inspect and clone an
   // existing dashboard/extension without running a metric query, as long as
   // the draft does not invent numbers. Check this before the generic
-  // "no data query ran" fallback so a Roku-style extension clone is not
+  // "no data query ran" fallback so a template-based extension clone is not
   // treated the same as an unanswerable analytics-result question.
   if (
     looksLikeDashboardConstructionRequest(userText) &&

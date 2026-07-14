@@ -773,15 +773,15 @@ describe("incomplete evidence detection", () => {
     ).toBe(false);
   });
 
-  it("treats a Roku-template Intuit clone as dashboard construction", () => {
+  it("treats a Company A template clone for Company B as dashboard construction", () => {
     expect(
       looksLikeDashboardConstructionRequest(
-        "Create a new dashboard for Intuit using the Roku User Usage Analytics dashboard as a template",
+        "Create a new dashboard for Company B using the Company A User Usage Analytics dashboard as a template",
       ),
     ).toBe(true);
     expect(
       looksLikeDashboardConstructionRequest(
-        "Use the same source data as Roku, filter for Intuit",
+        "Use the same source data as Company A, filter for Company B",
       ),
     ).toBe(false);
   });
@@ -800,7 +800,7 @@ describe("incomplete evidence detection", () => {
   it("accepts get-sql-dashboard and extension actions as construction progress", () => {
     expect(
       hasDashboardConstructionAttempt([
-        { name: "get-sql-dashboard", content: '{"id":"roku-analysis"}' },
+        { name: "get-sql-dashboard", content: '{"id":"company-a-analysis"}' },
       ]),
     ).toBe(true);
     expect(
@@ -818,12 +818,12 @@ describe("incomplete evidence detection", () => {
   });
 
   it("still blocks inventing metrics without a data query", () => {
-    expect(draftClaimsAnalyticsMetrics("Intuit has 12,450 active users")).toBe(
-      true,
-    );
+    expect(
+      draftClaimsAnalyticsMetrics("Company B has 12,450 active users"),
+    ).toBe(true);
     expect(
       draftClaimsAnalyticsMetrics(
-        "I've cloned the Roku extension for Intuit. What org id should I filter on?",
+        "I've cloned the Company A extension for Company B. What org id should I filter on?",
       ),
     ).toBe(false);
   });
