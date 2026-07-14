@@ -116,7 +116,10 @@ export class MseVideoLoader {
     this.video.removeEventListener("seeking", this.onSeeking);
     this.video.removeEventListener("timeupdate", this.onTimeUpdate);
     this.mediaSource.removeEventListener("sourceopen", this.onSourceOpen);
-    this.sourceBuffer?.removeEventListener("updateend", this.onSourceBufferIdle);
+    this.sourceBuffer?.removeEventListener(
+      "updateend",
+      this.onSourceBufferIdle,
+    );
     try {
       if (this.sourceBuffer && this.mediaSource.readyState === "open") {
         this.mediaSource.removeSourceBuffer(this.sourceBuffer);
