@@ -161,6 +161,20 @@ describe("useGuidedQuestionFlow scoped reads", () => {
     expect(requestedKeys).not.toContain("guided-questions:undefined");
   });
 
+  it("does not read application state when disabled", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await renderFlow({
+      enabled: false,
+      stateKey: "guided-questions",
+      queryKey: ["guided-questions"],
+    });
+
+    expect(result.current().questions).toBeNull();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("refetches on a key-specific DB-sync wakeup without fixed polling", async () => {
     let hasQuestion = false;
     const fetchMock = vi.fn(

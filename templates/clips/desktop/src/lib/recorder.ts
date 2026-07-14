@@ -2149,6 +2149,11 @@ async function startNativeFullscreenRecording(
     await invoke("native_fullscreen_recording_begin", {
       recordingId: id,
       ...captureAudioParams,
+      // Live-upload credentials are read on the Rust side from the shared
+      // meetings-watcher session; only signal whether this is a local-only
+      // recording (which never uploads to the server).
+      localOnly,
+      hasCamera: wantsCamera,
     });
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,

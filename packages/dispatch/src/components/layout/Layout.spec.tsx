@@ -138,6 +138,27 @@ describe("Dispatch NavContent", () => {
     );
   });
 
+  it("keeps collapsed navigation compact and preserves section spacing", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent collapsed />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const lists = [...container.querySelectorAll("nav > ul")];
+    expect(lists).toHaveLength(3);
+    expect(lists[0].className).toContain("gap-1");
+    expect(lists[1].className).toContain("mt-5");
+    expect(lists[1].className).toContain("gap-1");
+    expect(lists[2].className).toContain("mt-3");
+    expect(lists[2].className).toContain("gap-1");
+    expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
+  });
+
   it("uses the quieter Analytics-style chat history and retains thread actions", async () => {
     await act(async () => {
       root.render(

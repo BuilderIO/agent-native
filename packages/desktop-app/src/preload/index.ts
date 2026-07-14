@@ -317,6 +317,8 @@ const electronAPI = {
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL, request),
+    openCodexLogin: (): Promise<CodeAgentTerminalResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_CODEX_LOGIN),
     getRemoteConnectorStatus: (): Promise<CodeAgentRemoteConnectorStatus> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS),
     setRemoteConnectorEnabled: (

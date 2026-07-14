@@ -28,6 +28,7 @@ import {
   type InteractionState,
 } from "@shared/interaction-states";
 import {
+  IconAdjustmentsHorizontal,
   IconAlignCenter,
   IconAlignJustified,
   IconAlignLeft,
@@ -73,6 +74,7 @@ import {
   IconLink,
   IconLinkOff,
   IconMinus,
+  IconMessageCircle,
   IconPerspective,
   IconPhoto,
   IconPlus,
@@ -336,6 +338,10 @@ import {
   GlslShaderEffectSection,
   type GlslShaderPanelContext,
 } from "./inspector/GlslShaderPanel";
+import {
+  ReviewCommentsPanel,
+  type ReviewCommentsPanelProps,
+} from "./ReviewCommentsPanel";
 import { ReviewPanel } from "./ReviewPanel";
 import type { ReviewPanelProps } from "./ReviewPanel";
 import type { StatesPanelProps } from "./StatesPanel";
@@ -393,7 +399,7 @@ export function mergeOptimisticInteractionStateStyles(
   return { ...(persisted ?? {}), ...(pending ?? {}) };
 }
 
-export type InspectorTab = "design" | "tweaks";
+export type InspectorTab = "design" | "tweaks" | "comments";
 
 interface EditPanelProps {
   selectedElement: ElementInfo | null;
@@ -456,6 +462,10 @@ interface EditPanelProps {
   statesPanelProps?: Omit<StatesPanelProps, "designId">;
   /** Props forwarded to the ReviewPanel (§6.5). */
   reviewPanelProps?: Omit<ReviewPanelProps, "className">;
+  /** Persisted design review comments and feedback queue. */
+  reviewCommentsPanelProps?: ReviewCommentsPanelProps;
+  /** Open review-thread count shown on the inspector tab. */
+  reviewCommentsCount?: number;
   // -------------------------------------------------------------------------
   // Component section (§6.1)
   // When a component instance is selected, pass its node id here to unlock
@@ -1091,31 +1101,82 @@ function InspectorTabsHeader({
   activeTab,
   onActiveTabChange,
   trailing,
+  commentsCount = 0,
+  compact = false,
 }: {
   activeTab: InspectorTab;
   onActiveTabChange: (tab: InspectorTab) => void;
   trailing?: ReactNode;
+  commentsCount?: number;
+  compact?: boolean;
 }) {
   const t = useT();
 
   return (
-    <div className="flex min-h-8 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2 py-1">
+    <div className="flex min-h-8 min-w-0 shrink-0 items-center justify-between gap-1 border-b border-border/90 px-2 py-1">
       <Tabs
         value={activeTab}
         onValueChange={(value) => onActiveTabChange(value as InspectorTab)}
+        className="min-w-0"
       >
-        <TabsList className="h-7 justify-start gap-0.5 rounded-none bg-transparent p-0">
+        <TabsList className="h-7 max-w-full justify-start gap-0.5 overflow-hidden rounded-none bg-transparent p-0">
           <TabsTrigger
             value="design"
-            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            aria-label={t("navigation.brand")}
+            className={cn(
+              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
+              compact ? "w-7 px-0" : "px-1.5",
+            )}
           >
-            {"Design" /* i18n-ignore design inspector tab */}
+            {compact ? (
+              <IconBrush className="size-3.5" />
+            ) : (
+              t("navigation.brand")
+            )}
+          </TabsTrigger>
+          <TabsTrigger
+            value="comments"
+            aria-label={
+              commentsCount > 0
+                ? t("review.commentsTab", { count: commentsCount })
+                : t("review.comments")
+            }
+            className={cn(
+              "group h-6 min-w-0 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
+              compact ? "w-auto gap-0.5 px-1" : "gap-1 px-1.5",
+            )}
+          >
+            {compact ? (
+              <IconMessageCircle className="size-3.5" />
+            ) : (
+              <span className="truncate">{t("review.comments")}</span>
+            )}
+            {commentsCount > 0 ? (
+              <span
+                className={cn(
+                  "flex shrink-0 items-center justify-center rounded-full bg-muted tabular-nums text-muted-foreground group-data-[state=active]:bg-background",
+                  compact
+                    ? "h-3.5 min-w-3.5 px-0.5 text-[8px]"
+                    : "h-4 min-w-4 px-1 text-[9px]",
+                )}
+              >
+                {commentsCount > 99 ? "99+" : commentsCount}
+              </span>
+            ) : null}
           </TabsTrigger>
           <TabsTrigger
             value="tweaks"
-            className="h-6 rounded-md px-1.5 !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            aria-label={t("designEditor.tweaks")}
+            className={cn(
+              "h-6 rounded-md !text-[11px] font-semibold text-muted-foreground shadow-none transition-colors hover:text-foreground data-[state=active]:bg-[var(--design-editor-panel-raised-bg)] data-[state=active]:text-foreground data-[state=active]:shadow-none",
+              compact ? "w-7 px-0" : "px-1.5",
+            )}
           >
-            {t("designEditor.tweaks")}
+            {compact ? (
+              <IconAdjustmentsHorizontal className="size-3.5" />
+            ) : (
+              t("designEditor.tweaks")
+            )}
           </TabsTrigger>
         </TabsList>
       </Tabs>
@@ -1367,6 +1428,8 @@ export const EditPanel = memo(function EditPanel({
   designId,
   onComponentPropApplied,
   reviewPanelProps,
+  reviewCommentsPanelProps,
+  reviewCommentsCount = 0,
   componentNodeId,
   componentSwapPickerRequest,
   sourceCapabilities = [],
@@ -1707,11 +1770,12 @@ export const EditPanel = memo(function EditPanel({
   const userScrollIntentRef = useRef(false);
   const scrollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Figma replaces the entire right panel with the size-preset list while the
-  // Frame tool is armed — regardless of which inspector tab (Design/Tweaks)
-  // was showing beforehand — so this takes priority over `activeTab` below.
+  // Frame presets belong to the Design inspector. Keep Comments and Tweaks
+  // visible when the Frame tool remains armed while another tab is active.
   const showFramePresets =
-    activeTool === "frame" && Boolean(onCreateScreenFromPreset);
+    activeTab === "design" &&
+    activeTool === "frame" &&
+    Boolean(onCreateScreenFromPreset);
 
   return (
     <TooltipProvider delayDuration={300} skipDelayDuration={400}>
@@ -1726,6 +1790,8 @@ export const EditPanel = memo(function EditPanel({
           activeTab={activeTab}
           onActiveTabChange={handleActiveTabChange}
           trailing={headerTrailing}
+          commentsCount={reviewCommentsCount}
+          compact={width < 280}
         />
 
         {showFramePresets ? (
@@ -2061,6 +2127,8 @@ export const EditPanel = memo(function EditPanel({
               />
             </div>
           </div>
+        ) : activeTab === "comments" && reviewCommentsPanelProps ? (
+          <ReviewCommentsPanel {...reviewCommentsPanelProps} />
         ) : null}
       </div>
     </TooltipProvider>

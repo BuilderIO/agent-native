@@ -214,6 +214,20 @@ Se a primeira passagem ainda tiver decisões responsáveis, o agente pode fazer 
 **Formulário de perguntas abertas** na parte inferior do mesmo plano. Respondendo e enviando
 o agente inicia uma revisão do plano existente.
 
+## Custo e escolha do modelo
+
+Gerar um plano ou uma recapitulação executa uma sessão completa de agente contra
+o LLM do seu agente de codificação, não um preenchimento leve de modelo, então o
+custo escala com o tamanho do diff ou do plano e o modelo que você escolher.
+
+- O modelo de chat padrão do próprio aplicativo é o Sonnet 5; altere-o a qualquer
+  momento em **Configurações**. Haiku é a opção Claude mais barata, e Luna é a
+  opção mais barata da família GPT-5.6.
+- As recapitulações automáticas de PR da GitHub Action são executadas
+  separadamente do aplicativo interativo e têm seus próprios controles de
+  modelo e custo — veja [PR Visual Recap](/docs/pr-visual-recap) para
+  `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT` e `VISUAL_RECAP_REASONING`.
+
 ## O que você pode fazer com isso
 
 - **Revisão antes da implementação.** React para diagramas, wireframes, guias de opções,

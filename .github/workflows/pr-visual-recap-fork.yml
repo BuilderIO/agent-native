@@ -377,6 +377,7 @@ jobs:
         run: |
           if [ "$GITHUB_REPOSITORY" = "BuilderIO/agent-native" ] && [ -f packages/core/src/cli/index.ts ]; then
             echo "RECAP_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
+            echo "CODE_CLI=pnpm exec tsx packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
             echo "RECAP_PLAYWRIGHT=$PWD/node_modules/.bin/playwright" >> "$GITHUB_ENV"
             echo "local=true" >> "$GITHUB_OUTPUT"
           else
@@ -393,7 +394,10 @@ jobs:
 
       - name: Install workspace (local source only)
         if: steps.cli.outputs.local == 'true'
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter @agent-native/recap-cli build
 
       - name: Install published recap CLI
         if: steps.cli.outputs.local != 'true'
@@ -403,23 +407,32 @@ jobs:
           set -euo pipefail
           VERSION="$RECAP_CLI_VERSION"
           if [ "$VERSION" = "latest" ]; then
-            VERSION="$(npm view @agent-native/core@latest version)"
+            VERSION="$(npm view @agent-native/recap-cli@latest version)"
           fi
           for attempt in 1 2 3; do
-            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION"; then
               break
             fi
             if [ "$attempt" = "3" ]; then exit 1; fi
             sleep $((attempt * 10))
           done
+          echo "RECAP_CLI_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install OpenAI-compatible provider runtime
         if: needs.gate.outputs.agent == 'openai-compatible' && steps.cli.outputs.local != 'true'
+        env:
+          CORE_CLI_VERSION: ${{ vars.CORE_CLI_VERSION || 'latest' }}
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund ai @ai-sdk/openai
+          CORE_VERSION="$CORE_CLI_VERSION"
+          if [ "$CORE_VERSION" = "latest" ]; then
+            CORE_VERSION="$(npm view @agent-native/core@latest version)"
+          fi
+          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai "@agent-native/core@$CORE_VERSION"
+          echo "CORE_CLI_VERSION=$CORE_VERSION" >> "$GITHUB_ENV"
+          echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -570,7 +583,7 @@ jobs:
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
-          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
           rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           run_claude() {
             set +e
@@ -647,7 +660,7 @@ jobs:
           rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
           run_openai_compatible() {
             set +e
-            $RECAP_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt

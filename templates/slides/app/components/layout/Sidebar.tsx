@@ -8,6 +8,7 @@ import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconStack2,
+  IconBrain,
   IconPalette,
   IconSettings,
   IconLayoutSidebarLeftCollapse,
@@ -29,6 +30,7 @@ const navItems = [
     labelKey: "navigation.designSystems",
     href: "/design-systems",
   },
+  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

@@ -1,5 +1,105 @@
 # @agent-native/core
 
+## 0.101.2
+
+### Patch Changes
+
+- 616e2b9: Copying an assistant message now preserves formatting when pasting into apps
+  that read rich clipboard content (e.g. Slack), while still pasting as markdown
+  in editors like Notion. Falls back to plain-text copy where the browser does
+  not support rich clipboard writes.
+
+## 0.101.1
+
+### Patch Changes
+
+- f25194e: Keep centered chat composer skeletons aligned with the real composer while the chat UI loads.
+- f25194e: Document PR Visual Recap's cost drivers and cheaper model options (`claude-haiku-4-5`, `gpt-5.6-luna`/`gpt-5.6-terra`, `openai-compatible` providers), and note that the Claude backend now defaults to `claude-sonnet-5` when `VISUAL_RECAP_MODEL` is unset. Adds a matching cost/model-choice section to the Visual Plans template doc.
+- f25194e: Fail closed when first-party scaffolds cannot be downloaded from the CLI's immutable core version tags instead of mixing newer templates with an older runtime.
+- f25194e: Expose the embedded OG font resolver so template social images keep their text visible in serverless runtimes.
+- f25194e: Stop agent turns from looping across alternating read-only docs and source search tools.
+- f25194e: Publish PR Visual Recap helpers as a dependency-light CLI package so recap workflows no longer install the full Agent-Native framework dependency graph.
+- Updated dependencies [f25194e]
+- Updated dependencies [f25194e]
+- Updated dependencies [f25194e]
+  - @agent-native/recap-cli@0.3.0
+
+## 0.101.0
+
+### Minor Changes
+
+- fb281f4: Export first-class A2A auth primitives for the HTTP action route so workspaces
+  stop reaching into core internals:
+  - `verifyA2AToken` (and `A2ATokenPayload`) from `@agent-native/core/a2a` — the
+    same verifier the `/_agent-native/a2a` endpoint uses, including org-level
+    fallback secrets. Apps no longer need to reimplement a partial HS256 verifier.
+  - `AGENT_RUN_OWNER_CONTEXT_KEY`, `seedAgentRunOwnerContext`, and
+    `AgentRunOwnerContext` from `@agent-native/core/server` — a typed contract for
+    pre-seeding the resolved caller, replacing the hardcoded context-key string.
+  - A new `actionRouteAuth` option on `createAgentChatPlugin` (and `ActionRouteAuthAdapter`
+    / `actionRouteAuth` on `mountActionRoutes`). Its `resolveCaller` runs before
+    the `getSession` chain on `/_agent-native/actions/*`, letting apps accept A2A
+    JWTs declaratively instead of intercepting Nitro's `request` hook. Returning
+    `null` defers to the existing framework auth chain; throwing hard-rejects the
+    request with a 401 so an invalid credential can't fall through to a
+    same-origin session cookie. A resolved caller's org comes exclusively from
+    the verified credential — the adapter-returned `orgId`
+    (`ActionRouteResolvedCaller`) or the owner-email membership lookup — never
+    from ambient session/org cookie state, so a request carrying both a valid
+    A2A bearer and an unrelated browser cookie can't execute under the cookie
+    user's org. A2A writes stay org-scoped.
+
+  All additive — existing callers are unaffected.
+
+## 0.100.4
+
+### Patch Changes
+
+- f2ed084: Add public-safe review reads and client gating, root-thread agent routing, durable resolution notes, and capability-aware review panels.
+
+## 0.100.3
+
+### Patch Changes
+
+- a6742d1: Publish PR Visual Recap helpers as a dependency-light CLI package so recap workflows no longer install the full Agent-Native framework dependency graph.
+- Updated dependencies [a6742d1]
+  - @agent-native/recap-cli@0.2.0
+
+## 0.100.2
+
+### Patch Changes
+
+- f8cf755: Add a native local-runtime sign-in handoff for Codex-backed ChatGPT subscriptions in Agent composer surfaces.
+- f8cf755: Fix Slack integration fallbacks and link replies directly to Dispatch chat threads.
+- f8cf755: Keep workspace-shared app secrets decryptable across sibling apps.
+
+## 0.100.1
+
+### Patch Changes
+
+- 037cc3a: Validate explicit Calendar and Mail connector catalog actions through the external MCP lifecycle.
+
+## 0.100.0
+
+### Minor Changes
+
+- 8e6f022: Add an Agent Jobs page tab for recurring jobs and personal automations, with scoped status views and management controls.
+- 8e6f022: Add the full-page Agent surface with scoped Context, Files, Connections, Jobs, and Access tabs, plus shared MCP connection guidance.
+- 8e6f022: Expose system-prompt sections in Context X-Ray and add a no-thread context preview with provenance, governance, and token breakdowns.
+
+### Patch Changes
+
+- 8e6f022: Document the full-page Agent surface, its tab responsibilities, and the in-app external-client Access flow.
+- 8e6f022: Align fullscreen chat thread width with the composer width.
+- 8e6f022: Preserve the registered root Google OAuth callback for workspace apps when deploy-time workspace metadata is available but a runtime relay flag is missing.
+- 8e6f022: Recover reasoning-only model completions before app-specific final-answer guards run, and keep guards anchored to the original user request across internal continuations.
+
+## 0.99.3
+
+### Patch Changes
+
+- 03cd25c: Document the `agent-native invoke` CLI usage and flags on the A2A protocol docs page, across all locales.
+
 ## 0.99.2
 
 ### Patch Changes

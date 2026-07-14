@@ -34,7 +34,6 @@ describe("Mail MCP connector catalog", () => {
       "publicAgent: { expose: true, readOnly: true, requiresAuth: true }",
     );
   });
-
   it("keeps send-email outside the direct connector surface", () => {
     const uploadAction = readFileSync(
       join(process.cwd(), "actions", "create-attachment-upload.ts"),

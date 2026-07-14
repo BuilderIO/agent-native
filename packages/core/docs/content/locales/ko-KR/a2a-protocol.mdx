@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 JWT 전달자 토큰으로 서명되었습니다. 다음과 같은 레거시 외부 피어에만 `apiKeyEnv`를 사용하세요.
 정적 전달자 토큰이 필요합니다. 자신을 호출하는 대신 로컬 actions를 사용하세요.
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke`는 `agentNative.invoke()`와 동일한 확인 후 호출(resolve-and-call) 기본 로직을 감싼 얇은 CLI 래퍼입니다. 셸 스크립트, CI 작업, cron 항목, 또는 셸 아웃이 가능한 다른 외부 시스템에서 앱의 에이전트를 트리거할 때 사용하세요 — `/_agent-native/a2a`에 직접 POST하는 것과 동일한 CLI 방식입니다.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# 작업공간 레지스트리에서 "analytics"를 확인하고 응답을 기다립니다
+agent-native invoke analytics "Summarize signups by source this month"
+
+# 배포된 앱을 URL로 직접 호출하고, 환경 변수에서 전달자 토큰을 읽습니다
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# 기본값인 async+poll 대신 블로킹 message/send 하나만 강제로 사용합니다
+agent-native invoke analytics "Quick lookup" --sync
+
+# 스크립팅을 위한 기계 판독 가능한 출력
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| 옵션                      | 설명                                                                  |
+| ------------------------- | --------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 대상 에이전트 (위치 인수 `<app-or-url>`의 별칭)                       |
+| `--message <text>`        | 프롬프트 (위치 인수 `"prompt"`의 별칭)                                |
+| `--api-key-env <name>`    | 환경 변수에서 전달자 토큰을 읽습니다                                  |
+| `--api-key <token>`       | 전달자 토큰 값을 인라인으로 전달합니다                                |
+| `--context-id <id>`       | 기존 작업의 대화를 이어가기 위한 A2A `contextId`                      |
+| `--self-app-id <id>`      | 자체 호출 방지에 사용되는 현재 앱 id                                  |
+| `--self-url <url>`        | 자체 호출 방지에 사용되는 현재 앱 URL                                 |
+| `--timeout-ms <n>`        | 비동기 폴링 타임아웃                                                  |
+| `--poll-interval-ms <n>`  | 비동기 폴링 간격                                                      |
+| `--sync`                  | 기본값인 async+poll 대신 블로킹 `message/send` 요청 하나를 사용합니다 |
+| `--no-hint`               | 크로스 앱 호출 힌트 없이 프롬프트를 그대로 전송합니다                 |
+| `--json`                  | 대상 메타데이터와 응답 텍스트를 JSON으로 출력합니다                   |
+
+`callAgent()`와 마찬가지로 CLI는 기본적으로 async + poll을 사용하며(내부적으로 `invokeAgent` → `callAgent`), 이는 호스팅/서버리스 대상에 대한 안전한 선택입니다 — 위의 [서버리스 웹훅 및 게이트웨이 타임아웃](#json-rpc-methods)을 참조하세요. 대상이 짧은 실행 제한이 있는 게이트웨이 뒤에 있지 않다는 것을 알 때만 `--sync`를 전달하세요.
+
+대상은 `agentNative.invoke()`와 동일한 방식으로 확인됩니다. 작업공간 앱 id, 앱 이름, 또는 전체 URL로 확인되므로 동일한 명령이 멀티 앱 작업공간의 형제 앱이나 다른 곳의 임의의 A2A 피어 모두에 대해 작동합니다.
+
 ## 작업 수명 주기 {#task-lifecycle}
 
 각 메시지는 다음 상태를 거쳐 이동하는 작업을 생성합니다.

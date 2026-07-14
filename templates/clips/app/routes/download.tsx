@@ -14,6 +14,7 @@ import enMessages from "@/i18n/en-US";
 import {
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
+  markDesktopAppDownloaded,
 } from "@/lib/capture-install-options";
 
 export function meta() {
@@ -118,7 +119,7 @@ function primaryDownloadButton(
   if (asset) {
     return (
       <Button asChild size="lg" className="h-12 gap-2 px-6 text-base">
-        <a href={asset.url} download>
+        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
           <Icon className="h-5 w-5" />
           {downloadLabel}
         </a>
@@ -156,7 +157,7 @@ function secondaryDownloadButton(
   if (asset) {
     return (
       <Button asChild variant="ghost" className={className}>
-        <a href={asset.url} download>
+        <a href={asset.url} download onClick={markDesktopAppDownloaded}>
           <Icon className="h-4 w-4" />
           {downloadLabel}
         </a>

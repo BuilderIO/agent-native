@@ -299,6 +299,178 @@ describe("mountA2A auth", () => {
   });
 });
 
+describe("verifyA2AToken (exported)", () => {
+  const originalEnv = { ...process.env };
+
+  beforeEach(() => {
+    vi.resetModules();
+    getA2ASecretByDomainMock.mockReset();
+    process.env = { ...originalEnv, NODE_ENV: "production" };
+  });
+
+  afterEach(() => {
+    process.env = originalEnv;
+  });
+
+  async function signToken(
+    secret: string,
+    claims: Record<string, unknown>,
+    exp: string | number = "15m",
+  ): Promise<string> {
+    return new jose.SignJWT(claims)
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setExpirationTime(exp)
+      .sign(new TextEncoder().encode(secret));
+  }
+
+  it("verifies a token signed with the shared A2A_SECRET", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+    });
+
+    // Event is optional: no audience claim, no org lookup needed here.
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("falls back to the org-level secret via org_domain (shared secret absent)", async () => {
+    delete process.env.A2A_SECRET;
+    getA2ASecretByDomainMock.mockResolvedValueOnce("org-a2a-secret");
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("org-a2a-secret", {
+      sub: "bob@builder.io",
+      org_domain: "builder.io",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(getA2ASecretByDomainMock).toHaveBeenCalledWith("builder.io");
+    expect(result).toEqual({
+      email: "bob@builder.io",
+      orgDomain: "builder.io",
+    });
+  });
+
+  it("rejects a token whose signature matches no candidate secret", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    getA2ASecretByDomainMock.mockResolvedValueOnce(undefined);
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("some-other-secret", {
+      sub: "mallory@builder.io",
+      org_domain: "builder.io",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("rejects an expired token", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken(
+      "shared-global-secret",
+      { sub: "alice@builder.io" },
+      Math.floor(Date.now() / 1000) - 60,
+    );
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("returns null identity when no secret is configured", async () => {
+    delete process.env.A2A_SECRET;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("anything", { sub: "alice@builder.io" });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("does not throw on a malformed token", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    const { verifyA2AToken } = await import("./server.js");
+
+    const result = await verifyA2AToken("not-a-jwt");
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("rejects a correctly-signed token whose aud targets another service (no derivable audience)", async () => {
+    // The signature is valid, but the token was minted for a different
+    // receiver. With no APP_URL/URL and no request event, this receiver can't
+    // derive its own audience — it must fail closed rather than accept a
+    // foreign-audience token just because the shared secret matches.
+    process.env.A2A_SECRET = "shared-global-secret";
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "mallory@builder.io",
+      aud: "https://attacker.example",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+
+  it("still accepts a token WITHOUT an aud claim when no audience can be derived", async () => {
+    // Backward-compat: tokens minted before the audience claim shipped (and
+    // internal callers that don't set one) carry no `aud`, so there is nothing
+    // to check — the secret + exp checks still gate them.
+    process.env.A2A_SECRET = "shared-global-secret";
+    delete process.env.APP_URL;
+    delete process.env.URL;
+    delete process.env.DEPLOY_URL;
+    delete process.env.BETTER_AUTH_URL;
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("accepts a token whose aud matches the receiver's derived audience", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://receiver.example";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "alice@builder.io",
+      aud: "https://receiver.example",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+  });
+
+  it("rejects a token whose aud does not match the receiver's derived audience", async () => {
+    process.env.A2A_SECRET = "shared-global-secret";
+    process.env.APP_URL = "https://receiver.example";
+    const { verifyA2AToken } = await import("./server.js");
+    const token = await signToken("shared-global-secret", {
+      sub: "mallory@builder.io",
+      aud: "https://attacker.example",
+    });
+
+    const result = await verifyA2AToken(token);
+
+    expect(result).toEqual({ email: null, orgDomain: null });
+  });
+});
+
 async function mountedAgentCardHandler(
   config: A2AConfig,
   routePrefix?: string,

@@ -1,3 +1,24 @@
+const DESKTOP_DOWNLOAD_STORAGE_KEY = "clips.desktop-promo.dismissed";
+
+export function hasDownloadedDesktopApp(): boolean {
+  try {
+    return (
+      typeof window !== "undefined" &&
+      window.localStorage?.getItem(DESKTOP_DOWNLOAD_STORAGE_KEY) === "1"
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function markDesktopAppDownloaded(): void {
+  try {
+    window.localStorage?.setItem(DESKTOP_DOWNLOAD_STORAGE_KEY, "1");
+  } catch {
+    // Download tracking is best-effort and must not block the installer.
+  }
+}
+
 function isFalsy(value: unknown): boolean {
   if (typeof value !== "string") return false;
   return ["0", "false", "no", "off"].includes(value.trim().toLowerCase());

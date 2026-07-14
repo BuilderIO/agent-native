@@ -4,6 +4,7 @@ const messages = {
     searchForms: "搜尋表單",
     appearance: "外觀",
     toggleTheme: "切換主題",
+    openAgent: "開啟代理",
   },
   header: {
     settings: "設定",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "詢問表單",
     allForms: "所有表單",
     team: "團隊",
+    agent: "代理",
   },
   settings: {
     title: "設定",
@@ -181,6 +183,9 @@ const messages = {
       anonymousResponses: "匿名回覆",
       anonymousResponsesDescription:
         "不保留 IP 位址、回覆者身分或來源中繼資料。",
+      emailNewResponses: "有新回覆時寄信通知我",
+      emailNewResponsesDescription:
+        "每當有人提交回覆時，就通知表單擁有者帳戶的電子郵件地址。",
       saveSettings: "儲存設定",
     },
     integrations: {

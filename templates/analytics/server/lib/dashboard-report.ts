@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/server";
 import {
   EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
 
@@ -60,6 +61,7 @@ type DashboardScreenshotAttempt = {
   readyTimeout?: number;
   secondReadyTimeout?: number;
   totalTimeout?: number;
+  reportPanelLimit?: number;
 };
 
 type LaunchedScreenshotBrowser = {
@@ -466,6 +468,96 @@ async function runBoundedBrowserCleanup(
   }
 }
 
+const DIAGNOSTICS_PROBE_TIMEOUT_MS = 2_000;
+const DIAGNOSTICS_MAX_LENGTH = 700;
+const DIAGNOSTICS_COLLECTOR_LIMIT = 5;
+
+// Best-effort page inspection used when the report surface never becomes
+// visible, so failures carry enough state to tell wrong-page/wedged-renderer/
+// auth-bounce apart. Must never throw and must stay bounded even if the page
+// is hung.
+async function collectPageDiagnostics(
+  page: any,
+  consoleErrors: string[],
+  failedRequests: string[],
+): Promise<string> {
+  try {
+    let responsive = true;
+    let probeTimeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve(page.evaluate("1")),
+        new Promise((_, reject) => {
+          probeTimeout = setTimeout(
+            () => reject(new Error("diagnostics probe timed out")),
+            DIAGNOSTICS_PROBE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } catch {
+      responsive = false;
+    } finally {
+      if (probeTimeout) clearTimeout(probeTimeout);
+    }
+
+    if (!responsive) {
+      return `page unresponsive (renderer hung or crashed); consoleErrors=${JSON.stringify(
+        consoleErrors,
+      )} failedRequests=${JSON.stringify(failedRequests)}`.slice(
+        0,
+        DIAGNOSTICS_MAX_LENGTH,
+      );
+    }
+
+    let url = "";
+    try {
+      url = page.url();
+    } catch {
+      // page may already be closed; leave url empty
+    }
+
+    let title = "";
+    let bodyText = "";
+    let detailsTimeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      // page.evaluate ignores setDefaultTimeout, so race it like the probe —
+      // a renderer that wedges after the probe must not stall diagnostics.
+      const details = await Promise.race([
+        Promise.resolve(
+          page.evaluate(
+            `(() => ({
+              title: document.title,
+              bodyText: document.body?.innerText?.slice(0, 240) ?? "",
+            }))()`,
+          ),
+        ),
+        new Promise<never>((_, reject) => {
+          detailsTimeout = setTimeout(
+            () => reject(new Error("diagnostics details timed out")),
+            DIAGNOSTICS_PROBE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      title = (details as any)?.title ?? "";
+      bodyText = (details as any)?.bodyText ?? "";
+    } catch {
+      // best effort; leave title/bodyText empty
+    } finally {
+      if (detailsTimeout) clearTimeout(detailsTimeout);
+    }
+
+    return `page state: ${JSON.stringify({
+      url,
+      title,
+      bodyText,
+      consoleErrors,
+      failedRequests,
+    })}`.slice(0, DIAGNOSTICS_MAX_LENGTH);
+  } catch {
+    return "diagnostics unavailable";
+  }
+}
+
 async function captureDashboardPng(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
@@ -488,6 +580,12 @@ async function captureDashboardPng(
   const screenshotUrl = new URL(targetPath, `${dashboardBaseUrl()}/`);
   screenshotUrl.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
   screenshotUrl.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+  if (attempt.reportPanelLimit) {
+    screenshotUrl.searchParams.set(
+      "reportPanelLimit",
+      String(attempt.reportPanelLimit),
+    );
+  }
 
   let browser: any;
   let cleanup = async () => {};
@@ -498,6 +596,7 @@ async function captureDashboardPng(
   let launchTimeout: ReturnType<typeof setTimeout> | undefined;
   let captureStage = "launching the screenshot browser";
   let attemptTimedOut = false;
+  let lastDiagnostics: string | null = null;
   const attemptTimeout = attempt.totalTimeout
     ? setTimeout(() => {
         attemptTimedOut = true;
@@ -530,6 +629,51 @@ async function captureDashboardPng(
 
     const timeout = screenshotTimeoutMs();
     const page = await newPage();
+
+    // Belt-and-braces auth: the query token authenticates only after the
+    // client-side bootstrap harvests it from the URL, which gives the
+    // stripped-down serverless browser several ways to end up session-less.
+    // Seeding the same signed token as a cookie authenticates every request
+    // server-side with no client cooperation. Never abort the capture over
+    // this — the query token path still exists.
+    try {
+      await page.context().addCookies([
+        {
+          name: EMBED_SESSION_COOKIE,
+          value: token,
+          url: `${dashboardBaseUrl()}/`,
+        },
+      ]);
+    } catch (err) {
+      console.warn(
+        "[dashboard-report] Failed to pre-seed embed session cookie:",
+        errorMessage(err),
+      );
+    }
+
+    // Bounded diagnostics collectors so a failed wait carries evidence of
+    // wrong-page/wedged-renderer/auth-bounce instead of a bare timeout.
+    const consoleErrors: string[] = [];
+    page.on("console", (msg: any) => {
+      if (msg.type() !== "error") return;
+      if (consoleErrors.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+      consoleErrors.push(msg.text().slice(0, 160));
+    });
+    const failedRequests: string[] = [];
+    page.on("requestfailed", (req: any) => {
+      if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+      failedRequests.push(
+        `${req.method()} ${req.url().slice(0, 120)}: ${req.failure()?.errorText ?? "failed"}`,
+      );
+    });
+    page.on("response", (res: any) => {
+      if (res.status() < 400) return;
+      if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+      failedRequests.push(
+        `${res.request().method()} ${res.url().slice(0, 120)}: HTTP ${res.status()}`,
+      );
+    });
+
     page.setDefaultTimeout(timeout);
     await page.emulateMedia({ media: "screen", colorScheme: "light" });
     await page.addInitScript(() => {
@@ -542,7 +686,14 @@ async function captureDashboardPng(
 
     captureStage = "waiting for the report surface";
     const capture = page.locator("[data-dashboard-report-capture]");
-    await capture.waitFor({ state: "visible", timeout });
+    try {
+      await capture.waitFor({ state: "visible", timeout });
+    } catch (err) {
+      lastDiagnostics = errorMessage(
+        await collectPageDiagnostics(page, consoleErrors, failedRequests),
+      );
+      throw new Error(`${errorMessage(err)}; ${lastDiagnostics}`);
+    }
     captureStage = "waiting for dashboard queries";
     await waitForDashboardReportReady(page, attempt.readyTimeout ?? timeout);
     captureStage = "rendering lazy dashboard panels";
@@ -569,7 +720,8 @@ async function captureDashboardPng(
   } catch (err) {
     if (attemptTimedOut) {
       throw new Error(
-        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms while ${captureStage}`,
+        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms while ${captureStage}` +
+          (lastDiagnostics ? `; ${lastDiagnostics}` : ""),
       );
     }
     throw new Error(`${captureStage}: ${errorMessage(err)}`);
@@ -612,7 +764,7 @@ function errorMessage(err: unknown): string {
 
 function storedAttemptError(message: string): string {
   const normalized = message.replace(/\s+/g, " ").trim();
-  return normalized.length > 220 ? `${normalized.slice(0, 219)}…` : normalized;
+  return normalized.length > 400 ? `${normalized.slice(0, 399)}…` : normalized;
 }
 
 async function captureDashboardPngWithFallback(
@@ -640,6 +792,7 @@ async function captureDashboardPngWithFallback(
       label: "full-lightweight",
       viewport: { width: 1200, height: 1400 },
       captureScale: 0.7,
+      reportPanelLimit: 8,
       ...(serverless
         ? {
             readyTimeout: 55_000,

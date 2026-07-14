@@ -6,6 +6,40 @@ search: "Headless Agent Rich Chat, vollständige App BYO Agent Runtime AgentChat
 
 # Agentenoberflächen
 
+## Vollständiger Agent-Arbeitsbereich {#agent-page}
+
+Wenn eine vollständige Anwendung einen dauerhaften Ort zum Prüfen und
+Konfigurieren ihres Agents braucht, binde `AgentTabsPage` unter `/agent` ein.
+Füge die Route zur App-Navigation hinzu und übergib `agentPageHref="/agent"` an
+`AgentSidebar`, damit die Modi Resources und Settings auf die vollständige
+Seite verweisen können, ohne diese Abläufe zu duplizieren.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+Die gemeinsame Seite bietet derzeit fünf Tabs:
+
+- **Context** — Bereichsvorschau, Tokenbudget, geordnete Systemabschnitte mit Herkunft und Governance, Listen-/Treemap-Ansicht und der aktuelle Live-Thread-Snapshot.
+- **Files** — verwendet `ResourcesPanel` für persönliche oder organisationsweite Ressourcen wieder.
+- **Connections** — MCP-Serververwaltung und A2A-Liste entfernter Agents: was der Agent dieser App aufrufen kann.
+- **Jobs** — wiederkehrende Jobs und Automatisierungen mit den vorhandenen Abläufen zum Pausieren/Fortsetzen, für Details und zum Löschen. Automatisierungen sind derzeit persönlich.
+- **Access** — MCP-URL, eine A2A-Agent-Card wenn verfügbar, und gemeinsame Einrichtungsanleitungen; die vollständige Verbindung und den Token-Fallback gibt es unter `/mcp/connect`.
+
+Der Umschalter **Personal / Organization** gibt den Tabs ihren Bereich.
+Mitglieder können Organisationsdaten einsehen; die Organisationsverwaltung
+bleibt dort, wo die gehostete Komponente diese Grenze durchsetzt, auf
+Inhaber/Administratoren beschränkt. Das Ziel
+sind prüfbarer, zuordenbarer und steuerbarer Kontext sowie eine klare Trennung
+zwischen Fähigkeit und Zugriff. Die Seite ist eine dünne Hülle um vorhandene
+Komponenten, Actions und Zugriffskontrollen, keine neue Admin-Konsole. Grants,
+Bereichsänderung, Widerruf und Verlauf der Provenienz pro Iteration sind hier
+noch nicht verfügbar.
+
 Agent-Native ist bewusst zusammensetzbar. Sie können den Agenten ohne großen Aufwand verwenden UI,
 Verwenden Sie UI ohne die integrierte Agent-Laufzeit oder verwenden Sie beide zusammen als Vollversion
 Anwendung.

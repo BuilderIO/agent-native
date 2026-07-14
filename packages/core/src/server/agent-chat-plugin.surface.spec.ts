@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   _agentChatPromptSectionsForTests,
+  buildLeanRunPolicyPrompt,
   shouldBlockInProductCodeEditingSurface,
 } from "./agent-chat-plugin.js";
 import {
@@ -62,6 +63,18 @@ describe("shouldBlockInProductCodeEditingSurface", () => {
         host: "agent.example.com",
       }),
     ).toBe(false);
+  });
+});
+
+describe("lean production run policy", () => {
+  it("uses the same combined policy for the emitted prompt and Context X-Ray manifest", () => {
+    const restriction = "<app-rendered-chat-no-direct-code-edits />";
+    const codeExecution =
+      "<code-execution-mode>Sandboxed</code-execution-mode>";
+
+    expect(buildLeanRunPolicyPrompt(restriction, codeExecution)).toBe(
+      restriction + codeExecution,
+    );
   });
 });
 

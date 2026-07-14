@@ -208,6 +208,13 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
 **开放式问题**表格位于同一计划的底部。接听并发送
 它向代理启动针对现有计划的修订。
 
+## 成本和模型选择
+
+生成计划或回顾会对你的编码代理的 LLM 运行一次完整的代理式会话，而不是轻量级的模板填充，因此成本会随 diff 或计划的大小以及你选择的模型而变化。
+
+- 应用自身的默认聊天模型是 Sonnet 5；你可以随时在 **设置** 中更改它。Haiku 是更便宜的 Claude 选项，Luna 是 GPT-5.6 系列中更便宜的选项。
+- 来自 GitHub Action 的自动化 PR 回顾与交互式应用分开运行，拥有自己的模型和成本调节项 — 关于 `VISUAL_RECAP_MODEL`、`VISUAL_RECAP_AGENT` 和 `VISUAL_RECAP_REASONING`，请参见[PR Visual Recap](/docs/pr-visual-recap)。
+
 ## 你可以用它做什么
 
 - **实施前审查。** React 到图表、线框图、选项选项卡，

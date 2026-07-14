@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "アクション",
     commandSearch: "検索",
+    openAgent: "エージェントを開く",
     commandAppearance: "表示",
     toggleTheme: "テーマを切り替え",
     extensionSignedInTitle: "サインインしました",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "ディクテーション",
     archive: "アーカイブ",
     trash: "ゴミ箱",
+    agent: "エージェント",
     settings: "設定",
     notifications: "通知",
     insights: "インサイト",

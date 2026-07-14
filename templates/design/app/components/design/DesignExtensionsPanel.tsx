@@ -480,9 +480,9 @@ interface AssetLibraryPanelProps {
    * overview canvas, over the board surface, or the editor is in
    * single-screen mode and the point is outside that screen's iframe).
    *
-   * When omitted (the default — no DesignEditor wiring yet), this panel
-   * falls back to EXACTLY today's behavior: it sends the raw viewport point
-   * as `x`/`y` with no `screenId`, which the action already handles safely
+   * When omitted by another host, this panel falls back to sending the raw
+   * viewport point as `x`/`y` with no `screenId`, which the action already
+   * handles safely
    * (a raw client point rarely lands inside a real screen's small content
    * bounds, and even when it coincidentally does, worst case is an
    * imprecisely-placed insert — never a crash or data loss; see
@@ -693,9 +693,9 @@ export function AssetLibraryPanel({
       // isUsableDropPosition for the exact "both x and y, non-negative"
       // usability contract a caller-supplied position must meet, and this
       // component's resolveScreenPoint prop doc above for how dropPosition
-      // gets its coordinate space (converted screen-content px when
-      // resolveScreenPoint is wired up by the DesignEditor owner, otherwise
-      // the raw viewport point as an inert-but-harmless fallback).
+      // gets its coordinate space (converted screen-content px when the host
+      // supplies resolveScreenPoint, otherwise the raw viewport point as an
+      // inert-but-harmless fallback).
       insertNativeAsset.mutate(
         {
           kind: asset.kind,
@@ -755,9 +755,9 @@ export function AssetLibraryPanel({
     if (!draggedNativeAsset) return;
     // Convert the viewport drop point into a specific screen's own
     // content-px coordinates via the optional resolveScreenPoint prop (see
-    // its doc comment above for the exact contract). Without that prop
-    // (no DesignEditor wiring yet), fall back to sending the raw viewport
-    // point with no screenId — the exact behavior this drop handler always
+    // its doc comment above for the exact contract). Without that prop, fall
+    // back to sending the raw viewport point with no screenId — the behavior
+    // this drop handler historically
     // had, and still safe: insert-design-native-asset's isUsableDropPosition
     // only requires non-negative finite numbers, so an unconverted point is
     // never rejected, just imprecise (see that action's fallback doc).
@@ -765,6 +765,10 @@ export function AssetLibraryPanel({
       clientX: event.clientX,
       clientY: event.clientY,
     });
+    if (resolveScreenPoint && !resolved) {
+      clearNativeAssetDrag();
+      return;
+    }
     handleInsertNativeAsset(
       draggedNativeAsset,
       resolved

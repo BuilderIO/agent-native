@@ -33,6 +33,12 @@ patterns live in `.agents/skills/`.
   tool. The action schema is the source of truth for parameters.
 - Call `view-screen` before editing a specific design if the current design or
   selected file is not already clear from context.
+- For shared prototype feedback, use the persisted review actions
+  (`list-review-comments`, `get-review-feedback`, `create-review-comment`,
+  `reply-review-comment`, `resolve-review-thread`, `consume-review-feedback`,
+  `send-review-thread-to-agent`, and `set-review-status`). Work one thread at a time, prefer its stable node
+  anchor, verify saved edits before resolving, and read
+  `.agents/skills/design-review-feedback/SKILL.md` for the full loop.
 - Generated files must be complete, standalone HTML unless the user asks for a
   different export format. They should render in the iframe without a build step.
 - For design generation, ground the work in a concrete audience, primary job,

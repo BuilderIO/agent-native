@@ -211,6 +211,21 @@ describe("browser analytics pageviews", () => {
     });
   });
 
+  it("can skip the authenticated engine-status probe on public routes", async () => {
+    installBrowser("https://design.agent-native.com/present/public-design");
+    const { fetchMock } = installFetch();
+    const { configureTracking } = await freshAnalytics();
+
+    configureTracking({ llmConnectionStatus: false });
+    await tick();
+
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes("/_agent-native/agent-engine/status"),
+      ),
+    ).toBe(false);
+  });
+
   it("keeps sanitized tracking but disables content capture on local Plan routes", async () => {
     const { gtag } = installBrowser(
       "https://plan.agent-native.com/local-plans/local#bridge=secret",

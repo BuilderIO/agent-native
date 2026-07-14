@@ -49,6 +49,10 @@ import {
 } from "../shared/reasoning-effort.js";
 import { actionPreparationContinuationNote } from "./action-continuation-guidance.js";
 import {
+  buildSystemManifestSections,
+  readContextXraySystemSections,
+} from "./context-xray/manifest.js";
+import {
   AGENT_CHAT_BACKGROUND_RUN_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
   backgroundRuntimeDiagnosticDetail,
@@ -1799,6 +1803,12 @@ export interface AgentLoopToolResultSummary {
 
 export interface AgentLoopFinalResponseGuardContext {
   messages: EngineMessage[];
+  /**
+   * Stable text from the real user request that started this turn. Unlike the
+   * trailing entry in `messages`, this never points at an internal continuation
+   * or a final-guard corrective retry.
+   */
+  requestText?: string;
   assistantContent: EngineContentPart[];
   text: string;
   toolCalls: AgentLoopToolCallSummary[];
@@ -2047,6 +2057,17 @@ function findCurrentTurnStartForContinuation(
     return i;
   }
   return 0;
+}
+
+/** Resolve the real user request behind any internal continuation messages. */
+export function resolveFinalResponseGuardRequestText(
+  messages: EngineMessage[],
+): string | undefined {
+  const message = messages[findCurrentTurnStartForContinuation(messages)];
+  if (!message || message.role !== "user") return undefined;
+  const text = textFromEngineMessage(message).trim();
+  if (text.startsWith(AGENT_INTERNAL_CONTINUE_PROMPT)) return undefined;
+  return text || undefined;
 }
 
 /**
@@ -2638,7 +2659,7 @@ function rateLimitRecoveryHint(message: string): string {
 }
 
 const SOURCE_SWEEP_TOOL_NAME =
-  /\b(?:api|calls?|deals?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|tickets?|transcripts?)\b/i;
+  /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
 
 const SOURCE_SWEEP_PROVIDER_TOKEN =
   /\b(?:amplitude|apollo|bigquery|commonroom|data-source|ga4|github|gong|grafana|hubspot|jira|mixpanel|notion|posthog|postgres|postgresql|pylon|sentry|slack|stripe)\b/i;
@@ -2659,6 +2680,18 @@ const SOURCE_SWEEP_EXCLUDED_TOOLS = new Set([
   "view-screen",
 ]);
 
+// The Docs app intentionally exposes several small read-only lookup actions
+// rather than a bulk reader. Keep the per-tool guard for repeated lookups, but
+// do not combine this family into the cross-tool convergence budget.
+const SOURCE_SWEEP_AGGREGATE_EXCLUDED_TOOLS = new Set([
+  "docs-search",
+  "list-docs",
+  "read-doc",
+  "read-source-file",
+  "search-docs",
+  "search-source",
+]);
+
 function normalizeToolNameForHeuristics(name: string): string {
   return name.replace(/[_-]+/g, " ");
 }
@@ -2677,20 +2710,27 @@ function isLikelySourceSweepTool(
   );
 }
 
+function isLikelyAggregateSourceSweepTool(
+  name: string,
+  entry: ActionEntry | undefined,
+): boolean {
+  return (
+    !SOURCE_SWEEP_AGGREGATE_EXCLUDED_TOOLS.has(name.toLowerCase()) &&
+    isLikelySourceSweepTool(name, entry)
+  );
+}
+
 function hasExhaustedSourceSweepBudget(opts: {
   priorToolCalls: readonly AgentLoopToolCallSummary[];
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
   const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
-  const counts = new Map<string, number>();
-  for (const call of opts.priorToolCalls) {
-    if (!isLikelySourceSweepTool(call.name, opts.actions[call.name])) continue;
-    const next = (counts.get(call.name) ?? 0) + 1;
-    if (next >= threshold) return true;
-    counts.set(call.name, next);
-  }
-  return false;
+  return (
+    opts.priorToolCalls.filter((call) =>
+      isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
+    ).length >= threshold
+  );
 }
 
 function sourceSweepDelegationText(input: unknown): string {
@@ -2763,11 +2803,16 @@ export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   priorCalls: number;
   threshold?: number;
+  scope?: "tool" | "aggregate";
 }): string {
   const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const target =
+    opts.scope === "aggregate"
+      ? "read-only source/search tools"
+      : "the same read-only source/search tool";
   return (
     `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
-    `call(s) to the same read-only source/search tool, which exceeds the ` +
+    `call(s) to ${target}, which exceeds the ` +
     `${threshold}-call convergence budget. Stop calling ${opts.toolName} ` +
     `one item at a time and change strategy before answering. If a broader ` +
     `read-only bulk/source mechanism is available, use it now: provider API ` +
@@ -2791,6 +2836,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   toolName: string;
   entry: ActionEntry | undefined;
   priorToolCalls: readonly AgentLoopToolCallSummary[];
+  actions?: Record<string, ActionEntry>;
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
@@ -2798,6 +2844,25 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
+  const priorSourceSweepCalls = opts.priorToolCalls.filter((call) =>
+    isLikelyAggregateSourceSweepTool(
+      call.name,
+      opts.actions?.[call.name] ??
+        (call.name === opts.toolName ? opts.entry : undefined),
+    ),
+  ).length;
+  if (priorSourceSweepCalls >= threshold) {
+    return {
+      toolName: opts.toolName,
+      priorCalls: priorSourceSweepCalls,
+      message: repeatedSourceSweepGuardMessage({
+        toolName: opts.toolName,
+        priorCalls: priorSourceSweepCalls,
+        threshold,
+        scope: "aggregate",
+      }),
+    };
+  }
   if (priorCalls < threshold) return null;
   return {
     toolName: opts.toolName,
@@ -2806,6 +2871,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
       toolName: opts.toolName,
       priorCalls,
       threshold,
+      scope: "tool",
     }),
   };
 }
@@ -2913,6 +2979,7 @@ export async function runAgentLoop(opts: {
   tools: EngineTool[];
   availableTools?: EngineTool[];
   messages: EngineMessage[];
+  systemSections?: import("../shared/context-xray.js").ContextManifestSystemSection[];
   actions: Record<string, ActionEntry>;
   send: (event: AgentChatEvent) => void;
   signal: AbortSignal;
@@ -2932,6 +2999,12 @@ export async function runAgentLoop(opts: {
   executionMode?: AgentExecutionMode;
   maxIterations?: number;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
+  /**
+   * Stable real-user request text preserved across internal continuation
+   * attempts. Callers normally omit this; continuation wrappers freeze it
+   * before appending their synthetic user messages.
+   */
+  finalResponseGuardRequestText?: string;
   threadId?: string;
   turnId?: string;
   /**
@@ -2967,6 +3040,9 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  const finalResponseGuardRequestText =
+    opts.finalResponseGuardRequestText ??
+    resolveFinalResponseGuardRequestText(messages);
   const availableToolMap = new Map(
     (availableTools ?? tools).map((tool) => [tool.name, tool]),
   );
@@ -3106,6 +3182,7 @@ export async function runAgentLoop(opts: {
         turnId: opts.turnId,
         model,
         messages,
+        systemSections: opts.systemSections,
       });
 
       // Observational Memory (consumer): for long threads that have already been
@@ -3680,11 +3757,41 @@ export async function runAgentLoop(opts: {
         appendAgentLoopContinuation(messages, "max_tokens");
         continue;
       }
+
+      // Some providers (notably OpenAI Responses for gpt-5+) can complete a
+      // successful turn with reasoning content but no text or tool call. App
+      // final-answer guards validate an actual draft; letting them see this
+      // contentless turn can misclassify our synthetic recovery message and
+      // replace the shared retry with an unrelated app fallback.
+      const hasEmptyFinalResponse =
+        collectTextParts(assistantContentForHistory).trim().length === 0 &&
+        streamedAssistantText.trim().length === 0;
+      if (hasEmptyFinalResponse) {
+        if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
+          emptyFinalResponseRetries += 1;
+          effectiveMaxOutputTokens =
+            resolveEmptyResponseRetryMaxOutputTokens(model);
+          effectiveReasoningEffort = stepDownReasoningEffort(
+            effectiveReasoningEffort,
+          );
+          send({ type: "clear" });
+          appendAgentLoopContinuation(messages, "max_tokens");
+          continue;
+        }
+        send({ type: "clear" });
+        send({
+          type: "text",
+          text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
+        });
+        break;
+      }
+
       let guard: Awaited<ReturnType<AgentLoopFinalResponseGuard>> | null = null;
       if (opts.finalResponseGuard) {
         try {
           guard = await opts.finalResponseGuard({
             messages,
+            requestText: finalResponseGuardRequestText,
             assistantContent: assistantContentForHistory,
             text: collectTextParts(assistantContentForHistory),
             toolCalls: [...toolCallHistory],
@@ -3697,7 +3804,6 @@ export async function runAgentLoop(opts: {
           throw err;
         }
       }
-      let guardEmittedFallback = false;
       if (guard) {
         const retryMessage =
           typeof guard === "string" ? guard : guard.retryMessage;
@@ -3730,45 +3836,12 @@ export async function runAgentLoop(opts: {
         }
         send({ type: "clear" });
         send({ type: "text", text: fallbackMessage ?? retryMessage });
-        guardEmittedFallback = true;
       } else {
         flushUnstreamedAssistantText();
       }
-      // Some providers (notably OpenAI Responses for gpt-5+) can stream a
-      // successful turn that contains only reasoning content and zero output
-      // text — typically when reasoning consumes the entire output-token
-      // budget. Without a final text part the SSE stream still ends with a
-      // clean `done`, which renders as a totally empty assistant bubble.
-      // Retry so a reasoning-budget miss can still finish; each retry raises
-      // the token ceiling and steps reasoning effort down a tier so it's not
-      // just re-issuing the identical doomed request. If retries also come
-      // back empty, surface a plain-language error.
-      const hasEmptyFinalResponse =
-        !guardEmittedFallback &&
-        collectTextParts(assistantContentForHistory).trim().length === 0 &&
-        streamedAssistantText.trim().length === 0;
-      if (hasEmptyFinalResponse) {
-        if (emptyFinalResponseRetries < EMPTY_FINAL_RESPONSE_RETRY_LIMIT) {
-          emptyFinalResponseRetries += 1;
-          effectiveMaxOutputTokens =
-            resolveEmptyResponseRetryMaxOutputTokens(model);
-          effectiveReasoningEffort = stepDownReasoningEffort(
-            effectiveReasoningEffort,
-          );
-          send({ type: "clear" });
-          appendAgentLoopContinuation(messages, "max_tokens");
-          continue;
-        }
-        send({ type: "clear" });
-        send({
-          type: "text",
-          text: "The model returned an empty response. This usually means reasoning used the full output-token budget. Try again, or pick a different model from the model menu.",
-        });
-      } else {
-        emptyFinalResponseRetries = 0;
-        effectiveMaxOutputTokens = opts.maxOutputTokens;
-        effectiveReasoningEffort = opts.reasoningEffort;
-      }
+      emptyFinalResponseRetries = 0;
+      effectiveMaxOutputTokens = opts.maxOutputTokens;
+      effectiveReasoningEffort = opts.reasoningEffort;
       break;
     }
 
@@ -3803,6 +3876,7 @@ export async function runAgentLoop(opts: {
         toolName: toolCall.name,
         entry: actionEntry,
         priorToolCalls: sourceSweepToolCallHistory,
+        actions,
       });
       const sourceSweepDelegationGuard =
         sourceSweepDelegationGuardActive &&
@@ -4965,6 +5039,9 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     maxContinuations?: number;
   },
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const finalResponseGuardRequestText =
+    opts.finalResponseGuardRequestText ??
+    resolveFinalResponseGuardRequestText(opts.messages);
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
     inputTokens: 0,
     outputTokens: 0,
@@ -5010,7 +5087,11 @@ export async function runAgentLoopWithMainChatInternalContinuations(
     };
 
     try {
-      const nextUsage = await runAgentLoop({ ...opts, send });
+      const nextUsage = await runAgentLoop({
+        ...opts,
+        send,
+        finalResponseGuardRequestText,
+      });
       addUsage(nextUsage);
     } catch (err) {
       // Preserve exact prior behavior unless explicitly opted in: an aborted
@@ -6669,6 +6750,31 @@ export function createProductionAgentHandler(
       availableRequestTools,
       options.initialToolNames,
     );
+    // System sections are emitted by the prompt builder once per request. Tool
+    // schemas become known just after prompt setup, so append their measured
+    // contribution here and reuse the immutable result for every loop pass.
+    const contextXraySystemSections = [
+      ...readContextXraySystemSections(event),
+      ...(requestTools.length > 0
+        ? await buildSystemManifestSections([
+            {
+              label: "Action and MCP tool schemas",
+              provenance: "tools",
+              governance: "required",
+              content: requestTools
+                .map((tool) =>
+                  JSON.stringify({
+                    name: tool.name,
+                    description: tool.description,
+                    parameters: tool.inputSchema,
+                  }),
+                )
+                .join("\n"),
+              sourceRef: { scope: "tools" },
+            },
+          ])
+        : []),
+    ];
     setupMark("actions");
     // DIAGNOSTIC-ONLY: action/tool resolution + engine-tool filtering finished.
     workerStep("action_tool_setup");
@@ -7648,6 +7754,7 @@ export function createProductionAgentHandler(
           tools: requestTools,
           availableTools: availableRequestTools,
           messages,
+          systemSections: contextXraySystemSections,
           actions: requestActions,
           send,
           signal,
@@ -7664,6 +7771,7 @@ export function createProductionAgentHandler(
           executionMode: requestMode,
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
+          finalResponseGuardRequestText: messageToPersist,
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }
