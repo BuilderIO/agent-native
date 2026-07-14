@@ -170,10 +170,7 @@ function inlineMarkdownToHtml(text: string): string {
 
   while (cursor < text.length) {
     if (text.startsWith("$`", cursor)) {
-      let close = text.indexOf("`$", cursor + 2);
-      while (close !== -1 && isEscapedDelimiter(text, close)) {
-        close = text.indexOf("`$", close + 2);
-      }
+      const close = text.indexOf("`$", cursor + 2);
       if (close !== -1) {
         if (isEscapedDelimiter(text, cursor)) {
           protectedText.push(text.slice(cursor, close + 2));
@@ -204,9 +201,7 @@ function inlineMarkdownToHtml(text: string): string {
       let close = text.indexOf(delimiter, cursor + delimiterLength);
       while (
         close !== -1 &&
-        (text[close - 1] === "`" ||
-          text[close + delimiterLength] === "`" ||
-          isEscapedDelimiter(text, close))
+        (text[close - 1] === "`" || text[close + delimiterLength] === "`")
       ) {
         close = text.indexOf(delimiter, close + delimiterLength);
       }
@@ -268,23 +263,78 @@ function listItemsToHtml(items: string[][], ordered: boolean): string {
     : `<ul>\n${renderedItems}\n</ul>`;
 }
 
+interface ListMarkerMatch {
+  baseIndent: number;
+  contentIndent: number;
+  content: string;
+}
+
+function indentationWidth(value: string): number {
+  let width = 0;
+  for (const character of value) {
+    width += character === "\t" ? 4 - (width % 4) : 1;
+  }
+  return width;
+}
+
+function matchListMarker(
+  line: string,
+  ordered: boolean,
+): ListMarkerMatch | null {
+  const match = line.match(
+    ordered
+      ? /^([ \t]*)(?:\d+[.)])([ \t]+)(.*)$/
+      : /^([ \t]*)(?:[-*+])([ \t]+)(.*)$/,
+  );
+  if (!match) return null;
+  const contentStart = match[0].length - match[3].length;
+  return {
+    baseIndent: indentationWidth(match[1]),
+    contentIndent: indentationWidth(line.slice(0, contentStart)),
+    content: match[3],
+  };
+}
+
+function leadingIndentWidth(line: string): number {
+  return indentationWidth(line.match(/^[ \t]*/)?.[0] ?? "");
+}
+
+function stripLeadingIndent(line: string, targetWidth: number): string {
+  let width = 0;
+  let index = 0;
+  while (index < line.length && width < targetWidth) {
+    const character = line[index];
+    if (character !== " " && character !== "\t") break;
+    width += character === "\t" ? 4 - (width % 4) : 1;
+    index++;
+  }
+  return line.slice(index);
+}
+
 function collectListItems(
   lines: string[],
   start: number,
   ordered: boolean,
 ): { items: string[][]; nextIndex: number } {
-  const marker = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
+  const firstMarker = matchListMarker(lines[start], ordered);
+  if (!firstMarker) return { items: [], nextIndex: start };
+
+  const baseIndent = firstMarker.baseIndent;
   const items: string[][] = [];
   let index = start;
 
-  while (index < lines.length && marker.test(lines[index])) {
-    const item = [lines[index].replace(marker, "")];
+  while (index < lines.length) {
+    const itemMarker = matchListMarker(lines[index], ordered);
+    if (!itemMarker || itemMarker.baseIndent !== baseIndent) break;
+
+    const item = [itemMarker.content];
     index++;
 
     while (index < lines.length) {
-      if (marker.test(lines[index])) break;
-      if (/^(?: {2,}|\t)/.test(lines[index])) {
-        item.push(lines[index].replace(/^(?: {2,4}|\t)/, ""));
+      const nextMarker = matchListMarker(lines[index], ordered);
+      if (nextMarker?.baseIndent === baseIndent) break;
+      if (leadingIndentWidth(lines[index]) >= itemMarker.contentIndent) {
+        item.push(stripLeadingIndent(lines[index], itemMarker.contentIndent));
         index++;
         continue;
       }
@@ -295,7 +345,7 @@ function collectListItems(
         }
         if (
           nextContent < lines.length &&
-          /^(?: {2,}|\t)/.test(lines[nextContent])
+          leadingIndentWidth(lines[nextContent]) >= itemMarker.contentIndent
         ) {
           item.push("");
           index++;

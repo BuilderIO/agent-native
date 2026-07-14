@@ -119,6 +119,32 @@ describe("document export", () => {
     expect(exportPayload.content).toContain("<code>code</code>");
   });
 
+  it("allows a code span to end after a literal backslash", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Code path",
+      content: "Use `path\\` as the value.",
+      format: "html",
+    });
+
+    expect(exportPayload.content).toContain("<code>path\\</code>");
+  });
+
+  it("localizes malformed math to its first closing delimiter", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Malformed math",
+      content: "Broken $`\\`$ then `code` and valid $`x^2`$.",
+      format: "html",
+    });
+
+    expect(
+      exportPayload.content.match(/class="math-error math-error-inline"/g),
+    ).toHaveLength(1);
+    expect(exportPayload.content).toContain("<code>code</code>");
+    expect(exportPayload.content.match(/class="math-inline"/g)).toHaveLength(1);
+  });
+
   it("keeps indented block equations inside their list items", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",
@@ -139,6 +165,36 @@ describe("document export", () => {
     );
     expect(exportPayload.content).not.toMatch(
       /<\/ul>\s*<div class="math-block">/,
+    );
+  });
+
+  it("keeps same-marker nested bullets inside their parent item", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Nested bullets",
+      content: ["- Parent", "  - Child", "    - Grandchild", "- Sibling"].join(
+        "\n",
+      ),
+      format: "html",
+    });
+
+    expect(exportPayload.content).toMatch(
+      /<ul>\s*<li><p>Parent<\/p>\s*<ul>\s*<li><p>Child<\/p>\s*<ul>\s*<li>Grandchild<\/li>\s*<\/ul><\/li>\s*<\/ul><\/li>\s*<li>Sibling<\/li>\s*<\/ul>/,
+    );
+  });
+
+  it("keeps tab-indented NFM bullets inside their parent item", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Nested NFM bullets",
+      content: ["- Parent", "\t- Child", "\t\t- Grandchild", "- Sibling"].join(
+        "\n",
+      ),
+      format: "html",
+    });
+
+    expect(exportPayload.content).toMatch(
+      /<ul>\s*<li><p>Parent<\/p>\s*<ul>\s*<li><p>Child<\/p>\s*<ul>\s*<li>Grandchild<\/li>\s*<\/ul><\/li>\s*<\/ul><\/li>\s*<li>Sibling<\/li>\s*<\/ul>/,
     );
   });
 
