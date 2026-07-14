@@ -143,6 +143,38 @@ Notes:
   "extension unavailable" message instead of the content. Share the extension to
   the same audience as the dashboard so all viewers can see it.
 
+## Cloning An Extension-Backed Dashboard (e.g. per-customer copies)
+
+When the user asks for a copy of an existing extension-backed dashboard for a
+different customer/org (for example "make an Intuit version of the Roku usage
+dashboard"), follow this playbook. Extension bodies are frequently tens of
+thousands of characters, and the naive "download full HTML → string-replace →
+re-upload" path is slow, fragile, and does not work end-to-end.
+
+1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
+   confirm the target panel is `chartType: "extension"`; grab its
+   `config.extensionId`.
+2. `get-extension` for that id with `forceContent: true` **exactly once**. Reuse
+   that body for the rest of the turn — a second same-run read intentionally
+   omits `content` and returns `contentOmitted` instead. That is not the content
+   disappearing; use the copy you already have.
+3. Change ONLY the small customer-specific static config (e.g. the
+   `ACCOUNT_USAGE_STATIC` block: company name, title, org-discovery filters,
+   messaging). Prefer a focused `update-extension` edit/patch over regenerating
+   the entire HTML.
+4. **Call `create-extension` / `update-extension` as native tools.** They are
+   mutating actions and are NOT callable from `run-code` / `appAction` (the
+   sandbox bridge only exposes read-only actions). Do not try to create or update
+   an extension from inside `run-code`.
+5. Never route the full extension body through `run-code` or the chat. If you
+   must stage intermediate content, write it to a workspace scratch file and read
+   it back with `workspaceRead` (it returns the whole file, auto-paging past the
+   per-read cap). `contentFromAttachment` is only for a file the user pasted into
+   chat — not for workspace scratch files.
+6. Finally `update-dashboard` to save a new dashboard embedding the new
+   extension panel (`chartType: "extension"`, `config.extensionId`), then
+   `navigate` to it.
+
 ## Config Shape
 
 ```jsonc

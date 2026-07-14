@@ -743,10 +743,17 @@ function handleBridgeRequest(
     !extraTools.has(toolName) &&
     !isReadOnlyAction
   ) {
+    // A registered, agent-exposed action that simply isn't read-only is a
+    // mutation. Point the caller at the native tool path instead of leaving
+    // them to guess (the common trap: retrying create-extension/update-extension
+    // through appAction, which cannot work).
+    const isMutatingAction = entry !== undefined && entry.agentTool !== false;
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
-        error: `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
+        error: isMutatingAction
+          ? `Tool "${toolName}" is a mutating action and cannot be called from run-code (appAction only exposes read-only actions). Call "${toolName}" directly as a native tool. For large content bodies, stage the content and pass "contentFromAttachment" instead of an inline string rather than routing it through run-code.`
+          : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
       }),
     );
     return;
@@ -1528,12 +1535,40 @@ async function webRead(url, init = {}) {
 /**
  * Read a Resources-backed workspace file by path. Returns the file content as
  * a string, or null if not found.
- * Supports optional offset and maxChars for paging large files.
+ *
+ * By default this returns the WHOLE file: the underlying store caps a single
+ * read at 100k chars, so this auto-pages across chunks and concatenates them,
+ * so callers never get a silently truncated body. Pass an explicit \`offset\`
+ * or \`maxChars\` to take manual control of a single page instead.
  */
 async function workspaceRead(path, opts = {}) {
-  const parsed = await workspaceReadMeta(path, opts);
-  if (parsed && parsed.ok === false) return null;
-  return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  // Explicit paging requested → single read, caller owns the window.
+  if (opts.offset !== undefined || opts.maxChars !== undefined) {
+    const parsed = await workspaceReadMeta(path, opts);
+    if (parsed && parsed.ok === false) return null;
+    return parsed && typeof parsed.content === "string" ? parsed.content : null;
+  }
+  // Default → assemble the full file by paging until the store reports no more.
+  let offset = 0;
+  let out = "";
+  let found = false;
+  // Bounded loop (files cap at 2 MB / 100k-char reads) so a misbehaving store
+  // can never spin forever.
+  for (let i = 0; i < 512; i++) {
+    const parsed = await workspaceReadMeta(path, { offset, maxChars: 100000 });
+    if (!parsed || parsed.ok === false) break;
+    found = true;
+    const chunk = typeof parsed.content === "string" ? parsed.content : "";
+    out += chunk;
+    if (!parsed.truncated) break;
+    const next =
+      typeof parsed.nextOffset === "number"
+        ? parsed.nextOffset
+        : offset + chunk.length;
+    if (next <= offset) break; // no forward progress; stop rather than loop
+    offset = next;
+  }
+  return found ? out : null;
 }
 
 /**
