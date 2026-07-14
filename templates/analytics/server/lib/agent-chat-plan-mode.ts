@@ -17,6 +17,8 @@ export const INITIAL_TOOL_NAMES = [
   "get-analysis",
   "save-analysis",
   "get-sql-dashboard",
+  "list-sql-dashboards",
+  "list-dashboard-templates",
   "update-dashboard",
   "mutate-dashboard",
   "list-extensions",

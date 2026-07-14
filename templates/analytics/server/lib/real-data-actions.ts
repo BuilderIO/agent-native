@@ -60,20 +60,20 @@ export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 // Inspecting or cloning an existing dashboard/extension template is
 // construction progress, not a metric query. These do not satisfy
 // hasDataQueryAttempt, but they should stop the guard from steering a
-// template-clone turn into "connect a missing source". Deliberately excludes
-// update-dashboard/mutate-dashboard/compose-dashboard/install-dashboard-template:
-// those actions can author brand-new SQL panels, so saving one is not proof
-// the turn only inspected/cloned a template rather than inventing schema. If
-// the tool run also includes one of these inspection/clone actions, the
-// bypass still applies even when a save action ran alongside it.
+// template-clone turn into "connect a missing source". Deliberately limited
+// to read/inspection actions: update-dashboard/mutate-dashboard/
+// compose-dashboard/install-dashboard-template/create-extension/
+// update-extension can all author brand-new SQL or extension content, so
+// calling one of those alone is not proof the turn actually inspected a
+// template rather than inventing it from scratch. If the tool run also
+// includes one of these read actions, the bypass still applies even when an
+// authoring/save action ran alongside it.
 export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
   "get-sql-dashboard",
   "list-sql-dashboards",
   "list-dashboard-templates",
   "list-extensions",
   "get-extension",
-  "create-extension",
-  "update-extension",
 ]);
 
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
@@ -295,7 +295,7 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
 }
 
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
 
 // Reuse the same broad unsupported-result-claim vocabulary that gates
 // isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
