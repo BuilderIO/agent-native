@@ -23,6 +23,8 @@ export const BUILDER_CALLBACK_PATH = "/_agent-native/builder/callback";
 export const BUILDER_RELAY_PATH = "/_agent-native/builder/relay";
 export const BUILDER_RELAY_STATE_PARAM = "_an_relay";
 export const BUILDER_RELAY_SECRET_ENV = "AGENT_NATIVE_BUILDER_RELAY_SECRET";
+export const BUILDER_RELAY_TARGET_ORIGINS_ENV =
+  "AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS";
 export const BUILDER_RELAY_TIMESTAMP_HEADER = "x-agent-native-relay-timestamp";
 export const BUILDER_RELAY_FLOW_HEADER = "x-agent-native-relay-flow";
 export const BUILDER_RELAY_SIGNATURE_HEADER = "x-agent-native-relay-signature";
@@ -68,6 +70,11 @@ function builderRelaySecret(): string {
       `${BUILDER_RELAY_SECRET_ENV} is required for Builder preview authorization relay.`,
     );
   }
+  if (secret.length < 32) {
+    throw new Error(
+      `${BUILDER_RELAY_SECRET_ENV} must be at least 32 characters long.`,
+    );
+  }
   return secret;
 }
 
@@ -101,7 +108,13 @@ function normalizeBuilderRelayBasePath(value: string): string | null {
 export function isSafeBuilderRelayTargetOrigin(value: string): boolean {
   try {
     const url = new URL(value);
-    if (url.origin !== value || url.username || url.password) return false;
+    if (
+      url.origin !== value ||
+      url.username ||
+      url.password ||
+      url.hostname.includes("*")
+    )
+      return false;
     const hostname = url.hostname.toLowerCase();
     const loopback =
       hostname === "localhost" ||
@@ -124,6 +137,17 @@ export function isSafeBuilderRelayTargetOrigin(value: string): boolean {
   } catch {
     return false;
   }
+}
+
+export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
+  if (!isSafeBuilderRelayTargetOrigin(value)) return false;
+  const configured = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
+  if (!configured) return false;
+  return configured
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean)
+    .some((origin) => origin === value && !origin.includes("*"));
 }
 
 export function signBuilderPreviewRelayState(input: {
@@ -195,6 +219,20 @@ export function verifyBuilderPreviewRelayState(
     return null;
   }
   return payload as BuilderPreviewRelayState;
+}
+
+/**
+ * Corporate callback trust check. Preview-side state verification and relay
+ * receipt deliberately do not require this callback-only allowlist.
+ */
+export function verifyBuilderPreviewRelayStateForCallback(
+  state: string | null | undefined,
+  options: { now?: number } = {},
+): BuilderPreviewRelayState | null {
+  const payload = verifyBuilderPreviewRelayState(state, options);
+  return payload && isTrustedBuilderRelayTargetOrigin(payload.targetOrigin)
+    ? payload
+    : null;
 }
 
 export function getBuilderPreviewRelayUrl(

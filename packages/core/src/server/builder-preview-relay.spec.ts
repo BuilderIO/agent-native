@@ -1,9 +1,10 @@
-import type { H3Event } from "h3";
+import { mockEvent, type H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { shouldBypassAuthForBuilderConnect } from "./auth.js";
 import {
   BUILDER_RELAY_SECRET_ENV,
+  BUILDER_RELAY_TARGET_ORIGINS_ENV,
   BUILDER_RELAY_SIGNATURE_HEADER,
   BUILDER_RELAY_TIMESTAMP_HEADER,
   BUILDER_RELAY_FLOW_HEADER,
@@ -12,11 +13,13 @@ import {
   createBuilderRelayRequest,
   signBuilderPreviewRelayState,
   verifyBuilderPreviewRelayState,
+  verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderRelayRequest,
   type BuilderRelayCredentials,
 } from "./builder-browser.js";
 import {
   consumeBuilderRelayRequest,
+  readBuilderRelayRequestBody,
   type BuilderRelayPendingRecord,
 } from "./core-routes-plugin.js";
 
@@ -24,7 +27,7 @@ const NOW = Date.UTC(2026, 6, 14, 18, 0, 0);
 const OWNER = "owner@example.com";
 const TARGET = "https://deploy-preview-42--content.netlify.app";
 const FLOW_ID = "builderRelayFlowExample000001";
-const SECRET = "builder-relay-secret-example";
+const SECRET = "builder-relay-secret-example-at-least-32-characters";
 
 const credentials: BuilderRelayCredentials = {
   privateKey: "private-key-example",
@@ -57,14 +60,24 @@ function headersOf(request: ReturnType<typeof createBuilderRelayRequest>) {
   };
 }
 
+function callbackEvent(relayState: string): H3Event {
+  return mockEvent(
+    new Request(
+      `${TARGET}/_agent-native/builder/callback?${BUILDER_RELAY_STATE_PARAM}=${encodeURIComponent(relayState)}`,
+    ),
+  );
+}
+
 describe("Builder preview callback relay", () => {
   const originalSecret = process.env[BUILDER_RELAY_SECRET_ENV];
+  const originalTargetOrigins = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
   const originalNodeEnv = process.env.NODE_ENV;
 
   beforeEach(() => {
     vi.useFakeTimers();
     vi.setSystemTime(NOW);
     process.env[BUILDER_RELAY_SECRET_ENV] = SECRET;
+    process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = TARGET;
     process.env.NODE_ENV = "production";
   });
 
@@ -73,6 +86,11 @@ describe("Builder preview callback relay", () => {
       delete process.env[BUILDER_RELAY_SECRET_ENV];
     } else {
       process.env[BUILDER_RELAY_SECRET_ENV] = originalSecret;
+    }
+    if (originalTargetOrigins === undefined) {
+      delete process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
+    } else {
+      process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = originalTargetOrigins;
     }
     if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
     else process.env.NODE_ENV = originalNodeEnv;
@@ -118,26 +136,37 @@ describe("Builder preview callback relay", () => {
 
   it("allows the HMAC-authenticated relay and corporate callback through the session guard", () => {
     const relay = makeRelay();
-    const callbackEvent = {
-      node: {
-        req: {
-          url: `/_agent-native/builder/callback?${BUILDER_RELAY_STATE_PARAM}=${encodeURIComponent(relay.state)}`,
-        },
-      },
-      path: "/_agent-native/builder/callback",
-    } as unknown as H3Event;
+    const event = callbackEvent(relay.state);
     expect(
       shouldBypassAuthForBuilderConnect(
-        callbackEvent,
+        event,
         "/_agent-native/builder/callback",
       ),
     ).toBe(true);
     expect(
-      shouldBypassAuthForBuilderConnect(
-        callbackEvent,
-        "/_agent-native/builder/relay",
-      ),
+      shouldBypassAuthForBuilderConnect(event, "/_agent-native/builder/relay"),
     ).toBe(true);
+  });
+
+  it("requires the corporate callback target to be an exact allowlisted origin", () => {
+    const relay = makeRelay();
+    const event = callbackEvent(relay.state);
+
+    process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] =
+      "https://another-preview.netlify.app, https://*.netlify.app";
+
+    expect(verifyBuilderPreviewRelayState(relay.state, { now: NOW })).toEqual(
+      relay.payload,
+    );
+    expect(
+      verifyBuilderPreviewRelayStateForCallback(relay.state, { now: NOW }),
+    ).toBeNull();
+    expect(
+      shouldBypassAuthForBuilderConnect(
+        event,
+        "/_agent-native/builder/callback",
+      ),
+    ).toBe(false);
   });
 
   it("rejects tampered, expired, far-future, unsafe-target, and wrong-secret state", () => {
@@ -158,7 +187,8 @@ describe("Builder preview callback relay", () => {
         now: NOW - 2 * 60 * 1000 - 1,
       }),
     ).toBeNull();
-    process.env[BUILDER_RELAY_SECRET_ENV] = "different-secret-example";
+    process.env[BUILDER_RELAY_SECRET_ENV] =
+      "different-relay-secret-example-at-least-32-characters";
     expect(
       verifyBuilderPreviewRelayState(relay.state, { now: NOW }),
     ).toBeNull();
@@ -174,6 +204,11 @@ describe("Builder preview callback relay", () => {
   it("fails closed when the dedicated relay secret is missing", () => {
     delete process.env[BUILDER_RELAY_SECRET_ENV];
     expect(() => makeRelay()).toThrow(BUILDER_RELAY_SECRET_ENV);
+  });
+
+  it("fails closed when the dedicated relay secret is shorter than 32 characters", () => {
+    process.env[BUILDER_RELAY_SECRET_ENV] = "too-short-example";
+    expect(() => makeRelay()).toThrow("at least 32 characters");
   });
 
   it("signs timestamp, flow id, and body digest and rejects body/time tampering", () => {
@@ -218,7 +253,8 @@ describe("Builder preview callback relay", () => {
         now: NOW,
       }),
     ).toBeNull();
-    process.env[BUILDER_RELAY_SECRET_ENV] = "wrong-relay-secret-example";
+    process.env[BUILDER_RELAY_SECRET_ENV] =
+      "wrong-relay-secret-example-at-least-32-characters";
     expect(
       verifyBuilderRelayRequest({
         body: request.body,
@@ -228,6 +264,21 @@ describe("Builder preview callback relay", () => {
         now: NOW,
       }),
     ).toBeNull();
+  });
+
+  it("rejects an oversized relay body without relying on content-length", async () => {
+    const request = new Request(
+      `${TARGET}/content/_agent-native/builder/relay`,
+      {
+        method: "POST",
+        body: "x".repeat(64 * 1024 + 1),
+      },
+    );
+    expect(request.headers.get("content-length")).toBeNull();
+
+    await expect(
+      readBuilderRelayRequestBody(mockEvent(request)),
+    ).rejects.toMatchObject({ status: 413 });
   });
 
   it("moves credentials between isolated stores once and scopes solely from preview pending state", async () => {

@@ -109,7 +109,7 @@ import {
   BUILDER_STATE_PARAM,
   verifyBuilderCallbackStateAndGetOwner,
   verifyBuilderConnectTokenAndGetOwner,
-  verifyBuilderPreviewRelayState,
+  verifyBuilderPreviewRelayStateForCallback,
 } from "./builder-browser.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
 import {
@@ -1562,7 +1562,7 @@ export function shouldBypassAuthForBuilderConnect(
         : null;
     if (relayState) {
       try {
-        if (verifyBuilderPreviewRelayState(relayState)) return true;
+        if (verifyBuilderPreviewRelayStateForCallback(relayState)) return true;
       } catch {
         // Dedicated relay secret missing: let the auth guard fail closed.
       }

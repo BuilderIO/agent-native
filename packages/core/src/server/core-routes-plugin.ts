@@ -1,4 +1,5 @@
 import {
+  assertBodySize,
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -131,7 +132,7 @@ import {
   signBuilderCallbackState,
   signBuilderPreviewRelayState,
   verifyBuilderRelayRequest,
-  verifyBuilderPreviewRelayState,
+  verifyBuilderPreviewRelayStateForCallback,
   verifyBuilderConnectTokenAndGetOwner,
   verifyBuilderCallbackStateAndGetOwner,
   signBuilderConnectToken,
@@ -1001,6 +1002,13 @@ export async function consumeBuilderRelayRequest(
     { orgId: pending.orgId, role: pending.role },
   );
   return { ok: true };
+}
+
+export async function readBuilderRelayRequestBody(
+  event: H3Event,
+): Promise<string> {
+  await assertBodySize(event, 64 * 1024);
+  return (await readRawBody(event, "utf8")) ?? "";
 }
 
 function redactValues(text: string, values: Array<string | null | undefined>) {
@@ -2283,12 +2291,7 @@ export function createCoreRoutesPlugin(
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
           }
-          const declaredLength = Number(getHeader(event, "content-length"));
-          if (Number.isFinite(declaredLength) && declaredLength > 64 * 1024) {
-            setResponseStatus(event, 413);
-            return { error: "Builder relay request is too large" };
-          }
-          const rawBody = (await readRawBody(event, "utf8")) ?? "";
+          const rawBody = await readBuilderRelayRequestBody(event);
           const result = await consumeBuilderRelayRequest(
             {
               rawBody,
@@ -2347,7 +2350,8 @@ export function createCoreRoutesPlugin(
           if (relayStateRaw) {
             let relayPayload: BuilderPreviewRelayState | null = null;
             try {
-              relayPayload = verifyBuilderPreviewRelayState(relayStateRaw);
+              relayPayload =
+                verifyBuilderPreviewRelayStateForCallback(relayStateRaw);
             } catch {
               // A preview relay must fail closed when its dedicated shared
               // secret is absent on the corporate callback deployment.
