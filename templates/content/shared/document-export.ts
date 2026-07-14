@@ -114,7 +114,7 @@ function restoreTokenSources(
 ): string {
   return tokens.reduce(
     (restored, token) =>
-      restored.replaceAll(token.marker, escapeHtml(token.source)),
+      restored.split(token.marker).join(escapeHtml(token.source)),
     text,
   );
 }
@@ -223,7 +223,7 @@ function inlineMarkdownToHtml(text: string): string {
   }
 
   return tokens.reduce(
-    (html, token) => html.replaceAll(token.marker, () => token.html),
+    (html, token) => html.split(token.marker).join(token.html),
     inlineMarkdownSegmentToHtml(protectedText.join(""), tokens),
   );
 }
