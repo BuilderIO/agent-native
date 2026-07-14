@@ -127,18 +127,10 @@ export function useRunStuckDetection({
     const base = apiUrl ?? agentNativePath("/_agent-native/agent-chat");
     let cancelled = false;
     let timer: ReturnType<typeof setTimeout> | null = null;
-    let heartbeatExpiryTimer: ReturnType<typeof setTimeout> | null = null;
+    let snapshotTransitionTimer: ReturnType<typeof setTimeout> | null = null;
+    let snapshotVersion = 0;
 
-    const scheduleHeartbeatExpiry = ({
-      active,
-      runId,
-      status,
-      lastProgressAt,
-      stuckSinceMs,
-      heartbeatAt,
-      heartbeatSinceMs,
-      dispatchMode,
-    }: {
+    type RunHealthSnapshot = {
       active: boolean;
       runId: string | null;
       status: string | null;
@@ -147,63 +139,112 @@ export function useRunStuckDetection({
       heartbeatAt: number | null;
       heartbeatSinceMs: number | null;
       dispatchMode: string | null;
-    }) => {
-      if (heartbeatExpiryTimer) clearTimeout(heartbeatExpiryTimer);
-      heartbeatExpiryTimer = null;
+    };
+
+    const effectiveThresholdFor = (
+      dispatchMode: string | null,
+      heartbeatSinceMs: number | null,
+    ) => {
+      const liveBackgroundWorker =
+        dispatchMode === "background-processing" &&
+        heartbeatSinceMs != null &&
+        heartbeatSinceMs >= 0 &&
+        heartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
+      const serverContinued =
+        dispatchMode === "foreground-self-chain" ||
+        dispatchMode?.startsWith("background") === true;
+      return liveBackgroundWorker
+        ? Math.min(backgroundStuckThresholdMs, liveBackgroundStuckThresholdMs)
+        : serverContinued
+          ? backgroundStuckThresholdMs
+          : stuckThresholdMs;
+    };
+
+    const scheduleSnapshotTransition = (
+      snapshot: RunHealthSnapshot,
+      observedAtMs: number,
+      version: number,
+    ) => {
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
+      snapshotTransitionTimer = null;
       if (
-        runId == null ||
-        heartbeatAt == null ||
-        heartbeatSinceMs == null ||
-        heartbeatSinceMs < 0 ||
-        heartbeatSinceMs >= FRESH_BACKGROUND_HEARTBEAT_MS
+        cancelled ||
+        version !== snapshotVersion ||
+        !snapshot.active ||
+        snapshot.status !== "running" ||
+        snapshot.runId == null
       ) {
         return;
       }
 
-      // `heartbeatSinceMs` is computed from the server clock, but it is only a
-      // snapshot. Expire that snapshot against elapsed local time so a hung or
-      // failing follow-up poll cannot claim the worker is alive forever and
-      // indefinitely hide Retry. Comparing a duration is safe from client/server
-      // clock skew; a later successful poll replaces this timer with fresh data.
-      const observedAtMs = Date.now();
-      const expiresInMs = FRESH_BACKGROUND_HEARTBEAT_MS - heartbeatSinceMs + 1;
-      heartbeatExpiryTimer = setTimeout(() => {
-        if (cancelled) return;
+      const currentElapsedMs = Math.max(0, Date.now() - observedAtMs);
+      const currentHeartbeatSinceMs =
+        snapshot.heartbeatSinceMs == null
+          ? null
+          : snapshot.heartbeatSinceMs + currentElapsedMs;
+      const currentStuckSinceMs =
+        snapshot.stuckSinceMs == null
+          ? null
+          : snapshot.stuckSinceMs + currentElapsedMs;
+      const effectiveThresholdMs = effectiveThresholdFor(
+        snapshot.dispatchMode,
+        currentHeartbeatSinceMs,
+      );
+      const currentlyStuck = Boolean(
+        currentStuckSinceMs != null &&
+        currentStuckSinceMs > effectiveThresholdMs,
+      );
+      const transitionDelaysMs: number[] = [];
+      if (
+        currentHeartbeatSinceMs != null &&
+        currentHeartbeatSinceMs >= 0 &&
+        currentHeartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS
+      ) {
+        transitionDelaysMs.push(
+          FRESH_BACKGROUND_HEARTBEAT_MS - currentHeartbeatSinceMs + 1,
+        );
+      }
+      if (currentStuckSinceMs != null && !currentlyStuck) {
+        transitionDelaysMs.push(
+          Math.max(1, effectiveThresholdMs - currentStuckSinceMs + 1),
+        );
+      }
+      if (transitionDelaysMs.length === 0) return;
+
+      // Both ages originate from the server clock. Advance those snapshots by
+      // only a local elapsed duration, which remains safe when client/server
+      // wall clocks differ. Wake at the earlier semantic boundary, then
+      // reschedule if the other boundary is still ahead.
+      const delayMs = Math.max(1, Math.min(...transitionDelaysMs));
+      snapshotTransitionTimer = setTimeout(() => {
+        snapshotTransitionTimer = null;
+        if (cancelled || version !== snapshotVersion) return;
         const elapsedSinceObservationMs = Math.max(
           0,
           Date.now() - observedAtMs,
         );
         const nextHeartbeatSinceMs =
-          heartbeatSinceMs + elapsedSinceObservationMs;
-        const nextStuckSinceMs =
-          stuckSinceMs == null
+          snapshot.heartbeatSinceMs == null
             ? null
-            : stuckSinceMs + elapsedSinceObservationMs;
-        const liveBackgroundWorker =
-          dispatchMode === "background-processing" &&
-          nextHeartbeatSinceMs >= 0 &&
-          nextHeartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
-        const serverContinued =
-          dispatchMode === "foreground-self-chain" ||
-          dispatchMode?.startsWith("background") === true;
-        const effectiveThresholdMs = liveBackgroundWorker
-          ? Math.min(backgroundStuckThresholdMs, liveBackgroundStuckThresholdMs)
-          : serverContinued
-            ? backgroundStuckThresholdMs
-            : stuckThresholdMs;
+            : snapshot.heartbeatSinceMs + elapsedSinceObservationMs;
+        const nextStuckSinceMs =
+          snapshot.stuckSinceMs == null
+            ? null
+            : snapshot.stuckSinceMs + elapsedSinceObservationMs;
+        const nextEffectiveThresholdMs = effectiveThresholdFor(
+          snapshot.dispatchMode,
+          nextHeartbeatSinceMs,
+        );
         const nextIsStuck = Boolean(
-          active &&
-          status === "running" &&
           nextStuckSinceMs != null &&
-          nextStuckSinceMs > effectiveThresholdMs,
+          nextStuckSinceMs > nextEffectiveThresholdMs,
         );
         setState((current) => {
           if (
-            current.runId !== runId ||
-            current.lastProgressAt !== lastProgressAt ||
-            current.heartbeatAt !== heartbeatAt ||
-            current.heartbeatSinceMs == null ||
-            current.heartbeatSinceMs >= FRESH_BACKGROUND_HEARTBEAT_MS
+            version !== snapshotVersion ||
+            current.runId !== snapshot.runId ||
+            current.lastProgressAt !== snapshot.lastProgressAt ||
+            current.heartbeatAt !== snapshot.heartbeatAt
           ) {
             return current;
           }
@@ -214,7 +255,8 @@ export function useRunStuckDetection({
             heartbeatSinceMs: nextHeartbeatSinceMs,
           };
         });
-      }, expiresInMs);
+        scheduleSnapshotTransition(snapshot, observedAtMs, version);
+      }, delayMs);
     };
 
     const poll = async () => {
@@ -242,47 +284,38 @@ export function useRunStuckDetection({
             heartbeatAt != null ? nowMs - heartbeatAt : null;
           const dispatchMode =
             typeof data.dispatchMode === "string" ? data.dispatchMode : null;
-          // Server-continued runs get the wider threshold: the server's own
-          // recovery (150s no-progress backstop + chained continuations) must
-          // get its chance before the user sees a "stuck" affordance.
-          const serverContinued =
-            dispatchMode === "foreground-self-chain" ||
-            dispatchMode?.startsWith("background") === true;
           // A claimed durable worker with a fresh heartbeat can legitimately
           // be waiting on a bounded long-running tool/sub-agent call. Still
           // surface informational status at the normal background threshold;
           // RunStuckBanner uses the fresh heartbeat to withhold Retry while
           // keeping an explicit Cancel available. The legacy live-worker
           // threshold may make that notice earlier, but never later.
-          const liveBackgroundWorker =
-            dispatchMode === "background-processing" &&
-            heartbeatSinceMs != null &&
-            heartbeatSinceMs >= 0 &&
-            heartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
-          const effectiveThresholdMs = liveBackgroundWorker
-            ? Math.min(
-                backgroundStuckThresholdMs,
-                liveBackgroundStuckThresholdMs,
-              )
-            : serverContinued
-              ? backgroundStuckThresholdMs
-              : stuckThresholdMs;
+          const effectiveThresholdMs = effectiveThresholdFor(
+            dispatchMode,
+            heartbeatSinceMs,
+          );
           const isStuck = Boolean(
             data.active &&
             data.status === "running" &&
             stuckSinceMs != null &&
             stuckSinceMs > effectiveThresholdMs,
           );
-          scheduleHeartbeatExpiry({
-            active: data.active,
-            runId: data.runId ?? null,
-            status: data.status ?? null,
-            lastProgressAt,
-            stuckSinceMs,
-            heartbeatAt,
-            heartbeatSinceMs,
-            dispatchMode,
-          });
+          const observedAtMs = Date.now();
+          const version = ++snapshotVersion;
+          scheduleSnapshotTransition(
+            {
+              active: data.active,
+              runId: data.runId ?? null,
+              status: data.status ?? null,
+              lastProgressAt,
+              stuckSinceMs,
+              heartbeatAt,
+              heartbeatSinceMs,
+              dispatchMode,
+            },
+            observedAtMs,
+            version,
+          );
           setState({
             isStuck,
             runId: data.runId ?? null,
@@ -319,8 +352,9 @@ export function useRunStuckDetection({
 
     return () => {
       cancelled = true;
+      snapshotVersion += 1;
       if (timer) clearTimeout(timer);
-      if (heartbeatExpiryTimer) clearTimeout(heartbeatExpiryTimer);
+      if (snapshotTransitionTimer) clearTimeout(snapshotTransitionTimer);
     };
   }, [
     threadId,

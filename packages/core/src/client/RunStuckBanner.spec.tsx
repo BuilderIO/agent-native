@@ -232,6 +232,51 @@ describe("RunStuckBanner", () => {
     expect(container.textContent).toContain("Cancel");
   });
 
+  it("schedules a later stuck transition after heartbeat expiry", async () => {
+    let activePollCount = 0;
+    const fetchSpy = vi.fn(async (url: string) => {
+      if (url.includes("/runs/active")) {
+        activePollCount += 1;
+        if (activePollCount > 1) throw new Error("poll unavailable");
+        return jsonResponse({
+          active: true,
+          runId: "run-background-later-stuck",
+          status: "running",
+          dispatchMode: "background-processing",
+          heartbeatAt: 99_000,
+          // Far enough below 180s that heartbeat freshness expires first.
+          lastProgressAt: 10_000,
+          serverNow: 100_000,
+        });
+      }
+      return jsonResponse({ error: "unexpected" }, false);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    await act(async () => {
+      root.render(<RunStuckBanner threadId="thread-1" autoRetry />);
+    });
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+
+    expect(container.textContent).toBe("");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(89_999);
+    });
+    expect(container.textContent).toBe("");
+
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2);
+    });
+
+    expect(activePollCount).toBeGreaterThan(1);
+    expect(container.textContent).toContain("This chat looks stuck.");
+    expect(container.textContent).toContain("Retry");
+    expect(container.textContent).toContain("Cancel");
+  });
+
   it("allows the live-worker threshold to request an earlier notice", async () => {
     const fetchSpy = vi.fn(async (url: string) => {
       if (url.includes("/runs/active")) {
