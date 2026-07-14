@@ -1,17 +1,15 @@
 import { createAuthPlugin } from "@agent-native/core/server";
 
-const rawAppTitle = "Tasks";
-const appTitle = rawAppTitle === "{" + "{APP_TITLE}}" ? "Chat" : rawAppTitle;
-
 export default createAuthPlugin({
   marketing: {
-    appName: appTitle,
+    appName: "Tasks",
     tagline:
-      "Start from a chat-first agent-native app and add actions, screens, and workflows as you grow.",
+      "Manage your personal tasks: triage in the inbox, finish from the list. Use an agent that can do all of that for you.",
     features: [
-      "Full-page chat with durable threads and tool call history",
-      "Add actions once and use them from chat, UI, HTTP, MCP, A2A, and CLI",
-      "Plug in your own agent runtime or build on the included app-agent loop",
+      "Inbox triage — capture ideas and drafts as they come, then promote them to tasks when they are ready",
+      "Task management — create, reorder, and complete tasks in a list that stays in the order you put it in",
+      "Track what you care about with custom fields — text, numbers, currency, dates, and color-coded selects",
+      "Anything you can do here, the agent can do too — and it sees what is on your screen, so “finish these” means the rows you actually selected",
     ],
   },
 });
