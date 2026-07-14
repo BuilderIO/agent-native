@@ -1,5 +1,7 @@
 import {
   IconAlertTriangle,
+  IconChevronDown,
+  IconChevronUp,
   IconLoader2,
   IconPlayerPauseFilled,
   IconPlayerPlayFilled,
@@ -15,13 +17,14 @@ import { useEffect, useRef, useState } from "react";
 const OVERLAY_SHADOW_GUTTER = 18;
 const TOOLBAR_CONTENT_WIDTH = 72;
 // 170px primary zone (Stop / time / Pause / marker) + 88px action zone
-// (+2 margin) + 20 vertical padding. The action buttons are ALWAYS visible:
-// hover-reveal never worked reliably because WKWebView in a non-focused
+// (+2 margin) + 20px caret row + 20 vertical padding. The action zone is
+// toggled by the caret CLICK, never by hover — WKWebView in a non-focused
 // window doesn't deliver hover events until the window is clicked (made
-// key), so the discard button was effectively undiscoverable.
-const TOOLBAR_HEIGHT = 280;
+// key), which made hover-revealed buttons undiscoverable.
+const TOOLBAR_HEIGHT_EXPANDED = 300;
+const TOOLBAR_HEIGHT_COLLAPSED = 210;
 const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
-const TOOLBAR_WINDOW_HEIGHT = TOOLBAR_HEIGHT + OVERLAY_SHADOW_GUTTER * 2;
+const TOOLBAR_COLLAPSED_KEY = "clips:toolbar-actions-collapsed";
 
 /**
  * Floating recording toolbar — vertical pill anchored to the LEFT edge of
@@ -51,6 +54,22 @@ export function Toolbar() {
   const [pendingAction, setPendingAction] = useState<
     "stop" | "restart" | "cancel" | null
   >(null);
+  // Restart/discard zone visibility — caret-toggled, persisted so the
+  // preference sticks across recordings.
+  const [actionsCollapsed, setActionsCollapsed] = useState(
+    () => localStorage.getItem(TOOLBAR_COLLAPSED_KEY) === "1",
+  );
+  function toggleActionsCollapsed() {
+    setActionsCollapsed((prev) => {
+      const next = !prev;
+      try {
+        localStorage.setItem(TOOLBAR_COLLAPSED_KEY, next ? "1" : "0");
+      } catch {
+        // Private-mode storage failures just lose the preference.
+      }
+      return next;
+    });
+  }
   // Pre-record mode: the toolbar shows alongside the pre-record bubble so
   // the user can drag both around and position them before hitting Start.
   // Stop / Pause are disabled until the recorder actually begins, at which
@@ -188,16 +207,20 @@ export function Toolbar() {
     }, 3_000);
   }
 
-  // The native window is created at the collapsed legacy size by older
-  // tray builds — assert the always-expanded size once on mount so both
-  // action buttons are inside the window bounds.
+  // Size the native window to the current collapse state (also fixes the
+  // size when an older tray build created the window smaller). Transparent
+  // window pixels would block clicks beneath the pill, so the window always
+  // hugs the visible content.
   useEffect(() => {
+    const height =
+      (actionsCollapsed ? TOOLBAR_HEIGHT_COLLAPSED : TOOLBAR_HEIGHT_EXPANDED) +
+      OVERLAY_SHADOW_GUTTER * 2;
     getCurrentWindow()
-      .setSize(new LogicalSize(TOOLBAR_WINDOW_WIDTH, TOOLBAR_WINDOW_HEIGHT))
+      .setSize(new LogicalSize(TOOLBAR_WINDOW_WIDTH, height))
       .catch((err) => {
         console.warn("[clips-toolbar] resize failed", err);
       });
-  }, []);
+  }, [actionsCollapsed]);
 
   function stop() {
     if (pendingAction || !enabled) return;
@@ -296,7 +319,7 @@ export function Toolbar() {
 
   return (
     <div
-      className={`toolbar-v ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"} ${diskSpaceLevel !== "ok" ? `toolbar-v-disk-${diskSpaceLevel}` : ""}`}
+      className={`toolbar-v ${actionsCollapsed ? "toolbar-v-collapsed" : ""} ${paused ? "toolbar-v-paused" : ""} ${enabled ? "" : "toolbar-v-disabled"} ${diskSpaceLevel !== "ok" ? `toolbar-v-disk-${diskSpaceLevel}` : ""}`}
       onMouseDown={handleToolbarMouseDown}
     >
       {/* Primary controls live in a fixed-height zone so they stay pinned
@@ -433,6 +456,21 @@ export function Toolbar() {
           )}
         </button>
       </div>
+      <button
+        className="toolbar-v-caret"
+        onClick={toggleActionsCollapsed}
+        aria-label={
+          actionsCollapsed ? "Show more actions" : "Hide extra actions"
+        }
+        title={actionsCollapsed ? "Show restart & discard" : "Hide"}
+        data-no-drag
+      >
+        {actionsCollapsed ? (
+          <IconChevronDown size={14} stroke={2.2} />
+        ) : (
+          <IconChevronUp size={14} stroke={2.2} />
+        )}
+      </button>
     </div>
   );
 }

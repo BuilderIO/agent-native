@@ -824,11 +824,13 @@ pub async fn show_toolbar(app: AppHandle) -> Result<(), String> {
     // window in physical px. Keep the visible toolbar large enough for the
     // fixed 30px circular controls on high-DPI displays.
     let content_w: u32 = (72.0 * scale).round() as u32;
-    // 280 logical px: the 170px primary zone (Stop / timer / Pause / marker)
-    // plus the always-visible restart/discard actions. Hover-reveal is gone —
-    // WKWebView in a non-focused window doesn't get hover events on macOS,
-    // which made the discard button undiscoverable.
-    let content_h: u32 = (280.0 * scale).round() as u32;
+    // 300 logical px: the 170px primary zone (Stop / timer / Pause / marker)
+    // plus the caret-toggled restart/discard actions and the caret row —
+    // TOOLBAR_HEIGHT_EXPANDED in toolbar.tsx. Created at the expanded max;
+    // the React toolbar resizes down on mount when the user last collapsed
+    // the action zone. Hover-reveal is gone — WKWebView in a non-focused
+    // window doesn't get hover events on macOS.
+    let content_h: u32 = (300.0 * scale).round() as u32;
     let w: u32 = content_w + gutter * 2;
     let h: u32 = content_h + gutter * 2;
     // Flush-left with a small margin; vertically center the pill.

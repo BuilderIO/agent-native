@@ -2853,9 +2853,10 @@ body[data-clips-route="recording-pill"] #root {
   left: var(--overlay-shadow-gutter);
   top: var(--overlay-shadow-gutter);
   width: 72px;
-  /* 170px primary zone + 88px always-visible actions (+2 margin) + 20px
-     vertical padding — matches TOOLBAR_HEIGHT in toolbar.tsx. */
-  height: 280px;
+  /* 170px primary zone + 88px actions (+2 margin) + 20px caret row + 20px
+     vertical padding — matches TOOLBAR_HEIGHT_EXPANDED in toolbar.tsx. */
+  height: 300px;
+  transition: height 170ms cubic-bezier(0.2, 0.8, 0.2, 1);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -2881,6 +2882,12 @@ body[data-clips-route="recording-pill"] #root {
 
 .toolbar-v:active {
   cursor: grabbing;
+}
+
+/* Caret-collapsed: only the primary zone + caret row remain — matches
+   TOOLBAR_HEIGHT_COLLAPSED in toolbar.tsx. */
+.toolbar-v-collapsed {
+  height: 210px;
 }
 
 /* Fixed-height home for Stop / time / Pause / marker. Its height equals the
@@ -3022,9 +3029,10 @@ body[data-clips-route="recording-pill"] #root {
   text-align: center;
 }
 
-/* Restart + discard. Always visible: WKWebView doesn't deliver hover
-   events to a non-focused window on macOS, so hover-reveal made these
-   buttons undiscoverable until the pill was clicked once. */
+/* Restart + discard. Toggled by the caret CLICK, never hover: WKWebView
+   doesn't deliver hover events to a non-focused window on macOS, so
+   hover-reveal made these buttons undiscoverable until the pill was
+   clicked once. */
 .toolbar-v-hover-actions {
   display: flex;
   flex-direction: column;
@@ -3032,6 +3040,41 @@ body[data-clips-route="recording-pill"] #root {
   gap: 8px;
   height: 88px;
   margin-top: 2px;
+  overflow: hidden;
+  transition:
+    height 170ms cubic-bezier(0.2, 0.8, 0.2, 1),
+    opacity 130ms ease-out;
+}
+
+.toolbar-v-collapsed .toolbar-v-hover-actions {
+  height: 0;
+  margin-top: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toolbar-v-caret {
+  width: 40px;
+  height: 18px;
+  margin-top: 2px;
+  flex: 0 0 18px;
+  border: none;
+  border-radius: 9px;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  transition:
+    background-color 120ms ease-out,
+    color 120ms ease-out;
+}
+
+.toolbar-v-caret:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: rgba(255, 255, 255, 0.9);
 }
 
 .toolbar-v-action {
