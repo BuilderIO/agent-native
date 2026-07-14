@@ -297,6 +297,8 @@ describe("inbox store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
+    const before = await listInboxItems({ ownerEmail: "alice@example.com" });
+
     await expect(
       reorderInboxItems({
         ownerEmail: "alice@example.com",
@@ -305,6 +307,6 @@ describe("inbox store", () => {
     ).rejects.toThrow(/duplicates/i);
 
     const items = await listInboxItems({ ownerEmail: "alice@example.com" });
-    expect(items.map((item) => item.id)).toEqual(["i1", "i2"]);
+    expect(items.map((item) => item.id)).toEqual(before.map((item) => item.id));
   });
 });

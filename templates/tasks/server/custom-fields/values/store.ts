@@ -1,5 +1,6 @@
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
+import { caseById, chunk } from "../../db/bulk-write.js";
 import { getDb } from "../../db/index.js";
 import { createRecordId, timestamp } from "../../db/record-utils.js";
 import {
@@ -88,37 +89,49 @@ export function applyCustomFieldValuePatchesInTx(
     updatedAt: string;
   },
 ): void {
-  for (const normalized of input.patches.values()) {
-    if (normalized.value === null) {
-      deleteCustomFieldValues(
-        {
-          ownerEmail: input.ownerEmail,
-          taskId: input.taskId,
-          fieldId: normalized.field.id,
-        },
-        tx,
-      );
-      continue;
-    }
+  const patches = [...input.patches.values()];
+  const clearedFieldIds = patches
+    .filter((patch) => patch.value === null)
+    .map((patch) => patch.field.id);
+  const rows = patches
+    .filter((patch) => patch.value !== null)
+    .map((patch) => ({
+      id: createRecordId("cfv"),
+      fieldId: patch.field.id,
+      taskId: input.taskId,
+      valueJson: JSON.stringify(patch.value),
+      ownerEmail: input.ownerEmail,
+      createdAt: input.updatedAt,
+      updatedAt: input.updatedAt,
+    }));
 
-    const valueJson = JSON.stringify(normalized.value);
+  if (clearedFieldIds.length > 0) {
+    tx.delete(customFieldValues)
+      .where(
+        and(
+          eq(customFieldValues.ownerEmail, input.ownerEmail),
+          eq(customFieldValues.taskId, input.taskId),
+          inArray(customFieldValues.fieldId, clearedFieldIds),
+        ),
+      )
+      .run();
+  }
+
+  // One multi-row upsert: `excluded` refers to the row that would have been
+  // inserted, so each conflicting row keeps its own value.
+  for (const group of chunk(rows)) {
     tx.insert(customFieldValues)
-      .values({
-        id: createRecordId("cfv"),
-        fieldId: normalized.field.id,
-        taskId: input.taskId,
-        valueJson,
-        ownerEmail: input.ownerEmail,
-        createdAt: input.updatedAt,
-        updatedAt: input.updatedAt,
-      })
+      .values(group)
       .onConflictDoUpdate({
         target: [
           customFieldValues.ownerEmail,
           customFieldValues.taskId,
           customFieldValues.fieldId,
         ],
-        set: { valueJson, updatedAt: input.updatedAt },
+        set: {
+          valueJson: sql`excluded.value_json`,
+          updatedAt: input.updatedAt,
+        },
       })
       .run();
   }
@@ -187,6 +200,62 @@ export function listCustomFieldValues(
     .all();
 }
 
+/** Delete value rows by id, without the existence read `deleteCustomFieldValues` does. */
+export function deleteCustomFieldValuesByIds(
+  input: { ownerEmail: string; ids: string[] },
+  db: FieldValueDb = getDb(),
+): void {
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return;
+
+  for (const group of chunk(ids)) {
+    db.delete(customFieldValues)
+      .where(
+        and(
+          eq(customFieldValues.ownerEmail, input.ownerEmail),
+          inArray(customFieldValues.id, group),
+        ),
+      )
+      .run();
+  }
+}
+
+/** Write a different stored value to each row in one statement per chunk. */
+export function setCustomFieldValueJsonByIds(
+  input: {
+    ownerEmail: string;
+    entries: Array<{ id: string; value: FieldValue }>;
+    now?: string;
+  },
+  db: FieldValueDb = getDb(),
+): void {
+  if (input.entries.length === 0) return;
+
+  const updatedAt = timestamp(input.now);
+  const entries = input.entries.map((entry) => ({
+    id: entry.id,
+    value: JSON.stringify(entry.value),
+  }));
+
+  for (const group of chunk(entries)) {
+    db.update(customFieldValues)
+      .set({
+        valueJson: caseById(customFieldValues.id, group),
+        updatedAt,
+      })
+      .where(
+        and(
+          eq(customFieldValues.ownerEmail, input.ownerEmail),
+          inArray(
+            customFieldValues.id,
+            group.map((entry) => entry.id),
+          ),
+        ),
+      )
+      .run();
+  }
+}
+
 export async function updateCustomFieldValues(input: {
   ownerEmail: string;
   taskId: string;
@@ -235,19 +304,28 @@ export function deleteCustomFieldValues(
     ownerEmail: string;
     id?: string;
     taskId?: string;
+    taskIds?: string[];
     fieldId?: string;
   },
   db: FieldValueDb = getDb(),
 ): { deletedValues: number } {
-  if (!input.id && !input.taskId && !input.fieldId) {
+  if (!input.id && !input.taskId && !input.taskIds && !input.fieldId) {
     throw new Error(
-      "Provide id, taskId, or fieldId to delete custom field values.",
+      "Provide id, taskId, taskIds, or fieldId to delete custom field values.",
     );
+  }
+
+  // An explicit empty id list selects nothing; without this it would fall
+  // through to deleting every value the owner has.
+  if (input.taskIds && input.taskIds.length === 0) {
+    return { deletedValues: 0 };
   }
 
   const conditions = [eq(customFieldValues.ownerEmail, input.ownerEmail)];
   if (input.id) conditions.push(eq(customFieldValues.id, input.id));
   if (input.taskId) conditions.push(eq(customFieldValues.taskId, input.taskId));
+  if (input.taskIds)
+    conditions.push(inArray(customFieldValues.taskId, input.taskIds));
   if (input.fieldId)
     conditions.push(eq(customFieldValues.fieldId, input.fieldId));
 

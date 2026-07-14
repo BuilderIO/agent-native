@@ -1,5 +1,6 @@
-import { and, asc, eq, min } from "drizzle-orm";
+import { and, asc, eq, inArray, min } from "drizzle-orm";
 
+import { caseById, chunk } from "../db/bulk-write.js";
 import { getDb } from "../db/index.js";
 import { tasks, type StoredItem } from "../db/schema.js";
 import { runTransaction, type TransactionDb } from "../db/transaction.js";
@@ -209,29 +210,73 @@ export async function assertStoredItemsExist(input: {
   promotedToTask: boolean;
   notFoundMessage?: string;
 }): Promise<void> {
-  for (const id of input.ids) {
-    const item = await getStoredItem({
-      ownerEmail: input.ownerEmail,
-      id,
-      promotedToTask: input.promotedToTask,
-    });
-    if (!item) {
-      throw new Error(input.notFoundMessage ?? "Stored item not found.");
-    }
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return;
+
+  const db = getDb();
+  const found = await db
+    .select({ id: tasks.id })
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+        inArray(tasks.id, ids),
+      ),
+    );
+
+  if (found.length !== ids.length) {
+    throw new Error(input.notFoundMessage ?? "Stored item not found.");
   }
 }
 
-export function updateStoredItemInTx(
+/** Read stored items by id, returned in the order the ids were passed. */
+export async function listStoredItemsByIds(input: {
+  ownerEmail: string;
+  ids: string[];
+  promotedToTask: boolean;
+  notFoundMessage?: string;
+}): Promise<StoredItem[]> {
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return [];
+
+  const db = getDb();
+  const rows = await db
+    .select()
+    .from(tasks)
+    .where(
+      and(
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+        inArray(tasks.id, ids),
+      ),
+    );
+
+  const rowsById = new Map(rows.map((row) => [row.id, row]));
+  return ids.map((id) => {
+    const row = rowsById.get(id);
+    if (!row) {
+      throw new Error(input.notFoundMessage ?? "Stored item not found.");
+    }
+    return row;
+  });
+}
+
+/** Apply one identical patch to many stored items in a single statement. */
+export function updateStoredItemsInTx(
   tx: TransactionDb,
   input: {
     ownerEmail: string;
-    id: string;
+    ids: string[];
     promotedToTask: boolean;
     title?: string;
     done?: boolean;
     now: string;
   },
 ): void {
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return;
+
   const patch: Partial<typeof tasks.$inferInsert> = {
     updatedAt: input.now,
   };
@@ -248,9 +293,46 @@ export function updateStoredItemInTx(
     .set(patch)
     .where(
       and(
-        eq(tasks.id, input.id),
         eq(tasks.ownerEmail, input.ownerEmail),
         eq(tasks.promotedToTask, input.promotedToTask),
+        inArray(tasks.id, ids),
+      ),
+    )
+    .run();
+}
+
+export function updateStoredItemInTx(
+  tx: TransactionDb,
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask: boolean;
+    title?: string;
+    done?: boolean;
+    now: string;
+  },
+): void {
+  updateStoredItemsInTx(tx, { ...input, ids: [input.id] });
+}
+
+/** Delete many stored items in a single statement. */
+export function deleteStoredItemsInTx(
+  tx: TransactionDb,
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    promotedToTask: boolean;
+  },
+): void {
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return;
+
+  tx.delete(tasks)
+    .where(
+      and(
+        eq(tasks.ownerEmail, input.ownerEmail),
+        eq(tasks.promotedToTask, input.promotedToTask),
+        inArray(tasks.id, ids),
       ),
     )
     .run();
@@ -264,15 +346,7 @@ export function deleteStoredItemInTx(
     promotedToTask: boolean;
   },
 ): void {
-  tx.delete(tasks)
-    .where(
-      and(
-        eq(tasks.id, input.id),
-        eq(tasks.ownerEmail, input.ownerEmail),
-        eq(tasks.promotedToTask, input.promotedToTask),
-      ),
-    )
-    .run();
+  deleteStoredItemsInTx(tx, { ...input, ids: [input.id] });
 }
 
 export async function reorderStoredItems(input: {
@@ -309,6 +383,7 @@ export async function reorderStoredItems(input: {
     )
     .orderBy(asc(tasks.sortOrder), asc(tasks.createdAt));
 
+  const itemsById = new Map(allPromotedItems.map((item) => [item.id, item]));
   const visibleQueue = [...input.orderedIds];
   const merged = allPromotedItems.map((item) => {
     if (!visibleIds.has(item.id)) return item;
@@ -318,9 +393,7 @@ export async function reorderStoredItems(input: {
         `${idLabel} must include every visible item exactly once.`,
       );
     }
-    const nextItem = allPromotedItems.find(
-      (candidate) => candidate.id === nextId,
-    );
+    const nextItem = itemsById.get(nextId);
     if (!nextItem) {
       throw new Error("Stored item not found.");
     }
@@ -328,17 +401,26 @@ export async function reorderStoredItems(input: {
   });
 
   const timestamp = new Date().toISOString();
+  const entries = merged.map((item, index) => ({
+    id: item.id,
+    value: index * SORT_GAP,
+  }));
+
   runTransaction(getDb(), (tx) => {
-    for (let index = 0; index < merged.length; index += 1) {
-      const item = merged[index];
-      if (!item) continue;
+    for (const group of chunk(entries)) {
       tx.update(tasks)
-        .set({ sortOrder: index * SORT_GAP, updatedAt: timestamp })
+        .set({
+          sortOrder: caseById(tasks.id, group),
+          updatedAt: timestamp,
+        })
         .where(
           and(
-            eq(tasks.id, item.id),
             eq(tasks.ownerEmail, input.ownerEmail),
             eq(tasks.promotedToTask, true),
+            inArray(
+              tasks.id,
+              group.map((entry) => entry.id),
+            ),
           ),
         )
         .run();
@@ -370,17 +452,26 @@ async function applySortOrderUpdates(input: {
   orderedIds: string[];
 }): Promise<void> {
   const timestamp = new Date().toISOString();
+  const entries = input.orderedIds.map((id, index) => ({
+    id,
+    value: index * SORT_GAP,
+  }));
+
   runTransaction(getDb(), (tx) => {
-    for (let index = 0; index < input.orderedIds.length; index += 1) {
-      const id = input.orderedIds[index];
-      if (!id) continue;
+    for (const group of chunk(entries)) {
       tx.update(tasks)
-        .set({ sortOrder: index * SORT_GAP, updatedAt: timestamp })
+        .set({
+          sortOrder: caseById(tasks.id, group),
+          updatedAt: timestamp,
+        })
         .where(
           and(
-            eq(tasks.id, id),
             eq(tasks.ownerEmail, input.ownerEmail),
             eq(tasks.promotedToTask, input.promotedToTask),
+            inArray(
+              tasks.id,
+              group.map((entry) => entry.id),
+            ),
           ),
         )
         .run();
@@ -453,42 +544,43 @@ export async function bulkPromoteStoredItemsToTasks(input: {
   });
 
   const timestamp = input.now ?? new Date().toISOString();
-  let sortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
+  const topSortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
+
+  // Each promoted item lands above the previous one, so every row gets its own
+  // sort order and they cannot share a single SET value.
+  const entries = uniqueIds.map((id, index) => ({
+    id,
+    value: topSortOrder - index * SORT_GAP,
+  }));
 
   runTransaction(getDb(), (tx) => {
-    for (const id of uniqueIds) {
+    for (const group of chunk(entries)) {
       tx.update(tasks)
         .set({
           promotedToTask: true,
           done: false,
-          sortOrder,
+          sortOrder: caseById(tasks.id, group),
           updatedAt: timestamp,
         })
         .where(
           and(
-            eq(tasks.id, id),
             eq(tasks.ownerEmail, input.ownerEmail),
             eq(tasks.promotedToTask, false),
+            inArray(
+              tasks.id,
+              group.map((entry) => entry.id),
+            ),
           ),
         )
         .run();
-      sortOrder -= SORT_GAP;
     }
   });
 
-  const items: StoredItem[] = [];
-  for (const id of uniqueIds) {
-    const item = await getStoredItem({
-      ownerEmail: input.ownerEmail,
-      id,
-      promotedToTask: true,
-    });
-    if (!item) {
-      throw new Error("Stored item not found.");
-    }
-    items.push(item);
-  }
-  return items;
+  return listStoredItemsByIds({
+    ownerEmail: input.ownerEmail,
+    ids: uniqueIds,
+    promotedToTask: true,
+  });
 }
 
 function assertNonEmptyTitle(title: string, emptyMessage: string): string {

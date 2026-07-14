@@ -13,13 +13,16 @@ import {
   createStoredItem,
   deleteStoredItem,
   deleteStoredItemInTx,
+  deleteStoredItemsInTx,
   getStoredItem,
   hasCompletedStoredItems,
   listStoredItems,
+  listStoredItemsByIds,
   reorderStoredItems,
   requireUserEmail,
   updateStoredItem,
   updateStoredItemInTx,
+  updateStoredItemsInTx,
 } from "../stored-items/store.js";
 
 export { requireUserEmail };
@@ -173,38 +176,33 @@ export async function bulkUpdateTasks(input: {
     throw new Error("Provide at least one of title or done.");
   }
 
+  const taskIds = [...new Set(input.taskIds)];
   await assertStoredItemsExist({
     ownerEmail: input.ownerEmail,
-    ids: input.taskIds,
+    ids: taskIds,
     promotedToTask: true,
     notFoundMessage: "Task not found.",
   });
 
   const timestamp = input.now ?? new Date().toISOString();
   runTransaction(getDb(), (tx) => {
-    for (const id of input.taskIds) {
-      updateStoredItemInTx(tx, {
-        ownerEmail: input.ownerEmail,
-        id,
-        promotedToTask: true,
-        title: input.title,
-        done: input.done,
-        now: timestamp,
-      });
-    }
+    updateStoredItemsInTx(tx, {
+      ownerEmail: input.ownerEmail,
+      ids: taskIds,
+      promotedToTask: true,
+      title: input.title,
+      done: input.done,
+      now: timestamp,
+    });
   });
 
-  const tasks = [];
-  for (const id of input.taskIds) {
-    const item = await getStoredItem({
-      ownerEmail: input.ownerEmail,
-      id,
-      promotedToTask: true,
-    });
-    if (!item) throw new Error("Task not found.");
-    tasks.push(toTask(item));
-  }
-  return tasks;
+  const items = await listStoredItemsByIds({
+    ownerEmail: input.ownerEmail,
+    ids: taskIds,
+    promotedToTask: true,
+    notFoundMessage: "Task not found.",
+  });
+  return items.map(toTask);
 }
 
 export async function deleteTask(input: {
@@ -235,25 +233,24 @@ export async function bulkDeleteTasks(input: {
   ownerEmail: string;
   taskIds: string[];
 }): Promise<{ ok: true; deleted: number }> {
+  const taskIds = [...new Set(input.taskIds)];
   await assertStoredItemsExist({
     ownerEmail: input.ownerEmail,
-    ids: input.taskIds,
+    ids: taskIds,
     promotedToTask: true,
     notFoundMessage: "Task not found.",
   });
 
   runTransaction(getDb(), (tx) => {
-    for (const id of input.taskIds) {
-      deleteCustomFieldValues({ ownerEmail: input.ownerEmail, taskId: id }, tx);
-      deleteStoredItemInTx(tx, {
-        ownerEmail: input.ownerEmail,
-        id,
-        promotedToTask: true,
-      });
-    }
+    deleteCustomFieldValues({ ownerEmail: input.ownerEmail, taskIds }, tx);
+    deleteStoredItemsInTx(tx, {
+      ownerEmail: input.ownerEmail,
+      ids: taskIds,
+      promotedToTask: true,
+    });
   });
 
-  return { ok: true, deleted: input.taskIds.length };
+  return { ok: true, deleted: taskIds.length };
 }
 
 export async function reorderTasks(input: {

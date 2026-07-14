@@ -1,5 +1,6 @@
 import { and, asc, eq, inArray, max } from "drizzle-orm";
 
+import { caseById, chunk } from "../db/bulk-write.js";
 import { getDb } from "../db/index.js";
 import { createRecordId, timestamp } from "../db/record-utils.js";
 import { customFields } from "../db/schema.js";
@@ -9,6 +10,7 @@ import { requireUserEmail } from "../stored-items/store.js";
 import { removeTaskCardFieldId } from "../user-config/store.js";
 import {
   canonicalizeFieldConfig,
+  isEmptyFieldValue,
   normalizeFieldConfigInput,
   normalizeFieldTitle,
 } from "./normalize.js";
@@ -16,14 +18,20 @@ import {
   parseFieldType,
   parseFieldConfigShape,
   parseField,
-  parseStoredValue,
+  parseFieldValueShape,
 } from "./parse.js";
-import type { FieldConfigInput, FieldDefinition, FieldType } from "./types.js";
+import type {
+  FieldConfigInput,
+  FieldDefinition,
+  FieldType,
+  FieldValue,
+} from "./types.js";
 import { validateFieldConfig, validateFieldTitle } from "./validate.js";
 import {
   deleteCustomFieldValues,
+  deleteCustomFieldValuesByIds,
   listCustomFieldValues,
-  updateCustomFieldValue,
+  setCustomFieldValueJsonByIds,
 } from "./values/store.js";
 
 export { requireUserEmail };
@@ -193,34 +201,48 @@ function cleanupValuesAfterConfigChange(
     db,
   );
 
+  // Classify every row in memory first, then issue one batch per outcome — this
+  // runs over every value of the field across all tasks, which nothing caps.
+  const staleIds: string[] = [];
+  const trimmed: Array<{ id: string; value: FieldValue }> = [];
+
   for (const row of rows) {
-    const value = parseStoredValue(field, row);
-    if (value === null) {
-      deleteCustomFieldValues({ ownerEmail: field.ownerEmail, id: row.id }, db);
+    // Read the raw shape rather than `parseStoredValue`: that validates against
+    // the new config and throws on exactly the removed options this exists to
+    // clean up.
+    const value = parseFieldValueShape(JSON.parse(row.valueJson));
+    if (isEmptyFieldValue(value)) {
+      staleIds.push(row.id);
       continue;
     }
     if (field.type === "single_select") {
       if (typeof value !== "string" || !allowed.has(value)) {
-        deleteCustomFieldValues(
-          { ownerEmail: field.ownerEmail, id: row.id },
-          db,
-        );
+        staleIds.push(row.id);
       }
       continue;
     }
 
     const nextValue = Array.isArray(value)
-      ? value.filter((optionId) => allowed.has(optionId))
+      ? value.filter(
+          (optionId): optionId is string =>
+            typeof optionId === "string" && allowed.has(optionId),
+        )
       : [];
     if (nextValue.length === 0) {
-      deleteCustomFieldValues({ ownerEmail: field.ownerEmail, id: row.id }, db);
-    } else if (nextValue.length !== (value as string[]).length) {
-      updateCustomFieldValue(
-        { ownerEmail: field.ownerEmail, id: row.id, value: nextValue },
-        db,
-      );
+      staleIds.push(row.id);
+    } else if (!Array.isArray(value) || nextValue.length !== value.length) {
+      trimmed.push({ id: row.id, value: nextValue });
     }
   }
+
+  deleteCustomFieldValuesByIds(
+    { ownerEmail: field.ownerEmail, ids: staleIds },
+    db,
+  );
+  setCustomFieldValueJsonByIds(
+    { ownerEmail: field.ownerEmail, entries: trimmed },
+    db,
+  );
 }
 
 function selectOptionIds(field: FieldDefinition) {
@@ -280,16 +302,25 @@ export async function reorderCustomFields(input: {
   }
 
   const updatedAt = timestamp();
+  const entries = input.fieldIds.map((fieldId, index) => ({
+    id: fieldId,
+    value: index * SORT_GAP,
+  }));
+
   runTransaction(getDb(), (tx) => {
-    for (let index = 0; index < input.fieldIds.length; index += 1) {
-      const fieldId = input.fieldIds[index];
-      if (!fieldId) continue;
+    for (const group of chunk(entries)) {
       tx.update(customFields)
-        .set({ sortOrder: index * SORT_GAP, updatedAt })
+        .set({
+          sortOrder: caseById(customFields.id, group),
+          updatedAt,
+        })
         .where(
           and(
             eq(customFields.ownerEmail, input.ownerEmail),
-            eq(customFields.id, fieldId),
+            inArray(
+              customFields.id,
+              group.map((entry) => entry.id),
+            ),
           ),
         )
         .run();

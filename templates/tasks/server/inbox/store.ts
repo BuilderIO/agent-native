@@ -6,7 +6,7 @@ import {
   bulkPromoteStoredItemsToTasks,
   createStoredItem,
   deleteStoredItem,
-  deleteStoredItemInTx,
+  deleteStoredItemsInTx,
   getStoredItem,
   listStoredItems,
   promoteStoredItemToTask,
@@ -82,24 +82,23 @@ export async function bulkDeleteInboxItems(input: {
   ownerEmail: string;
   inboxItemIds: string[];
 }): Promise<{ ok: true; deleted: number }> {
+  const inboxItemIds = [...new Set(input.inboxItemIds)];
   await assertStoredItemsExist({
     ownerEmail: input.ownerEmail,
-    ids: input.inboxItemIds,
+    ids: inboxItemIds,
     promotedToTask: false,
     notFoundMessage: "Stored item not found.",
   });
 
   runTransaction(getDb(), (tx) => {
-    for (const id of input.inboxItemIds) {
-      deleteStoredItemInTx(tx, {
-        ownerEmail: input.ownerEmail,
-        id,
-        promotedToTask: false,
-      });
-    }
+    deleteStoredItemsInTx(tx, {
+      ownerEmail: input.ownerEmail,
+      ids: inboxItemIds,
+      promotedToTask: false,
+    });
   });
 
-  return { ok: true, deleted: input.inboxItemIds.length };
+  return { ok: true, deleted: inboxItemIds.length };
 }
 
 export async function reorderInboxItems(input: {

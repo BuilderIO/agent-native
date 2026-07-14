@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { createInboxItem } from "../inbox/store.js";
 import { createTask, deleteTask } from "../tasks/store.js";
@@ -428,6 +429,64 @@ describe("custom fields store", () => {
         },
       }),
     ).rejects.toThrow(/duplicated/i);
+  });
+
+  it("cleans up select values across more tasks than one write chunk", async () => {
+    const field = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Priority",
+      type: "multi_select",
+      config: {
+        options: [
+          { id: "low", name: "Low" },
+          { id: "high", name: "High" },
+        ],
+      },
+    });
+
+    // Half the tasks keep a surviving option (their value is trimmed), half hold
+    // only the removed option (their value row is deleted).
+    const size = BULK_WRITE_CHUNK_SIZE + 50;
+    for (let index = 0; index < size; index += 1) {
+      await createTask({
+        ownerEmail: "alice@example.com",
+        title: `Task ${index}`,
+        id: `t${index}`,
+        now: "2026-06-22T10:00:00.000Z",
+      });
+      await updateCustomFieldValues({
+        ownerEmail: "alice@example.com",
+        taskId: `t${index}`,
+        values: [
+          {
+            fieldId: field.id,
+            value: index % 2 === 0 ? ["low", "high"] : ["high"],
+          },
+        ],
+      });
+    }
+
+    // Drop the "high" option: trimmed rows keep ["low"], "high"-only rows go away.
+    await updateCustomField({
+      ownerEmail: "alice@example.com",
+      fieldId: field.id,
+      config: { options: [{ id: "low", name: "Low" }] },
+    });
+
+    const rows = listCustomFieldValues({
+      ownerEmail: "alice@example.com",
+      fieldId: field.id,
+    });
+    expect(rows).toHaveLength(Math.ceil(size / 2));
+
+    const updatedField = await getCustomField({
+      ownerEmail: "alice@example.com",
+      fieldId: field.id,
+    });
+    const parsed = rows.map((row) => parseStoredValue(updatedField!, row));
+    expect(parsed.every((value) => JSON.stringify(value) === '["low"]')).toBe(
+      true,
+    );
   });
 
   it("rejects duplicate ids when reordering custom fields", async () => {

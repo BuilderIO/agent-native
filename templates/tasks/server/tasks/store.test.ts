@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createCustomField } from "../custom-fields/store.js";
 import { listTaskFieldValues } from "../custom-fields/task-fields.js";
 import { updateCustomFieldValues } from "../custom-fields/values/store.js";
+import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { createInboxItem, updateInboxItem } from "../inbox/store.js";
 import { getStoredItem } from "../stored-items/store.js";
@@ -366,6 +367,8 @@ describe("task store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
+    const before = await listTasks({ ownerEmail: "alice@example.com" });
+
     await expect(
       reorderTasks({
         ownerEmail: "alice@example.com",
@@ -375,7 +378,33 @@ describe("task store", () => {
     ).rejects.toThrow(/duplicates/i);
 
     const tasks = await listTasks({ ownerEmail: "alice@example.com" });
-    expect(tasks.map((task) => task.id)).toEqual(["t1", "t2"]);
+    expect(tasks.map((task) => task.id)).toEqual(before.map((task) => task.id));
+  });
+
+  it("reorders a list larger than one sort-order chunk", async () => {
+    const size = BULK_WRITE_CHUNK_SIZE + 50;
+    for (let index = 0; index < size; index += 1) {
+      await createTask({
+        ownerEmail: "alice@example.com",
+        title: `Task ${index}`,
+        id: `t${index}`,
+        now: "2026-06-22T10:00:00.000Z",
+      });
+    }
+
+    const reversed = (await listTasks({ ownerEmail: "alice@example.com" }))
+      .map((task) => task.id)
+      .reverse();
+
+    const reordered = await reorderTasks({
+      ownerEmail: "alice@example.com",
+      taskIds: reversed,
+      includeDone: false,
+    });
+
+    expect(reordered.tasks.map((task) => task.id)).toEqual(reversed);
+    const listed = await listTasks({ ownerEmail: "alice@example.com" });
+    expect(listed.map((task) => task.id)).toEqual(reversed);
   });
 
   it("rolls back task and field patches together", async () => {
