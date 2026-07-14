@@ -64,7 +64,10 @@ import { PastedTextChip } from "../composer/PastedTextChip.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import { cn } from "../utils.js";
-import { MarkdownText } from "./markdown-renderer.js";
+import {
+  MarkdownText,
+  renderMarkdownToClipboardHtml,
+} from "./markdown-renderer.js";
 import {
   ToolCallFallback,
   FilesChangedSummary,
@@ -526,7 +529,10 @@ export function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    void writeClipboardText(text).then((ok) => {
+    // Rich flavor keeps formatting in targets that read text/html (e.g. Slack);
+    // null when the markdown renderer isn't ready yet, so we copy plain markdown.
+    const html = renderMarkdownToClipboardHtml(text);
+    void writeClipboardText(text, html ? { html } : undefined).then((ok) => {
       if (!ok) return;
       setCopied("message");
       setTimeout(() => {
