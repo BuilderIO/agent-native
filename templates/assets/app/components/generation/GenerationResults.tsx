@@ -537,6 +537,9 @@ function GenerationPreviewDialog({
   };
   const sources = slot ? assetPreviewSources(slot, "preview") : [];
   const src = sources[0];
+  const title = libraryTitle
+    ? `${libraryTitle}${prompt ? ` / ${prompt}` : ""}`
+    : prompt || t("library.readyToSave");
   return (
     <Dialog open={Boolean(slot)} onOpenChange={onOpenChange}>
       {slot ? (
@@ -546,7 +549,7 @@ function GenerationPreviewDialog({
             if (event.key === "ArrowLeft") showPreviousSlot();
             if (event.key === "ArrowRight") showNextSlot();
           }}
-          className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
+          className="flex max-h-[85vh] w-[calc(100vw-24px)] max-w-4xl flex-col gap-0 overflow-hidden p-0"
         >
           <DialogTitle className="sr-only">
             {libraryTitle || t("library.noBrandKit")}
@@ -554,10 +557,13 @@ function GenerationPreviewDialog({
           <DialogDescription className="sr-only">
             {prompt || t("library.readyToSave")}
           </DialogDescription>
-          <div className="relative">
-            <div className="absolute right-2 top-2 z-10 flex items-center gap-2">
+
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/80 px-4 py-3">
+            <p className="min-w-0 truncate text-sm text-muted-foreground">
+              {title}
+            </p>
+            <div className="flex shrink-0 items-center gap-2">
               <Button
-                variant="secondary"
                 size="sm"
                 disabled={isSaving || !slot.assetId}
                 onClick={() => onSave(slot)}
@@ -583,16 +589,19 @@ function GenerationPreviewDialog({
               ) : null}
               <DialogClose
                 aria-label={t("library.closePreview")}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white"
+                className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
               >
-                <IconX className="h-5 w-5" />
+                <IconX className="h-4 w-4" />
               </DialogClose>
             </div>
+          </div>
+
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto bg-muted/20 p-4 sm:p-6">
             {src ? (
               <img
                 src={src}
                 alt={prompt || ""}
-                className="max-h-[85vh] w-full rounded-lg bg-black object-contain"
+                className="max-h-full max-w-full rounded-lg bg-black object-contain"
               />
             ) : (
               <div className="flex h-64 w-full items-center justify-center rounded-lg bg-muted">
@@ -600,14 +609,15 @@ function GenerationPreviewDialog({
               </div>
             )}
           </div>
+
           {hasPrev || hasNext ? (
-            <div className="mt-5 flex justify-center gap-2">
+            <div className="flex shrink-0 items-center justify-center gap-2 border-t border-border/80 py-3">
               <button
                 type="button"
                 aria-label={t("library.previousImage")}
                 onClick={showPreviousSlot}
                 disabled={!hasPrev}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <IconChevronLeft className="h-5 w-5" />
               </button>
@@ -616,7 +626,7 @@ function GenerationPreviewDialog({
                 aria-label={t("library.nextImage")}
                 onClick={showNextSlot}
                 disabled={!hasNext}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full text-foreground transition hover:bg-accent focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <IconChevronRight className="h-5 w-5" />
               </button>
