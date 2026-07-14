@@ -29,6 +29,13 @@ pub(crate) static MIC_SAMPLES: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
 pub(crate) static SYSTEM_SAMPLES: std::sync::atomic::AtomicU64 =
     std::sync::atomic::AtomicU64::new(0);
+/// Peak absolute amplitude per stream (stored as milli-units, 0..=1000).
+/// Distinguishes real audio from digital silence when sample counts are
+/// nonzero but whisper emits nothing.
+pub(crate) static MIC_PEAK_MILLI: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+pub(crate) static SYSTEM_PEAK_MILLI: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
 
 #[tauri::command]
 pub async fn whisper_transcription_start(
@@ -56,6 +63,8 @@ pub async fn whisper_transcription_start(
         FINALS_EMITTED.store(0, std::sync::atomic::Ordering::Relaxed);
         MIC_SAMPLES.store(0, std::sync::atomic::Ordering::Relaxed);
         SYSTEM_SAMPLES.store(0, std::sync::atomic::Ordering::Relaxed);
+        MIC_PEAK_MILLI.store(0, std::sync::atomic::Ordering::Relaxed);
+        SYSTEM_PEAK_MILLI.store(0, std::sync::atomic::Ordering::Relaxed);
         let diag_app = app.clone();
         let result = macos::start(
             app,
@@ -125,6 +134,10 @@ pub async fn whisper_transcription_stop(app: AppHandle) -> Result<(), String> {
                 "micSamples": MIC_SAMPLES
                     .load(std::sync::atomic::Ordering::Relaxed),
                 "systemSamples": SYSTEM_SAMPLES
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                "micPeakMilli": MIC_PEAK_MILLI
+                    .load(std::sync::atomic::Ordering::Relaxed),
+                "systemPeakMilli": SYSTEM_PEAK_MILLI
                     .load(std::sync::atomic::Ordering::Relaxed),
             }),
         );
@@ -329,12 +342,27 @@ mod macos {
         /// deliberately deferred to the worker so we never allocate/compute on
         /// the realtime audio thread.
         fn push(&self, frames: &[f32]) {
-            let counter = if self.source == "mic" {
-                &crate::whisper_speech::MIC_SAMPLES
+            let (counter, peak) = if self.source == "mic" {
+                (
+                    &crate::whisper_speech::MIC_SAMPLES,
+                    &crate::whisper_speech::MIC_PEAK_MILLI,
+                )
             } else {
-                &crate::whisper_speech::SYSTEM_SAMPLES
+                (
+                    &crate::whisper_speech::SYSTEM_SAMPLES,
+                    &crate::whisper_speech::SYSTEM_PEAK_MILLI,
+                )
             };
             counter.fetch_add(frames.len() as u64, Ordering::Relaxed);
+            let mut max = 0f32;
+            for f in frames {
+                let a = f.abs();
+                if a > max {
+                    max = a;
+                }
+            }
+            let milli = (max.min(1.0) * 1000.0) as u64;
+            peak.fetch_max(milli, Ordering::Relaxed);
             if let Ok(mut buf) = self.buf.lock() {
                 buf.extend_from_slice(frames);
             }
