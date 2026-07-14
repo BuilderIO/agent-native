@@ -234,11 +234,14 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
     );
   }
 
-  function refineSlot(slot: VariantSlot) {
+  function refineSlot(slot: VariantSlot, variantNumber: number) {
     if (!slot.assetId) return;
+    const variantLabel = t("library.variantWithNumber", {
+      number: variantNumber,
+    });
     setAgentChatContextItem({
-      key: `refine-asset:${slot.assetId}`,
-      title: t("library.refine"),
+      key: "refine-asset:" + slot.assetId,
+      title: t("library.refine") + " : " + variantLabel,
       context: [
         "## Assets candidate",
         `Asset ID: ${slot.assetId}`,
@@ -301,8 +304,8 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         }}
         onSelect={setPreviewSlotId}
         onSave={(slot) => saveSlot(slot, () => setPreviewSlotId(null))}
-        onRefine={(slot) => {
-          refineSlot(slot);
+        onRefine={(slot, variantNumber) => {
+          refineSlot(slot, variantNumber);
           setPreviewSlotId(null);
         }}
       />
@@ -346,17 +349,16 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
 
           <div className="max-h-[min(640px,52vh)] overflow-y-auto p-3">
             <div className="assets-library-grid grid grid-cols-2 gap-3 sm:grid-cols-3">
-              {slots.map((slot) => (
+              {slots.map((slot, index) => (
                 <GenerationDraftCard
                   key={slot.slotId}
                   slot={slot}
-                  prompt={variants.prompt}
-                  libraryTitle={libraryTitle}
+                  variantNumber={index + 1}
                   isSaving={saveGenerated.isPending}
                   isDismissing={dismissSlot.isPending}
                   onPreview={() => setPreviewSlotId(slot.slotId)}
                   onSave={() => saveSlot(slot)}
-                  onRefine={() => refineSlot(slot)}
+                  onRefine={() => refineSlot(slot, index + 1)}
                   onDismiss={() => dismissSlotById(slot)}
                 />
               ))}
@@ -370,8 +372,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
 
 function GenerationDraftCard({
   slot,
-  prompt,
-  libraryTitle,
+  variantNumber,
   isSaving,
   isDismissing,
   onPreview,
@@ -380,8 +381,7 @@ function GenerationDraftCard({
   onDismiss,
 }: {
   slot: VariantSlot;
-  prompt: string;
-  libraryTitle: string | null;
+  variantNumber: number;
   isSaving: boolean;
   isDismissing: boolean;
   onPreview: () => void;
@@ -391,109 +391,114 @@ function GenerationDraftCard({
 }) {
   const t = useT();
   const ready = slot.status === "ready" && Boolean(slot.assetId);
-  const title = libraryTitle
-    ? `${libraryTitle}${prompt ? ` / ${prompt}` : ""}`
-    : prompt || t("library.readyToSave");
+  const variantLabel = t("library.variantWithNumber", {
+    number: variantNumber,
+  });
   return (
-    <div className="group relative overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10 focus-within:ring-2 focus-within:ring-ring">
-      <button
-        type="button"
-        aria-label={t("library.selectAsset", { title })}
-        title={title}
-        onClick={() => {
-          if (ready) onPreview();
-        }}
-        className="block w-full text-left focus-visible:outline-none"
-      >
-        <div className="aspect-[4/3] bg-muted/40">
-          <GenerationSlotPreview slot={slot} />
-        </div>
-      </button>
-
-      {slot.status !== "ready" ? (
-        <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-full border border-border/70 bg-background/90 px-2 py-1 text-[11px] font-medium shadow-sm">
-          {slot.status === "pending" ? <Spinner className="h-3 w-3" /> : null}
-          <span>
-            {slot.status === "pending"
-              ? t("library.generating")
-              : t("library.failed")}
-          </span>
-        </div>
-      ) : null}
-
-      {ready ? (
-        <TooltipProvider>
-          <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("library.save")}
-                  disabled={isSaving}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onSave();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                >
-                  {isSaving ? (
-                    <Spinner className="h-4 w-4" />
-                  ) : (
-                    <IconDeviceFloppy className="h-4 w-4" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("library.save")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("library.refine")}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onRefine();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  <IconMessageCircle className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("library.refine")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={t("library.deleteCandidate")}
-                  disabled={isDismissing}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                    onDismiss();
-                  }}
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-destructive hover:text-destructive-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
-                >
-                  <IconTrash className="h-4 w-4" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("library.deleteCandidate")}</TooltipContent>
-            </Tooltip>
-          </div>
-        </TooltipProvider>
-      ) : (
+    <div className="overflow-hidden rounded-lg border border-border/80 bg-background transition hover:border-foreground/25 hover:bg-muted/10">
+      <div className="group relative">
         <button
           type="button"
-          aria-label={t("library.deleteCandidate")}
-          disabled={isDismissing}
-          onClick={(event) => {
-            event.stopPropagation();
-            onDismiss();
+          aria-label={t("library.selectAsset", { title: variantLabel })}
+          title={variantLabel}
+          onClick={() => {
+            if (ready) onPreview();
           }}
-          className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:bg-destructive hover:text-destructive-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-60"
+          className="block w-full text-left focus-visible:outline-none"
         >
-          <IconTrash className="h-4 w-4" />
+          <div className="aspect-[4/3] bg-muted/40">
+            <GenerationSlotPreview slot={slot} />
+          </div>
         </button>
-      )}
+
+        {slot.status !== "ready" ? (
+          <div className="absolute left-2 top-2 z-10 flex items-center gap-1 rounded-full border border-border/70 bg-background/90 px-2 py-1 text-[11px] font-medium shadow-sm">
+            {slot.status === "pending" ? <Spinner className="h-3 w-3" /> : null}
+            <span>
+              {slot.status === "pending"
+                ? t("library.generating")
+                : t("library.failed")}
+            </span>
+          </div>
+        ) : null}
+
+        {ready ? (
+          <TooltipProvider>
+            <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 opacity-0 transition group-hover:opacity-100 focus-within:opacity-100">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("library.save")}
+                    disabled={isSaving}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onSave();
+                    }}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                  >
+                    {isSaving ? (
+                      <Spinner className="h-4 w-4" />
+                    ) : (
+                      <IconDeviceFloppy className="h-4 w-4" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("library.save")}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("library.refine")}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onRefine();
+                    }}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-primary hover:text-primary-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    <IconMessageCircle className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("library.refine")}</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={t("library.deleteCandidate")}
+                    disabled={isDismissing}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      onDismiss();
+                    }}
+                    className="inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-foreground shadow-sm transition hover:bg-destructive hover:text-destructive-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
+                  >
+                    <IconTrash className="h-4 w-4" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>{t("library.deleteCandidate")}</TooltipContent>
+              </Tooltip>
+            </div>
+          </TooltipProvider>
+        ) : (
+          <button
+            type="button"
+            aria-label={t("library.deleteCandidate")}
+            disabled={isDismissing}
+            onClick={(event) => {
+              event.stopPropagation();
+              onDismiss();
+            }}
+            className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:bg-destructive hover:text-destructive-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-60"
+          >
+            <IconTrash className="h-4 w-4" />
+          </button>
+        )}
+      </div>
+      <div className="px-2 py-1.5 text-center text-xs font-medium text-muted-foreground">
+        {variantLabel}
+      </div>
     </div>
   );
 }
@@ -517,14 +522,12 @@ function GenerationPreviewDialog({
   onOpenChange: (open: boolean) => void;
   onSelect: (slotId: string) => void;
   onSave: (slot: VariantSlot) => void;
-  onRefine: (slot: VariantSlot) => void;
+  onRefine: (slot: VariantSlot, variantNumber: number) => void;
 }) {
   const t = useT();
   const previewableSlots = useMemo(
     () =>
-      slots.filter(
-        (item) => item.status === "ready" && Boolean(item.assetId),
-      ),
+      slots.filter((item) => item.status === "ready" && Boolean(item.assetId)),
     [slots],
   );
   const previewIndex = slot
@@ -541,9 +544,12 @@ function GenerationPreviewDialog({
   };
   const sources = slot ? assetPreviewSources(slot, "preview") : [];
   const src = sources[0];
-  const title = libraryTitle
-    ? `${libraryTitle}${prompt ? ` / ${prompt}` : ""}`
-    : prompt || t("library.readyToSave");
+  const variantNumber = slot
+    ? slots.findIndex((item) => item.slotId === slot.slotId) + 1
+    : 0;
+  const variantLabel = t("library.variantWithNumber", {
+    number: variantNumber,
+  });
   return (
     <Dialog open={Boolean(slot)} onOpenChange={onOpenChange}>
       {slot ? (
@@ -555,16 +561,14 @@ function GenerationPreviewDialog({
           }}
           className="flex max-h-[85vh] w-[calc(100vw-24px)] max-w-4xl flex-col gap-0 overflow-hidden p-0"
         >
-          <DialogTitle className="sr-only">
-            {libraryTitle || t("library.noBrandKit")}
-          </DialogTitle>
+          <DialogTitle className="sr-only">{variantLabel}</DialogTitle>
           <DialogDescription className="sr-only">
             {prompt || t("library.readyToSave")}
           </DialogDescription>
 
           <div className="flex shrink-0 items-center justify-between gap-3 border-b border-border/80 px-4 py-3">
-            <p className="min-w-0 truncate text-sm text-muted-foreground">
-              {title}
+            <p className="min-w-0 truncate text-sm font-medium">
+              {variantLabel}
             </p>
             <div className="flex shrink-0 items-center gap-2">
               <Button
@@ -579,7 +583,7 @@ function GenerationPreviewDialog({
                 size="sm"
                 className="gap-1"
                 disabled={!slot.assetId}
-                onClick={() => onRefine(slot)}
+                onClick={() => onRefine(slot, variantNumber)}
               >
                 <IconMessageCircle className="h-4 w-4" />
                 {t("library.refine")}
