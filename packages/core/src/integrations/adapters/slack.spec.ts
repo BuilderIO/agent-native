@@ -1210,6 +1210,21 @@ describe("slackAdapter", () => {
     });
   });
 
+  it("fails delivery when no Slack bot token is configured", async () => {
+    await expect(
+      slackAdapter().sendResponse(
+        { text: "done", platformContext: {} },
+        {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "make a design ask",
+          timestamp: 1,
+          platformContext: { channelId: "C123", threadTs: "123.456" },
+        },
+      ),
+    ).rejects.toThrow("no Slack bot token is configured");
+  });
+
   it("does not send whitespace-only Slack replies", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const deliveryUrls: string[] = [];

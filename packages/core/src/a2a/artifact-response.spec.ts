@@ -86,6 +86,39 @@ describe("appendA2AArtifactLinks", () => {
     ]);
   });
 
+  it("excludes lookup artifacts from the stable identity ledger", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            items: Array.from({ length: 20 }, (_, index) => ({
+              documentId: `lookup_${index}`,
+              title: `Lookup ${index}`,
+            })),
+          }),
+        },
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_target",
+            createdDocumentTitle: "Target request",
+            urlPath: "/page/request_target",
+            verification: { found: true },
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_target",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Target request",
+        url: "/page/request_target",
+      },
+    ]);
+  });
+
   it("appends the focused Analytics URL returned by save-monitor", () => {
     const text = appendA2AArtifactLinks(
       "The uptime monitor was created.",

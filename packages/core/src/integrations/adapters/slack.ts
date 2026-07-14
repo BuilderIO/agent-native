@@ -435,8 +435,9 @@ export function slackAdapter(
     ): Promise<void | PlatformDeliveryReceipt> {
       const token = await resolveBotToken(context);
       if (!token) {
-        console.error("[slack] SLACK_BOT_TOKEN not configured");
-        return;
+        throw new Error(
+          "[slack] Cannot deliver response: no Slack bot token is configured",
+        );
       }
 
       const channelId = context.platformContext.channelId as string;

@@ -24,6 +24,31 @@ export interface A2AArtifactIdentity {
   url?: string;
 }
 
+const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
+  "call-agent",
+  "save-monitor",
+  "create-form",
+  "submit-content-database-form",
+  "add-database-item",
+  "create-document",
+  "update-document",
+  "create-deck",
+  "duplicate-deck",
+  "add-slide",
+  "update-dashboard",
+  "rename-dashboard",
+  "save-analysis",
+  "generate-image",
+  "refine-image",
+  "save-generated-image",
+  "export-image",
+  "generate-image-batch",
+  "create-design",
+  "generate-design",
+  "create-file",
+  "duplicate-design",
+]);
+
 interface CreatedDocumentArtifact {
   id: string;
   title?: string;
@@ -761,6 +786,7 @@ export function extractA2AArtifactIdentities(
   };
 
   for (const result of results) {
+    if (!ARTIFACT_IDENTITY_WRITE_TOOLS.has(result.tool)) continue;
     const artifacts = collectArtifacts([result]);
     for (const document of artifacts.documents) {
       remember({
