@@ -2374,13 +2374,21 @@ async function startNativeFullscreenRecording(
         // covers every outcome. The later open calls are skipped when this
         // succeeded.
         let pageOpenedEarly = false;
-        try {
-          await openExternal(
-            `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
-          );
+        if (!(await claimNativeUploadOpen(id))) {
+          // Another surface (Finalizing overlay, retry) already owns the
+          // open for this recording — the page is or will be on screen.
+          // Without this claim the completion path opened a SECOND tab of
+          // the same recording after long uploads.
           pageOpenedEarly = true;
-        } catch (err) {
-          console.error("[clips-recorder] early openExternal failed:", err);
+        } else {
+          try {
+            await openExternal(
+              `${params.serverUrl.replace(/\/+$/, "")}${viewUrl}`,
+            );
+            pageOpenedEarly = true;
+          } catch (err) {
+            console.error("[clips-recorder] early openExternal failed:", err);
+          }
         }
 
         // A native recording runs two ScreenCaptureKit streams: the screen
