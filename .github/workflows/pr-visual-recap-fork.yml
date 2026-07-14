@@ -403,10 +403,10 @@ jobs:
           set -euo pipefail
           VERSION="$RECAP_CLI_VERSION"
           if [ "$VERSION" = "latest" ]; then
-            VERSION="$(npm view @agent-native/core@latest version)"
+            VERSION="$(npm view @agent-native/recap-cli@latest version)"
           fi
           for attempt in 1 2 3; do
-            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION"; then
               break
             fi
             if [ "$attempt" = "3" ]; then exit 1; fi
@@ -419,7 +419,7 @@ jobs:
         if: needs.gate.outputs.agent == 'openai-compatible' && steps.cli.outputs.local != 'true'
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund ai @ai-sdk/openai
+          npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai
 
       - name: Start visual recap check
         id: recap_check

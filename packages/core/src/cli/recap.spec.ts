@@ -1171,7 +1171,7 @@ describe("recap prompt builder", () => {
 
   it("builds the latest bundled skill with sibling reference files", () => {
     const bundle = readVisualRecapSkillBundle(repoRoot, "latest");
-    expect(bundle.source).toBe("bundled:@agent-native/core/visual-recap");
+    expect(bundle.source).toBe("bundled:@agent-native/recap-cli/visual-recap");
     expect(bundle.text).toContain("Bundled visual-recap reference files");
     expect(bundle.text).toContain("references/wireframe.md");
     expect(bundle.text).toContain("HTML wireframe quality");
@@ -2663,6 +2663,9 @@ describe("bundled PR visual recap workflow", () => {
         "$RECAP_CLI code exec --permission-mode auto-edit",
       );
       expect(workflow).not.toContain("$RECAP_CLI code exec --full-auto");
+      expect(workflow).toContain("@agent-native/recap-cli@$VERSION");
+      expect(workflow).toContain("--ignore-scripts");
+      expect(workflow).not.toContain("@agent-native/core@$VERSION");
     }
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("mcp__plan__");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
@@ -2804,8 +2807,9 @@ describe("bundled workflow — RECAP_CLI_VERSION pinning", () => {
   it("uses vars.RECAP_CLI_VERSION in the Resolve recap CLI step", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_CLI_VERSION");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "@agent-native/core@$VERSION",
+      "@agent-native/recap-cli@$VERSION",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--ignore-scripts");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "vars.RECAP_CLI_VERSION || 'latest'",
     );
@@ -3276,7 +3280,9 @@ describe("reusable workflow file structure", () => {
     // always use the published CLI — consumer repos don't have packages/core.
     expect(content).not.toContain("pnpm exec tsx");
     expect(content).toContain("Install published recap CLI");
-    expect(content).toContain("@agent-native/core@$VERSION");
+    expect(content).toContain("@agent-native/recap-cli@$VERSION");
+    expect(content).toContain("--ignore-scripts");
+    expect(content).not.toContain("@agent-native/core@$VERSION");
     expect(content).toContain("node_modules/.bin/agent-native");
     expect(content).toContain("RECAP_PLAYWRIGHT");
   });

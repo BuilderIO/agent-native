@@ -251,6 +251,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/recap-cli": "workspace:*",
     "@agent-native/toolkit": "workspace:^",
     "@amplitude/analytics-browser": "^2.41.1",
     "@anthropic-ai/sdk": "^0.90.0",

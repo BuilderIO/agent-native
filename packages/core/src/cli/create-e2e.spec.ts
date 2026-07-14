@@ -1315,7 +1315,10 @@ describe("build artifacts", () => {
   });
 
   it("core package.json only uses workspace:* for publishable package deps", () => {
-    const publishableWorkspaceDeps = new Set(["@agent-native/toolkit"]);
+    const publishableWorkspaceDeps = new Set([
+      "@agent-native/recap-cli",
+      "@agent-native/toolkit",
+    ]);
     const corePkg = readPkg(coreRoot);
     const deps = corePkg.dependencies ?? {};
     for (const [key, val] of Object.entries(deps)) {
