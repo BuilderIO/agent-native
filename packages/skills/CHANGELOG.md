@@ -1,5 +1,12 @@
 # @agent-native/skills
 
+## 0.2.320
+
+### Patch Changes
+
+- Updated dependencies [fb281f4]
+  - @agent-native/core@0.101.0
+
 ## 0.2.319
 
 ### Patch Changes
