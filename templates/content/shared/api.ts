@@ -438,6 +438,8 @@ export type ContentDatabaseSourceExecutionState =
   | "write_disabled"
   | "blocked"
   | "running"
+  | "response_received"
+  | "reconciliation_required"
   | "succeeded"
   | "failed";
 
@@ -493,6 +495,8 @@ export interface ContentDatabaseSourceFieldChange {
   sourceFieldKey: string;
   currentValue: DocumentPropertyValue;
   proposedValue: DocumentPropertyValue;
+  /** Exact provider-native JSON value; review continues to show proposedValue. */
+  builderValueJson?: string;
 }
 
 export interface ContentDatabaseSourceBodyChange {
@@ -633,6 +637,7 @@ export interface ContentDatabaseSource {
     allowDraftWrites?: boolean;
     allowPublishWrites?: boolean;
     allowedWriteModes?: ContentDatabaseSourcePushMode[];
+    builderModelFields?: BuilderCmsModelFieldSummary[];
     federation?: ContentDatabaseSourceFederation;
   };
   fields: ContentDatabaseSourceFieldMapping[];
@@ -653,6 +658,7 @@ export interface BuilderCmsModelFieldSummary {
   label?: string;
   type: string;
   inputType?: string;
+  model?: string;
   enum?: string[];
   options?: string[];
   required: boolean;
@@ -710,6 +716,12 @@ export interface ContentDatabaseResponse {
   duplicatedDocumentIds?: string[];
   deletedItemIds?: string[];
   deletedDocumentIds?: string[];
+  timings?: BuilderActionTiming[];
+}
+
+export interface BuilderActionTiming {
+  name: string;
+  durationMs: number;
 }
 
 export interface ContentDatabaseUnavailableResponse {
@@ -941,6 +953,25 @@ export interface PrepareBuilderSourceExecutionRequest {
   confirmUnpublish?: boolean;
 }
 
+export interface CancelPreparedBuilderSourceUpdateRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId: string;
+  changeSetId: string;
+  note?: string;
+}
+
+export interface CancelPreparedBuilderSourceUpdateResponse extends ContentDatabaseResponse {
+  cancellation: {
+    sourceId: string;
+    changeSetId: string;
+    executionIds: string[];
+    status: "cancelled" | "already_cancelled";
+    cancelledAt: string;
+    cancelledBy: string;
+  };
+}
+
 export interface ValidateBuilderSourceExecutionRequest {
   databaseId?: string;
   documentId?: string;
@@ -971,6 +1002,7 @@ export interface PrepareBuilderSourceReviewRequest {
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
   publicationTransition?: BuilderCmsPublicationTransitionIntent;
   confirmUnpublish?: boolean;
+  transitions?: Record<string, ExecuteBuilderSourceBatchTransition>;
 }
 
 export interface ExecuteBuilderSourceBatchTransition {
@@ -987,12 +1019,17 @@ export interface ExecuteBuilderSourceBatchRequest {
   transitions?: Record<string, ExecuteBuilderSourceBatchTransition>;
 }
 
-export type BuilderSourceBatchItemStatus = "succeeded" | "blocked" | "failed";
+export type BuilderSourceBatchItemStatus =
+  | "succeeded"
+  | "blocked"
+  | "reconciliation_required"
+  | "failed";
 
 export interface BuilderSourceBatchItemResult {
   changeSetId: string;
   status: BuilderSourceBatchItemStatus;
   message?: string;
+  timings?: BuilderActionTiming[];
 }
 
 export interface ExecuteBuilderSourceBatchResponse {
@@ -1000,9 +1037,11 @@ export interface ExecuteBuilderSourceBatchResponse {
     total: number;
     succeeded: number;
     blocked: number;
+    reconciliationRequired: number;
     failed: number;
   };
   results: BuilderSourceBatchItemResult[];
+  timings?: BuilderActionTiming[];
 }
 
 export interface SetContentDatabaseSourceWriteModeRequest {
@@ -1083,6 +1122,8 @@ export interface ContentDatabaseSourceReviewRowSummary {
   databaseItemId: string | null;
   documentId: string | null;
   title: string;
+  /** Existing Builder entry targeted by this write; null for new drafts. */
+  targetEntryId?: string | null;
   fieldChanges: ContentDatabaseSourceFieldChange[];
   bodyChange: ContentDatabaseSourceBodyChange | null;
   riskLevel: ContentDatabaseSourceRiskLevel;
@@ -1112,6 +1153,7 @@ export interface ContentDatabaseSourceReviewPayload {
       | "stale"
       | "write_disabled"
       | "running"
+      | "reconciliation_required"
       | "succeeded"
       | "failed";
     message: string;
@@ -1124,6 +1166,7 @@ export interface PrepareBuilderSourceReviewResponse {
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
   review: ContentDatabaseSourceReviewPayload;
+  timings?: BuilderActionTiming[];
 }
 
 export interface ProcessBuilderBodyHydrationRequest {

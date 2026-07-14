@@ -92,6 +92,11 @@ type MdxNode = {
   name?: string;
   value?: string;
   children?: MdxNode[];
+  attributes?: Array<{
+    type: string;
+    name?: string;
+    value?: string | null | { type?: string; value?: string };
+  }>;
   position?: {
     start?: { offset?: number };
     end?: { offset?: number };
@@ -270,8 +275,50 @@ export function builderEntryBlocks(entry: BuilderContentEntry): unknown[] {
   return [];
 }
 
+function isZeroDimension(value: unknown) {
+  return value === 0 || value === "0";
+}
+
+function isBuilderTrackingPixelBlock(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const block = value as Record<string, unknown>;
+  if (block["@type"] !== "@builder.io/sdk:Element" || block.tagName !== "img") {
+    return false;
+  }
+  const properties = block.properties;
+  if (
+    !properties ||
+    typeof properties !== "object" ||
+    Array.isArray(properties)
+  ) {
+    return false;
+  }
+  const props = properties as Record<string, unknown>;
+  if (
+    props.role !== "presentation" ||
+    props.alt !== "" ||
+    (props["aria-hidden"] !== true && props["aria-hidden"] !== "true") ||
+    !isZeroDimension(props.width) ||
+    !isZeroDimension(props.height) ||
+    typeof props.src !== "string"
+  ) {
+    return false;
+  }
+  try {
+    const src = new URL(props.src);
+    return (
+      (src.hostname === "builder.io" || src.hostname.endsWith(".builder.io")) &&
+      src.pathname === "/api/v1/pixel"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function builderBlocksHash(blocks: unknown[]) {
-  return stableHash(blocks);
+  return stableHash(
+    blocks.filter((block) => !isBuilderTrackingPixelBlock(block)),
+  );
 }
 
 export function builderSourceHash(entry: BuilderContentEntry) {
@@ -1768,7 +1815,27 @@ function freshTextBlock(markdown: string): unknown {
 
 function freshImageBlock(markdown: string): unknown | null {
   const image = parseMarkdownImage(markdown);
-  if (!image?.src) return null;
+  if (!image?.src) {
+    if (markdown.trimStart().startsWith("![")) {
+      throw new Error(
+        "Builder image must use literal Markdown image syntax with an absolute URL.",
+      );
+    }
+    return null;
+  }
+  let imageUrl: URL;
+  try {
+    imageUrl = new URL(image.src);
+  } catch {
+    throw new Error("Builder image src must be an absolute URL.");
+  }
+  if (
+    (imageUrl.protocol !== "https:" && imageUrl.protocol !== "http:") ||
+    imageUrl.username ||
+    imageUrl.password
+  ) {
+    throw new Error("Builder image src must use a safe HTTP(S) URL.");
+  }
   return {
     "@type": "@builder.io/sdk:Element",
     "@version": 2,
@@ -1776,9 +1843,174 @@ function freshImageBlock(markdown: string): unknown | null {
     component: {
       name: "Image",
       options: {
-        image: image.src,
+        image: imageUrl.toString(),
         altText: image.alt,
       },
+    },
+    responsiveStyles: {
+      large: {
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      },
+    },
+  };
+}
+
+function isEmptyEditorBlockSentinel(node: MdxNode, raw: string) {
+  return (
+    node.name === "empty-block" &&
+    (node.attributes ?? []).length === 0 &&
+    (node.children ?? []).length === 0 &&
+    /^<empty-block\s*\/>$/.test(raw)
+  );
+}
+
+function containsUnsupportedEmptyBlockSyntax(
+  node: MdxNode,
+  raw: string,
+): boolean {
+  return node.type !== "code" && /<\/?empty-block\b/i.test(raw);
+}
+
+function safeLiteralMediaUrl(value: string, label: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`Builder video ${label} must be an absolute URL.`);
+  }
+  if (
+    (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+    parsed.username ||
+    parsed.password
+  ) {
+    throw new Error(`Builder video ${label} must use a safe HTTP(S) URL.`);
+  }
+  return parsed;
+}
+
+function literalVideoBoolean(value: string | null, name: string) {
+  if (value === null || value === "" || value === name || value === "true") {
+    return true;
+  }
+  if (value === "false") return false;
+  throw new Error(`Builder video attribute ${name} must be a literal boolean.`);
+}
+
+function freshVideoBlock(node: MdxNode, raw: string): unknown {
+  if ((node.children ?? []).length > 0) {
+    throw new Error("Builder video cannot contain child content.");
+  }
+  const allowed = new Set([
+    "src",
+    "poster",
+    "preload",
+    "controls",
+    "autoplay",
+    "muted",
+    "loop",
+    "playsinline",
+    "width",
+    "height",
+    // Content persists title for native playback, but Builder's built-in
+    // Video options do not expose it. Validate that it is literal, then omit.
+    "title",
+  ]);
+  const values = new Map<string, string | null>();
+  for (const attribute of node.attributes ?? []) {
+    if (
+      attribute.type !== "mdxJsxAttribute" ||
+      !attribute.name ||
+      (attribute.value !== null && typeof attribute.value !== "string")
+    ) {
+      throw new Error("Builder video attributes must be literal values.");
+    }
+    const name = attribute.name.toLowerCase();
+    if (!allowed.has(name)) {
+      throw new Error(`Unsupported Builder video attribute: ${name}.`);
+    }
+    if (values.has(name)) {
+      throw new Error(`Duplicate Builder video attribute: ${name}.`);
+    }
+    values.set(name, attribute.value ?? null);
+  }
+
+  const src = values.get("src");
+  if (typeof src !== "string" || !src.trim()) {
+    throw new Error("Builder video requires a literal src attribute.");
+  }
+  const videoUrl = safeLiteralMediaUrl(src.trim(), "src");
+  if (!videoUrl.pathname.toLowerCase().endsWith(".mp4")) {
+    throw new Error("Builder video src must reference an MP4 file.");
+  }
+
+  const options: Record<string, unknown> = {
+    video: videoUrl.toString(),
+    autoPlay: false,
+    controls: false,
+    muted: false,
+    loop: false,
+    playsInline: false,
+  };
+  for (const [attribute, option] of [
+    ["autoplay", "autoPlay"],
+    ["controls", "controls"],
+    ["muted", "muted"],
+    ["loop", "loop"],
+    ["playsinline", "playsInline"],
+  ] as const) {
+    if (values.has(attribute)) {
+      options[option] = literalVideoBoolean(
+        values.get(attribute) ?? null,
+        attribute,
+      );
+    }
+  }
+
+  const poster = values.get("poster");
+  if (typeof poster === "string" && poster.trim()) {
+    options.posterImage = safeLiteralMediaUrl(
+      poster.trim(),
+      "poster",
+    ).toString();
+  } else if (values.has("poster")) {
+    throw new Error("Builder video poster must be a literal URL.");
+  }
+
+  const preload = values.get("preload");
+  if (typeof preload === "string" && preload.trim()) {
+    if (!new Set(["none", "metadata", "auto"]).has(preload)) {
+      throw new Error("Builder video preload must be none, metadata, or auto.");
+    }
+    options.preload = preload;
+  } else if (values.has("preload")) {
+    throw new Error("Builder video preload must have a literal value.");
+  }
+
+  for (const dimension of ["width", "height"] as const) {
+    const value = values.get(dimension);
+    if (typeof value === "string" && /^\d+$/.test(value) && Number(value) > 0) {
+      options[dimension] = Number(value);
+      continue;
+    }
+    if (values.has(dimension)) {
+      throw new Error(`Builder video ${dimension} must be a positive integer.`);
+    }
+  }
+
+  const title = values.get("title");
+  if (title === null && values.has("title")) {
+    throw new Error("Builder video title must have a literal value.");
+  }
+
+  return {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: `builder-mdx-video-${stableHash(raw).slice(0, 16)}`,
+    component: {
+      name: "Video",
+      options,
     },
     responsiveStyles: {
       large: {
@@ -1992,6 +2224,13 @@ export async function builderMdxBodyToBuilderBlocks(
       child.type === "mdxJsxFlowElement" ||
       child.type === "mdxJsxTextElement"
     ) {
+      if (isEmptyEditorBlockSentinel(child, raw)) {
+        continue;
+      }
+      if (child.name === "video") {
+        blocks.push(freshVideoBlock(child, raw));
+        continue;
+      }
       const block = await blockFromMdxComponent(raw, sidecars);
       if (block) {
         blocks.push(block);
@@ -2004,6 +2243,11 @@ export async function builderMdxBodyToBuilderBlocks(
     if (child.type === "mdxjsEsm") {
       throw new Error(
         "Unsupported Builder MDX syntax: import/export statements cannot be pushed to Builder.",
+      );
+    }
+    if (containsUnsupportedEmptyBlockSyntax(child, raw)) {
+      throw new Error(
+        "Unsupported Builder MDX component: <empty-block>. Only an attribute-free, self-closing Content editor sentinel can be omitted.",
       );
     }
     const imageBlock = freshImageBlock(raw);
@@ -2071,10 +2315,127 @@ function inlineHtmlToMarkdown(value: string) {
     .trim();
 }
 
+interface HtmlListItem {
+  html: string;
+  children: HtmlList[];
+}
+
+interface HtmlList {
+  type: "ul" | "ol";
+  items: HtmlListItem[];
+}
+
+function parseHtmlList(value: string): HtmlList | null {
+  const roots: HtmlList[] = [];
+  const lists: HtmlList[] = [];
+  const items: Array<HtmlListItem | null> = [];
+  const tokenPattern = /<\/?(?:ul|ol|li)\b[^>]*>/gi;
+  let cursor = 0;
+
+  const appendText = (text: string) => {
+    const item = items[items.length - 1];
+    if (item) item.html += text;
+  };
+
+  for (const match of value.matchAll(tokenPattern)) {
+    appendText(value.slice(cursor, match.index));
+    cursor = (match.index ?? 0) + match[0].length;
+    const closing = /^<\//.test(match[0]);
+    const tag = match[0].match(/^<\/?(ul|ol|li)\b/i)?.[1]?.toLowerCase();
+    if (!tag) continue;
+
+    if ((tag === "ul" || tag === "ol") && !closing) {
+      const list: HtmlList = { type: tag, items: [] };
+      const parentItem = items[items.length - 1];
+      if (parentItem) parentItem.children.push(list);
+      else roots.push(list);
+      lists.push(list);
+      items.push(null);
+      continue;
+    }
+    if ((tag === "ul" || tag === "ol") && closing) {
+      if (lists[lists.length - 1]?.type !== tag) return null;
+      lists.pop();
+      items.pop();
+      continue;
+    }
+    if (tag === "li" && !closing) {
+      const list = lists[lists.length - 1];
+      if (!list) return null;
+      const item: HtmlListItem = { html: "", children: [] };
+      list.items.push(item);
+      items[items.length - 1] = item;
+      continue;
+    }
+    if (tag === "li" && closing) {
+      if (!items[items.length - 1]) return null;
+      items[items.length - 1] = null;
+    }
+  }
+  appendText(value.slice(cursor));
+  if (lists.length || roots.length !== 1) return null;
+  return roots[0];
+}
+
+function renderHtmlListMarkdown(list: HtmlList, depth = 0): string {
+  return list.items
+    .map((item, index) => {
+      const indent = "    ".repeat(depth);
+      const marker = list.type === "ol" ? `${index + 1}.` : "-";
+      const body = inlineHtmlToMarkdown(item.html);
+      const line = `${indent}${marker}${body ? ` ${body}` : ""}`;
+      const children = item.children.map((child) =>
+        renderHtmlListMarkdown(child, depth + 1),
+      );
+      return [line, ...children].join("\n");
+    })
+    .join("\n");
+}
+
+function replaceHtmlListsWithMarkdown(value: string) {
+  const openingPattern = /<(ul|ol)\b[^>]*>/gi;
+  const listTagPattern = /<\/?(ul|ol)\b[^>]*>/gi;
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    openingPattern.lastIndex = cursor;
+    const opening = openingPattern.exec(value);
+    if (!opening) {
+      result += value.slice(cursor);
+      break;
+    }
+    result += value.slice(cursor, opening.index);
+    listTagPattern.lastIndex = opening.index;
+    let depth = 0;
+    let end = -1;
+    for (
+      let tag = listTagPattern.exec(value);
+      tag;
+      tag = listTagPattern.exec(value)
+    ) {
+      depth += /^<\//.test(tag[0]) ? -1 : 1;
+      if (depth === 0) {
+        end = listTagPattern.lastIndex;
+        break;
+      }
+    }
+    if (end < 0) {
+      result += value.slice(opening.index);
+      break;
+    }
+    const source = value.slice(opening.index, end);
+    const list = parseHtmlList(source);
+    result += list ? `\n${renderHtmlListMarkdown(list)}\n` : source;
+    cursor = end;
+  }
+  return result;
+}
+
 export function htmlToMarkdown(html: string) {
   let source = html.trim();
   if (!source) return "";
-  source = source
+  source = replaceHtmlListsWithMarkdown(source)
     .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level, body) => {
       return `\n${"#".repeat(Number(level))} ${inlineHtmlToMarkdown(body)}\n`;
     })
@@ -2112,10 +2473,17 @@ export function markdownToBuilderTextHtml(markdown: string) {
   const lines = markdown.trim().split(/\r?\n/);
   const html: string[] = [];
   let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
   const flushList = () => {
-    if (!listItems.length) return;
-    html.push(`<ul>${listItems.join("")}</ul>`);
+    if (!listItems.length || !listType) return;
+    html.push(`<${listType}>${listItems.join("")}</${listType}>`);
     listItems = [];
+    listType = null;
+  };
+  const appendListItem = (type: "ul" | "ol", value: string) => {
+    if (listType && listType !== type) flushList();
+    listType = type;
+    listItems.push(`<li>${inlineMarkdownToHtml(value)}</li>`);
   };
   for (const line of lines) {
     const trimmed = line.trim();
@@ -2130,9 +2498,14 @@ export function markdownToBuilderTextHtml(markdown: string) {
       html.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`);
       continue;
     }
-    const list = trimmed.match(/^[-*]\s+(.+)$/);
-    if (list) {
-      listItems.push(`<li>${inlineMarkdownToHtml(list[1])}</li>`);
+    const unorderedList = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unorderedList) {
+      appendListItem("ul", unorderedList[1]);
+      continue;
+    }
+    const orderedList = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (orderedList) {
+      appendListItem("ol", orderedList[1]);
       continue;
     }
     flushList();

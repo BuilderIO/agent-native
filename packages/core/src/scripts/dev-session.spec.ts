@@ -138,3 +138,59 @@ describe("resolveDevUserEmail", () => {
     expect(await resolveDevUserEmail()).toBeUndefined();
   });
 });
+
+describe("resolveDevOrgId", () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    vi.restoreAllMocks();
+  });
+
+  it("returns AGENT_ORG_ID when explicitly set without resolving memberships", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "org-explicit");
+    const resolveOrgIdForEmail = vi.fn();
+    vi.doMock("../org/context.js", () => ({ resolveOrgIdForEmail }));
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(await resolveDevOrgId("owner@example.com")).toBe("org-explicit");
+    expect(resolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("resolves the active organization for the local dev user", async () => {
+    vi.stubEnv("AGENT_ORG_ID", "");
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("AUTH_MODE", "local");
+    const resolveOrgIdForEmail = vi.fn().mockResolvedValue("org-active");
+    vi.doMock("../org/context.js", () => ({ resolveOrgIdForEmail }));
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(await resolveDevOrgId("owner@example.com")).toBe("org-active");
+    expect(resolveOrgIdForEmail).toHaveBeenCalledWith("owner@example.com");
+  });
+
+  it("does not infer an organization in production or non-local auth modes", async () => {
+    const resolveOrgIdForEmail = vi.fn().mockResolvedValue("org-active");
+    vi.doMock("../org/context.js", () => ({ resolveOrgIdForEmail }));
+    const { resolveDevOrgId } = await import("./dev-session.js");
+
+    vi.stubEnv("NODE_ENV", "production");
+    expect(await resolveDevOrgId("owner@example.com")).toBeUndefined();
+
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("AUTH_MODE", "google");
+    expect(await resolveDevOrgId("owner@example.com")).toBeUndefined();
+    expect(resolveOrgIdForEmail).not.toHaveBeenCalled();
+  });
+
+  it("returns undefined when no user or membership can be resolved", async () => {
+    vi.stubEnv("NODE_ENV", "development");
+    vi.stubEnv("AUTH_MODE", "local");
+    const resolveOrgIdForEmail = vi.fn().mockResolvedValue(null);
+    vi.doMock("../org/context.js", () => ({ resolveOrgIdForEmail }));
+
+    const { resolveDevOrgId } = await import("./dev-session.js");
+    expect(await resolveDevOrgId(undefined)).toBeUndefined();
+    expect(await resolveDevOrgId("owner@example.com")).toBeUndefined();
+    expect(resolveOrgIdForEmail).toHaveBeenCalledOnce();
+  });
+});

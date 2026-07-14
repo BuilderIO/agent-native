@@ -4,6 +4,8 @@ import type {
   AddDatabaseItemRequest,
   AttachContentDatabaseSourceRequest,
   BuilderCmsModelsResponse,
+  CancelPreparedBuilderSourceUpdateRequest,
+  CancelPreparedBuilderSourceUpdateResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
   ContentDatabasePersonalViewResponse,
@@ -815,6 +817,27 @@ export function useAddContentDatabaseSourceFieldProperty(documentId: string) {
   });
 }
 
+export function useMaterializeBuilderRequiredFields(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    ContentDatabaseResponse,
+    { documentId: string; sourceId: string }
+  >("materialize-builder-required-fields", {
+    onSuccess: (data) => {
+      writeContentDatabaseResponseToCache(queryClient, documentId, data);
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-document-properties", { documentId }],
+      });
+    },
+  });
+}
+
 export function useBuilderCmsModels(enabled: boolean) {
   return useActionQuery<BuilderCmsModelsResponse>(
     "list-builder-cms-models",
@@ -1003,6 +1026,23 @@ export function usePrepareBuilderSourceExecution(documentId: string) {
     ContentDatabaseResponse,
     PrepareBuilderSourceExecutionRequest
   >("prepare-builder-source-execution", {
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(documentId),
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database-source", { documentId }],
+      });
+    },
+  });
+}
+
+export function useCancelPreparedBuilderSourceUpdate(documentId: string) {
+  const queryClient = useQueryClient();
+  return useActionMutation<
+    CancelPreparedBuilderSourceUpdateResponse,
+    CancelPreparedBuilderSourceUpdateRequest
+  >("cancel-prepared-builder-source-update", {
     onSuccess: () => {
       queryClient.invalidateQueries({
         queryKey: contentDatabaseQueryKey(documentId),

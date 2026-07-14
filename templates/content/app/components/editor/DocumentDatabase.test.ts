@@ -51,6 +51,8 @@ import {
   databaseItemPreviewTitle,
   databaseItemsWithoutDateValue,
   databaseNavigationState,
+  databaseAttachedBuilderModelNames,
+  databaseAttachedBuilderSource,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -862,6 +864,78 @@ describe("database view filtering", () => {
 });
 
 describe("Builder source settings helpers", () => {
+  it("resolves multi-source Builder controls from the selected model instead of the legacy primary", () => {
+    const primary = builderSource({
+      id: "primary-local",
+      sourceType: "mock-local",
+      sourceName: "Primary local source",
+      sourceTable: "content_rows",
+    });
+    const attachedBuilder = builderSource({
+      id: "builder-secondary",
+      sourceName: "Blog articles",
+      sourceTable: "blog_article",
+    });
+    const attachedDocsBuilder = builderSource({
+      id: "builder-docs",
+      sourceName: "Docs",
+      sourceTable: "docs_content",
+    });
+    const sources = [primary, attachedBuilder, attachedDocsBuilder];
+
+    expect(databaseAttachedBuilderModelNames(sources, primary)).toEqual([
+      "blog_article",
+      "docs_content",
+    ]);
+    expect(
+      databaseAttachedBuilderSource(sources, primary, {
+        modelName: "blog_article",
+      })?.id,
+    ).toBe("builder-secondary");
+    expect(
+      databaseAttachedBuilderSource(sources, primary, {
+        sourceId: "builder-docs",
+      })?.sourceTable,
+    ).toBe("docs_content");
+
+    const readOnly = builderSourceLiveWriteControlState(attachedBuilder);
+    expect(readOnly).toMatchObject({
+      availableWriteModes: ["read_only", "stage_only", "publish_updates"],
+      writeMode: "read_only",
+      showPublicationTransitions: false,
+    });
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({
+          id: "builder-secondary",
+          sourceTable: "blog_article",
+          metadata: {
+            ...attachedBuilder.metadata,
+            writeMode: "stage_only",
+          },
+        }),
+      ),
+    ).toMatchObject({
+      writeMode: "stage_only",
+      showPublicationTransitions: false,
+    });
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({
+          id: "builder-secondary",
+          sourceTable: "blog_article",
+          metadata: {
+            ...attachedBuilder.metadata,
+            writeMode: "publish_updates",
+          },
+        }),
+      ),
+    ).toMatchObject({
+      writeMode: "publish_updates",
+      showPublicationTransitions: true,
+    });
+  });
+
   it("counts only outbound Builder changes that need source-settings attention", () => {
     expect(
       builderReviewableChangeSets(
@@ -870,6 +944,11 @@ describe("Builder source settings helpers", () => {
             builderChangeSet({ id: "pending", state: "pending_push" }),
             builderChangeSet({ id: "approved", state: "approved" }),
             builderChangeSet({ id: "applied", state: "applied" }),
+            builderChangeSet({
+              id: "reconciled-but-stale-state",
+              state: "approved",
+              executions: [builderExecution({ state: "succeeded" })],
+            }),
           ],
         }),
       ).map((changeSet) => changeSet.id),

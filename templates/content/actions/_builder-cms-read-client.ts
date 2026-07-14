@@ -129,6 +129,15 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
 const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
 const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
 
+function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+}
+
 function builderContentApiHost() {
   return (
     process.env.BUILDER_CONTENT_API_HOST ??
@@ -404,6 +413,10 @@ function normalizeBuilderCmsModel(
                   fieldRecord.friendlyName.trim()
                 ? fieldRecord.friendlyName.trim()
                 : undefined;
+          const model =
+            typeof fieldRecord.model === "string" && fieldRecord.model.trim()
+              ? fieldRecord.model.trim()
+              : undefined;
           const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
           const options = stringOptionsFromUnknown(
             fieldRecord.options ?? fieldRecord.allowedValues,
@@ -416,6 +429,7 @@ function normalizeBuilderCmsModel(
                 ? fieldRecord.type.trim()
                 : "unknown",
             ...(inputType ? { inputType } : {}),
+            ...(model ? { model } : {}),
             ...(enumOptions ? { enum: enumOptions } : {}),
             ...(options ? { options } : {}),
             required: fieldRecord.required === true,
@@ -843,9 +857,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -888,12 +900,7 @@ export async function readBuilderCmsContentEntry(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("enrich", "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,

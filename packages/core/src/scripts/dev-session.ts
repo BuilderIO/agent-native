@@ -94,3 +94,30 @@ export async function resolveDevUserEmail(): Promise<string | undefined> {
     return undefined;
   }
 }
+
+/**
+ * Resolve the active organization for a local CLI action.
+ *
+ * Browser action requests receive both user and org identity from the auth
+ * layer. The CLI must establish the same context or an owner can appear to
+ * lose access to their own org-scoped rows. Explicit AGENT_ORG_ID still wins;
+ * automatic resolution remains constrained to the same non-production auth
+ * modes as the dev-user fallback above.
+ */
+export async function resolveDevOrgId(
+  userEmail: string | undefined,
+): Promise<string | undefined> {
+  const explicit = process.env.AGENT_ORG_ID?.trim();
+  if (explicit) return explicit;
+  if (!userEmail || process.env.NODE_ENV === "production") return undefined;
+
+  const authMode = process.env.AUTH_MODE;
+  if (authMode && authMode !== "local") return undefined;
+
+  try {
+    const { resolveOrgIdForEmail } = await import("../org/context.js");
+    return (await resolveOrgIdForEmail(userEmail)) ?? undefined;
+  } catch {
+    return undefined;
+  }
+}

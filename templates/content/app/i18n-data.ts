@@ -14,6 +14,13 @@ const databaseMessages = {
   addDetailsToExistingItems: "Add details to the existing items",
   addedFieldsFromSource: "Added {{count}} fields from this source.",
   addedOneFieldFromSource: "Added 1 field from this source.",
+  addRequiredFields: "Add required fields",
+  publishingFieldsAdded: "Publishing fields added",
+  requiredBuilderFieldsReady:
+    "{{count}} required Builder fields are ready to edit in Content.",
+  requiredPublishingFields: "Required publishing fields",
+  requiredPublishingFieldsDescription:
+    "Add the metadata Builder requires before this collection can publish: {{fields}}.",
   addingDetails: "Adding details",
   addingDetailsMatchedOn: "Adding details matched on {{field}}.",
   addingItems: "Adding items",
@@ -363,6 +370,16 @@ const databaseMessages = {
   checksOnly: "checks only",
   close: "Close",
   closeBuilderUpdateReview: "Close Builder update review",
+  cancelPreparedUpdate: "Cancel prepared update",
+  cancelPreparedUpdateQuestion: "Cancel this prepared update?",
+  cancelPreparedUpdateDescription:
+    "This stops the local execution before dispatch and keeps the audit history. Nothing is sent to Builder.",
+  keepPreparedUpdate: "Keep prepared update",
+  cancellingPreparedUpdate: "Cancelling…",
+  preparedUpdateCancelled: "Prepared Builder update cancelled",
+  preparedUpdateAlreadyCancelled:
+    "Prepared Builder update was already cancelled",
+  cancelPreparedUpdateFailed: "Prepared Builder update was not cancelled",
   disabled: "disabled",
   draft: "Draft",
   enabled: "enabled",
@@ -432,6 +449,9 @@ const databaseMessages = {
   noPendingLocalBuilderChanges: "No pending local Builder changes yet.",
   needsAttention: "Needs attention",
   failedYouCanRetry: "Failed — you can retry",
+  reconciliationRequired: "Reconciliation required — don't retry",
+  builderPushAlreadyRunning:
+    "Builder push is already running. No second write was sent.",
   needsAFreshReview: "Needs a fresh review",
   working: "Working…",
   ready: "Ready",
@@ -471,6 +491,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "为现有项目添加详情",
     addedFieldsFromSource: "已从此来源添加 {{count}} 个字段。",
     addedOneFieldFromSource: "已从此来源添加 1 个字段。",
+    addRequiredFields: "添加必填字段",
+    publishingFieldsAdded: "发布字段已添加",
+    requiredBuilderFieldsReady:
+      "{{count}} 个 Builder 必填字段已可在 Content 中编辑。",
+    requiredPublishingFields: "必填发布字段",
+    requiredPublishingFieldsDescription:
+      "添加此集合发布前 Builder 所需的元数据：{{fields}}。",
     addingDetails: "正在添加详情",
     addingDetailsMatchedOn: "正在添加按 {{field}} 匹配的详情。",
     addingItems: "正在添加项目",
@@ -515,6 +542,15 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "从来源绑定字段",
     reviewBuilderUpdate: "审查 Builder 更新",
     closeBuilderUpdateReview: "关闭 Builder 更新审查",
+    cancelPreparedUpdate: "取消已准备的更新",
+    cancelPreparedUpdateQuestion: "取消此已准备的更新？",
+    cancelPreparedUpdateDescription:
+      "这会在发送前停止本地执行并保留审计历史。不会向 Builder 发送任何内容。",
+    keepPreparedUpdate: "保留已准备的更新",
+    cancellingPreparedUpdate: "正在取消…",
+    preparedUpdateCancelled: "已取消准备好的 Builder 更新",
+    preparedUpdateAlreadyCancelled: "准备好的 Builder 更新已被取消",
+    cancelPreparedUpdateFailed: "未能取消准备好的 Builder 更新",
     whatChanged: "更改内容",
     confirmUnpublish: "确认取消发布",
     builderBodyEditsNeedSaferPath:
@@ -526,6 +562,8 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "尚无待处理的本地 Builder 更改。",
     needsAttention: "需要处理",
     failedYouCanRetry: "失败 — 您可以重试",
+    reconciliationRequired: "需要核对 — 请勿重试",
+    builderPushAlreadyRunning: "Builder 推送已在运行。未发送第二次写入。",
     needsAFreshReview: "需要重新审查",
     working: "处理中…",
     checksOnly: "仅检查",
@@ -657,6 +695,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Añadir detalles a los elementos existentes",
     addedFieldsFromSource: "Se añadieron {{count}} campos de esta fuente.",
     addedOneFieldFromSource: "Se añadió 1 campo de esta fuente.",
+    addRequiredFields: "Añadir campos obligatorios",
+    publishingFieldsAdded: "Campos de publicación añadidos",
+    requiredBuilderFieldsReady:
+      "{{count}} campos obligatorios de Builder ya se pueden editar en Content.",
+    requiredPublishingFields: "Campos de publicación obligatorios",
+    requiredPublishingFieldsDescription:
+      "Añade los metadatos que Builder requiere para publicar esta colección: {{fields}}.",
     addingDetails: "Añadiendo detalles",
     addingDetailsMatchedOn: "Añadiendo detalles coincidentes por {{field}}.",
     addingItems: "Añadiendo elementos",
@@ -709,6 +754,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Vincular un campo de una fuente",
     reviewBuilderUpdate: "Revisar actualización de Builder",
     closeBuilderUpdateReview: "Cerrar revisión de actualización de Builder",
+    cancelPreparedUpdate: "Cancelar actualización preparada",
+    cancelPreparedUpdateQuestion: "¿Cancelar esta actualización preparada?",
+    cancelPreparedUpdateDescription:
+      "Esto detiene la ejecución local antes del envío y conserva el historial de auditoría. No se envía nada a Builder.",
+    keepPreparedUpdate: "Conservar actualización preparada",
+    cancellingPreparedUpdate: "Cancelando…",
+    preparedUpdateCancelled: "Actualización preparada de Builder cancelada",
+    preparedUpdateAlreadyCancelled:
+      "La actualización preparada de Builder ya estaba cancelada",
+    cancelPreparedUpdateFailed:
+      "No se canceló la actualización preparada de Builder",
     whatChanged: "Qué cambió",
     confirmUnpublish: "Confirmar retirada de publicación",
     builderBodyEditsNeedSaferPath:
@@ -722,6 +778,9 @@ const databaseMessagesByLocale = {
       "Aún no hay cambios locales de Builder pendientes.",
     needsAttention: "Necesita atención",
     failedYouCanRetry: "Falló — puedes reintentar",
+    reconciliationRequired: "Se requiere conciliación — no reintentes",
+    builderPushAlreadyRunning:
+      "El envío a Builder ya está en curso. No se envió una segunda escritura.",
     needsAFreshReview: "Necesita una nueva revisión",
     working: "Procesando…",
     checksOnly: "Solo comprobaciones",
@@ -859,6 +918,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Ajouter des détails aux éléments existants",
     addedFieldsFromSource: "{{count}} champs ajoutés depuis cette source.",
     addedOneFieldFromSource: "1 champ ajouté depuis cette source.",
+    addRequiredFields: "Ajouter les champs obligatoires",
+    publishingFieldsAdded: "Champs de publication ajoutés",
+    requiredBuilderFieldsReady:
+      "{{count}} champs Builder obligatoires peuvent maintenant être modifiés dans Content.",
+    requiredPublishingFields: "Champs de publication obligatoires",
+    requiredPublishingFieldsDescription:
+      "Ajoutez les métadonnées requises par Builder avant de publier cette collection : {{fields}}.",
     addingDetails: "Ajout de détails",
     addingDetailsMatchedOn: "Ajout de détails correspondant à {{field}}.",
     addingItems: "Ajout d’éléments",
@@ -912,6 +978,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Lier un champ depuis une source",
     reviewBuilderUpdate: "Vérifier la mise à jour Builder",
     closeBuilderUpdateReview: "Fermer la révision de mise à jour Builder",
+    cancelPreparedUpdate: "Annuler la mise à jour préparée",
+    cancelPreparedUpdateQuestion: "Annuler cette mise à jour préparée ?",
+    cancelPreparedUpdateDescription:
+      "Cette action arrête l’exécution locale avant l’envoi et conserve l’historique d’audit. Rien n’est envoyé à Builder.",
+    keepPreparedUpdate: "Conserver la mise à jour préparée",
+    cancellingPreparedUpdate: "Annulation…",
+    preparedUpdateCancelled: "Mise à jour Builder préparée annulée",
+    preparedUpdateAlreadyCancelled:
+      "La mise à jour Builder préparée était déjà annulée",
+    cancelPreparedUpdateFailed:
+      "La mise à jour Builder préparée n’a pas été annulée",
     whatChanged: "Ce qui a changé",
     confirmUnpublish: "Confirmer la dépublication",
     builderBodyEditsNeedSaferPath:
@@ -926,6 +1003,9 @@ const databaseMessagesByLocale = {
       "Aucune modification Builder locale en attente pour l'instant.",
     needsAttention: "Nécessite une attention",
     failedYouCanRetry: "Échec — vous pouvez réessayer",
+    reconciliationRequired: "Rapprochement requis — ne réessayez pas",
+    builderPushAlreadyRunning:
+      "L’envoi vers Builder est déjà en cours. Aucune deuxième écriture n’a été envoyée.",
     needsAFreshReview: "Nécessite une nouvelle révision",
     working: "En cours…",
     checksOnly: "Vérifications uniquement",
@@ -1061,6 +1141,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Details zu vorhandenen Elementen hinzufügen",
     addedFieldsFromSource: "{{count}} Felder aus dieser Quelle hinzugefügt.",
     addedOneFieldFromSource: "1 Feld aus dieser Quelle hinzugefügt.",
+    addRequiredFields: "Pflichtfelder hinzufügen",
+    publishingFieldsAdded: "Veröffentlichungsfelder hinzugefügt",
+    requiredBuilderFieldsReady:
+      "{{count}} Builder-Pflichtfelder können jetzt in Content bearbeitet werden.",
+    requiredPublishingFields: "Erforderliche Veröffentlichungsfelder",
+    requiredPublishingFieldsDescription:
+      "Fügen Sie die Metadaten hinzu, die Builder vor der Veröffentlichung dieser Sammlung benötigt: {{fields}}.",
     addingDetails: "Details werden hinzugefügt",
     addingDetailsMatchedOn: "Details werden anhand von {{field}} hinzugefügt.",
     addingItems: "Elemente werden hinzugefügt",
@@ -1114,6 +1201,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Ein Feld aus einer Quelle verknüpfen",
     reviewBuilderUpdate: "Builder-Update prüfen",
     closeBuilderUpdateReview: "Builder-Update-Prüfung schließen",
+    cancelPreparedUpdate: "Vorbereitetes Update abbrechen",
+    cancelPreparedUpdateQuestion: "Dieses vorbereitete Update abbrechen?",
+    cancelPreparedUpdateDescription:
+      "Dadurch wird die lokale Ausführung vor dem Senden gestoppt und der Prüfverlauf bleibt erhalten. Es wird nichts an Builder gesendet.",
+    keepPreparedUpdate: "Vorbereitetes Update behalten",
+    cancellingPreparedUpdate: "Wird abgebrochen…",
+    preparedUpdateCancelled: "Vorbereitetes Builder-Update abgebrochen",
+    preparedUpdateAlreadyCancelled:
+      "Das vorbereitete Builder-Update wurde bereits abgebrochen",
+    cancelPreparedUpdateFailed:
+      "Das vorbereitete Builder-Update wurde nicht abgebrochen",
     whatChanged: "Was sich geändert hat",
     confirmUnpublish: "Zurückziehen bestätigen",
     builderBodyEditsNeedSaferPath:
@@ -1128,6 +1226,9 @@ const databaseMessagesByLocale = {
       "Noch keine ausstehenden lokalen Builder-Änderungen.",
     needsAttention: "Erfordert Aufmerksamkeit",
     failedYouCanRetry: "Fehlgeschlagen — du kannst es erneut versuchen",
+    reconciliationRequired: "Abgleich erforderlich — nicht erneut versuchen",
+    builderPushAlreadyRunning:
+      "Der Builder-Push läuft bereits. Es wurde kein zweiter Schreibvorgang gesendet.",
     needsAFreshReview: "Erfordert eine erneute Prüfung",
     working: "Wird ausgeführt…",
     checksOnly: "Nur Prüfungen",
@@ -1264,6 +1365,13 @@ const databaseMessagesByLocale = {
     addedFieldsFromSource:
       "このソースから {{count}} 個のフィールドを追加しました。",
     addedOneFieldFromSource: "このソースから 1 個のフィールドを追加しました。",
+    addRequiredFields: "必須フィールドを追加",
+    publishingFieldsAdded: "公開フィールドを追加しました",
+    requiredBuilderFieldsReady:
+      "{{count}} 個の Builder 必須フィールドを Content で編集できるようになりました。",
+    requiredPublishingFields: "公開に必要なフィールド",
+    requiredPublishingFieldsDescription:
+      "このコレクションを公開する前に Builder が必要とするメタデータを追加します: {{fields}}。",
     addingDetails: "詳細を追加中",
     addingDetailsMatchedOn: "{{field}} で一致した詳細を追加中。",
     addingItems: "アイテムを追加中",
@@ -1314,6 +1422,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "ソースからフィールドをバインド",
     reviewBuilderUpdate: "Builder の更新を確認",
     closeBuilderUpdateReview: "Builder 更新の確認を閉じる",
+    cancelPreparedUpdate: "準備済み更新をキャンセル",
+    cancelPreparedUpdateQuestion: "この準備済み更新をキャンセルしますか？",
+    cancelPreparedUpdateDescription:
+      "送信前にローカル実行を停止し、監査履歴は保持されます。Builder には何も送信されません。",
+    keepPreparedUpdate: "準備済み更新を保持",
+    cancellingPreparedUpdate: "キャンセル中…",
+    preparedUpdateCancelled: "準備済み Builder 更新をキャンセルしました",
+    preparedUpdateAlreadyCancelled:
+      "準備済み Builder 更新はすでにキャンセルされています",
+    cancelPreparedUpdateFailed:
+      "準備済み Builder 更新をキャンセルできませんでした",
     whatChanged: "変更内容",
     confirmUnpublish: "非公開を確認",
     builderBodyEditsNeedSaferPath:
@@ -1327,6 +1446,9 @@ const databaseMessagesByLocale = {
       "保留中のローカル Builder 変更はまだありません。",
     needsAttention: "対応が必要",
     failedYouCanRetry: "失敗しました — 再試行できます",
+    reconciliationRequired: "照合が必要です — 再試行しないでください",
+    builderPushAlreadyRunning:
+      "Builder へのプッシュはすでに実行中です。2 回目の書き込みは送信されませんでした。",
     needsAFreshReview: "再確認が必要",
     working: "処理中…",
     checksOnly: "チェックのみ",
@@ -1460,6 +1582,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "기존 항목에 세부 정보 추가",
     addedFieldsFromSource: "이 소스에서 필드 {{count}}개를 추가했습니다.",
     addedOneFieldFromSource: "이 소스에서 필드 1개를 추가했습니다.",
+    addRequiredFields: "필수 필드 추가",
+    publishingFieldsAdded: "게시 필드가 추가됨",
+    requiredBuilderFieldsReady:
+      "필수 Builder 필드 {{count}}개를 이제 Content에서 편집할 수 있습니다.",
+    requiredPublishingFields: "필수 게시 필드",
+    requiredPublishingFieldsDescription:
+      "이 컬렉션을 게시하기 전에 Builder에 필요한 메타데이터를 추가하세요: {{fields}}.",
     addingDetails: "세부 정보 추가 중",
     addingDetailsMatchedOn:
       "{{field}} 기준으로 일치한 세부 정보를 추가 중입니다.",
@@ -1511,6 +1640,16 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "소스에서 필드 바인딩",
     reviewBuilderUpdate: "Builder 업데이트 검토",
     closeBuilderUpdateReview: "Builder 업데이트 검토 닫기",
+    cancelPreparedUpdate: "준비된 업데이트 취소",
+    cancelPreparedUpdateQuestion: "이 준비된 업데이트를 취소할까요?",
+    cancelPreparedUpdateDescription:
+      "전송 전에 로컬 실행을 중지하고 감사 기록은 유지합니다. Builder에는 아무것도 전송되지 않습니다.",
+    keepPreparedUpdate: "준비된 업데이트 유지",
+    cancellingPreparedUpdate: "취소 중…",
+    preparedUpdateCancelled: "준비된 Builder 업데이트가 취소되었습니다",
+    preparedUpdateAlreadyCancelled:
+      "준비된 Builder 업데이트가 이미 취소되었습니다",
+    cancelPreparedUpdateFailed: "준비된 Builder 업데이트를 취소하지 못했습니다",
     whatChanged: "변경 내용",
     confirmUnpublish: "게시 취소 확인",
     builderBodyEditsNeedSaferPath:
@@ -1524,6 +1663,9 @@ const databaseMessagesByLocale = {
       "아직 대기 중인 로컬 Builder 변경 사항이 없습니다.",
     needsAttention: "주의 필요",
     failedYouCanRetry: "실패함 — 다시 시도할 수 있습니다",
+    reconciliationRequired: "조정 필요 — 다시 시도하지 마세요",
+    builderPushAlreadyRunning:
+      "Builder 푸시가 이미 실행 중입니다. 두 번째 쓰기는 전송되지 않았습니다.",
     needsAFreshReview: "새로운 검토 필요",
     working: "처리 중…",
     checksOnly: "검사만",
@@ -1657,6 +1799,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Adicionar detalhes aos itens existentes",
     addedFieldsFromSource: "{{count}} campos adicionados desta fonte.",
     addedOneFieldFromSource: "1 campo adicionado desta fonte.",
+    addRequiredFields: "Adicionar campos obrigatórios",
+    publishingFieldsAdded: "Campos de publicação adicionados",
+    requiredBuilderFieldsReady:
+      "{{count}} campos obrigatórios do Builder já podem ser editados no Content.",
+    requiredPublishingFields: "Campos de publicação obrigatórios",
+    requiredPublishingFieldsDescription:
+      "Adicione os metadados exigidos pelo Builder antes de publicar esta coleção: {{fields}}.",
     addingDetails: "Adicionando detalhes",
     addingDetailsMatchedOn:
       "Adicionando detalhes correspondentes em {{field}}.",
@@ -1710,6 +1859,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Vincular um campo de uma fonte",
     reviewBuilderUpdate: "Revisar atualização do Builder",
     closeBuilderUpdateReview: "Fechar revisão de atualização do Builder",
+    cancelPreparedUpdate: "Cancelar atualização preparada",
+    cancelPreparedUpdateQuestion: "Cancelar esta atualização preparada?",
+    cancelPreparedUpdateDescription:
+      "Isso interrompe a execução local antes do envio e mantém o histórico de auditoria. Nada é enviado ao Builder.",
+    keepPreparedUpdate: "Manter atualização preparada",
+    cancellingPreparedUpdate: "Cancelando…",
+    preparedUpdateCancelled: "Atualização preparada do Builder cancelada",
+    preparedUpdateAlreadyCancelled:
+      "A atualização preparada do Builder já estava cancelada",
+    cancelPreparedUpdateFailed:
+      "A atualização preparada do Builder não foi cancelada",
     whatChanged: "O que mudou",
     confirmUnpublish: "Confirmar cancelamento de publicação",
     builderBodyEditsNeedSaferPath:
@@ -1723,6 +1883,9 @@ const databaseMessagesByLocale = {
       "Ainda não há alterações locais do Builder pendentes.",
     needsAttention: "Precisa de atenção",
     failedYouCanRetry: "Falhou — você pode tentar novamente",
+    reconciliationRequired: "Reconciliação necessária — não tente novamente",
+    builderPushAlreadyRunning:
+      "O envio para o Builder já está em andamento. Nenhuma segunda gravação foi enviada.",
     needsAFreshReview: "Precisa de uma nova revisão",
     working: "Processando…",
     checksOnly: "Apenas verificações",
@@ -1856,6 +2019,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "मौजूदा आइटम में विवरण जोड़ें",
     addedFieldsFromSource: "इस स्रोत से {{count}} फ़ील्ड जोड़े गए।",
     addedOneFieldFromSource: "इस स्रोत से 1 फ़ील्ड जोड़ा गया।",
+    addRequiredFields: "ज़रूरी फ़ील्ड जोड़ें",
+    publishingFieldsAdded: "प्रकाशन फ़ील्ड जोड़े गए",
+    requiredBuilderFieldsReady:
+      "{{count}} ज़रूरी Builder फ़ील्ड अब Content में संपादन के लिए तैयार हैं।",
+    requiredPublishingFields: "ज़रूरी प्रकाशन फ़ील्ड",
+    requiredPublishingFieldsDescription:
+      "इस संग्रह को प्रकाशित करने से पहले Builder के लिए ज़रूरी मेटाडेटा जोड़ें: {{fields}}।",
     addingDetails: "विवरण जोड़े जा रहे हैं",
     addingDetailsMatchedOn: "{{field}} पर मिले विवरण जोड़े जा रहे हैं।",
     addingItems: "आइटम जोड़े जा रहे हैं",
@@ -1905,6 +2075,16 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "किसी स्रोत से एक फ़ील्ड बाँधें",
     reviewBuilderUpdate: "Builder अपडेट की समीक्षा करें",
     closeBuilderUpdateReview: "Builder अपडेट समीक्षा बंद करें",
+    cancelPreparedUpdate: "तैयार अपडेट रद्द करें",
+    cancelPreparedUpdateQuestion: "इस तैयार अपडेट को रद्द करें?",
+    cancelPreparedUpdateDescription:
+      "यह भेजने से पहले स्थानीय निष्पादन रोकता है और ऑडिट इतिहास सुरक्षित रखता है। Builder को कुछ नहीं भेजा जाता।",
+    keepPreparedUpdate: "तैयार अपडेट रखें",
+    cancellingPreparedUpdate: "रद्द किया जा रहा है…",
+    preparedUpdateCancelled: "तैयार Builder अपडेट रद्द किया गया",
+    preparedUpdateAlreadyCancelled:
+      "तैयार Builder अपडेट पहले ही रद्द किया जा चुका था",
+    cancelPreparedUpdateFailed: "तैयार Builder अपडेट रद्द नहीं हुआ",
     whatChanged: "क्या बदला",
     confirmUnpublish: "अप्रकाशित करने की पुष्टि करें",
     builderBodyEditsNeedSaferPath:
@@ -1917,6 +2097,9 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
     needsAttention: "ध्यान देने की आवश्यकता है",
     failedYouCanRetry: "विफल — आप पुनः प्रयास कर सकते हैं",
+    reconciliationRequired: "मिलान आवश्यक है — पुनः प्रयास न करें",
+    builderPushAlreadyRunning:
+      "Builder पुश पहले से चल रहा है। दूसरा लेखन नहीं भेजा गया।",
     needsAFreshReview: "एक नई समीक्षा की आवश्यकता है",
     working: "कार्य हो रहा है…",
     checksOnly: "केवल जाँच",
@@ -2046,6 +2229,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "إضافة تفاصيل إلى العناصر الحالية",
     addedFieldsFromSource: "تمت إضافة {{count}} حقول من هذا المصدر.",
     addedOneFieldFromSource: "تمت إضافة حقل واحد من هذا المصدر.",
+    addRequiredFields: "إضافة الحقول المطلوبة",
+    publishingFieldsAdded: "تمت إضافة حقول النشر",
+    requiredBuilderFieldsReady:
+      "أصبحت {{count}} من حقول Builder المطلوبة جاهزة للتحرير في Content.",
+    requiredPublishingFields: "حقول النشر المطلوبة",
+    requiredPublishingFieldsDescription:
+      "أضف البيانات الوصفية التي يتطلبها Builder قبل نشر هذه المجموعة: {{fields}}.",
     addingDetails: "إضافة تفاصيل",
     addingDetailsMatchedOn: "إضافة تفاصيل متطابقة على {{field}}.",
     addingItems: "إضافة عناصر",
@@ -2095,6 +2285,15 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "ربط حقل من مصدر",
     reviewBuilderUpdate: "مراجعة تحديث Builder",
     closeBuilderUpdateReview: "إغلاق مراجعة تحديث Builder",
+    cancelPreparedUpdate: "إلغاء التحديث المُعَد",
+    cancelPreparedUpdateQuestion: "هل تريد إلغاء هذا التحديث المُعَد؟",
+    cancelPreparedUpdateDescription:
+      "يؤدي هذا إلى إيقاف التنفيذ المحلي قبل الإرسال مع الاحتفاظ بسجل التدقيق. لن يُرسل شيء إلى Builder.",
+    keepPreparedUpdate: "الاحتفاظ بالتحديث المُعَد",
+    cancellingPreparedUpdate: "جارٍ الإلغاء…",
+    preparedUpdateCancelled: "تم إلغاء تحديث Builder المُعَد",
+    preparedUpdateAlreadyCancelled: "كان تحديث Builder المُعَد ملغى بالفعل",
+    cancelPreparedUpdateFailed: "لم يتم إلغاء تحديث Builder المُعَد",
     whatChanged: "ما الذي تغيّر",
     confirmUnpublish: "تأكيد إلغاء النشر",
     builderBodyEditsNeedSaferPath:
@@ -2106,6 +2305,9 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "لا توجد تغييرات Builder محلية معلّقة بعد.",
     needsAttention: "يتطلب الانتباه",
     failedYouCanRetry: "فشل — يمكنك إعادة المحاولة",
+    reconciliationRequired: "المطابقة مطلوبة — لا تعد المحاولة",
+    builderPushAlreadyRunning:
+      "دفع Builder قيد التشغيل بالفعل. لم يتم إرسال كتابة ثانية.",
     needsAFreshReview: "يتطلب مراجعة جديدة",
     working: "جارٍ العمل…",
     checksOnly: "عمليات التحقق فقط",

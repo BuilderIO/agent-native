@@ -67,6 +67,8 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
       "## Heading Two",
       "### Heading Three",
       "#### Heading Four",
+      "##### Heading Five",
+      "###### Heading Six",
     ),
   },
   {

@@ -655,6 +655,39 @@ const runContentMigrations = runMigrations(
       CREATE UNIQUE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_unique ON document_preview_drafts (owner_email, org_id, document_id);
       CREATE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_idx ON document_preview_drafts (owner_email, org_id, document_id)`,
     },
+    {
+      version: 66,
+      name: "builder-source-execution-attempt-token",
+      sql: `ALTER TABLE content_database_source_executions ADD COLUMN IF NOT EXISTS attempt_token TEXT`,
+    },
+    {
+      version: 67,
+      name: "builder-source-execution-claims",
+      // Non-destructive concurrency fence. Existing duplicate execution rows
+      // remain intact as ambiguity evidence; the claim chooses one canonical
+      // row for every future prepare/execute path.
+      sql: `CREATE TABLE IF NOT EXISTS content_database_source_execution_claims (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        source_id TEXT NOT NULL,
+        idempotency_key TEXT NOT NULL,
+        execution_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_database_source_execution_claims_source_key_unique
+        ON content_database_source_execution_claims (source_id, idempotency_key)`,
+    },
+    {
+      version: 68,
+      name: "builder-source-execution-claims-owner-scope",
+      sql: `ALTER TABLE content_database_source_execution_claims ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+      UPDATE content_database_source_execution_claims
+        SET owner_email = COALESCE(
+          (SELECT owner_email FROM content_database_source_executions
+            WHERE content_database_source_executions.id = content_database_source_execution_claims.execution_id),
+          owner_email
+        )`,
+    },
   ],
   { table: "content_migrations" },
 );

@@ -1,4 +1,3 @@
-import { deleteCollabState, releaseDoc } from "@agent-native/core/collab";
 import { getDialect, type Dialect } from "@agent-native/core/db";
 import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
@@ -38,6 +37,7 @@ import type {
 import {
   builderBlocksHash,
   builderBlocksToReadableMarkdown,
+  builderEntryBlocks,
   builderEntryToReadableMdxBundle,
   builderEntryToMdxBundle,
   builderReadableBodyToBuilderBlocks,
@@ -63,6 +63,7 @@ import {
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
@@ -72,6 +73,7 @@ import {
   builderCmsSourceFieldKey,
   builderCmsSourceMetadata,
   builderCmsSourceRowIdentity,
+  builderCmsSourceRowIdentityState,
   type BuilderCmsSourceEntry,
   type ExistingBuilderSourceRowIdentity,
 } from "./_builder-cms-source-adapter.js";
@@ -318,7 +320,7 @@ export function serializeSourceField(
   };
 }
 
-function serializeSourceRowRecord(
+export function serializeSourceRowRecord(
   row: ContentDatabaseSourceRecordRowDb,
   options: { includeHeavyBuilderBodyValues?: boolean } = {},
 ): ContentDatabaseSourceRow {
@@ -390,6 +392,37 @@ function sourceSnapshotRowSelection(args: {
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+// Snapshot reads need document titles for change-set summaries. Body text is
+// required only by write/review paths that explicitly request heavy Builder
+// body values; routine list and source reads must not transfer it.
+export function sourceSnapshotDocumentSelection(
+  includeHeavyBuilderBodyValues: true,
+): {
+  id: typeof schema.documents.id;
+  title: typeof schema.documents.title;
+  content: typeof schema.documents.content;
+};
+export function sourceSnapshotDocumentSelection(
+  includeHeavyBuilderBodyValues: false,
+): {
+  id: typeof schema.documents.id;
+  title: typeof schema.documents.title;
+};
+export function sourceSnapshotDocumentSelection(
+  includeHeavyBuilderBodyValues: boolean,
+) {
+  return includeHeavyBuilderBodyValues
+    ? {
+        id: schema.documents.id,
+        title: schema.documents.title,
+        content: schema.documents.content,
+      }
+    : {
+        id: schema.documents.id,
+        title: schema.documents.title,
+      };
 }
 
 export function sourceValuesForSnapshot(
@@ -465,6 +498,47 @@ function serializeExecution(
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };
+}
+
+/**
+ * A blocked execution with neither an attempt token nor a response proves it
+ * stopped before the Builder dispatch claim. This includes a blocked dry run
+ * and a validated plan stopped by the final live preflight. Any other state or
+ * remote evidence stays frozen until normal reconciliation resolves it.
+ */
+export function builderExecutionIsProvablyLocallyBlockedUnsent(execution: {
+  state: string;
+  payloadJson: string;
+  attemptToken?: string | null;
+}) {
+  const payload = parseObject<Record<string, unknown>>(execution.payloadJson);
+  return (
+    execution.state === "blocked" &&
+    !execution.attemptToken &&
+    !(payload?.response && typeof payload.response === "object")
+  );
+}
+
+export function canRefreshLocallyBlockedBuilderReview(
+  executions: Array<{
+    state: string;
+    payloadJson: string;
+    attemptToken?: string | null;
+  }>,
+) {
+  return (
+    executions.length === 0 ||
+    executions.every(builderExecutionIsProvablyLocallyBlockedUnsent)
+  );
+}
+
+export const CANCELLED_BUILDER_EXECUTION_SUMMARY =
+  "Cancelled before Builder dispatch.";
+export const CANCELLED_BUILDER_REVIEW_NOTE_PREFIX =
+  "Cancelled prepared Builder update before dispatch";
+
+export function builderReferenceIdSourceValueKey(sourceFieldKey: string) {
+  return `__agent_native_builder_reference_id:${sourceFieldKey}`;
 }
 
 function riskRank(level: ContentDatabaseSourceRiskLevel) {
@@ -608,7 +682,8 @@ const BUILDER_BODY_HYDRATION_OPEN_PRIORITY = 0;
 const BUILDER_BODY_HYDRATION_BATCH_LIMIT = 25;
 const BUILDER_BODY_HYDRATION_PROCESS_CONCURRENCY = 6;
 const BUILDER_BODY_HYDRATION_MAX_ATTEMPTS = 5;
-const BUILDER_BODY_HYDRATION_CODEC_VERSION = "readable-native-images-v5";
+const BUILDER_BODY_HYDRATION_CODEC_VERSION =
+  "readable-native-images-authoritative-raw-baseline-v9";
 const BUILDER_CMS_REFRESH_INITIAL_PAGES = 1;
 const BUILDER_BODY_NOT_AVAILABLE_ERROR = "body not yet available from Builder";
 
@@ -685,10 +760,25 @@ async function builderBodySnapshotForEntry(entry: BuilderCmsSourceEntry) {
   return {
     content: readableBundle.mdx.body,
     losslessContent: losslessBundle.mdx.body,
-    blocksHash: builderBlocksHash(losslessBundle.blocks),
+    blocksHash: builderAuthoritativeRawBodyHash({
+      entry,
+      generatedBlocks: losslessBundle.blocks,
+    }),
     readableMapJson: null,
     sidecarsJson: JSON.stringify(sidecars),
   };
+}
+
+export function builderAuthoritativeRawBodyHash(args: {
+  entry: BuilderCmsSourceEntry;
+  generatedBlocks: unknown[];
+}) {
+  const rawBlocks = args.entry.rawEntry
+    ? builderEntryBlocks(args.entry.rawEntry)
+    : [];
+  return builderBlocksHash(
+    rawBlocks.length > 0 ? rawBlocks : args.generatedBlocks,
+  );
 }
 
 export function builderBodyHydrationVersion(entry: BuilderCmsSourceEntry) {
@@ -812,7 +902,7 @@ function builderEntryHasBodyContent(entry: BuilderCmsSourceEntry | null) {
   )?.trim();
 }
 
-async function readableBuilderBodyFromStoredLossless(args: {
+async function builderBodySnapshotFromStoredLossless(args: {
   losslessContent: string | null;
   sidecarsJson: string | null;
 }) {
@@ -824,12 +914,49 @@ async function readableBuilderBodyFromStoredLossless(args: {
     sidecars,
   );
   if (blocks.length === 0) return null;
-  return builderBlocksToReadableMarkdown(blocks);
+  return {
+    content: await builderBlocksToReadableMarkdown(blocks),
+    blocksHash: builderBlocksHash(blocks),
+  };
 }
 
-async function refreshBuilderBodySourceValuesFromStoredLossless(
+export function builderBodyHydrationNeedsLiveBaseline(args: {
+  bodyHydrationVersion: string | null | undefined;
+  storedBlocksHash: string | null | undefined;
+  rebuiltBlocksHash: string | null | undefined;
+}) {
+  if (!args.storedBlocksHash) return false;
+  if (
+    args.bodyHydrationVersion &&
+    !args.bodyHydrationVersion.endsWith(
+      `:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`,
+    )
+  ) {
+    return true;
+  }
+  return Boolean(
+    !args.rebuiltBlocksHash || args.storedBlocksHash !== args.rebuiltBlocksHash,
+  );
+}
+
+export function builderBodyHydrationIsCodecMigration(
+  bodyHydrationVersion: string | null | undefined,
+) {
+  return Boolean(
+    bodyHydrationVersion &&
+    !bodyHydrationVersion.endsWith(`:${BUILDER_BODY_HYDRATION_CODEC_VERSION}`),
+  );
+}
+
+export async function refreshBuilderBodySourceValuesFromStoredLossless(
   entry: BuilderCmsSourceEntry,
 ) {
+  if (entry.rawEntry && builderEntryBlocks(entry.rawEntry).length > 0) {
+    // A fresh single-entry Builder read is the authoritative preflight
+    // representation. Never replace its raw block hash with a hash rebuilt
+    // from generated lossless MDX.
+    return entry;
+  }
   const losslessContent = stringSourceValue(
     entry.sourceValues,
     BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
@@ -838,18 +965,49 @@ async function refreshBuilderBodySourceValuesFromStoredLossless(
     entry.sourceValues,
     BUILDER_CMS_BODY_SIDECARS_KEY,
   );
-  const content = await readableBuilderBodyFromStoredLossless({
+  const snapshot = await builderBodySnapshotFromStoredLossless({
     losslessContent,
     sidecarsJson,
   });
-  if (!content) return entry;
+  if (!snapshot) return entry;
   return {
     ...entry,
     sourceValues: {
       ...entry.sourceValues,
-      [BUILDER_CMS_BODY_CONTENT_KEY]: content,
+      [BUILDER_CMS_BODY_CONTENT_KEY]: snapshot.content,
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: snapshot.blocksHash,
     },
   };
+}
+
+function builderTimestampEpoch(value: string | null | undefined) {
+  if (!value?.trim()) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function builderBodyBaselineHasSameVersionConflict(args: {
+  persistedBlocksHash: string | null | undefined;
+  incomingBlocksHash: string | null | undefined;
+  persistedLastUpdated: string | null | undefined;
+  incomingLastUpdated: string | null | undefined;
+}) {
+  if (
+    !args.persistedBlocksHash ||
+    !args.incomingBlocksHash ||
+    args.persistedBlocksHash === args.incomingBlocksHash
+  ) {
+    return false;
+  }
+  const persistedEpoch = builderTimestampEpoch(args.persistedLastUpdated);
+  const incomingEpoch = builderTimestampEpoch(args.incomingLastUpdated);
+  return (
+    persistedEpoch !== null &&
+    incomingEpoch !== null &&
+    persistedEpoch === incomingEpoch
+  );
 }
 
 function builderEntryFromSourceRow(args: {
@@ -910,8 +1068,12 @@ async function readBuilderEntryWithLiveBodyFromSourceRow(args: {
       ...liveEntry.sourceValues,
     },
   };
-  const refreshedEntry = await refreshBuilderBodySourceValuesFromStoredLossless(
-    await withBuilderBodySourceValues(entryWithStoredValues),
+  // This entry came from a fresh Builder response. Preserve the block hash
+  // computed from those authoritative raw blocks; rebuilding the generated
+  // lossless MDX can normalize block details and produce a different hash than
+  // the execute-time live preflight sees for the same response.
+  const refreshedEntry = await withBuilderBodySourceValues(
+    entryWithStoredValues,
   );
   return builderEntryHasBodyContent(refreshedEntry) ? refreshedEntry : null;
 }
@@ -1196,11 +1358,16 @@ async function processBuilderBodyHydrationJob(
   preloaded?: {
     sourceRow?: ContentDatabaseSourceRecordRowDb | null;
     documentContent?: string | null;
+    bodyHydrationVersion?: string | null;
   },
 ) {
   const db = getDb();
   const entry = parseHydrationEntry(row);
   if (!entry) throw new Error("Builder body hydration entry is missing.");
+  const queuedBlocksHash = stringSourceValue(
+    entry.sourceValues,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
   let activeSourceEntryJson = row.sourceEntryJson;
   let entryWithBody = await refreshBuilderBodySourceValuesFromStoredLossless(
     await withBuilderBodySourceValues(entry),
@@ -1226,6 +1393,66 @@ async function processBuilderBodyHydrationJob(
     parseObject<Record<string, DocumentPropertyValue>>(
       sourceRow?.sourceValuesJson ?? "{}",
     ) ?? {};
+  const rebuiltBlocksHash = stringSourceValue(
+    entryWithBody.sourceValues,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
+  const storedBlocksHash =
+    queuedBlocksHash ??
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_BLOCKS_HASH_KEY);
+  const isCodecMigration = builderBodyHydrationIsCodecMigration(
+    preloaded?.bodyHydrationVersion,
+  );
+  if (
+    builderBodyHydrationNeedsLiveBaseline({
+      bodyHydrationVersion: preloaded?.bodyHydrationVersion,
+      storedBlocksHash,
+      rebuiltBlocksHash,
+    })
+  ) {
+    if (!sourceRow) {
+      throw new Error(
+        "Builder body baseline migration requires a linked source row.",
+      );
+    }
+    const liveEntry = await readBuilderEntryWithLiveBodyFromSourceRow({
+      row: sourceRow,
+      sourceTable: row.sourceTable,
+      fallbackTitle: entry.title,
+    });
+    if (!liveEntry) {
+      throw new Error(
+        "Builder body baseline migration could not read a fresh remote body; retry the refresh before reviewing or publishing.",
+      );
+    }
+    entryWithBody = liveEntry;
+  }
+  const incomingBlocksHash = stringSourceValue(
+    entryWithBody.sourceValues,
+    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  );
+  const persistedBaselineLastUpdated =
+    stringSourceValue(sourceValues, BUILDER_CMS_BODY_LAST_UPDATED_KEY) ??
+    stringSourceValue(sourceValues, "lastUpdated");
+  const incomingLastUpdated =
+    stringSourceValue(entryWithBody.sourceValues, "lastUpdated") ??
+    entryWithBody.updatedAt;
+  if (
+    !isCodecMigration &&
+    builderBodyBaselineHasSameVersionConflict({
+      persistedBlocksHash: stringSourceValue(
+        sourceValues,
+        BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+      ),
+      incomingBlocksHash,
+      persistedLastUpdated: persistedBaselineLastUpdated,
+      incomingLastUpdated,
+    })
+  ) {
+    throw new Error(
+      "Builder returned inconsistent body variants for the same lastUpdated value; the stored baseline and local document were preserved for retry.",
+    );
+  }
   let nextValues = {
     ...sourceValues,
     ...entryWithBody.sourceValues,
@@ -1569,14 +1796,11 @@ async function processBuilderBodyHydrationJob(
       })
       .where(eq(schema.contentDatabaseItems.id, row.databaseItemId));
   });
-  if (wroteBody) {
-    try {
-      await deleteCollabState(row.documentId);
-      releaseDoc(row.documentId);
-    } catch {
-      // Non-fatal: the updated document row still lets open editors reconcile.
-    }
-  }
+  // Keep persisted and in-memory Yjs state intact. The SQL content + updatedAt
+  // written above are authoritative; an open full-page editor reconciles that
+  // snapshot into its Y.Doc. Deleting collab state here can race a connected
+  // client, briefly bootstrap an empty fragment, and let that stale client
+  // repersist the empty state over the newly hydrated Builder body.
 }
 
 async function enqueueStaleBuilderBodyHydrationForOpenDocument(args: {
@@ -1795,6 +2019,29 @@ export async function processBuilderBodyHydrationQueue(args: {
   const sourceRowsByItemId = new Map(
     sourceRows.map((row) => [row.databaseItemId, row]),
   );
+  const itemVersions =
+    claimedJobs.length > 0
+      ? (
+          await Promise.all(
+            chunks(
+              claimedJobs.map((job) => job.databaseItemId),
+              idChunkSize(),
+            ).map((idChunk) =>
+              db
+                .select({
+                  id: schema.contentDatabaseItems.id,
+                  bodyHydrationVersion:
+                    schema.contentDatabaseItems.bodyHydrationVersion,
+                })
+                .from(schema.contentDatabaseItems)
+                .where(inArray(schema.contentDatabaseItems.id, idChunk)),
+            ),
+          )
+        ).flat()
+      : [];
+  const bodyHydrationVersionByItemId = new Map(
+    itemVersions.map((item) => [item.id, item.bodyHydrationVersion]),
+  );
   const documents =
     claimedJobs.length > 0
       ? (
@@ -1827,6 +2074,8 @@ export async function processBuilderBodyHydrationQueue(args: {
         if (delayMs > 0) await sleep(delayMs);
         await processBuilderBodyHydrationJob(job, attemptNow, {
           sourceRow: sourceRowsByItemId.get(job.databaseItemId) ?? null,
+          bodyHydrationVersion:
+            bodyHydrationVersionByItemId.get(job.databaseItemId) ?? null,
           documentContent: documentContentById.has(job.documentId)
             ? (documentContentById.get(job.documentId) ?? null)
             : undefined,
@@ -1934,6 +2183,8 @@ export async function withBuilderBodySourceValues(
       [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: snapshot.losslessContent,
       [BUILDER_CMS_BODY_READABLE_MAP_KEY]: snapshot.readableMapJson,
       [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: snapshot.blocksHash,
+      [BUILDER_CMS_BODY_LAST_UPDATED_KEY]:
+        stringSourceValue(entry.sourceValues, "lastUpdated") ?? entry.updatedAt,
       [BUILDER_CMS_BODY_SIDECARS_KEY]: snapshot.sidecarsJson,
     },
   };
@@ -1972,9 +2223,17 @@ export async function builderBodyChangeForLocalContent(args: {
   const localContent = args.localContent ?? "";
   if (!currentHash && !currentContent && !localContent.trim()) return null;
   if (!currentContent?.trim() && !losslessContent?.trim()) return null;
+  // Native media is converter-owned output. Re-run it even when the editable
+  // Markdown text is byte-for-byte unchanged: a converter upgrade can turn a
+  // legacy Text block containing a Markdown image into a real Builder Image
+  // (or emit a native Video) without changing the document text at all.
+  const usesCurrentMediaConverter =
+    /!\[[^\]]*\]\(\s*https?:\/\//i.test(localContent) ||
+    /<(?:img|video)\b/i.test(localContent);
   const normalizedLocalContent =
     normalizeBuilderBodyBaselineContent(localContent);
   if (
+    !usesCurrentMediaConverter &&
     normalizedLocalContent &&
     normalizedLocalContent ===
       normalizeBuilderBodyBaselineContent(currentContent)
@@ -1982,6 +2241,7 @@ export async function builderBodyChangeForLocalContent(args: {
     return null;
   }
   if (
+    !usesCurrentMediaConverter &&
     normalizedLocalContent &&
     normalizedLocalContent ===
       normalizeBuilderBodyBaselineContent(losslessContent)
@@ -2004,8 +2264,15 @@ export async function builderBodyChangeForLocalContent(args: {
   }
 
   try {
-    const proposed =
-      losslessContent && !localContent.includes("<Builder")
+    const proposed = usesCurrentMediaConverter
+      ? {
+          blocks: await builderMdxBodyToBuilderBlocks(
+            normalizeUnsourcedBuilderCreateMdx(localContent),
+            sidecars,
+          ),
+          warnings: [] as string[],
+        }
+      : losslessContent && !localContent.includes("<Builder")
         ? await builderReadableBodyToBuilderBlocks({
             localContent,
             losslessContent,
@@ -2061,6 +2328,98 @@ export async function builderBodyChangeForLocalContent(args: {
   }
 }
 
+function htmlMediaAttribute(tag: string, name: string) {
+  const match = tag.match(
+    new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`, "i"),
+  );
+  return match?.[1] ?? match?.[2] ?? null;
+}
+
+function normalizeUnsourcedBuilderCreateMdx(content: string) {
+  return content.replace(/<img\b[^>]*\/?\s*>/gi, (tag) => {
+    const src = htmlMediaAttribute(tag, "src");
+    if (!src) return tag;
+    const alt = htmlMediaAttribute(tag, "alt") ?? "";
+    return `![${alt.replace(/]/g, "\\]")}](${src.replace(/\)/g, "%29")})`;
+  });
+}
+
+export async function builderBodyChangeForUnsourcedLocalCreate(args: {
+  localContent: string | null | undefined;
+}): Promise<ContentDatabaseSourceBodyChange | null> {
+  const localContent = args.localContent ?? "";
+  if (!localContent.trim()) return null;
+  const sidecarsJson = "{}";
+
+  try {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      normalizeUnsourcedBuilderCreateMdx(localContent),
+      {},
+    );
+    return {
+      summary: "Builder draft body ready to create.",
+      currentExcerpt: null,
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash: null,
+      proposedHash: builderBlocksHash(blocks),
+      proposedContent: localContent,
+      proposedBlocksJson: JSON.stringify(blocks),
+      sidecarsJson,
+      warnings: [],
+    };
+  } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.message
+        : "Builder body could not be converted.";
+    return {
+      summary: "Builder draft body needs attention before create.",
+      currentExcerpt: null,
+      proposedExcerpt: bodyExcerpt(localContent),
+      currentHash: null,
+      proposedHash: null,
+      proposedContent: localContent,
+      proposedBlocksJson: null,
+      sidecarsJson,
+      warnings: [message],
+    };
+  }
+}
+
+export async function builderBodyChangeForSourceSnapshotDocument(args: {
+  row?: {
+    documentId: string;
+    sourceRowId: string;
+    sourceQualifiedId: string;
+    provenance: string | null;
+    sourceValuesJson: string;
+  };
+  isHydrated: boolean;
+  allowUnsourcedCreate: boolean;
+  localContent: string | null | undefined;
+}): Promise<ContentDatabaseSourceBodyChange | null> {
+  if (args.row) {
+    const identity = builderCmsSourceRowIdentityState({ row: args.row });
+    if (identity.isSyntheticFixture) {
+      // Fixture rows are local placeholders, not imported Builder baselines.
+      // Execution resolves their synthetic identity to create_draft, so their
+      // local body must follow the same create path even before hydration.
+      return builderBodyChangeForUnsourcedLocalCreate({
+        localContent: args.localContent,
+      });
+    }
+    if (!args.isHydrated) return null;
+    return builderBodyChangeForLocalContent({
+      row: args.row,
+      localContent: args.localContent,
+    });
+  }
+  if (!args.allowUnsourcedCreate) return null;
+  return builderBodyChangeForUnsourcedLocalCreate({
+    localContent: args.localContent,
+  });
+}
+
 export function buildBuilderLocalOutboundChangeSets(args: {
   source: ContentDatabaseSourceRowDb;
   rowRows: ContentDatabaseSourceRecordRowDb[];
@@ -2077,6 +2436,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     sourceFieldLabel: string;
     propertyType?: DocumentProperty["definition"]["type"] | null;
     propertyOptions?: DocumentPropertyOptions;
+    sourceFieldType?: string;
+    sourceFieldModel?: string;
   }>;
   // Row-union scoping (multi-source). Documents owned by ANOTHER source must
   // never be create candidates for this one — each row belongs to exactly one
@@ -2092,6 +2453,12 @@ export function buildBuilderLocalOutboundChangeSets(args: {
   taggedSourceByDocumentId?: Map<string, string>;
   bodyChangeByDocumentId?: Map<string, ContentDatabaseSourceBodyChange>;
   sourceImportedDocumentIds?: Set<string>;
+  /**
+   * Rejected change-sets that are provably cancellations of a prepared,
+   * pre-dispatch Builder gate. Their exact snapshot remains durable audit
+   * history and suppresses only the byte-equivalent local-vs-source diff.
+   */
+  cancelledRejectedChangeSetIds?: Set<string>;
 }): ContentDatabaseSourceChangeSet[] {
   if (normalizeSourceType(args.source.sourceType) !== "builder-cms") return [];
 
@@ -2102,6 +2469,106 @@ export function buildBuilderLocalOutboundChangeSets(args: {
     normalizeCapabilities(args.source.capabilitiesJson).liveWritesEnabled ===
       true;
   const pending: ContentDatabaseSourceChangeSet[] = [];
+
+  const sameCancelledSnapshot = (
+    candidate: Pick<
+      ContentDatabaseSourceChangeSet,
+      | "databaseItemId"
+      | "documentId"
+      | "kind"
+      | "direction"
+      | "pushMode"
+      | "fieldChanges"
+      | "bodyChange"
+    >,
+  ) =>
+    args.storedChangeSets.some(
+      (stored) =>
+        stored.state === "rejected" &&
+        args.cancelledRejectedChangeSetIds?.has(stored.id) === true &&
+        stored.databaseItemId === candidate.databaseItemId &&
+        stored.documentId === candidate.documentId &&
+        stored.kind === candidate.kind &&
+        stored.direction === candidate.direction &&
+        stored.pushMode === candidate.pushMode &&
+        stableValueString(stored.fieldChanges) ===
+          stableValueString(candidate.fieldChanges) &&
+        stableValueString(stored.bodyChange) ===
+          stableValueString(candidate.bodyChange),
+    );
+
+  const reviewableBuilderValue = (
+    field: NonNullable<typeof args.writableFields>[number],
+    localValue: unknown,
+  ): Pick<
+    ContentDatabaseSourceFieldChange,
+    "proposedValue" | "builderValueJson"
+  > => {
+    const type = field.propertyType;
+    const options = field.propertyOptions?.options ?? [];
+    const optionNameById = new Map(
+      options.map((option) => [option.id, option.name]),
+    );
+    const sourceType = field.sourceFieldType?.trim().toLowerCase();
+    if (sourceType === "reference") {
+      const id = typeof localValue === "string" ? localValue.trim() : "";
+      const label = optionNameById.get(id) ?? id;
+      const builderValue =
+        id && field.sourceFieldModel
+          ? {
+              "@type": "@builder.io/core:Reference",
+              id,
+              model: field.sourceFieldModel,
+            }
+          : null;
+      return {
+        proposedValue: label || null,
+        builderValueJson: JSON.stringify(builderValue),
+      };
+    }
+    if (sourceType === "file") {
+      const values = Array.isArray(localValue)
+        ? localValue.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : typeof localValue === "string"
+          ? [localValue]
+          : [];
+      return {
+        proposedValue: values,
+        builderValueJson: JSON.stringify(
+          values.length === 1 ? values[0] : null,
+        ),
+      };
+    }
+    if (type === "multi_select" && Array.isArray(localValue)) {
+      const labels = localValue
+        .filter((value): value is string => typeof value === "string")
+        .map((value) => optionNameById.get(value) ?? value);
+      return {
+        proposedValue: labels,
+        builderValueJson: JSON.stringify(labels),
+      };
+    }
+    if (
+      (sourceType === "datetime" || sourceType === "date") &&
+      localValue &&
+      typeof localValue === "object" &&
+      !Array.isArray(localValue) &&
+      typeof (localValue as { start?: unknown }).start === "string"
+    ) {
+      return {
+        proposedValue: localValue as DocumentPropertyValue,
+        builderValueJson: JSON.stringify(
+          (localValue as { start: string }).start,
+        ),
+      };
+    }
+    return {
+      proposedValue: (localValue ?? null) as DocumentPropertyValue,
+      builderValueJson: JSON.stringify(localValue ?? null),
+    };
+  };
   for (const row of args.rowRows) {
     if (
       skipFixtureRows &&
@@ -2136,10 +2603,16 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         if (!rowLocalValues.has(field.localFieldKey)) continue;
         const localValue = rowLocalValues.get(field.localFieldKey);
         const baseValue = rowSourceValues[field.sourceFieldKey];
+        const comparisonBaseValue =
+          field.sourceFieldType?.trim().toLowerCase() === "reference"
+            ? (rowSourceValues[
+                builderReferenceIdSourceValueKey(field.sourceFieldKey)
+              ] ?? baseValue)
+            : baseValue;
         if (
           sameMappedSourceFieldValue(
             localValue,
-            baseValue,
+            comparisonBaseValue,
             field.propertyType,
             field.propertyOptions,
           )
@@ -2158,7 +2631,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
                 field.propertyOptions,
               )
             : (baseValue ?? null)) as DocumentPropertyValue,
-          proposedValue: localValue as DocumentPropertyValue,
+          ...reviewableBuilderValue(field, localValue),
         });
       }
     }
@@ -2205,7 +2678,7 @@ export function buildBuilderLocalOutboundChangeSets(args: {
 
     const now = new Date().toISOString();
     const displayTitle = localTitle || sourceTitle;
-    pending.push({
+    const candidate: ContentDatabaseSourceChangeSet = {
       id: `local-pending-${row.id}-${bodyChange ? "body" : "fields"}`,
       databaseItemId: row.databaseItemId,
       documentId: row.documentId,
@@ -2233,7 +2706,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
       executions: [],
       createdAt: now,
       updatedAt: now,
-    });
+    };
+    if (!sameCancelledSnapshot(candidate)) pending.push(candidate);
   }
 
   // New-row creates: a local database item NOT linked to a Builder entry (no
@@ -2296,12 +2770,14 @@ export function buildBuilderLocalOutboundChangeSets(args: {
           localFieldKey: field.localFieldKey,
           sourceFieldKey: field.sourceFieldKey,
           currentValue: null,
-          proposedValue: (localValues.get(field.localFieldKey) ??
-            null) as DocumentPropertyValue,
+          ...reviewableBuilderValue(
+            field,
+            localValues.get(field.localFieldKey) ?? null,
+          ),
         });
       }
       const now = new Date().toISOString();
-      pending.push({
+      const candidate: ContentDatabaseSourceChangeSet = {
         id: `local-pending-create-${item.databaseItemId}`,
         databaseItemId: item.databaseItemId,
         documentId: item.documentId,
@@ -2322,7 +2798,8 @@ export function buildBuilderLocalOutboundChangeSets(args: {
         executions: [],
         createdAt: now,
         updatedAt: now,
-      });
+      };
+      if (!sameCancelledSnapshot(candidate)) pending.push(candidate);
     }
   }
 
@@ -2520,21 +2997,31 @@ async function readSourceSnapshotRowsOnce(args: {
       ...databaseItemRows.map((item) => item.documentId),
     ]),
   );
-  const rowDocuments =
+  const rowDocuments: Array<{
+    id: string;
+    title: string;
+    content?: string;
+  }> =
     allDocumentIds.length > 0
-      ? await db
-          .select({
-            id: schema.documents.id,
-            title: schema.documents.title,
-            content: schema.documents.content,
-          })
-          .from(schema.documents)
-          .where(
-            and(
-              inArray(schema.documents.id, allDocumentIds),
-              eq(schema.documents.ownerEmail, args.source.ownerEmail),
-            ),
-          )
+      ? args.includeHeavyBuilderBodyValues
+        ? await db
+            .select(sourceSnapshotDocumentSelection(true))
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(schema.documents.id, allDocumentIds),
+                eq(schema.documents.ownerEmail, args.source.ownerEmail),
+              ),
+            )
+        : await db
+            .select(sourceSnapshotDocumentSelection(false))
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(schema.documents.id, allDocumentIds),
+                eq(schema.documents.ownerEmail, args.source.ownerEmail),
+              ),
+            )
       : [];
   const propertyValueRows =
     args.isBuilderSource && allDocumentIds.length > 0
@@ -2686,13 +3173,19 @@ async function loadSourceSnapshot(
   const propertyOptionsById = new Map(
     propertyDefs.map((row) => [row.id, parsePropertyOptions(row.optionsJson)]),
   );
+  const builderModelFieldBySourceKey = new Map(
+    (
+      parseObject<SourceMetadataRecord>(source.metadataJson)
+        ?.builderModelFields ?? []
+    ).map((field) => [`data.${field.name.trim()}`, field]),
+  );
   const fields = fieldRows.map((row) =>
     serializeSourceField(
       row,
       row.propertyId ? (propertyNameById.get(row.propertyId) ?? null) : null,
     ),
   );
-  const storedChangeSets = changeRows.map(serializeSourceChangeSet);
+  let storedChangeSets = changeRows.map(serializeSourceChangeSet);
   const reviewEventsByChangeSetId = new Map<
     string,
     ContentDatabaseSourceReviewEvent[]
@@ -2764,6 +3257,9 @@ async function loadSourceSnapshot(
       propertyOptions: row.propertyId
         ? propertyOptionsById.get(row.propertyId)
         : undefined,
+      sourceFieldType: row.sourceFieldType,
+      sourceFieldModel: builderModelFieldBySourceKey.get(row.sourceFieldKey)
+        ?.model,
     }));
   // Row-union ownership scoping (Builder only). Determine which documents belong
   // to OTHER sources and whether this source is the primary (oldest), so the
@@ -2844,17 +3340,96 @@ async function loadSourceSnapshot(
     );
     await Promise.all(
       allDocumentIds.map(async (documentId) => {
-        if (!hydratedDocumentIds.has(documentId)) return;
         const row = sourceRowByDocumentId.get(documentId);
-        if (!row) return;
-        const bodyChange = await builderBodyChangeForLocalContent({
+        let bodyChange: ContentDatabaseSourceBodyChange | null = null;
+        // Only the primary source may adopt a genuinely local row with no source
+        // identity. Synthetic fixture rows already belong to this source, but
+        // still represent create_draft targets rather than imported baselines.
+        const allowUnsourcedCreate =
+          isPrimarySource &&
+          !otherSourceDocumentIds.has(documentId) &&
+          !taggedSourceByDocumentId.has(documentId);
+        bodyChange = await builderBodyChangeForSourceSnapshotDocument({
           row,
+          isHydrated: hydratedDocumentIds.has(documentId),
+          allowUnsourcedCreate,
           localContent: documentContentById.get(documentId),
         });
         if (bodyChange) bodyChangeByDocumentId.set(documentId, bodyChange);
       }),
     );
   }
+
+  // A locally blocked dry run never crossed the Builder dispatch boundary, so
+  // its approved body payload may be refreshed from the current document. This
+  // is deliberately narrower than ordinary "retryable" state: running,
+  // response-bearing, failed, reconciliatory, and otherwise ambiguous gates
+  // retain the exact body that was originally approved.
+  if (isBuilderSource && bodyChangeByDocumentId.size > 0) {
+    const executionRowsByChangeSetId = new Map<
+      string,
+      ContentDatabaseSourceExecutionRowDb[]
+    >();
+    for (const execution of executionRows) {
+      const rows = executionRowsByChangeSetId.get(execution.changeSetId) ?? [];
+      rows.push(execution);
+      executionRowsByChangeSetId.set(execution.changeSetId, rows);
+    }
+    storedChangeSets = storedChangeSets.map((changeSet) => {
+      // Rejected snapshots are durable review/audit evidence. In particular,
+      // a cancelled gate must retain the exact diff the user cancelled so a
+      // later local or remote body change can be distinguished from it.
+      if (changeSet.state !== "approved") return changeSet;
+      const currentBody = changeSet.documentId
+        ? bodyChangeByDocumentId.get(changeSet.documentId)
+        : null;
+      if (!currentBody) return changeSet;
+      const executions = executionRowsByChangeSetId.get(changeSet.id) ?? [];
+      if (!canRefreshLocallyBlockedBuilderReview(executions)) return changeSet;
+      return { ...changeSet, bodyChange: currentBody };
+    });
+  }
+
+  const cancellationReviewChangeSetIds = new Set(
+    reviewRows
+      .filter(
+        (review) =>
+          review.decision === "rejected" &&
+          review.stateTo === "rejected" &&
+          review.note?.startsWith(CANCELLED_BUILDER_REVIEW_NOTE_PREFIX),
+      )
+      .map((review) => review.changeSetId),
+  );
+  const executionRowsByChangeSetId = new Map<
+    string,
+    ContentDatabaseSourceExecutionRowDb[]
+  >();
+  for (const execution of executionRows) {
+    const rows = executionRowsByChangeSetId.get(execution.changeSetId) ?? [];
+    rows.push(execution);
+    executionRowsByChangeSetId.set(execution.changeSetId, rows);
+  }
+  const cancelledRejectedChangeSetIds = new Set(
+    storedChangeSets
+      .filter((changeSet) => {
+        if (
+          changeSet.state !== "rejected" ||
+          !cancellationReviewChangeSetIds.has(changeSet.id)
+        ) {
+          return false;
+        }
+        const executions = executionRowsByChangeSetId.get(changeSet.id) ?? [];
+        return (
+          executions.length > 0 &&
+          executions.every(
+            (execution) =>
+              execution.state === "blocked" &&
+              execution.summary === CANCELLED_BUILDER_EXECUTION_SUMMARY,
+          )
+        );
+      })
+      .map((changeSet) => changeSet.id),
+  );
 
   const localOutboundChangeSets = buildBuilderLocalOutboundChangeSets({
     source,
@@ -2876,6 +3451,7 @@ async function loadSourceSnapshot(
         .filter((row) => row.provenance === "Builder CMS read adapter")
         .map((row) => row.documentId),
     ),
+    cancelledRejectedChangeSetIds,
   });
   const rowByDocumentId = new Map(rowRows.map((row) => [row.documentId, row]));
   const changeSets = [...storedChangeSets, ...localOutboundChangeSets].map(
@@ -2988,6 +3564,7 @@ async function loadSourceSnapshot(
             .map((mode) => normalizePushMode(mode))
             .filter((mode): mode is ContentDatabaseSourcePushMode => !!mode)
         : undefined,
+      builderModelFields: metadata.builderModelFields,
       federation: normalizeSourceFederation(metadata.federation),
     },
     fields,
@@ -3258,6 +3835,41 @@ function normalizeBuilderCmsSourceFieldType(type: string) {
   return normalized || "text";
 }
 
+function isBuilderReferenceModelField(field: BuilderCmsModelFieldSummary) {
+  return [field.type, field.inputType]
+    .filter((value): value is string => typeof value === "string")
+    .some((value) => /\b(reference|relation)\b/i.test(value));
+}
+
+/**
+ * A raw Builder entry can teach required-field setup the reference model even
+ * when Builder's model endpoint omits it. Refreshes must not throw that
+ * provider-native enrichment away: the canonical local value is only an entry
+ * id, and dispatch needs the learned model to reconstruct a Builder reference.
+ */
+export function mergeBuilderCmsModelFieldsPreservingReferenceModels(args: {
+  existing?: BuilderCmsModelFieldSummary[];
+  refreshed?: BuilderCmsModelFieldSummary[];
+}) {
+  if (!args.refreshed || args.refreshed.length === 0) {
+    return args.existing ?? args.refreshed;
+  }
+  const existingByName = new Map(
+    (args.existing ?? []).map((field) => [field.name.trim(), field]),
+  );
+  return args.refreshed.map((field) => {
+    const existing = existingByName.get(field.name.trim());
+    if (
+      field.model?.trim() ||
+      !existing?.model?.trim() ||
+      !isBuilderReferenceModelField(field)
+    ) {
+      return field;
+    }
+    return { ...field, model: existing.model.trim() };
+  });
+}
+
 export async function seedMockSourceFields(args: {
   sourceId: string;
   ownerEmail: string;
@@ -3274,6 +3886,12 @@ export async function seedMockSourceFields(args: {
     (args.existingFields ?? [])
       .filter((field) => isBuilder && field.propertyId)
       .map((field) => [field.propertyId!, field]),
+  );
+  const builderModelFieldBySourceKey = new Map(
+    (args.builderModelFields ?? []).map((field) => [
+      `data.${field.name.trim()}`,
+      field,
+    ]),
   );
   const rows = [
     {
@@ -3385,7 +4003,18 @@ export async function seedMockSourceFields(args: {
             ))
           : `fields.${slugifySourceField(property.definition.name)}`,
         sourceFieldLabel: property.definition.name,
-        sourceFieldType: property.definition.type,
+        sourceFieldType: isBuilder
+          ? normalizeBuilderCmsSourceFieldType(
+              builderModelFieldBySourceKey.get(
+                existingBuilderFieldByPropertyId.get(property.definition.id)
+                  ?.sourceFieldKey ??
+                  builderCmsSourceFieldKey(
+                    property.definition.id,
+                    property.definition.name,
+                  ),
+              )?.type ?? property.definition.type,
+            )
+          : property.definition.type,
         mappingType: "property",
         writeOwner:
           property.definition.type === "created_time" ||
@@ -3566,6 +4195,8 @@ export async function seedMockSourceRows(args: {
             now: args.now,
             builderEntry,
             existingSourceValuesJson: existingBuilderRow?.sourceValuesJson,
+            existingLastSourceUpdatedAt:
+              existingBuilderRow?.lastSourceUpdatedAt,
           }),
         ),
         provenance:
@@ -3592,15 +4223,40 @@ export function sourceValuesForSeededSourceRow(args: {
   now: string;
   builderEntry?: BuilderCmsSourceEntry | null;
   existingSourceValuesJson?: string | null;
+  existingLastSourceUpdatedAt?: string | null;
 }): Record<string, DocumentPropertyValue> {
   const existingSourceValues = parseObject<
     Record<string, DocumentPropertyValue>
   >(args.existingSourceValuesJson);
   if (args.builderEntry?.sourceValues) {
-    return builderSourceValuesWithPreservedBodyBaseline({
+    const values = builderSourceValuesWithPreservedBodyBaseline({
       incoming: args.builderEntry.sourceValues,
       existing: existingSourceValues,
+      existingLastSourceUpdatedAt: args.existingLastSourceUpdatedAt,
     });
+    const rawData = args.builderEntry.rawEntry?.data;
+    if (rawData && typeof rawData === "object" && !Array.isArray(rawData)) {
+      for (const [name, rawValue] of Object.entries(rawData)) {
+        if (
+          !rawValue ||
+          typeof rawValue !== "object" ||
+          Array.isArray(rawValue)
+        )
+          continue;
+        const reference = rawValue as Record<string, unknown>;
+        if (
+          reference["@type"] !== "@builder.io/core:Reference" ||
+          typeof reference.id !== "string" ||
+          !reference.id.trim()
+        ) {
+          continue;
+        }
+        const sourceFieldKey = `data.${name}`;
+        values[builderReferenceIdSourceValueKey(sourceFieldKey)] =
+          reference.id.trim();
+      }
+    }
+    return values;
   }
   if (existingSourceValues) return existingSourceValues;
   if (args.sourceType !== "builder-cms") return {};
@@ -3614,6 +4270,7 @@ export function sourceValuesForSeededSourceRow(args: {
 function builderSourceValuesWithPreservedBodyBaseline(args: {
   incoming: Record<string, DocumentPropertyValue>;
   existing?: Record<string, DocumentPropertyValue> | null;
+  existingLastSourceUpdatedAt?: string | null;
 }) {
   const existing = args.existing;
   if (!existing) return args.incoming;
@@ -3633,24 +4290,49 @@ function builderSourceValuesWithPreservedBodyBaseline(args: {
     existing,
     BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   );
-  if (
-    incomingContent?.trim() ||
-    !existingContent?.trim() ||
-    (incomingHash && existingHash && incomingHash !== existingHash)
-  ) {
-    return args.incoming;
-  }
-
   const next = { ...args.incoming };
-  for (const key of [
-    BUILDER_CMS_BODY_CONTENT_KEY,
-    BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
-    BUILDER_CMS_BODY_READABLE_MAP_KEY,
-    BUILDER_CMS_BODY_SIDECARS_KEY,
-    BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
-  ]) {
-    if (next[key] === undefined && existing[key] !== undefined) {
-      next[key] = existing[key];
+  const preserveExistingBody =
+    !incomingContent?.trim() &&
+    !!existingContent?.trim() &&
+    !(incomingHash && existingHash && incomingHash !== existingHash);
+  if (preserveExistingBody) {
+    for (const key of [
+      BUILDER_CMS_BODY_CONTENT_KEY,
+      BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
+      BUILDER_CMS_BODY_READABLE_MAP_KEY,
+      BUILDER_CMS_BODY_SIDECARS_KEY,
+      BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+      BUILDER_CMS_BODY_LAST_UPDATED_KEY,
+    ]) {
+      if (next[key] === undefined && existing[key] !== undefined) {
+        next[key] = existing[key];
+      }
+    }
+    if (args.existingLastSourceUpdatedAt) {
+      next[BUILDER_CMS_BODY_LAST_UPDATED_KEY] =
+        args.existingLastSourceUpdatedAt;
+    }
+  }
+  // Required-reference materialization stores the canonical Builder entry id
+  // beside the readable projection. Refresh receives only that projection, so
+  // retain the id while the projected value is unchanged. If the remote label
+  // changes, discard the old id instead of pairing stale identity with it.
+  const referenceIdPrefix = "__agent_native_builder_reference_id:";
+  for (const [key, value] of Object.entries(existing)) {
+    if (!key.startsWith(referenceIdPrefix)) continue;
+    const sourceFieldKey = key.slice(referenceIdPrefix.length);
+    if (
+      stableValueString(existing[sourceFieldKey]) ===
+      stableValueString(args.incoming[sourceFieldKey])
+    ) {
+      next[key] = value;
+    }
+  }
+  if (next[BUILDER_CMS_BODY_LAST_UPDATED_KEY] === undefined) {
+    const existingBaselineLastUpdated =
+      existing[BUILDER_CMS_BODY_LAST_UPDATED_KEY] ?? existing.lastUpdated;
+    if (existingBaselineLastUpdated !== undefined) {
+      next[BUILDER_CMS_BODY_LAST_UPDATED_KEY] = existingBaselineLastUpdated;
     }
   }
   return next;
@@ -4344,6 +5026,10 @@ export async function resyncBuilderCmsSourceSnapshot(args: {
   try {
     builderModelFields = await readBuilderCmsModelFields({
       model: args.source.sourceTable,
+    });
+    builderModelFields = mergeBuilderCmsModelFieldsPreservingReferenceModels({
+      existing: sourceMetadata.builderModelFields,
+      refreshed: builderModelFields,
     });
   } catch (error) {
     builderModelFieldsReadFailed = true;

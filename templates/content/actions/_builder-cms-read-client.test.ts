@@ -1,11 +1,13 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { builderBlocksHash, builderEntryBlocks } from "../shared/builder-mdx";
 import {
   builderCmsListEntryFields,
   listBuilderCmsModels,
   readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
+  readBuilderCmsEntryLiveState,
   readBuilderCmsModelFields,
 } from "./_builder-cms-read-client";
 
@@ -265,6 +267,12 @@ describe("Builder CMS read client", () => {
                               "Governance &amp; Security",
                             ],
                           },
+                          {
+                            name: "author",
+                            type: "reference",
+                            model: "author",
+                            required: true,
+                          },
                         ],
                       },
                     ],
@@ -292,6 +300,12 @@ describe("Builder CMS read client", () => {
         inputType: "tags",
         options: ["Headless CMS", "Governance &amp; Security"],
         required: false,
+      },
+      {
+        name: "author",
+        type: "reference",
+        model: "author",
+        required: true,
       },
     ]);
   });
@@ -678,6 +692,85 @@ describe("Builder CMS read client", () => {
     expect(listResult.entries[0]?.rawEntry?.data?.blocks).toBeUndefined();
     expect(entryResult?.rawEntry?.data?.blocks).toHaveLength(1);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the hydration body representation for uncached live preflight hashes", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const canonicalBlocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "text-1",
+        component: {
+          name: "Text",
+          options: { text: "<p>Canonical enriched body.</p>" },
+        },
+      },
+    ];
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const fields = input.searchParams.get("fields") ?? "";
+      const hasCanonicalBodyProjection =
+        input.searchParams.get("enrich") === "true" &&
+        input.searchParams.get("noCache") === "true" &&
+        fields.includes("data.blocks") &&
+        fields.includes("data.blocksString");
+      return new Response(
+        JSON.stringify({
+          id: "builder-entry-1",
+          published: "draft",
+          lastUpdated: 1_786_000_000_000,
+          data: {
+            title: "Builder title",
+            blocks: hasCanonicalBodyProjection
+              ? canonicalBlocks
+              : [
+                  {
+                    ...canonicalBlocks[0],
+                    component: {
+                      name: "Text",
+                      options: { text: "<p>Alternate default projection.</p>" },
+                    },
+                  },
+                ],
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    const hydrated = await readBuilderCmsContentEntry({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const live = await readBuilderCmsEntryLiveState({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(hydrated).not.toBeNull();
+    const baselineHash = builderBlocksHash(
+      builderEntryBlocks(hydrated!.rawEntry!),
+    );
+    expect(live).toMatchObject({
+      exists: true,
+      published: "draft",
+      lastUpdated: 1_786_000_000_000,
+      blocksHash: baselineHash,
+      id: "builder-entry-1",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const [input] of fetchImpl.mock.calls) {
+      expect(input.searchParams.get("enrich")).toBe("true");
+      expect(input.searchParams.get("noCache")).toBe("true");
+      expect(input.searchParams.get("cachebust")).toMatch(/^\d+$/);
+      expect(input.searchParams.get("fields")).toContain("data.blocks");
+      expect(input.searchParams.get("fields")).toContain("data.blocksString");
+    }
   });
 
   it("can return an initial partial Builder Content API page for fast refresh", async () => {

@@ -559,16 +559,24 @@ describe("content database source actions", () => {
       prepareReview.schema.parse({
         documentId: "database-page",
         changeSetIds: ["change-set"],
-        pushModeConfirmation: "autosave",
-        publicationTransition: "unpublish",
-        confirmUnpublish: true,
+        pushModeConfirmation: "publish",
+        transitions: {
+          "change-set": {
+            publicationTransition: "unpublish",
+            confirmUnpublish: true,
+          },
+        },
       }),
     ).toEqual({
       documentId: "database-page",
       changeSetIds: ["change-set"],
-      pushModeConfirmation: "autosave",
-      publicationTransition: "unpublish",
-      confirmUnpublish: true,
+      pushModeConfirmation: "publish",
+      transitions: {
+        "change-set": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: true,
+        },
+      },
     });
   });
 
@@ -735,6 +743,7 @@ describe("content database source actions", () => {
 
     expect(review.summary).toBe("1 Builder row has changes ready to review.");
     expect(review.rows[0]?.title).toBe("New title");
+    expect(review.rows[0]?.targetEntryId).toBe("builder-row");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
     expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);

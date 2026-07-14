@@ -329,9 +329,22 @@ export const contentDatabaseSourceExecutions = table(
     idempotencyKey: text("idempotency_key").notNull(),
     summary: text("summary").notNull(),
     payloadJson: text("payload_json").notNull().default("{}"),
+    attemptToken: text("attempt_token"),
     lastError: text("last_error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabaseSourceExecutionClaims = table(
+  "content_database_source_execution_claims",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    sourceId: text("source_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    executionId: text("execution_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
   },
 );
 
