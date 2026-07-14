@@ -18,6 +18,16 @@ function normalizeBasePath(value: string | undefined): string {
   return normalized ? `/${normalized}` : "";
 }
 
+// The env chain below misses local dev, where none of these variables are
+// set and the server does NOT listen on 3000 — background dispatches then
+// hit whatever app happens to own that port (observed: a Next.js 404),
+// silently killing every post-finalize transcript/seekable job. Remember
+// the origin of real incoming requests as the runtime fallback.
+let lastKnownRequestOrigin: string | null = null;
+export function noteRequestOrigin(origin: string): void {
+  if (origin.startsWith("http")) lastKnownRequestOrigin = origin;
+}
+
 function resolveWorkerUrl(pathname: string): string {
   const configuredOrigin =
     process.env.APP_URL ||
@@ -26,6 +36,7 @@ function resolveWorkerUrl(pathname: string): string {
     process.env.BETTER_AUTH_URL;
   const origin =
     configuredOrigin ||
+    lastKnownRequestOrigin ||
     `http://localhost:${process.env.NITRO_PORT || process.env.PORT || "3000"}`;
   const url = new URL(origin);
   url.pathname = pathname;

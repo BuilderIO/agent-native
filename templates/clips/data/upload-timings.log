@@ -51,3 +51,9 @@
 {"at":"2026-07-14T19:36:58.572Z","recordingId":"5rTqlJrV6jOZ","phase":"storage-upload","ms":5166,"bytes":4341741}
 {"at":"2026-07-14T19:36:59.993Z","phase":"verify-served","url":"https://cdn.builder.io/o/assets%2Fafb9988a555045afb2ba3ae87f","ms":1419,"attempts":1}
 {"at":"2026-07-14T19:37:00.311Z","recordingId":"5rTqlJrV6jOZ","phase":"finalize-total","ms":7028}
+{"at":"2026-07-14T20:13:28.647Z","recordingId":"Pl9X3MHwF3xc","phase":"chunk-received","bytes":1557167,"readMs":27}
+{"at":"2026-07-14T20:13:28.923Z","recordingId":"Pl9X3MHwF3xc","phase":"chunk-received","bytes":0,"readMs":5}
+{"at":"2026-07-14T20:13:28.973Z","recordingId":"Pl9X3MHwF3xc","phase":"finalize-start"}
+{"at":"2026-07-14T20:13:35.095Z","recordingId":"Pl9X3MHwF3xc","phase":"storage-upload","ms":5609,"bytes":1557167}
+{"at":"2026-07-14T20:13:36.125Z","phase":"verify-served","url":"https://cdn.builder.io/o/assets%2Fafb9988a555045afb2ba3ae87f","ms":1028,"attempts":1}
+{"at":"2026-07-14T20:13:36.404Z","recordingId":"Pl9X3MHwF3xc","phase":"finalize-total","ms":7433}
