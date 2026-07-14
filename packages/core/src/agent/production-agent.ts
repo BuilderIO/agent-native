@@ -2680,6 +2680,18 @@ const SOURCE_SWEEP_EXCLUDED_TOOLS = new Set([
   "view-screen",
 ]);
 
+// The Docs app intentionally exposes several small read-only lookup actions
+// rather than a bulk reader. Keep the per-tool guard for repeated lookups, but
+// do not combine this family into the cross-tool convergence budget.
+const SOURCE_SWEEP_AGGREGATE_EXCLUDED_TOOLS = new Set([
+  "docs-search",
+  "list-docs",
+  "read-doc",
+  "read-source-file",
+  "search-docs",
+  "search-source",
+]);
+
 function normalizeToolNameForHeuristics(name: string): string {
   return name.replace(/[_-]+/g, " ");
 }
@@ -2698,6 +2710,16 @@ function isLikelySourceSweepTool(
   );
 }
 
+function isLikelyAggregateSourceSweepTool(
+  name: string,
+  entry: ActionEntry | undefined,
+): boolean {
+  return (
+    !SOURCE_SWEEP_AGGREGATE_EXCLUDED_TOOLS.has(name.toLowerCase()) &&
+    isLikelySourceSweepTool(name, entry)
+  );
+}
+
 function hasExhaustedSourceSweepBudget(opts: {
   priorToolCalls: readonly AgentLoopToolCallSummary[];
   actions: Record<string, ActionEntry>;
@@ -2706,7 +2728,7 @@ function hasExhaustedSourceSweepBudget(opts: {
   const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
   return (
     opts.priorToolCalls.filter((call) =>
-      isLikelySourceSweepTool(call.name, opts.actions[call.name]),
+      isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
     ).length >= threshold
   );
 }
@@ -2823,7 +2845,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
     (call) => call.name === opts.toolName,
   ).length;
   const priorSourceSweepCalls = opts.priorToolCalls.filter((call) =>
-    isLikelySourceSweepTool(
+    isLikelyAggregateSourceSweepTool(
       call.name,
       opts.actions?.[call.name] ??
         (call.name === opts.toolName ? opts.entry : undefined),

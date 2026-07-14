@@ -193,6 +193,9 @@ const messages = {
       anonymousResponses: "गुमनाम प्रतिक्रियाएँ",
       anonymousResponsesDescription:
         "IP पते, प्रतिक्रिया देने वाले की पहचान या स्रोत मेटाडेटा सहेजें नहीं।",
+      emailNewResponses: "नई प्रतिक्रियाओं के लिए मुझे ईमेल करें",
+      emailNewResponsesDescription:
+        "हर प्रतिक्रिया पर फ़ॉर्म के मालिक के खाते के ईमेल पर सूचना भेजें।",
       saveSettings: "सेटिंग्स सहेजें",
     },
     integrations: {

@@ -350,28 +350,30 @@ function ChatLoadingSkeleton({
             </div>
           </div>
           {composerSlot}
-          <div
-            className={cn(
-              "agent-composer-area shrink-0 px-3 py-2",
-              composerLayoutVariant !== "default" &&
-                `agent-composer-area--${composerLayoutVariant}`,
-              composerAreaClassName,
-            )}
-          >
+          <div className="agent-composer-stack">
             <div
               className={cn(
-                "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                "agent-composer-area shrink-0 px-3 py-2",
                 composerLayoutVariant !== "default" &&
-                  `agent-composer-root--${composerLayoutVariant}`,
+                  `agent-composer-area--${composerLayoutVariant}`,
+                composerAreaClassName,
               )}
             >
-              <div className="px-3 pt-3">
-                <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-              </div>
-              <div className="mt-auto flex items-center gap-2 px-3 py-2">
-                <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
-                <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
+              <div
+                className={cn(
+                  "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                  composerLayoutVariant !== "default" &&
+                    `agent-composer-root--${composerLayoutVariant}`,
+                )}
+              >
+                <div className="px-3 pt-3">
+                  <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                </div>
+                <div className="mt-auto flex items-center gap-2 px-3 py-2">
+                  <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                  <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                  <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
+                </div>
               </div>
             </div>
           </div>

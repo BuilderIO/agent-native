@@ -197,6 +197,9 @@ const messages = {
       anonymousResponses: "Respostas anônimas",
       anonymousResponsesDescription:
         "Não guardar endereços IP, identidade do respondente nem metadados de origem.",
+      emailNewResponses: "Enviar-me um e-mail sobre novas respostas",
+      emailNewResponsesDescription:
+        "Envie uma notificação para o e-mail da conta proprietária do formulário sempre que alguém responder.",
       saveSettings: "Salvar configurações",
     },
     integrations: {

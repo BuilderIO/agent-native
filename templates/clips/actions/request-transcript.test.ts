@@ -426,6 +426,30 @@ describe("requestTranscript regeneration", () => {
     expect(mockSelectRows.queue).toHaveLength(0);
   });
 
+  it("does not queue a duplicate agent retry while a transcript is pending", async () => {
+    mockSelectRows.queue = [
+      [
+        {
+          status: "pending",
+          updatedAt: new Date().toISOString(),
+        },
+      ],
+    ];
+
+    const result = await requestTranscript.run(
+      { recordingId: "rec_ready", force: true },
+      { caller: "tool" } as any,
+    );
+
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+    expect(result).toEqual({
+      recordingId: "rec_ready",
+      status: "pending",
+      skipped: true,
+      reason: "already-pending",
+    });
+  });
+
   it("keeps the ready transcript when regeneration fails", async () => {
     mockTranscribeWithBuilder.mockRejectedValue(
       new Error("Builder transcription failed (503 Service Unavailable)"),

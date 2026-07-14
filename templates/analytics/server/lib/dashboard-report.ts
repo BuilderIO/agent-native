@@ -518,17 +518,32 @@ async function collectPageDiagnostics(
 
     let title = "";
     let bodyText = "";
+    let detailsTimeout: ReturnType<typeof setTimeout> | undefined;
     try {
-      const details = await page.evaluate(
-        `(() => ({
-          title: document.title,
-          bodyText: document.body?.innerText?.slice(0, 240) ?? "",
-        }))()`,
-      );
-      title = details?.title ?? "";
-      bodyText = details?.bodyText ?? "";
+      // page.evaluate ignores setDefaultTimeout, so race it like the probe —
+      // a renderer that wedges after the probe must not stall diagnostics.
+      const details = await Promise.race([
+        Promise.resolve(
+          page.evaluate(
+            `(() => ({
+              title: document.title,
+              bodyText: document.body?.innerText?.slice(0, 240) ?? "",
+            }))()`,
+          ),
+        ),
+        new Promise<never>((_, reject) => {
+          detailsTimeout = setTimeout(
+            () => reject(new Error("diagnostics details timed out")),
+            DIAGNOSTICS_PROBE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+      title = (details as any)?.title ?? "";
+      bodyText = (details as any)?.bodyText ?? "";
     } catch {
       // best effort; leave title/bodyText empty
+    } finally {
+      if (detailsTimeout) clearTimeout(detailsTimeout);
     }
 
     return `page state: ${JSON.stringify({
@@ -615,17 +630,20 @@ async function captureDashboardPng(
     const timeout = screenshotTimeoutMs();
     const page = await newPage();
 
-    // Belt-and-braces auth: the query token still carries the session, but
-    // some serverless navigations bounce through an intermediate redirect
-    // that drops query params before the client-side bootstrap can read them.
-    // Seeding the same signed token as a cookie lets the server accept the
-    // session even if that happens. Never abort the capture over this.
+    // Belt-and-braces auth: the query token authenticates only after the
+    // client-side bootstrap harvests it from the URL, which gives the
+    // stripped-down serverless browser several ways to end up session-less.
+    // Seeding the same signed token as a cookie authenticates every request
+    // server-side with no client cooperation. Never abort the capture over
+    // this — the query token path still exists.
     try {
-      await page
-        .context()
-        .addCookies([
-          { name: EMBED_SESSION_COOKIE, value: token, url: `${dashboardBaseUrl()}/` },
-        ]);
+      await page.context().addCookies([
+        {
+          name: EMBED_SESSION_COOKIE,
+          value: token,
+          url: `${dashboardBaseUrl()}/`,
+        },
+      ]);
     } catch (err) {
       console.warn(
         "[dashboard-report] Failed to pre-seed embed session cookie:",

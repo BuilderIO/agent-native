@@ -4102,12 +4102,13 @@ describe("runAgentLoop", () => {
     ).toBeNull();
   });
 
-  it("stops alternating docs and source searches at the aggregate convergence budget", () => {
+  it("keeps the Docs lookup family out of the aggregate convergence budget", () => {
     const actions = {
-      "docs-search": actionEntry({ readOnly: true }),
       "list-docs": actionEntry({ readOnly: true }),
+      "read-doc": actionEntry({ readOnly: true }),
       "search-source": actionEntry({ readOnly: true }),
       "read-source-file": actionEntry({ readOnly: true }),
+      "search-docs": actionEntry({ readOnly: true }),
     };
     const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
       name: Object.keys(actions)[i % Object.keys(actions).length],
@@ -4116,15 +4117,25 @@ describe("runAgentLoop", () => {
 
     expect(
       shouldGuardRepeatedSourceSweep({
-        toolName: "docs-search",
-        entry: actions["docs-search"],
+        toolName: "search-docs",
+        entry: actions["search-docs"],
         actions,
         priorToolCalls,
       }),
+    ).toBeNull();
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-docs",
+        entry: actions["search-docs"],
+        priorToolCalls: Array.from({ length: 12 }, () => ({
+          name: "search-docs",
+          input: {},
+        })),
+      }),
     ).toMatchObject({
-      toolName: "docs-search",
+      toolName: "search-docs",
       priorCalls: 12,
-      message: expect.stringContaining("read-only source/search tools"),
     });
   });
 

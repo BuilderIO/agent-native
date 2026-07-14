@@ -1058,7 +1058,32 @@ const requestTranscriptAction = defineAction({
   run: async (args, context?: ActionRunContext) => {
     await assertAccess("recording", args.recordingId, "editor");
 
+    const db = getDb();
+
     if (context?.caller === "tool") {
+      const [existingTranscript] = await db
+        .select({
+          status: schema.recordingTranscripts.status,
+          updatedAt: schema.recordingTranscripts.updatedAt,
+        })
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .limit(1);
+      if (
+        existingTranscript &&
+        isRecentlyPendingTranscript(existingTranscript)
+      ) {
+        console.log(
+          `[clips] Transcript already pending for ${args.recordingId}; skipping duplicate agent request.`,
+        );
+        return {
+          recordingId: args.recordingId,
+          status: "pending" as const,
+          skipped: true,
+          reason: "already-pending",
+        };
+      }
+
       await dispatchPostFinalizeJob({
         recordingId: args.recordingId,
         kind: "transcript",
@@ -1073,7 +1098,6 @@ const requestTranscriptAction = defineAction({
       };
     }
 
-    const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();
     const now = new Date().toISOString();
 

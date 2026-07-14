@@ -41,4 +41,12 @@ describe("resolveAgentPageComponent", () => {
     expect(element.props.mode).toBe("page");
     expect(element.props.className).toBe("h-full");
   });
+
+  it("keeps the legacy fallback component identity stable", () => {
+    const client = { AgentChatSurface: LegacyAgentChatSurface };
+
+    expect(resolveAgentPageComponent(client)).toBe(
+      resolveAgentPageComponent(client),
+    );
+  });
 });

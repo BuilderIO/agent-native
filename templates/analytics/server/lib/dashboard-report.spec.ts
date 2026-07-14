@@ -136,7 +136,8 @@ function createBrowser(
     waitForTimeout: vi.fn(async () => {}),
     setViewportSize: vi.fn(async () => {}),
     url: vi.fn(
-      () => options.pageUrl ?? "https://analytics.example.test/dashboards/example",
+      () =>
+        options.pageUrl ?? "https://analytics.example.test/dashboards/example",
     ),
     on: vi.fn(),
     context: vi.fn(() => ({ addCookies })),
@@ -502,6 +503,60 @@ describe("dashboard report email", () => {
       expect.anything(),
       expect.stringContaining("example-signed-token"),
     );
+  });
+
+  it("records page diagnostics when the report surface never becomes visible", async () => {
+    const stuck = createBrowser({
+      waitForFails: true,
+      pageUrl:
+        "https://analytics.example.test/dashboards/example?__an_embed_token=super-secret-token&embedded=1",
+    });
+    const fallback = createBrowser({ waitForFails: true });
+    mocks.launch
+      .mockResolvedValueOnce(stuck.browser)
+      .mockResolvedValueOnce(fallback.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      screenshotMode: "none",
+    });
+    expect(result.screenshotError).toContain("page state:");
+    expect(result.screenshotError).toContain("Mock Dashboard");
+    expect(result.screenshotError).toContain("Loading forever");
+    expect(result.screenshotError).toContain("__an_embed_token=[REDACTED]");
+    expect(result.screenshotError).not.toContain("super-secret-token");
+  });
+
+  it("reports the page as unresponsive when the diagnostics probe hangs", async () => {
+    vi.useFakeTimers();
+    try {
+      const stuck = createBrowser({ waitForFails: true, unresponsive: true });
+      const fallback = createBrowser({
+        waitForFails: true,
+        unresponsive: true,
+      });
+      mocks.launch
+        .mockResolvedValueOnce(stuck.browser)
+        .mockResolvedValueOnce(fallback.browser);
+
+      const sendPromise = sendDashboardReportSubscription(subscription());
+      // One diagnostics probe timeout (2s) per failed attempt.
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await sendPromise;
+
+      expect(result).toMatchObject({
+        screenshotAttached: false,
+        screenshotMode: "none",
+      });
+      expect(result.screenshotError).toContain(
+        "page unresponsive (renderer hung or crashed)",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails before sending when the caller requires a screenshot", async () => {
