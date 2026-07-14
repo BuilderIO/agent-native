@@ -23,7 +23,6 @@ import type {
   OutboundTarget,
   PlatformRunProgress,
   PlatformRunProgressRef,
-  PlatformDeliveryReceipt,
   IntegrationContextMessage,
   IntegrationFileReference,
 } from "../types.js";
@@ -432,7 +431,7 @@ export function slackAdapter(
       message: OutgoingMessage,
       context: IncomingMessage,
       opts?: { placeholderRef?: string },
-    ): Promise<void | PlatformDeliveryReceipt> {
+    ): Promise<void> {
       const token = await resolveBotToken(context);
       if (!token) {
         console.error("[slack] SLACK_BOT_TOKEN not configured");
@@ -459,7 +458,6 @@ export function slackAdapter(
         return;
       }
       const restChunks = chunks.slice(1);
-      const messageRefs: string[] = [];
 
       const finalBlocks =
         blocks ??
@@ -491,29 +489,14 @@ export function slackAdapter(
           const data = (await res.json()) as {
             ok: boolean;
             error?: string;
-            ts?: string;
           };
           if (!data.ok) {
             console.error("[slack] chat.update error:", data.error);
             // Fall back to a fresh post so the user still sees a reply
-            const postedTs = await postFresh(
-              token,
-              channelId,
-              threadTs,
-              baseBody,
-            );
-            if (postedTs) messageRefs.push(postedTs);
-          } else {
-            messageRefs.push(data.ts || placeholderRef);
+            await postFresh(token, channelId, threadTs, baseBody);
           }
         } else {
-          const postedTs = await postFresh(
-            token,
-            channelId,
-            threadTs,
-            baseBody,
-          );
-          if (postedTs) messageRefs.push(postedTs);
+          await postFresh(token, channelId, threadTs, baseBody);
         }
 
         // Clear the AI-assistant "is thinking…" status now that we've
@@ -524,19 +507,14 @@ export function slackAdapter(
 
         // Overflow chunks (rare) — post as plain follow-ups in the same thread
         for (const chunk of restChunks) {
-          const postedTs = await postFresh(token, channelId, threadTs, {
+          await postFresh(token, channelId, threadTs, {
             channel: channelId,
             text: chunk,
             unfurl_links: false,
             unfurl_media: false,
             mrkdwn: true,
           });
-          if (postedTs) messageRefs.push(postedTs);
         }
-        return {
-          status: "delivered",
-          ...(messageRefs.length > 0 ? { messageRefs } : {}),
-        };
       } catch (err) {
         console.error("[slack] Failed to send message:", err);
         throw err;
@@ -1014,7 +992,7 @@ async function postFresh(
   channelId: string,
   threadTs: string | undefined,
   body: Record<string, unknown>,
-): Promise<string | undefined> {
+): Promise<void> {
   const hasBlocks =
     Array.isArray(body.blocks) && (body.blocks as unknown[]).length > 0;
   if (
@@ -1022,7 +1000,7 @@ async function postFresh(
     body.text.trim().length === 0 &&
     !hasBlocks
   ) {
-    return undefined;
+    return;
   }
 
   const payload: Record<string, unknown> = {
@@ -1038,16 +1016,11 @@ async function postFresh(
     },
     body: JSON.stringify(payload),
   });
-  const data = (await res.json()) as {
-    ok: boolean;
-    error?: string;
-    ts?: string;
-  };
+  const data = (await res.json()) as { ok: boolean; error?: string };
   if (!data.ok) {
     console.error("[slack] chat.postMessage error:", data.error);
     throw new Error(data.error || "chat.postMessage failed");
   }
-  return data.ts;
 }
 
 async function slackApiFetch(
@@ -1898,7 +1871,6 @@ function createSlackRunProgress(
           : {}),
       });
       setSlackAssistantStatus(token, channel, threadTs, "");
-      return { status: "delivered", messageRefs: [streamTs] };
     },
     async fail(message) {
       if (pendingTimer) clearTimeout(pendingTimer);

@@ -15,7 +15,6 @@ export type {
   IntegrationConversationType,
   IntegrationTriggerKind,
   PlatformRunProgress,
-  PlatformDeliveryReceipt,
 } from "./types.js";
 export { assertPlatformCapability } from "./types.js";
 

@@ -127,13 +127,6 @@ export interface OutgoingMessage {
   platformContext: Record<string, unknown>;
 }
 
-/** Provider-confirmed references for a successfully delivered response. */
-export interface PlatformDeliveryReceipt {
-  status: "delivered";
-  /** Opaque provider message ids/timestamps; never message content. */
-  messageRefs?: string[];
-}
-
 /**
  * Proactive outbound message target for a platform.
  * Used when the agent needs to send to a saved destination instead of replying
@@ -204,7 +197,7 @@ export interface PlatformRunProgress {
   /** Receive normalized agent events. Implementations should throttle writes. */
   onEvent(event: AgentChatEvent): Promise<void> | void;
   /** Finalize the provider-native progress surface with the answer. */
-  complete(message: OutgoingMessage): Promise<void | PlatformDeliveryReceipt>;
+  complete(message: OutgoingMessage): Promise<void>;
   /** Mark the provider-native surface failed and leave a retryable explanation. */
   fail?(message: string): Promise<void>;
 }
@@ -323,7 +316,7 @@ export interface PlatformAdapter {
     message: OutgoingMessage,
     context: IncomingMessage,
     opts?: { placeholderRef?: string },
-  ): Promise<void | PlatformDeliveryReceipt>;
+  ): Promise<void>;
 
   /**
    * Send a short best-effort system notice to the conversation the incoming

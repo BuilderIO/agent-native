@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
-  extractA2AArtifactIdentities,
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
@@ -59,31 +58,6 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).toContain(
       "- Document: https://content.agent.test/page/request_123 (ID: request_123)",
     );
-  });
-
-  it("extracts a compact stable identity from a Content form submission", () => {
-    expect(
-      extractA2AArtifactIdentities([
-        {
-          tool: "submit-content-database-form",
-          result: JSON.stringify({
-            createdDocumentId: "request_123",
-            createdDocumentTitle: "Is this thing on",
-            urlPath: "/page/request_123",
-            verification: { found: true },
-            ignoredPayload: "not retained",
-          }),
-        },
-      ]),
-    ).toEqual([
-      {
-        resourceType: "document",
-        id: "request_123",
-        sourceAction: "submit-content-database-form",
-        titleAtAction: "Is this thing on",
-        url: "/page/request_123",
-      },
-    ]);
   });
 
   it("appends the focused Analytics URL returned by save-monitor", () => {
