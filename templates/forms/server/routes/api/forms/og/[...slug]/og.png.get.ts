@@ -3,6 +3,7 @@ import { getSetting } from "@agent-native/core/settings";
 import {
   defineEventHandler,
   getMethod,
+  getRequestURL,
   getRouterParam,
   setResponseStatus,
   type H3Event,
@@ -111,8 +112,34 @@ async function loadProfileImageDataUrl(
   }
 }
 
+export function formSlugFromOgPath(pathname: string): string {
+  const marker = "/api/forms/og/";
+  const markerIndex = pathname.indexOf(marker);
+  if (markerIndex < 0) return "";
+
+  const tail = pathname.slice(markerIndex + marker.length);
+  const suffix = "/og.png";
+  if (!tail.endsWith(suffix)) return "";
+
+  try {
+    return decodeURIComponent(tail.slice(0, -suffix.length));
+  } catch {
+    return "";
+  }
+}
+
 export default defineEventHandler(async (event: H3Event) => {
-  const slug = getRouterParam(event, "slug");
+  const slug =
+    formSlugFromOgPath(getRequestURL(event).pathname) ||
+    (() => {
+      const param = getRouterParam(event, "slug");
+      if (!param) return "";
+      try {
+        return decodeURIComponent(param);
+      } catch {
+        return "";
+      }
+    })();
   if (!slug) {
     setResponseStatus(event, 400);
     return { error: "slug is required" };
