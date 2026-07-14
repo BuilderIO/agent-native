@@ -123,7 +123,8 @@ function isDashboardConstructionActionName(name: string): boolean {
 const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
   /\b(build|create|make|clone|copy|duplicate|adapt|template|based (?:off|on)|using .+ as a template)\b/i;
 
-const DASHBOARD_CONSTRUCTION_TARGET_TERMS = /\b(dashboard|extension|panel|widget)\b/i;
+const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
+  /\b(dashboard|extension|panel|widget)\b/i;
 
 export function looksLikeDashboardConstructionRequest(text: string): boolean {
   const requestText = stripInjectedAnalyticsGuardContext(text);
