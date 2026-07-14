@@ -788,9 +788,7 @@ describe("incomplete evidence detection", () => {
 
   it("still treats a plain numeric analytics question as a data request, not construction", () => {
     expect(
-      looksLikeAnalyticsDataRequest(
-        "What was our conversion rate last week?",
-      ),
+      looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
     ).toBe(true);
     expect(
       looksLikeDashboardConstructionRequest(
@@ -815,9 +813,7 @@ describe("incomplete evidence detection", () => {
         { name: "create-extension", content: "{}" },
       ]),
     ).toBe(true);
-    expect(hasDashboardConstructionAttempt([{ name: "bigquery" }])).toBe(
-      false,
-    );
+    expect(hasDashboardConstructionAttempt([{ name: "bigquery" }])).toBe(false);
     expect(hasDashboardConstructionAttempt([])).toBe(false);
   });
 
