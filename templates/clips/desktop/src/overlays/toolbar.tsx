@@ -22,7 +22,9 @@ const TOOLBAR_CONTENT_WIDTH = 72;
 // window doesn't deliver hover events until the window is clicked (made
 // key), which made hover-revealed buttons undiscoverable.
 const TOOLBAR_HEIGHT_EXPANDED = 300;
-const TOOLBAR_HEIGHT_COLLAPSED = 210;
+// Collapsed: just the grab handle, the timer, and the caret — recording
+// control moves to the popover/tray/shortcuts until re-expanded.
+const TOOLBAR_HEIGHT_COLLAPSED = 88;
 const TOOLBAR_WINDOW_WIDTH = TOOLBAR_CONTENT_WIDTH + OVERLAY_SHADOW_GUTTER * 2;
 const TOOLBAR_COLLAPSED_KEY = "clips:toolbar-actions-collapsed";
 
@@ -328,6 +330,7 @@ export function Toolbar() {
           collapsed→expanded `justify-content` change can't nudge the Stop
           button up — only the hover actions below grow into the new space. */}
       <div className="toolbar-v-primary">
+        <div className="toolbar-v-handle" aria-hidden />
         <button
           className="toolbar-v-stop"
           onClick={stop}

@@ -2884,10 +2884,36 @@ body[data-clips-route="recording-pill"] #root {
   cursor: grabbing;
 }
 
-/* Caret-collapsed: only the primary zone + caret row remain — matches
-   TOOLBAR_HEIGHT_COLLAPSED in toolbar.tsx. */
+/* Caret-collapsed: just the grab handle, the timer, and the caret —
+   matches TOOLBAR_HEIGHT_COLLAPSED in toolbar.tsx. Stop/pause/marker come
+   back on expand; recording is still controllable from the popover, the
+   tray, and the global shortcuts while collapsed. */
 .toolbar-v-collapsed {
-  height: 210px;
+  height: 88px;
+}
+
+.toolbar-v-collapsed .toolbar-v-primary {
+  flex: 0 0 auto;
+}
+
+.toolbar-v-collapsed .toolbar-v-stop,
+.toolbar-v-collapsed .toolbar-v-pause,
+.toolbar-v-collapsed .toolbar-v-marker {
+  display: none;
+}
+
+/* Drag affordance shown only while collapsed — the whole pill drags, the
+   handle just signals it. */
+.toolbar-v-handle {
+  display: none;
+  width: 24px;
+  height: 4px;
+  border-radius: 2px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.toolbar-v-collapsed .toolbar-v-handle {
+  display: block;
 }
 
 /* Fixed-height home for Stop / time / Pause / marker. Its height equals the
