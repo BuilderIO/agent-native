@@ -185,6 +185,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ),
         };
       },
+      // Result is JSON including the full Alpine content — the generic 50k
+      // default cap slices mid-content and corrupts source reads for large
+      // extensions. Mirrors render-inline-extension's override below.
+      maxResultChars: 200_000,
       readOnly: true,
     },
 
@@ -276,6 +280,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ),
         };
       },
+      // Returns full historical content when includeContent is set — same
+      // truncation hazard as get-extension above.
+      maxResultChars: 200_000,
       readOnly: true,
     },
 

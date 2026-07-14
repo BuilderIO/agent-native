@@ -107,6 +107,10 @@ export function createRunCodeEntry(
 
   return {
     readOnly: true,
+    // This tool doubles as the poll for a background execution (call again
+    // with only `executionId`) — identical input is expected to return a
+    // different result as the run progresses, so it must not be deduped.
+    dedupe: false,
     allowInPlanMode: false,
     // Allow a generous per-call timeout so large data-processing jobs don't hit
     // the agent-loop's default 60 s cap.
@@ -588,6 +592,9 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
 export function createGetCodeExecutionEntry(): ActionEntry {
   return {
     readOnly: true,
+    // Polling with an identical executionId is the intended usage — the
+    // status changes over time, so this must not be deduped.
+    dedupe: false,
     tool: {
       description:
         "Check a background run-code execution: returns its status (queued | running | succeeded | failed | timed_out) and, once finished, its stdout/stderr output. Executions are scoped to the user who started them. While one is queued or running, continue other useful work and poll every ~15-30 seconds instead of busy-waiting.",

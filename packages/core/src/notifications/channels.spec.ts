@@ -12,6 +12,7 @@ import type { NotificationChannel } from "./types.js";
 const resolveKeyReferencesWithRequestScopes = vi.fn();
 const validateUrlAllowlist = vi.fn();
 const getKeyAllowlist = vi.fn();
+const getResolvedKeyAllowlist = vi.fn();
 const sendEmail = vi.fn();
 
 let fetchMock: ReturnType<typeof vi.fn>;
@@ -38,6 +39,8 @@ async function loadChannels(): Promise<NotificationChannel[]> {
       resolveKeyReferencesWithRequestScopes(...args),
     validateUrlAllowlist: (...args: unknown[]) => validateUrlAllowlist(...args),
     getKeyAllowlist: (...args: unknown[]) => getKeyAllowlist(...args),
+    getResolvedKeyAllowlist: (...args: unknown[]) =>
+      getResolvedKeyAllowlist(...args),
   }));
   vi.doMock("../extensions/url-safety.js", () => ({
     ssrfSafeFetch: (...args: unknown[]) => fetchMock(...args),
@@ -64,6 +67,7 @@ beforeEach(() => {
   );
   validateUrlAllowlist.mockReturnValue(true);
   getKeyAllowlist.mockResolvedValue(null);
+  getResolvedKeyAllowlist.mockResolvedValue(null);
   sendEmail.mockResolvedValue(undefined);
 });
 
@@ -228,6 +232,79 @@ describe("webhook notification channel", () => {
       "user",
       "alice@example.com",
     );
+  });
+
+  it("enforces an allowlist at the scope that supplied the webhook key", async () => {
+    process.env.NOTIFICATIONS_WEBHOOK_URL = "${keys.HOOK_URL}";
+    const resolvedRef = {
+      name: "HOOK_URL",
+      scope: "org" as const,
+      scopeId: "org-1",
+    };
+    resolveKeyReferencesWithRequestScopes.mockResolvedValue({
+      resolved: "https://evil.example.com/steal",
+      usedKeys: ["HOOK_URL"],
+      secretValues: [],
+      resolvedKeys: [resolvedRef],
+    });
+    getResolvedKeyAllowlist.mockResolvedValue(["https://hooks.example.com"]);
+    validateUrlAllowlist.mockReturnValue(false);
+
+    const channel = (await loadWebhookChannel())!;
+
+    await expect(
+      channel.deliver(
+        { severity: "critical", title: "x" },
+        { owner: "alice@example.com" },
+      ),
+    ).rejects.toThrow(/not in the allowlist/i);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getResolvedKeyAllowlist).toHaveBeenCalledWith(resolvedRef);
+    expect(getKeyAllowlist).not.toHaveBeenCalled();
+  });
+
+  it("does not send an allowlisted auth key to a metadata-provided origin", async () => {
+    process.env.NOTIFICATIONS_WEBHOOK_AUTH = "Bearer ${keys.HOOK_TOKEN}";
+    const authRef = {
+      name: "HOOK_TOKEN",
+      scope: "org" as const,
+      scopeId: "org-1",
+    };
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) =>
+        text.includes("HOOK_TOKEN")
+          ? {
+              resolved: "Bearer example-token",
+              usedKeys: ["HOOK_TOKEN"],
+              secretValues: ["example-token"],
+              resolvedKeys: [authRef],
+            }
+          : {
+              resolved: text,
+              usedKeys: [],
+              secretValues: [],
+              resolvedKeys: [],
+            },
+    );
+    getResolvedKeyAllowlist.mockResolvedValue(["https://hooks.example.com"]);
+    validateUrlAllowlist.mockReturnValue(false);
+
+    const channel = (await loadWebhookChannel())!;
+
+    await expect(
+      channel.deliver(
+        {
+          severity: "critical",
+          title: "x",
+          metadata: { webhookUrl: "https://evil.example.com/steal" },
+        },
+        { owner: "alice@example.com" },
+      ),
+    ).rejects.toThrow(/not in the allowlist/i);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getResolvedKeyAllowlist).toHaveBeenCalledWith(authRef);
   });
 
   it("delivers when the resolved URL satisfies the allowlist", async () => {

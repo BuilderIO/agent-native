@@ -583,6 +583,11 @@ export interface ActionEntry {
    *  read-only/parallel-safe tool calls. Only use for actions that handle
    *  their own write ordering and idempotency. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the duplicate read-only
+   *  tool-call guard (per-turn result cache + repeat-kill). Default true. Use
+   *  for volatile/polling reads that are expected to return a different
+   *  result on each identical call. See `defineAction`'s `dedupe` option. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools-iframe bridge.
    *  **Default-allow opt-out**: only an explicit `false` returns 403.
    *  - `true` / `undefined` — allow.
@@ -2170,16 +2175,26 @@ function seedReadOnlyToolResultsFromHistory(
   const cache = new Map<string, string>();
   if (!isInternalContinuationTurn(messages)) return cache;
 
-  const pendingToolCalls = new Map<string, { name: string; input: unknown }>();
-  for (const message of messages) {
+  // Scoped to the current turn only (same slice as
+  // seedWriteToolInterruptionsFromHistory) — reads from a prior turn are no
+  // longer relevant context and must not seed skip-as-duplicate behavior.
+  const turnStart = findCurrentTurnStartForContinuation(messages);
+  const turnMessages = messages.slice(turnStart);
+
+  const pendingToolCalls = new Map<
+    string,
+    { name: string; input: unknown; readOnly: boolean; dedupe: boolean }
+  >();
+  for (const message of turnMessages) {
     if (message.role === "assistant") {
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
         const entry = actions[part.name];
-        if (entry?.readOnly !== true) continue;
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
+          readOnly: entry?.readOnly === true,
+          dedupe: entry?.dedupe !== false,
         });
       }
       continue;
@@ -2189,6 +2204,17 @@ function seedReadOnlyToolResultsFromHistory(
       if (part.type !== "tool-result") continue;
       const call = pendingToolCalls.get(part.toolCallId);
       if (!call) continue;
+      if (!call.readOnly) {
+        // Mirror the live loop: a successful write invalidates all cached
+        // reads (see the `readOnlyToolResultCache.clear()` call below), so a
+        // read seeded from before an intervening write must not be replayed
+        // as still-fresh.
+        if (part.isError !== true) cache.clear();
+        continue;
+      }
+      // dedupe:false read-only tools (volatile/polling reads) are never
+      // cached — every call must execute fresh, seeded or not.
+      if (!call.dedupe) continue;
       if (!isReusableReadOnlyToolResult(part)) continue;
       cache.set(toolCallCacheKey(call.name, call.input), part.content);
     }
@@ -2202,6 +2228,7 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   const lower = part.content.trim().toLowerCase();
   if (!lower) return false;
   return !(
+    lower.startsWith("skipped duplicate read-only call to ") ||
     lower.startsWith("invalid action parameters for ") ||
     lower.startsWith("error running ") ||
     lower.includes("run aborted") ||
@@ -2209,6 +2236,55 @@ function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
     lower.includes("stale_run") ||
     lower.includes("connection_error")
   );
+}
+
+/**
+ * Whether a cached read-only tool result is still something the model can
+ * actually see in `contextMessages` — the trimmed/summarized view the engine
+ * is streamed (NOT the raw, ever-growing `messages` array the cache is keyed
+ * off of). Context-xray `evict` drops tool-result parts entirely, `summarize`
+ * replaces their content with a placeholder, and observational-memory
+ * trimming drops whole older messages once active. When the cached result
+ * has fallen out of that view, re-serving "use the previous result" is not
+ * actionable — the model has nothing to point back to.
+ *
+ * A visible result must belong to the same tool name + normalized input and
+ * contain either the exact cached body or the exact wrapper used when that
+ * body was re-served after trimming. Matching only by a content suffix is too
+ * loose: short results such as "ok" can also end unrelated tool output.
+ */
+export function isCachedToolResultVisibleInContext(
+  contextMessages: EngineMessage[],
+  toolCall: { name: string; input: unknown },
+  cachedResult: string,
+): boolean {
+  if (cachedResult.length === 0) return true;
+  const cacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
+  const matchingToolCallIds = new Set<string>();
+  for (const message of contextMessages) {
+    if (message.role !== "assistant") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-call") continue;
+      if (toolCallCacheKey(part.name, part.input) === cacheKey) {
+        matchingToolCallIds.add(part.id);
+      }
+    }
+  }
+
+  const resurfacedResult =
+    `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
+    `Its earlier result is no longer in view, so here it is again:\n\n${cachedResult}`;
+  for (const message of contextMessages) {
+    if (message.role !== "user") continue;
+    for (const part of message.content) {
+      if (part.type !== "tool-result") continue;
+      if (!matchingToolCallIds.has(part.toolCallId)) continue;
+      if (part.content === cachedResult || part.content === resurfacedResult) {
+        return true;
+      }
+    }
+  }
+  return false;
 }
 
 /**
@@ -4339,18 +4415,50 @@ export async function runAgentLoop(opts: {
         };
       }
 
+      // dedupe: false opts a read-only tool out of the guard entirely — the
+      // cacheKey stays null so it never gets skipped-as-duplicate and never
+      // populates the cache (see the success handler below, which also
+      // leaves dedupe:false results uncached and un-cleared).
       const cacheKey =
-        actionEntry.readOnly === true
+        actionEntry.readOnly === true && actionEntry.dedupe !== false
           ? toolCallCacheKey(toolCall.name, toolCall.input)
           : null;
       if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
-        const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
-        duplicateReadOnlyToolCalls.set(cacheKey, repeats);
         const previousResult = readOnlyToolResultCache.get(cacheKey) ?? "";
-        const result =
-          `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
-          `Use the previous result already in the conversation instead of calling this tool again.\n\n` +
-          `Previous result:\n${previousResult}`;
+        // `contextMessages` (not `messages`) is what the model actually sees
+        // this iteration — context-xray eviction/summarization and
+        // observational-memory trimming can drop the earlier result from
+        // view even though it's still cached here. Only strike-count the
+        // repeat when the model could have looked back and found it itself.
+        const visible = isCachedToolResultVisibleInContext(
+          contextMessages,
+          toolCall,
+          previousResult,
+        );
+        let result: string;
+        if (visible) {
+          const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
+          duplicateReadOnlyToolCalls.set(cacheKey, repeats);
+          result =
+            `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
+            `Use the previous result already in the conversation instead of calling this tool again.`;
+          if (repeats >= 3) {
+            requestedActionStop ??= {
+              message:
+                "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+              errorCode: "duplicate_read_only_tool",
+            };
+          }
+        } else {
+          // The earlier result was trimmed out of the model's visible
+          // context — this isn't a repetitive loop, the model legitimately
+          // can't see the answer anymore. Re-serve it in full and don't
+          // count a strike.
+          duplicateReadOnlyToolCalls.set(cacheKey, 0);
+          result =
+            `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
+            `Its earlier result is no longer in view, so here it is again:\n\n${previousResult}`;
+        }
         send({
           type: "tool_done",
           id: toolCall.id,
@@ -4360,13 +4468,6 @@ export async function runAgentLoop(opts: {
           completedSideEffect: false,
         });
         recordToolResult(result, false);
-        if (repeats >= 3) {
-          requestedActionStop ??= {
-            message:
-              "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
-            errorCode: "duplicate_read_only_tool",
-          };
-        }
         return {
           type: "tool-result" as const,
           toolCallId: toolCall.id,
@@ -4638,7 +4739,11 @@ export async function runAgentLoop(opts: {
       if (!isError) {
         if (cacheKey) {
           readOnlyToolResultCache.set(cacheKey, result);
-        } else {
+        } else if (actionEntry.readOnly !== true) {
+          // A genuine write invalidates all cached reads. A dedupe:false
+          // read-only tool also has a null cacheKey (see above) but must NOT
+          // clear the cache — it isn't a write and other tools' cached reads
+          // are still valid.
           readOnlyToolResultCache.clear();
           duplicateReadOnlyToolCalls.clear();
         }
