@@ -21,18 +21,21 @@ export function requireUserEmail(email: string | undefined): string {
   return email;
 }
 
-export async function createStoredItem(input: {
-  ownerEmail: string;
-  title: string;
-  id: string;
-  now: string;
-  promotedToTask: boolean;
-}): Promise<StoredItem> {
+export async function createStoredItem(
+  input: {
+    ownerEmail: string;
+    title: string;
+    id: string;
+    now: string;
+    promotedToTask: boolean;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem> {
   const title = assertNonEmptyTitle(input.title, "Title is required.");
-  const db = getDb();
   const sortOrder = await nextSortOrderForNewItem(
     input.ownerEmail,
     input.promotedToTask,
+    db,
   );
 
   await db.insert(tasks).values({
@@ -46,22 +49,28 @@ export async function createStoredItem(input: {
     updatedAt: input.now,
   });
 
-  const item = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.id,
-    promotedToTask: input.promotedToTask,
-  });
+  const item = await getStoredItem(
+    {
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      promotedToTask: input.promotedToTask,
+    },
+    db,
+  );
   if (!item) {
     throw new Error("Failed to create stored item.");
   }
   return item;
 }
 
-export async function getStoredItem(input: {
-  ownerEmail: string;
-  id: string;
-  promotedToTask?: boolean;
-}): Promise<StoredItem | null> {
+export async function getStoredItem(
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask?: boolean;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem | null> {
   const conditions = [
     eq(tasks.id, input.id),
     eq(tasks.ownerEmail, input.ownerEmail),
@@ -70,7 +79,6 @@ export async function getStoredItem(input: {
     conditions.push(eq(tasks.promotedToTask, input.promotedToTask));
   }
 
-  const db = getDb();
   const [row] = await db
     .select()
     .from(tasks)
@@ -79,15 +87,17 @@ export async function getStoredItem(input: {
   return row ?? null;
 }
 
-export async function hasCompletedStoredItems(input: {
-  ownerEmail: string;
-  promotedToTask: boolean;
-}): Promise<boolean> {
+export async function hasCompletedStoredItems(
+  input: {
+    ownerEmail: string;
+    promotedToTask: boolean;
+  },
+  db: DbHandle = getDb(),
+): Promise<boolean> {
   if (!input.promotedToTask) {
     return false;
   }
 
-  const db = getDb();
   const [row] = await db
     .select({ id: tasks.id })
     .from(tasks)
@@ -102,12 +112,14 @@ export async function hasCompletedStoredItems(input: {
   return row !== undefined;
 }
 
-export async function listStoredItems(input: {
-  ownerEmail: string;
-  promotedToTask: boolean;
-  includeDone?: boolean;
-}): Promise<StoredItem[]> {
-  const db = getDb();
+export async function listStoredItems(
+  input: {
+    ownerEmail: string;
+    promotedToTask: boolean;
+    includeDone?: boolean;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem[]> {
   const filters = [
     eq(tasks.ownerEmail, input.ownerEmail),
     eq(tasks.promotedToTask, input.promotedToTask),
@@ -123,19 +135,25 @@ export async function listStoredItems(input: {
     .orderBy(asc(tasks.sortOrder), asc(tasks.createdAt));
 }
 
-export async function updateStoredItem(input: {
-  ownerEmail: string;
-  id: string;
-  promotedToTask: boolean;
-  title?: string;
-  done?: boolean;
-  now?: string;
-}): Promise<StoredItem> {
-  const existing = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.id,
-    promotedToTask: input.promotedToTask,
-  });
+export async function updateStoredItem(
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask: boolean;
+    title?: string;
+    done?: boolean;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem> {
+  const existing = await getStoredItem(
+    {
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      promotedToTask: input.promotedToTask,
+    },
+    db,
+  );
 
   if (!existing) {
     throw new Error("Stored item not found.");
@@ -159,7 +177,6 @@ export async function updateStoredItem(input: {
     patch.done = input.done;
   }
 
-  const db = getDb();
   await db
     .update(tasks)
     .set(patch)
@@ -171,28 +188,33 @@ export async function updateStoredItem(input: {
       ),
     );
 
-  const item = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.id,
-    promotedToTask: input.promotedToTask,
-  });
+  const item = await getStoredItem(
+    {
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      promotedToTask: input.promotedToTask,
+    },
+    db,
+  );
   if (!item) {
     throw new Error("Stored item not found.");
   }
   return item;
 }
 
-export async function deleteStoredItem(input: {
-  ownerEmail: string;
-  id: string;
-  promotedToTask: boolean;
-}): Promise<void> {
-  const existing = await getStoredItem(input);
+export async function deleteStoredItem(
+  input: {
+    ownerEmail: string;
+    id: string;
+    promotedToTask: boolean;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
+  const existing = await getStoredItem(input, db);
   if (!existing) {
     throw new Error("Stored item not found.");
   }
 
-  const db = getDb();
   await db
     .delete(tasks)
     .where(
@@ -204,16 +226,18 @@ export async function deleteStoredItem(input: {
     );
 }
 
-export async function assertStoredItemsExist(input: {
-  ownerEmail: string;
-  ids: string[];
-  promotedToTask: boolean;
-  notFoundMessage?: string;
-}): Promise<void> {
+export async function assertStoredItemsExist(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    promotedToTask: boolean;
+    notFoundMessage?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return;
 
-  const db = getDb();
   const found = await db
     .select({ id: tasks.id })
     .from(tasks)
@@ -231,16 +255,18 @@ export async function assertStoredItemsExist(input: {
 }
 
 /** Read stored items by id, returned in the order the ids were passed. */
-export async function listStoredItemsByIds(input: {
-  ownerEmail: string;
-  ids: string[];
-  promotedToTask: boolean;
-  notFoundMessage?: string;
-}): Promise<StoredItem[]> {
+export async function listStoredItemsByIds(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    promotedToTask: boolean;
+    notFoundMessage?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem[]> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return [];
 
-  const db = getDb();
   const rows = await db
     .select()
     .from(tasks)
@@ -262,8 +288,7 @@ export async function listStoredItemsByIds(input: {
   });
 }
 
-export async function updateStoredItemsInTx(
-  tx: DbHandle,
+export async function patchStoredItems(
   input: {
     ownerEmail: string;
     ids: string[];
@@ -272,6 +297,7 @@ export async function updateStoredItemsInTx(
     done?: boolean;
     now: string;
   },
+  db: DbHandle = getDb(),
 ): Promise<void> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return;
@@ -288,7 +314,7 @@ export async function updateStoredItemsInTx(
     patch.done = input.done;
   }
 
-  await tx
+  await db
     .update(tasks)
     .set(patch)
     .where(
@@ -300,8 +326,7 @@ export async function updateStoredItemsInTx(
     );
 }
 
-export async function updateStoredItemInTx(
-  tx: DbHandle,
+export async function patchStoredItem(
   input: {
     ownerEmail: string;
     id: string;
@@ -310,22 +335,24 @@ export async function updateStoredItemInTx(
     done?: boolean;
     now: string;
   },
+  db: DbHandle = getDb(),
 ): Promise<void> {
-  await updateStoredItemsInTx(tx, { ...input, ids: [input.id] });
+  await patchStoredItems({ ...input, ids: [input.id] }, db);
 }
 
-export async function deleteStoredItemsInTx(
-  tx: DbHandle,
+/** Delete by id. Unlike `deleteStoredItem`, this does not check existence first. */
+export async function deleteStoredItemsByIds(
   input: {
     ownerEmail: string;
     ids: string[];
     promotedToTask: boolean;
   },
+  db: DbHandle = getDb(),
 ): Promise<void> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return;
 
-  await tx
+  await db
     .delete(tasks)
     .where(
       and(
@@ -336,40 +363,45 @@ export async function deleteStoredItemsInTx(
     );
 }
 
-export async function deleteStoredItemInTx(
-  tx: DbHandle,
+export async function deleteStoredItemById(
   input: {
     ownerEmail: string;
     id: string;
     promotedToTask: boolean;
   },
+  db: DbHandle = getDb(),
 ): Promise<void> {
-  await deleteStoredItemsInTx(tx, { ...input, ids: [input.id] });
+  await deleteStoredItemsByIds({ ...input, ids: [input.id] }, db);
 }
 
-export async function reorderStoredItems(input: {
-  ownerEmail: string;
-  promotedToTask: boolean;
-  orderedIds: string[];
-  includeDone?: boolean;
-  idLabel?: string;
-}): Promise<void> {
+export async function reorderStoredItems(
+  input: {
+    ownerEmail: string;
+    promotedToTask: boolean;
+    orderedIds: string[];
+    includeDone?: boolean;
+    idLabel?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
   const idLabel =
     input.idLabel ?? (input.promotedToTask ? "taskIds" : "inboxItemIds");
-  const visibleItems = await listStoredItems({
-    ownerEmail: input.ownerEmail,
-    promotedToTask: input.promotedToTask,
-    includeDone: input.includeDone,
-  });
+  const visibleItems = await listStoredItems(
+    {
+      ownerEmail: input.ownerEmail,
+      promotedToTask: input.promotedToTask,
+      includeDone: input.includeDone,
+    },
+    db,
+  );
   const visibleIds = new Set(visibleItems.map((item) => item.id));
   validateVisibleReorder(input.orderedIds, visibleIds, idLabel);
 
   if (!input.promotedToTask) {
-    await applySortOrderUpdates(input);
+    await applySortOrderUpdates(input, db);
     return;
   }
 
-  const db = getDb();
   const allPromotedItems = await db
     .select()
     .from(tasks)
@@ -441,18 +473,21 @@ function validateVisibleReorder(
   }
 }
 
-async function applySortOrderUpdates(input: {
-  ownerEmail: string;
-  promotedToTask: boolean;
-  orderedIds: string[];
-}): Promise<void> {
+async function applySortOrderUpdates(
+  input: {
+    ownerEmail: string;
+    promotedToTask: boolean;
+    orderedIds: string[];
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
   const timestamp = new Date().toISOString();
   const entries = input.orderedIds.map((id, index) => ({
     id,
     value: index * SORT_GAP,
   }));
 
-  await getDb().transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     for (const group of chunk(entries)) {
       await tx
         .update(tasks)
@@ -472,25 +507,30 @@ async function applySortOrderUpdates(input: {
 }
 
 /** Set `promotedToTask` from false → true on an existing stored item (same id). */
-export async function promoteStoredItemToTask(input: {
-  ownerEmail: string;
-  id: string;
-  now?: string;
-}): Promise<StoredItem> {
-  const existing = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.id,
-    promotedToTask: false,
-  });
+export async function promoteStoredItemToTask(
+  input: {
+    ownerEmail: string;
+    id: string;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem> {
+  const existing = await getStoredItem(
+    {
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      promotedToTask: false,
+    },
+    db,
+  );
 
   if (!existing) {
     throw new Error("Stored item not found.");
   }
 
   const timestamp = input.now ?? new Date().toISOString();
-  const sortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
+  const sortOrder = await nextSortOrderForNewItem(input.ownerEmail, true, db);
 
-  const db = getDb();
   await db
     .update(tasks)
     .set({
@@ -507,42 +547,55 @@ export async function promoteStoredItemToTask(input: {
       ),
     );
 
-  const item = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.id,
-    promotedToTask: true,
-  });
+  const item = await getStoredItem(
+    {
+      ownerEmail: input.ownerEmail,
+      id: input.id,
+      promotedToTask: true,
+    },
+    db,
+  );
   if (!item) {
     throw new Error("Stored item not found.");
   }
   return item;
 }
 
-export async function bulkPromoteStoredItemsToTasks(input: {
-  ownerEmail: string;
-  ids: string[];
-  now?: string;
-}): Promise<StoredItem[]> {
+export async function bulkPromoteStoredItemsToTasks(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<StoredItem[]> {
   const uniqueIds = [...new Set(input.ids)];
   if (uniqueIds.length === 0) {
     throw new Error("Provide at least one inbox item id.");
   }
 
-  await assertStoredItemsExist({
-    ownerEmail: input.ownerEmail,
-    ids: uniqueIds,
-    promotedToTask: false,
-    notFoundMessage: "Stored item not found.",
-  });
+  await assertStoredItemsExist(
+    {
+      ownerEmail: input.ownerEmail,
+      ids: uniqueIds,
+      promotedToTask: false,
+      notFoundMessage: "Stored item not found.",
+    },
+    db,
+  );
 
   const timestamp = input.now ?? new Date().toISOString();
-  const topSortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
+  const topSortOrder = await nextSortOrderForNewItem(
+    input.ownerEmail,
+    true,
+    db,
+  );
   const entries = uniqueIds.map((id, index) => ({
     id,
     value: topSortOrder - index * SORT_GAP,
   }));
 
-  await getDb().transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     for (const group of chunk(entries)) {
       await tx
         .update(tasks)
@@ -565,11 +618,14 @@ export async function bulkPromoteStoredItemsToTasks(input: {
     }
   });
 
-  return listStoredItemsByIds({
-    ownerEmail: input.ownerEmail,
-    ids: uniqueIds,
-    promotedToTask: true,
-  });
+  return listStoredItemsByIds(
+    {
+      ownerEmail: input.ownerEmail,
+      ids: uniqueIds,
+      promotedToTask: true,
+    },
+    db,
+  );
 }
 
 function assertNonEmptyTitle(title: string, emptyMessage: string): string {
@@ -583,8 +639,9 @@ function assertNonEmptyTitle(title: string, emptyMessage: string): string {
 async function nextSortOrderForNewItem(
   ownerEmail: string,
   promotedToTask: boolean,
+  db: DbHandle = getDb(),
 ): Promise<number> {
-  const minSort = await minSortOrderForOwner(ownerEmail, promotedToTask);
+  const minSort = await minSortOrderForOwner(ownerEmail, promotedToTask, db);
   if (minSort == null) return 0;
   return minSort - SORT_GAP;
 }
@@ -592,8 +649,8 @@ async function nextSortOrderForNewItem(
 async function minSortOrderForOwner(
   ownerEmail: string,
   promotedToTask: boolean,
+  db: DbHandle = getDb(),
 ): Promise<number | null> {
-  const db = getDb();
   const [row] = await db
     .select({ minSort: min(tasks.sortOrder) })
     .from(tasks)

@@ -62,13 +62,16 @@ export {
 
 const SORT_GAP = 1000;
 
-export async function createCustomField(input: {
-  ownerEmail: string;
-  title: string;
-  type: FieldType;
-  config?: unknown;
-  now?: string;
-}): Promise<FieldDefinition> {
+export async function createCustomField(
+  input: {
+    ownerEmail: string;
+    title: string;
+    type: FieldType;
+    config?: unknown;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<FieldDefinition> {
   const createdAt = timestamp(input.now);
   const type = parseFieldType(input.type);
   validateFieldTitle(input.title);
@@ -83,7 +86,6 @@ export async function createCustomField(input: {
     updatedAt: createdAt,
   };
 
-  const db = getDb();
   await db.insert(customFields).values(field);
   const created = await getCustomField({
     ownerEmail: input.ownerEmail,
@@ -93,11 +95,13 @@ export async function createCustomField(input: {
   return created;
 }
 
-export async function getCustomField(input: {
-  ownerEmail: string;
-  fieldId: string;
-}): Promise<FieldDefinition | null> {
-  const db = getDb();
+export async function getCustomField(
+  input: {
+    ownerEmail: string;
+    fieldId: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<FieldDefinition | null> {
   const [row] = await db
     .select()
     .from(customFields)
@@ -111,17 +115,19 @@ export async function getCustomField(input: {
   return row ? parseField(row) : null;
 }
 
-export async function listCustomFields(input: {
-  ownerEmail: string;
-  fieldIds?: string[];
-}): Promise<{ fields: FieldDefinition[] }> {
+export async function listCustomFields(
+  input: {
+    ownerEmail: string;
+    fieldIds?: string[];
+  },
+  db: DbHandle = getDb(),
+): Promise<{ fields: FieldDefinition[] }> {
   const fieldIds = input.fieldIds ? [...new Set(input.fieldIds)] : undefined;
   if (fieldIds?.length === 0) return { fields: [] };
 
   const conditions = [eq(customFields.ownerEmail, input.ownerEmail)];
   if (fieldIds) conditions.push(inArray(customFields.id, fieldIds));
 
-  const db = getDb();
   const rows = await db
     .select()
     .from(customFields)
@@ -130,13 +136,16 @@ export async function listCustomFields(input: {
   return { fields: rows.map(parseField) };
 }
 
-export async function updateCustomField(input: {
-  ownerEmail: string;
-  fieldId: string;
-  title?: string;
-  config?: unknown;
-  now?: string;
-}): Promise<FieldDefinition> {
+export async function updateCustomField(
+  input: {
+    ownerEmail: string;
+    fieldId: string;
+    title?: string;
+    config?: unknown;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<FieldDefinition> {
   const existing = await getCustomField({
     ownerEmail: input.ownerEmail,
     fieldId: input.fieldId,
@@ -156,7 +165,7 @@ export async function updateCustomField(input: {
     patch.configJson = serializeFieldConfig(existing.type, input.config);
   }
 
-  const updated = await getDb().transaction(async (tx) => {
+  const updated = await db.transaction(async (tx) => {
     await tx
       .update(customFields)
       .set(patch)
@@ -246,17 +255,20 @@ function selectOptionIds(field: FieldDefinition) {
     : [];
 }
 
-export async function deleteCustomField(input: {
-  ownerEmail: string;
-  fieldId: string;
-}): Promise<{ ok: true; deletedValues: number }> {
+export async function deleteCustomField(
+  input: {
+    ownerEmail: string;
+    fieldId: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<{ ok: true; deletedValues: number }> {
   const existing = await getCustomField({
     ownerEmail: input.ownerEmail,
     fieldId: input.fieldId,
   });
   if (!existing) throw new Error("Custom field not found.");
 
-  const { deletedValues } = await getDb().transaction(async (tx) => {
+  const { deletedValues } = await db.transaction(async (tx) => {
     const result = await deleteCustomFieldValues(input, tx);
     await tx
       .delete(customFields)
@@ -277,10 +289,13 @@ export async function deleteCustomField(input: {
   return { ok: true, deletedValues };
 }
 
-export async function reorderCustomFields(input: {
-  ownerEmail: string;
-  fieldIds: string[];
-}): Promise<{ fields: FieldDefinition[] }> {
+export async function reorderCustomFields(
+  input: {
+    ownerEmail: string;
+    fieldIds: string[];
+  },
+  db: DbHandle = getDb(),
+): Promise<{ fields: FieldDefinition[] }> {
   const { fields: existing } = await listCustomFields({
     ownerEmail: input.ownerEmail,
   });
@@ -302,7 +317,7 @@ export async function reorderCustomFields(input: {
     value: index * SORT_GAP,
   }));
 
-  await getDb().transaction(async (tx) => {
+  await db.transaction(async (tx) => {
     for (const group of chunk(entries)) {
       await tx
         .update(customFields)

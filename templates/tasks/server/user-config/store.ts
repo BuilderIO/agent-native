@@ -8,6 +8,7 @@ import { listCustomFields } from "../custom-fields/store.js";
 import { getDb } from "../db/index.js";
 import { timestamp } from "../db/record-utils.js";
 import { userConfig } from "../db/schema.js";
+import type { DbHandle } from "../db/transaction.js";
 
 export { DEFAULT_TASK_CARD_FIELD_NAMES, TASK_CARD_FIELD_LIMIT };
 
@@ -47,13 +48,15 @@ function filterKnownFieldIds(
   return fieldIds.filter((fieldId) => knownIds.has(fieldId));
 }
 
-export async function getTaskCardFieldIds(input: {
-  ownerEmail: string;
-}): Promise<string[]> {
+export async function getTaskCardFieldIds(
+  input: {
+    ownerEmail: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<string[]> {
   const { fields } = await listCustomFields({ ownerEmail: input.ownerEmail });
   const knownIds = new Set(fields.map((field) => field.id));
 
-  const db = getDb();
   const [row] = await db
     .select()
     .from(userConfig)
@@ -70,11 +73,14 @@ export async function getTaskCardFieldIds(input: {
   );
 }
 
-export async function setTaskCardFieldIds(input: {
-  ownerEmail: string;
-  fieldIds: readonly string[];
-  now?: string;
-}): Promise<string[]> {
+export async function setTaskCardFieldIds(
+  input: {
+    ownerEmail: string;
+    fieldIds: readonly string[];
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<string[]> {
   const { fields } = await listCustomFields({ ownerEmail: input.ownerEmail });
   const knownIds = new Set(fields.map((field) => field.id));
   const next = dedupeFieldIds(input.fieldIds);
@@ -85,7 +91,6 @@ export async function setTaskCardFieldIds(input: {
 
   const updatedAt = timestamp(input.now);
   const taskCardFieldIdsJson = JSON.stringify(next);
-  const db = getDb();
 
   await db
     .insert(userConfig)
@@ -102,12 +107,14 @@ export async function setTaskCardFieldIds(input: {
   return next;
 }
 
-export async function removeTaskCardFieldId(input: {
-  ownerEmail: string;
-  fieldId: string;
-  now?: string;
-}): Promise<void> {
-  const db = getDb();
+export async function removeTaskCardFieldId(
+  input: {
+    ownerEmail: string;
+    fieldId: string;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
   const [row] = await db
     .select()
     .from(userConfig)

@@ -26,23 +26,28 @@ export type PreparedFieldValuePatch = {
   value: FieldValue | null;
 };
 
-export async function prepareCustomFieldValuePatches(input: {
-  ownerEmail: string;
-  taskId: string;
-  values: Array<{ fieldId: string; value: FieldValueInput }>;
-}): Promise<Map<string, PreparedFieldValuePatch>> {
+export async function prepareCustomFieldValuePatches(
+  input: {
+    ownerEmail: string;
+    taskId: string;
+    values: Array<{ fieldId: string; value: FieldValueInput }>;
+  },
+  db: DbHandle = getDb(),
+): Promise<Map<string, PreparedFieldValuePatch>> {
   if (input.values.length === 0) {
     return new Map();
   }
 
-  const task = await getStoredItem({
-    ownerEmail: input.ownerEmail,
-    id: input.taskId,
-    promotedToTask: true,
-  });
+  const task = await getStoredItem(
+    {
+      ownerEmail: input.ownerEmail,
+      id: input.taskId,
+      promotedToTask: true,
+    },
+    db,
+  );
   if (!task) throw new Error("Task not found.");
 
-  const db = getDb();
   const fields = await db
     .select()
     .from(customFields)
@@ -80,14 +85,14 @@ export async function prepareCustomFieldValuePatches(input: {
   return normalizedValues;
 }
 
-export async function applyCustomFieldValuePatchesInTx(
-  tx: DbHandle,
+export async function applyCustomFieldValuePatches(
   input: {
     ownerEmail: string;
     taskId: string;
     patches: Map<string, PreparedFieldValuePatch>;
     updatedAt: string;
   },
+  db: DbHandle = getDb(),
 ): Promise<void> {
   const patches = [...input.patches.values()];
   const clearedFieldIds = patches
@@ -106,7 +111,7 @@ export async function applyCustomFieldValuePatchesInTx(
     }));
 
   if (clearedFieldIds.length > 0) {
-    await tx
+    await db
       .delete(customFieldValues)
       .where(
         and(
@@ -118,7 +123,7 @@ export async function applyCustomFieldValuePatchesInTx(
   }
 
   for (const group of chunk(rows)) {
-    await tx
+    await db
       .insert(customFieldValues)
       .values(group)
       .onConflictDoUpdate({
@@ -186,12 +191,14 @@ export async function setCustomFieldValueJsonByIds(
   }
 }
 
-export async function getCustomFieldValue(input: {
-  ownerEmail: string;
-  taskId: string;
-  fieldId: string;
-}): Promise<FieldValue | null> {
-  const db = getDb();
+export async function getCustomFieldValue(
+  input: {
+    ownerEmail: string;
+    taskId: string;
+    fieldId: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<FieldValue | null> {
   const [row] = await db
     .select()
     .from(customFieldValues)
@@ -246,23 +253,29 @@ export async function listCustomFieldValues(
     .where(and(...conditions));
 }
 
-export async function updateCustomFieldValues(input: {
-  ownerEmail: string;
-  taskId: string;
-  values: Array<{ fieldId: string; value: FieldValueInput }>;
-  now?: string;
-}): Promise<void> {
-  const patches = await prepareCustomFieldValuePatches(input);
+export async function updateCustomFieldValues(
+  input: {
+    ownerEmail: string;
+    taskId: string;
+    values: Array<{ fieldId: string; value: FieldValueInput }>;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
+  const patches = await prepareCustomFieldValuePatches(input, db);
   if (patches.size === 0) return;
 
   const updatedAt = timestamp(input.now);
-  await getDb().transaction(async (tx) => {
-    await applyCustomFieldValuePatchesInTx(tx, {
-      ownerEmail: input.ownerEmail,
-      taskId: input.taskId,
-      patches,
-      updatedAt,
-    });
+  await db.transaction(async (tx) => {
+    await applyCustomFieldValuePatches(
+      {
+        ownerEmail: input.ownerEmail,
+        taskId: input.taskId,
+        patches,
+        updatedAt,
+      },
+      tx,
+    );
   });
 }
 
