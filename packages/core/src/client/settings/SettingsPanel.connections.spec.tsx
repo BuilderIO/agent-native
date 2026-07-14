@@ -93,4 +93,59 @@ describe("ConnectionsSettingsContent", () => {
 
     act(() => root.unmount());
   });
+
+  it("keeps Builder account connection available without a branch project", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/_agent-native/connection-status/builder")) {
+          return new Response(
+            JSON.stringify({
+              configured: false,
+              builderEnabled: false,
+              envManaged: false,
+              orgName: null,
+              connectUrl: "/_agent-native/builder/connect?_an_connect=test",
+              appHost: "https://builder.io",
+              apiHost: "https://api.builder.io",
+              publicKeyConfigured: false,
+              privateKeyConfigured: false,
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+
+    await act(async () => {
+      root.render(
+        <ConnectionsSettingsContent
+          settingsPanelProps={{
+            isDevMode: false,
+            onToggleDevMode: vi.fn(),
+            showDevToggle: false,
+          }}
+        />,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const connectButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Connect Builder"),
+    );
+    expect(container.textContent).toContain("Ready to connect");
+    expect(connectButton?.disabled).toBe(false);
+
+    act(() => root.unmount());
+  });
 });
