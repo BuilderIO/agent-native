@@ -2660,9 +2660,9 @@ describe("bundled PR visual recap workflow", () => {
         "AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source",
       );
       expect(workflow).toContain(
-        "$RECAP_CLI code exec --permission-mode auto-edit",
+        "$CODE_CLI code exec --permission-mode auto-edit",
       );
-      expect(workflow).not.toContain("$RECAP_CLI code exec --full-auto");
+      expect(workflow).not.toContain("$CODE_CLI code exec --full-auto");
       expect(workflow).toContain("@agent-native/recap-cli@$VERSION");
       expect(workflow).toContain("--ignore-scripts");
       expect(workflow).not.toContain("@agent-native/core@$VERSION");

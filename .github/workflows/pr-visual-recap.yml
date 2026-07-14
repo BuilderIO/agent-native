@@ -300,6 +300,7 @@ jobs:
           pnpm install --frozen-lockfile --ignore-scripts
           pnpm --filter @agent-native/recap-cli build
           echo "RECAP_CLI=$PWD/node_modules/.bin/tsx $PWD/packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
+          echo "CODE_CLI=$PWD/node_modules/.bin/tsx $PWD/packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$PWD/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install published recap CLI
@@ -327,6 +328,8 @@ jobs:
         run: |
           set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai
+          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts @agent-native/core@latest
+          echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -579,7 +582,7 @@ jobs:
           rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
           run_openai_compatible() {
             set +e
-            $RECAP_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
