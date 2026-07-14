@@ -748,21 +748,6 @@ function MeetingsHeader({
             )}
           </div>
         </div>
-        {showDesktopCta && (
-          <div className="flex w-fit shrink-0 flex-col items-start gap-1 sm:items-end">
-            <CaptureInstallButton
-              size="sm"
-              variant="secondary"
-              className="h-8 w-fit gap-1.5 cursor-pointer"
-            >
-              <IconAppWindow className="h-4 w-4" />
-              {t("meetingsRoute.getDesktopApp")}
-            </CaptureInstallButton>
-            <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
-              {t("meetingsRoute.requiredForReminders")}
-            </p>
-          </div>
-        )}
       </div>
     </>
   );
