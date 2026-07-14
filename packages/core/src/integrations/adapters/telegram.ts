@@ -252,6 +252,15 @@ export function telegramAdapter(): PlatformAdapter {
                   `Telegram sendMessage retry failed (HTTP ${retry.status})`,
                 );
               }
+              const retryData = (await retry.json()) as {
+                ok: boolean;
+                description?: string;
+              };
+              if (!retryData.ok) {
+                throw new Error(
+                  `Telegram sendMessage retry failed: ${retryData.description ?? "unknown error"}`,
+                );
+              }
             } else {
               throw new Error(
                 `Telegram sendMessage failed: ${data.description ?? "unknown error"}`,

@@ -655,6 +655,13 @@ function boundedString(value: unknown): string | undefined {
     : undefined;
 }
 
+function promptSafeJson(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("&", "\\u0026")
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e");
+}
+
 function messageTextContent(message: any): string {
   if (typeof message?.content === "string") return message.content;
   if (!Array.isArray(message?.content)) return "";
@@ -713,7 +720,7 @@ export function threadMessageTextForEngine(message: any): string {
   const context = [
     "<integration_artifact_context>",
     "Trusted action history for this conversation. Resource IDs remain stable if participants rename the resource. Use these IDs when a follow-up refers to an earlier artifact, while still deciding from the request whether to update, add, supersede, or create.",
-    JSON.stringify(artifacts),
+    promptSafeJson(artifacts),
     "</integration_artifact_context>",
   ].join("\n");
   text = text.trim() ? `${text.trim()}\n\n${context}` : context;

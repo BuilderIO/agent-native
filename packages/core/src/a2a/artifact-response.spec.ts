@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendA2AArtifactLinks,
@@ -7,6 +7,7 @@ import {
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("appends a document URL from a successful create-document result", () => {
     const text = appendA2AArtifactLinks(
       "Created the brief.",
@@ -87,6 +88,7 @@ describe("appendA2AArtifactLinks", () => {
   });
 
   it("trusts delegated identity only through the persisted-artifact marker", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-artifact-provenance");
     const downstream = appendA2AArtifactLinks(
       "Filed the design ask.",
       [
@@ -126,6 +128,15 @@ describe("appendA2AArtifactLinks", () => {
           tool: "call-agent",
           result:
             "Artifacts:\n- Document: https://content.agent.test/page/read_only (ID: read_only)",
+        },
+      ]),
+    ).toEqual([]);
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result: downstream.replace(/\.[a-f0-9]{64}\s*-->/, ".deadbeef -->"),
         },
       ]),
     ).toEqual([]);

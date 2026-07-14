@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 export interface A2AToolResultSummary {
   tool: string;
   result: string;
@@ -68,12 +70,23 @@ const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
 function persistedArtifactIdentitiesFromMarker(
   result: string,
 ): A2AArtifactIdentity[] {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) return [];
   const match = result.match(
-    /<!--\s*agent-native:persisted-artifacts=([^\s]+)\s*-->/,
+    /<!--\s*agent-native:persisted-artifacts=([^\s.]+)\.([a-f0-9]{64})\s*-->/,
   );
   if (!match) return [];
   try {
-    const parsed = JSON.parse(decodeURIComponent(match[1]));
+    const payload = match[1];
+    const expected = createHmac("sha256", secret).update(payload).digest();
+    const supplied = Buffer.from(match[2], "hex");
+    if (
+      supplied.length !== expected.length ||
+      !timingSafeEqual(supplied, expected)
+    ) {
+      return [];
+    }
+    const parsed = JSON.parse(decodeURIComponent(payload));
     if (!Array.isArray(parsed)) return [];
     return parsed
       .slice(0, 12)
@@ -98,8 +111,11 @@ function withPersistedArtifactMarker(
   toolResults: A2AToolResultSummary[],
 ): string {
   const identities = extractA2AArtifactIdentities(toolResults).slice(0, 12);
-  if (identities.length === 0) return text;
-  const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${encodeURIComponent(JSON.stringify(identities))} -->`;
+  const secret = process.env.A2A_SECRET;
+  if (identities.length === 0 || !secret) return text;
+  const payload = encodeURIComponent(JSON.stringify(identities));
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
   return text ? `${text}\n\n${marker}` : marker;
 }
 
