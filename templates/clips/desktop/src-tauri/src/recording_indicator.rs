@@ -543,6 +543,7 @@ pub async fn recording_pill_set_detached(app: AppHandle, detached: bool) -> Resu
         // by the time we hit `anchored_rect` below, the new flag has
         // already taken effect and we get the right size + position for
         // the destination mode. (The atomic was flipped above.)
+        PILL_EXPANDED.store(false, Ordering::SeqCst);
         let (w, h, x, y) = anchored_rect(&app, false, None);
         let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = window.set_position(PhysicalPosition::new(x, y));
