@@ -52,6 +52,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
+import { logUploadTiming } from "../../../../lib/upload-timing.js";
 import {
   allowsSqlRecordingChunkScratch,
   shouldRejectVideoUploadWithoutStorage,
@@ -129,6 +130,7 @@ function trackUploadBlockingFailure(
 }
 
 export default defineEventHandler(async (event: H3Event) => {
+  const chunkStartedAt = Date.now();
   const recordingId = getRouterParam(event, "recordingId");
   if (!recordingId) {
     throw createError({ statusCode: 400, message: "Missing recordingId" });
@@ -296,6 +298,12 @@ export default defineEventHandler(async (event: H3Event) => {
     const raw = await readRawBody(event, false);
     const bodySize = raw ? raw.byteLength : 0;
     debugLog("[chunk] body size:", bodySize, "isFinal:", isFinal);
+    logUploadTiming({
+      recordingId: getRouterParam(event, "recordingId") ?? "?",
+      phase: "chunk-received",
+      bytes: bodySize,
+      readMs: Date.now() - chunkStartedAt,
+    });
     if (bodySize > MAX_CHUNK_BYTES) {
       setResponseStatus(event, 413);
       return { error: "Chunk too large" };

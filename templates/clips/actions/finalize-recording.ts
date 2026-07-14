@@ -44,6 +44,7 @@ import {
 } from "../server/lib/resumable-session.js";
 import { resolveResumableUploadProvider } from "../server/lib/resumable-upload-provider.js";
 import { isStreamingUploadDisabled } from "../server/lib/streaming-upload-mode.js";
+import { logUploadTiming } from "../server/lib/upload-timing.js";
 import {
   probeHasAudioStream,
   remuxWebmToSeekable,
@@ -157,6 +158,8 @@ async function responseHasReadableMediaBytes(
 
 async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
   if (!shouldVerifyServedMediaUrl(videoUrl)) return;
+  const verifyStartedAt = Date.now();
+  let verifyAttempts = 0;
 
   let lastFailure = "media URL did not serve readable bytes";
   for (
@@ -175,8 +178,15 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
         headers: { Range: "bytes=0-1023" },
         signal: controller.signal,
       });
+      verifyAttempts = attempt;
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk && (await responseHasReadableMediaBytes(response))) {
+        logUploadTiming({
+          phase: "verify-served",
+          url: videoUrl.slice(0, 60),
+          ms: Date.now() - verifyStartedAt,
+          attempts: attempt,
+        });
         return;
       }
       lastFailure = `media URL returned HTTP ${response.status}`;
@@ -192,6 +202,12 @@ async function verifyServedMediaUrl(videoUrl: string): Promise<void> {
     }
   }
 
+  logUploadTiming({
+    phase: "verify-served-failed",
+    url: videoUrl.slice(0, 60),
+    ms: Date.now() - verifyStartedAt,
+    attempts: verifyAttempts,
+  });
   throw new Error(`Upload was stored-but-unservable: ${lastFailure}`);
 }
 
@@ -474,6 +490,8 @@ export default defineAction({
     const ownerEmail = getCurrentOwnerEmail();
     const id = args.id;
     debugLog("[finalize] starting", { id, ownerEmail });
+    const finalizeStartedAt = Date.now();
+    logUploadTiming({ recordingId: id, phase: "finalize-start" });
 
     // Keys of chunks we normally delete after finalize exits.
     // Collected as soon as we list chunks and purged in a finally-block so
@@ -884,7 +902,14 @@ export default defineAction({
         // background pass. Best-effort: on any failure we upload the original.
         if (assembled.byteLength <= inlineRemuxMaxBytes()) {
           try {
+            const remuxStartedAt = Date.now();
             const seekable = await remuxWebmToSeekable(uploadData);
+            logUploadTiming({
+              recordingId: id,
+              phase: "inline-remux",
+              ms: Date.now() - remuxStartedAt,
+              bytes: uploadData.byteLength,
+            });
             if (seekable.changed) {
               uploadData = seekable.bytes;
               seekableApplied = true;
@@ -1001,6 +1026,7 @@ export default defineAction({
       }
 
       let upload: Awaited<ReturnType<typeof uploadFile>>;
+      const storageUploadStartedAt = Date.now();
       try {
         upload = await uploadFile({
           data: uploadData,
@@ -1009,6 +1035,12 @@ export default defineAction({
           ownerEmail,
           stableUrl: true,
           recordAsset: false,
+        });
+        logUploadTiming({
+          recordingId: id,
+          phase: "storage-upload",
+          ms: Date.now() - storageUploadStartedAt,
+          bytes: uploadData.byteLength,
         });
       } catch (err) {
         // Capture structured context so a "Builder.io upload failed (500)" can
@@ -1202,6 +1234,11 @@ export default defineAction({
       }
       return result;
     } finally {
+      logUploadTiming({
+        recordingId: id,
+        phase: "finalize-total",
+        ms: Date.now() - finalizeStartedAt,
+      });
       // Unconditional chunk scratch-space cleanup. Runs on success AND on
       // error — a throw during uploadFile / drizzle update / anything else
       // used to leave gigabytes of base64 chunks in application_state
