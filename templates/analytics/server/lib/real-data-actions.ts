@@ -57,6 +57,22 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
+// Inspecting or cloning an existing dashboard/extension template is
+// construction progress, not a metric query. These do not satisfy
+// hasDataQueryAttempt, but they should stop the guard from steering a
+// template-clone turn into "connect a missing source".
+export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "get-sql-dashboard",
+  "update-dashboard",
+  "mutate-dashboard",
+  "compose-dashboard",
+  "install-dashboard-template",
+  "get-extension",
+  "create-extension",
+  "update-extension",
+  "list-extensions",
+]);
+
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
@@ -95,6 +111,47 @@ function isToolName(name: string, expected: string): boolean {
 
 function isDataQueryActionName(name: string): boolean {
   return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardConstructionActionName(name: string): boolean {
+  return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+// "Build/clone/template" language targeting a dashboard/extension/panel is
+// dashboard construction, distinct from an analytics-result question. Turns
+// like this may inspect and clone a template without running a metric query.
+const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
+  /\b(build|create|make|clone|copy|duplicate|adapt|template|based (?:off|on)|using .+ as a template)\b/i;
+
+const DASHBOARD_CONSTRUCTION_TARGET_TERMS = /\b(dashboard|extension|panel|widget)\b/i;
+
+export function looksLikeDashboardConstructionRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const lower = requestText.toLowerCase();
+  if (!lower) return false;
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  const targetsDashboard =
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
+  return wantsBuild && targetsDashboard;
+}
+
+export function hasDashboardConstructionAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardConstructionActionName(String(result.name ?? ""));
+  });
+}
+
+const METRIC_CLAIM_TERM =
+  /(?:\b\d[\d,.]*(?:\.\d+)?\b(?:\s+\w+){0,2}?\s*(?:%|users?|sessions?|events?|deals?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|indicate|returned|found)\b)/i;
+
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return METRIC_CLAIM_TERM.test(String(text ?? "").trim());
 }
 
 function isCorpusSourceActionName(name: string): boolean {
