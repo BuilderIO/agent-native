@@ -6,6 +6,7 @@ import type {
   BuilderCmsModelsResponse,
   ChangeContentDatabaseSourceRoleRequest,
   ContentDatabaseResponse,
+  ContentDatabaseSourceType,
   ContentDatabasePersonalViewResponse,
   ContentDatabaseSourceFieldMapping,
   CreateInlineDatabaseRequest,
@@ -862,11 +863,7 @@ export function useContentDatabases(args: {
 
 export function useSuggestSourceJoinKey(args: {
   documentId: string;
-  candidateSourceType:
-    | "mock-local"
-    | "builder-cms"
-    | "local-table"
-    | "notion-database";
+  candidateSourceType: ContentDatabaseSourceType;
   candidateSourceTable: string;
   enabled: boolean;
 }) {

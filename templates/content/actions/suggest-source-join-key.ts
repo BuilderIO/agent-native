@@ -29,6 +29,8 @@ export default defineAction({
       "mock-local",
       "builder-cms",
       "local-table",
+      "local-folder",
+      "github-url",
       "notion-database",
     ]),
     candidateSourceTable: z

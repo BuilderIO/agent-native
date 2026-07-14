@@ -43,7 +43,14 @@ import {
 } from "./_local-table-source.js";
 
 const sourceTypeSchema = z
-  .enum(["mock-local", "builder-cms", "local-table", "notion-database"])
+  .enum([
+    "mock-local",
+    "builder-cms",
+    "local-table",
+    "local-folder",
+    "github-url",
+    "notion-database",
+  ])
   .default("mock-local");
 const BUILDER_CMS_ATTACH_INITIAL_PAGES = 1;
 
@@ -252,9 +259,14 @@ export default defineAction({
         ? "Builder CMS"
         : sourceType === "notion-database"
           ? "Notion database"
-          : "Mock local source");
-    const sourceTable =
-      args.sourceTable?.trim() ||
+          : sourceType === "local-folder"
+            ? "Local folder"
+            : sourceType === "github-url"
+              ? "GitHub URL"
+              : "Mock local source");
+    const sourceTable = args.sourceTable?.trim() || "";
+    const resolvedSourceTable =
+      sourceTable ||
       (sourceType === "builder-cms" ? "blog_article" : "content_items");
     if (
       (sourceType === "local-folder" || sourceType === "github-url") &&
@@ -567,6 +579,36 @@ export default defineAction({
     }
 
     if (relationshipMode === "items" && existingSource) {
+      if (sourceType === "local-folder" || sourceType === "github-url") {
+        if (
+          await databaseSourceExistsForTable(database.id, resolvedSourceTable)
+        ) {
+          throw new Error(
+            `"${resolvedSourceTable}" is already attached as a source.`,
+          );
+        }
+        const additionalSourceId = await insertSecondarySource({
+          database,
+          sourceType,
+          sourceName,
+          sourceTable: resolvedSourceTable,
+          now,
+        });
+        const setup = await sourceSetupPayload(database.id);
+        await seedMockSourceFields({
+          sourceId: additionalSourceId,
+          ownerEmail: database.ownerEmail,
+          sourceType,
+          properties: setup.properties,
+          now,
+        });
+        await ensureDatabaseSourceProperty({ database, now });
+
+        return getContentDatabaseResponse(database.id, {
+          limit: args.limit,
+          offset: args.offset,
+        });
+      }
       throw new Error(
         "Only Builder sources can add more items right now. Notion database sources are read-only detail sources in this pilot.",
       );

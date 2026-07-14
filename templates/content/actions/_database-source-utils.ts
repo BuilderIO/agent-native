@@ -198,6 +198,8 @@ function normalizeSourceType(
   if (
     value === "builder-cms" ||
     value === "local-table" ||
+    value === "local-folder" ||
+    value === "github-url" ||
     value === "notion-database"
   )
     return value;
@@ -290,6 +292,8 @@ function sourceMetadataLabel(
 ) {
   if (sourceType === "builder-cms") return `builder.cms.${sourceTable}`;
   if (sourceType === "local-table") return `local.table.${sourceTable}`;
+  if (sourceType === "local-folder") return `local.folder.${sourceTable}`;
+  if (sourceType === "github-url") return `github.url.${sourceTable}`;
   if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
   return `mock-local.${sourceTable}`;
 }
@@ -3253,6 +3257,20 @@ export function sourceCapabilitiesForType(
       readOnlyRefresh: true,
     });
   }
+  if (sourceType === "local-folder" || sourceType === "github-url") {
+    return serializeSourceCapabilitiesRecord({
+      canRefresh: false,
+      canCreateChangeSets: false,
+      canWriteFields: false,
+      canWriteBody: false,
+      canPush: false,
+      canPull: false,
+      canPublish: false,
+      canStageLocalRevision: false,
+      liveWritesEnabled: false,
+      readOnlyRefresh: false,
+    });
+  }
   return serializeSourceCapabilitiesRecord();
 }
 
@@ -3302,6 +3320,8 @@ export async function seedMockSourceFields(args: {
 }) {
   const db = getDb();
   const isBuilder = args.sourceType === "builder-cms";
+  const isMountedRepoSource =
+    args.sourceType === "local-folder" || args.sourceType === "github-url";
   const existingBuilderFieldByPropertyId = new Map(
     (args.existingFields ?? [])
       .filter((field) => isBuilder && field.propertyId)

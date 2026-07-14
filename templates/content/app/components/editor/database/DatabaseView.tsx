@@ -5381,7 +5381,7 @@ type DatabaseSettingsPanel =
 // the leaf can attach without re-fetching.
 // A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
-  sourceType: "mock-local" | "builder-cms" | "local-table" | "notion-database";
+  sourceType: ContentDatabaseSourceType;
   sourceName: string;
   sourceTable: string;
   displayName: string;

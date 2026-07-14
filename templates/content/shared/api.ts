@@ -398,6 +398,8 @@ export type ContentDatabaseSourceType =
   | "mock-local"
   | "builder-cms"
   | "local-table"
+  | "local-folder"
+  | "github-url"
   | "notion-database";
 export type ContentDatabaseSourceSyncState =
   | "idle"

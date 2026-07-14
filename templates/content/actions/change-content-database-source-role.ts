@@ -113,6 +113,8 @@ function sourceType(value: string): ContentDatabaseSourceType {
   if (
     value === "builder-cms" ||
     value === "local-table" ||
+    value === "local-folder" ||
+    value === "github-url" ||
     value === "notion-database"
   )
     return value;

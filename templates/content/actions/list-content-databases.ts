@@ -19,7 +19,8 @@ function normalizeSummarySourceType(value: string): ContentDatabaseSourceType {
     value === "builder-cms" ||
     value === "local-table" ||
     value === "local-folder" ||
-    value === "github-url"
+    value === "github-url" ||
+    value === "notion-database"
   ) {
     return value;
   }
@@ -94,6 +95,44 @@ export default defineAction({
       ? await queryBuilder.limit(args.limit)
       : await queryBuilder;
 
+    const sources =
+      rows.length > 0
+        ? await db
+            .select({
+              id: schema.contentDatabaseSources.id,
+              databaseId: schema.contentDatabaseSources.databaseId,
+              sourceType: schema.contentDatabaseSources.sourceType,
+              sourceName: schema.contentDatabaseSources.sourceName,
+              sourceTable: schema.contentDatabaseSources.sourceTable,
+            })
+            .from(schema.contentDatabaseSources)
+            .where(
+              inArray(
+                schema.contentDatabaseSources.databaseId,
+                rows.map((row) => row.id),
+              ),
+            )
+        : [];
+    const sourcesByDatabaseId = new Map<
+      string,
+      Array<{
+        id: string;
+        sourceType: ContentDatabaseSourceType;
+        sourceName: string;
+        sourceTable: string;
+      }>
+    >();
+    for (const source of sources) {
+      const databaseSources = sourcesByDatabaseId.get(source.databaseId) ?? [];
+      databaseSources.push({
+        id: source.id,
+        sourceType: normalizeSummarySourceType(source.sourceType),
+        sourceName: source.sourceName,
+        sourceTable: source.sourceTable,
+      });
+      sourcesByDatabaseId.set(source.databaseId, databaseSources);
+    }
+
     const localTableSources =
       excludedDatabaseIds.size > 0
         ? await db
@@ -135,6 +174,7 @@ export default defineAction({
         // The document's live title (matches the sidebar) rather than the
         // possibly-stale content_databases.title.
         title: row.title ?? "Untitled database",
+        sources: sourcesByDatabaseId.get(row.id) ?? [],
       }));
 
     return { databases };
