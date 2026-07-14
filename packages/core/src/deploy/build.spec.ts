@@ -12,6 +12,7 @@ import {
 import {
   addImmutableAssetRouteRulesForClientBuild,
   assertSingleTemplateNetlifyBuildOutput,
+  bundleYjsRuntimeForServerlessOutput,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES,
   CLOUDFLARE_WORKER_STUB_MODULES,
@@ -26,7 +27,7 @@ import {
   isDurableBackgroundDeployEnabled,
   NITRO_RUNTIME_IGNORE_PATTERNS,
   nitroNoExternalsForPreset,
-  rewriteBareYjsImportsForServerlessOutput,
+  resolveNitroBundledYjsEntry,
   runNitroBuildPipeline,
   sanitizeServerlessFunctionPackageManifest,
   shouldBundleFfmpegStaticForServerless,
@@ -41,16 +42,26 @@ const DEFAULT_SSR_NETLIFY_CDN_CACHE_CONTROL = DEFAULT_SSR_CACHE_CONTROL;
 const tempDirs: string[] = [];
 
 describe("nitroNoExternalsForPreset", () => {
-  it("bundles Yjs in Node/serverless output", () => {
-    expect(nitroNoExternalsForPreset("netlify")).toEqual(["yjs"]);
-    expect(nitroNoExternalsForPreset("vercel")).toEqual(["yjs"]);
-    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual(["yjs"]);
+  it("leaves Yjs external for the controlled serverless bundling pass", () => {
+    expect(nitroNoExternalsForPreset("netlify")).toEqual([]);
+    expect(nitroNoExternalsForPreset("vercel")).toEqual([]);
+    expect(nitroNoExternalsForPreset("aws-lambda")).toEqual([]);
     expect(nitroNoExternalsForPreset("node-server")).toEqual(["yjs"]);
   });
 
   it("bundles every dependency for edge output", () => {
     expect(nitroNoExternalsForPreset("cloudflare-pages")).toBe(true);
     expect(nitroNoExternalsForPreset("deno-deploy")).toBe(true);
+  });
+});
+
+describe("resolveNitroBundledYjsEntry", () => {
+  it("resolves the complete core-owned ESM export surface", () => {
+    const entry = resolveNitroBundledYjsEntry();
+    expect(entry).toMatch(/[/\\]yjs[/\\]dist[/\\]yjs\.mjs$/);
+    expect(fs.readFileSync(entry, "utf-8")).toMatch(
+      /YText as Text[\s\S]*UndoManager[\s\S]*YXmlElement as XmlElement/,
+    );
   });
 });
 
@@ -1696,7 +1707,29 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
     );
   });
 
-  it("rewrites bare Yjs imports to the bundled server copy", () => {
+  it("fails deploy output wired to Nitro's private tree-shaken Yjs chunk", () => {
+    const cwd = setupNetlifyOutput();
+    prepareSingleTemplateNetlifyOutput(cwd);
+    const serverChunk = path.join(
+      cwd,
+      ".netlify",
+      "functions-internal",
+      "server",
+      "_chunks",
+      "server3.mjs",
+    );
+    fs.mkdirSync(path.dirname(serverChunk), { recursive: true });
+    fs.writeFileSync(
+      serverChunk,
+      'import { Text } from "../_libs/yjs.mjs";\nexport { Text };\n',
+    );
+
+    expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).toThrow(
+      /internal tree-shaken _libs\/yjs\.mjs/,
+    );
+  });
+
+  it("bundles one complete Yjs runtime for every serverless consumer", async () => {
     const cwd = setupNetlifyOutput();
     const serverDir = path.join(
       cwd,
@@ -1705,18 +1738,39 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       "server",
     );
     const collabChunk = path.join(serverDir, "_chunks", "collab.mjs");
+    const editorChunk = path.join(serverDir, "_chunks", "editor.mjs");
     fs.mkdirSync(path.dirname(collabChunk), { recursive: true });
     fs.writeFileSync(
       collabChunk,
-      'import * as Y from "yjs";\nconst dynamic = import("yjs");\nexport { Y, dynamic };\n',
+      'import * as Y from "yjs";\nexport { Y };\nexport const doc = new Y.Doc();\n',
+    );
+    fs.writeFileSync(
+      editorChunk,
+      'import { Text, UndoManager } from "yjs";\nexport { Text, UndoManager };\n',
     );
 
-    expect(rewriteBareYjsImportsForServerlessOutput(serverDir)).toEqual([
+    expect(bundleYjsRuntimeForServerlessOutput(serverDir)).toEqual([
       collabChunk,
+      editorChunk,
     ]);
-    const rewritten = fs.readFileSync(collabChunk, "utf-8");
-    expect(rewritten).toContain('from "../_libs/yjs.mjs"');
-    expect(rewritten).toContain('import("../_libs/yjs.mjs")');
+    const runtime = fs.readFileSync(
+      path.join(serverDir, "_libs", "yjs-runtime.mjs"),
+      "utf-8",
+    );
+    expect(runtime).toMatch(/Text/);
+    expect(runtime).toMatch(/UndoManager/);
+    expect(fs.readFileSync(collabChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    expect(fs.readFileSync(editorChunk, "utf-8")).toContain(
+      'from "../_libs/yjs-runtime.mjs"',
+    );
+    const [collab, editor] = await Promise.all([
+      import(`${pathToFileURL(collabChunk).href}?t=${Date.now()}`),
+      import(`${pathToFileURL(editorChunk).href}?t=${Date.now()}`),
+    ]);
+    expect(collab.Y.Text).toBe(editor.Text);
+    expect(collab.doc.getText("x")).toBeInstanceOf(editor.Text);
     prepareSingleTemplateNetlifyOutput(cwd);
     expect(() => assertSingleTemplateNetlifyBuildOutput(cwd)).not.toThrow();
   });
@@ -1736,7 +1790,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       'import * as Y from "yjs/src/index.js";\nexport { Y };\n',
     );
 
-    expect(() => rewriteBareYjsImportsForServerlessOutput(serverDir)).toThrow(
+    expect(() => bundleYjsRuntimeForServerlessOutput(serverDir)).toThrow(
       /unsupported yjs subpath imports/,
     );
   });

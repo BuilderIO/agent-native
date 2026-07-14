@@ -10,26 +10,33 @@ export function tenantFileKey(email: string): string {
     .slice(0, 24);
 }
 
-export function tenantUploadDir(email: string): string {
-  return path.join(process.cwd(), "data", "uploads", tenantFileKey(email));
+export function tenantUploadDir(email: string, cwd = process.cwd()): string {
+  return path.join(cwd, "data", "uploads", tenantFileKey(email));
 }
 
-function exportRootDir(): string {
+function exportRootDir(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
   if (
-    process.env.NETLIFY ||
-    process.env.VERCEL ||
-    process.env.AWS_LAMBDA_FUNCTION_NAME ||
-    process.cwd() === "/var/task" ||
-    process.cwd().startsWith("/var/task/")
+    env.NETLIFY ||
+    env.VERCEL ||
+    env.AWS_LAMBDA_FUNCTION_NAME ||
+    cwd === "/var/task" ||
+    cwd.startsWith("/var/task/")
   ) {
     return path.join(os.tmpdir(), "agent-native-slides", "exports");
   }
 
-  return path.join(process.cwd(), "data", "exports");
+  return path.join(cwd, "data", "exports");
 }
 
-export function tenantExportDir(email: string): string {
-  return path.join(exportRootDir(), tenantFileKey(email));
+export function tenantExportDir(
+  email: string,
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): string {
+  return path.join(exportRootDir(cwd, env), tenantFileKey(email));
 }
 
 export function safeGeneratedFilename(title: string, ext: ".html" | ".pptx") {

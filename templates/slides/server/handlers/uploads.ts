@@ -14,6 +14,10 @@ import {
   isSlidesReferenceFileExtension,
 } from "../../shared/upload-types";
 import { tenantUploadDir } from "../lib/tenant-files.js";
+import {
+  isHostedSlidesRuntime,
+  storeUploadedReferenceBlob,
+} from "../lib/uploaded-reference-storage.js";
 import { canSaveAsUploadedAsset, uploadImageAsset } from "./assets.js";
 
 export const MAX_REFERENCE_FILE_BYTES = 50 * 1024 * 1024;
@@ -113,6 +117,7 @@ function pathForAgent(absPath: string): string {
 
 export async function saveUploadedReferenceFile(args: {
   email: string;
+  orgId?: string | null;
   originalName: string;
   data: Uint8Array;
   type?: string;
@@ -127,14 +132,35 @@ export async function saveUploadedReferenceFile(args: {
   if (!hasExpectedSignature(ext, args.data)) {
     throw new Error(`File contents do not match ${ext} upload type`);
   }
-  const uploadDir = tenantUploadDir(args.email);
-  await fs.promises.mkdir(uploadDir, { recursive: true });
-  const destPath = path.join(uploadDir, filename);
-  await fs.promises.writeFile(destPath, args.data);
-  // For images, also push to the file-upload provider so the agent can embed
-  // a hosted URL (in slide HTML, chat replies, etc.). For non-image reference
-  // files (PPTX, DOCX, PDF), the on-disk path is what the agent uses via
-  // shell — no provider URL is required.
+  let uploadedPath: string;
+  if (isHostedSlidesRuntime()) {
+    const reference = await storeUploadedReferenceBlob({
+      email: args.email,
+      orgId: args.orgId,
+      data: args.data,
+      filename,
+      mimeType: args.type || "application/octet-stream",
+    });
+    if (!reference) {
+      throw Object.assign(
+        new Error(
+          "Private file storage is not configured. Connect Builder.io or another file provider before uploading reference files in a hosted Slides deployment.",
+        ),
+        { statusCode: 503 },
+      );
+    }
+    uploadedPath = reference;
+  } else {
+    const uploadDir = tenantUploadDir(args.email);
+    await fs.promises.mkdir(uploadDir, { recursive: true });
+    const destPath = path.join(uploadDir, filename);
+    await fs.promises.writeFile(destPath, args.data);
+    uploadedPath = pathForAgent(destPath);
+  }
+  // For images, also push to the public file-upload provider so the agent can
+  // embed a hosted URL (in slide HTML, chat replies, etc.). The `path` above
+  // remains the private import source: a tenant path locally and an encrypted,
+  // owner-scoped blob reference in hosted deployments.
   let url: string | undefined;
   if (
     canSaveAsUploadedAsset({
@@ -159,7 +185,7 @@ export async function saveUploadedReferenceFile(args: {
     }
   }
   return {
-    path: pathForAgent(destPath),
+    path: uploadedPath,
     url,
     originalName: args.originalName,
     filename,
@@ -208,6 +234,7 @@ export const uploadFiles = defineEventHandler(async (event) => {
       fileParts.map(async (part) => {
         return saveUploadedReferenceFile({
           email: session.email,
+          orgId: session.orgId,
           originalName: part.filename || "upload",
           data: part.data,
           type: part.type,
@@ -215,7 +242,11 @@ export const uploadFiles = defineEventHandler(async (event) => {
       }),
     );
   } catch (err) {
-    setResponseStatus(event, 400);
+    const statusCode =
+      typeof (err as { statusCode?: unknown })?.statusCode === "number"
+        ? (err as { statusCode: number }).statusCode
+        : 400;
+    setResponseStatus(event, statusCode);
     return { error: err instanceof Error ? err.message : "Invalid upload" };
   }
 
