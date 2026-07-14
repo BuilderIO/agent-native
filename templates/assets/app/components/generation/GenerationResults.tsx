@@ -301,7 +301,10 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         }}
         onSelect={setPreviewSlotId}
         onSave={(slot) => saveSlot(slot, () => setPreviewSlotId(null))}
-        onRefine={refineSlot}
+        onRefine={(slot) => {
+          refineSlot(slot);
+          setPreviewSlotId(null);
+        }}
       />
 
       <section className="mx-auto mb-4 w-full max-w-[760px] px-4">
