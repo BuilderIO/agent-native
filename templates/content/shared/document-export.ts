@@ -102,12 +102,32 @@ export function markdownWithTitle(
   return `${`# ${safeTitle}`}${body ? `\n\n${body}` : ""}\n`;
 }
 
-function inlineMarkdownSegmentToHtml(text: string): string {
+interface InlineExportToken {
+  marker: string;
+  html: string;
+  source: string;
+}
+
+function restoreTokenSources(
+  text: string,
+  tokens: InlineExportToken[],
+): string {
+  return tokens.reduce(
+    (restored, token) =>
+      restored.replaceAll(token.marker, escapeHtml(token.source)),
+    text,
+  );
+}
+
+function inlineMarkdownSegmentToHtml(
+  text: string,
+  tokens: InlineExportToken[],
+): string {
   return escapeHtml(text)
     .replace(
       /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
       (_m, alt, src) => {
-        return `<img src="${safeExportUrl(src, "image")}" alt="${alt}" />`;
+        return `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`;
       },
     )
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) => {
@@ -134,34 +154,78 @@ function mathErrorHtml(
 }
 
 function inlineMarkdownToHtml(text: string): string {
-  const rendered: string[] = [];
+  const tokens: InlineExportToken[] = [];
+  let markerStart = "\uE000agent-native-inline-";
+  while (text.includes(markerStart)) markerStart += "-";
+
+  const protectedText: string[] = [];
   let cursor = 0;
 
   while (cursor < text.length) {
-    const open = text.indexOf("$`", cursor);
-    if (open === -1) {
-      rendered.push(inlineMarkdownSegmentToHtml(text.slice(cursor)));
-      break;
+    if (text.startsWith("$`", cursor)) {
+      const close = text.indexOf("`$", cursor + 2);
+      if (close !== -1) {
+        const latex = text.slice(cursor + 2, close);
+        const source = text.slice(cursor, close + 2);
+        const math = renderMathToHtml(latex, false);
+        const marker = `${markerStart}${tokens.length}\uE001`;
+        tokens.push({
+          marker,
+          source,
+          html: math.ok
+            ? `<span class="math-inline">${math.html}</span>`
+            : mathErrorHtml(source, math.error, false),
+        });
+        protectedText.push(marker);
+        cursor = close + 2;
+        continue;
+      }
     }
 
-    const close = text.indexOf("`$", open + 2);
-    if (close === -1) {
-      rendered.push(inlineMarkdownSegmentToHtml(text.slice(cursor)));
-      break;
+    if (text[cursor] === "`") {
+      let delimiterLength = 1;
+      while (text[cursor + delimiterLength] === "`") delimiterLength++;
+      const delimiter = "`".repeat(delimiterLength);
+      let close = text.indexOf(delimiter, cursor + delimiterLength);
+      while (
+        close !== -1 &&
+        (text[close - 1] === "`" || text[close + delimiterLength] === "`")
+      ) {
+        close = text.indexOf(delimiter, close + delimiterLength);
+      }
+
+      if (close !== -1) {
+        const source = text.slice(cursor, close + delimiterLength);
+        let code = text
+          .slice(cursor + delimiterLength, close)
+          .replace(/\r?\n/g, " ");
+        if (
+          code.startsWith(" ") &&
+          code.endsWith(" ") &&
+          code.trim().length > 0
+        ) {
+          code = code.slice(1, -1);
+        }
+        const marker = `${markerStart}${tokens.length}\uE001`;
+        tokens.push({
+          marker,
+          source,
+          html: `<code>${escapeHtml(code)}</code>`,
+        });
+        protectedText.push(marker);
+        cursor = close + delimiterLength;
+        continue;
+      }
     }
 
-    rendered.push(inlineMarkdownSegmentToHtml(text.slice(cursor, open)));
-    const latex = text.slice(open + 2, close);
-    const math = renderMathToHtml(latex, false);
-    rendered.push(
-      math.ok
-        ? `<span class="math-inline">${math.html}</span>`
-        : mathErrorHtml(`$\`${latex}\`$`, math.error, false),
-    );
-    cursor = close + 2;
+    protectedText.push(text[cursor]);
+    cursor++;
   }
 
-  return rendered.join("");
+  return tokens.reduce(
+    (html, token) => html.replaceAll(token.marker, () => token.html),
+    inlineMarkdownSegmentToHtml(protectedText.join(""), tokens),
+  );
 }
 
 function listItemsToHtml(lines: string[], ordered: boolean): string {

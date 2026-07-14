@@ -2,6 +2,7 @@
 
 import { act } from "react";
 import { createRoot } from "react-dom/client";
+import { renderToString } from "react-dom/server";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { MathRenderer } from "./MathRenderer";
@@ -51,6 +52,16 @@ async function renderMath(latex: string, displayMode: boolean) {
 }
 
 describe("MathRenderer", () => {
+  it("includes accessible KaTeX markup in the initial server render", () => {
+    const html = renderToString(
+      <MathRenderer latex="a^2 + b^2" displayMode={false} />,
+    );
+
+    expect(html).toContain('class="katex"');
+    expect(html).toContain('class="katex-mathml"');
+    expect(html).toContain('contentEditable="false"');
+  });
+
   it("renders KaTeX without exposing editable generated markup", async () => {
     const { container, root } = await renderMath("a^2 + b^2", false);
 
