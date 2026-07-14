@@ -14,17 +14,37 @@ export function tenantUploadDir(email: string, cwd = process.cwd()): string {
   return path.join(cwd, "data", "uploads", tenantFileKey(email));
 }
 
+export function isHostedSlidesRuntime(
+  cwd = process.cwd(),
+  env: NodeJS.ProcessEnv = process.env,
+): boolean {
+  if (env.NETLIFY && env.NETLIFY !== "false" && env.NETLIFY_LOCAL !== "true") {
+    return true;
+  }
+  if (
+    (env.AWS_LAMBDA_FUNCTION_NAME ||
+      env.LAMBDA_TASK_ROOT ||
+      cwd === "/var/task" ||
+      cwd.startsWith("/var/task/")) &&
+    env.NETLIFY_LOCAL !== "true"
+  ) {
+    return true;
+  }
+  return Boolean(
+    env.VERCEL ||
+    env.VERCEL_ENV ||
+    env.CF_PAGES ||
+    env.RENDER ||
+    env.FLY_APP_NAME ||
+    env.K_SERVICE,
+  );
+}
+
 function exportRootDir(
   cwd = process.cwd(),
   env: NodeJS.ProcessEnv = process.env,
 ): string {
-  if (
-    env.NETLIFY ||
-    env.VERCEL ||
-    env.AWS_LAMBDA_FUNCTION_NAME ||
-    cwd === "/var/task" ||
-    cwd.startsWith("/var/task/")
-  ) {
+  if (isHostedSlidesRuntime(cwd, env)) {
     return path.join(os.tmpdir(), "agent-native-slides", "exports");
   }
 

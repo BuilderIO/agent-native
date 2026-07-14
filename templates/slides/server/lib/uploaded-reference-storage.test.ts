@@ -3,6 +3,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mockPutPrivateBlob = vi.hoisted(() => vi.fn());
 const mockReadPrivateBlob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
+const mockGetRequestContext = vi.hoisted(() => vi.fn());
+const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/private-blob", () => ({
   putPrivateBlob: (...args: unknown[]) => mockPutPrivateBlob(...args),
@@ -17,8 +19,8 @@ vi.mock("@agent-native/core/secrets/crypto", () => ({
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
-  getRequestContext: () => ({ orgId: "existing-org", timezone: "UTC" }),
-  getRequestOrgId: () => "fallback-org",
+  getRequestContext: (...args: unknown[]) => mockGetRequestContext(...args),
+  getRequestOrgId: (...args: unknown[]) => mockGetRequestOrgId(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
 }));
@@ -44,6 +46,11 @@ describe("Slides uploaded reference storage", () => {
       data: new Uint8Array([1, 2, 3]),
       handle: HANDLE,
     });
+    mockGetRequestContext.mockReturnValue({
+      orgId: "existing-org",
+      timezone: "UTC",
+    });
+    mockGetRequestOrgId.mockReturnValue("existing-org");
     mockRunWithRequestContext.mockImplementation(
       (_context: unknown, fn: () => unknown) => fn(),
     );
@@ -105,7 +112,7 @@ describe("Slides uploaded reference storage", () => {
   });
 
   it("uses an explicitly supplied org for org-scoped upload providers", async () => {
-    await storeUploadedReferenceBlob({
+    const reference = await storeUploadedReferenceBlob({
       email: "owner@example.com",
       orgId: "session-org",
       filename: "deck.pptx",
@@ -117,6 +124,14 @@ describe("Slides uploaded reference storage", () => {
       expect.objectContaining({ orgId: "session-org" }),
       expect.any(Function),
     );
+
+    mockGetRequestOrgId.mockReturnValue("session-org");
+    await expect(
+      readUploadedReferenceBlob(reference!, "owner@example.com"),
+    ).resolves.toEqual({
+      data: Buffer.from([1, 2, 3]),
+      filename: "deck.pptx",
+    });
   });
 
   it("rejects another user's reference before reading the provider", async () => {
@@ -130,6 +145,49 @@ describe("Slides uploaded reference storage", () => {
 
     await expect(
       readUploadedReferenceBlob(reference!, "other@example.com"),
+    ).rejects.toThrow("Access denied");
+    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("rejects another organization's reference before reading the provider", async () => {
+    const reference = await storeUploadedReferenceBlob({
+      email: "owner@example.com",
+      orgId: "org-one",
+      filename: "deck.pptx",
+      data: new Uint8Array([1]),
+      mimeType: "application/octet-stream",
+    });
+    mockReadPrivateBlob.mockClear();
+    mockGetRequestOrgId.mockReturnValue("org-two");
+
+    await expect(
+      readUploadedReferenceBlob(reference!, "owner@example.com"),
+    ).rejects.toThrow("Access denied");
+    expect(mockReadPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("keeps personal uploads outside organization scopes", async () => {
+    mockGetRequestContext.mockReturnValue({ timezone: "UTC" });
+    mockGetRequestOrgId.mockReturnValue(undefined);
+    const reference = await storeUploadedReferenceBlob({
+      email: "owner@example.com",
+      orgId: null,
+      filename: "deck.pptx",
+      data: new Uint8Array([1]),
+      mimeType: "application/octet-stream",
+    });
+
+    await expect(
+      readUploadedReferenceBlob(reference!, "owner@example.com"),
+    ).resolves.toEqual({
+      data: Buffer.from([1, 2, 3]),
+      filename: "deck.pptx",
+    });
+
+    mockReadPrivateBlob.mockClear();
+    mockGetRequestOrgId.mockReturnValue("org-one");
+    await expect(
+      readUploadedReferenceBlob(reference!, "owner@example.com"),
     ).rejects.toThrow("Access denied");
     expect(mockReadPrivateBlob).not.toHaveBeenCalled();
   });

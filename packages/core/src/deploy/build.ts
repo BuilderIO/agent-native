@@ -2543,6 +2543,7 @@ function walkServerJavaScriptFiles(
  */
 export function bundleYjsRuntimeForServerlessOutput(
   serverDir: string,
+  projectCwd: string,
 ): string[] {
   const bareImports: string[] = [];
   const unsupportedSubpathImports: string[] = [];
@@ -2577,7 +2578,7 @@ export function bundleYjsRuntimeForServerlessOutput(
       "--minify",
       `--outfile=${bundledYjsPath}`,
     ],
-    { cwd, stdio: "pipe" },
+    { cwd: projectCwd, stdio: "pipe" },
   );
 
   for (const filePath of bareImports) {
@@ -3406,7 +3407,7 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
-    bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir);
+    bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
   // Durable background agent runs (default-OFF / opt-in; enable with a truthy

@@ -17,40 +17,17 @@ import {
 
 import { tenantFileKey } from "./tenant-files.js";
 
+export { isHostedSlidesRuntime } from "./tenant-files.js";
+
 const UPLOADED_REFERENCE_PREFIX = "slides-upload:v1:";
 
 interface UploadedReferenceDescriptor {
   kind: "slides-upload";
   version: 1;
   ownerKey: string;
+  orgId: string | null;
   filename: string;
   handle: PrivateBlobHandle;
-}
-
-export function isHostedSlidesRuntime(
-  cwd = process.cwd(),
-  env: NodeJS.ProcessEnv = process.env,
-): boolean {
-  if (env.NETLIFY && env.NETLIFY !== "false" && env.NETLIFY_LOCAL !== "true") {
-    return true;
-  }
-  if (
-    (env.AWS_LAMBDA_FUNCTION_NAME ||
-      env.LAMBDA_TASK_ROOT ||
-      cwd === "/var/task" ||
-      cwd.startsWith("/var/task/")) &&
-    env.NETLIFY_LOCAL !== "true"
-  ) {
-    return true;
-  }
-  return Boolean(
-    env.VERCEL ||
-    env.VERCEL_ENV ||
-    env.CF_PAGES ||
-    env.RENDER ||
-    env.FLY_APP_NAME ||
-    env.K_SERVICE,
-  );
 }
 
 export async function storeUploadedReferenceBlob(args: {
@@ -61,11 +38,15 @@ export async function storeUploadedReferenceBlob(args: {
   mimeType: string;
 }): Promise<string | null> {
   const existingContext = getRequestContext();
+  const orgId =
+    args.orgId !== undefined
+      ? args.orgId
+      : (existingContext?.orgId ?? getRequestOrgId() ?? null);
   const handle = await runWithRequestContext(
     {
       ...existingContext,
       userEmail: args.email,
-      orgId: args.orgId ?? existingContext?.orgId ?? getRequestOrgId(),
+      orgId: orgId ?? undefined,
     },
     async () =>
       putPrivateBlob({
@@ -82,6 +63,7 @@ export async function storeUploadedReferenceBlob(args: {
     kind: "slides-upload",
     version: 1,
     ownerKey: tenantFileKey(args.email),
+    orgId,
     filename: path.basename(args.filename),
     handle,
   };
@@ -109,6 +91,7 @@ export async function readUploadedReferenceBlob(
     descriptor?.kind !== "slides-upload" ||
     descriptor.version !== 1 ||
     descriptor.ownerKey !== tenantFileKey(email) ||
+    descriptor.orgId !== (getRequestOrgId() ?? null) ||
     typeof descriptor.filename !== "string" ||
     descriptor.filename !== path.basename(descriptor.filename) ||
     typeof descriptor.handle?.id !== "string" ||
@@ -116,7 +99,7 @@ export async function readUploadedReferenceBlob(
     descriptor.handle.opaque !== true
   ) {
     throw new Error(
-      "Access denied: uploaded file reference is not valid for this user",
+      "Access denied: uploaded file reference is not valid for this user or organization",
     );
   }
 

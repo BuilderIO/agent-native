@@ -1749,7 +1749,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       'import { Text, UndoManager } from "yjs";\nexport { Text, UndoManager };\n',
     );
 
-    expect(bundleYjsRuntimeForServerlessOutput(serverDir)).toEqual([
+    expect(bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toEqual([
       collabChunk,
       editorChunk,
     ]);
@@ -1790,7 +1790,7 @@ describe("durable-background Netlify function emit (single-template, flag-gated)
       'import * as Y from "yjs/src/index.js";\nexport { Y };\n',
     );
 
-    expect(() => bundleYjsRuntimeForServerlessOutput(serverDir)).toThrow(
+    expect(() => bundleYjsRuntimeForServerlessOutput(serverDir, cwd)).toThrow(
       /unsupported yjs subpath imports/,
     );
   });

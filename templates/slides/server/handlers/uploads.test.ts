@@ -139,4 +139,23 @@ describe("Slides reference upload limits", () => {
     });
     expect(mockWriteFile).not.toHaveBeenCalled();
   });
+
+  it("reports hosted private storage failures as service errors", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockStoreUploadedReferenceBlob.mockRejectedValue(
+      new Error("provider unavailable"),
+    );
+
+    await expect(
+      saveUploadedReferenceFile({
+        email: "owner@example.com",
+        originalName: "deck.pptx",
+        data: Buffer.from([0x50, 0x4b, 0x03, 0x04]),
+      }),
+    ).rejects.toMatchObject({
+      message: "Private file storage failed while saving the upload.",
+      statusCode: 503,
+    });
+    expect(mockWriteFile).not.toHaveBeenCalled();
+  });
 });

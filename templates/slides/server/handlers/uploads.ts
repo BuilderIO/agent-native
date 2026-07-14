@@ -134,13 +134,21 @@ export async function saveUploadedReferenceFile(args: {
   }
   let uploadedPath: string;
   if (isHostedSlidesRuntime()) {
-    const reference = await storeUploadedReferenceBlob({
-      email: args.email,
-      orgId: args.orgId,
-      data: args.data,
-      filename,
-      mimeType: args.type || "application/octet-stream",
-    });
+    let reference: string | null;
+    try {
+      reference = await storeUploadedReferenceBlob({
+        email: args.email,
+        orgId: args.orgId,
+        data: args.data,
+        filename,
+        mimeType: args.type || "application/octet-stream",
+      });
+    } catch {
+      throw Object.assign(
+        new Error("Private file storage failed while saving the upload."),
+        { statusCode: 503 },
+      );
+    }
     if (!reference) {
       throw Object.assign(
         new Error(
