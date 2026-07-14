@@ -7,7 +7,9 @@ const state = vi.hoisted(() => ({
   session: null as null | { email?: string; orgId?: string },
 }));
 
-const sendEmail = vi.hoisted(() => vi.fn(async () => {}));
+const sendEmail = vi.hoisted(() =>
+  vi.fn(async (_args: Record<string, unknown>) => {}),
+);
 
 const publishedForm = {
   id: "form_1",
@@ -123,7 +125,10 @@ describe("submitForm pageUrl pass-through", () => {
         subject: "New response: Agent Native Feedback",
       }),
     );
-    expect(sendEmail.mock.calls[0]?.[0]?.text).toContain("Please call me");
+    const emailArgs = sendEmail.mock.calls[0]?.[0] as
+      | { text?: string }
+      | undefined;
+    expect(emailArgs?.text).toContain("Please call me");
   });
 
   it("does not email the owner by default", async () => {

@@ -60,6 +60,8 @@ export async function getPublicFormBySlugOrId(slugOrId: string) {
     slug: row.slug,
     title: row.title,
     description: row.description,
+    ownerEmail: row.ownerEmail,
+    updatedAt: row.updatedAt,
     fields: JSON.parse(row.fields) as FormField[],
     settings: toPublicFormSettings(settings),
   };
@@ -302,6 +304,8 @@ function renderFormPage(
     slug: string;
     title: string;
     description?: string | null;
+    ownerEmail?: string | null;
+    updatedAt?: string | null;
     fields: FormField[];
     settings: PublicFormSettings;
   },
@@ -315,7 +319,7 @@ function renderFormPage(
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
-  )}/og.png`;
+  )}/og.png${form.updatedAt ? `?v=${encodeURIComponent(form.updatedAt)}` : ""}`;
   const ogImageUrl = origin
     ? new URL(ogImagePath, origin).toString()
     : ogImagePath;
