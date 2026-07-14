@@ -453,6 +453,8 @@ const messages = {
       "Jeder, der über den Link verfügt, kann es ansehen – melden Sie sich an, um zu kommentieren oder zu reagieren",
     shareRecording: "Aufzeichnung teilen",
     shareTitle: "Teile „{{title}}“",
+    human: "Mensch",
+    agent: "Agent",
     link: "Übersetzt: Link",
     invite: "Einladen",
     embed: "Einbetten",
@@ -910,15 +912,6 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     removeDescription:
       "{{email}} verliert den Zugriff auf diese Organisation. Du kannst die Person jederzeit erneut einladen.",
     remove: "Entfernen",
-  },
-  slackShareHint: {
-    playsInline: "Wird inline in Slack abgespielt",
-    connectedDescription:
-      "Füge diesen Link in einem verbundenen Workspace ein, um ihn inline abzuspielen.",
-    makeInline: "Inline-Wiedergabe in Slack aktivieren",
-    connectDescription:
-      "Verbinde einen Workspace, damit dieser Link als Video angezeigt wird.",
-    connect: "Verbinden",
   },
   commentsPanel: {
     disabled: "Kommentare sind für diese Aufzeichnung deaktiviert.",

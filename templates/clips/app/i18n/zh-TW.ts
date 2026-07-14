@@ -420,6 +420,8 @@ const messages = {
     publicDescription: "知道連結的任何人都可以檢視 - 登入後發表評論或做出反應",
     shareRecording: "分享錄音",
     shareTitle: "分享“{{title}}”",
+    human: "人類",
+    agent: "Agent",
     link: "連結",
     invite: "邀請",
     embed: "嵌入",
@@ -841,13 +843,6 @@ const messages = {
     removeDescription:
       "{{email}} 將失去對此組織的存取權限。你隨時可以重新邀請他們。",
     remove: "移除",
-  },
-  slackShareHint: {
-    playsInline: "可在 Slack 中行內播放",
-    connectedDescription: "將此連結貼上到任何已連線工作區即可行內播放。",
-    makeInline: "讓它在 Slack 中行內播放",
-    connectDescription: "連線一個工作區，讓此連結展開為影片。",
-    connect: "連線",
   },
   commentsPanel: {
     disabled: "此錄製已停用評論。",

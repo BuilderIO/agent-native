@@ -21,7 +21,6 @@ describe("recording share popover", () => {
 
     expect(shareDialogSource).toContain("{sharesLoaded && !isPublic ? (");
     expect(shareDialogSource).toContain("if (!isPublic && agentShareOpen)");
-    expect(shareDialogSource).toContain("{isPublic ? <SlackShareHint");
   });
 
   it("uses known recording access while share details load", () => {

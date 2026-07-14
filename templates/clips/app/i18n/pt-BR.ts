@@ -447,6 +447,8 @@ const messages = {
       "Qualquer pessoa com o link pode visualizar – faça login para comentar ou reagir",
     shareRecording: "Compartilhar gravação",
     shareTitle: 'Compartilhe "{{title}}"',
+    human: "Pessoa",
+    agent: "Agente",
     link: "Traduzido: Link",
     invite: "Convidar",
     embed: "Incorporar",
@@ -899,15 +901,6 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     removeDescription:
       "{{email}} perderá acesso a esta organização. Você sempre pode convidá-lo novamente.",
     remove: "Remover",
-  },
-  slackShareHint: {
-    playsInline: "Reproduz inline no Slack",
-    connectedDescription:
-      "Cole este link em qualquer workspace conectado para reproduzi-lo inline.",
-    makeInline: "Faça reproduzir inline no Slack",
-    connectDescription:
-      "Conecte um workspace para que este link abra como vídeo.",
-    connect: "Conectar",
   },
   commentsPanel: {
     disabled: "Os comentários estão desativados para esta gravação.",

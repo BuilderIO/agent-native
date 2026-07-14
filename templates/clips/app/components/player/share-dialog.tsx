@@ -33,7 +33,6 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
-import { SlackShareHint } from "@/components/sharing/slack-share-hint";
 import { Button } from "@/components/ui/button";
 import {
   Collapsible,
@@ -398,10 +397,6 @@ function LinkTab({
           visibilityPending || !sharesLoaded || (!isPublic && canManage)
         }
       />
-
-      {/* Public links unfurl into a playable video in Slack; surface that here
-          (and a connect link) instead of leaving it buried in Settings. */}
-      {isPublic ? <SlackShareHint canManage={canManage} /> : null}
 
       {sharesLoaded && !isPublic ? (
         <Collapsible open={agentShareOpen} onOpenChange={setAgentShareOpen}>
