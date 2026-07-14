@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/server";
 import {
   EMBED_MODE_QUERY_PARAM,
+  EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
 
@@ -60,6 +61,7 @@ type DashboardScreenshotAttempt = {
   readyTimeout?: number;
   secondReadyTimeout?: number;
   totalTimeout?: number;
+  reportPanelLimit?: number;
 };
 
 type LaunchedScreenshotBrowser = {
@@ -463,6 +465,81 @@ async function runBoundedBrowserCleanup(
     console.error(`[dashboard-report] ${label}:`, errorMessage(err));
   } finally {
     if (timeout) clearTimeout(timeout);
+  }
+}
+
+const DIAGNOSTICS_PROBE_TIMEOUT_MS = 2_000;
+const DIAGNOSTICS_MAX_LENGTH = 700;
+const DIAGNOSTICS_COLLECTOR_LIMIT = 5;
+
+// Best-effort page inspection used when the report surface never becomes
+// visible, so failures carry enough state to tell wrong-page/wedged-renderer/
+// auth-bounce apart. Must never throw and must stay bounded even if the page
+// is hung.
+async function collectPageDiagnostics(
+  page: any,
+  consoleErrors: string[],
+  failedRequests: string[],
+): Promise<string> {
+  try {
+    let responsive = true;
+    let probeTimeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      await Promise.race([
+        Promise.resolve(page.evaluate("1")),
+        new Promise((_, reject) => {
+          probeTimeout = setTimeout(
+            () => reject(new Error("diagnostics probe timed out")),
+            DIAGNOSTICS_PROBE_TIMEOUT_MS,
+          );
+        }),
+      ]);
+    } catch {
+      responsive = false;
+    } finally {
+      if (probeTimeout) clearTimeout(probeTimeout);
+    }
+
+    if (!responsive) {
+      return `page unresponsive (renderer hung or crashed); consoleErrors=${JSON.stringify(
+        consoleErrors,
+      )} failedRequests=${JSON.stringify(failedRequests)}`.slice(
+        0,
+        DIAGNOSTICS_MAX_LENGTH,
+      );
+    }
+
+    let url = "";
+    try {
+      url = page.url();
+    } catch {
+      // page may already be closed; leave url empty
+    }
+
+    let title = "";
+    let bodyText = "";
+    try {
+      const details = await page.evaluate(
+        `(() => ({
+          title: document.title,
+          bodyText: document.body?.innerText?.slice(0, 240) ?? "",
+        }))()`,
+      );
+      title = details?.title ?? "";
+      bodyText = details?.bodyText ?? "";
+    } catch {
+      // best effort; leave title/bodyText empty
+    }
+
+    return `page state: ${JSON.stringify({
+      url,
+      title,
+      bodyText,
+      consoleErrors,
+      failedRequests,
+    })}`.slice(0, DIAGNOSTICS_MAX_LENGTH);
+  } catch {
+    return "diagnostics unavailable";
   }
 }
 
