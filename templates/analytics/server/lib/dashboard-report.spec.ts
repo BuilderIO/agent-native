@@ -191,8 +191,12 @@ describe("dashboard report email", () => {
       screenshotMode: "full-lightweight",
     });
     expect(mocks.launch).toHaveBeenCalledTimes(2);
-    expect(lightweight.page.goto).toHaveBeenCalledWith(
+    expect(full.page.goto).toHaveBeenCalledWith(
       expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+    expect(lightweight.page.goto).toHaveBeenCalledWith(
+      expect.stringContaining("reportPanelLimit=8"),
       expect.any(Object),
     );
     expect(lightweight.browser.newPage).toHaveBeenCalledWith({
