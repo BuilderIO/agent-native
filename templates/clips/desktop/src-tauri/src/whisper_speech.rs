@@ -60,6 +60,24 @@ pub async fn whisper_transcription_start(
                 "owner": owner,
             }),
         );
+        let prior_mic = MIC_SAMPLES.load(std::sync::atomic::Ordering::Relaxed);
+        if prior_mic > 0 {
+            crate::diag::tray_diag(
+                &app,
+                serde_json::json!({
+                    "event": "whisper-session-superseded",
+                    "finalsEmitted": FINALS_EMITTED
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    "micSamples": prior_mic,
+                    "systemSamples": SYSTEM_SAMPLES
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    "micPeakMilli": MIC_PEAK_MILLI
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                    "systemPeakMilli": SYSTEM_PEAK_MILLI
+                        .load(std::sync::atomic::Ordering::Relaxed),
+                }),
+            );
+        }
         FINALS_EMITTED.store(0, std::sync::atomic::Ordering::Relaxed);
         MIC_SAMPLES.store(0, std::sync::atomic::Ordering::Relaxed);
         SYSTEM_SAMPLES.store(0, std::sync::atomic::Ordering::Relaxed);
@@ -684,7 +702,17 @@ mod macos {
         owner: SessionOwner,
         microphone_capture_supported: bool,
     ) -> bool {
-        owner == SessionOwner::Meeting && microphone_capture_supported
+        // DISABLED (2026-07-14): the combined SCK mic+system capture came in
+        // with the upstream merge and produces audio whisper cannot use for
+        // recording sessions on macOS 26 (sessions emit zero finals from
+        // full-length, speech-level streams; the mic output also measures
+        // ~44.1 kHz against the hardcoded 48 kHz src_rate). The split path
+        // below (AVAudioEngine mic + separate SCK system stream) is the
+        // pre-merge behavior that provably worked and is the same mic path
+        // dictation uses today. Re-enable only after the combined path is
+        // verified end-to-end on Tahoe alongside a recorder SCStream.
+        let _ = (owner, microphone_capture_supported);
+        false
     }
 
     #[derive(Debug, PartialEq, Eq)]
