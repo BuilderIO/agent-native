@@ -34,13 +34,78 @@ function isResvgRuntimeUnavailableError(error: unknown): boolean {
   );
 }
 
+const AVATAR_DATA_URL_RE =
+  /^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/i;
+
+function validAvatarDataUrl(value: string): string | undefined {
+  const image = value.trim();
+  return image.length <= 2_000_000 && AVATAR_DATA_URL_RE.test(image)
+    ? image
+    : undefined;
+}
+
+function normalizeGoogleProfilePhotoUrl(value: string): string | undefined {
+  try {
+    const url = new URL(value);
+    if (
+      url.protocol !== "https:" ||
+      !/(^|\.)googleusercontent\.com$/i.test(url.hostname)
+    ) {
+      return undefined;
+    }
+    return url.toString().replace(/=s\d+(-c)?$/i, "=s256-c");
+  } catch {
+    return undefined;
+  }
+}
+
+async function fetchGoogleProfilePhotoDataUrl(
+  photoUrl: string,
+): Promise<string | undefined> {
+  const url = normalizeGoogleProfilePhotoUrl(photoUrl);
+  if (!url) return undefined;
+
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 2_500);
+  try {
+    const response = await fetch(url, {
+      headers: { "User-Agent": "Agent-Native Forms OG Image" },
+      signal: controller.signal,
+    });
+    if (!response.ok) return undefined;
+
+    const contentType =
+      response.headers.get("content-type")?.split(";")[0]?.trim() || "";
+    if (!/^image\/(?:png|jpe?g|gif|webp)$/i.test(contentType)) {
+      return undefined;
+    }
+
+    const contentLength = Number(response.headers.get("content-length"));
+    if (Number.isFinite(contentLength) && contentLength > 2_000_000) {
+      return undefined;
+    }
+
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    if (bytes.byteLength > 2_000_000) return undefined;
+    return `data:${contentType};base64,${Buffer.from(bytes).toString("base64")}`;
+  } catch {
+    return undefined;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
 async function loadProfileImageDataUrl(
   ownerEmail: string | null | undefined,
 ): Promise<string | undefined> {
   if (!ownerEmail) return undefined;
   try {
     const avatar = await getSetting(`avatar:${ownerEmail}`);
-    return typeof avatar?.image === "string" ? avatar.image : undefined;
+    if (typeof avatar?.image !== "string") return undefined;
+    return (
+      validAvatarDataUrl(avatar.image) ??
+      (await fetchGoogleProfilePhotoDataUrl(avatar.image))
+    );
   } catch {
     return undefined;
   }

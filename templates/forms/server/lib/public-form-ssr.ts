@@ -346,7 +346,7 @@ function renderFormPage(
 <meta property="og:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
-<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
 <link rel="icon" type="image/svg+xml" href="${faviconPath}">
 <!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
 <link rel="preconnect" href="https://fonts.bunny.net">
