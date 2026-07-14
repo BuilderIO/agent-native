@@ -1,4 +1,5 @@
 import {
+  createError,
   defineEventHandler,
   setResponseStatus,
   setResponseHeader,
@@ -10,6 +11,7 @@ import {
 
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
 import {
@@ -18,6 +20,10 @@ import {
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
 import { notifyActionChange } from "./action-change.js";
+import {
+  seedAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
 import {
   getAllowedCorsOrigin as resolveAllowedCorsOrigin,
   readCorsAllowedOrigins,
@@ -164,6 +170,51 @@ function handleOptionsRequest(event: any): string {
   return "";
 }
 
+/**
+ * Declarative auth adapter for the HTTP action route. Its `resolveCaller` runs
+ * BEFORE the framework's `getOwnerFromEvent` / `getSession` chain, letting an
+ * app accept caller identities `getSession` doesn't understand (e.g. an A2A
+ * JWT) without reaching into request context from a Nitro `request` hook.
+ *
+ * Scoped to `/_agent-native/actions/*` only — it does not affect other routes.
+ */
+export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
+  /**
+   * Org to scope the request to, verified from the same credential as the
+   * caller identity (e.g. the A2A token's org claim). When omitted, the org
+   * is derived from the verified owner email via the framework's owner→org
+   * membership lookup. The ambient session/org state on the request is never
+   * consulted for adapter-resolved callers: a request can carry both a valid
+   * A2A bearer and an unrelated browser cookie, and the cookie user's org
+   * must not leak into the token caller's request context.
+   */
+  orgId?: string;
+};
+
+export interface ActionRouteAuthAdapter {
+  /**
+   * Resolve a caller from the raw event before the cookie/bearer chain.
+   *
+   * - Return the resolved caller to run the action scoped to that identity.
+   *   Org scoping comes exclusively from the caller: the returned `orgId` if
+   *   set, otherwise the owner-email membership lookup — never from the
+   *   request's session cookie or org context.
+   * - Return `null` when the credential isn't yours to judge — the request
+   *   defers to `getOwnerFromEvent` / `getSession`.
+   * - THROW to hard-reject: the credential is present but invalid (e.g. an
+   *   expired or forged A2A bearer). The action route responds 401 and does
+   *   NOT fall through to the cookie/session chain, so a valid same-origin
+   *   session cookie can't be used to execute the request as the logged-in
+   *   user. Do not throw merely to signal "not mine" — return `null` for that.
+   */
+  resolveCaller?: (
+    event: any,
+  ) =>
+    | ActionRouteResolvedCaller
+    | null
+    | Promise<ActionRouteResolvedCaller | null>;
+}
+
 export interface MountActionRoutesOptions {
   /** Resolve owner email from the H3 event (for data scoping). */
   getOwnerFromEvent?: (event: any) => string | Promise<string>;
@@ -173,6 +224,18 @@ export interface MountActionRoutesOptions {
   ) => string | undefined | Promise<string | undefined>;
   /** Resolve org ID from the H3 event (for org scoping). */
   resolveOrgId?: (event: any) => string | null | Promise<string | null>;
+  /**
+   * Optional caller resolver that runs before the `getOwnerFromEvent` /
+   * `getSession` chain. Lets apps accept A2A JWTs (or other bearer schemes) on
+   * the action route declaratively. See {@link ActionRouteAuthAdapter}.
+   */
+  actionRouteAuth?: ActionRouteAuthAdapter;
+}
+
+function normalizeOrgId(value: string | null | undefined): string | undefined {
+  return typeof value === "string" && value.trim().length > 0
+    ? value.trim()
+    : undefined;
 }
 
 function isAuthResolutionFailure(error: unknown): boolean {
@@ -259,7 +322,42 @@ export function mountActionRoutes(
         // Resolve auth context for per-request scoping
         let userEmail: string | undefined;
         let userName: string | undefined;
-        if (options?.getOwnerFromEvent) {
+        // An app-supplied auth adapter runs first: it can accept caller
+        // identities the framework's getSession chain doesn't understand (e.g.
+        // an A2A JWT). A resolved caller is seeded onto the event context so any
+        // downstream resolveAgentRunOwnerContext (nested agent runs) sees the
+        // same identity. The adapter is only consulted for the action route, so
+        // it can't affect other surfaces.
+        //
+        // Contract: `resolveCaller` returning `null` means "this credential
+        // isn't mine — defer to the cookie/session chain below". THROWING means
+        // "the credential is mine but invalid" (e.g. an expired/forged A2A
+        // bearer) and is a hard rejection: we surface a 401 instead of falling
+        // through, so a live same-origin session cookie can't silently execute
+        // the request as the logged-in user.
+        let resolvedCaller: ActionRouteResolvedCaller | null = null;
+        if (options?.actionRouteAuth?.resolveCaller) {
+          let caller: ActionRouteResolvedCaller | null;
+          try {
+            caller = await options.actionRouteAuth.resolveCaller(event);
+          } catch {
+            throw createError({
+              statusCode: 401,
+              statusMessage: "Unauthorized",
+            });
+          }
+          if (caller) {
+            seedAgentRunOwnerContext(event, {
+              owner: caller.owner,
+              anonymous: caller.anonymous,
+              name: caller.name,
+            });
+            userEmail = caller.owner;
+            userName = caller.name;
+            resolvedCaller = caller;
+          }
+        }
+        if (!resolvedCaller && options?.getOwnerFromEvent) {
           try {
             userEmail = await options.getOwnerFromEvent(event);
             userName = options?.getUserNameFromEvent
@@ -277,9 +375,32 @@ export function mountActionRoutes(
             }
           }
         }
-        const orgId = options?.resolveOrgId
-          ? ((await options.resolveOrgId(event)) ?? undefined)
-          : undefined;
+        // Org scoping. For adapter-resolved callers the org must come
+        // exclusively from the verified credential: the adapter-asserted
+        // orgId when present, otherwise the owner-email membership lookup.
+        // The request's ambient session/org state (`resolveOrgId`, usually
+        // getSession-backed) is deliberately NOT consulted — a request can
+        // carry both a valid A2A bearer and an unrelated same-origin browser
+        // cookie, and the cookie user's org must not become the org the
+        // token caller's actions execute under. Non-adapter callers keep the
+        // original resolveOrgId-only behavior.
+        let orgId: string | undefined;
+        if (resolvedCaller) {
+          orgId = normalizeOrgId(resolvedCaller.orgId);
+          if (!orgId && resolvedCaller.owner && !resolvedCaller.anonymous) {
+            try {
+              orgId = normalizeOrgId(
+                await resolveOrgIdForEmail(resolvedCaller.owner),
+              );
+            } catch {
+              // Org tables may not exist yet on first boot.
+            }
+          }
+        } else {
+          orgId = options?.resolveOrgId
+            ? ((await options.resolveOrgId(event)) ?? undefined)
+            : undefined;
+        }
         const timezone = readTimezoneHeader(event);
 
         return runWithRequestContext(
