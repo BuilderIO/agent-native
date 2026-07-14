@@ -32,14 +32,14 @@ describe("dispatch action registry", () => {
   });
 
   it("distinguishes mounted workspace apps from connected A2A agents", () => {
-    expect(
-      dispatchActions["list-workspace-apps"].tool.description,
-    ).toContain("not the hosted/connected A2A agent registry");
-    expect(
-      dispatchActions["list-workspace-apps"].tool.description,
-    ).toContain("list-connected-agents");
-    expect(
-      dispatchActions["list-connected-agents"].tool.description,
-    ).toContain("A2A delegation");
+    expect(dispatchActions["list-workspace-apps"].tool.description).toContain(
+      "not the hosted/connected A2A agent registry",
+    );
+    expect(dispatchActions["list-workspace-apps"].tool.description).toContain(
+      "list-connected-agents",
+    );
+    expect(dispatchActions["list-connected-agents"].tool.description).toContain(
+      "A2A delegation",
+    );
   });
 });

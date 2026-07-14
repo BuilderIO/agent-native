@@ -98,11 +98,7 @@ export async function resolveCredential(
 ): Promise<string | undefined> {
   if (!ctx?.userEmail) return undefined;
 
-  const userSecret = await readScopedAppSecret(
-    key,
-    "user",
-    ctx.userEmail,
-  );
+  const userSecret = await readScopedAppSecret(key, "user", ctx.userEmail);
   if (userSecret) return userSecret;
 
   const userSetting = await resolveCredentialForScope(key, {
@@ -125,11 +121,7 @@ export async function resolveCredential(
     return resolveCredentialForScope(key, { ...ctx, scope: "org" });
   }
 
-  return readScopedAppSecret(
-    key,
-    "workspace",
-    `solo:${ctx.userEmail}`,
-  );
+  return readScopedAppSecret(key, "workspace", `solo:${ctx.userEmail}`);
 }
 
 /**
