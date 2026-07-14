@@ -54,11 +54,11 @@ export async function getTaskCardFieldIds(input: {
   const knownIds = new Set(fields.map((field) => field.id));
 
   const db = getDb();
-  const row = await db
+  const [row] = await db
     .select()
     .from(userConfig)
     .where(eq(userConfig.ownerEmail, input.ownerEmail))
-    .get();
+    .limit(1);
 
   if (!row) {
     return fieldIdsForNames(DEFAULT_TASK_CARD_FIELD_NAMES, fields);
@@ -108,11 +108,11 @@ export async function removeTaskCardFieldId(input: {
   now?: string;
 }): Promise<void> {
   const db = getDb();
-  const row = await db
+  const [row] = await db
     .select()
     .from(userConfig)
     .where(eq(userConfig.ownerEmail, input.ownerEmail))
-    .get();
+    .limit(1);
 
   if (!row) return;
 

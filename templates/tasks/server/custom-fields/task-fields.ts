@@ -1,3 +1,4 @@
+import type { StoredCustomFieldValue } from "../db/schema.js";
 import { getTask, type Task } from "../tasks/store.js";
 import { parseStoredValue } from "./parse.js";
 import { listCustomFields } from "./store.js";
@@ -15,7 +16,7 @@ function fieldsById(fields: FieldDefinition[]) {
 }
 
 function valuesByFieldId(
-  rows: ReturnType<typeof listCustomFieldValues>,
+  rows: StoredCustomFieldValue[],
   fieldsByIdMap: Map<string, FieldDefinition>,
 ): Map<string, FieldValue | null> {
   return new Map(
@@ -28,7 +29,7 @@ function valuesByFieldId(
 }
 
 function valuesByTaskId(
-  rows: ReturnType<typeof listCustomFieldValues>,
+  rows: StoredCustomFieldValue[],
   fieldsByIdMap: Map<string, FieldDefinition>,
 ): Map<string, Map<string, FieldValue | null>> {
   const result = new Map<string, Map<string, FieldValue | null>>();

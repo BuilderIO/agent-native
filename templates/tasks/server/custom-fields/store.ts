@@ -3,8 +3,7 @@ import { and, asc, eq, inArray, max } from "drizzle-orm";
 import { getDb } from "../db/index.js";
 import { createRecordId, timestamp } from "../db/record-utils.js";
 import { customFields } from "../db/schema.js";
-import { runTransaction } from "../db/transaction.js";
-import type { TransactionDb } from "../db/transaction.js";
+import type { DbHandle } from "../db/transaction.js";
 import { requireUserEmail } from "../stored-items/store.js";
 import { removeTaskCardFieldId } from "../user-config/store.js";
 import {
@@ -149,18 +148,18 @@ export async function updateCustomField(input: {
     patch.configJson = serializeFieldConfig(existing.type, input.config);
   }
 
-  const updated = runTransaction(getDb(), (tx) => {
-    tx.update(customFields)
+  const updated = await getDb().transaction(async (tx) => {
+    await tx
+      .update(customFields)
       .set(patch)
       .where(
         and(
           eq(customFields.ownerEmail, input.ownerEmail),
           eq(customFields.id, input.fieldId),
         ),
-      )
-      .run();
+      );
 
-    const [updatedRow] = tx
+    const [updatedRow] = await tx
       .select()
       .from(customFields)
       .where(
@@ -169,12 +168,11 @@ export async function updateCustomField(input: {
           eq(customFields.id, input.fieldId),
         ),
       )
-      .limit(1)
-      .all();
+      .limit(1);
     if (!updatedRow) return null;
     const parsed = parseField(updatedRow);
     if (input.config !== undefined) {
-      cleanupValuesAfterConfigChange(parsed, tx);
+      await cleanupValuesAfterConfigChange(parsed, tx);
     }
     return parsed;
   });
@@ -182,13 +180,13 @@ export async function updateCustomField(input: {
   return updated;
 }
 
-function cleanupValuesAfterConfigChange(
+async function cleanupValuesAfterConfigChange(
   field: FieldDefinition,
-  db: TransactionDb,
-) {
+  db: DbHandle,
+): Promise<void> {
   if (field.type !== "single_select" && field.type !== "multi_select") return;
   const allowed = new Set(selectOptionIds(field));
-  const rows = listCustomFieldValues(
+  const rows = await listCustomFieldValues(
     { ownerEmail: field.ownerEmail, fieldId: field.id },
     db,
   );
@@ -196,12 +194,15 @@ function cleanupValuesAfterConfigChange(
   for (const row of rows) {
     const value = parseStoredValue(field, row);
     if (value === null) {
-      deleteCustomFieldValues({ ownerEmail: field.ownerEmail, id: row.id }, db);
+      await deleteCustomFieldValues(
+        { ownerEmail: field.ownerEmail, id: row.id },
+        db,
+      );
       continue;
     }
     if (field.type === "single_select") {
       if (typeof value !== "string" || !allowed.has(value)) {
-        deleteCustomFieldValues(
+        await deleteCustomFieldValues(
           { ownerEmail: field.ownerEmail, id: row.id },
           db,
         );
@@ -213,9 +214,12 @@ function cleanupValuesAfterConfigChange(
       ? value.filter((optionId) => allowed.has(optionId))
       : [];
     if (nextValue.length === 0) {
-      deleteCustomFieldValues({ ownerEmail: field.ownerEmail, id: row.id }, db);
+      await deleteCustomFieldValues(
+        { ownerEmail: field.ownerEmail, id: row.id },
+        db,
+      );
     } else if (nextValue.length !== (value as string[]).length) {
-      updateCustomFieldValue(
+      await updateCustomFieldValue(
         { ownerEmail: field.ownerEmail, id: row.id, value: nextValue },
         db,
       );
@@ -239,16 +243,16 @@ export async function deleteCustomField(input: {
   });
   if (!existing) throw new Error("Custom field not found.");
 
-  const { deletedValues } = runTransaction(getDb(), (tx) => {
-    const result = deleteCustomFieldValues(input, tx);
-    tx.delete(customFields)
+  const { deletedValues } = await getDb().transaction(async (tx) => {
+    const result = await deleteCustomFieldValues(input, tx);
+    await tx
+      .delete(customFields)
       .where(
         and(
           eq(customFields.ownerEmail, input.ownerEmail),
           eq(customFields.id, input.fieldId),
         ),
-      )
-      .run();
+      );
     return result;
   });
 
@@ -280,19 +284,19 @@ export async function reorderCustomFields(input: {
   }
 
   const updatedAt = timestamp();
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (let index = 0; index < input.fieldIds.length; index += 1) {
       const fieldId = input.fieldIds[index];
       if (!fieldId) continue;
-      tx.update(customFields)
+      await tx
+        .update(customFields)
         .set({ sortOrder: index * SORT_GAP, updatedAt })
         .where(
           and(
             eq(customFields.ownerEmail, input.ownerEmail),
             eq(customFields.id, fieldId),
           ),
-        )
-        .run();
+        );
     }
   });
 

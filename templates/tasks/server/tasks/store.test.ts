@@ -22,15 +22,17 @@ vi.mock("../db/index.js", () => ({
   getDb: () => testDb,
 }));
 
-let sqlite: ReturnType<typeof createInMemoryTasksDb>["sqlite"];
-let testDb: ReturnType<typeof createInMemoryTasksDb>["testDb"];
+type TestDb = Awaited<ReturnType<typeof createInMemoryTasksDb>>;
 
-beforeEach(() => {
-  ({ sqlite, testDb } = createInMemoryTasksDb());
+let client: TestDb["client"];
+let testDb: TestDb["testDb"];
+
+beforeEach(async () => {
+  ({ client, testDb } = await createInMemoryTasksDb());
 });
 
 afterEach(() => {
-  sqlite.close();
+  client.close();
 });
 
 describe("task store", () => {

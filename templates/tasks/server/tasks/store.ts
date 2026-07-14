@@ -7,7 +7,6 @@ import {
 } from "../custom-fields/values/store.js";
 import { getDb } from "../db/index.js";
 import type { StoredItem } from "../db/schema.js";
-import { runTransaction } from "../db/transaction.js";
 import {
   assertStoredItemsExist,
   createStoredItem,
@@ -118,8 +117,8 @@ export async function patchTask(input: {
     });
     const timestamp = input.now ?? new Date().toISOString();
 
-    runTransaction(getDb(), (tx) => {
-      updateStoredItemInTx(tx, {
+    await getDb().transaction(async (tx) => {
+      await updateStoredItemInTx(tx, {
         ownerEmail: input.ownerEmail,
         id: input.id,
         promotedToTask: true,
@@ -127,7 +126,7 @@ export async function patchTask(input: {
         done: input.done,
         now: timestamp,
       });
-      applyCustomFieldValuePatchesInTx(tx, {
+      await applyCustomFieldValuePatchesInTx(tx, {
         ownerEmail: input.ownerEmail,
         taskId: input.id,
         patches,
@@ -181,9 +180,9 @@ export async function bulkUpdateTasks(input: {
   });
 
   const timestamp = input.now ?? new Date().toISOString();
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (const id of input.taskIds) {
-      updateStoredItemInTx(tx, {
+      await updateStoredItemInTx(tx, {
         ownerEmail: input.ownerEmail,
         id,
         promotedToTask: true,
@@ -218,12 +217,12 @@ export async function deleteTask(input: {
     notFoundMessage: "Task not found.",
   });
 
-  runTransaction(getDb(), (tx) => {
-    deleteCustomFieldValues(
+  await getDb().transaction(async (tx) => {
+    await deleteCustomFieldValues(
       { ownerEmail: input.ownerEmail, taskId: input.id },
       tx,
     );
-    deleteStoredItemInTx(tx, {
+    await deleteStoredItemInTx(tx, {
       ownerEmail: input.ownerEmail,
       id: input.id,
       promotedToTask: true,
@@ -242,10 +241,13 @@ export async function bulkDeleteTasks(input: {
     notFoundMessage: "Task not found.",
   });
 
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (const id of input.taskIds) {
-      deleteCustomFieldValues({ ownerEmail: input.ownerEmail, taskId: id }, tx);
-      deleteStoredItemInTx(tx, {
+      await deleteCustomFieldValues(
+        { ownerEmail: input.ownerEmail, taskId: id },
+        tx,
+      );
+      await deleteStoredItemInTx(tx, {
         ownerEmail: input.ownerEmail,
         id,
         promotedToTask: true,

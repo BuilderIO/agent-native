@@ -7,7 +7,7 @@ import {
   customFieldValues,
   type StoredCustomFieldValue,
 } from "../../db/schema.js";
-import { runTransaction, type TransactionDb } from "../../db/transaction.js";
+import type { DbHandle } from "../../db/transaction.js";
 import { getStoredItem } from "../../stored-items/store.js";
 import { isEmptyFieldValue, normalizeFieldValue } from "../normalize.js";
 import {
@@ -79,18 +79,18 @@ export async function prepareCustomFieldValuePatches(input: {
   return normalizedValues;
 }
 
-export function applyCustomFieldValuePatchesInTx(
-  tx: TransactionDb,
+export async function applyCustomFieldValuePatchesInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     taskId: string;
     patches: Map<string, PreparedFieldValuePatch>;
     updatedAt: string;
   },
-): void {
+): Promise<void> {
   for (const normalized of input.patches.values()) {
     if (normalized.value === null) {
-      deleteCustomFieldValues(
+      await deleteCustomFieldValues(
         {
           ownerEmail: input.ownerEmail,
           taskId: input.taskId,
@@ -102,7 +102,8 @@ export function applyCustomFieldValuePatchesInTx(
     }
 
     const valueJson = JSON.stringify(normalized.value);
-    tx.insert(customFieldValues)
+    await tx
+      .insert(customFieldValues)
       .values({
         id: createRecordId("cfv"),
         fieldId: normalized.field.id,
@@ -119,8 +120,7 @@ export function applyCustomFieldValuePatchesInTx(
           customFieldValues.fieldId,
         ],
         set: { valueJson, updatedAt: input.updatedAt },
-      })
-      .run();
+      });
   }
 }
 
@@ -158,16 +158,14 @@ export async function getCustomFieldValue(input: {
   return parseStoredValue(parseField(fieldRow), row);
 }
 
-type FieldValueDb = ReturnType<typeof getDb> | TransactionDb;
-
-export function listCustomFieldValues(
+export async function listCustomFieldValues(
   input: {
     ownerEmail: string;
     taskIds?: string[];
     fieldId?: string;
   },
-  db: FieldValueDb = getDb(),
-): StoredCustomFieldValue[] {
+  db: DbHandle = getDb(),
+): Promise<StoredCustomFieldValue[]> {
   const taskIds = input.taskIds ? [...new Set(input.taskIds)] : undefined;
   if (!taskIds?.length && !input.fieldId) {
     throw new Error("Provide taskIds or fieldId to list custom field values.");
@@ -183,8 +181,7 @@ export function listCustomFieldValues(
   return db
     .select()
     .from(customFieldValues)
-    .where(and(...conditions))
-    .all();
+    .where(and(...conditions));
 }
 
 export async function updateCustomFieldValues(input: {
@@ -197,8 +194,8 @@ export async function updateCustomFieldValues(input: {
   if (patches.size === 0) return;
 
   const updatedAt = timestamp(input.now);
-  runTransaction(getDb(), (tx) => {
-    applyCustomFieldValuePatchesInTx(tx, {
+  await getDb().transaction(async (tx) => {
+    await applyCustomFieldValuePatchesInTx(tx, {
       ownerEmail: input.ownerEmail,
       taskId: input.taskId,
       patches,
@@ -207,16 +204,17 @@ export async function updateCustomFieldValues(input: {
   });
 }
 
-export function updateCustomFieldValue(
+export async function updateCustomFieldValue(
   input: {
     ownerEmail: string;
     id: string;
     value: FieldValue;
     now?: string;
   },
-  db: FieldValueDb = getDb(),
-): void {
-  db.update(customFieldValues)
+  db: DbHandle = getDb(),
+): Promise<void> {
+  await db
+    .update(customFieldValues)
     .set({
       valueJson: JSON.stringify(input.value),
       updatedAt: timestamp(input.now),
@@ -226,19 +224,18 @@ export function updateCustomFieldValue(
         eq(customFieldValues.ownerEmail, input.ownerEmail),
         eq(customFieldValues.id, input.id),
       ),
-    )
-    .run();
+    );
 }
 
-export function deleteCustomFieldValues(
+export async function deleteCustomFieldValues(
   input: {
     ownerEmail: string;
     id?: string;
     taskId?: string;
     fieldId?: string;
   },
-  db: FieldValueDb = getDb(),
-): { deletedValues: number } {
+  db: DbHandle = getDb(),
+): Promise<{ deletedValues: number }> {
   if (!input.id && !input.taskId && !input.fieldId) {
     throw new Error(
       "Provide id, taskId, or fieldId to delete custom field values.",
@@ -251,16 +248,13 @@ export function deleteCustomFieldValues(
   if (input.fieldId)
     conditions.push(eq(customFieldValues.fieldId, input.fieldId));
 
-  const values = db
+  const values = await db
     .select({ id: customFieldValues.id })
     .from(customFieldValues)
-    .where(and(...conditions))
-    .all();
+    .where(and(...conditions));
 
   if (values.length > 0) {
-    db.delete(customFieldValues)
-      .where(and(...conditions))
-      .run();
+    await db.delete(customFieldValues).where(and(...conditions));
   }
 
   return { deletedValues: values.length };

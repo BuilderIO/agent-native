@@ -2,7 +2,7 @@ import { and, asc, eq, min } from "drizzle-orm";
 
 import { getDb } from "../db/index.js";
 import { tasks, type StoredItem } from "../db/schema.js";
-import { runTransaction, type TransactionDb } from "../db/transaction.js";
+import type { DbHandle } from "../db/transaction.js";
 
 /**
  * Storage layer on the unified `tasks` table.
@@ -221,8 +221,8 @@ export async function assertStoredItemsExist(input: {
   }
 }
 
-export function updateStoredItemInTx(
-  tx: TransactionDb,
+export async function updateStoredItemInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     id: string;
@@ -231,7 +231,7 @@ export function updateStoredItemInTx(
     done?: boolean;
     now: string;
   },
-): void {
+): Promise<void> {
   const patch: Partial<typeof tasks.$inferInsert> = {
     updatedAt: input.now,
   };
@@ -244,7 +244,8 @@ export function updateStoredItemInTx(
     patch.done = input.done;
   }
 
-  tx.update(tasks)
+  await tx
+    .update(tasks)
     .set(patch)
     .where(
       and(
@@ -252,27 +253,26 @@ export function updateStoredItemInTx(
         eq(tasks.ownerEmail, input.ownerEmail),
         eq(tasks.promotedToTask, input.promotedToTask),
       ),
-    )
-    .run();
+    );
 }
 
-export function deleteStoredItemInTx(
-  tx: TransactionDb,
+export async function deleteStoredItemInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     id: string;
     promotedToTask: boolean;
   },
-): void {
-  tx.delete(tasks)
+): Promise<void> {
+  await tx
+    .delete(tasks)
     .where(
       and(
         eq(tasks.id, input.id),
         eq(tasks.ownerEmail, input.ownerEmail),
         eq(tasks.promotedToTask, input.promotedToTask),
       ),
-    )
-    .run();
+    );
 }
 
 export async function reorderStoredItems(input: {
@@ -328,11 +328,12 @@ export async function reorderStoredItems(input: {
   });
 
   const timestamp = new Date().toISOString();
-  runTransaction(getDb(), (tx) => {
+  await db.transaction(async (tx) => {
     for (let index = 0; index < merged.length; index += 1) {
       const item = merged[index];
       if (!item) continue;
-      tx.update(tasks)
+      await tx
+        .update(tasks)
         .set({ sortOrder: index * SORT_GAP, updatedAt: timestamp })
         .where(
           and(
@@ -340,8 +341,7 @@ export async function reorderStoredItems(input: {
             eq(tasks.ownerEmail, input.ownerEmail),
             eq(tasks.promotedToTask, true),
           ),
-        )
-        .run();
+        );
     }
   });
 }
@@ -370,11 +370,12 @@ async function applySortOrderUpdates(input: {
   orderedIds: string[];
 }): Promise<void> {
   const timestamp = new Date().toISOString();
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (let index = 0; index < input.orderedIds.length; index += 1) {
       const id = input.orderedIds[index];
       if (!id) continue;
-      tx.update(tasks)
+      await tx
+        .update(tasks)
         .set({ sortOrder: index * SORT_GAP, updatedAt: timestamp })
         .where(
           and(
@@ -382,8 +383,7 @@ async function applySortOrderUpdates(input: {
             eq(tasks.ownerEmail, input.ownerEmail),
             eq(tasks.promotedToTask, input.promotedToTask),
           ),
-        )
-        .run();
+        );
     }
   });
 }
@@ -455,9 +455,10 @@ export async function bulkPromoteStoredItemsToTasks(input: {
   const timestamp = input.now ?? new Date().toISOString();
   let sortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
 
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (const id of uniqueIds) {
-      tx.update(tasks)
+      await tx
+        .update(tasks)
         .set({
           promotedToTask: true,
           done: false,
@@ -470,8 +471,7 @@ export async function bulkPromoteStoredItemsToTasks(input: {
             eq(tasks.ownerEmail, input.ownerEmail),
             eq(tasks.promotedToTask, false),
           ),
-        )
-        .run();
+        );
       sortOrder -= SORT_GAP;
     }
   });
