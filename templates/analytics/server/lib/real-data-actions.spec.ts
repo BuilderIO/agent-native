@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
+  hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
@@ -13,6 +15,7 @@ import {
   isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
+  looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
@@ -766,6 +769,65 @@ describe("incomplete evidence detection", () => {
     expect(
       hasOverstatedCoverageConfidenceClaim(
         "Partial coverage: I found 0 matches in the 200 calls inspected; this is a defensible interim read.",
+      ),
+    ).toBe(false);
+  });
+
+  it("treats a Roku-template Intuit clone as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a new dashboard for Intuit using the Roku User Usage Analytics dashboard as a template",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Use the same source data as Roku, filter for Intuit",
+      ),
+    ).toBe(false);
+  });
+
+  it("still treats a plain numeric analytics question as a data request, not construction", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "What was our conversion rate last week?",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "What was our conversion rate last week?",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts get-sql-dashboard and extension actions as construction progress", () => {
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-sql-dashboard", content: '{"id":"roku-analysis"}' },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-extension", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "create-extension", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(hasDashboardConstructionAttempt([{ name: "bigquery" }])).toBe(
+      false,
+    );
+    expect(hasDashboardConstructionAttempt([])).toBe(false);
+  });
+
+  it("still blocks inventing metrics without a data query", () => {
+    expect(draftClaimsAnalyticsMetrics("Intuit has 12,450 active users")).toBe(
+      true,
+    );
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "I've cloned the Roku extension for Intuit. What org id should I filter on?",
       ),
     ).toBe(false);
   });

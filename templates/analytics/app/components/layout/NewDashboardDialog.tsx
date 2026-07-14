@@ -14,10 +14,12 @@ import {
 
 const DASHBOARD_CONTEXT =
   "The user wants to create a new analytics dashboard. " +
-  "REAL_DATA_REQUIRED: before saving or answering, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `update-dashboard`, and dry-run validation do not count as data queries. " +
+  "TEMPLATE FIRST — If the user names an existing dashboard as a template to clone/base this on, call `get-sql-dashboard` for that id/title immediately and inspect `panels[].chartType`. " +
+  "If any panel is `chartType: \"extension\"`, this is an extension-backed dashboard: call `get-extension` for `config.extensionId`, clone/adapt it with `create-extension` (apply the requested customer/org filters), then save a new dashboard via `update-dashboard` that embeds the new extension panel (`chartType: \"extension\"`, `config.extensionId`). Do not rebuild an extension template as guessed SQL/BigQuery panels. " +
+  "REAL_DATA_REQUIRED: before presenting numbers or authoring new SQL that invents tables/columns/filters, run at least one real data-source query action; `data-source-status`, `list-data-dictionary`, `get-sql-dashboard`, `get-extension`, `update-dashboard`, `mutate-dashboard`, and dry-run validation do not count as data queries. It is OK to inspect a template, clone an extension shell, ask one clarifying question (org id / account filter), or report an exact unavailable/error result without running a data query, as long as you do not invent metrics. " +
   "The `demo` source is reserved for the built-in Node Exporter demo and does not satisfy REAL_DATA_REQUIRED unless the user explicitly asks to work on that demo dashboard. " +
   "If no source can answer, report the exact unavailable/error result instead of saving a dashboard with guessed schema or metrics. " +
-  "Create a SQL-driven dashboard by calling the `update-dashboard` action with `dashboardId` and `config`. " +
+  "SQL PANELS — Only for native SQL dashboards (not template clones of an extension-backed dashboard): create a SQL-driven dashboard by calling the `update-dashboard` action with `dashboardId` and `config`. " +
   "The config shape is: { name: string, panels: [{ id, title, sql, source, chartType, width, tab?, config? }] }. " +
   "Each panel needs: id (unique string), title, sql (the query), source ('bigquery' | 'ga4' | 'amplitude' | 'first-party' | 'demo' | 'prometheus'), " +
   "chartType ('line' | 'area' | 'bar' | 'metric' | 'table' | 'pie'), width (1 or 2). " +
