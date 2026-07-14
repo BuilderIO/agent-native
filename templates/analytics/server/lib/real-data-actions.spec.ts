@@ -808,19 +808,15 @@ describe("incomplete evidence detection", () => {
         { name: "get-extension", content: "{}" },
       ]),
     ).toBe(true);
-    expect(
-      hasDashboardConstructionAttempt([
-        { name: "create-extension", content: "{}" },
-      ]),
-    ).toBe(true);
     expect(hasDashboardConstructionAttempt([{ name: "bigquery" }])).toBe(false);
     expect(hasDashboardConstructionAttempt([])).toBe(false);
   });
 
-  it("does not treat authoring/saving a SQL dashboard alone as construction progress", () => {
-    // update-dashboard/mutate-dashboard can author brand-new SQL panels, so
-    // calling them with no prior inspection/clone step must not be enough to
-    // bypass the real-data guard for an invented dashboard.
+  it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
+    // update-dashboard/mutate-dashboard/create-extension/update-extension can
+    // all author brand-new SQL or extension content, so calling them with no
+    // prior inspection/clone step must not be enough to bypass the real-data
+    // guard for an invented dashboard or extension.
     expect(
       hasDashboardConstructionAttempt([
         { name: "update-dashboard", content: "{}" },
@@ -831,11 +827,27 @@ describe("incomplete evidence detection", () => {
         { name: "mutate-dashboard", content: "{}" },
       ]),
     ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "create-extension", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "update-extension", content: "{}" },
+      ]),
+    ).toBe(false);
     // But it's fine alongside a real inspection/clone step.
     expect(
       hasDashboardConstructionAttempt([
         { name: "get-extension", content: "{}" },
         { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-sql-dashboard", content: "{}" },
+        { name: "create-extension", content: "{}" },
       ]),
     ).toBe(true);
   });
@@ -846,6 +858,9 @@ describe("incomplete evidence detection", () => {
     );
     expect(
       draftClaimsAnalyticsMetrics("Company B signups increased last week"),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Company B had zero signups last week"),
     ).toBe(true);
     expect(
       draftClaimsAnalyticsMetrics(

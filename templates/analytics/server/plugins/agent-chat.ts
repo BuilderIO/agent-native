@@ -245,6 +245,10 @@ export function realDataFinalGuard(
         'This is a dashboard construction/template-clone request. Resolve the named template\'s id (use `list-sql-dashboards` if you only have a title) and call `get-sql-dashboard` with `includeConfig: true` first. If its panels are `chartType: "extension"`, use `get-extension` then `create-extension` to clone/adapt it, then `update-dashboard` to save the new dashboard. Do not invent SQL panels for an extension-backed template. Ask one clarifying filter question if needed. Only run a data-source query before presenting numbers or authoring invented SQL.',
       fallbackMessage:
         "I need to inspect the template dashboard (and its extension, if it uses one) before creating the new one. Tell me the template dashboard name, or confirm the org/account filter, and I'll clone it without inventing metrics.",
+      // list-sql-dashboards/list-dashboard-templates are on the initial
+      // surface, but expand anyway so a corrective retry can always reach
+      // the lookup/inspection tools this message asks for.
+      expandToolSurface: true,
     };
   }
 
