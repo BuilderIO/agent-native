@@ -955,7 +955,7 @@ mod macos {
         eprintln!("[whisper] transcription timeline reset");
     }
 
-    pub fn stop(_app: &AppHandle) {
+    pub fn stop(app: &AppHandle) {
         let session = match session_slot().lock() {
             Ok(mut slot) => slot.take(),
             Err(_) => return,
@@ -975,19 +975,36 @@ mod macos {
         if let Some(sys_cap) = session.sys_cap {
             sys_cap.stop();
         }
-        // Wait up to 4 s for both workers to finish their final flush so
-        // trailing speech is not lost when the frontend unregisters listeners.
-        let deadline = Instant::now() + Duration::from_secs(4);
+        // Wait for both workers to finish their final flush so trailing
+        // speech is not lost when the frontend unregisters listeners. The
+        // flush runs a full whisper pass over the remaining buffer — with a
+        // large model and a long recording that can take tens of seconds.
+        // The old 4s deadline expired routinely for recordings, so their
+        // finals were emitted after the transcript had already been saved
+        // empty ("No speech was captured" with real audio). The stop command
+        // is awaited off the hot path, so a generous drain is safe.
+        let drain_started = Instant::now();
+        let deadline = drain_started + Duration::from_secs(45);
+        let mut drained = false;
         while Instant::now() < deadline {
             let sys_done = session
                 .sys
                 .as_ref()
                 .map_or(true, |s| s.done.load(Ordering::SeqCst));
             if session.mic.done.load(Ordering::SeqCst) && sys_done {
+                drained = true;
                 break;
             }
             std::thread::sleep(Duration::from_millis(50));
         }
+        crate::diag::tray_diag(
+            app,
+            serde_json::json!({
+                "event": "whisper-drain",
+                "ms": drain_started.elapsed().as_millis() as u64,
+                "drained": drained,
+            }),
+        );
         eprintln!("[whisper] meeting transcription stopped");
     }
 
