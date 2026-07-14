@@ -22,7 +22,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Link, useNavigate, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Badge } from "@/components/ui/badge";
@@ -205,7 +205,6 @@ export function useDebouncedUrlFilter(
 
 export default function SessionsPage() {
   const t = useT();
-  const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const range = readRange(searchParams.get("range"));
   const app = searchParams.get("app") ?? "";
@@ -389,11 +388,10 @@ export default function SessionsPage() {
                     recording.startedAt;
                   const deviceLabel = sessionDeviceLabel(recording);
                   return (
-                    <button
+                    <Link
                       key={recording.id}
-                      type="button"
+                      to={href}
                       className="analytics-session-row grid w-full gap-3 px-4 py-3 text-left transition-colors hover:bg-muted/35 focus-visible:bg-muted/35 focus-visible:outline-none"
-                      onClick={() => navigate(href)}
                       aria-label={t("sessions.watchReplay")}
                     >
                       <span className="inline-flex h-10 w-[92px] items-center justify-center gap-2 rounded-md bg-primary/10 font-medium text-primary">
@@ -446,7 +444,7 @@ export default function SessionsPage() {
                           </span>
                         ) : null}
                       </span>
-                    </button>
+                    </Link>
                   );
                 })}
               </div>

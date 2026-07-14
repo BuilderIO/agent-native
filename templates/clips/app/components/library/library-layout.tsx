@@ -29,6 +29,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPlus,
   IconShare,
+  IconBrain,
   IconSettings,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -239,6 +240,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: t("navigation.trash"),
       icon: IconTrash,
       match: (p) => p.startsWith("/trash"),
+    },
+    {
+      to: "/agent",
+      label: t("navigation.agent"),
+      icon: IconBrain,
+      match: (p) => p.startsWith("/agent"),
     },
     {
       to: "/settings",
@@ -547,6 +554,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           t("navigation.agentSuggestionPricing"),
           t("navigation.agentSuggestionFiller"),
         ]}
+        agentPageHref="/agent"
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
       >

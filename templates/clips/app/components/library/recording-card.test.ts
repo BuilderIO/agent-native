@@ -14,7 +14,9 @@ describe("library recording cards", () => {
     expect(source).not.toContain("canRenameTitle");
     expect(source).not.toContain("onRename");
     expect(source).not.toContain("IconEdit");
-    expect(source).toContain("navigate(recordingPath)");
+    expect(source).toContain("<Link");
+    expect(source).toContain("to={recordingPath}");
+    expect(source).toContain("handleLinkClick");
     expect(source).toContain("select-none text-sm font-medium");
   });
 

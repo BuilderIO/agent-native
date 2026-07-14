@@ -27,6 +27,9 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+const MCP_LEGACY_ROUTE_PREFIX = "/_agent-native/mcp";
+const MCP_PUBLIC_ROUTE_PREFIX = "/mcp";
+
 export type ClientId =
   | "claude-code"
   | "claude-code-cli"
@@ -671,6 +674,13 @@ export function canonicalUrl(value: string | undefined): string | undefined {
     const u = new URL(value);
     u.hash = "";
     u.search = "";
+    const pathname = u.pathname.replace(/\/+$/, "");
+    if (
+      pathname === MCP_LEGACY_ROUTE_PREFIX ||
+      pathname.endsWith(MCP_LEGACY_ROUTE_PREFIX)
+    ) {
+      u.pathname = `${pathname.slice(0, -MCP_LEGACY_ROUTE_PREFIX.length)}${MCP_PUBLIC_ROUTE_PREFIX}`;
+    }
     return u.toString().replace(/\/+$/, "");
   } catch {
     return undefined;

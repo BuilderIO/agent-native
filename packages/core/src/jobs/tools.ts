@@ -68,7 +68,7 @@ async function isCurrentUserOrgAdmin(
  * Returns null when the mutation is allowed, or an error string suitable
  * for returning to the caller when not.
  */
-async function authorizeJobMutation(
+export async function authorizeJobMutation(
   resourceOwner: string,
   meta: JobFrontmatter,
 ): Promise<string | null> {

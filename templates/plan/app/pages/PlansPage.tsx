@@ -2092,12 +2092,21 @@ export function PlansPage({ localPlanSlug }: { localPlanSlug?: string } = {}) {
       retry: false,
     },
   );
-  const localPlanData = localPlanBridgeUrl
-    ? mergeLocalBridgeComments(
-        localPlanBridgeQuery.data,
-        localPlanBridgeCommentsQuery.data?.comments,
-      )
-    : localPlanQuery.data;
+  const localPlanData = useMemo(
+    () =>
+      localPlanBridgeUrl
+        ? mergeLocalBridgeComments(
+            localPlanBridgeQuery.data,
+            localPlanBridgeCommentsQuery.data?.comments,
+          )
+        : localPlanQuery.data,
+    [
+      localPlanBridgeQuery.data,
+      localPlanBridgeCommentsQuery.data?.comments,
+      localPlanBridgeUrl,
+      localPlanQuery.data,
+    ],
+  );
   const localPlanError = localPlanBridgeUrl
     ? localPlanBridgeQuery.error
     : localPlanQuery.error;

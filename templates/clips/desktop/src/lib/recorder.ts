@@ -81,6 +81,7 @@ import {
   type CapturedTranscript,
   type TranscriptionCapture,
 } from "./transcription-capture";
+import { shouldResampleVideoForUpload } from "./upload-video-stream";
 
 export type { LocalExportedFile } from "./local-export";
 export { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
@@ -98,7 +99,7 @@ export interface RegionCaptureRect {
 const NATIVE_FULLSCREEN_RECORDING_FLAG = "clips:native-fullscreen-recording";
 const DEV_SYNTHETIC_CAPTURE_FLAG = "clips:dev-synthetic-capture";
 const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
-const LIVE_UPLOAD_CHUNK_MS = 1_000;
+const LIVE_UPLOAD_CHUNK_MS = 2_000;
 const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
 const NATIVE_FULLSCREEN_MIME_TYPE = "video/mp4";
 // GCS resumable uploads require every non-final chunk to be a multiple of
@@ -302,6 +303,11 @@ function createUploadOptimizedVideoStream(
   }
 
   const sourceSize = videoTrackDimensions(source);
+  if (
+    !shouldResampleVideoForUpload(sourceSize, CLOUD_RECORDING_MAX_LONG_EDGE)
+  ) {
+    return { stream: source, cleanup() {} };
+  }
   const initial = scaledVideoDimensions(
     sourceSize.width ?? 1280,
     sourceSize.height ?? 720,
@@ -2143,6 +2149,11 @@ async function startNativeFullscreenRecording(
     await invoke("native_fullscreen_recording_begin", {
       recordingId: id,
       ...captureAudioParams,
+      // Live-upload credentials are read on the Rust side from the shared
+      // meetings-watcher session; only signal whether this is a local-only
+      // recording (which never uploads to the server).
+      localOnly,
+      hasCamera: wantsCamera,
     });
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
@@ -3216,8 +3227,8 @@ async function startRecordingInner(
   // resumable session with the correct content type when the server supports
   // streaming uploads.
   const mimeCandidates = [
-    "video/webm;codecs=vp9,opus",
     "video/webm;codecs=vp8,opus",
+    "video/webm;codecs=vp9,opus",
     "video/webm",
   ];
   const mimeType =

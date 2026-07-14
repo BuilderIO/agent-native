@@ -1,6 +1,8 @@
 import {
   ReviewStatusBadge,
   agentNativePath,
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
   useActionQuery,
   useReviewComments,
   useSession,
@@ -9,7 +11,7 @@ import {
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { IconMessageCircle } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams, useNavigate } from "react-router";
+import { Link, useParams, useNavigate } from "react-router";
 
 import { appendHitTestResponder } from "@/components/design/design-canvas/hit-test";
 import { ReviewCommentsPanel } from "@/components/design/ReviewCommentsPanel";
@@ -80,7 +82,10 @@ export default function Present() {
     design?.accessRole === "editor",
   );
   const reviewableContent = useMemo(
-    () => appendHitTestResponder(activeFile?.content ?? ""),
+    () =>
+      injectSessionReplayIframeBootstrap(
+        appendHitTestResponder(activeFile?.content ?? ""),
+      ),
     [activeFile?.content],
   );
   const reviewCommentCount =
@@ -163,12 +168,12 @@ export default function Present() {
     return (
       <div className="h-screen w-screen bg-black flex flex-col items-center justify-center gap-4">
         <p className="text-white/50 text-sm">{t("pages.presentEmpty")}</p>
-        <button
-          onClick={() => navigate(`/design/${id}`)}
+        <Link
+          to={`/design/${id}`}
           className="text-sm text-white/40 hover:text-white/60 underline cursor-pointer"
         >
           {t("pages.presentBackToEditor")}
-        </button>
+        </Link>
       </div>
     );
   }
@@ -177,6 +182,7 @@ export default function Present() {
     <div className="relative h-screen w-screen overflow-hidden bg-black">
       <div className="present-review-canvas h-full w-full">
         <iframe
+          {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
           srcDoc={reviewableContent}
           sandbox="allow-scripts"
           data-design-preview-iframe

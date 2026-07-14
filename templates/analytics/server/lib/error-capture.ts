@@ -18,7 +18,6 @@ import { fileURLToPath } from "node:url";
  * reads go through `accessFilter` so an org-scoped key surfaces its issues to
  * the whole org exactly like session recordings.
  */
-import { appStateGet } from "@agent-native/core/application-state";
 import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
 import { accessFilter } from "@agent-native/core/sharing";
@@ -547,6 +546,27 @@ export interface RawExceptionInput {
   breadcrumbs: unknown[];
 }
 
+/**
+ * Browser request cancellation is expected during navigation and query
+ * invalidation. Keep the first-party issue store aligned with the client
+ * Sentry filter, while preserving other AbortError failures for triage.
+ */
+export function isBenignBrowserAbortException(
+  input: Pick<RawExceptionInput, "type" | "message">,
+): boolean {
+  const exceptionType = input.type.trim().toLowerCase();
+  const exceptionValue = input.message.trim().toLowerCase();
+  return (
+    exceptionValue === "the user aborted a request." ||
+    exceptionValue === "signal is aborted without reason" ||
+    exceptionValue === "aborterror: the user aborted a request." ||
+    exceptionValue === "aborterror: signal is aborted without reason" ||
+    (exceptionType === "aborterror" &&
+      (exceptionValue.includes("the user aborted a request") ||
+        exceptionValue.includes("signal is aborted without reason")))
+  );
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -930,11 +950,9 @@ export async function ingestAnalyticsExceptionEvents(
   let ingested = 0;
   for (const item of events) {
     try {
-      await ingestException(
-        scope,
-        extractExceptionInput(item.properties),
-        item.derived,
-      );
+      const raw = extractExceptionInput(item.properties);
+      if (isBenignBrowserAbortException(raw)) continue;
+      await ingestException(scope, raw, item.derived);
       ingested += 1;
     } catch (error) {
       console.warn("[error-capture] Failed to ingest exception event:", error);
@@ -1080,56 +1098,6 @@ export interface ListErrorIssuesFilters {
   limit?: number;
 }
 
-export const ERROR_REPORTING_ANONYMOUS_EMAIL = "anonymous@builder.io";
-const ERROR_REPORTING_EMAIL_PATTERN = /[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi;
-
-/**
- * Error reports contain emails in identity fields, messages, stacks, URLs,
- * tags, extra context, and breadcrumbs. Redact every string at this owning
- * read seam so demo mode never depends on browser interception timing.
- */
-export function anonymizeErrorReportingEmails<T>(value: T): T {
-  if (typeof value === "string") {
-    return value.replace(
-      ERROR_REPORTING_EMAIL_PATTERN,
-      ERROR_REPORTING_ANONYMOUS_EMAIL,
-    ) as T;
-  }
-  if (Array.isArray(value)) {
-    return value.map((item) => anonymizeErrorReportingEmails(item)) as T;
-  }
-  if (value && typeof value === "object") {
-    if (value instanceof Date) return value;
-    const output: Record<string, unknown> = {};
-    for (const [key, entry] of Object.entries(value)) {
-      output[key] = anonymizeErrorReportingEmails(entry);
-    }
-    return output as T;
-  }
-  return value;
-}
-
-async function isErrorDemoModeEnabled(
-  userEmail?: string | null,
-): Promise<boolean> {
-  if (process.env.DEMO_MODE === "true") return true;
-  if (!userEmail) return false;
-  try {
-    // Keep demo state tied to the caller whose issues are being read.
-    const state = await appStateGet(userEmail, "demo-mode");
-    return state?.enabled === true;
-  } catch {
-    return false;
-  }
-}
-
-function anonymizeErrorReportingEmailsInDemoMode<T>(
-  value: T,
-  enabled: boolean,
-): T {
-  return enabled ? anonymizeErrorReportingEmails(value) : value;
-}
-
 export interface ErrorIssueSummary {
   id: string;
   fingerprint: string;
@@ -1202,7 +1170,6 @@ export async function listErrorIssues(
   scope: ErrorReadScope,
   filters: ListErrorIssuesFilters = {},
 ): Promise<ErrorIssueSummary[]> {
-  const demoModeEnabled = isErrorDemoModeEnabled(scope.userEmail);
   const db = getDb() as any;
   const limit = Math.min(
     MAX_ISSUE_LIMIT,
@@ -1293,7 +1260,7 @@ export async function listErrorIssues(
     template: row.template ?? null,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
-  return anonymizeErrorReportingEmailsInDemoMode(issues, await demoModeEnabled);
+  return issues;
 }
 
 export interface ErrorEventDetail {
@@ -1385,7 +1352,6 @@ export async function getErrorIssue(
   issueId: string,
   options: { eventsLimit?: number } = {},
 ): Promise<ErrorIssueDetail> {
-  const demoModeEnabled = isErrorDemoModeEnabled(scope.userEmail);
   const db = getDb() as any;
   const [issueRow] = await db
     .select()
@@ -1511,14 +1477,11 @@ export async function getErrorIssue(
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
-  return anonymizeErrorReportingEmailsInDemoMode(
-    {
-      issue,
-      events,
-      sessions: Array.from(sessions.values()),
-    },
-    await demoModeEnabled,
-  );
+  return {
+    issue,
+    events,
+    sessions: Array.from(sessions.values()),
+  };
 }
 
 export interface UpdateErrorIssueInput {

@@ -123,7 +123,7 @@ description: "Dispatch는 중앙 받은 편지함, 앱 간 오케스트레이션
   원시 비밀을 복사하지 않고 액세스를 디스패치합니다. 앱별 소스
   구성은 공급자를 사용하는 앱에 유지됩니다.
 - **MCP 커넥터 1개를 노출합니다.** 추가
-  Claude, ChatGPT의 `https://dispatch.agent-native.com/_agent-native/mcp`,
+  Claude, ChatGPT의 `https://dispatch.agent-native.com/mcp`,
   Codex, 커서 또는 다른 MCP 호스트를 선택한 다음 어떤 작업 공간 앱을 선택하세요
   커넥터는 Dispatch의 **Agents** 페이지에서 연결할 수 있습니다. 다이렉트 앱 URL 사용
   해당 호스트를 하나의 앱으로 격리해야 하는 경우에만
@@ -304,7 +304,7 @@ _내부적으로 작동하는 방식(개발자용)._
   ]}
 />
 
-- **MCP 허브 모드.** 디스패치는 여전히 작업 영역의 [MCP hub](/docs/mcp-clients#hub) 역할을 할 수 있으므로 작업 영역의 다른 모든 앱은 동일한 조직 범위 MCP 서버 목록을 가져옵니다. 이와 별도로 Dispatch의 자체 `/_agent-native/mcp` 엔드포인트는 Claude, ChatGPT 및 여러 작업 공간 앱에 연결해야 하는 기타 호스트에 권장되는 외부 MCP 커넥터입니다.
+- **MCP 허브 모드.** 디스패치는 여전히 작업 영역의 [MCP hub](/docs/mcp-clients#hub) 역할을 할 수 있으므로 작업 영역의 다른 모든 앱은 동일한 조직 범위 MCP 서버 목록을 가져옵니다. 이와 별도로 Dispatch의 자체 `/mcp` 엔드포인트는 Claude, ChatGPT 및 여러 작업 공간 앱에 연결해야 하는 기타 호스트에 권장되는 외부 MCP 커넥터입니다.
 
 ## 꿈 {#dreams}
 

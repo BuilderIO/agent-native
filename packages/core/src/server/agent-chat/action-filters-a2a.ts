@@ -6,9 +6,11 @@ import {
   type A2AToolResultSummary,
 } from "../../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../../a2a/response-text.js";
+import { resolveMainChatMaxOutputTokens } from "../../agent/engine/output-tokens.js";
 import type { EngineTool } from "../../agent/engine/types.js";
 import {
   filterInitialEngineTools,
+  resolveAgentRequestReasoningEffort,
   type ActionEntry,
 } from "../../agent/production-agent.js";
 import { runAgentLoopDirectWithSoftTimeout } from "../../agent/run-loop-with-resume.js";
@@ -160,6 +162,17 @@ function runDelegatedAgentLoop(
   return runner(
     {
       ...runOptions,
+      // Delegated runs resolve their own model and do not pass through the
+      // interactive request handler's output-token setup. Use the same
+      // model-aware headroom here so reasoning models (notably GPT-5.x) do
+      // not spend the small internal default entirely on reasoning before
+      // emitting a tool call or answer. Preserve explicit test/caller values.
+      maxOutputTokens:
+        runOptions.maxOutputTokens ??
+        resolveMainChatMaxOutputTokens(runOptions.model),
+      reasoningEffort:
+        runOptions.reasoningEffort ??
+        resolveAgentRequestReasoningEffort({ model: runOptions.model }),
       finalResponseGuard: pluginOptions.finalResponseGuard,
     },
     pluginOptions.runSoftTimeoutMs,

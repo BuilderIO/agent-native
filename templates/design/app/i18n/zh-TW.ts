@@ -10,6 +10,7 @@ const messages = {
     commandActions: "操作",
     commandSearch: "搜尋",
     commandAppearance: "外觀",
+    openAgent: "開啟代理",
     toggleTheme: "切換主題",
   },
   navigation: {
@@ -18,6 +19,7 @@ const messages = {
     templates: "範本",
     designSystems: "設計系統",
     setupDesignSystem: "設定設計系統",
+    agent: "代理",
     settings: "設定",
     openNavigation: "開啟導覽",
     expandSidebar: "展開側邊欄",

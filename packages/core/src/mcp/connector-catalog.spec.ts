@@ -449,6 +449,58 @@ describe("connector-catalog tier", () => {
     });
   });
 
+  it("advertises and calls the Calendar and Mail deterministic connector reads", async () => {
+    const deterministicReads = {
+      "list-events": {
+        tool: { description: "List a calendar inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+      "list-emails": {
+        tool: { description: "List a mail inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+    };
+    const mcpConfig = {
+      ...connectorConfig,
+      actions: deterministicReads,
+      productionActions: deterministicReads,
+      connectorCatalog: ["list-events", "list-emails"],
+    };
+    const token = await signA2AToken("alice@example.com");
+    const headers = { authorization: `Bearer ${token}` };
+    const listed = await call(
+      { jsonrpc: "2.0", id: 30, method: "tools/list", params: {} },
+      { headers, mcpConfig },
+    );
+    const names = listed.result.tools.map((tool: any) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["list-events", "list-emails"]),
+    );
+
+    for (const name of ["list-events", "list-emails"]) {
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: name,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        { headers, mcpConfig },
+      );
+      expect(called.error).toBeUndefined();
+      expect(called.result.isError).not.toBe(true);
+      expect(called.result.structuredContent).toMatchObject({
+        version: 1,
+        items: [],
+        complete: true,
+      });
+    }
+  });
+
   describe("tools/call — non-catalog tool is rejected", () => {
     it("rejects db-exec (not in catalog)", async () => {
       const token = await signA2AToken("alice@example.com");
@@ -796,9 +848,16 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
         publicAgent: { expose: true, readOnly: true, requiresAuth: true },
         run: async () => ({ ok: true }),
       },
+      "context-preview-get": {
+        tool: { description: "Preview the composed system context" },
+        http: { method: "GET" },
+        readOnly: true,
+        publicAgent: { expose: true, readOnly: true, requiresAuth: true },
+        run: async () => ({ ok: true }),
+      },
     };
 
-    it("never auto-advertises or auto-calls db-query / seed-demo-data even when fully annotated as authenticated reads", async () => {
+    it("never auto-advertises or auto-calls excluded actions even when fully annotated as authenticated reads", async () => {
       const autoConfig = {
         ...connectorConfig,
         connectorCatalog: undefined,
@@ -817,8 +876,13 @@ describe("connector-catalog tier — no connectorCatalog declared", () => {
       const names: string[] = listOut.result.tools.map((t: any) => t.name);
       expect(names).not.toContain("db-query");
       expect(names).not.toContain("seed-demo-data");
+      expect(names).not.toContain("context-preview-get");
 
-      for (const name of ["db-query", "seed-demo-data"]) {
+      for (const name of [
+        "db-query",
+        "seed-demo-data",
+        "context-preview-get",
+      ]) {
         const callOut = await call(
           {
             jsonrpc: "2.0",

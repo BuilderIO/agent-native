@@ -116,7 +116,7 @@ O comando instala três comandos: `/visual-plan`, `/visual-recap` e `/visualize-
 
 Se você estiver usando um host baseado em bate-papo que aceita conectores MCP diretamente dos URLs
 (em vez de um cliente configurado com CLI), conecte o conector de Planos hospedado em
-`https://plan.agent-native.com/_agent-native/mcp` — consulte [MCP Clients](/docs/mcp-clients) para configuração específica do cliente.
+`https://plan.agent-native.com/mcp` — consulte [MCP Clients](/docs/mcp-clients) para configuração específica do cliente.
 
 A autenticação é um login único do navegador durante a configuração — isso é intencional e é
 é o que permite ao agente persistir e compartilhar os planos que gera. O que a autenticação
@@ -255,7 +255,7 @@ Compartilhar e comentar são os fluxos de trabalho que precisam de uma conta:
   revisão entre dispositivos ou em equipe) requer login. O login do Google aparece quando
   as variáveis de ambiente padrão do Google OAuth estão configuradas.
 
-O conector de planos hospedados fica em `https://plan.agent-native.com/_agent-native/mcp`.
+O conector de planos hospedados fica em `https://plan.agent-native.com/mcp`.
 Nunca coloque segredos compartilhados em arquivos de habilidades.
 
 ## Modo de privacidade de arquivos locais {#local-files}
@@ -454,7 +454,7 @@ pnpm dev
 A habilidade apoiada pelo aplicativo hospedado usa:
 
 - Aplicativo: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 O modelo local é útil quando você está desenvolvendo os próprios Planos, testando a persistência local ou executando uma superfície de revisão totalmente auto-hospedada.
 

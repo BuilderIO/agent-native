@@ -4,6 +4,7 @@ const messages = {
     searchForms: "फॉर्म खोजें",
     appearance: "दिखावट",
     toggleTheme: "थीम बदलें",
+    openAgent: "एजेंट खोलें",
   },
   header: {
     settings: "सेटिंग्स",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "प्रपत्र पूछें",
     allForms: "सभी फॉर्म",
     team: "टीम",
+    agent: "एजेंट",
   },
   settings: {
     title: "सेटिंग्स",

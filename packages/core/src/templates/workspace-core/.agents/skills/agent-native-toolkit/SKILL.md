@@ -57,6 +57,12 @@ in the moment of agent use.
   missing-secret states, OAuth grants, and provider connection health.
 - **Agent UX kit**: sidebar, composer, staged context, mentions, voice, human
   approval, generative UI, progress, and screen-state exposure.
+- **Agent page kit**: the full-page `/agent` surface (`AgentTabsPage` from
+  `@agent-native/core/client`) with Context, Files, Connections, Jobs, and
+  Access tabs plus a Personal/Organization scope toggle. The canonical home
+  for context transparency, MCP servers, A2A remote agents, recurring
+  jobs/automations, and external-client connect flows. See the `agent-page`
+  skill.
 - **History and recovery kit**: audit log, activity feed, version history,
   checkpoints, undo, redo, restore, and proof-of-done.
 - **Comments and review kit**: anchored comments, pins, mentions, review

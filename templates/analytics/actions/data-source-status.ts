@@ -23,6 +23,16 @@ import { resolveAnalyticsProviderCredential } from "../server/lib/provider-crede
 
 const APP_ID = "analytics";
 
+const BUILT_IN_FIRST_PARTY_PROVIDER = {
+  provider: "first-party",
+  label: "First-party Analytics",
+  configured: true,
+  configuredKeys: [],
+  missingRequiredKeys: [],
+  optionalKeys: [],
+  queryAction: "query-agent-native-analytics",
+} as const;
+
 function summarizeWorkspaceConnections(
   providerId: string,
   connections: SerializedWorkspaceConnection[],
@@ -58,7 +68,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data-source credentials and granted workspace connections are configured without revealing secret values. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
@@ -190,19 +200,27 @@ export default defineAction({
           workspaceConnection,
         };
       });
-    const configuredDataSources = providers
-      .filter((provider) => provider.configured)
-      .map((provider) => ({
-        provider: provider.provider,
-        label: provider.label,
-        via:
-          provider.configuredKeys.length > 0 &&
-          provider.workspaceConnection.grantState === "connected"
-            ? "credentials-and-workspace"
-            : provider.workspaceConnection.grantState === "connected"
-              ? "workspace"
-              : "credentials",
-      }));
+    const configuredDataSources = [
+      {
+        provider: BUILT_IN_FIRST_PARTY_PROVIDER.provider,
+        label: BUILT_IN_FIRST_PARTY_PROVIDER.label,
+        via: "built-in",
+        queryAction: BUILT_IN_FIRST_PARTY_PROVIDER.queryAction,
+      },
+      ...providers
+        .filter((provider) => provider.configured)
+        .map((provider) => ({
+          provider: provider.provider,
+          label: provider.label,
+          via:
+            provider.configuredKeys.length > 0 &&
+            provider.workspaceConnection.grantState === "connected"
+              ? "credentials-and-workspace"
+              : provider.workspaceConnection.grantState === "connected"
+                ? "workspace"
+                : "credentials",
+        })),
+    ];
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.
@@ -210,7 +228,7 @@ export default defineAction({
       configuredDataSourceCount: configuredDataSources.length,
       configuredDataSources,
       credentials: results,
-      providers,
+      providers: [BUILT_IN_FIRST_PARTY_PROVIDER, ...providers],
       total: results.length,
       workspaceConnections: {
         appId: APP_ID,

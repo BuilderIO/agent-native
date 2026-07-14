@@ -65,6 +65,7 @@ describe("chat thread store", () => {
   let row: ChatThreadRow | null;
   let conflictOnce: (() => void) | null;
   let conflictEveryThreadDataUpdate: boolean;
+  let transientThreadDataUpdateFailures: number;
 
   beforeEach(() => {
     row = {
@@ -79,6 +80,7 @@ describe("chat thread store", () => {
     };
     conflictOnce = null;
     conflictEveryThreadDataUpdate = false;
+    transientThreadDataUpdateFailures = 0;
     executeMock.mockReset();
     emitChatThreadChangeMock.mockReset();
     executeMock.mockImplementation(async (query: string | any) => {
@@ -118,6 +120,10 @@ describe("chat thread store", () => {
         };
       }
       if (/UPDATE chat_threads SET thread_data/i.test(sql)) {
+        if (transientThreadDataUpdateFailures > 0) {
+          transientThreadDataUpdateFailures -= 1;
+          throw new Error("temporary database unavailable");
+        }
         if (conflictOnce) {
           const applyConflict = conflictOnce;
           conflictOnce = null;
@@ -213,6 +219,23 @@ describe("chat thread store", () => {
       "Failed to update chat thread thread-1 after concurrent write conflicts.",
     );
     expect(emitChatThreadChangeMock).not.toHaveBeenCalled();
+  });
+
+  it("retries transient thread-data write failures before surfacing an error", async () => {
+    transientThreadDataUpdateFailures = 2;
+
+    await updateThreadData(
+      "thread-1",
+      JSON.stringify({ messages: [userMessage, assistantMessage] }),
+      "Thread",
+      "Done.",
+      2,
+      { maxAttempts: 3 },
+    );
+
+    expect(JSON.parse(row!.thread_data).messages).toHaveLength(2);
+    expect(row!.message_count).toBe(2);
+    expect(emitChatThreadChangeMock).toHaveBeenCalledWith("thread-1");
   });
 
   it("can ignore exhausted conflicts for best-effort client saves", async () => {

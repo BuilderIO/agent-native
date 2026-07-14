@@ -1813,6 +1813,8 @@ export interface AssistantChatProps {
   onForkChat?: () => void | boolean | Promise<void | boolean>;
   /** Override Builder/provider connect routing for embedded hosts. */
   onConnectProvider?: () => void;
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: (engine: string) => void;
   /**
    * Controls the shared composer + menu. Sidebar keeps the full menu by default;
    * hosts without the sidebar provider stack can use upload-only.
@@ -2177,6 +2179,7 @@ const AssistantChatInner = forwardRef<
     imageModelMenu,
     onForkChat,
     onConnectProvider,
+    onConnectLocalRuntime,
     plusMenuMode = "full",
     providerStatusChecksEnabled = true,
     loadHistoryRepository,
@@ -2307,8 +2310,7 @@ const AssistantChatInner = forwardRef<
   const missingApiKey = agentEngineConfigured.missing;
   const isProviderStatusChecking =
     providerStatusChecksEnabled && agentEngineConfigured.state === "unknown";
-  const isComposerDisabled =
-    missingApiKey || isProviderStatusChecking || composerDisabled;
+  const isComposerDisabled = missingApiKey || composerDisabled;
   const [missingKeySetupOpen, setMissingKeySetupOpen] = useState(false);
   const requestMissingKeySetup = useCallback(() => {
     setMissingKeySetupOpen(true);
@@ -5530,6 +5532,7 @@ const AssistantChatInner = forwardRef<
                             onEffortChange={onEffortChange}
                             imageModelMenu={imageModelMenu}
                             onConnectProvider={onConnectProvider}
+                            onConnectLocalRuntime={onConnectLocalRuntime}
                             toolbarSlot={composerToolbarSlot}
                             contextItems={composerContextItems}
                             onRemoveContextItem={removeComposerContextItem}

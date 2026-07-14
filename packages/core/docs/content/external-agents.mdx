@@ -99,7 +99,7 @@ Add one remote MCP connector to the host where you want to use Agent-Native.
 For workspace or cross-app work, use Dispatch:
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 Dispatch is the single gateway for Mail, Calendar, Analytics, Brain, and your
@@ -110,13 +110,24 @@ reach all apps or only selected apps. The connected host then gets
 For one intentionally isolated app, use that app directly:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
-https://<your-app>.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
+https://<your-app>.agent-native.com/mcp
 ```
 
 Every hosted app also has a helper page at
-`https://&lt;app&gt;/_agent-native/mcp/connect` with the copyable URL and
+`https://&lt;app&gt;/mcp/connect` with the copyable URL and
 host-specific tabs for Claude, ChatGPT, Cursor, Claude Code, Codex, and Other.
+
+### The in-app Access tab {#access-tab}
+
+Apps that mount `AgentTabsPage` also expose this connection flow in the page's
+**Access** tab. It shows the app's MCP URL, an A2A agent card when available,
+and the same client setup instructions used by the full connect page. Use it as
+the in-app starting point for connecting Claude, ChatGPT, Cursor, Claude Code,
+Codex, or another MCP client; the tab links to `/mcp/connect` for the full flow
+and static-token fallback. This is connection setup UI, not a general access
+control console: grants, scope editing, and revocation management are not
+implemented in the tab yet.
 
 ### Claude and ChatGPT OAuth {#oauth}
 
@@ -238,7 +249,7 @@ Once connected, auth should persist long-term — access tokens last 30 days by 
 npx @agent-native/core@latest reconnect https://plan.agent-native.com --client codex
 ```
 
-`reconnect` finds any MCP config entry whose URL ends in `/_agent-native/mcp` for the given host and selected client (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/_agent-native/mcp` suffix is inferred. Auth and tool loading are per client, so restart/reload that client afterward; Codex needs a new session before newly loaded tools appear.
+`reconnect` finds any MCP config entry whose URL ends in `/mcp` for the given host and selected client (matching by URL regardless of connector name), then refreshes or replaces the auth material without touching your installed skills or re-running the full install flow. Pass the base app URL (e.g. `https://plan.agent-native.com`) — the `/mcp` suffix is inferred. Auth and tool loading are per client, so restart/reload that client afterward; Codex needs a new session before newly loaded tools appear.
 
 In Claude Code, the equivalent UI path is: run `/mcp` and choose **Authenticate** (or **Reconnect**) for the relevant connector.
 
@@ -246,7 +257,7 @@ Never reinstall the skill from scratch just to fix a 401 — `reconnect` is the 
 
 ### Connect page fallback {#connect-page-fallback}
 
-For MCP hosts that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/_agent-native/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
+For MCP hosts that cannot add a remote OAuth URL directly, open the app in your browser and use its **Connect** affordance (served at `https://&lt;app&gt;/mcp/connect`). While logged in, click **Connect / Authorize**. The page hands you either a one-click deep link that configures a detected agent, or a ready-to-paste `.mcp.json` block:
 
 ```jsonc
 // .mcp.json
@@ -254,7 +265,7 @@ For MCP hosts that cannot add a remote OAuth URL directly, open the app in your 
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.agent-native.com/_agent-native/mcp",
+      "url": "https://mail.agent-native.com/mcp",
       "headers": { "Authorization": "Bearer <minted-token>" },
     },
   },
@@ -271,13 +282,13 @@ Hosted agent-native apps also support the standard remote MCP OAuth flow. For cl
 
 ```bash
 claude mcp add --transport http agent-native \
-  https://dispatch.agent-native.com/_agent-native/mcp
+  https://dispatch.agent-native.com/mcp
 ```
 
 This is the same URL-only entry that `npx @agent-native/core@latest connect https://dispatch.agent-native.com --client claude-code` writes for you. Then run `/mcp` in Claude Code and choose **Authenticate**. The client discovers auth from the MCP server's `401 WWW-Authenticate` challenge, fetches `/.well-known/oauth-protected-resource` and `/.well-known/oauth-authorization-server`, dynamically registers a public OAuth client, opens the app's authorization page, and stores the resulting token securely. ChatGPT developer-mode connectors use the same server URL:
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 The OAuth flow is authorization-code + PKCE with refresh-token rotation. Access tokens are audience-bound to the exact MCP resource URL and carry the signed user/org identity, so tool calls, `resources/read`, and MCP App iframe-initiated `tools/call` all run through the same `runWithRequestContext` tenant scoping as the existing connect-minted JWT path. The iframe never receives raw OAuth tokens; the host mediates calls through the authenticated MCP connection.
@@ -524,19 +535,30 @@ See [MCP Apps](/docs/mcp-apps) for the full bridge details — transplant vs con
 
 On top of the per-action tools the MCP server exposes a stable verb set, so an external agent has a predictable surface without guessing per-app action names:
 
-| Tool                                               | Side effects | Returns                                                                                     |
-| -------------------------------------------------- | ------------ | ------------------------------------------------------------------------------------------- |
-| `list_apps`                                        | none         | workspace apps + their URLs / running state                                                 |
-| `open_app({ app, view?, path?, params?, embed? })` | none         | a deep link or same-origin route; `embed: true` renders the full app inline where supported |
-| `ask_app({ app, message })`                        | agent loop   | routes a natural-language task to that app's in-app agent (delegates to `ask-agent`)        |
-| `create_workspace_app({ name, template })`         | scaffolds    | a new app booted via the workspace path, plus its running URL + deep link                   |
-| `list_templates`                                   | none         | the allow-listed templates only                                                             |
+| Tool                                               | Side effects | Returns                                                                                                                      |
+| -------------------------------------------------- | ------------ | ---------------------------------------------------------------------------------------------------------------------------- |
+| `list_apps`                                        | none         | workspace apps + their URLs / running state                                                                                  |
+| `open_app({ app, view?, path?, params?, embed? })` | none         | a deep link or same-origin route; `embed: true` renders the full app inline where supported                                  |
+| `ask_app({ app, message, async?, maxWaitMs? })`    | agent loop   | routes a natural-language task to that app's in-app agent; long work returns a durable `taskId` for `ask_app_status` polling |
+| `create_workspace_app({ name, template })`         | scaffolds    | a new app booted via the workspace path, plus its running URL + deep link                                                    |
+| `list_templates`                                   | none         | the allow-listed templates only                                                                                              |
 
 `create_workspace_app` rejects any non-allow-listed template — the public template allow-list in `packages/shared-app-config/templates.ts` is authoritative and CI-guarded; an external agent cannot widen it. A same-named template action overrides a builtin (template-over-core precedence). Disable the whole set with `MCPConfig.builtinCrossAppTools: false`.
 
 The tool and resource catalogs for app hosts are compact by default — see [Catalog tiers](#catalog-tiers). `publicAgent.expose` remains the action-level opt-in for safe read/ingest tools outside that compact catalog; apps may set `externalAgents.authenticatedReads: "auto"` to advertise those authenticated reads without a hand-written catalog. Set `mcpApp.compactCatalog: true` only as a rare exception for actions that must appear in chat-host discovery.
 
 For fast ChatGPT/Claude handoffs, the ideal path is direct: call the action that creates or opens the artifact, then let the MCP App launch the route. A Mail request should call `manage_draft` and render the real compose route. A dashboard request should call `open_app({ path, embed: true })` or a dashboard action with `mcpApp` and render the full Analytics route. Calendar, Forms, Content, Slides, Design, and Clips should follow the same pattern with their draft/create/search actions. `list_apps` is useful when the model must choose among granted apps; broad `resources/list`, full-catalog discovery, or `ask_app` delegation should not be the normal route for an obvious UI handoff.
+
+### Long-running agent requests
+
+MCP hosts and gateways do not share one long tool-call timeout; some enforce a
+five-minute ceiling and others are configurable. Do not design an external
+agent integration around a ten-minute blocking `tools/call`. `ask-agent` and
+`ask_app` acknowledge hosted work quickly, then return a durable `taskId` when
+the inline wait expires. Poll with `ask_app_status` using the returned `app`
+and `taskId`; the result includes `pollAfterMs` as a host-friendly interval.
+The task must be created before the first response can time out, so a polling
+URL returned only after a long call is not a reliable recovery contract.
 
 ### Per-app tour {#tour}
 
@@ -701,7 +723,7 @@ It provisions a token (a random `ACCESS_TOKEN` into the workspace `.env` for loc
 - **cowork** — the same Claude Code JSON shape in `~/.cowork/mcp.json`.
 - **codex** — an `[mcp_servers.<name>]` block in `~/.codex/config.toml`.
 
-The entry runs `npx @agent-native/core@latest mcp serve --app <id>`, which by default is a **thin stdio proxy** to the running local app's `/_agent-native/mcp` — so the live action registry, HMR, and correct deep links stay the single source of truth. Pass `--standalone` to build the registry in-process instead. When `npx @agent-native/core@latest mcp install` detects a hosted origin (a non-localhost `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL` in the workspace `.env`), it writes an `http` client entry pointing at `<origin>/_agent-native/mcp` with a `Bearer` JWT instead of a stdio entry.
+The entry runs `npx @agent-native/core@latest mcp serve --app <id>`, which by default is a **thin stdio proxy** to the running local app's `/mcp` — so the live action registry, HMR, and correct deep links stay the single source of truth. Pass `--standalone` to build the registry in-process instead. When `npx @agent-native/core@latest mcp install` detects a hosted origin (a non-localhost `APP_URL` / `BETTER_AUTH_URL` / `AGENT_NATIVE_MCP_URL` in the workspace `.env`), it writes an `http` client entry pointing at `<origin>/mcp` with a `Bearer` JWT instead of a stdio entry.
 
 Companion subcommands:
 
@@ -725,7 +747,7 @@ You can also write the host's MCP config by hand against any deployed endpoint w
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.agent-native.com/_agent-native/mcp",
+      "url": "https://analytics.agent-native.com/mcp",
       "headers": { "Authorization": "Bearer <ACCESS_TOKEN-or-JWT>" },
     },
   },
@@ -767,7 +789,7 @@ Full-app embeds also avoid handing the MCP bearer token to the browser. The MCP 
 The fallback hosted `connect` flow never copies the deployment's shared secret. Instead:
 
 - A logged-in browser session mints a **per-user, scoped, revocable** token — an `A2A_SECRET`-signed JWT carrying the caller's `sub` + `org_domain` and a unique `jti`, so every tool run stays tenant-scoped via `runWithRequestContext`.
-- The existing `/_agent-native/mcp` endpoint accepts that token like any other bearer (see [MCP Server](/docs/mcp-protocol)) — no new endpoint, no new transport.
+- The existing `/mcp` endpoint accepts that token like any other bearer (see [MCP Server](/docs/mcp-protocol)) — no new endpoint, no new transport.
 - The same Connect page lists every token you've minted and lets you **revoke** any of them by `jti`. Treat them like personal access tokens: one per agent client, revoke when a machine is decommissioned.
 - The deep link the agent hands back carries no privileged state. The record-focusing `navigate` write is always scoped to the **browser** session, never the agent's token — so a link is safe to paste into a terminal or chat transcript.
 

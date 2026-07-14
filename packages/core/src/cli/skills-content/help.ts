@@ -48,7 +48,7 @@ register MCP where possible without authenticating (leave auth to the host or ru
 "npx @agent-native/core@latest connect" later). Pass --mcp-url to register that connector against
 a custom origin (an ngrok tunnel, a local dev server, or a self-hosted
 deployment) instead of the built-in hosted default — a bare origin gets the
-standard /_agent-native/mcp path appended. Use app-skill pack for marketplace
+standard /mcp path appended. Use app-skill pack for marketplace
 bundles and custom adapter output.
 
 When installing visual-plan, visual-recap, or visualize-repo interactively, the

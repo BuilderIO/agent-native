@@ -416,7 +416,7 @@ function writeCloudflareRoutingManifest(distDir: string, apps: string[]): void {
   const dispatch = apps
     .map(
       (a) =>
-        `  if (pathname === "/${a}" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
+        `  if (pathname === "/${a}" || pathname === "/${a}.data" || pathname.startsWith("/${a}/")) return ${moduleIdent(a)}.fetch(requestForMountedApp(request, "/${a}"), env, ctx);`,
     )
     .join("\n");
   const dispatchRootFrameworkRoutes = apps.includes("dispatch")
@@ -880,7 +880,7 @@ function patchNetlifyFunctionEntry(
   const pathConfig =
     app === "dispatch"
       ? ["/_agent-native/*", "/.well-known/*", `${basePath}/*`]
-      : [basePath, `${basePath}/*`];
+      : [basePath, `${basePath}.data`, `${basePath}/*`];
   const normalizeBasePathHelper =
     app === "dispatch"
       ? ""

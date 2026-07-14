@@ -148,13 +148,19 @@ instructions, and application state.
 - Background agents must use the core run-manager / agent-teams infrastructure
   unless working on the existing local Code exception.
 - Logged-in app pages can be CSR. Public/SEO pages must SSR real content.
+- Every SSR HTML and React Router `.data` response is one impersonal, public
+  shell, hard-cached at the CDN for every visitor. Never add `private`,
+  `no-store`, `Vary: Cookie`, session/cookie reads, or auth branches to the SSR
+  path — personalization is client-side after load. Enforced by
+  `guard:ssr-cache-shell` and `ssr-handler.spec.ts`; do not weaken either.
 - UIs should be optimistic by default: update cache and navigate immediately,
   roll back on error, and avoid click-blocking spinners except for destructive or
   irreversible operations.
 - Keep template UX clean and progressively disclosed. Do not solve feedback by
   adding always-visible controls unless that is clearly the main workflow.
 - Use the `frontend-design`, `shadcn-ui`, `client-side-routing`,
-  `real-time-sync`, and `delegate-to-agent` skills for details.
+  `native-navigation`, `real-time-sync`, and `delegate-to-agent` skills for
+  details.
 
 ## Packages And Releases
 
@@ -212,6 +218,8 @@ Read the relevant skill before making changes in that area:
   budget — one atomic call, never loop many small writes, verify and report
   proof-of-done, fail loud on cutoff.
 - `real-time-sync`, `context-awareness`, `client-side-routing` for UI state.
+- `native-navigation` for link-first internal navigation that preserves
+  Cmd/Ctrl-click, middle-click, keyboard, and accessibility behavior.
 - `client-methods` for browser/client APIs that must use named helpers instead
   of raw REST calls.
 - `delegate-to-agent` for LLM/agent delegation.

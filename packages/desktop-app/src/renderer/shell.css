@@ -1198,6 +1198,10 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
+.settings-codex-status-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
 .settings-codex-status {
   display: inline-flex;
   align-items: center;

@@ -402,6 +402,15 @@ describe("canonicalUrl", () => {
     );
   });
 
+  it("canonicalizes legacy MCP URLs, including app base paths", () => {
+    expect(canonicalUrl("https://x.com/_agent-native/mcp")).toBe(
+      "https://x.com/mcp",
+    );
+    expect(canonicalUrl("https://x.com/mail/_agent-native/mcp/")).toBe(
+      "https://x.com/mail/mcp",
+    );
+  });
+
   it("returns undefined for invalid URLs", () => {
     expect(canonicalUrl("not-a-url")).toBeUndefined();
     expect(canonicalUrl(undefined)).toBeUndefined();

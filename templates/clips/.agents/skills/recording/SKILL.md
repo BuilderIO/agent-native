@@ -44,7 +44,7 @@ Raw `MediaRecorder` files are not friendly to progressive HTTP playback, which
 shows up as "clip takes minutes to load" and "re-buffers every time I seek"
 even though the file downloads fine:
 
-- **MP4** is written with the `moov` metadata atom *after* `mdat`, so a player
+- **MP4** is written with the `moov` metadata atom _after_ `mdat`, so a player
   must fetch the whole file before it can start or seek.
 - **WebM** is a live stream with no Cues (seek index) and an unknown Segment
   duration, so Chrome won't honor `currentTime = X` and has to scan/download.
@@ -116,7 +116,12 @@ different listing.
 
 ## Camera bubble
 
-When mode is `screen+camera`, we composite a circular camera feed in the corner. Render the bubble in a separate `<video>` element and record it into a second `MediaRecorder`; the server side stitches them with ffmpeg.wasm during `processing`. Do **not** try to pre-composite in the browser — that burns GPU and drops frames.
+When mode is `screen+camera`, "the bubble" is two different things:
+
+- **On-screen self-view.** `CameraBubble` renders a plain, unrecorded `<video>` element the user drags around to frame themselves during countdown/recording. It is never captured — it's just local framing UI.
+- **Recorded composite.** Display capture can't include that DOM element once the user records another window/app, so the saved video has to bake the camera circle in before `MediaRecorder` ever sees a frame. `createCameraCompositeStream` (`app/lib/camera-composite.ts`) draws the display video plus a clipped, mirrored camera circle onto an offscreen `<canvas>` and feeds `canvas.captureStream()` into a single `MediaRecorder`. There is **no** second `MediaRecorder` and **no** server-side ffmpeg stitching — the composite happens client-side, live, before upload.
+
+Because that draw loop runs continuously for the whole recording, keep its CPU/GPU cost bounded: a Worker-based timer drives the draw loop at the capture frame rate (`SCREEN_CAPTURE_FRAME_RATE`, 24fps — falling back to `requestAnimationFrame` only if Worker creation fails, e.g. under a strict CSP), the canvas is hard-capped to 1080p-class dimensions (1920px on its longest edge) even if the source display track is Retina/4K, and the bubble's drop shadow is pre-rendered into a small cached sprite (keyed by bubble size) instead of re-blurring with `shadowBlur` every frame.
 
 ## Error recovery
 

@@ -37,6 +37,15 @@ Detailed event, availability, booking, storage, and UI rules live in
   with `stageAs` and analyze them with `query-staged-dataset`.
 - For Google Calendar, distinguish an empty calendar from missing auth,
   reauth-needed, or fetch failures.
+- `list-events` remains the UI-compatible event list by default. External MCP
+  callers receive its compact, paginated version 1 inventory envelope
+  unless they explicitly request `format: "legacy"`; use `format: "inventory"`
+  for that same coverage-aware result from other callers. Preserve its
+  account coverage, `sourceCoverage`, and `coverageComplete` fields: Google
+  account, ICS feed, overlay, and local-booking sources are independent, and a
+  partial source failure is not an empty calendar. Pass `accountEmails` only
+  for connected accounts; the action validates the whole requested set before
+  provider work.
 - Google Calendar working locations are status events (`eventType:
 "workingLocation"`). Sync and display them as working locations, keep them
   transparent/non-blocking, and preserve `workingLocationProperties` instead of
@@ -67,7 +76,8 @@ Detailed event, availability, booking, storage, and UI rules live in
 - Use `get-attendee-timezones` / `set-attendee-timezone` to read or save
   per-guest IANA timezone overrides (`attendee-timezones` user setting). The UI
   shows each guest's local event-start time when a timezone is known (self from
-  the event/browser zone; others from `attendee.timeZone` or the override map).
+  the browser zone; others from `attendee.timeZone` or the override map, with
+  the event zone as a fallback for the organizer).
 - Use `rsvp-event` for invitation responses. Pass `note` when the user wants a
   visible RSVP comment on a declined or tentative response; pass an empty note to
   clear an existing RSVP comment.

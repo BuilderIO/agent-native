@@ -2790,7 +2790,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("demo-mode")}
             icon={<IconEyeOff size={14} />}
             title="Demo mode"
-            subtitle="Replace emails and numbers with realistic fake data everywhere — in the UI and what the agent sees. Names, free text, labels, IDs, and structure are preserved so the app keeps working."
+            subtitle="Replace displayed emails with realistic fake data in this browser and reshape supported charts for presentations. Backend, MCP, and agent results stay real and access-scoped."
             open={openSection === "demo-mode"}
             onToggle={() => toggle("demo-mode")}
           >

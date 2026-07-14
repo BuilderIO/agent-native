@@ -1,7 +1,7 @@
 import { useT } from "@agent-native/core/client";
 import { IconExternalLink, IconFileText } from "@tabler/icons-react";
 import { lazy, Suspense, useMemo } from "react";
-import { useNavigate } from "react-router";
+import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { useDocument, useDocuments } from "@/hooks/use-documents";
@@ -66,7 +66,6 @@ export function ContentReferencePreview({
   referenceDepth?: number;
 }) {
   const t = useT();
-  const navigate = useNavigate();
   const documentsQuery = useDocuments();
   const resolvedPath = useMemo(
     () => resolveContentReferencePath(sourcePath, currentPath),
@@ -113,16 +112,15 @@ export function ContentReferencePreview({
         </div>
         {document ? (
           <Button
-            type="button"
+            asChild
             size="sm"
             variant="ghost"
             className="h-8 gap-1.5 px-2 text-xs"
-            onClick={() =>
-              navigate(`/page/${document.id}`, { flushSync: true })
-            }
           >
-            <IconExternalLink className="size-3.5" />
-            {t("editor.reference.open")}
+            <Link to={`/page/${document.id}`}>
+              <IconExternalLink className="size-3.5" />
+              {t("editor.reference.open")}
+            </Link>
           </Button>
         ) : null}
       </div>

@@ -4,6 +4,7 @@ const messages = {
     searchForms: "양식 검색",
     appearance: "모양",
     toggleTheme: "테마 전환",
+    openAgent: "에이전트 열기",
   },
   header: {
     settings: "설정",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "양식에 문의하기",
     allForms: "모든 양식",
     team: "팀",
+    agent: "에이전트",
   },
   settings: {
     title: "설정",

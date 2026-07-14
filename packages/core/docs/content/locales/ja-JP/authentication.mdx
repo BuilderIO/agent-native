@@ -219,7 +219,7 @@ ACCESS_TOKENS=token1,token2,token3
 すべてのアプリの MCP エンドポイントは、標準の保護された MCP リソースとして機能できます。 OAuth 対応クライアントは、リモート MCP URL のみで構成できます:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 認証されていない MCP リクエストは、`/.well-known/oauth-protected-resource` を指す `WWW-Authenticate` チャレンジを返します。次に、クライアントはアプリの OAuth メタデータを検出し、パブリック クライアントを動的に登録し、アプリの認証ページを開き、アクセス トークンとリフレッシュ トークンのために認証コードを PKCE と交換します。

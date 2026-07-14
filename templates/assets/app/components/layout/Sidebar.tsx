@@ -13,6 +13,7 @@ import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
   IconArchive,
+  IconBrain,
   IconClipboardList,
   IconDots,
   IconEdit,
@@ -47,6 +48,7 @@ import { cn } from "@/lib/utils";
 const baseNavItems = [
   { icon: IconPhotoPlus, labelKey: "navigation.create", href: "/" },
   { icon: IconLayoutGrid, labelKey: "navigation.library", href: "/library" },
+  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 

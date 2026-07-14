@@ -34,6 +34,7 @@ import {
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
 import {
+  type CSSProperties,
   type ReactNode,
   useCallback,
   useEffect,
@@ -46,6 +47,13 @@ import { Link, useParams } from "react-router";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import {
   Popover,
@@ -711,6 +719,7 @@ function ReplayPlayer({
     if (!stageRootRef.current) return;
     let cancelled = false;
     let localReplayer: any = null;
+    let stopCursorVisibilityObserver = () => {};
 
     async function loadReplay() {
       const replayEvents = eventsRef.current;
@@ -761,6 +770,8 @@ function ReplayPlayer({
       // Do not mutate recorded URLs/CSS; suppress viewer-page referrer leakage
       // at the iframe boundary while retaining historical visual resources.
       localReplayer.iframe?.setAttribute?.("referrerpolicy", "no-referrer");
+      stopCursorVisibilityObserver =
+        hideReplayCursorUntilPosition(localReplayer);
       replayerRef.current = localReplayer;
       const meta = localReplayer.getMetaData?.();
       const total = Number(meta?.totalTime ?? replayDuration(replayEvents));
@@ -827,6 +838,7 @@ function ReplayPlayer({
 
     return () => {
       cancelled = true;
+      stopCursorVisibilityObserver();
       if (rafRef.current != null) cancelAnimationFrame(rafRef.current);
       rafRef.current = null;
       try {
@@ -977,20 +989,27 @@ function ReplayPlayer({
                 <div
                   ref={stageRootRef}
                   className="an-replay-stage-root absolute left-1/2 top-1/2"
-                  style={{
-                    width: playerWidth,
-                    height: playerHeight,
-                    transform: `translate(-50%, -50%) scale(${fitScale})`,
-                    transformOrigin: "center center",
-                  }}
+                  style={
+                    {
+                      width: playerWidth,
+                      height: playerHeight,
+                      "--an-replay-cursor-scale": String(1 / fitScale),
+                      transform: `translate(-50%, -50%) scale(${fitScale})`,
+                      transformOrigin: "center center",
+                    } as CSSProperties
+                  }
                 />
                 <button
                   type="button"
-                  // IMPORTANT: Keep the viewer's real OS pointer visible while
-                  // the synthetic rrweb pointer replays underneath it. Hiding
-                  // this during playback makes the page feel broken whenever
-                  // the viewer moves their mouse over the full-stage control.
-                  className="absolute inset-0 z-20 cursor-pointer rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default"
+                  className={cn(
+                    "absolute inset-0 z-20 rounded-[inherit] border-0 bg-transparent p-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-default",
+                    // INTENTIONAL — KEEP THE VIEWER CURSOR VISIBLE.
+                    // The recorded cursor is a separate overlay, while this
+                    // button owns the live hover target for pause/play. Do
+                    // not add `cursor-none`: it makes the user's cursor
+                    // disappear when they move over the preview.
+                    "cursor-pointer",
+                  )}
                   disabled={disabled}
                   aria-label={
                     playing ? t("sessions.pause") : t("sessions.play")
@@ -1075,22 +1094,34 @@ function ReplayPlayer({
                 {formatClock(totalTime)}
               </span>
 
-              <div className="flex items-center rounded-md bg-muted p-1">
-                {SPEED_OPTIONS.map((option) => (
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
                   <button
-                    key={option}
                     type="button"
-                    className={cn(
-                      "rounded px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground",
-                      speed === option &&
-                        "bg-background text-foreground shadow-sm",
-                    )}
-                    onClick={() => updateSpeed(option)}
+                    disabled={disabled}
+                    aria-label={`${speed}x`}
+                    className="inline-flex h-8 min-w-11 items-center justify-center rounded-md border px-2 text-xs font-medium tabular-nums transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50"
                   >
-                    {option}x
+                    {speed}x
                   </button>
-                ))}
-              </div>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="center" side="top">
+                  <DropdownMenuRadioGroup
+                    value={String(speed)}
+                    onValueChange={(value) => updateSpeed(Number(value))}
+                  >
+                    {SPEED_OPTIONS.map((option) => (
+                      <DropdownMenuRadioItem
+                        key={option}
+                        value={String(option)}
+                        className="tabular-nums"
+                      >
+                        {option}x
+                      </DropdownMenuRadioItem>
+                    ))}
+                  </DropdownMenuRadioGroup>
+                </DropdownMenuContent>
+              </DropdownMenu>
 
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -2273,6 +2304,32 @@ function hasPlayableReplayEvents(events: unknown[]): boolean {
     if (hasFullSnapshot && hasMeta) return true;
   }
   return false;
+}
+
+function hideReplayCursorUntilPosition(replayer: any): () => void {
+  const cursor = replayer?.mouse as HTMLElement | undefined;
+  if (!cursor || typeof MutationObserver === "undefined") return () => {};
+
+  let observer: MutationObserver | null = null;
+  const revealWhenPositioned = () => {
+    if (!cursor.style.left || !cursor.style.top) return;
+    cursor.classList.add("has-position");
+    observer?.disconnect();
+    observer = null;
+  };
+
+  cursor.classList.remove("has-position");
+  observer = new MutationObserver(revealWhenPositioned);
+  observer.observe(cursor, {
+    attributes: true,
+    attributeFilter: ["style"],
+  });
+  revealWhenPositioned();
+
+  return () => {
+    observer?.disconnect();
+    observer = null;
+  };
 }
 
 export function replayViewportDimensions(

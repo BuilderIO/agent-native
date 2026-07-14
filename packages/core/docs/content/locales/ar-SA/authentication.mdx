@@ -219,7 +219,7 @@ ACCESS_TOKENS=token1,token2,token3
 يمكن أن تعمل نقطة نهاية MCP لكل تطبيق كمورد MCP قياسي محمي. يمكن تكوين العملاء القادرين على OAuth باستخدام MCP URL البعيد فقط:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 تقوم طلبات MCP غير المصادق عليها بإرجاع تحدي `WWW-Authenticate` الذي يشير إلى `/.well-known/oauth-protected-resource`. يكتشف العميل بعد ذلك بيانات تعريف OAuth الخاصة بالتطبيق، ويسجل عميلًا عامًا ديناميكيًا، ويفتح صفحة ترخيص التطبيق، ويتبادل رمز التفويض مع PKCE للوصول إلى الرموز المميزة وتحديثها.

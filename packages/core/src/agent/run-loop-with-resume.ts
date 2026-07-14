@@ -28,6 +28,7 @@ import {
   isResumableEngineError,
   continuationReasonForResumableError,
   lastUnfinishedPreparingActionToolFromEvents,
+  resolveFinalResponseGuardRequestText,
   type AgentLoopContinuationReason,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
@@ -203,8 +204,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const finalResponseGuardRequestText =
+    opts.finalResponseGuardRequestText ??
+    resolveFinalResponseGuardRequestText(opts.messages);
+  const stableOpts = { ...opts, finalResponseGuardRequestText };
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
-  if (timeoutMs <= 0) return runAgentLoop(opts);
+  if (timeoutMs <= 0) return runAgentLoop(stableOpts);
 
   const upstreamSignal = opts.signal;
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
@@ -260,7 +265,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
 
     try {
       const nextUsage = await runAgentLoop({
-        ...opts,
+        ...stableOpts,
         send,
         signal: controller.signal,
       });

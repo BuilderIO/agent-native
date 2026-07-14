@@ -3916,6 +3916,144 @@ describe("editor chrome bridge — text editing session", () => {
   );
 });
 
+// ── Rotation preserves computed transform (any-element rotation) ─────────────
+//
+// When an element has its transform supplied by a stylesheet class (not inline
+// style), startRotate must read the computed value as the baseline so the delta
+// is applied correctly and the original class-authored transform is not wiped.
+
+it(
+  "editor chrome bridge rotation drag preserves computed transform from a class rule",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; }
+      /* Transform lives ONLY in a class rule — no inline style on the element. */
+      .rotated-box {
+        position: absolute;
+        left: 200px; top: 200px;
+        width: 100px; height: 100px;
+        background: #e0e;
+        transform: rotate(30deg);
+        transform-origin: center center;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="rotated-box" data-agent-native-node-id="rotated">Rotated</div>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      // Click the element to select it.
+      await page.mouse.click(250, 250);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return !!overlay && overlay.style.display === "block";
+      });
+
+      const rotationChrome = await page.evaluate(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        )!;
+        const button = overlay.querySelector<HTMLElement>(
+          '[data-agent-native-rotate-handle="top-center"]',
+        )!;
+        return {
+          buttonSize: parseFloat(button.style.width),
+          left: parseFloat(overlay.style.left),
+          top: parseFloat(overlay.style.top),
+          width: parseFloat(overlay.style.width),
+          height: parseFloat(overlay.style.height),
+        };
+      });
+      expect(rotationChrome).toEqual({
+        buttonSize: 16,
+        left: 200,
+        top: 200,
+        width: 100,
+        height: 100,
+      });
+
+      await collectBridgeMessages(page);
+
+      // Use the nw rotate handle bounding box to drive the drag from Playwright
+      // so mouse.down/move/up are all in the same event stream (mirrors the
+      // resize-handle tests above).
+      const nwHandle = page
+        .locator('[data-agent-native-rotate-handle="nw"]')
+        .first();
+      const handleBox = await nwHandle.boundingBox();
+      if (!handleBox) throw new Error("nw rotate handle not visible");
+
+      const overlayCenter = await page.evaluate(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        )!;
+        const r = overlay.getBoundingClientRect();
+        return { cx: r.left + r.width / 2, cy: r.top + r.height / 2 };
+      });
+
+      const hx = handleBox.x + handleBox.width / 2;
+      const hy = handleBox.y + handleBox.height / 2;
+      const { cx, cy } = overlayCenter;
+      const startAngle = Math.atan2(hy - cy, hx - cx);
+      const endAngle = startAngle + (15 * Math.PI) / 180;
+      const r = Math.hypot(hx - cx, hy - cy) || 60;
+      const endX = cx + r * Math.cos(endAngle);
+      const endY = cy + r * Math.sin(endAngle);
+
+      await page.mouse.move(hx, hy);
+      await page.mouse.down();
+      await page.mouse.move(endX, endY, { steps: 4 });
+      await page.mouse.up();
+
+      await page.waitForTimeout(100);
+
+      const messages = await readBridgeMessages(page);
+      const styleChange = messages.find(
+        (m) => m.type === "visual-style-change",
+      ) as { styles?: { transform?: string } } | undefined;
+
+      // Must have posted a visual-style-change with a transform.
+      expect(styleChange).toBeTruthy();
+      expect(styleChange!.styles?.transform).toBeTruthy();
+
+      // The committed transform must include a rotate() function — it must not
+      // be empty or "none".
+      const transform = styleChange!.styles!.transform!;
+      expect(transform).toMatch(/rotate\(/i);
+
+      // The resulting rotation must be ~45deg (30 base + 15 drag delta),
+      // confirming the computed class-rule rotation was preserved as the base.
+      const match = transform.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/i);
+      expect(match).toBeTruthy();
+      const deg = parseFloat(match![1]);
+      expect(deg).toBeGreaterThanOrEqual(40);
+      expect(deg).toBeLessThanOrEqual(50);
+
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
 // ── Nest-on-drop into plain rectangles (Figma "drop into a frame" parity) ───
 //
 // Product decision: dragging a rectangle onto another rectangle, or text onto

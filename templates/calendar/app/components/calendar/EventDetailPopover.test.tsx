@@ -188,6 +188,26 @@ describe("EventDetailPopover characterization", () => {
     vi.restoreAllMocks();
   });
 
+  it("does not show the event timezone as a standalone row", () => {
+    const event = baseEvent({ startTimeZone: "America/Halifax" });
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          defaultOpen
+          onDelete={() => undefined}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(
+      findByExactText("span", "Halifax (America/Halifax)"),
+    ).toBeUndefined();
+  });
+
   it("resyncs unedited fields from the event prop but preserves an in-progress edit on the actively edited field", () => {
     const event = baseEvent();
 

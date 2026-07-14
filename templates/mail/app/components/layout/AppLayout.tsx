@@ -13,6 +13,7 @@ import { normalizeMailLabel } from "@shared/gmail-labels";
 import type { Label } from "@shared/types";
 import {
   IconMenu2,
+  IconBrain,
   IconSettings,
   IconSearch,
   IconCheck,
@@ -144,6 +145,7 @@ function AccountAvatar({
 function isStandardLayoutPath(pathname: string): boolean {
   return (
     pathname === "/settings" ||
+    pathname === "/agent" ||
     pathname === "/team" ||
     pathname === "/draft-queue" ||
     pathname.startsWith("/draft-queue/") ||
@@ -195,6 +197,7 @@ export function AppLayout({ children }: AppLayoutProps) {
     <AgentSidebar
       position="right"
       defaultOpen={!isMobile}
+      agentPageHref="/agent"
       emptyStateText={t("agent.emptyState")}
       suggestions={[
         t("agent.suggestionSummarize"),
@@ -1751,6 +1754,25 @@ function AppLayoutInner({ children }: AppLayoutProps) {
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <Link
+                            to="/agent"
+                            onClick={closeSidebar}
+                            aria-label={t("settings.openAgentSettings")}
+                            className={cn(
+                              "flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                              location.pathname === "/agent" &&
+                                "bg-accent/60 text-foreground",
+                            )}
+                          >
+                            <IconBrain className="h-4 w-4" />
+                          </Link>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("settings.openAgentSettings")}
+                        </TooltipContent>
+                      </Tooltip>
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <Link
                             to="/settings"
                             onClick={closeSidebar}
                             aria-label={t("mail.toolbar.settings")}
@@ -1967,6 +1989,7 @@ function StandardLayout({ children }: AppLayoutProps) {
 
   const fallbackTitle = (() => {
     if (location.pathname === "/settings") return t("settings.title");
+    if (location.pathname === "/agent") return t("settings.agentTitle");
     if (location.pathname === "/team") return t("mail.pages.team");
     if (location.pathname.startsWith("/draft-queue"))
       return t("mail.views.draftQueue");
@@ -2101,6 +2124,25 @@ function StandardLayout({ children }: AppLayoutProps) {
               <DevDatabaseLink />
               <FeedbackButton className="min-w-0 flex-1" />
               <div className="flex shrink-0 items-center gap-0.5">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Link
+                      to="/agent"
+                      onClick={() => setSidebarOpen(false)}
+                      aria-label={t("settings.openAgentSettings")}
+                      className={cn(
+                        "flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground",
+                        location.pathname === "/agent" &&
+                          "bg-accent/60 text-foreground",
+                      )}
+                    >
+                      <IconBrain className="h-4 w-4" />
+                    </Link>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("settings.openAgentSettings")}
+                  </TooltipContent>
+                </Tooltip>
                 <Tooltip>
                   <TooltipTrigger asChild>
                     <Link

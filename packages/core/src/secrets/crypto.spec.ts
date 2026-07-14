@@ -3,6 +3,7 @@ import { describe, it, expect, beforeAll, afterEach } from "vitest";
 import {
   encryptSecretValue,
   decryptSecretValue,
+  getSharedSecretEncryptionKey,
   getSecretEncryptionKey,
   isEncryptedSecretValue,
 } from "./crypto.js";
@@ -113,6 +114,36 @@ describe("getSecretEncryptionKey", () => {
     const expected = getSecretEncryptionKey();
 
     expect(appScoped.equals(expected)).toBe(true);
+  });
+
+  it("uses shared key material for workspace secrets", () => {
+    process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures a deploy-level app scope.
+    process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "shared-material";
+    const shared = getSharedSecretEncryptionKey();
+
+    delete process.env.APP_NAME; // guard:allow-env-credential — test removes the deploy-level app scope.
+    delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test removes deploy-level app encryption material.
+    const expected = getSharedSecretEncryptionKey();
+
+    expect(shared.equals(expected)).toBe(true);
+  });
+
+  it("falls back to the app-scoped key when shared material is absent", () => {
+    process.env.NODE_ENV = "production";
+    process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures a deploy-level app scope.
+    process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    delete process.env.SECRETS_ENCRYPTION_KEY;
+    delete process.env.BETTER_AUTH_SECRET;
+
+    const fallback = getSharedSecretEncryptionKey();
+
+    delete process.env.APP_NAME; // guard:allow-env-credential — test removes the deploy-level app scope.
+    delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test removes deploy-level app encryption material.
+    process.env.SECRETS_ENCRYPTION_KEY = "analytics-material";
+    const expected = getSharedSecretEncryptionKey();
+
+    expect(fallback.equals(expected)).toBe(true);
   });
 
   it("derives a stable 32-byte AES key from the configured material", () => {

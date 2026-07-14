@@ -17,7 +17,7 @@ import {
   type H3Event,
 } from "h3";
 
-import { getConfiguredAppBasePath } from "./app-base-path.js";
+import { getAppBasePathFromViteEnv } from "./app-base-path.js";
 import { getAppName } from "./app-name.js";
 import { signupAttributionFromCookieHeader } from "./attribution.js";
 import {
@@ -34,6 +34,7 @@ import {
 import { getWorkspaceA2ADerivedSecret } from "./derived-secret.js";
 import { writeDesktopSso } from "./desktop-sso.js";
 import { appendSessionToOAuthReturnUrl } from "./oauth-return-url.js";
+import { isWorkspaceOAuthCallbackRelayEnabled } from "./workspace-oauth.js";
 
 // ─── Platform Detection ─────────────────────────────────────────────────────
 
@@ -170,6 +171,12 @@ function getConfiguredOriginAllowlist(): Set<string> {
   return out;
 }
 
+/** Return whether a candidate is one of this deployment's configured origins. */
+export function isConfiguredAppOrigin(value: string | undefined): boolean {
+  const origin = normalizeOrigin(value);
+  return !!origin && getConfiguredOriginAllowlist().has(origin);
+}
+
 function getWorkspaceCallbackOrigin(): string | undefined {
   const publicAuthOrigin = firstOriginFromEnv(EXPLICIT_PUBLIC_ORIGIN_ENV_KEYS, {
     allowLoopback: true,
@@ -275,20 +282,17 @@ export function getOrigin(event: H3Event): string {
 
 /** App mount prefix, if the template is served under APP_BASE_PATH. */
 export function getAppBasePath(): string {
-  return getConfiguredAppBasePath();
+  // Vite statically replaces VITE_* values in the server bundle during the
+  // build, but Netlify/Nitro does not necessarily expose those build vars at
+  // runtime. Keep auth and OAuth path matching aligned with the SSR handler by
+  // falling back to import.meta.env (including BASE_URL).
+  return getAppBasePathFromViteEnv();
 }
 
 /** Build an absolute same-origin URL that preserves APP_BASE_PATH. */
 export function getAppUrl(event: H3Event, path = "/"): string {
   const cleanPath = path.startsWith("/") ? path : `/${path}`;
   return `${getOrigin(event)}${getAppBasePath()}${cleanPath}`;
-}
-
-function isWorkspaceOAuthCallbackRelayEnabled(): boolean {
-  return (
-    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
-    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
-  );
 }
 
 function isFrameworkOAuthCallbackPath(pathname: string): boolean {

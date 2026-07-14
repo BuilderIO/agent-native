@@ -1,5 +1,9 @@
 import { useT } from "@agent-native/core/client";
 import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client";
+import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
   DEFAULT_SNAP_THRESHOLD_SCREEN_PX,
@@ -7522,6 +7526,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
                   deviceFrame="none"
                   boardSurface
                   embeddedFrameBackground={BOARD_SURFACE_BACKGROUND}
+                  transparentBackground
                   embeddedFrame={{
                     viewportWidth: Math.max(1, Math.round(boardW)),
                     viewportHeight: Math.max(1, Math.round(boardH)),
@@ -7812,7 +7817,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           )),
         )}
 
-        {/* Figma-parity alt-hover measurement: red edge-to-edge distance
+        {/* Figma-parity alt-hover measurement: orange edge-to-edge distance
             lines between the current selection and whatever frame/draft is
             under the cursor while Alt is held (pure hover, no drag). */}
         {[altHoverMeasurement?.horizontal, altHoverMeasurement?.vertical]
@@ -7822,7 +7827,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           .map((line) => (
             <span
               key={`alt-hover-${line.orientation}`}
-              className="pointer-events-none absolute z-40 bg-destructive"
+              className="pointer-events-none absolute z-40 bg-[var(--design-editor-measure-color)]"
               style={
                 line.orientation === "vertical"
                   ? {
@@ -7857,7 +7862,7 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
           return (
             <span
               key={`alt-hover-label-${line.orientation}`}
-              className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-destructive px-1 py-0.5 text-[10px] font-medium leading-none text-destructive-foreground shadow-sm"
+              className="pointer-events-none absolute z-40 -translate-x-1/2 -translate-y-1/2 rounded bg-[var(--design-editor-measure-color)] px-1 py-0.5 text-[10px] font-medium leading-none text-white shadow-sm"
               style={{
                 left: pan.x + (SURFACE_PADDING + labelCanvasPoint.x) * scale,
                 top: pan.y + (SURFACE_PADDING + labelCanvasPoint.y) * scale,
@@ -7867,6 +7872,37 @@ export const MultiScreenCanvas = memo(function MultiScreenCanvas({
             </span>
           );
         })}
+
+      {/* Live width × height readout while drawing, pinned below the draft box.
+          Rendered outside the transformed world so it stays a fixed size.
+          Skipped for line/arrow/pen and the pre-drag zero-size state. */}
+      {creationPreview &&
+      creationPreview.tool !== "line" &&
+      creationPreview.tool !== "arrow" &&
+      creationPreview.tool !== "pen" &&
+      creationPreview.geometry.width > 0 &&
+      creationPreview.geometry.height > 0 ? (
+        <span
+          className="pointer-events-none absolute z-40 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+          style={{
+            left:
+              pan.x +
+              (SURFACE_PADDING +
+                creationPreview.geometry.x +
+                creationPreview.geometry.width / 2) *
+                scale,
+            top:
+              pan.y +
+              (SURFACE_PADDING +
+                creationPreview.geometry.y +
+                creationPreview.geometry.height) *
+                scale,
+          }}
+        >
+          {Math.round(creationPreview.geometry.width)} ×{" "}
+          {Math.round(creationPreview.geometry.height)}
+        </span>
+      ) : null}
 
       {/* Equal-gap distance labels render outside the pan/scale-transformed
           world container (same reasoning as the marquee/duplicate-preview
@@ -9016,7 +9052,10 @@ const Screen = memo(function Screen({
   // rebuild the string every render (that would reload the iframe).
   // Keyed only on screen.content; the hit-test script itself is constant.
   const srcdocWithHitTest = useMemo(
-    () => appendHitTestResponder(screen.content),
+    () =>
+      injectSessionReplayIframeBootstrap(
+        appendHitTestResponder(screen.content),
+      ),
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [screen.content],
   );
@@ -9299,6 +9338,11 @@ const Screen = memo(function Screen({
           ) : (
             (screenContent ?? (
               <iframe
+                {...{
+                  [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
+                    ? undefined
+                    : "",
+                }}
                 data-screen-iframe-id={screen.id}
                 src={previewUrl}
                 srcDoc={previewUrl ? undefined : srcdocWithHitTest}
@@ -9957,6 +10001,11 @@ function BreakpointPreviewRow({
                       screen.id,
                       widthPx,
                     )}
+                    {...{
+                      [SESSION_REPLAY_IFRAME_ATTRIBUTE]: previewUrl
+                        ? undefined
+                        : "",
+                    }}
                     src={previewUrl}
                     srcDoc={previewUrl ? undefined : srcdocWithHitTest}
                     sandbox="allow-scripts"

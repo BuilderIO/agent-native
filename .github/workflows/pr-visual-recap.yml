@@ -298,7 +298,9 @@ jobs:
         run: |
           set -euo pipefail
           pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter @agent-native/recap-cli build
           echo "RECAP_CLI=$PWD/node_modules/.bin/tsx $PWD/packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
+          echo "CODE_CLI=$PWD/node_modules/.bin/tsx $PWD/packages/core/src/cli/index.ts" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$PWD/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install published recap CLI
@@ -309,23 +311,32 @@ jobs:
           set -euo pipefail
           VERSION="$RECAP_CLI_VERSION"
           if [ "$VERSION" = "latest" ]; then
-            VERSION="$(npm view @agent-native/core@latest version)"
+            VERSION="$(npm view @agent-native/recap-cli@latest version)"
           fi
           for attempt in 1 2 3; do
-            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION"; then
               break
             fi
             if [ "$attempt" = "3" ]; then exit 1; fi
             sleep $((attempt * 10))
           done
+          echo "RECAP_CLI_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
       - name: Install OpenAI-compatible provider runtime
         if: needs.gate.outputs.agent == 'openai-compatible' && steps.cli.outputs.local != 'true'
+        env:
+          CORE_CLI_VERSION: ${{ vars.CORE_CLI_VERSION || 'latest' }}
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund ai @ai-sdk/openai
+          CORE_VERSION="$CORE_CLI_VERSION"
+          if [ "$CORE_VERSION" = "latest" ]; then
+            CORE_VERSION="$(npm view @agent-native/core@latest version)"
+          fi
+          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai "@agent-native/core@$CORE_VERSION"
+          echo "CORE_CLI_VERSION=$CORE_VERSION" >> "$GITHUB_ENV"
+          echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -510,9 +521,13 @@ jobs:
           # "retry me" signal — the deterministic publisher needs that file, and
           # the agent occasionally finishes a turn without writing it. Retry once.
           if [ ! -s recap-source.json ]; then
-            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
-            sleep 5
-            run_claude
+            if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' claude-result.json claude-stderr.log 2>/dev/null; then
+              echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
+            else
+              echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+              sleep 5
+              run_claude
+            fi
           fi
 
       - name: Run agent (Codex)
@@ -549,9 +564,13 @@ jobs:
           # Retry once if the agent exited without writing recap-source.json
           # (see the Claude step) — the publisher needs that file.
           if [ ! -s recap-source.json ]; then
-            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
-            sleep 5
-            run_codex
+            if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+              echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
+            else
+              echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+              sleep 5
+              run_codex
+            fi
           fi
 
       - name: Run agent (OpenAI-compatible)
@@ -570,16 +589,20 @@ jobs:
           rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
           run_openai_compatible() {
             set +e
-            $RECAP_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
             OPENAI_COMPATIBLE_STATUS="$?"
             set -e
             echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
           }
           run_openai_compatible
           if [ ! -s recap-source.json ]; then
-            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
-            sleep 5
-            run_openai_compatible
+            if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
+              echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
+            else
+              echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+              sleep 5
+              run_openai_compatible
+            fi
           fi
 
       - name: Publish recap source
@@ -681,24 +704,6 @@ jobs:
           RECAP_PUBLISH_REASON: ${{ steps.publish.outputs.reason }}
         run: |
           set -uo pipefail
-          if [ -n "${RECAP_BLOCK_REFERENCE_SUMMARY:-}" ]; then
-            {
-              echo 'summary<<__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
-              echo "$RECAP_BLOCK_REFERENCE_SUMMARY"
-              echo '__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
-            } >> "$GITHUB_OUTPUT"
-            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_BLOCK_REFERENCE_SUMMARY || "" }) + "\n")'
-            exit 0
-          fi
-          if [ -n "${RECAP_PUBLISH_REASON:-}" ]; then
-            {
-              echo 'summary<<__RECAP_PUBLISH_SUMMARY_EOF__'
-              echo "$RECAP_PUBLISH_REASON"
-              echo '__RECAP_PUBLISH_SUMMARY_EOF__'
-            } >> "$GITHUB_OUTPUT"
-            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_PUBLISH_REASON || "" }) + "\n")'
-            exit 0
-          fi
           RESULT=claude-result.json
           STDERR=claude-stderr.log
           EXIT_CODE=claude-exit-code.txt
@@ -711,7 +716,27 @@ jobs:
             STDERR=openai-compatible-stderr.log
             EXIT_CODE=openai-compatible-exit-code.txt
           fi
-          $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || true
+          SUMMARY_JSON="$(GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || echo '{}')"
+          SUMMARY="$(node -e 'try { const value = JSON.parse(process.argv[1]).summary; process.stdout.write(typeof value === "string" ? value : ""); } catch {}' "$SUMMARY_JSON")"
+          if [ -n "$SUMMARY" ]; then
+            {
+              echo 'summary<<__RECAP_AGENT_SUMMARY_EOF__'
+              echo "$SUMMARY"
+              echo '__RECAP_AGENT_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+          elif [ -n "${RECAP_BLOCK_REFERENCE_SUMMARY:-}" ]; then
+            {
+              echo 'summary<<__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
+              echo "$RECAP_BLOCK_REFERENCE_SUMMARY"
+              echo '__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+          elif [ -n "${RECAP_PUBLISH_REASON:-}" ]; then
+            {
+              echo 'summary<<__RECAP_PUBLISH_SUMMARY_EOF__'
+              echo "$RECAP_PUBLISH_REASON"
+              echo '__RECAP_PUBLISH_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Attach usage
         if: steps.url.outputs.ok == 'true'

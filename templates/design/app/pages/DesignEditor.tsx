@@ -678,6 +678,7 @@ import {
   resolveScreenEntryZoom,
   resolveZoomUpdate,
   readOverviewZoomPercentFromTransform,
+  resolveScreenDropPoint,
   shouldDeferOverviewZoomCommand,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
@@ -1934,6 +1935,27 @@ function DesignBottomToolbar({
 }
 
 /**
+ * True only when the incoming (intent-less) selection authoritatively refers to
+ * a different element than the committed one (sourceId match wins, else CSS
+ * selector). Returns false when identity can't be compared, so a real selection
+ * is never dropped.
+ */
+function isSupersededSelectionEcho(
+  incoming: ElementInfo,
+  current: ElementInfo | null,
+): boolean {
+  if (!current) return false;
+  const incomingId = incoming.sourceId?.trim();
+  const currentId = current.sourceId?.trim();
+  if (incomingId && currentId) return incomingId !== currentId;
+  const incomingSelector = incoming.selector?.trim();
+  const currentSelector = current.selector?.trim();
+  if (incomingSelector && currentSelector)
+    return incomingSelector !== currentSelector;
+  return false;
+}
+
+/**
  * React Router reuses the same route component when only `:id` changes. Key
  * the stateful editor by design id so pending refs, collaboration docs, tools,
  * selections, and per-screen caches from one design can never leak into the
@@ -2051,6 +2073,10 @@ function DesignEditor() {
   const [selectedElement, setSelectedElement] = useState<ElementInfo | null>(
     null,
   );
+  // Committed selection for synchronous reads in the echo-loop guard. Synced
+  // during render (not an effect) so it has no lag on any setSelectedElement path.
+  const selectedElementRef = useRef(selectedElement);
+  selectedElementRef.current = selectedElement;
   // Vector-edit mode (P5 integration): active while the user is editing a
   // committed pen path's anchors/handles on the overview canvas. `path` is
   // the LIVE working copy (path-local coordinates, matching pen-path.ts);
@@ -2286,6 +2312,11 @@ function DesignEditor() {
     string | null
   >(null);
   const [activeFileId, setActiveFileId] = useState<string | null>(null);
+  // Screen that owns the committed selection. node ids/selectors are only
+  // unique within a screen, so the echo guard uses this to reject stale
+  // intent-less echoes arriving from a different screen. Render-synced.
+  const activeFileIdRef = useRef(activeFileId);
+  activeFileIdRef.current = activeFileId;
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
@@ -12177,6 +12208,14 @@ function DesignEditor() {
     (info: ElementInfo, intent?: ElementSelectionIntent) => {
       const screenId = activeFile?.id ?? activeFileId;
       if (screenId) {
+        // Same echo-loop guard as handleIframeElementSelect: the focused
+        // single-screen canvas routes through here too.
+        if (
+          !intent &&
+          isSupersededSelectionEcho(info, selectedElementRef.current)
+        ) {
+          return;
+        }
         handleScreenElementSelect(screenId, info, intent);
         return;
       }
@@ -12195,6 +12234,34 @@ function DesignEditor() {
       focusDesignInspectorForSelection,
       handleScreenElementSelect,
     ],
+  );
+
+  // Iframe→host selection boundary with an echo-loop guard. The bridge echoes
+  // mirrored selections back with no `intent` (user gestures always carry one);
+  // on rapid clicks these race and the selection "dances". Drop an intent-less
+  // echo that differs from the committed selection or comes from another screen;
+  // matching echoes still pass so the inspector payload populates.
+  const handleIframeElementSelect = useCallback(
+    (
+      screenId: string,
+      info: ElementInfo,
+      intent?: ElementSelectionIntent,
+      options: {
+        persistPendingNodeId?: boolean;
+        breakpointWidthPx?: number;
+      } = {},
+    ) => {
+      if (
+        !intent &&
+        (isSupersededSelectionEcho(info, selectedElementRef.current) ||
+          (activeFileIdRef.current !== null &&
+            screenId !== activeFileIdRef.current))
+      ) {
+        return;
+      }
+      handleScreenElementSelect(screenId, info, intent, options);
+    },
+    [handleScreenElementSelect],
   );
 
   const handleScreenElementDblClickText = useCallback(
@@ -26494,6 +26561,58 @@ function DesignEditor() {
     selectedLayerIds,
   ]);
 
+  const resolveAssetScreenPoint = useCallback(
+    ({ clientX, clientY }: { clientX: number; clientY: number }) => {
+      const container = canvasContainerRef.current;
+      if (!container) return null;
+
+      if (viewMode === "single") {
+        const iframe = container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        return resolveScreenDropPoint({
+          clientX,
+          clientY,
+          screenId: activeFile?.id,
+          iframeRect: iframe?.getBoundingClientRect(),
+          zoomPercent: zoom,
+        });
+      }
+
+      const frameShell = document
+        .elementsFromPoint(clientX, clientY)
+        .map((element) => element.closest<HTMLElement>("[data-frame-id]"))
+        .find((element): element is HTMLElement => Boolean(element));
+      const screenId = frameShell?.dataset.frameId;
+      const iframe = Array.from(
+        frameShell?.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ) ?? [],
+      ).find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      });
+      const liveOverviewZoom = readOverviewZoomPercentFromTransform(
+        container.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")
+          ?.style.transform,
+        overviewCanvasZoom,
+      );
+      return resolveScreenDropPoint({
+        clientX,
+        clientY,
+        screenId,
+        iframeRect: iframe?.getBoundingClientRect(),
+        zoomPercent: liveOverviewZoom,
+      });
+    },
+    [activeFile?.id, overviewCanvasZoom, viewMode, zoom],
+  );
+
   const getContextCanvasPoint = useCallback(
     ({ clientX, clientY }: { clientX: number; clientY: number }) => {
       // In single-screen mode the iframe is inside a scale(zoom/100) wrapper
@@ -26794,7 +26913,7 @@ function DesignEditor() {
           hiddenSelectors={getLayerSelectorsForFile(screen.id, hiddenLayerIds)}
           onElementSelect={(info, intent) => {
             activateResponsiveScope();
-            handleScreenElementSelect(screen.id, info, intent, {
+            handleIframeElementSelect(screen.id, info, intent, {
               breakpointWidthPx,
             });
           }}
@@ -26890,7 +27009,7 @@ function DesignEditor() {
       runtimeStructureVerificationRequest,
       contentRenderRevision,
       handleScreenExternalContentSnapshot,
-      handleScreenRuntimeLayerSnapshot,
+      getRuntimeLayerSnapshotCallback,
       getRuntimeVerificationSnapshotCallback,
       designFusionUrl,
       handleComponentSourceJump,
@@ -26916,7 +27035,7 @@ function DesignEditor() {
       getLayerSelectorsForFile,
       lockedLayerIds,
       hiddenLayerIds,
-      handleScreenElementSelect,
+      handleIframeElementSelect,
       handleScreenElementMarqueeSelect,
       handleScreenElementHover,
       handleEditorDragStateChange,
@@ -26971,9 +27090,9 @@ function DesignEditor() {
   >(
     (info, intent) => {
       if (!boardFileId) return;
-      handleScreenElementSelect(boardFileId, info, intent);
+      handleIframeElementSelect(boardFileId, info, intent);
     },
-    [boardFileId, handleScreenElementSelect],
+    [boardFileId, handleIframeElementSelect],
   );
   const handleBoardElementMarqueeSelect = useCallback<
     NonNullable<
@@ -27392,12 +27511,14 @@ function DesignEditor() {
             {t("designEditor.notFound")}
           </h1>
           <Button
+            asChild
             variant="default"
-            onClick={() => navigate("/")}
             className="mt-7 h-9 cursor-pointer gap-2 rounded-md border border-foreground bg-foreground px-3.5 text-background shadow-sm hover:border-foreground/90 hover:bg-foreground/90 hover:text-background focus-visible:ring-foreground"
           >
-            <IconArrowLeft className="size-4 rtl:-scale-x-100" />
-            {t("designEditor.backToDesigns")}
+            <Link to="/">
+              <IconArrowLeft className="size-4 rtl:-scale-x-100" />
+              {t("designEditor.backToDesigns")}
+            </Link>
           </Button>
         </div>
       </div>
@@ -27793,7 +27914,7 @@ function DesignEditor() {
             className="h-8 cursor-pointer gap-1.5 rounded-md bg-[var(--design-editor-panel-raised-bg)] px-3 text-sm shadow-none"
             aria-label={t("designEditor.signUpToSave")}
           >
-            <a href={signInToSaveHref} role="button">
+            <a href={signInToSaveHref}>
               <span>{t("designEditor.signUpToSave")}</span>
             </a>
           </Button>
@@ -27809,7 +27930,7 @@ function DesignEditor() {
             className="h-8 cursor-pointer gap-1.5 rounded-md !border-[var(--design-editor-accent-color)] !bg-[var(--design-editor-accent-color)] px-3 text-sm !text-[var(--design-editor-accent-contrast-color)] shadow-none hover:!border-[var(--design-editor-accent-hover-color)] hover:!bg-[var(--design-editor-accent-hover-color)] hover:!text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
             aria-label={t("designEditor.share")}
           >
-            <a href={signInToShareHref} role="button">
+            <a href={signInToShareHref}>
               <span>{t("designEditor.share")}</span>
             </a>
           </Button>
@@ -28283,7 +28404,10 @@ function DesignEditor() {
                   </h3>
                 </div>
                 {canEditDesign ? (
-                  <AssetLibraryPanel context={designExtensionContext} />
+                  <AssetLibraryPanel
+                    context={designExtensionContext}
+                    resolveScreenPoint={resolveAssetScreenPoint}
+                  />
                 ) : (
                   <ReadOnlyEditorPanel
                     title={"Assets require editor access" /* i18n-ignore */}

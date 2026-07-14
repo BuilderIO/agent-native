@@ -567,9 +567,32 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
+    // recurring jobs and personal automations. The agent-facing native tools
+    // remain the canonical conversational surface.
+    [
+      "list-recurring-jobs",
+      () => import("../jobs/actions/list-recurring-jobs.js"),
+    ],
+    [
+      "manage-recurring-job",
+      () => import("../jobs/actions/manage-recurring-job.js"),
+    ],
+    [
+      "list-automations",
+      () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "manage-automation",
+      () => import("../triggers/actions/manage-automation.js"),
+    ],
     [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
+    ],
+    [
+      "context-preview-get",
+      () => import("../agent/context-xray/actions/context-preview-get.js"),
     ],
     [
       "context-pin",
@@ -599,7 +622,6 @@ export async function mergeCoreSharingActions(
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
-    ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
     // Audit log — read surface (who changed what, when, agent vs human).
     [
       "list-audit-events",

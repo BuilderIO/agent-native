@@ -21,12 +21,19 @@ An agent-native app is reachable by any MCP-compatible host (Claude, Claude
 Desktop, Claude Code, ChatGPT custom MCP apps, Codex, Cursor, Cowork, VS Code
 GitHub Copilot, Goose, Postman, MCPJam, and future standard clients). Keep
 setup simple: for workspace or cross-app access, add one remote MCP connector:
-`https://dispatch.agent-native.com/_agent-native/mcp`. Dispatch's Agents page
+`https://dispatch.agent-native.com/mcp`. Dispatch's Agents page
 controls whether that single connector reaches all apps or only selected apps,
 and Dispatch filters `list_apps`, `ask_app`, and `open_app` to the granted set.
 For a deliberately isolated app, add that app directly at
-`https://<app>.agent-native.com/_agent-native/mcp` or
-`https://<your-host>/_agent-native/mcp`.
+`https://<app>.agent-native.com/mcp` or
+`https://<your-host>/mcp`.
+
+In-app, the Agent page's **Access** tab (`/agent#access`, see the
+`agent-page` skill) is the discoverable home for all of this: it shows the
+app's copyable MCP URL and A2A agent-card URL, per-client setup steps
+(Claude, ChatGPT, Cursor, Claude Code, Codex, Other), and links to the full
+`/mcp/connect` page including the static-token fallback. Point users there
+instead of dictating URLs in chat.
 
 OAuth-capable hosts should use the standard remote MCP OAuth flow. Claude
 connectors and Claude Code `/mcp` authentication discover the protected
@@ -68,7 +75,7 @@ the real app focused on exactly what was produced. It reuses the existing
 Use one connector for normal workspace access:
 
 ```text
-https://dispatch.agent-native.com/_agent-native/mcp
+https://dispatch.agent-native.com/mcp
 ```
 
 Then open Dispatch → Agents to choose whether the gateway exposes every app or
@@ -79,8 +86,8 @@ only selected app IDs. External agents call `list_apps` to see the granted set,
 Use a direct app URL only when you intentionally want one isolated app:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
-https://<your-app>.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
+https://<your-app>.agent-native.com/mcp
 ```
 
 Claude / Claude Desktop: add a custom connector with the URL, click Connect,
@@ -104,7 +111,7 @@ npx @agent-native/core@latest connect https://mail.agent-native.com
 
 The command opens the app in the browser, the user clicks **Authorize**, and a
 per-user, scoped, revocable token is written to the selected client config. The
-no-CLI equivalent is `https://<app>/_agent-native/mcp/connect`, which shows
+no-CLI equivalent is `https://<app>/mcp/connect`, which shows
 the copyable MCP URL, Claude / ChatGPT / Cursor / Claude Code / Codex / Other
 steps, and static-token fallback for clients that need it.
 
@@ -130,7 +137,7 @@ that MCP URL; pass `--client` to limit which configs it searches. Pass
 Under the hood: a logged-in browser session mints an `A2A_SECRET`-signed JWT
 carrying the caller's `sub` + `org_domain` and a unique `jti`, so tool runs
 stay tenant-scoped via `runWithRequestContext`. The existing
-`/_agent-native/mcp` endpoint accepts it like any bearer — no new endpoint.
+`/mcp` endpoint accepts it like any bearer — no new endpoint.
 The same Connect page lists and revokes minted tokens by `jti`; treat them
 like personal access tokens. Nothing exposes the deployment's shared secret.
 
@@ -146,7 +153,13 @@ agent has a predictable surface without guessing per-app action names:
   "Open …" link and, with `embed: true`, an inline full-app MCP App in capable
   hosts.
 - `ask_app({ app, message })` — routes a natural-language task to that app's
-  in-app agent (delegates to the existing `ask-agent` meta-tool).
+  in-app agent (delegates to the existing `ask-agent` meta-tool). It also
+  accepts `async` and `maxWaitMs`; hosted calls wait at most 25 seconds inline
+  and return a durable `taskId` plus an `ask_app_status` poll instruction when
+  the task is still running.
+- `ask_app_status({ app, taskId })` — retrieves the current or terminal result
+  for a durable `ask_app` task. Dispatch checks the selected-app grant again
+  before polling.
 - `create_workspace_app({ name, template })` — scaffolds + boots a new app via
   the workspace path (rejects non-allow-listed templates), returns its running
   URL + deep link.
@@ -375,7 +388,7 @@ the `[mcp_servers.*]` block in `~/.codex/config.toml` for Codex,
 user `mcp.json` for GitHub Copilot / VS Code, and the Claude-Code JSON shape
 for Cowork. The entry runs `pnpm exec agent-native mcp serve --app <id>`, by
 default a **thin stdio proxy** to the running local app's
-`/_agent-native/mcp` (live registry + HMR + correct deep links stay the single
+`/mcp` (live registry + HMR + correct deep links stay the single
 source of truth; `--standalone` builds the registry in-process). Companion
 subcommands: `mcp uninstall`, `mcp status`, `mcp token [--rotate]`. You can
 also hand-write an `http` `.mcp.json` entry with a token you supply yourself —

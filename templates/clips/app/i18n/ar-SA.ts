@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "الإجراءات",
     commandSearch: "بحث",
+    openAgent: "فتح الوكيل",
     commandAppearance: "المظهر",
     toggleTheme: "تبديل السمة",
     extensionSignedInTitle: "تم تسجيل الدخول",
@@ -53,6 +54,7 @@ const messages = {
     dictate: "إملاء",
     archive: "الأرشيف",
     trash: "المهملات",
+    agent: "الوكيل",
     settings: "الإعدادات",
     notifications: "الإشعارات",
     insights: "الرؤى",

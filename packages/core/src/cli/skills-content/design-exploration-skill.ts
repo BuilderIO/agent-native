@@ -92,7 +92,7 @@ separate those jobs; use it, and hold this bar:
 
 ## Cross-App Use
 
-- Hosted default: connect \`https://design.agent-native.com/_agent-native/mcp\`.
+- Hosted default: connect \`https://design.agent-native.com/mcp\`.
   Do not put shared secrets in skill files.
 - For CLI/code-editor clients, keep any \`npx @agent-native/core@latest connect\` command
   running until browser authorization finishes. Stopping it early can leave the

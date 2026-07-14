@@ -352,9 +352,18 @@ export function RecordingPill() {
     );
 
     const startMs = Date.now();
+    let lastDrawMs = 0;
+    // A bar meter reads the same to the eye well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the pill is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
     const tick = () => {
+      rafRef.current = requestAnimationFrame(tick);
+      const nowMs = Date.now();
+      if (nowMs - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = nowMs;
       // Modulo prevents float precision loss on long recordings.
-      const t = (Date.now() - startMs) % 1_000_000;
+      const t = (nowMs - startMs) % 1_000_000;
       for (const s of setups) {
         const target = Math.min(1, s.levelRef.current * s.gain);
 
@@ -385,7 +394,6 @@ export function RecordingPill() {
         }
         s.ctx2d.shadowBlur = 0;
       }
-      rafRef.current = requestAnimationFrame(tick);
     };
     tick();
     return () => {

@@ -651,6 +651,19 @@ function shouldDropBrowserSentryNoise(event: Sentry.Event): boolean {
     typeof event.tags?.url === "string" ? event.tags.url : undefined;
   const requestUrl = (event.request?.url ?? taggedUrl ?? "").toLowerCase();
   const isDocsPage = isAgentNativeDocsUrl(requestUrl);
+  // A server-owned run can emit an expected run_timeout while handing off to
+  // its continuation. AssistantChat retries these transitions automatically;
+  // only locally timed-out or ultimately unrecoverable runs should create a
+  // Sentry issue. Keep this scoped to the explicit chat tags so real provider
+  // and network timeout errors remain visible.
+  if (
+    event.tags?.context === "agent-native-chat" &&
+    event.tags?.errorCode === "run_timeout" &&
+    event.tags?.reconnectTimedOut === "false" &&
+    event.tags?.reconnectTerminalReason === "run_timeout"
+  ) {
+    return true;
+  }
   // rrweb 2.1.0 replays recorded media interactions with `void media.play()`.
   // Browsers may reject that promise when the recorded media was unmuted and
   // no user activation is still active, which becomes a source-less unhandled

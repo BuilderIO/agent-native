@@ -14,6 +14,11 @@ import {
   sharedResourceOwner,
   WORKSPACE_OWNER,
 } from "../../resources/store.js";
+import type {
+  ContextGovernanceTier,
+  ContextManifestSourceRef,
+  ContextSystemProvenance,
+} from "../../shared/context-xray.js";
 import { discoverAgents } from "../agent-discovery.js";
 import { getRequestOrgId } from "../request-context.js";
 import { parseSkillFrontmatter } from "./skill-frontmatter.js";
@@ -40,8 +45,175 @@ const PROMPT_SKILL_METADATA_READ_LIMIT = 80;
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
 
+export interface PromptResourceManifestSection {
+  label: string;
+  provenance: ContextSystemProvenance;
+  governance: ContextGovernanceTier;
+  content: string;
+  sourceRef?: ContextManifestSourceRef;
+}
+
 function normalizeResourcePathForPrompt(path: string): string {
   return path.replace(/^\/+/, "").trim();
+}
+
+function xmlAttribute(attrs: string, name: string): string | undefined {
+  const match = new RegExp(`\\b${name}="([^"]*)"`).exec(attrs);
+  return match?.[1];
+}
+
+function resourceManifestClassification(
+  scope: string,
+  path: string,
+  index: number,
+): {
+  provenance: ContextSystemProvenance;
+  governance: ContextGovernanceTier;
+} {
+  const normalizedPath = normalizeResourcePathForPrompt(path);
+  if (scope === "template") {
+    return { provenance: "template", governance: "inherited" };
+  }
+  if (scope.startsWith("workspace")) {
+    return {
+      provenance:
+        scope === "workspace" && index === 0
+          ? "enterprise-workspace-core"
+          : "sql-workspace",
+      governance:
+        scope === "workspace" && index === 0 ? "required" : "inherited",
+    };
+  }
+  if (scope.startsWith("personal")) {
+    return {
+      provenance: normalizedPath === "memory/MEMORY.md" ? "memory" : "personal",
+      governance: "user",
+    };
+  }
+  if (scope.startsWith("app-default")) {
+    return { provenance: "legacy-app-default", governance: "inherited" };
+  }
+  if (scope.startsWith("organization")) {
+    return { provenance: "organization", governance: "inherited" };
+  }
+  if (scope.startsWith("shared")) {
+    return {
+      provenance:
+        normalizedPath === "LEARNINGS.md"
+          ? "organization"
+          : "legacy-app-default",
+      governance: "inherited",
+    };
+  }
+  return { provenance: "template", governance: "inherited" };
+}
+
+/**
+ * Extracts bounded-in-memory metadata from the already-composed resource
+ * prompt. The caller turns these inputs into hashed/previews before anything
+ * is persisted; this helper never writes or returns the full manifest.
+ */
+export function promptResourceManifestSections(
+  prompt: string,
+): PromptResourceManifestSection[] {
+  const sections: PromptResourceManifestSection[] = [];
+  const resourcePattern = /<resource\b([^>]*)>([\s\S]*?)<\/resource>/g;
+  let match: RegExpExecArray | null;
+  let workspaceIndex = 0;
+  let sharedIndex = 0;
+  while ((match = resourcePattern.exec(prompt))) {
+    const attrs = match[1] ?? "";
+    const scope = xmlAttribute(attrs, "scope") ?? "resource";
+    const path =
+      xmlAttribute(attrs, "path") ?? xmlAttribute(attrs, "name") ?? "";
+    const name = xmlAttribute(attrs, "name") ?? (path || "resource");
+    const index = scope.startsWith("workspace")
+      ? workspaceIndex++
+      : scope.startsWith("shared")
+        ? sharedIndex++
+        : 0;
+    const classification = resourceManifestClassification(scope, path, index);
+    sections.push({
+      label: name,
+      ...classification,
+      content: match[2] ?? "",
+      sourceRef: {
+        ...(path ? { path } : {}),
+        scope,
+      },
+    });
+  }
+
+  const taggedSections = [
+    {
+      tag: "skills-summary",
+      label: "Workspace skills index",
+      provenance: "template" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "resource-skills",
+      label: "Workspace resource skills",
+      provenance: "template" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "instruction-resources",
+      label: "Instruction resources index",
+      provenance: "sql-workspace" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "workspace-resources",
+      label: "Workspace reference resources",
+      provenance: "sql-workspace" as const,
+      governance: "inherited" as const,
+    },
+    {
+      tag: "context-note",
+      label: "Resource availability note",
+      provenance: "framework-core" as const,
+      governance: "required" as const,
+    },
+    {
+      tag: "context-budget-note",
+      label: "Context budget note",
+      provenance: "framework-core" as const,
+      governance: "required" as const,
+    },
+    {
+      tag: "available-apps",
+      label: "Available workspace apps",
+      provenance: "tools" as const,
+      governance: "required" as const,
+    },
+  ];
+  for (const tagged of taggedSections) {
+    const pattern = new RegExp(
+      `<${tagged.tag}\\b[^>]*>([\\s\\S]*?)</${tagged.tag}>`,
+      "g",
+    );
+    let taggedMatch: RegExpExecArray | null;
+    while ((taggedMatch = pattern.exec(prompt))) {
+      const taggedAttrs =
+        taggedMatch[0]?.slice(tagged.tag.length + 1).split(">")[0] ?? "";
+      const taggedScope = xmlAttribute(taggedAttrs, "scope");
+      const taggedClassification =
+        tagged.tag === "instruction-resources" && taggedScope
+          ? resourceManifestClassification(taggedScope, "", 0)
+          : {
+              provenance: tagged.provenance,
+              governance: tagged.governance,
+            };
+      sections.push({
+        label: tagged.label,
+        ...taggedClassification,
+        content: taggedMatch[1] ?? "",
+        ...(taggedScope ? { sourceRef: { scope: taggedScope } } : {}),
+      });
+    }
+  }
+  return sections;
 }
 
 function resourceToolHint(
@@ -541,14 +713,14 @@ export async function loadResourcesForPrompt(
   if (organizationOwner !== SHARED_OWNER) {
     const organizationAgents = await loadAgentsResourceForPrompt(
       organizationOwner,
-      "shared",
+      "organization",
       promptResourceMaxChars,
     );
     if (organizationAgents) sections.push(organizationAgents);
     sections.push(
       ...(await loadInstructionResourcesForPrompt(
         organizationOwner,
-        "shared-instruction",
+        "organization-instruction",
         promptResourceMaxChars,
         compact,
       )),

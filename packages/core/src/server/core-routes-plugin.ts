@@ -64,6 +64,7 @@ import {
   handleMcpOAuthAuthorizationServerMetadata,
   handleMcpOAuthProtectedResourceMetadata,
 } from "../mcp/oauth-route.js";
+import { MCP_ROUTE_PREFIXES } from "../mcp/route-paths.js";
 import { registerBuiltinNotificationChannels } from "../notifications/channels.js";
 import { createNotificationsHandler } from "../notifications/routes.js";
 import { getOrgContext } from "../org/context.js";
@@ -873,9 +874,10 @@ export interface CoreRoutesPluginOptions {
   /** Disable the /_agent-native/embed/start iframe session launcher. */
   disableEmbedRoute?: boolean;
   /**
-   * Disable the /_agent-native/mcp/connect routes (browser Connect page +
-   * CLI device-code flow that mints per-user, revocable MCP tokens) and the
-   * standard remote-MCP OAuth endpoints under /_agent-native/mcp/oauth.
+   * Disable the /mcp/connect routes (browser Connect page + CLI device-code
+   * flow that mints per-user, revocable MCP tokens) and the standard remote-MCP
+   * OAuth endpoints under /mcp/oauth. The legacy /_agent-native/mcp aliases
+   * are disabled at the same time.
    * Enabled by default — the routes are session-gated where they approve user
    * access; token endpoints are protected by single-use codes / refresh
    * tokens.
@@ -939,7 +941,7 @@ export function createCoreRoutesPlugin(
       rejectInit = reject;
     });
     trackPluginInit(nitroApp, initPromise, {
-      paths: [FRAMEWORK_ROUTE_PREFIX, "/.well-known"],
+      paths: [FRAMEWORK_ROUTE_PREFIX, "/mcp", "/.well-known"],
     });
     try {
       await awaitBootstrap(nitroApp);
@@ -1200,36 +1202,6 @@ export function createCoreRoutesPlugin(
           const { discoverAgents } = await import("./agent-discovery.js");
           const agents = await discoverAgents(selfAppId);
           return { agents };
-        }),
-      );
-
-      // Demo-mode status — read by the client fetch interceptor and the
-      // Demo mode settings toggle. `forced` reflects the DEMO_MODE env (a
-      // hosted demo deployment); `enabled` ORs that with the per-user
-      // application_state toggle. No request-context dependency: the env case
-      // needs nothing, and the per-user case resolves the session straight
-      // off the request cookie via getSession(event).
-      getH3App(nitroApp).use(
-        `${P}/demo/status`,
-        defineEventHandler(async (event) => {
-          const { isDemoModeForced } = await import("../demo/config.js");
-          const forced = isDemoModeForced();
-          if (forced) return { enabled: true, forced: true };
-          try {
-            const session = await getSession(event);
-            const email = session?.email;
-            if (!email) return { enabled: false, forced: false };
-            const { appStateGet } =
-              await import("../application-state/store.js");
-            const state = await appStateGet(email, "demo-mode");
-            return {
-              enabled:
-                (state as { enabled?: boolean } | null)?.enabled === true,
-              forced: false,
-            };
-          } catch {
-            return { enabled: false, forced: false };
-          }
         }),
       );
 
@@ -3497,16 +3469,18 @@ export function createCoreRoutesPlugin(
             handleMcpOAuthAuthorizationServerMetadata(event),
           ),
         );
-        getH3App(nitroApp).use(
-          `${P}/mcp/oauth`,
-          defineEventHandler(async (event: H3Event) => {
-            const subpath = event.url?.pathname || "";
-            return handleMcpOAuth(event, subpath, {
-              appId: options.mcpConnectAppId,
-              appName: options.mcpConnectAppName ?? getAppName(),
-            });
-          }),
-        );
+        for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+          getH3App(nitroApp).use(
+            `${mcpRoutePrefix}/oauth`,
+            defineEventHandler(async (event: H3Event) => {
+              const subpath = event.url?.pathname || "";
+              return handleMcpOAuth(event, subpath, {
+                appId: options.mcpConnectAppId,
+                appName: options.mcpConnectAppName ?? getAppName(),
+              });
+            }),
+          );
+        }
 
         // Frictionless external-agent connection. A logged-in user mints a
         // per-user, scoped, revocable MCP bearer token here — via the browser
@@ -3522,16 +3496,18 @@ export function createCoreRoutesPlugin(
           appName: options.mcpConnectAppName ?? getAppName(),
           serverName: options.mcpConnectServerName,
         };
-        getH3App(nitroApp).use(
-          `${P}/mcp/connect`,
-          defineEventHandler(async (event: H3Event) => {
-            // The framework strips the mount prefix from event.url.pathname,
-            // so what remains is the subpath after `/connect` (e.g. `/token`,
-            // `/device/start`, or `` for the page itself).
-            const subpath = event.url?.pathname || "";
-            return handleMcpConnect(event, subpath, mcpConnectOpts);
-          }),
-        );
+        for (const mcpRoutePrefix of MCP_ROUTE_PREFIXES) {
+          getH3App(nitroApp).use(
+            `${mcpRoutePrefix}/connect`,
+            defineEventHandler(async (event: H3Event) => {
+              // The framework strips the mount prefix from event.url.pathname,
+              // so what remains is the subpath after `/connect` (e.g. `/token`,
+              // `/device/start`, or `` for the page itself).
+              const subpath = event.url?.pathname || "";
+              return handleMcpConnect(event, subpath, mcpConnectOpts);
+            }),
+          );
+        }
       }
 
       // Cross-app SSO ("Sign in with Agent-Native") — CLIENT side. Mounted

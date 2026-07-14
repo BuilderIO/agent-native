@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
+import { interpolate } from "./interpolate";
 import type { DashboardFilter } from "./types";
 
 function daysAgo(n: number): string {
@@ -47,6 +48,60 @@ describe("resolveFilterVars", () => {
     ];
     const getParam = (key: string) => (key === "timeRange" ? "30d" : "");
     expect(resolveFilterVars(filters, getParam).timeRange).toBe("30d");
+  });
+
+  it("normalizes the legacy all-time sentinel for date-range filters", () => {
+    const filters: DashboardFilter[] = [
+      { id: "window", label: "Window", type: "date-range", default: "30d" },
+    ];
+    const getParam = (key: string) =>
+      key === "windowStart" || key === "windowEnd" ? "all" : "";
+
+    const vars = resolveFilterVars(filters, getParam);
+    expect(vars.windowStart).toBe("1970-01-01");
+    expect(vars.windowEnd).toBe(daysAgo(0));
+    expect(interpolate("TIMESTAMP('{{windowStart}}')", vars)).toBe(
+      "TIMESTAMP('1970-01-01')",
+    );
+  });
+
+  it("fails closed when a time variable is missing at render time", () => {
+    expect(
+      interpolate(
+        "'{{timeRange}}' IN ('', 'all')",
+        {},
+        {
+          failClosedTimeVariables: true,
+        },
+      ),
+    ).toBe("'__missing_dashboard_time_filter__' IN ('', 'all')");
+  });
+
+  it("keeps explicit date values and date shorthands valid", () => {
+    const filters: DashboardFilter[] = [
+      { id: "window", label: "Window", type: "date-range", default: "30d" },
+    ];
+    const getParam = (key: string) =>
+      ({ windowStart: "7d", windowEnd: "2026-07-12" })[key] ?? "";
+
+    const vars = resolveFilterVars(filters, getParam);
+    expect(vars.windowStart).toBe(daysAgo(7));
+    expect(vars.windowEnd).toBe("2026-07-12");
+  });
+
+  it("keeps all as a literal for select filters", () => {
+    const filters: DashboardFilter[] = [
+      {
+        id: "timeRange",
+        label: "Time range",
+        type: "select",
+        default: "90d",
+        options: [{ value: "all", label: "All time" }],
+      },
+    ];
+    const getParam = (key: string) => (key === "timeRange" ? "all" : "");
+
+    expect(resolveFilterVars(filters, getParam).timeRange).toBe("all");
   });
 
   it("still expands the Nd shorthand for date filters", () => {

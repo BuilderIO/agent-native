@@ -13,6 +13,7 @@ const pageTitleKeys: Record<string, string> = {
   "/": "navigation.create",
   "/library": "navigation.library",
   "/brand-kits": "navigation.brandKits",
+  "/agent": "settings.agentTitle",
   "/extensions": "navigation.extensions",
   "/settings": "navigation.settings",
 };

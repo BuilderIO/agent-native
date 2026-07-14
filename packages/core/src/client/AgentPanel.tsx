@@ -79,7 +79,7 @@ const MultiTabAssistantChatLazy = lazy(() =>
   })),
 );
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
@@ -595,6 +595,8 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   /** Allow the sidebar settings view to render inside this panel. Default: true. */
   allowSettingsMode?: boolean;
+  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -745,6 +747,7 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   allowSettingsMode = true,
+  agentPageHref,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -1807,11 +1810,11 @@ function AgentPanelInner({
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
             `[data-agent-fullscreen='true'] .agent-running-activity{` +
-            `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}` +
             `[data-agent-fullscreen='true'] .agent-composer-area,` +
             `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
-            `max-width:${FULLSCREEN_COMPOSER_MAX_PX}px;` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
       />
@@ -1933,7 +1936,18 @@ function AgentPanelInner({
 
       {/* Resources view */}
       {mode === "resources" && (
-        <div className="flex-1 min-h-0">
+        <div className="flex flex-1 flex-col min-h-0">
+          {agentPageHref && (
+            <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5">
+              <Link
+                to={agentPageHref}
+                className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                {t("agentPanel.openFullView")}
+                <IconExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          )}
           <Suspense
             fallback={
               <div className="flex h-full flex-col min-h-0">
@@ -1954,6 +1968,17 @@ function AgentPanelInner({
       {/* Settings / Setup view */}
       {mode === "settings" && (
         <div className="flex flex-col flex-1 min-h-0">
+          {agentPageHref && (
+            <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5">
+              <Link
+                to={agentPageHref}
+                className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                {t("agentPanel.openFullView")}
+                <IconExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          )}
           <Suspense
             fallback={
               <div className="p-3 space-y-2">
@@ -1987,10 +2012,8 @@ const SIDEBAR_MAX = 700;
 const SIDEBAR_ANIMATION_MS = 260;
 const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
-/** Max width of the centered chat column in fullscreen mode (Claude-style). */
-const FULLSCREEN_CONTENT_MAX_PX = 570;
-/** Max width of the centered composer in fullscreen mode. */
-const FULLSCREEN_COMPOSER_MAX_PX = 684;
+/** Shared max width of the centered fullscreen chat column and composer. */
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
 
 function ResizeHandle({
   position,
@@ -2594,6 +2617,8 @@ export interface AgentSidebarProps {
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
+  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  agentPageHref?: string;
 }
 
 /**
@@ -2624,6 +2649,7 @@ export function AgentSidebar({
   showScopeBadge,
   browserTabId,
   threadUrlSync,
+  agentPageHref,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
@@ -3160,6 +3186,7 @@ export function AgentSidebar({
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
+            agentPageHref={agentPageHref}
             allowSettingsMode={false}
           />
         </div>

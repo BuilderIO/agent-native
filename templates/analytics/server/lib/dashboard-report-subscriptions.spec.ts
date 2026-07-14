@@ -13,9 +13,12 @@ vi.mock("../db/index.js", async () => {
 
 import {
   claimDashboardReportSubscription,
+  dashboardReportRetryAt,
+  lastDailyRunAt,
   nextDailyRunAt,
   queueDashboardReportSubscriptionNow,
 } from "./dashboard-report-subscriptions";
+import type { DashboardReportSubscription } from "./dashboard-report-subscriptions";
 
 function createClaimDbMock(rows: unknown[]) {
   const returning = vi.fn(async () => rows);
@@ -46,6 +49,64 @@ describe("dashboard report subscriptions", () => {
         new Date("2026-01-01T18:00:00.000Z"),
       ),
     ).toBe("2026-01-02T17:00:00.000Z");
+  });
+
+  it("computes the most recent daily occurrence not after `from`", () => {
+    expect(
+      lastDailyRunAt(
+        "04:00",
+        "America/Los_Angeles",
+        new Date("2026-07-13T11:06:00.000Z"),
+      ),
+    ).toBe("2026-07-13T11:00:00.000Z");
+    expect(
+      lastDailyRunAt(
+        "04:00",
+        "America/Los_Angeles",
+        new Date("2026-07-13T10:30:00.000Z"),
+      ),
+    ).toBe("2026-07-12T11:00:00.000Z");
+  });
+
+  describe("dashboardReportRetryAt", () => {
+    function reportSubscription(enabled: boolean): DashboardReportSubscription {
+      return {
+        id: "sub_1",
+        dashboardId: "dash_1",
+        name: "Daily",
+        recipients: ["person@example.com"],
+        filters: {},
+        frequency: "daily",
+        timeOfDay: "04:00",
+        timezone: "America/Los_Angeles",
+        enabled,
+        nextRunAt: null,
+        lastRunAt: null,
+        lastStatus: null,
+        lastError: null,
+        createdAt: "2026-07-01T00:00:00.000Z",
+        updatedAt: "2026-07-01T00:00:00.000Z",
+        ownerEmail: "owner@example.com",
+        orgId: "org_1",
+      };
+    }
+
+    it("returns a delayed retry time within the retry window", () => {
+      const now = new Date("2026-07-13T11:06:00.000Z");
+      expect(dashboardReportRetryAt(reportSubscription(true), now)).toBe(
+        new Date(now.getTime() + 10 * 60 * 1000).toISOString(),
+      );
+    });
+
+    it("returns null once the retry window has elapsed", () => {
+      const now = new Date("2026-07-13T12:00:00.000Z");
+      expect(dashboardReportRetryAt(reportSubscription(true), now)).toBeNull();
+    });
+
+    it("returns null for a disabled subscription", () => {
+      const now = new Date("2026-07-13T11:06:00.000Z");
+      expect(dashboardReportRetryAt(reportSubscription(false), now)).toBeNull();
+    });
   });
 
   it("claims a manual send through one running-state update", async () => {

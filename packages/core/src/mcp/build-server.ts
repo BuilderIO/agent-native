@@ -204,6 +204,35 @@ export interface MCPRequestMeta {
   inlineMcpApps?: boolean;
 }
 
+const ASK_AGENT_DEFAULT_INLINE_WAIT_MS = 20_000;
+const ASK_AGENT_MAX_INLINE_WAIT_MS = 25_000;
+
+function boundedAskAgentWaitMs(raw: unknown): number {
+  if (raw == null || raw === "") return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
+  return Math.max(
+    0,
+    Math.min(ASK_AGENT_MAX_INLINE_WAIT_MS, Math.trunc(parsed)),
+  );
+}
+
+function isExplicitAsyncAskAgent(raw: unknown): boolean {
+  return raw === true || raw === "true" || raw === 1 || raw === "1";
+}
+
+function formatAskAgentResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object") {
+    const record = result as Record<string, unknown>;
+    if (record.status === "completed" && typeof record.response === "string") {
+      return record.response;
+    }
+  }
+  const serialized = JSON.stringify(result);
+  return serialized === undefined ? String(result) : serialized;
+}
+
 /**
  * Deploy-toggleable kill switch for inline MCP App embeds — the `ui://`
  * resource reference hosts like Codex / Cursor / ChatGPT render in a sandboxed
@@ -354,6 +383,7 @@ const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
   "db-exec",
   "db-patch",
   "context-manifest-get",
+  "context-preview-get",
   "context-pin",
   "context-evict",
   "context-restore",
@@ -1618,13 +1648,25 @@ export async function createMCPServerForRequest(
           description:
             "Send a natural-language message to the app's AI agent and get a response. " +
             "Use this for complex, multi-step tasks that require the agent's reasoning " +
-            "and full context about the app.",
+            "and full context about the app. On hosted MCP, the server waits briefly " +
+            "for fast completions and returns a taskId plus ask_app_status polling " +
+            "instructions when the agent needs longer.",
           inputSchema: {
             type: "object" as const,
             properties: {
               message: {
                 type: "string",
                 description: "The message to send to the agent",
+              },
+              async: {
+                type: "boolean",
+                description:
+                  "Start a durable task and return immediately with a taskId.",
+              },
+              maxWaitMs: {
+                type: "number",
+                description:
+                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
               },
             },
             required: ["message"],
@@ -1668,8 +1710,29 @@ export async function createMCPServerForRequest(
         }
         const message = args?.message ?? "";
         try {
-          const result = await config.askAgent(message);
-          return { content: [{ type: "text", text: result }] };
+          // Keep the legacy meta-tool compatible for local callers, but use
+          // the same durable A2A submission path as ask_app whenever this is
+          // an HTTP/hosted request. A full agent loop must never be held open
+          // for minutes behind one MCP tools/call request. Always route
+          // through ask_app's own run() — even with no request origin, since
+          // it now bounds that case too via its process-local inline-task
+          // fallback (ask-app-inline-tasks.ts) instead of us awaiting
+          // config.askAgent() here unbounded. This is the shared helper: no
+          // second task map to keep in sync.
+          const hostedAskApp = getBuiltinCrossAppTools(
+            config,
+            requestMeta,
+          ).ask_app;
+          const result = await hostedAskApp.run({
+            message,
+            async: isExplicitAsyncAskAgent(args?.async),
+            maxWaitMs: isExplicitAsyncAskAgent(args?.async)
+              ? 0
+              : boundedAskAgentWaitMs(args?.maxWaitMs),
+          });
+          return {
+            content: [{ type: "text", text: formatAskAgentResult(result) }],
+          };
         } catch (err: any) {
           return {
             content: [{ type: "text", text: `Error: ${err.message}` }],

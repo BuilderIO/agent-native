@@ -6,6 +6,35 @@ search: "無頭代理豐富聊天完整應用程式 BYO 代理執行時 AgentCha
 
 # 代理表面
 
+## 完整的 Agent 工作區 {#agent-page}
+
+當完整應用程式需要一個持久位置來檢查和設定代理時，請在 `/agent` 掛載
+`AgentTabsPage`。將此路由加入應用程式導覽，並向 `AgentSidebar` 傳入
+`agentPageHref="/agent"`，這樣 Resources 和 Settings 模式就能連結到完整頁面，
+而不必重複這些流程。
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+共用頁面目前提供五個分頁：
+
+- **Context** — 顯示範圍預覽、權杖預算、按來源/治理/來源參照分組的有序系統區段、清單/treemap 檢視和最新即時執行緒快照。
+- **Files** — 為個人或組織資源重新託管現有的 `ResourcesPanel`。
+- **Connections** — MCP 伺服器管理和 A2A 遠端代理清單，也就是此應用程式的代理可以呼叫什麼。
+- **Jobs** — 使用現有暫停/恢復、詳細資料和刪除流程的範圍化定期工作與自動化。自動化目前僅限個人。
+- **Access** — MCP URL、可用時的 A2A 代理卡片以及共用用戶端設定指南；完整連線流程和權杖備援位於 `/mcp/connect`。
+
+頁面級 **Personal / Organization** 切換器為分頁提供範圍。成員可以檢查組織
+資料；在託管元件實施該界線的地方，組織管理仍僅限擁有者/管理員。目標是讓內容可
+檢查、可歸因、可治理，並將能力與存取分開。此頁面只是對現有元件、動作和
+存取檢查的薄封裝，不是新的管理主控台。目前還沒有 grants、範圍編輯、撤銷
+介面或逐次迭代的 provenance 歷史。
+
 Agent-Native 是故意可組合的。不用太多就可以使用代理 UI，
 在沒有內建代理執行時的情況下使用 UI，或者將兩者一起用作完整的
 應用程式。

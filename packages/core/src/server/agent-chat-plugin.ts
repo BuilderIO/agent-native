@@ -168,6 +168,7 @@ import {
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
   getRequestRunContext,
@@ -188,6 +189,10 @@ async function lazyFs(): Promise<typeof import("fs")> {
   return _fs;
 }
 
+import {
+  buildSystemManifestSections,
+  setContextXraySystemSections,
+} from "../agent/context-xray/manifest.js";
 // ---------------------------------------------------------------------------
 // The bulk of this file's former implementation now lives in focused sibling
 // modules under `./agent-chat/`. This file re-imports them (and re-exports
@@ -232,6 +237,7 @@ import {
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
 import {
   loadResourcesForPrompt,
+  promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
 import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
@@ -263,6 +269,13 @@ export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+export function buildLeanRunPolicyPrompt(
+  codeEditingSurfaceRestriction: string,
+  prodCodeExecPromptNote: string,
+): string {
+  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+}
 
 /**
  * Returns whether `owner` has already finished (or explicitly skipped) the
@@ -1252,9 +1265,41 @@ export function createAgentChatPlugin(
 
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
+          const { getOwnerActiveApiKey } =
+            await import("../agent/production-agent.js");
+          const ownerApiKey = await getOwnerActiveApiKey(userEmail);
+          // A2A runs are reconstructed in a fresh processor request, so they
+          // do not pass through the interactive handler's prepareRun hook.
+          // Seed the same mutable run context before resolving the engine and
+          // building tools. Provider credentials, team/fetch helpers, and
+          // other action closures read this context rather than the engine
+          // argument alone; without it delegated runs can silently fall back
+          // to an unscoped/unconfigured provider path even though interactive
+          // chat works for the same owner.
+          const a2aRunContext = ensureRequestRunContext();
+          if (a2aRunContext) {
+            a2aRunContext.owner = userEmail;
+            a2aRunContext.userApiKey = ownerApiKey;
+            // The async processor restores the original request origin from
+            // task metadata. Only derive a fallback for synchronous A2A calls
+            // where the inbound event is still the caller request.
+            if (!a2aRunContext.requestOrigin) {
+              const restoredOrigin = getRequestContext()?.requestOrigin;
+              if (restoredOrigin) {
+                a2aRunContext.requestOrigin = restoredOrigin;
+              }
+            }
+            if (!a2aRunContext.requestOrigin) {
+              try {
+                a2aRunContext.requestOrigin = getOrigin(context.event as any);
+              } catch {
+                // Keep the owner context even when no browser origin exists.
+              }
+            }
+          }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
-            apiKey: options?.apiKey,
+            apiKey: ownerApiKey ?? options?.apiKey,
             appId: options?.appId,
           });
 
@@ -1271,14 +1316,6 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
-          // Stable content first, most-volatile-per-day last: the
-          // runtime-context block is appended after resources/schema/extra so
-          // a day rollover (or the resources/extra content changing) only
-          // invalidates the cached prompt prefix as late as possible.
-          const runtimeContext = runtimeContextForEvent(context.event);
-          const systemPrompt = devActive
-            ? devPrompt + resources + schemaBlock + extra + runtimeContext
-            : basePrompt + resources + schemaBlock + extra + runtimeContext;
 
           const a2aModelCandidate =
             options?.model ??
@@ -1287,6 +1324,34 @@ export function createAgentChatPlugin(
             })) ??
             a2aEngine.defaultModel;
           const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+          if (a2aRunContext) {
+            a2aRunContext.engine = a2aEngine;
+            a2aRunContext.model = model;
+          }
+
+          // Keep delegated runs aligned with the interactive production
+          // prompt's model-specific behavior without importing interactive
+          // onboarding into a background/cross-app task.
+          const modelOverlay = getModelFamilyOverlay(model);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
+          const runtimeContext = runtimeContextForEvent(context.event);
+          const systemPrompt = devActive
+            ? devPrompt +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext
+            : basePrompt +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -1524,9 +1589,15 @@ export function createAgentChatPlugin(
             ? { externalAgents: options.externalAgents }
             : {}),
           askAgent: async (message: string) => {
+            const ownerEmail = getRequestUserEmail();
+            const { getOwnerActiveApiKey } =
+              await import("../agent/production-agent.js");
+            const ownerApiKey = ownerEmail
+              ? await getOwnerActiveApiKey(ownerEmail)
+              : undefined;
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
-              apiKey: options?.apiKey,
+              apiKey: ownerApiKey ?? options?.apiKey,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -2270,6 +2341,104 @@ export function createAgentChatPlugin(
         return prompt;
       };
 
+      const emitContextXraySystemSections = async (
+        event: any,
+        input: {
+          frameworkPrompt?: string;
+          actionsPrompt?: string;
+          resources?: string;
+          schemaBlock?: string;
+          modelOverlay?: string;
+          runtimeContext?: string;
+          additionalFramework?: string;
+          extra?: string;
+        },
+      ): Promise<void> => {
+        const sections = await buildSystemManifestSections([
+          ...(input.frameworkPrompt
+            ? [
+                {
+                  label: "Framework core",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.frameworkPrompt,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.actionsPrompt
+            ? [
+                {
+                  label: "Available actions prompt",
+                  provenance: "actions-prompt" as const,
+                  governance: "required" as const,
+                  content: input.actionsPrompt,
+                  sourceRef: { scope: "actions" },
+                },
+              ]
+            : []),
+          ...(input.resources
+            ? promptResourceManifestSections(input.resources)
+            : []),
+          ...(input.schemaBlock
+            ? [
+                {
+                  label: "SQL schema",
+                  provenance: "db-schema" as const,
+                  governance: "required" as const,
+                  content: input.schemaBlock,
+                  sourceRef: { scope: "sql" },
+                },
+              ]
+            : []),
+          ...(input.additionalFramework
+            ? [
+                {
+                  label: "Framework run policy",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.additionalFramework,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.extra
+            ? [
+                {
+                  label: "App runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "inherited" as const,
+                  content: input.extra,
+                  sourceRef: { scope: "app" },
+                },
+              ]
+            : []),
+          ...(input.modelOverlay
+            ? [
+                {
+                  label: "Model overlay",
+                  provenance: "model-overlay" as const,
+                  governance: "required" as const,
+                  content: input.modelOverlay,
+                  sourceRef: { scope: "model" },
+                },
+              ]
+            : []),
+          ...(input.runtimeContext
+            ? [
+                {
+                  label: "Runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "required" as const,
+                  content: input.runtimeContext,
+                  sourceRef: { scope: "runtime" },
+                },
+              ]
+            : []),
+        ]);
+        setContextXraySystemSections(event, sections);
+      };
+
       /**
        * Read the model family overlay for the currently-resolved model.
        * onEngineResolved sets runCtx.model before systemPrompt is called, so
@@ -2361,10 +2530,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
+            const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
+              codeEditingSurfaceRestriction,
+              prodCodeExecPromptNote,
+            );
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: leanBasePrompt.slice(
+                0,
+                Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+              ),
+              actionsPrompt: prodActionsPrompt,
+              additionalFramework: leanRunPolicyPrompt,
+              extra,
+              modelOverlay,
+              runtimeContext,
+            });
             return setSystemPromptOnContext(
               leanBasePrompt +
-                codeEditingSurfaceRestriction +
-                prodCodeExecPromptNote +
+                leanRunPolicyPrompt +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2380,6 +2563,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
+          await emitContextXraySystemSections(event, {
+            frameworkPrompt: basePrompt.slice(
+              0,
+              Math.max(0, basePrompt.length - prodActionsPrompt.length),
+            ),
+            actionsPrompt: prodActionsPrompt,
+            resources,
+            schemaBlock,
+            extra,
+            modelOverlay,
+            runtimeContext,
+            additionalFramework:
+              personalizationBlock +
+              codeEditingSurfaceRestriction +
+              prodCodeExecPromptNote,
+          });
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -2489,6 +2688,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
+                await emitContextXraySystemSections(event, {
+                  frameworkPrompt: anonymousReadOnlyPrompt,
+                  extra,
+                  runtimeContext: runtimeContextForEvent(event),
+                });
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
                     extra +
@@ -2609,6 +2813,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              await emitContextXraySystemSections(event, {
+                frameworkPrompt: leanBasePrompt.slice(
+                  0,
+                  Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+                ),
+                actionsPrompt: prodActionsPrompt,
+                extra,
+                modelOverlay,
+                runtimeContext,
+              });
               return setSystemPromptOnContext(
                 leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
@@ -2622,6 +2836,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext || !databaseToolsEnabled
                 ? ""
                 : await buildSchemaBlock(owner, databaseToolsMode);
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: devNative
+                ? basePrompt.slice(
+                    0,
+                    Math.max(0, basePrompt.length - prodActionsPrompt.length),
+                  )
+                : devPrompt.slice(
+                    0,
+                    Math.max(0, devPrompt.length - devActionsPrompt.length),
+                  ),
+              actionsPrompt: devNative ? prodActionsPrompt : devActionsPrompt,
+              resources,
+              schemaBlock,
+              extra,
+              modelOverlay,
+              runtimeContext,
+              additionalFramework: personalizationBlock,
+            });
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
@@ -5334,6 +5566,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/_agent-native/actions",
         "/_agent-native/agent-model-defaults",
         "/_agent-native/mcp",
+        "/mcp",
       ],
     });
   };

@@ -245,12 +245,79 @@
   transform-origin: top left;
 }
 
-/* IMPORTANT: Keep rrweb's stock SVG arrow. Only suppress its permanently
-   visible purple ::after disc, which can otherwise read as the cursor itself
-   when the arrow is small. The stock .active animation still supplies the
-   brief click halo. Do not replace the arrow with an app-colored dot. */
+/* INTENTIONAL — DO NOT REMOVE OR REPLACE WITH rrweb's STOCK CURSOR.
+   The recorded visitor cursor is a core session-replay affordance: users need
+   to see the Mac-style arrow where the visitor clicked, including on dark
+   recordings. rrweb's bundled cursor is a small black sprite that disappears
+   against those pages. Use the normal black Mac cursor with its white outline;
+   the small shadow below keeps it legible on either background. */
+.an-replay-stage-root .replayer-mouse {
+  position: absolute;
+  z-index: 2;
+  /* Render at 2x locally, then downscale to the compact 0.72rem x 0.96rem
+     screen size. This keeps the small cursor's rounded outline smooth. */
+  width: 1.44rem;
+  height: 1.92rem;
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  visibility: hidden;
+  /* The stage is fit-to-container, but the recorded cursor should stay at a
+     normal on-screen size. The stage supplies the inverse scale variable. */
+  transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5));
+  transform-origin: top left;
+  transition:
+    left 80ms linear,
+    top 80ms linear;
+  pointer-events: none;
+}
+
+.an-replay-stage-root .replayer-mouse.has-position {
+  visibility: visible;
+}
+
+.an-replay-stage-root .replayer-mouse::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("./assets/replay-cursor.svg") center / contain no-repeat;
+  filter: drop-shadow(0 1px 1px hsl(0 0% 0% / 0.4));
+}
+
 .an-replay-stage-root .replayer-mouse::after {
+  content: "";
+  position: absolute;
+  left: -0.5rem;
+  top: -0.5rem;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid hsl(217 91% 60%);
+  border-radius: 9999px;
+  background: transparent;
   opacity: 0;
+}
+
+/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
+.an-replay-stage-root .replayer-mouse.active::after {
+  animation: an-replay-mouse-click 0.4s ease-out 1;
+}
+
+@keyframes an-replay-mouse-click {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3.5);
+  }
+}
+
+.an-replay-stage-root .replayer-mouse-tail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .analytics-session-snippet .plan-code-surface {

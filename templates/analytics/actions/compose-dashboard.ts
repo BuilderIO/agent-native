@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { validateFirstPartyDashboardTimeScope } from "../server/lib/dashboard-time-scope";
 import {
   getDashboard,
   upsertDashboard,
@@ -138,7 +139,7 @@ export default defineAction({
     "If the dashboard already exists and `overwrite` is false (default), the new panels are APPENDED (panels whose id is already present are skipped); with `overwrite: true` the config is replaced. " +
     "Returns { dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, urlPath, deepLink, message } — use panelCount as proof-of-done. " +
     `Available metric keys: ${METRIC_KEYS.join(", ")}. ` +
-    "Each metric accepts an optional per-metric `window` of '30d' | '90d' | 'all' (only affects windowed virality/time metrics).",
+    "Each metric accepts an optional per-metric `window` of '30d' | '90d' | 'all' (only affects windowed virality/time metrics). Catalog panels are time-scoped by construction; custom first-party SQL added later must use `{{timeRange}}` or declare `config.timeScope`.",
   schema: z.object({
     dashboardId: z
       .string()
@@ -200,6 +201,7 @@ export default defineAction({
     const unknownMetrics: string[] = [];
     const invalidMetrics: Array<{ metric: string; reason: string }> = [];
     const composedPanels: ComposedPanel[] = [];
+    const catalogDashboard = withFirstPartyDashboardFilters({ filters: [] });
 
     for (const req of requests) {
       const panel = buildPanel(req.metric, {
@@ -220,6 +222,15 @@ export default defineAction({
       // rest of the dashboard still builds. (Catalog SQL is known-good, so this
       // is a defensive net, e.g. if a future window/override produces bad SQL.)
       try {
+        const timeScopeError = validateFirstPartyDashboardTimeScope(
+          panel,
+          catalogDashboard,
+          0,
+        );
+        if (timeScopeError) {
+          invalidMetrics.push({ metric: req.metric, reason: timeScopeError });
+          continue;
+        }
         validateFirstPartyAnalyticsSql(panel.sql);
       } catch (e: any) {
         invalidMetrics.push({

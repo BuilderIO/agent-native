@@ -93,7 +93,7 @@ function panel(id: string) {
     source: "first-party",
     chartType: "metric",
     width: 1,
-    sql: "SELECT COUNT(*) AS value FROM analytics_events",
+    sql: "SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '2020-01-01'",
   };
 }
 

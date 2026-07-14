@@ -255,20 +255,27 @@ describe("parseNumericDraft", () => {
 // ─── expandHexShorthand (IP20 nice-to-have) ──────────────────────────────────
 
 describe("expandHexShorthand", () => {
-  it("expands a single hex digit into 3-digit shorthand", () => {
-    expect(expandHexShorthand("F")).toBe("FFF");
-    expect(expandHexShorthand("a")).toBe("aaa");
-    expect(expandHexShorthand("#F")).toBe("FFF");
+  it("expands a single hex digit across all channels", () => {
+    expect(expandHexShorthand("F")).toBe("FFFFFF");
+    expect(expandHexShorthand("a")).toBe("aaaaaa");
+    expect(expandHexShorthand("#F")).toBe("FFFFFF");
   });
 
-  it("leaves standard-length hex values unchanged", () => {
-    expect(expandHexShorthand("FFF")).toBe("FFF");
+  it("repeats two-digit hex values three times", () => {
+    expect(expandHexShorthand("0A")).toBe("0A0A0A");
+    expect(expandHexShorthand("#f0")).toBe("f0f0f0");
+  });
+
+  it("expands standard three-digit shorthand", () => {
+    expect(expandHexShorthand("F0A")).toBe("FF00AA");
+    expect(expandHexShorthand("#abc")).toBe("aabbcc");
+  });
+
+  it("leaves full-length and alpha hex values unchanged", () => {
     expect(expandHexShorthand("FFFFFF")).toBe("FFFFFF");
     expect(expandHexShorthand("#336699")).toBe("336699");
-  });
-
-  it("leaves non-single-digit fragments (e.g. 2-char) unchanged", () => {
-    expect(expandHexShorthand("F0")).toBe("F0");
+    expect(expandHexShorthand("F00A")).toBe("F00A");
+    expect(expandHexShorthand("FF0000AA")).toBe("FF0000AA");
   });
 });
 

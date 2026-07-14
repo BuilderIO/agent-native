@@ -388,6 +388,13 @@ export {
   type BuildAgentNativeExtensionHtmlOptions,
   type CreateHttpAgentNativeExtensionStorageOptions,
 } from "./extensions/portable-extension.js";
+export { injectSessionReplayIframeBootstrap } from "../extensions/session-replay-iframe.js";
+export {
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+  SESSION_REPLAY_IFRAME_PROBE,
+  SESSION_REPLAY_IFRAME_START,
+  SESSION_REPLAY_IFRAME_STOP,
+} from "../session-replay-iframe-protocol.js";
 export {
   AGENT_NATIVE_HOST_BRIDGE_VERSION,
   AGENT_NATIVE_HOST_MESSAGE_TYPES,
@@ -587,6 +594,11 @@ export {
   type AgentPanelProps,
   type AgentSidebarProps,
 } from "./AgentPanel.js";
+export {
+  AgentTabsPage,
+  type AgentTabsPageProps,
+} from "./agent-page/AgentTabsPage.js";
+export type { AgentPageScope, AgentPageTabProps } from "./agent-page/types.js";
 export {
   AGENT_CHAT_HOME_HANDOFF_TTL_MS,
   AGENT_CHAT_VIEW_TRANSITION_CLASS,
@@ -831,6 +843,7 @@ export {
   type ResourceTreeProps,
   type ResourceEditorProps,
 } from "./resources/index.js";
+export type { ResourcesPanelProps } from "./resources/ResourcesPanel.js";
 export {
   HistoryTimeline,
   VersionHistoryPanel,

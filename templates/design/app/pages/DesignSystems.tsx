@@ -412,13 +412,11 @@ export default function DesignSystems() {
             : t("designSystems.actions.select")}
         </Button>
       ) : null}
-      <Button
-        size="sm"
-        onClick={() => navigate("/design-systems/setup")}
-        className="cursor-pointer"
-      >
-        <IconPlus className="w-3.5 h-3.5" />
-        {t("designSystems.actions.new")}
+      <Button asChild size="sm" className="cursor-pointer">
+        <Link to="/design-systems/setup">
+          <IconPlus className="w-3.5 h-3.5" />
+          {t("designSystems.actions.new")}
+        </Link>
       </Button>
     </div>,
   );
@@ -509,8 +507,8 @@ export default function DesignSystems() {
                 </h2>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                   {/* New design system card */}
-                  <button
-                    onClick={() => navigate("/design-systems/setup")}
+                  <Link
+                    to="/design-systems/setup"
                     className="group relative rounded-xl border border-dashed border-border bg-card hover:border-foreground/15 overflow-hidden text-start cursor-pointer"
                   >
                     <div className="aspect-video flex items-center justify-center bg-muted/30">
@@ -526,7 +524,7 @@ export default function DesignSystems() {
                         {t("designSystems.newCardDescription")}
                       </div>
                     </div>
-                  </button>
+                  </Link>
 
                   {/* Design system cards */}
                   {designSystems.map((ds) => {

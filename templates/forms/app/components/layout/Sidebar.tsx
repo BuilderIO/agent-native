@@ -15,6 +15,7 @@ import {
   IconMenu2,
   IconX,
   IconMessageCircle,
+  IconBrain,
   IconSettings,
   IconForms,
   IconLayoutSidebarLeftCollapse,
@@ -276,6 +277,26 @@ export function Sidebar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
+                to="/agent"
+                aria-label={t("navigation.agent")}
+                className={cn(
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                  location.pathname.startsWith("/agent")
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconBrain className="h-4 w-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("navigation.agent")}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
                 to="/settings"
                 aria-label={t("navigation.settings")}
                 className={cn(
@@ -411,6 +432,20 @@ export function Sidebar() {
 
       {/* Pinned nav + footer */}
       <div className="shrink-0 px-3 py-1.5">
+        <Link
+          to="/agent"
+          onClick={() => isMobile && setMobileOpen(false)}
+          className={cn(
+            "forms-sidebar-nav-item flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+            location.pathname.startsWith("/agent")
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconBrain size={14} className="shrink-0" />
+          <span>{t("navigation.agent")}</span>
+        </Link>
+
         <Link
           to="/settings"
           onClick={() => isMobile && setMobileOpen(false)}

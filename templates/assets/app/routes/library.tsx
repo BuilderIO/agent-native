@@ -37,7 +37,14 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from "react";
 import {
   Link,
   useSearchParams,
@@ -1094,26 +1101,55 @@ function LibraryKitSelector({
   );
 }
 
-function AllAssetsBrowser() {
+function AllAssetsBrowser({
+  foldersByLibraryId = {},
+}: {
+  foldersByLibraryId?: Record<string, any[]>;
+}) {
   const t = useT();
   const navigate = useNavigate();
-  const [query, setQuery] = useState("");
-  const [assetTab, setAssetTab] = useState<AssetTab>("all");
+  const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const searchParamsKey = searchParams.toString();
+  // The root Library view keeps its tab/search in the URL so deep links,
+  // refreshes, and agent `navigate` commands are honored (the framework's
+  // useNavigationState reads the same `?tab=`/`?q=` params). Absent a tab param,
+  // default to Drafts.
+  const urlAssetTab = useMemo<AssetTab>(() => {
+    const tab = new URLSearchParams(searchParamsKey).get("tab");
+    return tab === "drafts" || tab === "generated" || tab === "references"
+      ? tab
+      : "drafts";
+  }, [searchParamsKey]);
+  const urlQuery = useMemo(
+    () => new URLSearchParams(searchParamsKey).get("q") ?? "",
+    [searchParamsKey],
+  );
+  const [query, setQuery] = useState(urlQuery);
+  const [assetTab, setAssetTab] = useState<AssetTab>(urlAssetTab);
   const [previewAsset, setPreviewAsset] = useState<Asset | null>(null);
   const [standaloneSelection, setStandaloneSelection] = useState<ReturnType<
     typeof assetPayload
   > | null>(null);
   const [standaloneCopyOk, setStandaloneCopyOk] = useState(false);
 
+  const isDraftsTab = assetTab === "drafts";
+
+  // The Drafts tab renders its own candidate queries via LibraryCandidateStage,
+  // so skip the cross-library asset scan while it is the active tab.
   const {
     data: assetData,
     isLoading,
     isError,
     isFetching,
     refetch,
-  } = useActionQuery("list-assets", {
-    query: query.trim() || undefined,
-  } as any) as {
+  } = useActionQuery(
+    "list-assets",
+    {
+      query: query.trim() || undefined,
+    } as any,
+    { enabled: !isDraftsTab } as any,
+  ) as {
     data?: { assets?: Asset[] };
     isLoading: boolean;
     isError: boolean;
@@ -1127,11 +1163,11 @@ function AllAssetsBrowser() {
     [allAssets, assetTab],
   );
   const visibleAssetCount = assets.length;
+  // The badge only renders on the Generated/References tabs, which are always a
+  // filtered subset, so report the shown count rather than the library total.
   const assetCountLabel = isLoading
     ? t("library.loading")
-    : query.trim() || assetTab !== "all"
-      ? t("library.shownCount", { count: visibleAssetCount })
-      : t("library.assetCount", { count: allAssets.length });
+    : t("library.shownCount", { count: visibleAssetCount });
   const standaloneSelectionText = useMemo(
     () =>
       standaloneSelection
@@ -1166,6 +1202,57 @@ function AllAssetsBrowser() {
     void copyStandaloneSelection(payload);
   }
 
+  // Keep local state in sync when the URL changes externally (back/forward,
+  // agent navigation, deep links) since the component stays mounted.
+  useEffect(() => {
+    setAssetTab(urlAssetTab);
+  }, [urlAssetTab]);
+  useEffect(() => {
+    setQuery(urlQuery);
+  }, [urlQuery]);
+
+  const handleAssetTabChange = useCallback(
+    (value: AssetTab) => {
+      setAssetTab(value);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          // Drafts is the default, so keep it out of the URL for clean links.
+          if (value === "drafts") next.delete("tab");
+          else next.set("tab", value);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  const handleQueryChange = useCallback(
+    (value: string) => {
+      setQuery(value);
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          if (value.trim()) next.set("q", value);
+          else next.delete("q");
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // The Drafts tab's candidate queries live inside LibraryCandidateStage;
+  // refetch them by key so the error state offers a working retry.
+  const retryDrafts = useCallback(() => {
+    void queryClient.refetchQueries({
+      queryKey: ["app-state", assetVariantStateKey(null)],
+    });
+    void queryClient.refetchQueries({ queryKey: ["action", "list-assets"] });
+  }, [queryClient]);
+
   return (
     <div className="flex min-w-0 flex-col">
       <div className="border-b border-border px-4 py-3 md:px-6">
@@ -1173,10 +1260,10 @@ function AllAssetsBrowser() {
           <div className="flex min-w-0 items-center gap-2">
             <Tabs
               value={assetTab}
-              onValueChange={(value) => setAssetTab(value as AssetTab)}
+              onValueChange={(value) => handleAssetTabChange(value as AssetTab)}
             >
               <TabsList className="h-9">
-                <TabsTrigger value="all">{t("library.tabsAll")}</TabsTrigger>
+                <TabsTrigger value="drafts">{t("library.drafts")}</TabsTrigger>
                 <TabsTrigger value="generated">
                   {t("library.generated")}
                 </TabsTrigger>
@@ -1185,24 +1272,30 @@ function AllAssetsBrowser() {
                 </TabsTrigger>
               </TabsList>
             </Tabs>
-            <Badge
-              variant="secondary"
-              className="h-6 max-w-full rounded-full px-2 text-xs"
-            >
-              {assetCountLabel}
-            </Badge>
+            {!isDraftsTab && (
+              <Badge
+                variant="secondary"
+                className="h-6 max-w-full rounded-full px-2 text-xs"
+              >
+                {assetCountLabel}
+              </Badge>
+            )}
           </div>
-          <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
-            <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
-            <input
-              type="search"
-              value={query}
-              onInput={(event) => setQuery(event.currentTarget.value)}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder={t("library.searchAssets")}
-              className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
-            />
-          </div>
+          {!isDraftsTab && (
+            <div className="flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-border/70 bg-background px-3 focus-within:ring-1 focus-within:ring-ring sm:max-w-sm">
+              <IconSearch className="h-4 w-4 shrink-0 text-muted-foreground" />
+              <input
+                type="search"
+                value={query}
+                onInput={(event) =>
+                  handleQueryChange(event.currentTarget.value)
+                }
+                onChange={(event) => handleQueryChange(event.target.value)}
+                placeholder={t("library.searchAssets")}
+                className="h-full min-w-0 flex-1 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+          )}
         </div>
       </div>
 
@@ -1278,7 +1371,31 @@ function AllAssetsBrowser() {
       )}
 
       <main className="p-4 md:p-6">
-        {isLoading ? (
+        {isDraftsTab ? (
+          <LibraryCandidateStage
+            activeLibraryId={null}
+            foldersByLibraryId={foldersByLibraryId}
+            inline
+            emptyState={
+              <div className="flex min-h-64 items-center justify-center text-center">
+                <div className="max-w-sm text-sm text-muted-foreground">
+                  {t("library.noDrafts")}
+                </div>
+              </div>
+            }
+            errorState={
+              <div className="flex min-h-64 flex-col items-center justify-center gap-3 px-6 text-center">
+                <IconAlertTriangle className="size-9 text-destructive" />
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {t("audit.unknownError")}
+                </p>
+                <Button size="sm" variant="outline" onClick={retryDrafts}>
+                  {t("brandKitDetail.refresh")}
+                </Button>
+              </div>
+            }
+          />
+        ) : isLoading ? (
           <div className="assets-library-grid grid grid-cols-2 gap-4">
             {Array.from({ length: 12 }).map((_, index) => (
               <Skeleton key={index} className="aspect-[4/3] rounded-lg" />
@@ -1339,13 +1456,12 @@ function AllAssetsBrowser() {
                   </div>
                 </button>
                 {(asset as any).libraryTitle ? (
-                  <button
-                    type="button"
-                    onClick={() => navigate(`/library/${asset.libraryId}`)}
+                  <Link
+                    to={`/library/${asset.libraryId}`}
                     className="absolute bottom-2 left-2 z-10 max-w-[calc(100%-1rem)] truncate rounded-full bg-background/95 px-2.5 py-1 text-[11px] font-medium shadow-sm transition hover:bg-background"
                   >
                     {(asset as any).libraryTitle}
-                  </button>
+                  </Link>
                 ) : null}
                 <TooltipProvider>
                   <Tooltip>
@@ -1594,12 +1710,16 @@ function LibraryCandidateStage({
   variantScopeId = null,
   onUseAsset,
   inline = false,
+  emptyState = null,
+  errorState = null,
 }: {
   activeLibraryId?: string | null;
   foldersByLibraryId?: Record<string, any[]>;
   variantScopeId?: string | null;
   onUseAsset?: (asset: Asset) => void;
   inline?: boolean;
+  emptyState?: ReactNode;
+  errorState?: ReactNode;
 }) {
   const t = useT();
   const queryClient = useQueryClient();
@@ -1609,7 +1729,11 @@ function LibraryCandidateStage({
   const [promotingReferenceKeys, setPromotingReferenceKeys] = useState<
     Set<string>
   >(() => new Set());
-  const { data: variants } = useQuery({
+  const {
+    data: variants,
+    isLoading: variantsLoading,
+    isError: variantsError,
+  } = useQuery({
     queryKey: ["app-state", assetVariantStateKey(variantScopeId)],
     queryFn: ({ signal }) => {
       return readClientAppState<AssetVariantState>(
@@ -1627,11 +1751,15 @@ function LibraryCandidateStage({
     { id: activeLibraryId ?? "" } as any,
     { enabled: Boolean(activeLibraryId) } as any,
   ) as { data?: { library?: Library; assets?: Asset[]; folders?: any[] } };
-  const { data: allCandidateData } = useActionQuery(
+  const {
+    data: allCandidateData,
+    isLoading: allCandidatesLoading,
+    isError: allCandidatesError,
+  } = useActionQuery(
     "list-assets",
     { includeCandidates: true, status: "candidate" } as any,
     { enabled: isAllAssetsStage } as any,
-  ) as { data?: { assets?: Asset[] } };
+  ) as { data?: { assets?: Asset[] }; isLoading: boolean; isError: boolean };
   const saveGenerated = useActionMutation("save-generated-image");
   const updateAsset = useActionMutation("update-asset");
   const libraryAssets = isAllAssetsStage
@@ -1676,10 +1804,20 @@ function LibraryCandidateStage({
     [libraryAssets, liveAssetIds],
   );
   const totalCount = slots.length + draftAssets.length;
+  // Don't flash the empty state before the candidate sources have resolved, and
+  // don't misreport a load failure as "no drafts".
+  const candidatesLoading =
+    variantsLoading || (isAllAssetsStage && allCandidatesLoading);
+  const candidatesError =
+    variantsError || (isAllAssetsStage && allCandidatesError);
 
-  if (totalCount === 0) return null;
+  if (totalCount === 0) {
+    if (candidatesLoading) return null;
+    if (candidatesError) return errorState ? <>{errorState}</> : null;
+    return emptyState ? <>{emptyState}</> : null;
+  }
   const stageLibraryId = liveLibraryId ?? draftAssets[0]?.libraryId ?? null;
-  if (!stageLibraryId) return null;
+  if (!stageLibraryId) return emptyState ? <>{emptyState}</> : null;
 
   function invalidateStage(
     libraryIdToInvalidate: string | null = stageLibraryId,
@@ -1983,22 +2121,22 @@ export function LibraryWorkspace({
               </Button>
             </div>
           ) : routeSelectedLibraryId || hasLibraries ? (
-            <>
-              <LibraryCandidateStage
-                activeLibraryId={routeSelectedLibraryId}
-                foldersByLibraryId={foldersByLibraryId}
-              />
-              <div className="min-w-0">
-                {routeSelectedLibraryId ? (
+            <div className="min-w-0">
+              {routeSelectedLibraryId ? (
+                <>
+                  <LibraryCandidateStage
+                    activeLibraryId={routeSelectedLibraryId}
+                    foldersByLibraryId={foldersByLibraryId}
+                  />
                   <BrandKitDetailRoute
                     libraryId={routeSelectedLibraryId}
                     headerMode="actions"
                   />
-                ) : (
-                  <AllAssetsBrowser />
-                )}
-              </div>
-            </>
+                </>
+              ) : (
+                <AllAssetsBrowser foldersByLibraryId={foldersByLibraryId} />
+              )}
+            </div>
           ) : (
             <EmptyLibraryStarter onCreateBlank={() => setCreateOpen(true)} />
           )}

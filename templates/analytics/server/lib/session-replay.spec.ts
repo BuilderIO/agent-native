@@ -7,7 +7,6 @@ const putPrivateBlobMock = vi.hoisted(() => vi.fn());
 const deletePrivateBlobMock = vi.hoisted(() => vi.fn());
 const readPrivateBlobMock = vi.hoisted(() => vi.fn());
 const resolveAccessMock = vi.hoisted(() => vi.fn());
-const appStateGetMock = vi.hoisted(() => vi.fn());
 
 vi.mock("../db/index.js", async () => {
   const actual =
@@ -22,10 +21,6 @@ vi.mock("@agent-native/core/private-blob", () => ({
   deletePrivateBlob: deletePrivateBlobMock,
   putPrivateBlob: putPrivateBlobMock,
   readPrivateBlob: readPrivateBlobMock,
-}));
-
-vi.mock("@agent-native/core/application-state", () => ({
-  appStateGet: appStateGetMock,
 }));
 
 vi.mock("@agent-native/core/sharing", async (importOriginal) => {
@@ -204,8 +199,6 @@ describe("session replay ingest parsing", () => {
     deletePrivateBlobMock.mockReset();
     readPrivateBlobMock.mockReset();
     resolveAccessMock.mockReset();
-    appStateGetMock.mockReset();
-    appStateGetMock.mockResolvedValue(null);
   });
 
   it("normalizes recorder payloads into session recording chunks", () => {
@@ -961,10 +954,6 @@ describe("session replay ingest parsing", () => {
       chunkCount: 1,
       eventCount: 2,
     });
-    expect(appStateGetMock).toHaveBeenCalledWith(
-      "owner@example.com",
-      "demo-mode",
-    );
     const listCondition = conditionText(listDb.whereCondition);
     expect(listCondition).toContain("@");
     expect(listCondition).toContain("user_id");
@@ -974,8 +963,7 @@ describe("session replay ingest parsing", () => {
     expect(listCondition).not.toContain("nullif(trim(coalesce");
   });
 
-  it("filters demo-mode session lists to builder emails and anonymizes identities", async () => {
-    appStateGetMock.mockResolvedValue({ enabled: true });
+  it("keeps all authorized session identities in browser-demo mode", async () => {
     const listDb = createSessionReplayListDbMock([
       {
         id: "sr_builder_one",
@@ -1068,34 +1056,28 @@ describe("session replay ingest parsing", () => {
 
     expect(rows.map((row) => row.id)).toEqual([
       "sr_builder_one",
+      "sr_external",
       "sr_builder_two",
     ]);
-    expect(appStateGetMock).toHaveBeenCalledWith(
-      "owner@builder.io",
-      "demo-mode",
-    );
     expect(rows[0]).toMatchObject({
-      userId: "anonymous@builder.io",
-      userKey: "anonymous@builder.io",
-      ownerEmail: "anonymous@builder.io",
+      userId: "alice@builder.io",
+      userKey: "alice@builder.io",
+      ownerEmail: "owner@builder.io",
       metadata: {
-        accountEmail: "anonymous@builder.io",
-        note: "Viewed by anonymous@builder.io",
+        accountEmail: "alice@builder.io",
+        note: "Viewed by alice@builder.io",
       },
     });
     expect(rows[1]).toMatchObject({
-      userId: "anonymous@builder.io",
-      userKey: "anonymous@builder.io",
-      ownerEmail: "anonymous@builder.io",
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
+      ownerEmail: "owner@builder.io",
     });
-    expect(JSON.stringify(rows)).not.toContain("alice@builder.io");
-    expect(JSON.stringify(rows)).not.toContain("customer@example.com");
     const listCondition = conditionText(listDb.whereCondition);
-    expect(listCondition).toContain("%@builder.io");
+    expect(listCondition).not.toContain("%@builder.io");
   });
 
-  it("anonymizes demo-mode direct summaries used by detail and action surfaces", async () => {
-    appStateGetMock.mockResolvedValue({ enabled: true });
+  it("keeps real identities in direct summaries", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -1114,22 +1096,18 @@ describe("session replay ingest parsing", () => {
     const compact = compactSessionRecordingSummary(summary);
 
     expect(summary).toMatchObject({
-      userId: "anonymous@builder.io",
-      userKey: "anonymous@builder.io",
-      ownerEmail: "anonymous@builder.io",
-      metadata: { actorEmail: "anonymous@builder.io" },
+      userId: "detail@builder.io",
+      userKey: "detail@builder.io",
+      ownerEmail: "owner@builder.io",
+      metadata: { actorEmail: "detail@builder.io" },
     });
     expect(compact).toMatchObject({
-      userId: "anonymous@builder.io",
-      userKey: "anonymous@builder.io",
+      userId: "detail@builder.io",
+      userKey: "detail@builder.io",
     });
-    expect(JSON.stringify({ summary, compact })).not.toContain(
-      "detail@builder.io",
-    );
   });
 
-  it("uses the signed link viewer identity for tokenized demo-mode summaries", async () => {
-    appStateGetMock.mockResolvedValue({ enabled: true });
+  it("keeps real identities in tokenized summaries", async () => {
     const { db } = createReplayDbMock([
       [
         {
@@ -1148,21 +1126,15 @@ describe("session replay ingest parsing", () => {
       "owner@builder.io",
     );
 
-    expect(appStateGetMock).toHaveBeenCalledWith(
-      "owner@builder.io",
-      "demo-mode",
-    );
     expect(summary).toMatchObject({
-      userId: "anonymous@builder.io",
-      userKey: "anonymous@builder.io",
-      ownerEmail: "anonymous@builder.io",
-      metadata: { actorEmail: "anonymous@builder.io" },
+      userId: "detail@builder.io",
+      userKey: "detail@builder.io",
+      ownerEmail: "owner@builder.io",
+      metadata: { actorEmail: "detail@builder.io" },
     });
-    expect(JSON.stringify(summary)).not.toContain("detail@builder.io");
   });
 
-  it("hides non-builder sessions from demo-mode direct summary reads", async () => {
-    appStateGetMock.mockResolvedValue({ enabled: true });
+  it("returns external identities from authorized direct summary reads", async () => {
     resolveAccessMock.mockResolvedValue({
       role: "viewer",
       resource: {
@@ -1177,9 +1149,9 @@ describe("session replay ingest parsing", () => {
         userEmail: "owner@builder.io",
         orgId: "org_123",
       }),
-    ).rejects.toMatchObject({
-      statusCode: 404,
-      message: "Session recording not found",
+    ).resolves.toMatchObject({
+      userId: "customer@example.com",
+      userKey: "customer@example.com",
     });
   });
 

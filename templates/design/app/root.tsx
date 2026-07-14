@@ -12,7 +12,7 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -23,6 +23,7 @@ import {
   Scripts,
   ScrollRestoration,
   useLocation,
+  useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
@@ -126,6 +127,7 @@ function DesignCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -134,6 +136,10 @@ function DesignCommandMenu({
       changelogKey="design"
     >
       <CommandMenu.Group heading={t("root.commandActions")}>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconBrain size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.commandSearch")}
         </CommandMenu.Item>

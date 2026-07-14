@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   type CalendarAccountForEventClassification,
   isPersonalSoloCalendarEvent,
+  isSoloCalendarEvent,
 } from "./calendar-event-classification";
 import type { CalendarEvent } from "./google-calendar-client";
 
@@ -74,6 +75,51 @@ describe("calendar personal solo event detection", () => {
       isPersonalSoloCalendarEvent({
         account,
         event: event({ summary: "Product review", attendees: [] }),
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("calendar solo event detection", () => {
+  it("flags any event with no attendees besides the calendar owner", () => {
+    expect(
+      isSoloCalendarEvent({
+        account,
+        event: event({ summary: "Steve im Seattle", attendees: [] }),
+      }),
+    ).toBe(true);
+    expect(
+      isSoloCalendarEvent({
+        account,
+        event: event({
+          summary: "Steve im Seattle",
+          attendees: [
+            { email: "user@example.com", responseStatus: "accepted" },
+          ],
+        }),
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps events with an active attendee or external organizer", () => {
+    expect(
+      isSoloCalendarEvent({
+        account,
+        event: event({
+          attendees: [
+            { email: "user@example.com", responseStatus: "accepted" },
+            { email: "teammate@example.com", responseStatus: "accepted" },
+          ],
+        }),
+      }),
+    ).toBe(false);
+    expect(
+      isSoloCalendarEvent({
+        account,
+        event: event({
+          attendees: [],
+          organizer: { email: "teammate@example.com" },
+        }),
       }),
     ).toBe(false);
   });
