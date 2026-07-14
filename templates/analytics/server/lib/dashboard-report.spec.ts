@@ -152,6 +152,7 @@ describe("dashboard report email", () => {
   beforeEach(() => {
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", process.execPath);
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.existsSync.mockReset();
     mocks.existsSync.mockImplementation(
       (candidate: string) => candidate === process.execPath,
@@ -235,6 +236,47 @@ describe("dashboard report email", () => {
     expect(emailArgs.html).not.toContain("border:1px solid #e5e7eb");
     expect(emailArgs.html).toContain("border:0;outline:0;border-radius:0");
     expect(emailArgs.text).toContain("reportSettings=1");
+  });
+
+  it("pre-seeds the signed embed token as a session cookie before navigating", async () => {
+    const full = createBrowser();
+    mocks.launch.mockResolvedValueOnce(full.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(full.addCookies).toHaveBeenCalledWith([
+      expect.objectContaining({
+        name: "an_embed_session",
+        value: "signed-embed-token",
+        url: "https://analytics.example.test/",
+      }),
+    ]);
+    expect(full.addCookies.mock.invocationCallOrder[0]).toBeLessThan(
+      full.page.goto.mock.invocationCallOrder[0],
+    );
+    // The query token remains too — the cookie is belt-and-braces, not a
+    // replacement.
+    expect(full.page.goto).toHaveBeenCalledWith(
+      expect.stringContaining("__an_embed_token=signed-embed-token"),
+      expect.any(Object),
+    );
+  });
+
+  it("does not abort the capture when pre-seeding the embed cookie fails", async () => {
+    const full = createBrowser();
+    full.addCookies.mockRejectedValueOnce(new Error("context closed"));
+    mocks.launch.mockResolvedValueOnce(full.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full",
+    });
+    expect(console.warn).toHaveBeenCalledWith(
+      "[dashboard-report] Failed to pre-seed embed session cookie:",
+      expect.stringContaining("context closed"),
+    );
   });
 
   it("captures tall dashboards without expanding the Chromium render surface", async () => {
