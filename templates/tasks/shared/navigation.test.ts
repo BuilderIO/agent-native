@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { buildNavigatePath, pathForView, viewForPath } from "./navigation.js";
+import {
+  NAV_VIEW_INPUTS,
+  NAV_VIEWS,
+  buildNavigatePath,
+  pathForView,
+  resolveNavView,
+  viewForPath,
+} from "./navigation.js";
 
 describe("shared navigation", () => {
   it("maps paths to views", () => {
@@ -9,11 +16,23 @@ describe("shared navigation", () => {
     expect(viewForPath("/")).toBe("tasks");
   });
 
-  it("maps views and aliases to paths", () => {
+  it("maps views to paths and falls back to the task list", () => {
     expect(pathForView("tasks")).toBe("/tasks");
     expect(pathForView("inbox")).toBe("/inbox");
-    expect(pathForView("home")).toBe("/tasks");
-    expect(pathForView("ask")).toBe("/tasks");
+    expect(pathForView(undefined)).toBe("/tasks");
+  });
+
+  it("resolves aliases to canonical views", () => {
+    expect(resolveNavView("home")).toBe("tasks");
+    expect(resolveNavView("ask")).toBe("tasks");
+    expect(resolveNavView("inbox")).toBe("inbox");
+  });
+
+  it("keeps aliases out of the pathname lookup", () => {
+    // NAV_VIEWS drives viewForPath; an alias route here would shadow /tasks.
+    expect(viewForPath("/tasks")).toBe("tasks");
+    expect(NAV_VIEW_INPUTS).toContain("home");
+    expect(NAV_VIEWS).not.toContain("home" as never);
   });
 
   it("builds task list URLs with filter and selection", () => {

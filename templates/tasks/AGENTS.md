@@ -37,7 +37,7 @@ Tasks is a task-list-first agent-native app. The task list at `/tasks` is the de
 | `list-visible-task-fields`   | GET    | List custom field ids shown on task cards for the current user                      |
 | `update-visible-task-fields` | POST   | Replace which custom fields appear on task cards (max 3)                            |
 | `view-screen`                | —      | Read navigation, UI bulk selection, visible tasks, and inbox snapshot               |
-| `navigate`                   | —      | Move UI to `tasks`, `chat`, etc.                                                    |
+| `navigate`                   | —      | Move UI to a view: `tasks`, `inbox`, `fields`, `extensions`, `team` (`home`/`ask` → `tasks`) |
 
 ## Commit Message Conventions
 

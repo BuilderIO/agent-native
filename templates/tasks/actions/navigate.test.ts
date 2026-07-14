@@ -36,14 +36,25 @@ describe("navigate", () => {
         includeDone: true,
       });
     });
+
+    it("requires a known view and ignores a raw path", () => {
+      expect(() => navigate.schema.parse({})).toThrow();
+      expect(() => navigate.schema.parse({ view: "unknown" })).toThrow();
+      // `path` is no longer part of the surface, so zod strips it.
+      expect(
+        navigate.schema.parse({ view: "tasks", path: "/_agent-native/poll" }),
+      ).toEqual({ view: "tasks" });
+    });
   });
 
   describe("run", () => {
-    it("requires view or path", async () => {
-      await expect(navigate.run({}, { caller: "cli" })).rejects.toThrow(
-        /view or --path/i,
+    it("resolves an alias to the canonical view before writing", async () => {
+      await navigate.run({ view: "home" }, { caller: "cli" });
+
+      expect(writeAppStateForCurrentTab).toHaveBeenCalledWith(
+        "navigate",
+        expect.objectContaining({ view: "tasks" }),
       );
-      expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
     });
 
     it("writes task navigation state for /tasks", async () => {

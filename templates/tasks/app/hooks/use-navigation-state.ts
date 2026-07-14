@@ -1,8 +1,4 @@
-import {
-  appBasePath,
-  appPath,
-  useAgentRouteState,
-} from "@agent-native/core/client";
+import { appPath, useAgentRouteState } from "@agent-native/core/client";
 import { parseIncludeDoneParam } from "@shared/boolean-param";
 import {
   type NavigateCommand,
@@ -36,21 +32,9 @@ export function useNavigationState() {
     },
     getCommandPath: (command) => {
       const currentParams = new URLSearchParams(location.search);
-      return routerPath(
-        buildNavigatePath(command.path || pathForView(command.view), command, {
-          includeDone: parseIncludeDoneParam(currentParams.get("includeDone")),
-        }),
-      );
+      return buildNavigatePath(pathForView(command.view), command, {
+        includeDone: parseIncludeDoneParam(currentParams.get("includeDone")),
+      });
     },
   });
-}
-
-function routerPath(path: string): string {
-  const basePath = appBasePath();
-  if (!basePath) return path;
-  if (path === basePath) return "/";
-  if (path.startsWith(`${basePath}/`)) {
-    return path.slice(basePath.length) || "/";
-  }
-  return path;
 }

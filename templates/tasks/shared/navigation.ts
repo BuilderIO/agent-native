@@ -19,13 +19,27 @@ export const VIEW_ROUTES: Record<NavView, string> = {
   team: "/team",
 };
 
-const VIEW_ALIASES: Record<string, NavView> = {
+const NAV_VIEW_ALIAS_NAMES = ["home", "ask"] as const;
+
+export type NavViewAlias = (typeof NAV_VIEW_ALIAS_NAMES)[number];
+
+export const NAV_VIEW_ALIASES: Record<string, NavView> = {
   home: "tasks",
   ask: "tasks",
 };
 
+export const NAV_VIEW_INPUTS = [...NAV_VIEWS, ...NAV_VIEW_ALIAS_NAMES] as const;
+
+export type NavViewInput = (typeof NAV_VIEW_INPUTS)[number];
+
+export function resolveNavView(view: NavViewInput): NavView {
+  return view in NAV_VIEW_ALIASES
+    ? NAV_VIEW_ALIASES[view as NavViewAlias]
+    : (view as NavView);
+}
+
 export interface NavigationState {
-  view: string;
+  view: NavView;
   path?: string;
   includeDone?: boolean;
   taskId?: string;
@@ -34,8 +48,7 @@ export interface NavigationState {
 }
 
 export interface NavigateCommand {
-  view?: string;
-  path?: string;
+  view?: NavView;
   includeDone?: boolean;
   taskId?: string;
   inboxItemId?: string;
@@ -60,13 +73,8 @@ export function viewForPath(pathname: string): NavView {
   return "tasks";
 }
 
-export function pathForView(view?: string): string {
-  if (view && view in VIEW_ALIASES) {
-    return VIEW_ROUTES[VIEW_ALIASES[view]!];
-  }
-  if (view && view in VIEW_ROUTES) {
-    return VIEW_ROUTES[view as NavView];
-  }
+export function pathForView(view?: NavView): string {
+  if (view && view in VIEW_ROUTES) return VIEW_ROUTES[view];
   return VIEW_ROUTES.tasks;
 }
 
