@@ -96,6 +96,11 @@ export type ConfigureTrackingOptions = {
   contentCapture?: boolean;
   /** Resolve content capture synchronously for each browser pathname. */
   contentCaptureForPath?: (pathname: string) => boolean;
+  /**
+   * Whether tracking may read the authenticated agent-engine status endpoint.
+   * Disable this on anonymous/public routes to avoid an expected 401 request.
+   */
+  llmConnectionStatus?: boolean;
   sessionReplay?: boolean | SessionReplayOptions;
   /**
    * First-party, Sentry-style error capture. Auto-captures uncaught errors
@@ -1029,7 +1034,9 @@ export function configureTracking(options: ConfigureTrackingOptions): void {
     ensureSentry();
     ensureAmplitude();
     captureFirstTouchAttribution();
-    installLlmConnectionRefresh();
+    if (options.llmConnectionStatus !== false) {
+      installLlmConnectionRefresh();
+    }
     installTrackingAuthSessionRefresh();
     installPageviewTracking();
     maybeInstallSessionReplay(

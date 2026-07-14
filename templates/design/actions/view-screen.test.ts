@@ -15,6 +15,9 @@ const mocks = vi.hoisted(() => {
     readAppState: vi.fn(),
     readAppStateForCurrentTab: vi.fn(),
     resolveAccess: vi.fn(),
+    getReviewStatus: vi.fn(),
+    getReviewThreadSummary: vi.fn(),
+    queryReviewComments: vi.fn(),
     eq: vi.fn((left, right) => ({ left, right })),
     selectChain,
   };
@@ -27,6 +30,12 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   resolveAccess: mocks.resolveAccess,
+}));
+
+vi.mock("@agent-native/core/review", () => ({
+  getReviewStatus: mocks.getReviewStatus,
+  getReviewThreadSummary: mocks.getReviewThreadSummary,
+  queryReviewComments: mocks.queryReviewComments,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -58,6 +67,9 @@ describe("view-screen", () => {
     mocks.readAppState.mockReset();
     mocks.readAppStateForCurrentTab.mockReset();
     mocks.resolveAccess.mockReset();
+    mocks.getReviewStatus.mockReset();
+    mocks.getReviewThreadSummary.mockReset();
+    mocks.queryReviewComments.mockReset();
     mocks.selectChain.where.mockReset();
     mocks.resolveAccess.mockResolvedValue({
       role: "viewer",
@@ -67,6 +79,12 @@ describe("view-screen", () => {
       },
     });
     mocks.readAppState.mockResolvedValue(undefined);
+    mocks.getReviewStatus.mockResolvedValue(null);
+    mocks.getReviewThreadSummary.mockResolvedValue({
+      openCount: 0,
+      agentQueueCount: 0,
+    });
+    mocks.queryReviewComments.mockResolvedValue([]);
   });
 
   it("uses active file before overview multi-selection", async () => {
@@ -198,6 +216,119 @@ describe("view-screen", () => {
     expect(result.design.activeScreen).toMatchObject({
       id: "file_index",
       filename: "index.html",
+    });
+  });
+
+  it("includes the open review queue for the active screen", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+        fileId: "file_checkout",
+      })
+      .mockResolvedValueOnce(null);
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_checkout",
+        filename: "checkout.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+    mocks.getReviewStatus.mockResolvedValue({ status: "changes_requested" });
+    mocks.getReviewThreadSummary.mockResolvedValue({
+      openCount: 1,
+      agentQueueCount: 1,
+    });
+    mocks.queryReviewComments.mockResolvedValue([
+      {
+        id: "comment_1",
+        threadId: "thread_1",
+        parentCommentId: null,
+        targetId: "file_checkout",
+        status: "open",
+        body: "Make the button more prominent",
+        anchor: { nodeId: "node_button", point: { xPct: 50, yPct: 50 } },
+        resolutionTarget: "agent",
+        consumedAt: null,
+        authorName: "Reviewer",
+        authorEmail: null,
+        createdBy: "human",
+      },
+    ]);
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.review).toMatchObject({
+      status: "changes_requested",
+      openCount: 1,
+      agentQueueCount: 1,
+      activeScreenThreads: [
+        {
+          threadId: "thread_1",
+          nodeId: "node_button",
+        },
+      ],
+    });
+  });
+
+  it("uses the root routing target instead of counting agent-targeted replies", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+        fileId: "file_checkout",
+      })
+      .mockResolvedValueOnce(null);
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_checkout",
+        filename: "checkout.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+    mocks.queryReviewComments.mockResolvedValue([
+      {
+        id: "root_human",
+        threadId: "thread_human",
+        parentCommentId: null,
+        targetId: "file_checkout",
+        status: "open",
+        body: "The agent asked for clarification",
+        anchor: null,
+        resolutionTarget: "human",
+        consumedAt: null,
+        authorName: "Reviewer",
+        authorEmail: null,
+        createdBy: "human",
+      },
+      {
+        id: "reply_agent",
+        threadId: "thread_human",
+        parentCommentId: "root_human",
+        targetId: "file_checkout",
+        status: "open",
+        body: "Question for the reviewer",
+        anchor: null,
+        resolutionTarget: "agent",
+        consumedAt: null,
+        authorName: "Agent",
+        authorEmail: null,
+        createdBy: "agent",
+      },
+    ]);
+    mocks.getReviewThreadSummary.mockResolvedValue({
+      openCount: 1,
+      agentQueueCount: 0,
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.review).toMatchObject({
+      openCount: 1,
+      agentQueueCount: 0,
     });
   });
 });

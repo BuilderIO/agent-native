@@ -12,6 +12,14 @@ const DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS = 12 * 60_000;
 
 const INITIAL_TOOL_NAMES = [
   "view-screen",
+  "list-review-comments",
+  "get-review-feedback",
+  "create-review-comment",
+  "reply-review-comment",
+  "send-review-thread-to-agent",
+  "resolve-review-thread",
+  "consume-review-feedback",
+  "set-review-status",
   "list-designs",
   "list-design-templates",
   "get-design",
@@ -59,6 +67,8 @@ Every web design must be responsive. Use mobile-first CSS, a viewport meta tag, 
 When the user asks to start from a template, call list-design-templates and then create-design-from-template. The copied files and canvas dimensions are already the starting point. If the user also supplied a prompt, call get-design-snapshot once and refine unlocked content with edit-design; do not call generate-design or replace the template with a fresh screen. Layers marked data-agent-native-locked="true" and their descendants must remain byte-for-byte unchanged. Ask the user to unlock one explicitly if they want it changed.
 
 When the user asks you to refine an existing design, call view-screen if the open design is unclear, then read the live current file with get-design-snapshot before editing. For small localized changes, call edit-design with exact search/replace edits. For broad copy-only changes such as translating all visible text, call edit-design in replace-file mode with the complete updated file content from the snapshot so the HTML structure, scripts, styles, and tweaks are preserved without dozens of fragile search blocks. Do not claim the design is updated until the mutating action succeeds.
+
+When open review feedback exists, call get-review-feedback and work one anchored thread at a time. Prefer the stable node anchor, verify each persisted edit before resolving its thread, pass resolutionNote with a one-line description of the persisted change, and call consume-review-feedback after applying agent-targeted feedback. If a reviewer selectively sends one thread to the agent, use that thread id as the scope and do not apply other open feedback. If a thread needs a human decision, reply with resolutionTarget "human" instead of resolving it; follow the design-review-feedback skill for the complete loop.
 
 When the user picks one direction from a set of presented variants, delete each unchosen variant screen at most once, then call get-design-snapshot exactly once for the kept screen's fileId and call edit-design on that same fileId. Use edit-design replace-file when expanding the placeholder into a complete but compact product UI in the chosen direction. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the feature list is too large for one reliable edit. Do not call generate-design after a variant pick unless the user explicitly asks to create a separate new screen.
 

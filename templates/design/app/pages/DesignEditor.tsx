@@ -21,6 +21,8 @@ import {
   useReconciledState,
   usePresence,
   useFollowUser,
+  useReviewComments,
+  useSendReviewThreadToAgent,
   LiveCursorOverlay,
   RemoteSelectionRings,
   RecentEditHighlights,
@@ -35,7 +37,9 @@ import {
   type AttributedRecentEdit,
   type OtherPresence,
   type PromptComposerSubmitOptions,
+  type ReviewThread,
 } from "@agent-native/core/client";
+import type { ReviewComment } from "@agent-native/core/review";
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
@@ -106,6 +110,7 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
+import { readDesignReviewSummary } from "@shared/review-summary";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
 import {
@@ -158,6 +163,7 @@ import {
   IconKeyboard,
   IconTemplate,
   IconAdjustmentsHorizontal,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -276,7 +282,12 @@ import { isWheelCameraGestureActive } from "@/components/design/multi-screen/whe
 import { MultiScreenCanvas } from "@/components/design/MultiScreenCanvas";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { ReadOnlyDesignBanner } from "@/components/design/ReadOnlyDesignBanner";
+import {
+  ReviewCommentsPanel,
+  type ReviewCommentsPanelProps,
+} from "@/components/design/ReviewCommentsPanel";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
+import { ReviewStatusControl } from "@/components/design/ReviewStatusControl";
 import { TokensPanel } from "@/components/design/TokensPanel";
 import type {
   CanvasLayerHitCandidate,
@@ -778,6 +789,7 @@ import {
   MOVE_GROUP_TOOL_PRESENTATIONS,
   normalizeDesignLeftPanel,
   normalizeDesignTool,
+  shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 import {
   classifyTweakSaveFailure,
@@ -954,6 +966,16 @@ function buildSignInHrefForDesignIntent(intent: PostAuthDesignIntent): string {
   returnUrl.search = "";
   returnUrl.hash = "";
   returnUrl.searchParams.set("intent", intent);
+  const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
+  return `${base}?return=${encodeURIComponent(ret)}`;
+}
+
+function buildSignInHrefForComment(): string {
+  const base = agentNativePath("/_agent-native/sign-in");
+  if (typeof window === "undefined") return base;
+  const returnUrl = new URL(window.location.href);
+  returnUrl.search = "";
+  returnUrl.hash = "";
   const ret = returnUrl.pathname + returnUrl.search + returnUrl.hash;
   return `${base}?return=${encodeURIComponent(ret)}`;
 }
@@ -1465,13 +1487,7 @@ function DesignToolbarTool({
                 ? "bg-[var(--design-editor-accent-color)] text-white"
                 : "hover:bg-white/10 hover:text-white",
             )}
-            onClick={(event) => {
-              if (event.detail === 0) onPrimary();
-            }}
-            onPointerDown={(event) => {
-              if (event.button !== 0) return;
-              onPrimary();
-            }}
+            onClick={onPrimary}
             aria-label={label}
             aria-pressed={active}
           >
@@ -1847,15 +1863,6 @@ function DesignBottomToolbar({
           disabled: !hasActiveFile || isOverview,
           onSelect: onCommentPin,
         },
-        {
-          key: "draw",
-          label: t("designEditor.modes.draw"),
-          icon: <IconBrush className="size-4" />,
-          shortcut: "Y",
-          active: activeTool === "draw" && mode === "annotate" && drawMode,
-          disabled: !hasActiveFile,
-          onSelect: onDraw,
-        },
       ],
     },
   ];
@@ -1940,6 +1947,10 @@ export default function DesignEditorRoute() {
 function DesignEditor() {
   const t = useT();
   const { id } = useParams<{ id: string }>();
+  const { session, isLoading: sessionLoading } = useSession();
+  const isSignedIn = Boolean(session?.email);
+  const sessionResolved = !sessionLoading;
+  const designSaveActorScope = session?.userId ?? "anonymous";
   const navigate = useNavigate();
   const location = useLocation();
   // Long overview sessions (pan/zoom/select/undo across many screens) build
@@ -2278,6 +2289,12 @@ function DesignEditor() {
   const [contentRenderRevision, setContentRenderRevision] = useState(0);
   const [activeInspectorTab, setActiveInspectorTab] =
     useState<InspectorTab>("design");
+  const [reviewFocusRequest, setReviewFocusRequest] = useState<{
+    nonce: number;
+    anchor: unknown;
+    targetId?: string;
+  } | null>(null);
+  const reviewFocusNonceRef = useRef(0);
   const [activeLeftPanel, setActiveLeftPanel] =
     useState<DesignLeftPanel>("file");
   const [activeCodeFile, setActiveCodeFile] =
@@ -3277,6 +3294,7 @@ function DesignEditor() {
   >(undefined);
 
   useEffect(() => {
+    if (!isSignedIn) return;
     return () => {
       void (async () => {
         const keys = designSelectionStateKeys();
@@ -3304,7 +3322,7 @@ function DesignEditor() {
         }
       })();
     };
-  }, []);
+  }, [isSignedIn]);
   // When generation stalls we keep the original prompt + files around so the
   // user can retry with one click instead of re-typing. Cleared as soon as the
   // user kicks off a new run (retry or fresh prompt).
@@ -3452,6 +3470,8 @@ function DesignEditor() {
       clearStoredRunLivenessTimer();
     },
   });
+  const { generating: reviewFeedbackApplying, submit: submitReviewFeedback } =
+    useAgentGenerating();
   const handleQuestionFlowContinue = useCallback(
     (runTabId: string) => {
       clearGenerationCompleteTimer();
@@ -3487,17 +3507,13 @@ function DesignEditor() {
     handleSubmit: handleQuestionsSubmit,
     handleSkip: handleQuestionsSkip,
   } = useQuestionFlow(id, {
+    enabled: isSignedIn,
     continuationTabId: generationChatTabId,
     onContinue: handleQuestionFlowContinue,
   });
   const pendingQuestionsVisible = Boolean(
     pendingQuestions && pendingQuestions.length > 0,
   );
-
-  const { session, isLoading: sessionLoading } = useSession();
-  const isSignedIn = Boolean(session?.email);
-  const sessionResolved = !sessionLoading;
-  const designSaveActorScope = session?.userId ?? "anonymous";
 
   useEffect(() => {
     return () => clearGenerationCompleteTimer();
@@ -3543,6 +3559,7 @@ function DesignEditor() {
   );
   const signInToSaveHref = buildSignInHrefForDesignIntent("save");
   const signInToShareHref = buildSignInHrefForDesignIntent("share");
+  const signInToCommentHref = buildSignInHrefForComment();
   const handleSignInToSave = useCallback(() => {
     window.location.href = buildSignInHrefForDesignIntent("save");
   }, []);
@@ -3593,6 +3610,61 @@ function DesignEditor() {
     designAccessRole === "owner" || designAccessRole === "admin";
   const canEditDesign = canShareDesign || designAccessRole === "editor";
   const canRenderAuthenticatedShare = isSignedIn || canEditDesign;
+  const reviewResult = useReviewComments(
+    {
+      resourceType: "design",
+      resourceId: id ?? "",
+      includeResolved: false,
+      limit: 500,
+    },
+    { enabled: Boolean(id) },
+  );
+  const reviewComments = reviewResult.data?.comments ?? [];
+  const reviewOpenThreadIds = useMemo(
+    () =>
+      new Set(
+        reviewComments
+          .filter(
+            (comment) =>
+              comment.status === "open" && comment.parentCommentId === null,
+          )
+          .map((comment) => comment.threadId),
+      ),
+    [reviewComments],
+  );
+  const reviewAgentQueueThreadIds = useMemo(
+    () =>
+      new Set(
+        reviewComments
+          .filter(
+            (comment) =>
+              comment.status === "open" &&
+              comment.parentCommentId === null &&
+              comment.resolutionTarget !== "human" &&
+              !comment.consumedAt,
+          )
+          .map((comment) => comment.threadId),
+      ),
+    [reviewComments],
+  );
+  const persistedReviewSummary = readDesignReviewSummary(reviewResult.data);
+  const reviewOpenCount =
+    persistedReviewSummary?.openCount ?? reviewOpenThreadIds.size;
+  const reviewAgentQueueCount =
+    persistedReviewSummary?.agentQueueCount ?? reviewAgentQueueThreadIds.size;
+  const reviewStatus = reviewResult.data?.reviewStatus?.status ?? "draft";
+  const sendReviewThreadToAgent = useSendReviewThreadToAgent();
+  const [reviewSendingThreadId, setReviewSendingThreadId] = useState<
+    string | null
+  >(null);
+  useEffect(() => {
+    if (
+      reviewSendingThreadId &&
+      reviewAgentQueueThreadIds.has(reviewSendingThreadId)
+    ) {
+      setReviewSendingThreadId(null);
+    }
+  }, [reviewAgentQueueThreadIds, reviewSendingThreadId]);
   const canEditDesignRef = useRef(canEditDesign);
   const pendingLocalFileContentsRef = useRef<
     Map<
@@ -4529,7 +4601,7 @@ function DesignEditor() {
     designSystems,
     defaultSystem,
     isLoading: designSystemsLoading,
-  } = useDesignSystems();
+  } = useDesignSystems(isSignedIn);
 
   useEffect(() => {
     if (!id || !design || !isSignedIn || !postAuthIntent) return;
@@ -5855,7 +5927,7 @@ function DesignEditor() {
   // immediately on a local write so the resulting poll tick is a no-op
   // instead of a redundant re-apply).
   useEffect(() => {
-    if (!id) return;
+    if (!id || !isSignedIn) return;
     let cancelled = false;
     void (async () => {
       if (activeBreakpointWriteQueueRef.current?.hasPending()) return;
@@ -5890,14 +5962,14 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, designBreakpoints, id]);
+  }, [appStateVersion, designBreakpoints, id, isSignedIn]);
 
   // Agent→UI: open the write-consent dialog when the agent requests local file
   // write access via request-localhost-write-consent (granting stays human-only).
   // One-shot: consume the app-state key, open the dialog, then clear it so
   // echoed app-state bumps don't re-open it.
   useEffect(() => {
-    if (!id) return;
+    if (!id || !isSignedIn) return;
     let cancelled = false;
     const key = `design-localhost-write-consent-request:${id}`;
     void (async () => {
@@ -5930,7 +6002,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, id]);
+  }, [appStateVersion, id, isSignedIn]);
 
   // §6.4 — The active screen's primary-frame width (the BASE editing
   // context). Overrides written at a narrower active breakpoint apply below
@@ -5967,7 +6039,7 @@ function DesignEditor() {
       "get-motion-timeline",
       motionTimelineQueryParams,
       {
-        enabled: Boolean(id && activeFile?.id),
+        enabled: Boolean(isSignedIn && id && activeFile?.id),
         refetchOnMount: "always",
       },
     );
@@ -6184,9 +6256,13 @@ function DesignEditor() {
       if (target && !targetFile) return false;
 
       const inspectorTab =
-        command.inspectorTab === "design" || command.inspectorTab === "tweaks"
+        command.inspectorTab === "design" ||
+        command.inspectorTab === "comments" ||
+        command.inspectorTab === "tweaks"
           ? command.inspectorTab
-          : command.inspector === "design" || command.inspector === "tweaks"
+          : command.inspector === "design" ||
+              command.inspector === "comments" ||
+              command.inspector === "tweaks"
             ? command.inspector
             : undefined;
       if (inspectorTab) setActiveInspectorTab(inspectorTab);
@@ -6270,7 +6346,7 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !isSignedIn) return;
     if (initialSearchCommandAppliedForIdRef.current === id) return;
     const command = designEditorCommandFromSearchParams(
       id,
@@ -6287,7 +6363,7 @@ function DesignEditor() {
   }, [applyDesignEditorCommand, id, initialSearchParams]);
 
   useEffect(() => {
-    if (!id) return;
+    if (!id || !isSignedIn) return;
     let cancelled = false;
     const keys = browserTabId
       ? [designEditorCommandKey(browserTabId), designEditorCommandKey()]
@@ -6308,7 +6384,7 @@ function DesignEditor() {
     return () => {
       cancelled = true;
     };
-  }, [appStateVersion, applyDesignEditorCommand, browserTabId, id]);
+  }, [appStateVersion, applyDesignEditorCommand, browserTabId, id, isSignedIn]);
 
   const optimisticallyInsertCreatedFile = useCallback(
     (args: {
@@ -10278,6 +10354,130 @@ function DesignEditor() {
     reviewFindings,
   ]);
 
+  const dispatchReviewFeedbackToAgent = useCallback(
+    (root: ReviewComment, replies: ReviewComment[] = []) => {
+      if (!id) return;
+      const replyText = replies
+        .map((reply) => `${reply.authorName ?? "Reviewer"}: ${reply.body}`)
+        .join("\n");
+      sendToDesignAgentChat({
+        message: "Apply this selected design review thread only.", // i18n-ignore agent dispatch prompt
+        context: [
+          `Design id: ${id}`,
+          `Review thread id: ${root.threadId}`,
+          `Screen id: ${root.targetId ?? "unknown"}`,
+          `Feedback: ${root.body}`,
+          replyText ? `Replies:\n${replyText}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
+        submit: true,
+        openSidebar: true,
+        newTab: true,
+      });
+    },
+    [id],
+  );
+
+  const handleDispatchCommentToAgent = useCallback(
+    (comment: ReviewComment) => {
+      if (!canEditDesign) return;
+      dispatchReviewFeedbackToAgent(comment);
+    },
+    [canEditDesign, dispatchReviewFeedbackToAgent],
+  );
+
+  const handleSendReviewThreadToAgent = useCallback(
+    (thread: ReviewThread) => {
+      if (
+        !id ||
+        !canEditDesign ||
+        thread.root.status !== "open" ||
+        reviewSendingThreadId
+      ) {
+        return;
+      }
+      setReviewSendingThreadId(thread.root.threadId);
+      sendReviewThreadToAgent.mutate(
+        {
+          resourceType: "design",
+          resourceId: id,
+          threadId: thread.root.threadId,
+        },
+        {
+          onSuccess: () => {
+            dispatchReviewFeedbackToAgent(thread.root, thread.replies);
+          },
+          onError: () => {
+            setReviewSendingThreadId(null);
+            toast.error(t("review.sendToAgentFailed"));
+          },
+        },
+      );
+    },
+    [
+      canEditDesign,
+      dispatchReviewFeedbackToAgent,
+      id,
+      reviewSendingThreadId,
+      sendReviewThreadToAgent,
+      t,
+    ],
+  );
+
+  const handleReviewThreadSelect = useCallback((thread: ReviewThread) => {
+    const targetId = thread.root.targetId;
+    if (targetId) {
+      viewModeRef.current = "single";
+      setViewMode("single");
+      setScreenZoom(FOCUSED_SCREEN_ZOOM);
+      setActiveFileId(targetId);
+    }
+    setActiveInspectorTab("comments");
+    reviewFocusNonceRef.current += 1;
+    setReviewFocusRequest({
+      nonce: reviewFocusNonceRef.current,
+      anchor: thread.root.anchor,
+      targetId: targetId ?? undefined,
+    });
+  }, []);
+
+  const reviewCommentsPanelProps = useMemo<
+    ReviewCommentsPanelProps | undefined
+  >(
+    () =>
+      id
+        ? {
+            designId: id,
+            activeFileId: activeFile?.id,
+            canComment: isSignedIn,
+            canResolve: canEditDesign,
+            canDeleteComment: (comment) =>
+              canEditDesign ||
+              ("canDelete" in comment && comment.canDelete === true) ||
+              comment.authorEmail === session?.email,
+            signInHref: signInToCommentHref,
+            canDispatchToAgent: canEditDesign,
+            sendingThreadId: reviewSendingThreadId,
+            onDispatchCommentToAgent: handleDispatchCommentToAgent,
+            onSendThreadToAgent: handleSendReviewThreadToAgent,
+            onSelectThread: handleReviewThreadSelect,
+          }
+        : undefined,
+    [
+      activeFile?.id,
+      handleReviewThreadSelect,
+      handleDispatchCommentToAgent,
+      handleSendReviewThreadToAgent,
+      id,
+      isSignedIn,
+      canEditDesign,
+      reviewSendingThreadId,
+      session?.email,
+      signInToCommentHref,
+    ],
+  );
+
   const handleCreatePrimitive = useCallback(
     (screenId: string, primitive: CanvasPrimitiveInsert) => {
       if (!canEditDesign) return false;
@@ -11283,7 +11483,7 @@ function DesignEditor() {
 
   // Expose selection state for agent context
   useEffect(() => {
-    if (!id) return;
+    if (!id || !isSignedIn) return;
     const selection = {
       designId: id,
       designTitle: design?.title ?? null,
@@ -11482,6 +11682,7 @@ function DesignEditor() {
     responsiveEditScope,
     designDataJson,
     selectedStateId,
+    isSignedIn,
   ]);
 
   // R69: once the composer sends this selection as context, the chip must
@@ -11513,6 +11714,7 @@ function DesignEditor() {
   const composerContextHasOurKeyRef = useRef(true);
   useEffect(() => {
     const key = "design:selected-element";
+    if (!isSignedIn) return;
     if (!id || !shouldMirrorSelectedElementToAgentChat(selectedElement)) {
       mirroredSelectionIdRef.current = null;
       sentSelectionIdRef.current = null;
@@ -11582,7 +11784,14 @@ function DesignEditor() {
       focus: false,
     });
     composerContextHasOurKeyRef.current = true;
-  }, [activeFile, design?.title, id, selectedCodeLayerNode, selectedElement]);
+  }, [
+    activeFile,
+    design?.title,
+    id,
+    isSignedIn,
+    selectedCodeLayerNode,
+    selectedElement,
+  ]);
 
   // Bookkeeping only — mirrors "does the shared composer context still carry
   // our key" into a ref for the effect above to read. This is intentionally
@@ -11590,7 +11799,8 @@ function DesignEditor() {
   // writes a ref, never calls setAgentChatContextItem or any other state
   // setter, so it can run on every store change without feeding back into a
   // re-render loop.
-  const composerContextItemsForBookkeeping = useAgentChatContext().items;
+  const composerContextItemsForBookkeeping =
+    useAgentChatContext(isSignedIn).items;
   useEffect(() => {
     const key = "design:selected-element";
     composerContextHasOurKeyRef.current =
@@ -11599,6 +11809,7 @@ function DesignEditor() {
 
   useEffect(() => {
     const key = "design:design-system";
+    if (!isSignedIn) return;
     const designSystemId = design?.designSystemId;
     if (!designSystemId) {
       removeAgentChatContextItem(key);
@@ -11620,7 +11831,7 @@ function DesignEditor() {
       cancelled = true;
       removeAgentChatContextItem(key);
     };
-  }, [design?.designSystemId]);
+  }, [design?.designSystemId, isSignedIn]);
 
   const handleAssetInserted = useCallback(
     (selection: {
@@ -20528,10 +20739,16 @@ function DesignEditor() {
   );
 
   useEffect(() => {
-    if (embedded || mode !== "annotate" || !activeFile) return;
+    if (
+      embedded ||
+      !activeFile ||
+      !shouldAutoEnableDrawOverlay({ mode, activeTool, pinMode })
+    ) {
+      return;
+    }
     if (!canEditDesign) return;
     setDrawMode(true);
-  }, [activeFile?.id, canEditDesign, embedded, mode]);
+  }, [activeFile?.id, activeTool, canEditDesign, embedded, mode, pinMode]);
 
   const handleViewModeToggle = useCallback(() => {
     if (viewModeRef.current === "overview") {
@@ -20590,16 +20807,20 @@ function DesignEditor() {
     getRestoredOverviewSelection,
   ]);
 
+  const handleExitReviewCommentMode = useCallback(() => {
+    setPinMode(false);
+    setDrawMode(false);
+    setActiveTool("move");
+    setMode("edit");
+  }, []);
+
   const handlePinToolToggle = useCallback(() => {
-    if (!activeFile || !canEditDesign) return;
+    if (!activeFile || (!canEditDesign && !isSignedIn)) return;
     if (pinMode) {
-      setPinMode(false);
-      if (mode === "annotate") {
-        setActiveTool("draw");
-        setDrawMode(true);
-      }
+      handleExitReviewCommentMode();
       return;
     }
+    setCommentsHidden(false);
     // Comments are placed on a single screen, not the overview. If we're in the
     // overview, enter the active screen AND arm pin mode in the SAME view
     // transition — calling enterSingleScreen() separately would reset pinMode to
@@ -20629,7 +20850,8 @@ function DesignEditor() {
   }, [
     activeFile,
     canEditDesign,
-    mode,
+    handleExitReviewCommentMode,
+    isSignedIn,
     pinMode,
     viewMode,
     runEditorViewTransition,
@@ -20680,6 +20902,11 @@ function DesignEditor() {
       else handleExitFocusedDrawMode();
       return;
     }
+    // ReviewCanvasPins owns Escape while comment mode is active so it can
+    // dismiss in context: first an open draft/thread, then pin mode itself.
+    // Letting this global handler continue would exit the tool on the same
+    // keypress that only meant to close the composer.
+    if (pinMode) return;
     // BP-DEEP item 5 — Framer-style click-to-target: Escape's first job when
     // a breakpoint is the active edit target is to return to Base, matching
     // "click the base frame / empty canvas" — mirrors the other early-return
@@ -21233,7 +21460,7 @@ function DesignEditor() {
     onTextTool: canEditDesign ? handleTextTool : undefined,
     onPenTool: canEditDesign ? handlePenTool : undefined,
     onHandTool: canEditDesign ? handleHandTool : undefined,
-    onCommentTool: canEditDesign ? handlePinToolToggle : undefined,
+    onCommentTool: isSignedIn ? handlePinToolToggle : undefined,
     onDrawTool: canEditDesign ? handleDrawTool : undefined,
     onScaleTool: canEditDesign ? handleScaleTool : undefined,
     onCopy: handleCopySelection,
@@ -23049,24 +23276,29 @@ function DesignEditor() {
     </div>
   );
   const shareLinkFooter = (
-    <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
-      <Button
-        type="button"
-        onClick={() => void handleCopyShareLink()}
-        disabled={!editorShareUrl}
-        className="h-8 min-w-[8.75rem] gap-1.5 rounded-md px-3 text-[12px]"
-      >
-        {shareLinkCopied ? (
-          <IconCheck className="size-3.5" />
-        ) : (
-          <IconClipboard className="size-3.5" />
-        )}
-        {
-          shareLinkCopied
-            ? "Copied" /* i18n-ignore share copy action copied */
-            : "Copy share link" /* i18n-ignore share copy action */
-        }
-      </Button>
+    <div className="mt-3 space-y-2 border-t border-[var(--design-editor-panel-divider-color)] pt-3">
+      <p className="text-[11px] leading-4 text-muted-foreground">
+        {t("review.shareLinkDescription")}
+      </p>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button
+          type="button"
+          onClick={() => void handleCopyShareLink()}
+          disabled={!editorShareUrl}
+          className="h-8 min-w-[8.75rem] gap-1.5 rounded-md px-3 text-[12px]"
+        >
+          {shareLinkCopied ? (
+            <IconCheck className="size-3.5" />
+          ) : (
+            <IconClipboard className="size-3.5" />
+          )}
+          {
+            shareLinkCopied
+              ? "Copied" /* i18n-ignore share copy action copied */
+              : "Copy share link" /* i18n-ignore share copy action */
+          }
+        </Button>
+      </div>
     </div>
   );
   const designShareTabLabelClassName =
@@ -26635,6 +26867,7 @@ function DesignEditor() {
           tweakValues={cssVarValues}
           drawMode={false}
           pinMode={false}
+          commentPinsHidden
           designId={id}
           designTitle={design?.title}
           commentContextId={`${id}:${screen.id}`}
@@ -27101,6 +27334,27 @@ function DesignEditor() {
     [handleOverviewFrameAction],
   );
 
+  const handleApplyReviewFeedback = useCallback(() => {
+    if (
+      !id ||
+      !canEditDesign ||
+      reviewAgentQueueCount === 0 ||
+      reviewFeedbackApplying
+    )
+      return;
+    submitReviewFeedback(
+      "Apply all open design review feedback for this design. After each change, verify it in the affected screen and resolve the corresponding thread only after the saved edit is confirmed.",
+      `Design id: ${id}. Start by reading the current screen and fetching the open review feedback queue. Apply one thread at a time with persisted edits and verification.`,
+      { openSidebar: true, newTab: true },
+    );
+  }, [
+    canEditDesign,
+    id,
+    reviewAgentQueueCount,
+    reviewFeedbackApplying,
+    submitReviewFeedback,
+  ]);
+
   // Hooks must not be called conditionally; keep navigate as an effect so the
   // render phase stays pure. This branch is unreachable in practice because the
   // design.$id.tsx route always supplies an id param.
@@ -27350,7 +27604,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuItem
           onClick={handlePinToolToggle}
-          disabled={!activeFile || viewMode === "overview"}
+          disabled={!activeFile || viewMode === "overview" || !isSignedIn}
         >
           <IconPin className="mr-2 h-4 w-4" />
           {pinMode
@@ -27578,6 +27832,39 @@ function DesignEditor() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
+          {isSignedIn && !canEditDesign && activeFile ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 rounded-md px-2 text-xs"
+              onClick={handlePinToolToggle}
+            >
+              <IconMessageCircle className="size-3.5" />
+              {pinMode
+                ? t("designEditor.stopPinningComments")
+                : t("designEditor.pinComment")}
+            </Button>
+          ) : null}
+          {canEditDesign && reviewAgentQueueCount > 0 ? (
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-8 gap-1 rounded-md px-2 text-xs"
+              onClick={handleApplyReviewFeedback}
+              disabled={reviewFeedbackApplying}
+            >
+              {reviewFeedbackApplying ? (
+                <Spinner className="size-3.5" />
+              ) : (
+                <IconMessageCircle className="size-3.5" />
+              )}
+              {reviewFeedbackApplying
+                ? t("review.applyingFeedback")
+                : t("review.applyFeedback", { count: reviewAgentQueueCount })}
+            </Button>
+          ) : null}
           <Popover
             open={publishWaitlistPopoverOpen}
             onOpenChange={(open) => {
@@ -27883,6 +28170,13 @@ function DesignEditor() {
               >
                 <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-border px-3">
                   {projectTitleControl}
+                  {id ? (
+                    <ReviewStatusControl
+                      designId={id}
+                      status={reviewStatus}
+                      editable={designAccessRole === "owner"}
+                    />
+                  ) : null}
                 </div>
                 <div className="min-h-0 flex-1">
                   <LayersPanel
@@ -28831,13 +29125,22 @@ function DesignEditor() {
                         }
                         pinMode={pinMode}
                         commentPinsHidden={commentsHidden}
-                        onExitPinMode={() => {
-                          setPinMode(false);
-                          if (mode === "annotate") {
-                            setActiveTool("draw");
-                          }
-                        }}
+                        onExitPinMode={handleExitReviewCommentMode}
                         designId={id}
+                        reviewCanPost={isSignedIn}
+                        reviewCanResolve={canEditDesign}
+                        reviewFocusRequest={reviewFocusRequest}
+                        onDispatchCommentToAgent={
+                          canEditDesign
+                            ? handleDispatchCommentToAgent
+                            : undefined
+                        }
+                        onSendThreadToAgent={
+                          canEditDesign
+                            ? handleSendReviewThreadToAgent
+                            : undefined
+                        }
+                        reviewSendingThreadId={reviewSendingThreadId}
                         designTitle={design?.title}
                         commentContextId={`${id}:${activeFile.id}`}
                         commentContextLabel={`${design?.title ?? t("navigation.brand")} / ${prettyScreenName(activeFile.filename)}`}
@@ -29063,6 +29366,8 @@ function DesignEditor() {
                   inspectCode={inspectCodeData}
                   statesPanelProps={statesPanelProps}
                   reviewPanelProps={resolvedReviewPanelProps}
+                  reviewCommentsPanelProps={reviewCommentsPanelProps}
+                  reviewCommentsCount={reviewOpenCount}
                   onAlignSelection={
                     canEditDesign ? handleAlignSelection : undefined
                   }
@@ -29151,6 +29456,8 @@ function DesignEditor() {
                 inspectCode={inspectCodeData}
                 statesPanelProps={statesPanelProps}
                 reviewPanelProps={resolvedReviewPanelProps}
+                reviewCommentsPanelProps={reviewCommentsPanelProps}
+                reviewCommentsCount={reviewOpenCount}
                 onAlignSelection={
                   canEditDesign ? handleAlignSelection : undefined
                 }

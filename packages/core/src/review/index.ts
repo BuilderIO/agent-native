@@ -27,5 +27,13 @@ export {
   ensureReviewTables,
   getReviewCommentById,
   getReviewStatus,
+  getReviewThreadSummary,
+  getReviewThreadRoot,
   queryReviewComments,
+  routeReviewThread,
+  sendReviewThreadToAgent,
+} from "./store.js";
+export type {
+  GetReviewThreadSummaryInput,
+  ReviewThreadSummary,
 } from "./store.js";

@@ -37,18 +37,13 @@ export default defineAction({
       bypassScope: true,
       includeResolved: false,
       includeDeleted: false,
+      rootOnly: true,
+      resolutionTargets: args.includeHumanTargeted
+        ? undefined
+        : ["agent", null],
+      unconsumedOnly: true,
       limit: args.limit,
     });
-    return {
-      comments: comments.filter((comment) => {
-        if (comment.consumedAt) {
-          return false;
-        }
-        if (args.includeHumanTargeted) {
-          return true;
-        }
-        return comment.resolutionTarget !== "human";
-      }),
-    };
+    return { comments };
   },
 });

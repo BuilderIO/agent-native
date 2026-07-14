@@ -6693,6 +6693,89 @@ function hydratedHitTestBridgeScript(): string {
 }
 
 it(
+  "hit-test bridge exposes review anchor, rect, and focus messages for opaque preview frames",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (error) => pageErrors.push(error.message));
+      await page.setContent(`<!doctype html>
+<html>
+  <body style="margin:0">
+    <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
+  </body>
+</html>`);
+      await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
+
+      const result = await page.evaluate(async () => {
+        const request = (data: Record<string, unknown>, responseType: string) =>
+          new Promise<Record<string, unknown>>((resolve) => {
+            const onMessage = (event: MessageEvent) => {
+              if (
+                event.data?.type !== responseType ||
+                event.data?.correlationId !== data.correlationId
+              ) {
+                return;
+              }
+              window.removeEventListener("message", onMessage);
+              resolve(event.data);
+            };
+            window.addEventListener("message", onMessage);
+            window.postMessage(data, "*");
+          });
+        const anchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-point",
+            x: 100,
+            y: 70,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
+        const rects = await request(
+          {
+            type: "agent-native:review-node-rects",
+            correlationId: "review-rects",
+            nodeIds: ["hero-title"],
+          },
+          "agent-native:review-node-rects-result",
+        );
+        const focus = await request(
+          {
+            type: "agent-native:review-focus",
+            correlationId: "review-focus",
+            nodeId: "hero-title",
+          },
+          "agent-native:review-focus-result",
+        );
+        return { anchor, rects, focus };
+      });
+
+      expect(result.anchor).toMatchObject({
+        nodeId: "hero-title",
+        layerName: "Hero title",
+        tagName: "h1",
+      });
+      expect(result.rects).toMatchObject({
+        rects: {
+          "hero-title": { left: 40, top: 40, width: 320, height: 80 },
+        },
+        viewportWidth: 900,
+        viewportHeight: 700,
+      });
+      expect(result.focus).toMatchObject({ focused: true });
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
   "hit-test bridge mints a stable pendingNodeId for an anchor with no stable id, without spamming re-mints across repeated hovers",
   { timeout: 30_000 },
   async () => {

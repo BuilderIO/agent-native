@@ -8,6 +8,7 @@ import { useCallback } from "react";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
 
 interface UseQuestionFlowOptions {
+  enabled?: boolean;
   continuationTabId?: string | null;
   onContinue?: (tabId: string) => void;
 }
@@ -27,10 +28,15 @@ const RESPONSIVE_GENERATION_REQUIREMENTS =
  */
 export function useQuestionFlow(
   designId: string | undefined,
-  { continuationTabId, onContinue }: UseQuestionFlowOptions = {},
+  {
+    enabled = true,
+    continuationTabId,
+    onContinue,
+  }: UseQuestionFlowOptions = {},
 ) {
   const stateKey = designQuestionsStateKey(designId);
   const flow = useGuidedQuestionFlow({
+    enabled,
     stateKey,
     queryKey: [stateKey],
     submitMessage: "Here are my answers — go ahead.",

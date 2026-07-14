@@ -1,4 +1,6 @@
 import { usePinchZoom, useT } from "@agent-native/core/client";
+import type { ReviewThread } from "@agent-native/core/client";
+import type { ReviewComment } from "@agent-native/core/review";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -19,7 +21,14 @@ import {
   type PenPoint,
 } from "@shared/pen-path";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
-import { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,8 +38,8 @@ import { Button } from "@/components/ui/button";
 // exist for now and can be reconciled in a follow-up. Don't import both.
 import {
   DrawOverlay as SharedDrawOverlay,
-  CanvasCommentPins,
-  type CanvasPin,
+  ReviewCanvasPins,
+  type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
@@ -499,9 +508,9 @@ interface DesignCanvasProps {
   pinMode?: boolean;
   /**
    * When true, suppresses rendering of comment pins on this canvas (e.g. the
-   * Figma-style Shift+C "hide comments" toggle in single-screen mode). Only
-   * affects pin *visibility* — pin drop mode (`pinMode`) still behaves
-   * normally underneath so toggling this back off doesn't lose anything.
+   * Figma-style Shift+C "hide comments" toggle in single-screen mode). Hiding
+   * comments while pin mode is active also exits pin mode so an invisible
+   * click target cannot keep intercepting canvas interactions.
    */
   commentPinsHidden?: boolean;
   selectedSelector?: string | null;
@@ -517,6 +526,18 @@ interface DesignCanvasProps {
   onExitPinMode?: () => void;
   /** Stable id of the open design (used for pin scoping + agent prompt). */
   designId?: string;
+  /** Whether the current signed-in viewer may create review comments. */
+  reviewCanPost?: boolean;
+  /** Whether the current viewer may resolve review threads. */
+  reviewCanResolve?: boolean;
+  /** A panel-driven request to focus an anchored review comment. */
+  reviewFocusRequest?: ReviewFocusRequest | null;
+  /** Dispatch a newly created agent-targeted comment to the local agent chat. */
+  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
+  /** Dispatch one existing review thread to the local agent chat. */
+  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  /** Thread currently being routed to the agent. */
+  reviewSendingThreadId?: string | null;
   /** Human-readable label for the design (used in agent prompt). */
   designTitle?: string;
   /** Stable id for comment pins, usually scoped to the active screen. */
@@ -1018,11 +1039,16 @@ export function DesignCanvas({
   onExitPinMode,
   registerRuntimeBridge = true,
   designId,
+  reviewCanPost = false,
+  reviewCanResolve = false,
+  reviewFocusRequest,
+  onDispatchCommentToAgent,
+  onSendThreadToAgent,
+  reviewSendingThreadId,
   designTitle,
   commentContextId,
   screenId,
   previewFrameId,
-  commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
   motionDefaultEase,
@@ -1046,6 +1072,7 @@ export function DesignCanvas({
     null,
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
@@ -1115,8 +1142,6 @@ export function DesignCanvas({
     return true;
   }, []);
   const [renderedContent, setRenderedContent] = useState(content);
-  const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
-  const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -1914,14 +1939,6 @@ export function DesignCanvas({
     snapshotRetryAttemptRef.current = 0;
     setExternalSnapshotRetryNonce((nonce) => nonce + 1);
   }, []);
-
-  const queuedAnnotationPins = useMemo(
-    () =>
-      annotationPins.filter(
-        (pin) => pin.queued && !pin.submitted && (pin.draft || "").trim(),
-      ),
-    [annotationPins],
-  );
 
   useEffect(() => {
     if (previousContentKeyRef.current !== contentKey) {
@@ -3921,6 +3938,7 @@ export function DesignCanvas({
   // visible when a design background matches the editor canvas.
   const iframeElement = (
     <div
+      data-review-canvas-id={reviewCanvasId}
       className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
@@ -4212,7 +4230,7 @@ export function DesignCanvas({
         scopeKey={screenId}
         retainSurfaceWhenHidden={retainDrawOverlayWhenHidden}
         canvasInteractive={!pinMode}
-        queuedAnnotationCount={queuedAnnotationPins.length}
+        queuedAnnotationCount={0}
         zoom={zoom}
         sending={annotationCaptureBusy}
         onClose={() => onExitDrawMode?.()}
@@ -4225,33 +4243,14 @@ export function DesignCanvas({
                 : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
             )
             .join("\n");
-          const pinSummary = queuedAnnotationPins
-            .flatMap((pin, index) => {
-              const lines = [
-                `[${index + 1}] Comment pin on ${commentContextLabel || designTitle || commentContextId || designId || "design"}`,
-                `Position: ${pin.xPct.toFixed(1)}% from left, ${pin.yPct.toFixed(1)}% from top`,
-              ];
-              if (pin.targetAnchorId)
-                lines.push(`Anchor id: ${pin.targetAnchorId}`);
-              if (pin.targetSelector)
-                lines.push(`Element: ${pin.targetSelector}`);
-              if (pin.targetText)
-                lines.push(`Nearby text: "${pin.targetText}"`);
-              lines.push("");
-              lines.push((pin.draft || "").trim());
-              return [...lines, ""];
-            })
-            .join("\n");
           const lines = [
             `[Annotations on design ${designId || ""}${designTitle ? ` (${designTitle})` : ""}]`,
             `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
             ...(summary ? ["", "[Drawing]", summary] : []),
-            ...(pinSummary ? ["", "[Comment pins]", pinSummary] : []),
             "",
             instruction || "Apply these annotations to the design.",
           ];
           const message = lines.join("\n");
-          const hasQueuedPins = queuedAnnotationPins.length > 0;
 
           // Best-effort: render the annotated screen + composited drawing as
           // ONE image the agent can see (see design-canvas/annotation-snapshot.ts),
@@ -4275,7 +4274,7 @@ export function DesignCanvas({
             .then((imageUrl) =>
               submitDesignAnnotations({
                 message,
-                hasQueuedPins,
+                hasQueuedPins: false,
                 // Ack-confirmed send: only exit draw mode / mark pins
                 // submitted once the message is CONFIRMED to have reached
                 // the chat (became a visible turn). A fire-and-forget send
@@ -4296,9 +4295,7 @@ export function DesignCanvas({
                     );
                   }
                 },
-                markQueuedPinsSubmitted: () => {
-                  setPinSubmitSignal((signal) => signal + 1);
-                },
+                markQueuedPinsSubmitted: () => {},
                 exitDrawMode: () => onExitDrawMode?.(),
                 onError: (error) => {
                   console.error(
@@ -4443,27 +4440,23 @@ export function DesignCanvas({
         </div>
       )}
 
-      {/* Canvas comment pins — anchored to the iframe wrapper. The pins
-          themselves render via fixed positioning, so we mount them outside
-          the zoom-transformed container to keep coordinates stable.
-          Suppressed entirely when commentPinsHidden (Figma-style Shift+C
-          "hide comments" toggle) is set — existing pins disappear and pin
-          drop-mode has nothing to render into until it's toggled back on. */}
-      {!commentPinsHidden && (
-        <CanvasCommentPins
+      {designId && (screenId || commentContextId) ? (
+        <ReviewCanvasPins
           active={!!pinMode}
-          submitMode={drawMode ? "queue" : "direct"}
-          onPinsChange={setAnnotationPins}
-          submitQueuedSignal={pinSubmitSignal}
-          clickPlaneUnderToolbar={!!drawMode}
+          hidden={commentPinsHidden}
           onClose={() => onExitPinMode?.()}
-          canvasSelector=".design-canvas-iframe-wrapper"
-          contextId={commentContextId || designId || "design"}
-          contextLabel={
-            commentContextLabel || designTitle || commentContextId || designId
-          }
+          canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
+          resourceType="design"
+          resourceId={designId}
+          targetId={screenId ?? commentContextId ?? ""}
+          canPost={reviewCanPost}
+          canResolve={reviewCanResolve}
+          focusRequest={reviewFocusRequest}
+          onDispatchCommentToAgent={onDispatchCommentToAgent}
+          onSendThreadToAgent={onSendThreadToAgent}
+          sendingThreadId={reviewSendingThreadId}
         />
-      )}
+      ) : null}
     </div>
   );
 }
