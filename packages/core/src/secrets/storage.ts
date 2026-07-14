@@ -1,13 +1,13 @@
 /**
  * Storage layer for the framework secrets registry.
  *
- * Values are encrypted at rest with AES-256-GCM. The encryption key is
- * derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the existing
- * `BETTER_AUTH_SECRET` env var (fallback so templates don't need a second
- * secret during development). If neither is set in production we fall back
- * to a machine-local key derived from the cwd — the secret is still only
- * readable on this machine, but consider setting `SECRETS_ENCRYPTION_KEY`
- * for a stable, rotatable key.
+ * Values are encrypted at rest with AES-256-GCM. The workspace-shared
+ * encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
+ * existing `BETTER_AUTH_SECRET` env var (fallback so templates don't need a
+ * second secret during development). If neither is set in production we fall
+ * back to a machine-local key derived from the cwd — the secret is still only
+ * readable on this machine, but consider setting `SECRETS_ENCRYPTION_KEY` for
+ * a stable, rotatable key shared by every app in the workspace.
  *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
@@ -17,8 +17,8 @@ import { randomUUID } from "node:crypto";
 import { getDbExec, isPostgres } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import {
-  encryptSecretValue as encryptValue,
-  decryptSecretValue as decryptValue,
+  encryptSharedSecretValue as encryptValue,
+  decryptSharedSecretValue as decryptValue,
 } from "./crypto.js";
 import type { SecretScope } from "./register.js";
 import { APP_SECRETS_CREATE_SQL } from "./schema.js";
