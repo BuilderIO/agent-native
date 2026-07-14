@@ -2239,7 +2239,7 @@ const LayerRow = memo(function LayerRow({
                   "sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit",
                   node.locked || node.hidden
                     ? "w-auto overflow-visible pl-2 pr-1"
-                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1",
+                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1 focus-within:w-auto focus-within:overflow-visible focus-within:pl-2 focus-within:pr-1",
                 )}
               >
                 <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
