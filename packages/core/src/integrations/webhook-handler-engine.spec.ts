@@ -577,6 +577,30 @@ describe("integration webhook handler engine resolution", () => {
   );
 
   it(
+    "does not persist participant-visible history without a delivery receipt",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(vi.fn(async () => undefined)),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const persistedData = updateThreadDataMock.mock.calls.at(-1)?.[1];
+      expect(typeof persistedData).toBe("string");
+      const persisted = JSON.parse(persistedData as string);
+      const assistant = persisted.messages.at(-1);
+      expect(assistant.metadata.integrationDelivery).toBeUndefined();
+    },
+  );
+
+  it(
     "uses the explicit engine provider when resolving owner API keys",
     { timeout: 15000 },
     async () => {
@@ -1180,7 +1204,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("projects a successful Slack ask-question call into a reply window", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const slackIncoming = {
       platform: "slack",
       externalThreadId: "A123:T123:C123:111.222",

@@ -993,7 +993,6 @@ async function processIncomingMessage(
             const outgoing = adapter.formatAgentResponse(responseText, {
               threadDeepLinkUrl,
             });
-            let delivered = false;
             let deliveryReceipt: void | PlatformDeliveryReceipt;
             if (queuedA2AContinuation && progress?.ref) {
               // Post substantive parent results as a normal thread reply while
@@ -1002,11 +1001,9 @@ async function processIncomingMessage(
               deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
-              delivered = true;
             } else if (progress) {
               try {
                 deliveryReceipt = await progress.complete(outgoing);
-                delivered = true;
               } catch {
                 deliveryReceipt = await adapter.sendResponse(
                   outgoing,
@@ -1015,14 +1012,13 @@ async function processIncomingMessage(
                     placeholderRef: opts.placeholderRef,
                   },
                 );
-                delivered = true;
               }
             } else {
               deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
-              delivered = true;
             }
+            const delivered = deliveryReceipt?.status === "delivered";
             if (delivered) {
               deliveredResponse = {
                 platform: incoming.platform,

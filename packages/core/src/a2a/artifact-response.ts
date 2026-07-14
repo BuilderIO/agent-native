@@ -39,9 +39,13 @@ const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
   "rename-dashboard",
   "save-analysis",
   "generate-image",
+  "edit-image",
   "refine-image",
+  "restyle-image",
   "save-generated-image",
+  "save-generated-asset",
   "export-image",
+  "export-asset",
   "generate-image-batch",
   "create-design",
   "generate-design",
@@ -658,10 +662,14 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "generate-image" ||
+      toolResult.tool === "edit-image" ||
       toolResult.tool === "refine-image" ||
+      toolResult.tool === "restyle-image" ||
       toolResult.tool === "get-asset" ||
       toolResult.tool === "save-generated-image" ||
-      toolResult.tool === "export-image"
+      toolResult.tool === "save-generated-asset" ||
+      toolResult.tool === "export-image" ||
+      toolResult.tool === "export-asset"
     ) {
       addImageArtifact(images, parsed);
       continue;

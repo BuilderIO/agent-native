@@ -119,6 +119,34 @@ describe("appendA2AArtifactLinks", () => {
     ]);
   });
 
+  it.each([
+    "edit-image",
+    "restyle-image",
+    "save-generated-asset",
+    "export-asset",
+  ])("retains image identity from the %s write alias", (tool) => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool,
+          result: JSON.stringify({
+            assetId: "asset_target",
+            title: "Target image",
+            pageUrl: "/assets/asset_target",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "image",
+        id: "asset_target",
+        sourceAction: tool,
+        titleAtAction: "Target image",
+        url: "/assets/asset_target",
+      },
+    ]);
+  });
+
   it("appends the focused Analytics URL returned by save-monitor", () => {
     const text = appendA2AArtifactLinks(
       "The uptime monitor was created.",
