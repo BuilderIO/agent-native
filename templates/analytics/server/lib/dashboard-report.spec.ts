@@ -100,6 +100,9 @@ function createBrowser(
     waitForFails?: boolean;
     gotoError?: Error;
     captureBox?: { width: number; height: number };
+    /** The diagnostics responsiveness probe (`page.evaluate("1")`) never resolves. */
+    unresponsive?: boolean;
+    pageUrl?: string;
   } = {},
 ) {
   const captureBox = options.captureBox ?? { width: 960, height: 1200 };
@@ -113,6 +116,7 @@ function createBrowser(
     scrollIntoViewIfNeeded: vi.fn(async () => {}),
     screenshot: vi.fn(async () => Buffer.from("png")),
   };
+  const addCookies = vi.fn(async () => {});
   const page = {
     setDefaultTimeout: vi.fn(),
     emulateMedia: vi.fn(async () => {}),
@@ -122,15 +126,26 @@ function createBrowser(
     }),
     locator: vi.fn(() => locator),
     waitForFunction: vi.fn(async () => {}),
-    evaluate: vi.fn(async () => {}),
+    evaluate: vi.fn(async (script: string) => {
+      if (options.unresponsive) return new Promise(() => {});
+      if (typeof script === "string" && script.includes("document.title")) {
+        return { title: "Mock Dashboard", bodyText: "Loading forever" };
+      }
+      return undefined;
+    }),
     waitForTimeout: vi.fn(async () => {}),
     setViewportSize: vi.fn(async () => {}),
+    url: vi.fn(
+      () => options.pageUrl ?? "https://analytics.example.test/dashboards/example",
+    ),
+    on: vi.fn(),
+    context: vi.fn(() => ({ addCookies })),
   };
   const browser = {
     newPage: vi.fn(async () => page),
     close: vi.fn(async () => {}),
   };
-  return { browser, page, locator };
+  return { browser, page, locator, addCookies };
 }
 
 describe("dashboard report email", () => {
