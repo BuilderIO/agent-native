@@ -1,0 +1,2 @@
+# Known fake Builder test fixture inherited in PR diff context.
+/authorization:\s*"Bearer example-cms-private-(?:key)"/
