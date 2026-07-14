@@ -1,4 +1,5 @@
 import {
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   useAgentRouteState,
   getBrowserTabId,
@@ -190,7 +191,8 @@ export function useNavigationState() {
     onNavigate: (_command, path) => {
       if (
         isCreatePath(location.pathname) &&
-        !isCreatePath(pathnameFromPath(path))
+        !isCreatePath(pathnameFromPath(path)) &&
+        isAgentChatHomeHandoffActive(ASSETS_CHAT_STORAGE_KEY)
       ) {
         markAgentChatHomeHandoff(ASSETS_CHAT_STORAGE_KEY);
       }

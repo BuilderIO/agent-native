@@ -74,6 +74,8 @@ import {
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
 const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 1_500;
 const DEFERRED_RESPONSE_MAX_HANDLER_MS = 2_500;
+const EMPTY_INTEGRATION_RESPONSE_MESSAGE =
+  "The model finished without a visible answer. Try again, or open the thread in Dispatch to inspect the run.";
 
 type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
 
@@ -972,7 +974,7 @@ async function processIncomingMessage(
                 "If it was a complex analytics question, opening the analytics app " +
                 "directly is the most reliable way to get an answer right now.";
             } else {
-              responseText = "(No response)";
+              responseText = EMPTY_INTEGRATION_RESPONSE_MESSAGE;
             }
           }
           if (approval?.type === "approval_required") {
@@ -995,7 +997,7 @@ async function processIncomingMessage(
           }
           const threadDeepLinkUrl =
             appBaseUrl && threadId
-              ? `${appBaseUrl}/?thread=${threadId}`
+              ? `${appBaseUrl}/chat/${encodeURIComponent(threadId)}`
               : undefined;
 
           // Format and send back to platform — update the "thinking…"

@@ -239,6 +239,17 @@ export default function CodeAgentsHub({
         }
         return api.openTerminal(request);
       },
+      async openCodexLogin() {
+        const api = window.electronAPI?.codeAgents;
+        if (!api?.openCodexLogin) {
+          return {
+            ok: false,
+            cwd: "",
+            error: "Desktop bridge is not available.",
+          };
+        }
+        return api.openCodexLogin();
+      },
       async getRemoteConnectorStatus() {
         const api = window.electronAPI?.codeAgents;
         if (!api?.getRemoteConnectorStatus) {

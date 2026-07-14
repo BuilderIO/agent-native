@@ -154,6 +154,8 @@ export interface PromptComposerProps {
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;
+  /** Called when a local runtime needs its native sign-in/setup flow. */
+  onConnectLocalRuntime?: (engine: string) => void;
   /** Imperative handle for focusing the composer. */
   composerRef?: Ref<TiptapComposerHandle>;
 }
@@ -474,6 +476,7 @@ function PromptComposerInner({
   modelStatusChecksEnabled,
   onTextChange,
   onConnectProvider,
+  onConnectLocalRuntime,
   composerRef,
 }: PromptComposerProps) {
   const localRef = useRef<TiptapComposerHandle>(null);
@@ -656,6 +659,7 @@ function PromptComposerInner({
           onEffortChange={handleEffortChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}
           onConnectProvider={onConnectProvider}
+          onConnectLocalRuntime={onConnectLocalRuntime}
         />
       </AgentComposerFrame>
     </>

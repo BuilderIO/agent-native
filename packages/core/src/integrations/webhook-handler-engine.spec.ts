@@ -164,7 +164,13 @@ vi.mock("../agent/run-manager.js", () => ({
   ),
 }));
 
-function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
+function createAdapter(
+  sendResponse = vi.fn(),
+  formatAgentResponse: PlatformAdapter["formatAgentResponse"] = (text) => ({
+    text,
+    platformContext: {},
+  }),
+): PlatformAdapter {
   return {
     platform: "fake",
     label: "Fake",
@@ -173,7 +179,7 @@ function createAdapter(sendResponse = vi.fn()): PlatformAdapter {
     verifyWebhook: async () => true,
     parseIncomingMessage: async () => null,
     sendResponse,
-    formatAgentResponse: (text) => ({ text, platformContext: {} }),
+    formatAgentResponse,
     getStatus: async () => ({
       platform: "fake",
       label: "Fake",
@@ -1406,7 +1412,7 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse.mock.calls[0][0].text).not.toContain("design-empty");
   });
 
-  it("does not fall back to unmarked A2A tool URLs when no final text is emitted", async () => {
+  it("surfaces a useful fallback when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const sendResponse = vi.fn();
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
@@ -1433,12 +1439,64 @@ describe("integration webhook handler engine resolution", () => {
 
     expect(sendResponse).toHaveBeenCalledWith(
       expect.objectContaining({
-        text: "(No response)",
+        text: expect.stringContaining(
+          "The model finished without a visible answer",
+        ),
       }),
       expect.any(Object),
       expect.objectContaining({ placeholderRef: undefined }),
     );
     expect(sendResponse.mock.calls[0][0].text).not.toContain("deck-guessed");
+  });
+
+  it("links Slack-style replies directly to the Dispatch chat thread", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const previousAppUrl = process.env.APP_URL;
+    const previousAppBasePath = process.env.APP_BASE_PATH;
+    process.env.APP_URL = "https://agent-workspace.builder.io";
+    process.env.APP_BASE_PATH = "/dispatch";
+    const sendResponse = vi.fn();
+    const formatAgentResponse = vi.fn(
+      (text: string, opts?: { threadDeepLinkUrl?: string }) => ({
+        text,
+        platformContext: opts ?? {},
+      }),
+    );
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "text", text: "I found the issue." });
+    });
+
+    try {
+      await processIntegrationTask(pendingTask({ id: "task-direct-thread" }), {
+        adapter: createAdapter(sendResponse, formatAgentResponse),
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      });
+    } finally {
+      if (previousAppUrl === undefined) {
+        delete process.env.APP_URL;
+      } else {
+        process.env.APP_URL = previousAppUrl;
+      }
+      if (previousAppBasePath === undefined) {
+        delete process.env.APP_BASE_PATH;
+      } else {
+        process.env.APP_BASE_PATH = previousAppBasePath;
+      }
+    }
+
+    expect(formatAgentResponse).toHaveBeenCalledWith("I found the issue.", {
+      threadDeepLinkUrl:
+        "https://agent-workspace.builder.io/dispatch/chat/thread-qa",
+    });
+    expect(sendResponse).toHaveBeenCalledWith(
+      expect.objectContaining({ text: "I found the issue." }),
+      expect.any(Object),
+      expect.objectContaining({ placeholderRef: undefined }),
+    );
   });
 
   it("does not send hallucinated local design URLs to Slack-style integrations", async () => {
