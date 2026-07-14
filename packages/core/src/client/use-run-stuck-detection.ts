@@ -129,11 +129,25 @@ export function useRunStuckDetection({
     let timer: ReturnType<typeof setTimeout> | null = null;
     let heartbeatExpiryTimer: ReturnType<typeof setTimeout> | null = null;
 
-    const scheduleHeartbeatExpiry = (
-      runId: string | null,
-      heartbeatAt: number | null,
-      heartbeatSinceMs: number | null,
-    ) => {
+    const scheduleHeartbeatExpiry = ({
+      active,
+      runId,
+      status,
+      lastProgressAt,
+      stuckSinceMs,
+      heartbeatAt,
+      heartbeatSinceMs,
+      dispatchMode,
+    }: {
+      active: boolean;
+      runId: string | null;
+      status: string | null;
+      lastProgressAt: number | null;
+      stuckSinceMs: number | null;
+      heartbeatAt: number | null;
+      heartbeatSinceMs: number | null;
+      dispatchMode: string | null;
+    }) => {
       if (heartbeatExpiryTimer) clearTimeout(heartbeatExpiryTimer);
       heartbeatExpiryTimer = null;
       if (
@@ -151,12 +165,42 @@ export function useRunStuckDetection({
       // failing follow-up poll cannot claim the worker is alive forever and
       // indefinitely hide Retry. Comparing a duration is safe from client/server
       // clock skew; a later successful poll replaces this timer with fresh data.
+      const observedAtMs = Date.now();
       const expiresInMs = FRESH_BACKGROUND_HEARTBEAT_MS - heartbeatSinceMs + 1;
       heartbeatExpiryTimer = setTimeout(() => {
         if (cancelled) return;
+        const elapsedSinceObservationMs = Math.max(
+          0,
+          Date.now() - observedAtMs,
+        );
+        const nextHeartbeatSinceMs =
+          heartbeatSinceMs + elapsedSinceObservationMs;
+        const nextStuckSinceMs =
+          stuckSinceMs == null
+            ? null
+            : stuckSinceMs + elapsedSinceObservationMs;
+        const liveBackgroundWorker =
+          dispatchMode === "background-processing" &&
+          nextHeartbeatSinceMs >= 0 &&
+          nextHeartbeatSinceMs < FRESH_BACKGROUND_HEARTBEAT_MS;
+        const serverContinued =
+          dispatchMode === "foreground-self-chain" ||
+          dispatchMode?.startsWith("background") === true;
+        const effectiveThresholdMs = liveBackgroundWorker
+          ? Math.min(backgroundStuckThresholdMs, liveBackgroundStuckThresholdMs)
+          : serverContinued
+            ? backgroundStuckThresholdMs
+            : stuckThresholdMs;
+        const nextIsStuck = Boolean(
+          active &&
+          status === "running" &&
+          nextStuckSinceMs != null &&
+          nextStuckSinceMs > effectiveThresholdMs,
+        );
         setState((current) => {
           if (
             current.runId !== runId ||
+            current.lastProgressAt !== lastProgressAt ||
             current.heartbeatAt !== heartbeatAt ||
             current.heartbeatSinceMs == null ||
             current.heartbeatSinceMs >= FRESH_BACKGROUND_HEARTBEAT_MS
@@ -165,7 +209,9 @@ export function useRunStuckDetection({
           }
           return {
             ...current,
-            heartbeatSinceMs: FRESH_BACKGROUND_HEARTBEAT_MS,
+            isStuck: nextIsStuck,
+            stuckSinceMs: nextStuckSinceMs,
+            heartbeatSinceMs: nextHeartbeatSinceMs,
           };
         });
       }, expiresInMs);
@@ -227,11 +273,16 @@ export function useRunStuckDetection({
             stuckSinceMs != null &&
             stuckSinceMs > effectiveThresholdMs,
           );
-          scheduleHeartbeatExpiry(
-            data.runId ?? null,
+          scheduleHeartbeatExpiry({
+            active: data.active,
+            runId: data.runId ?? null,
+            status: data.status ?? null,
+            lastProgressAt,
+            stuckSinceMs,
             heartbeatAt,
             heartbeatSinceMs,
-          );
+            dispatchMode,
+          });
           setState({
             isStuck,
             runId: data.runId ?? null,

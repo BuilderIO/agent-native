@@ -4,6 +4,17 @@ const mockMkdir = vi.hoisted(() => vi.fn(async () => undefined));
 const mockWriteFile = vi.hoisted(() => vi.fn(async () => undefined));
 const mockIsHostedSlidesRuntime = vi.hoisted(() => vi.fn(() => false));
 const mockStoreUploadedReferenceBlob = vi.hoisted(() => vi.fn());
+const mockReadMultipartFormData = vi.hoisted(() => vi.fn());
+const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockResolveSlidesRequestAuthContext = vi.hoisted(() => vi.fn());
+const mockWithSlidesRequestContext = vi.hoisted(() => vi.fn());
+
+vi.mock("h3", () => ({
+  defineEventHandler: (handler: unknown) => handler,
+  readMultipartFormData: (...args: unknown[]) =>
+    mockReadMultipartFormData(...args),
+  setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
+}));
 
 vi.mock("fs", () => ({
   default: {
@@ -29,11 +40,19 @@ vi.mock("./assets.js", () => ({
   uploadImageAsset: vi.fn(),
 }));
 
+vi.mock("./request-auth-context.js", () => ({
+  resolveSlidesRequestAuthContext: (...args: unknown[]) =>
+    mockResolveSlidesRequestAuthContext(...args),
+  withSlidesRequestContext: (...args: unknown[]) =>
+    mockWithSlidesRequestContext(...args),
+}));
+
 import {
   MAX_FIG_REFERENCE_FILE_BYTES,
   MAX_REFERENCE_FILE_BYTES,
   maxReferenceFileBytes,
   saveUploadedReferenceFile,
+  uploadFiles,
 } from "./uploads";
 
 describe("Slides reference upload limits", () => {
@@ -42,6 +61,19 @@ describe("Slides reference upload limits", () => {
     mockWriteFile.mockClear();
     mockIsHostedSlidesRuntime.mockReturnValue(false);
     mockStoreUploadedReferenceBlob.mockReset();
+    mockReadMultipartFormData.mockReset();
+    mockSetResponseStatus.mockReset();
+    mockResolveSlidesRequestAuthContext.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "active-org",
+    });
+    mockWithSlidesRequestContext.mockImplementation(
+      async (
+        _event: unknown,
+        callback: (context: { email?: string; orgId?: string }) => unknown,
+        context: { email?: string; orgId?: string },
+      ) => callback(context),
+    );
   });
 
   it("allows larger .fig files than ordinary references", () => {
@@ -119,6 +151,40 @@ describe("Slides reference upload limits", () => {
         "application/vnd.openxmlformats-officedocument.presentationml.presentation",
     });
     expect(mockWriteFile).not.toHaveBeenCalled();
+  });
+
+  it("uses the live active organization when the upload route saves files", async () => {
+    mockIsHostedSlidesRuntime.mockReturnValue(true);
+    mockStoreUploadedReferenceBlob.mockResolvedValue(
+      "slides-upload:v1:scoped-handle",
+    );
+    const pptx = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
+    mockReadMultipartFormData.mockResolvedValue([
+      {
+        name: "files",
+        filename: "deck.pptx",
+        type: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+        data: pptx,
+      },
+    ]);
+    const event = {} as any;
+
+    await expect(uploadFiles(event)).resolves.toEqual([
+      expect.objectContaining({ path: "slides-upload:v1:scoped-handle" }),
+    ]);
+
+    expect(mockResolveSlidesRequestAuthContext).toHaveBeenCalledWith(event);
+    expect(mockWithSlidesRequestContext).toHaveBeenCalledWith(
+      event,
+      expect.any(Function),
+      { email: "owner@example.com", orgId: "active-org" },
+    );
+    expect(mockStoreUploadedReferenceBlob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        email: "owner@example.com",
+        orgId: "active-org",
+      }),
+    );
   });
 
   it("fails closed when hosted private file storage is unavailable", async () => {

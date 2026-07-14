@@ -192,7 +192,7 @@ describe("RunStuckBanner", () => {
     expect(container.textContent).not.toContain("Retry");
   });
 
-  it("restores Retry when a fresh heartbeat expires during failed polls", async () => {
+  it("recomputes stuck state when a fresh heartbeat expires during failed polls", async () => {
     let activePollCount = 0;
     const fetchSpy = vi.fn(async (url: string) => {
       if (url.includes("/runs/active")) {
@@ -204,7 +204,8 @@ describe("RunStuckBanner", () => {
           status: "running",
           dispatchMode: "background-processing",
           heartbeatAt: 295_000,
-          lastProgressAt: 10_000,
+          // Just below the 180s background threshold at observation time.
+          lastProgressAt: 121_000,
           serverNow: 300_000,
         });
       }
@@ -219,8 +220,7 @@ describe("RunStuckBanner", () => {
       await vi.advanceTimersByTimeAsync(2_000);
     });
 
-    expect(container.textContent).toContain("The agent is still working.");
-    expect(container.textContent).not.toContain("Retry");
+    expect(container.textContent).toBe("");
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(25_001);
@@ -229,6 +229,7 @@ describe("RunStuckBanner", () => {
     expect(activePollCount).toBeGreaterThan(1);
     expect(container.textContent).toContain("This chat looks stuck.");
     expect(container.textContent).toContain("Retry");
+    expect(container.textContent).toContain("Cancel");
   });
 
   it("allows the live-worker threshold to request an earlier notice", async () => {
