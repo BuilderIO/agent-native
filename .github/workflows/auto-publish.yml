@@ -28,6 +28,7 @@ on:
       - "packages/core/**"
       - "packages/dispatch/**"
       - "packages/pinpoint/**"
+      - "packages/recap-cli/**"
       - "packages/scheduling/**"
       - "packages/skills/**"
       - "packages/toolkit/**"
