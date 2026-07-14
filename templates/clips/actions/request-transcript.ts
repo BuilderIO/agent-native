@@ -43,7 +43,9 @@ import { readAppSecret } from "@agent-native/core/secrets";
 import { resolveHasBuilderPrivateKey } from "@agent-native/core/server";
 import {
   getRequestUserEmail,
+  getRequestOrgId,
   getCredentialContext,
+  runWithRequestContext,
 } from "@agent-native/core/server/request-context";
 import { getSetting, getUserSetting } from "@agent-native/core/settings";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -1220,7 +1222,37 @@ const requestTranscriptAction = defineAction({
     // Builder via OAuth (per-user app_secrets) OR when BUILDER_PRIVATE_KEY
     // is set at the deployment level. Use the per-user-aware resolver so
     // a sidebar OAuth connection actually wires through to transcription.
-    if (await resolveHasBuilderPrivateKey()) {
+    //
+    // Builder Connect stores its credentials org-scoped, so a caller
+    // without org context (agent CLI, scripts) would miss them and wrongly
+    // report "no backup transcription provider configured" while in-app
+    // requests work. Resolve credentials inside the recording's own
+    // owner/org scope whenever the caller lacks an org.
+    const [credentialScopeRow] = await db
+      .select({
+        ownerEmail: schema.recordings.ownerEmail,
+        orgId: schema.recordings.orgId,
+      })
+      .from(schema.recordings)
+      .where(eq(schema.recordings.id, args.recordingId))
+      .limit(1);
+    const inRecordingScope = <T>(fn: () => Promise<T>): Promise<T> => {
+      if (getRequestOrgId() || !credentialScopeRow) return fn();
+      return Promise.resolve(
+        runWithRequestContext(
+          {
+            userEmail:
+              getRequestUserEmail() ??
+              credentialScopeRow.ownerEmail ??
+              undefined,
+            orgId: credentialScopeRow.orgId ?? undefined,
+          },
+          fn,
+        ),
+      );
+    };
+
+    if (await inRecordingScope(() => resolveHasBuilderPrivateKey())) {
       if (!regeneratingReadyTranscript) {
         await upsertTranscriptRow(db, {
           recordingId: args.recordingId,
@@ -1291,13 +1323,15 @@ const requestTranscriptAction = defineAction({
 
       try {
         const startedAt = Date.now();
-        const builderResult = await transcribeWithBuilderModelFallback({
-          audioBytes: audioMedia.audioBytes,
-          mimeType: audioMedia.mimeType,
-          diarize: false,
-          instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
-          timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
-        });
+        const builderResult = await inRecordingScope(() =>
+          transcribeWithBuilderModelFallback({
+            audioBytes: audioMedia.audioBytes,
+            mimeType: audioMedia.mimeType,
+            diarize: false,
+            instructions: SPEECH_ONLY_TRANSCRIPTION_INSTRUCTIONS,
+            timeoutMs: builderTranscriptionTimeoutMs(rec.durationMs),
+          }),
+        );
 
         const segments = (builderResult.segments ?? [])
           .map((s) => ({
@@ -1424,7 +1458,7 @@ const requestTranscriptAction = defineAction({
     // key is configured but a native transcript already exists
     // (from Web Speech API or macOS Speech during recording), preserve it instead of
     // clobbering it with "pending" then "failed".
-    const provider = await pickProvider(userEmail);
+    const provider = await inRecordingScope(() => pickProvider(userEmail));
     if (!provider) {
       const preserved = await preserveReadyTranscriptIfAvailable({
         db,
