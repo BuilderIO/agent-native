@@ -5,6 +5,7 @@ import {
   reorderCustomFields,
   requireUserEmail,
 } from "../server/custom-fields/store.js";
+import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
 export default defineAction({
   description:
@@ -13,6 +14,7 @@ export default defineAction({
     fieldIds: z
       .array(z.string())
       .min(1)
+      .max(BULK_ID_LIMIT)
       .describe("Field ids in the desired order from top to bottom."),
   }),
   run: async (args, ctx) => {

@@ -5,6 +5,7 @@ import {
   bulkDeleteInboxItems,
   requireUserEmail,
 } from "../server/inbox/store.js";
+import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
 export default defineAction({
   description:
@@ -13,6 +14,7 @@ export default defineAction({
     inboxItemIds: z
       .array(z.string())
       .min(1)
+      .max(BULK_ID_LIMIT)
       .describe("Inbox item ids to delete"),
   }),
   run: async (args, ctx) => {
