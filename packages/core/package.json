@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.100.2",
+  "version": "0.101.0",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -156,6 +156,7 @@
     "./review/actions/consume-review-feedback": "./dist/review/actions/consume-review-feedback.js",
     "./review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
+    "./review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
     "./comments-review/actions/list-review-comments": "./dist/review/actions/list-review-comments.js",
     "./comments-review/actions/create-review-comment": "./dist/review/actions/create-review-comment.js",
     "./comments-review/actions/reply-review-comment": "./dist/review/actions/reply-review-comment.js",
@@ -164,6 +165,7 @@
     "./comments-review/actions/consume-review-feedback": "./dist/review/actions/consume-review-feedback.js",
     "./comments-review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./comments-review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
+    "./comments-review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
     "./sharing": "./dist/sharing/index.js",
     "./sharing/actions/share-resource": "./dist/sharing/actions/share-resource.js",
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",

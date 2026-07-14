@@ -864,6 +864,7 @@ export {
   type VersionHistoryPanelProps,
 } from "./history/index.js";
 export {
+  ReviewCommentComposer,
   ReviewStatusBadge,
   ReviewThreadPanel,
   buildReviewThreads,
@@ -874,6 +875,7 @@ export {
   useResolveReviewThread,
   useReviewComments,
   useReviewFeedback,
+  useSendReviewThreadToAgent,
   useSetReviewStatus,
   type ConsumeReviewFeedbackInput,
   type CreateReviewCommentInput,
@@ -885,9 +887,11 @@ export {
   type ReplyReviewCommentInput,
   type ResolveReviewThreadInput,
   type ReviewStatusBadgeProps,
+  type ReviewCommentComposerProps,
   type ReviewThread,
   type ReviewThreadPanelProps,
   type SetReviewStatusInput,
+  type SendReviewThreadToAgentInput,
 } from "./review/index.js";
 export type {
   AppToFrameMessage,

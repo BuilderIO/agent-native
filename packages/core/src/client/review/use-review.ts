@@ -20,6 +20,10 @@ export interface ListReviewCommentsParams {
 export interface ListReviewCommentsResult {
   comments: ReviewComment[];
   reviewStatus: ReviewStatusEntry | null;
+  summary: {
+    openCount: number;
+    agentQueueCount: number;
+  };
 }
 
 export interface GetReviewFeedbackParams {
@@ -62,6 +66,7 @@ export interface ResolveReviewThreadInput {
   resourceId: string;
   threadId?: string;
   commentId?: string;
+  resolutionNote?: string;
 }
 
 export interface DeleteReviewCommentInput {
@@ -74,6 +79,12 @@ export interface ConsumeReviewFeedbackInput {
   resourceType: string;
   resourceId: string;
   commentIds: string[];
+}
+
+export interface SendReviewThreadToAgentInput {
+  resourceType: string;
+  resourceId: string;
+  threadId: string;
 }
 
 export interface SetReviewStatusInput {
@@ -126,7 +137,13 @@ export function useReplyReviewComment() {
 
 export function useResolveReviewThread() {
   return useActionMutation<
-    { threadId: string; resolved: true; updatedCount: number },
+    {
+      threadId: string;
+      resolved: true;
+      updatedCount: number;
+      resolutionNote: string | null;
+      comment: ReviewComment;
+    },
     ResolveReviewThreadInput
   >("resolve-review-thread");
 }
@@ -143,6 +160,23 @@ export function useConsumeReviewFeedback() {
     { consumedCommentIds: string[]; updatedCount: number },
     ConsumeReviewFeedbackInput
   >("consume-review-feedback");
+}
+
+export function useSendReviewThreadToAgent() {
+  return useActionMutation<
+    {
+      resourceType: string;
+      resourceId: string;
+      threadId: string;
+      resolutionTarget: "agent";
+      consumedAt: null;
+      updatedCount: number;
+      ownerEmail: string | null;
+      orgId: string | null;
+      visibility: "private" | "org" | "public";
+    },
+    SendReviewThreadToAgentInput
+  >("send-review-thread-to-agent");
 }
 
 export function useSetReviewStatus() {

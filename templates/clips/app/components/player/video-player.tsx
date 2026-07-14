@@ -28,6 +28,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { useMseVideoSource } from "@/hooks/use-mse-video-source";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -364,6 +365,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       () => videoSourceIdentity(resolvedVideoSrc),
       [resolvedVideoSrc],
     );
+
+    // Media Source Extensions path for raw fragmented-MP4 recordings (desktop
+    // live-stream uploads). Those files declare no up-front duration, so the
+    // native progressive pipeline scans the whole file before it can play from
+    // a CDN. When the asset sniffs as fragmented, `mse.mode === "mse"` and we
+    // hand the element a MediaSource object URL instead of the raw URL, with the
+    // duration supplied from the DB. Everything else (classic MP4, WebM, Loom,
+    // browsers without MediaSource) stays on the native `<video src>` path,
+    // byte-for-byte unchanged.
+    const mse = useMseVideoSource({
+      videoRef,
+      sourceUrl: resolvedVideoSrc,
+      durationMs,
+      videoFormat,
+      disabled: isLoomEmbed || unsupportedFormat,
+    });
+    const mseActive = mse.mode === "mse" && Boolean(mse.objectUrl);
+    // The URL actually put on the <video> element: the MediaSource object URL
+    // while MSE drives playback, nothing while we're still sniffing an eligible
+    // asset (so the browser never starts the slow native scan), otherwise the
+    // normal resolved/cache-busted source.
+    const domVideoSrc = mseActive
+      ? mse.objectUrl
+      : mse.mode === "pending"
+        ? undefined
+        : activeVideoSrc;
 
     useEffect(() => {
       if (!resolvedVideoSrc) {
@@ -1164,7 +1191,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         ) : activeVideoSrc ? (
           <video
             ref={videoRef}
-            src={activeVideoSrc}
+            src={domVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
             // `crossOrigin` is only needed so the owner's canvas thumbnail
             // capture isn't tainted. For everyone else (viewers, and the Slack
@@ -1327,6 +1354,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onError={(e) => {
               playAttemptPendingRef.current = false;
               setIsPlayPending(false);
+
+              // If the MSE pipeline surfaced a media error, tear it down and let
+              // the native <video src> path take over the raw asset URL instead
+              // of running the cache-bust retry against a MediaSource blob URL.
+              if (mseActive) {
+                mse.fallbackToNative();
+                setIsBuffering(false);
+                setIsPreparing(true);
+                setCanPlay(false);
+                return;
+              }
 
               // Most "format not supported" / decode errors reported here are
               // transient — e.g. the share page's video element started

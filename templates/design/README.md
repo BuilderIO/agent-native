@@ -18,6 +18,7 @@ prompts and visual tweak controls.
 - Save and reuse design-system preferences to stay on-brand.
 - Import existing HTML or reference material as context.
 - Export real files: HTML, ZIP, or PDF.
+- Share prototypes with element-anchored review comments and apply verified feedback through the agent.
 
 ## Develop locally
 

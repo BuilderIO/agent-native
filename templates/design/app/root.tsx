@@ -33,10 +33,14 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
+import { isPublicDesignAppPath } from "./public-routes";
 
 import stylesheet from "./global.css?url";
 
 configureTracking({
+  llmConnectionStatus:
+    typeof window === "undefined" ||
+    !isPublicDesignAppPath(window.location.pathname),
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "design",
@@ -182,16 +186,13 @@ function RootContent() {
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   const location = useLocation();
-  const sessionBypass =
-    location.pathname === "/visual-edit" ||
-    location.pathname === "/design" ||
-    location.pathname.startsWith("/design/");
+  const isPublicPath = isPublicDesignAppPath(location.pathname);
   return (
     <AppToolkitProvider>
       <AppProviders
         queryClient={queryClient}
-        sessionBypass={sessionBypass}
-        i18n={{ catalog: i18nCatalog }}
+        isPublicPath={isPublicPath}
+        i18n={{ catalog: i18nCatalog, persistPreference: !isPublicPath }}
       >
         <RootContent />
       </AppProviders>
