@@ -509,6 +509,29 @@ export function computeIframeLocalCanvasPoint(args: {
   };
 }
 
+export function resolveScreenDropPoint(args: {
+  clientX: number;
+  clientY: number;
+  screenId: string | null | undefined;
+  iframeRect:
+    | { left: number; top: number; right: number; bottom: number }
+    | null
+    | undefined;
+  zoomPercent: number;
+}): { screenId: string; x: number; y: number } | null {
+  if (!args.screenId || !args.iframeRect) return null;
+  if (
+    args.clientX < args.iframeRect.left ||
+    args.iframeRect.right < args.clientX ||
+    args.clientY < args.iframeRect.top ||
+    args.iframeRect.bottom < args.clientY
+  ) {
+    return null;
+  }
+  const point = computeIframeLocalCanvasPoint(args);
+  return point ? { screenId: args.screenId, ...point } : null;
+}
+
 /**
  * Reads MultiScreenCanvas's live imperative zoom from the exact inline
  * transform written by `applyViewToDom` while a wheel/pinch gesture is still

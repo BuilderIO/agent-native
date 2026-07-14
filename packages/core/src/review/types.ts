@@ -75,6 +75,10 @@ export interface ReviewComment {
   createdAt: string;
   updatedAt: string;
   metadata: Record<string, unknown> | null;
+  /** Persisted on the root comment's metadata when a thread is resolved. */
+  resolutionNote?: string | null;
+  /** Caller-specific capability computed by list-review-comments. */
+  canDelete?: boolean;
 }
 
 export interface ReviewStatusEntry {

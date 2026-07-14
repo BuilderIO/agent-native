@@ -214,6 +214,13 @@ Wenn es im ersten Durchgang noch verantwortbare Entscheidungen gibt, kann der Ag
 Formular **Offene Fragen** am Ende desselben Plans. Beantworten und senden
 Es wird dem Agenten eine Revisionsrunde gegen den bestehenden Plan eingeleitet.
 
+## Kosten und Modellwahl
+
+Das Erstellen eines Plans oder einer Zusammenfassung führt eine vollständige agentische Sitzung mit dem LLM Ihres Coding-Agenten aus, keine leichtgewichtige Vorlagenbefüllung – die Kosten skalieren daher mit der Größe des Diffs oder Plans und dem gewählten Modell.
+
+- Das eigene Standard-Chat-Modell der App ist Sonnet 5; ändern Sie es jederzeit in den **Einstellungen**. Haiku ist die günstigere Claude-Option, und Luna ist die günstigere Option in der GPT-5.6-Familie.
+- Automatisierte PR-Zusammenfassungen aus der GitHub Action laufen getrennt von der interaktiven App und haben eigene Regler für Modell und Kosten – siehe [PR Visual Recap](/docs/pr-visual-recap) für `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT` und `VISUAL_RECAP_REASONING`.
+
 ## Was Sie damit machen können
 
 - **Überprüfung vor der Implementierung.** React zu Diagrammen, Wireframes, Optionsregisterkarten,

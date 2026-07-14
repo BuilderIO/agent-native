@@ -160,11 +160,29 @@ npx @agent-native/recap-cli@latest recap doctor
 
 バックエンドを超えて、2 つのリポジトリ変数がエージェントの実行方法を調整します。
 
-- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.6-sol`、または Claude モデル ID です。 CLI 独自のデフォルト モデルを使用するには、未設定のままにしておきます。
+- **`VISUAL_RECAP_MODEL`** は、CLI (`--model`) に渡されるモデルを固定します。たとえば、Codex の場合は `gpt-5.6-luna`、Claude モデル ID、または DeepSeek の場合は `deepseek-chat` です。`openai-compatible` では必須です。**Claude** バックエンドの場合、未設定のままにすると現在は `claude-sonnet-5` がデフォルトになります。別の Claude モデル(より安価な `claude-haiku-4-5` など)を使用するには、変数を明示的に設定してください。**Codex** バックエンドの場合、未設定のままにすると Codex CLI 自身のデフォルト モデルが使用されます。
 - **`VISUAL_RECAP_REASONING`** は推論の深さを設定します: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。これは Codex バックエンドに適用されます。 Claude の推論はモデル駆動型であるため、この変数は無視されます。
 - **`VISUAL_RECAP_SKILL_SOURCE`** はプロンプトの鮮度を制御します。`auto`/unset は最新のバンドルされたスキル ガイダンスを使用しますが、`repo` はコミットされたリポジトリのローカル `visual-recap` スキル フォルダーに固定されます。
 
 たとえば、GPT-5.6 Sol を使用して Codex の要約を高度な推論で実行するには、リポジトリ変数 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.6-sol`、および `VISUAL_RECAP_REASONING=high` を設定します。
+
+## コスト
+
+各要約の実行は、安価なテンプレート要約ではなく実際の差分を読み取るフルエージェント型のコーディング エージェント セッションです。そのため、コストはモデルの選択と実行頻度によって変わります:
+
+- **PR プッシュごとにフル セッション。** デフォルトのトリガーは `synchronize` で発火するため、10 回プッシュされた PR はエージェントを 10 回実行します。
+- **毎回 PR 全体**を対象とし、前回の実行以降のコミットだけではありません — コストは差分の増分サイズではなく、PR 全体のサイズに応じて変わります。
+- **差分の入力は約 600KB に制限されます。** これにより 1 回の実行あたりの最悪ケースは抑えられますが、大きな差分は小さな差分よりも実質的にコストがかかります。
+- **失敗時の自動リトライは 1 回**あり、一時的に失敗した実行のコストをおおよそ倍増させる可能性があります。
+
+コストを削減するには:
+
+- **より安価なモデルを固定します。** Claude の場合、シンプルまたは小規模なリポジトリには `VISUAL_RECAP_MODEL=claude-haiku-4-5` を設定してください — 最も安価な Claude ティアです。`claude-sonnet-5` (デフォルト) はバランス型のティアです。
+- **より安価なモデルで Codex に切り替えます。** `VISUAL_RECAP_AGENT=codex` と `VISUAL_RECAP_MODEL=gpt-5.6-luna` (最も安価な GPT-5.6 ティア) または `gpt-5.6-terra` (中間ティア) を設定し、推論トークンの消費をさらに削減するには `VISUAL_RECAP_REASONING=low` を設定してください。推論の深さは Codex にのみ適用されます。
+- **より安価な OpenAI 互換プロバイダーを指定します。** `VISUAL_RECAP_AGENT=openai-compatible` を、DeepSeek、Kimi、またはその他の OpenAI 互換エンドポイントを対象とする `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` とともに設定してください。
+- **要約の頻度を減らします。** インストール済みワークフローの `on.pull_request.types` を `[opened, synchronize, reopened, ready_for_review, closed]` から `[opened, ready_for_review, closed]` に編集すると、プッシュのたびにではなく、PR が開かれたときとマージされたときにのみ要約されるようになります。
+
+各実行は実際に消費した内容を記録します。ワークフローの `recap usage` ステップが、公開されたプランにトークンとコストの使用状況を添付するため、推測ではなく実際の消費量を実行ごとに確認できます。
 
 ## シークレットと変数
 
@@ -209,14 +227,14 @@ npx @agent-native/recap-cli@latest recap setup
 
 ### オプション (デフォルトを変更する場合のみ)
 
-| シークレット / 変数      | デフォルト                      | 必要なとき                                                                                                                                                                  |
-| ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | 秘密。代わりに Codex で要約を実行するには、`VISUAL_RECAP_AGENT=codex` と一緒に設定します。                                                                                  |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | 変数。コーディング エージェント バックエンド (`claude` または `codex`) を選択します。                                                                                       |
-| `VISUAL_RECAP_MODEL`     | 各 CLI のデフォルト             | 変数。モデルを固定します — 例: Codex の場合は `gpt-5.6-sol`、または Claude モデル ID。設定を解除すると、CLI 独自のデフォルトが使用されます。                                |
-| `VISUAL_RECAP_REASONING` | 各モデルのデフォルト            | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。 Codex バックエンドに適用されます。                                                           |
-| `RECAP_CLI_VERSION`      | `latest`                        | 変数。ワークフローがインストールする `@agent-native/recap-cli` CLI バージョンを固定します。 `1.5.0`。 [Version pinning](#version-pinning-copy-variant) を参照してください。 |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。プラン アプリを別のオリジンで自己ホストする場合のみ。                                                                                                                 |
+| シークレット / 変数      | デフォルト                                                 | 必要なとき                                                                                                                                                                                                                                                                                  |
+| ------------------------ | ---------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                          | 秘密。代わりに Codex で要約を実行するには、`VISUAL_RECAP_AGENT=codex` と一緒に設定します。                                                                                                                                                                                                  |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                   | 変数。コーディング エージェント バックエンド (`claude` または `codex`) を選択します。                                                                                                                                                                                                       |
+| `VISUAL_RECAP_MODEL`     | Claude の場合は `claude-sonnet-5`;互換バックエンドでは必須 | 変数。OpenAI 互換バックエンド用のプロバイダー モデル ID (そこでは必須)。Claude の場合、未設定だと現在は `claude-sonnet-5` がデフォルトです — 上書きするには設定してください。例: 最も安価なティアの `claude-haiku-4-5`。Codex の場合、未設定だと Codex CLI 自身のデフォルトが使用されます。 |
+| `VISUAL_RECAP_REASONING` | 各モデルのデフォルト                                       | 変数。推論の深さ: `none`、`minimal`、`low`、`medium`、`high`、または `xhigh`。 Codex バックエンドに適用されます。                                                                                                                                                                           |
+| `RECAP_CLI_VERSION`      | `latest`                                                   | 変数。ワークフローがインストールする `@agent-native/recap-cli` CLI バージョンを固定します。 `1.5.0`。 [Version pinning](#version-pinning-copy-variant) を参照してください。                                                                                                                 |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                            | 秘密。プラン アプリを別のオリジンで自己ホストする場合のみ。                                                                                                                                                                                                                                 |
 
 ワークフローはヘルパー CLI (このモノリポジ内のローカル ソース、他の場所で公開された `@agent-native/recap-cli`) を呼び出す方法を自動検出するため、`RECAP_CLI` 変数を設定する必要はありません。
 

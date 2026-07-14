@@ -46,6 +46,11 @@
       "path": ".agents/skills/visual-edit",
       "visibility": "both",
       "exportAs": "visual-edit"
+    },
+    {
+      "path": ".agents/skills/design-review-feedback",
+      "visibility": "both",
+      "exportAs": "design-review-feedback"
     }
   ],
   "hostAdapters": [

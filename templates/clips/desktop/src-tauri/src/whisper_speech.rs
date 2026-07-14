@@ -480,7 +480,7 @@ mod macos {
         language: Option<&str>,
     ) -> Vec<(i64, i64, String)> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(4);
+        params.set_n_threads(2);
         params.set_language(language);
         params.set_translate(false);
         params.set_no_context(true);

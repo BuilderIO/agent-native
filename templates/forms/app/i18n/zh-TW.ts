@@ -183,6 +183,9 @@ const messages = {
       anonymousResponses: "匿名回覆",
       anonymousResponsesDescription:
         "不保留 IP 位址、回覆者身分或來源中繼資料。",
+      emailNewResponses: "有新回覆時寄信通知我",
+      emailNewResponsesDescription:
+        "每當有人提交回覆時，就通知表單擁有者帳戶的電子郵件地址。",
       saveSettings: "儲存設定",
     },
     integrations: {

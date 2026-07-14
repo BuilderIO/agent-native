@@ -46,6 +46,7 @@ export async function dispatchPostFinalizeJob(args: {
   kind: PostFinalizeJobKind;
   delayMs?: number;
   retryAttempt?: number;
+  regenerate?: boolean;
 }): Promise<void> {
   const token = signScopedAgentAccessToken({
     resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,

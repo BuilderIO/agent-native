@@ -186,7 +186,7 @@ If the variable is unset, the action uses `claude`.
 
 Beyond the backend, these repository variables tune how the agent runs:
 
-- **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.6-sol` for Codex, a Claude model id, or `deepseek-chat` for DeepSeek. It is required for `openai-compatible`; Claude and Codex may leave it unset to use their CLI default.
+- **`VISUAL_RECAP_MODEL`** pins the model passed to the CLI (`--model`) — for example `gpt-5.6-luna` for Codex, a Claude model id, or `deepseek-chat` for DeepSeek. It is required for `openai-compatible`. For the **Claude** backend, leaving it unset now defaults to `claude-sonnet-5`; set the variable explicitly to use a different Claude model, such as the cheaper `claude-haiku-4-5`. For the **Codex** backend, leaving it unset uses the Codex CLI's own default model.
 - **`VISUAL_RECAP_REASONING`** sets the reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. It applies to the Codex backend; Claude's reasoning is model-driven, so this variable is ignored there.
 - **`VISUAL_RECAP_BASE_URL`** selects the HTTP(S) base URL for the `openai-compatible` backend. Use the provider's OpenAI-compatible endpoint, such as DeepSeek or Kimi, without embedding credentials in the URL.
 - **`VISUAL_RECAP_SKILL_SOURCE`** controls prompt freshness: `auto`/unset uses the latest bundled skill guidance, while `repo` pins to the committed repo-local `visual-recap` skill folder.
@@ -194,6 +194,24 @@ Beyond the backend, these repository variables tune how the agent runs:
 For example, to run the recap on Codex with GPT-5.6 Sol at high reasoning, set the repository variables `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol`, and `VISUAL_RECAP_REASONING=high`.
 
 For DeepSeek, set `VISUAL_RECAP_AGENT=openai-compatible`, `VISUAL_RECAP_BASE_URL=https://api.deepseek.com/v1`, `VISUAL_RECAP_MODEL=deepseek-chat`, and the `VISUAL_RECAP_API_KEY` secret. Kimi works the same way with its OpenAI-compatible base URL and model id. Other OpenAI-compatible providers use the same three settings.
+
+## Cost
+
+Each recap run is a full agentic coding-agent session reading a real diff, not a cheap templated summary, so its cost tracks model choice and how often it runs:
+
+- **A full session per PR push.** The default trigger fires on `synchronize`, so a PR that gets pushed to ten times runs the agent ten times.
+- **The whole PR each time**, not just the commits since the last run — cost scales with total PR size, not incremental diff size.
+- **Diff input capped at ~600KB.** This bounds the worst case per run, but large diffs still cost meaningfully more than small ones.
+- **One automatic retry on failure**, which can roughly double the cost of a run that fails transiently.
+
+To reduce cost:
+
+- **Pin a cheaper model.** For Claude, set `VISUAL_RECAP_MODEL=claude-haiku-4-5` for simple or small repos — it's the cheapest Claude tier; `claude-sonnet-5` (the default) is the balanced tier.
+- **Switch to Codex with a cheaper model.** Set `VISUAL_RECAP_AGENT=codex` with `VISUAL_RECAP_MODEL=gpt-5.6-luna` (the cheapest GPT-5.6 tier) or `gpt-5.6-terra` (mid-tier), and set `VISUAL_RECAP_REASONING=low` to cut reasoning-token spend further. Reasoning depth only applies to Codex.
+- **Point at a cheaper OpenAI-compatible provider.** Set `VISUAL_RECAP_AGENT=openai-compatible` with `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` targeting DeepSeek, Kimi, or any other OpenAI-compatible endpoint.
+- **Recap less often.** Edit the installed workflow's `on.pull_request.types` from `[opened, synchronize, reopened, ready_for_review, closed]` to `[opened, ready_for_review, closed]` so it recaps only when a PR opens and when it merges, instead of on every push.
+
+Every run records what it actually spent: the workflow's `recap usage` step attaches token and cost usage to the published plan, so you can look at real spend per run instead of guessing.
 
 ## Secrets and variables
 
@@ -238,16 +256,16 @@ real token.
 
 ### Optional (only if you change defaults)
 
-| Secret / variable        | Default                         | When you need it                                                                                                                                 |
-| ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `OPENAI_API_KEY`         | —                               | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                                                        |
-| `VISUAL_RECAP_API_KEY`   | —                               | Secret. Set with `VISUAL_RECAP_AGENT=openai-compatible` for DeepSeek, Kimi, or another OpenAI-compatible provider.                               |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variable. Selects the coding-agent backend (`claude`, `codex`, or `openai-compatible`).                                                          |
-| `VISUAL_RECAP_BASE_URL`  | required for compatible backend | Variable. HTTP(S) base URL for the OpenAI-compatible backend; credentials are rejected.                                                          |
-| `VISUAL_RECAP_MODEL`     | required for compatible backend | Variable. Provider model id for OpenAI-compatible backends; optional for Claude/Codex, where unset uses the CLI default.                         |
-| `VISUAL_RECAP_REASONING` | each model's default            | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend.                                 |
-| `RECAP_CLI_VERSION`      | `latest`                        | Variable. Pins the `@agent-native/recap-cli` version the workflow installs — e.g. `1.5.0`. See [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Secret. Only when self-hosting the Plans app at a different origin.                                                                              |
+| Secret / variable        | Default                                                       | When you need it                                                                                                                                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                             | Secret. Set together with `VISUAL_RECAP_AGENT=codex` to run the recap with Codex instead.                                                                                                                                                                |
+| `VISUAL_RECAP_API_KEY`   | —                                                             | Secret. Set with `VISUAL_RECAP_AGENT=openai-compatible` for DeepSeek, Kimi, or another OpenAI-compatible provider.                                                                                                                                       |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                      | Variable. Selects the coding-agent backend (`claude`, `codex`, or `openai-compatible`).                                                                                                                                                                  |
+| `VISUAL_RECAP_BASE_URL`  | required for compatible backend                               | Variable. HTTP(S) base URL for the OpenAI-compatible backend; credentials are rejected.                                                                                                                                                                  |
+| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` for Claude; required for compatible backend | Variable. Provider model id for OpenAI-compatible backends (required there). For Claude, unset now defaults to `claude-sonnet-5` — set it to override, e.g. `claude-haiku-4-5` for the cheapest tier. For Codex, unset uses the Codex CLI's own default. |
+| `VISUAL_RECAP_REASONING` | each model's default                                          | Variable. Reasoning depth: `none`, `minimal`, `low`, `medium`, `high`, or `xhigh`. Applies to the Codex backend.                                                                                                                                         |
+| `RECAP_CLI_VERSION`      | `latest`                                                      | Variable. Pins the `@agent-native/recap-cli` version the workflow installs — e.g. `1.5.0`. See [Version pinning](#version-pinning-copy-variant).                                                                                                         |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                               | Secret. Only when self-hosting the Plans app at a different origin.                                                                                                                                                                                      |
 
 The workflow auto-detects how to invoke its helper CLI (local source inside this monorepo, the published `@agent-native/recap-cli` elsewhere), so there is no `RECAP_CLI` variable to set.
 

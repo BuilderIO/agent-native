@@ -194,6 +194,9 @@ const messages = {
       anonymousResponses: "Anonymous responses",
       anonymousResponsesDescription:
         "Do not retain IP addresses, submitter identity, or source metadata.",
+      emailNewResponses: "Email me for new responses",
+      emailNewResponsesDescription:
+        "Send a notification to the form owner's account email whenever someone submits a response.",
       saveSettings: "Save Settings",
     },
     integrations: {

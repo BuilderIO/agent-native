@@ -1,6 +1,7 @@
-import { AgentTabsPage, useT } from "@agent-native/core/client";
+import * as AgentClient from "@agent-native/core/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 
+import { resolveAgentPageComponent } from "@/lib/agent-page";
 import { APP_TITLE } from "@/lib/app-config";
 
 export function meta() {
@@ -8,8 +9,9 @@ export function meta() {
 }
 
 export default function AgentRoute() {
-  const t = useT();
+  const t = AgentClient.useT();
   useSetPageTitle(t("settings.agentTitle"));
 
-  return <AgentTabsPage appName={APP_TITLE} />;
+  const AgentPage = resolveAgentPageComponent(AgentClient);
+  return <AgentPage appName={APP_TITLE} />;
 }

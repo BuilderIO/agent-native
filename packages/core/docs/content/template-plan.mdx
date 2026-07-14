@@ -226,6 +226,20 @@ If the first pass still has answerable decisions, the agent can place an
 **Open Questions** form at the bottom of the same plan. Answering it and sending
 it to the agent starts a revision turn against the existing plan.
 
+## Cost and model choice
+
+Generating a plan or recap runs a full agentic session against your coding
+agent's LLM, not a lightweight template fill, so cost scales with the size of
+the diff or plan and the model you choose.
+
+- The app's own default chat model is Sonnet 5; change it any time in
+  **Settings**. Haiku is the cheaper Claude option, and Luna is the cheaper
+  option in the GPT-5.6 family.
+- Automated PR recaps from the GitHub Action run separately from the
+  interactive app and have their own model and cost knobs — see
+  [PR Visual Recap](/docs/pr-visual-recap) for `VISUAL_RECAP_MODEL`,
+  `VISUAL_RECAP_AGENT`, and `VISUAL_RECAP_REASONING`.
+
 ## What you can do with it
 
 - **Review before implementation.** React to diagrams, wireframes, option tabs,

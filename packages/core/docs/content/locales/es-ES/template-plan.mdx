@@ -212,6 +212,20 @@ Si el primer pase todavía tiene decisiones responsables, el agente puede coloca
 Formulario **Preguntas abiertas** en la parte inferior del mismo plan. Responderlo y enviar
 El agente inicia un turno de revisión contra el plan existente.
 
+## Costo y elección de modelo
+
+Generar un plan o un resumen ejecuta una sesión completa de agente frente al LLM
+de su agente de codificación, no un simple relleno de plantilla ligero, por lo que
+el costo escala con el tamaño del diff o del plan y con el modelo que elija.
+
+- El modelo de chat predeterminado de la propia aplicación es Sonnet 5; cámbielo
+  en cualquier momento en **Configuración**. Haiku es la opción más económica de
+  Claude, y Luna es la opción más económica dentro de la familia GPT-5.6.
+- Los resúmenes de PR automatizados de la GitHub Action se ejecutan por separado
+  de la aplicación interactiva y tienen sus propios controles de modelo y costo;
+  consulte [PR Visual Recap](/docs/pr-visual-recap) para `VISUAL_RECAP_MODEL`,
+  `VISUAL_RECAP_AGENT` y `VISUAL_RECAP_REASONING`.
+
 ## Qué puedes hacer con él
 
 - **Revisión antes de la implementación.** React a diagramas, estructuras alámbricas, pestañas de opciones,

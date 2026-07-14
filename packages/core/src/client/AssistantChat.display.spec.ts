@@ -1201,6 +1201,18 @@ describe("missing agent engine setup", () => {
   });
 });
 
+describe("centered chat loading fallback", () => {
+  it("keeps the loading composer in the same ordered stack as the real composer", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+
+    expect(source).toMatch(
+      /<div className="agent-composer-stack">\s*<div\s+className=\{cn\(\s*"agent-composer-area shrink-0 px-3 py-2"/s,
+    );
+  });
+});
+
 describe("resolveAssistantChatRunningState", () => {
   it("keeps UI running during auto-continuation gaps without changing queue gating", () => {
     expect(

@@ -733,9 +733,175 @@
     }
   }
 
+  function reviewAnchorElementAtPoint(
+    clientX: number,
+    clientY: number,
+  ): Element | null {
+    var element = elementFromEditorPoint(clientX, clientY);
+    if (!element) return null;
+    return element.closest(
+      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+    );
+  }
+
+  function reviewNodeElements(nodeIds: string[]): Record<string, Element> {
+    var wanted: Record<string, boolean> = {};
+    var found: Record<string, Element> = {};
+    for (var index = 0; index < nodeIds.length; index += 1) {
+      var nodeId = nodeIds[index];
+      if (nodeId) wanted[nodeId] = true;
+    }
+    var candidates = document.querySelectorAll(
+      "[data-agent-native-node-id],[data-code-layer-id],[data-layer-id],[data-builder-id],[id]",
+    );
+    for (
+      var candidateIndex = 0;
+      candidateIndex < candidates.length;
+      candidateIndex += 1
+    ) {
+      var candidate = candidates[candidateIndex];
+      var candidateId = getNodeId(candidate);
+      if (candidateId && wanted[candidateId] && !found[candidateId]) {
+        found[candidateId] = candidate;
+      }
+    }
+    return found;
+  }
+
+  function postReviewLayout(): void {
+    try {
+      (window.parent as Window).postMessage(
+        { type: "agent-native:review-layout" },
+        "*",
+      );
+    } catch (_err) {}
+  }
+
+  var reviewLayoutFrame = 0;
+  function scheduleReviewLayout(): void {
+    if (reviewLayoutFrame) return;
+    reviewLayoutFrame = window.requestAnimationFrame(function () {
+      reviewLayoutFrame = 0;
+      postReviewLayout();
+    });
+  }
+
+  window.addEventListener("scroll", scheduleReviewLayout, true);
+  window.addEventListener("resize", scheduleReviewLayout);
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", scheduleReviewLayout, {
+      once: true,
+    });
+  } else {
+    scheduleReviewLayout();
+  }
+
   window.addEventListener("message", function (e: MessageEvent) {
     if (e.source !== window.parent) return;
     if (!e.data) return;
+    if (e.data.type === "agent-native:review-anchor-at-point") {
+      var reviewPointCorrelationId: string = e.data.correlationId;
+      var reviewPointX: number = Number(e.data.x);
+      var reviewPointY: number = Number(e.data.y);
+      if (!reviewPointCorrelationId) return;
+      var reviewPointElement = reviewAnchorElementAtPoint(
+        reviewPointX,
+        reviewPointY,
+      );
+      try {
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:review-anchor-at-point-result",
+            correlationId: reviewPointCorrelationId,
+            nodeId: reviewPointElement
+              ? getNodeId(reviewPointElement) || undefined
+              : undefined,
+            layerName:
+              reviewPointElement?.getAttribute(
+                "data-agent-native-layer-name",
+              ) || undefined,
+            tagName: reviewPointElement?.tagName?.toLowerCase() || undefined,
+          },
+          "*",
+        );
+      } catch (_err) {}
+      return;
+    }
+    if (e.data.type === "agent-native:review-node-rects") {
+      var reviewRectsCorrelationId: string = e.data.correlationId;
+      var rawReviewNodeIds: unknown = e.data.nodeIds;
+      if (!reviewRectsCorrelationId || !Array.isArray(rawReviewNodeIds)) return;
+      var reviewNodeIds = rawReviewNodeIds
+        .filter(function (value): value is string {
+          return typeof value === "string" && value.length > 0;
+        })
+        .slice(0, 500);
+      var reviewElements = reviewNodeElements(reviewNodeIds);
+      var reviewRects: Record<
+        string,
+        { left: number; top: number; width: number; height: number }
+      > = {};
+      for (
+        var reviewIndex = 0;
+        reviewIndex < reviewNodeIds.length;
+        reviewIndex += 1
+      ) {
+        var reviewNodeId = reviewNodeIds[reviewIndex];
+        var reviewElement = reviewElements[reviewNodeId];
+        if (!reviewElement) continue;
+        var reviewRect = reviewElement.getBoundingClientRect();
+        reviewRects[reviewNodeId] = {
+          left: reviewRect.left,
+          top: reviewRect.top,
+          width: reviewRect.width,
+          height: reviewRect.height,
+        };
+      }
+      try {
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:review-node-rects-result",
+            correlationId: reviewRectsCorrelationId,
+            rects: reviewRects,
+            viewportWidth: window.innerWidth,
+            viewportHeight: window.innerHeight,
+          },
+          "*",
+        );
+      } catch (_err) {}
+      return;
+    }
+    if (e.data.type === "agent-native:review-focus") {
+      var reviewFocusCorrelationId: string = e.data.correlationId;
+      var reviewFocusNodeId: string = String(e.data.nodeId || "");
+      if (!reviewFocusCorrelationId || !reviewFocusNodeId) return;
+      var reviewFocusElement = reviewNodeElements([reviewFocusNodeId])[
+        reviewFocusNodeId
+      ] as HTMLElement | undefined;
+      if (reviewFocusElement) {
+        reviewFocusElement.scrollIntoView({
+          block: "center",
+          inline: "center",
+        });
+        var previousReviewBoxShadow = reviewFocusElement.style.boxShadow;
+        reviewFocusElement.style.boxShadow =
+          "0 0 0 2px var(--design-editor-accent-color, #2563eb)";
+        window.setTimeout(function () {
+          reviewFocusElement!.style.boxShadow = previousReviewBoxShadow;
+        }, 700);
+      }
+      try {
+        (window.parent as Window).postMessage(
+          {
+            type: "agent-native:review-focus-result",
+            correlationId: reviewFocusCorrelationId,
+            focused: Boolean(reviewFocusElement),
+          },
+          "*",
+        );
+      } catch (_err) {}
+      return;
+    }
     if (e.data.type === "agent-native:hit-test-preview-clear") {
       hideInsertionGuide();
       return;

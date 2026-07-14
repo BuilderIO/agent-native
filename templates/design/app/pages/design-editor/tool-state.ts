@@ -92,6 +92,16 @@ export function getDesignToolActivationState(tool: DesignTool): {
   return { mode: "edit", drawMode: false, pinMode: false };
 }
 
+export function shouldAutoEnableDrawOverlay(args: {
+  mode: EditorMode;
+  activeTool: DesignTool;
+  pinMode: boolean;
+}): boolean {
+  return (
+    args.mode === "annotate" && args.activeTool === "draw" && !args.pinMode
+  );
+}
+
 export function getSingleScreenCreationTool(args: {
   activeTool: DesignTool;
   viewMode: "single" | "overview";

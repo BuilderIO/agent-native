@@ -60,6 +60,8 @@ export async function getPublicFormBySlugOrId(slugOrId: string) {
     slug: row.slug,
     title: row.title,
     description: row.description,
+    ownerEmail: row.ownerEmail,
+    updatedAt: row.updatedAt,
     fields: JSON.parse(row.fields) as FormField[],
     settings: toPublicFormSettings(settings),
   };
@@ -302,6 +304,8 @@ function renderFormPage(
     slug: string;
     title: string;
     description?: string | null;
+    ownerEmail?: string | null;
+    updatedAt?: string | null;
     fields: FormField[];
     settings: PublicFormSettings;
   },
@@ -315,7 +319,7 @@ function renderFormPage(
   const faviconPath = `${appBasePath}/favicon.svg`;
   const ogImagePath = `${appBasePath}/api/forms/og/${encodeURIComponent(
     form.slug || form.id,
-  )}/og.png`;
+  )}/og.png${form.updatedAt ? `?v=${encodeURIComponent(form.updatedAt)}` : ""}`;
   const ogImageUrl = origin
     ? new URL(ogImagePath, origin).toString()
     : ogImagePath;
@@ -342,7 +346,7 @@ function renderFormPage(
 <meta property="og:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
 <meta name="twitter:card" content="summary_large_image">
 <meta name="twitter:image" content="${escapeHtml(ogImageUrl)}">
-<meta name="twitter:image:alt" content="${AGENT_NATIVE_SOCIAL_IMAGE_ALT}">
+<meta name="twitter:image:alt" content="${escapeHtml(`${form.title} form preview`)}">
 <link rel="icon" type="image/svg+xml" href="${faviconPath}">
 <!-- Self-hosted Inter via Bunny Fonts CDN (privacy-respecting, no tracking) -->
 <link rel="preconnect" href="https://fonts.bunny.net">

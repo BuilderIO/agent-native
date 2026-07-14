@@ -959,6 +959,8 @@ function normalizeBrowserTabId(browserTabId?: string): string | undefined {
 }
 
 export interface UseGuidedQuestionFlowOptions {
+  /** Disable application-state reads for signed-out or otherwise inactive surfaces. */
+  enabled?: boolean;
   stateKey?: string;
   /**
    * The current browser tab id. Agent actions that write the guided-questions
@@ -980,6 +982,7 @@ export interface UseGuidedQuestionFlowOptions {
 }
 
 export function useGuidedQuestionFlow({
+  enabled = true,
   stateKey = "show-questions",
   browserTabId,
   queryKey = ["show-questions"],
@@ -1030,6 +1033,7 @@ export function useGuidedQuestionFlow({
 
   const { data } = useQuery({
     queryKey: resolvedQueryKey,
+    enabled,
     queryFn: async () => {
       const read = async (key: string) => {
         const res = await fetch(endpointFor(key));

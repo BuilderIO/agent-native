@@ -413,6 +413,7 @@ export function AgentNativeI18nProvider({
   }, []);
 
   useEffect(() => {
+    if (!persistPreference) return;
     void setClientAppState(
       "localization",
       {
@@ -424,7 +425,7 @@ export function AgentNativeI18nProvider({
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, preference]);
+  }, [locale, persistPreference, preference]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {

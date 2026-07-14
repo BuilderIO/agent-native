@@ -38,10 +38,11 @@ function warnA2AUnauthOnce(): void {
 }
 
 /**
- * Verify an inbound A2A JWT signed with the shared A2A_SECRET.
- * Returns the caller's email (from `sub` claim) if valid, null otherwise.
+ * Result of verifying an inbound A2A JWT. `email` is the caller identity from
+ * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
+ * the verified `org_domain` claim when present.
  */
-interface A2ATokenPayload {
+export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
 }
@@ -58,9 +59,11 @@ function addSecretCandidate(
 /**
  * Resolve the audience (`aud`) value to expect in an inbound JWT. We use the
  * receiver's app URL — it's the natural identifier of "who this token was
- * minted for". Falls back to undefined when no app URL is configured, in
- * which case the audience check is skipped (backward-compat with tokens
- * minted before the audience claim shipped).
+ * minted for". Returns undefined when no app URL is configured and no request
+ * host is derivable; `verifyA2AToken` then rejects any token that carries an
+ * `aud` claim (fail closed — a correctly signed token minted for another
+ * service must not verify here). Only tokens without an `aud` claim (minted
+ * before the audience claim shipped) skip the audience check.
  */
 function expectedJwtAudience(event: any | undefined): string | undefined {
   const fromEnv =
@@ -80,9 +83,24 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
   return undefined;
 }
 
-async function verifyA2AToken(
+/**
+ * Verify an inbound A2A bearer token (HS256) exactly as the
+ * `/_agent-native/a2a` endpoint does: it peeks at the unverified `org_domain`
+ * claim to build an ordered candidate-secret set (`process.env.A2A_SECRET`
+ * plus any org-level secret for that domain), then verifies the JWT — checking
+ * `aud`/`iss` when the token carries them and `exp` always. Returns the
+ * caller's email (`sub`) and org domain on success, or `{ email: null,
+ * orgDomain: null }` on any failure (malformed, bad signature, expired, or no
+ * secret configured), never throwing.
+ *
+ * Exported so workspaces can accept A2A callers on the HTTP action route with
+ * the same routine — including org-level fallback secrets — instead of
+ * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
+ * org-secret lookup and audience derivation; it is optional.
+ */
+export async function verifyA2AToken(
   token: string,
-  event: any | undefined,
+  event?: any,
 ): Promise<A2ATokenPayload> {
   // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
   // This is safe because we only use org_domain to look up the secret,
@@ -132,8 +150,15 @@ async function verifyA2AToken(
   try {
     const verifyOptions: jose.JWTVerifyOptions = {};
     if (unverifiedPayload && typeof unverifiedPayload.aud !== "undefined") {
+      // Fail closed: the token was minted for a specific audience, but this
+      // receiver can't derive its own expected audience (no APP_URL/URL and no
+      // usable request host). Accepting here would let a correctly-signed token
+      // whose `aud` targets ANOTHER service verify against a shared secret. A
+      // token that self-declares an audience must be checked against ours, so
+      // when we have nothing to check it against we reject rather than skip.
       const aud = expectedJwtAudience(event);
-      if (aud) verifyOptions.audience = aud;
+      if (!aud) return { email: null, orgDomain: null };
+      verifyOptions.audience = aud;
     }
     if (
       unverifiedPayload &&

@@ -1,7 +1,14 @@
+import { resolveOgFontFiles } from "@agent-native/core/server";
 import type { RenderedImage, ResvgRenderOptions } from "@resvg/resvg-js";
 
 export interface FormOgImageInput {
   title?: string | null;
+  description?: string | null;
+  profileImageDataUrl?: string | null;
+}
+
+interface FormOgRenderOptions {
+  fontFiles?: string[];
 }
 
 const WIDTH = 1200;
@@ -23,6 +30,9 @@ const LOGO_MARK = `
   <path d="M89.446 0H114L76.2921 65.7704H51.7383L89.446 0Z" fill="url(#brand)"/>
 `;
 
+const AVATAR_DATA_URL_RE =
+  /^data:image\/(?:png|jpe?g|gif|webp);base64,[A-Za-z0-9+/]+={0,2}$/i;
+
 function escapeSvg(value: string): string {
   return value
     .replace(/&/g, "&amp;")
@@ -35,6 +45,16 @@ function cleanText(value: string | null | undefined): string {
   return String(value ?? "")
     .replace(/\s+/g, " ")
     .trim();
+}
+
+function validProfileImageDataUrl(
+  value: string | null | undefined,
+): string | undefined {
+  const image = value?.trim();
+  if (!image || image.length > 2_000_000 || !AVATAR_DATA_URL_RE.test(image)) {
+    return undefined;
+  }
+  return image;
 }
 
 function estimateTextWidth(value: string, fontSize: number): number {
@@ -146,14 +166,24 @@ function textBlock({
 
 export function renderFormOgImageSvg(input: FormOgImageInput = {}): string {
   const title = cleanText(input.title) || "Agent-Native Form";
+  const description = cleanText(input.description);
   const titleFitsSingleLine = estimateTextWidth(title, 82) <= 820;
   const titleLines = titleFitsSingleLine
     ? [title]
     : wrapText(title, 66, 820, 2);
+  const descriptionLines = description ? wrapText(description, 28, 820, 2) : [];
   const titleFontSize = titleFitsSingleLine ? 82 : 66;
   const titleLineHeight = titleLines.length > 1 ? 76 : 92;
   const titleGroupY = titleLines.length > 1 ? 332 : 382;
+  const descriptionY = titleLineHeight * (titleLines.length - 1) + 88;
   const initials = initialsFor(title);
+  const profileImageDataUrl = validProfileImageDataUrl(
+    input.profileImageDataUrl,
+  );
+  const avatarContent = profileImageDataUrl
+    ? `<image x="${BADGE_CX - 86}" y="${BADGE_CY - 86}" width="172" height="172" href="${escapeSvg(profileImageDataUrl)}" preserveAspectRatio="xMidYMid slice" mask="url(#avatarMask)"/>`
+    : `<circle cx="${BADGE_CX}" cy="${BADGE_CY}" r="72" fill="url(#brand)" fill-opacity="0.2"/>
+       <text x="${BADGE_CX}" y="${BADGE_CY + 20}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>`;
 
   return `<svg xmlns="http://www.w3.org/2000/svg" width="${WIDTH}" height="${HEIGHT}" viewBox="0 0 ${WIDTH} ${HEIGHT}">
   <title>${escapeSvg(title)} - Agent-Native Forms preview</title>
@@ -165,6 +195,10 @@ export function renderFormOgImageSvg(input: FormOgImageInput = {}): string {
     <pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse">
       <path d="M 48 0 L 0 0 0 48" fill="none" stroke="#ffffff" stroke-opacity="0.07" stroke-width="1"/>
     </pattern>
+    <mask id="avatarMask">
+      <rect width="${WIDTH}" height="${HEIGHT}" fill="black"/>
+      <circle cx="${BADGE_CX}" cy="${BADGE_CY}" r="78" fill="white"/>
+    </mask>
   </defs>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="${BG}"/>
   <rect width="${WIDTH}" height="${HEIGHT}" fill="url(#grid)"/>
@@ -177,8 +211,7 @@ export function renderFormOgImageSvg(input: FormOgImageInput = {}): string {
   </g>
   <g>
     <circle cx="${BADGE_CX}" cy="${BADGE_CY}" r="86" fill="${SURFACE}" stroke="${BORDER}" stroke-width="2"/>
-    <circle cx="${BADGE_CX}" cy="${BADGE_CY}" r="72" fill="url(#brand)" fill-opacity="0.2"/>
-    <text x="${BADGE_CX}" y="${BADGE_CY + 20}" text-anchor="middle" font-family="${FONT_FAMILY}" font-size="56" font-weight="800" fill="${FG}">${escapeSvg(initials)}</text>
+    ${avatarContent}
     <circle cx="${BADGE_CX}" cy="${BADGE_CY}" r="78" fill="none" stroke="#ffffff" stroke-opacity="0.14" stroke-width="1"/>
   </g>
   <g transform="translate(80 ${titleGroupY})">
@@ -191,15 +224,35 @@ export function renderFormOgImageSvg(input: FormOgImageInput = {}): string {
       weight: 800,
       fill: FG,
     })}
+    ${
+      descriptionLines.length
+        ? textBlock({
+            lines: descriptionLines,
+            x: 0,
+            y: descriptionY,
+            fontSize: 28,
+            lineHeight: 38,
+            weight: 500,
+            fill: MUTED,
+          })
+        : ""
+    }
   </g>
 </svg>`;
 }
 
-function formOgResvgOptions(): ResvgRenderOptions {
+export function formOgResvgOptions(
+  options: FormOgRenderOptions = {},
+): ResvgRenderOptions {
+  const fontFiles = options.fontFiles?.length
+    ? options.fontFiles
+    : resolveOgFontFiles();
+  const hasBundledFonts = Boolean(fontFiles?.length);
   return {
     fitTo: { mode: "width", value: WIDTH },
     font: {
-      loadSystemFonts: true,
+      loadSystemFonts: !hasBundledFonts,
+      ...(hasBundledFonts ? { fontFiles } : {}),
       defaultFontFamily: "Liberation Sans",
       sansSerifFamily: "Liberation Sans",
     },
@@ -212,13 +265,18 @@ async function loadResvg(): Promise<typeof import("@resvg/resvg-js")> {
 
 export async function renderFormOgImage(
   input: FormOgImageInput = {},
+  options: FormOgRenderOptions = {},
 ): Promise<RenderedImage> {
   const { Resvg } = await loadResvg();
-  return new Resvg(renderFormOgImageSvg(input), formOgResvgOptions()).render();
+  return new Resvg(
+    renderFormOgImageSvg(input),
+    formOgResvgOptions(options),
+  ).render();
 }
 
 export async function renderFormOgImagePng(
   input: FormOgImageInput = {},
+  options: FormOgRenderOptions = {},
 ): Promise<Uint8Array> {
-  return (await renderFormOgImage(input)).asPng();
+  return (await renderFormOgImage(input, options)).asPng();
 }

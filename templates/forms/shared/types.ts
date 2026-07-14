@@ -72,6 +72,8 @@ export interface FormSettings {
   successMessage?: string;
   redirectUrl?: string;
   showProgressBar?: boolean;
+  /** Send new response summaries to the form owner's account email. */
+  emailOnNewResponses?: boolean;
   /**
    * Strict response privacy mode. When enabled, submissions do not retain the
    * request IP, submitter identity, chat/run ids, page URL, or client surface.

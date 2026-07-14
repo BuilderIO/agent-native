@@ -812,6 +812,7 @@ const enUS = {
     candidates: "Candidates",
     candidateActions: "Candidate actions",
     candidateWithNumber: "Candidate {{number}}",
+    variantWithNumber: "Variant {{number}}",
     checkingImageLibraries: "Checking image libraries...",
     checking: "Checking",
     checkingUpload: "Checking upload",

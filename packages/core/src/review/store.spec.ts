@@ -32,6 +32,7 @@ const {
   insertReviewComment,
   queryReviewComments,
   resolveReviewThread,
+  sendReviewThreadToAgent,
   upsertReviewStatus,
 } = await import("./store.js");
 
@@ -153,6 +154,45 @@ describe("review store", () => {
     });
     expect(comments[0].status).toBe("open");
     expect(comments[0].consumedAt).toBe("2026-07-07T00:00:00.000Z");
+  });
+
+  it("routes only the selected open thread to the agent", async () => {
+    const selected = await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d1",
+      body: "Shorten this heading",
+      resolutionTarget: "human",
+      ownerEmail: "alice@example.com",
+    });
+    await insertReviewComment({
+      resourceType: "doc",
+      resourceId: "d1",
+      body: "Keep this as a human decision",
+      resolutionTarget: "human",
+      ownerEmail: "alice@example.com",
+    });
+
+    await expect(
+      sendReviewThreadToAgent(selected.threadId, {
+        resourceType: "doc",
+        resourceId: "d1",
+      }),
+    ).resolves.toBe(1);
+
+    const comments = await queryReviewComments({
+      resourceType: "doc",
+      resourceId: "d1",
+      scope: { userEmail: "alice@example.com" },
+    });
+    expect(comments).toHaveLength(2);
+    expect(
+      comments.find((comment) => comment.threadId === selected.threadId)
+        ?.resolutionTarget,
+    ).toBe("agent");
+    expect(
+      comments.find((comment) => comment.threadId !== selected.threadId)
+        ?.resolutionTarget,
+    ).toBe("human");
   });
 
   it("returns zero when consuming unmatched comment ids", async () => {

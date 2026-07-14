@@ -49,6 +49,12 @@ const PILL_LABEL: &str = "recording-pill";
 /// it through every command.
 static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
 static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
+/// Mirrors the renderer's `expanded` React state so a re-show of an already
+/// open pill (e.g. after the tray icon toggles the popover) resizes the
+/// native window to match what's actually rendered instead of snapping it
+/// back to the collapsed size while the webview still renders the expanded
+/// layout.
+static PILL_EXPANDED: AtomicBool = AtomicBool::new(false);
 
 /// Hover-tracking loop control. macOS only feeds mouse-moved / hover events to
 /// the *key* window, so the background pill's CSS `:hover` never fires while
@@ -360,7 +366,8 @@ pub async fn recording_pill_show(
             (Some(p), Some(s)) => Some((p.x, p.y, s.width, s.height)),
             _ => None,
         };
-        let (w, h, x, y) = anchored_rect(&app, false, previous);
+        let expanded = PILL_EXPANDED.load(Ordering::Relaxed);
+        let (w, h, x, y) = anchored_rect(&app, expanded, previous);
         let _ = existing.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = existing.set_position(PhysicalPosition::new(x, y));
         use tauri::Emitter;
@@ -377,6 +384,7 @@ pub async fn recording_pill_show(
         return Ok(());
     }
 
+    PILL_EXPANDED.store(false, Ordering::SeqCst);
     let (w, h, x, y) = anchored_rect(&app, false, None);
 
     let url = build_overlay_url("recording-pill");
@@ -465,6 +473,7 @@ fn stop_pill_hover_tracking() {
 
 #[tauri::command]
 pub async fn recording_pill_expand(app: AppHandle, expanded: bool) -> Result<(), String> {
+    PILL_EXPANDED.store(expanded, Ordering::SeqCst);
     let Some(window) = app.get_webview_window(PILL_LABEL) else {
         return Ok(());
     };
@@ -534,6 +543,7 @@ pub async fn recording_pill_set_detached(app: AppHandle, detached: bool) -> Resu
         // by the time we hit `anchored_rect` below, the new flag has
         // already taken effect and we get the right size + position for
         // the destination mode. (The atomic was flipped above.)
+        PILL_EXPANDED.store(false, Ordering::SeqCst);
         let (w, h, x, y) = anchored_rect(&app, false, None);
         let _ = window.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
         let _ = window.set_position(PhysicalPosition::new(x, y));

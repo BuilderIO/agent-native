@@ -939,8 +939,9 @@ describe("template/core version compatibility", () => {
     // Legacy `v<version>` tag stays as a fallback so any older release that
     // only has the repo-wide tag (≤ 0.7.83) keeps working when re-run.
     expect(candidates).toContain(`v${candidates[0].split("@").slice(-1)[0]}`);
-    // `main` is the last-resort fallback for unreleased dev builds.
-    expect(candidates[candidates.length - 1]).toBe("main");
+    // Never fall back to mutable `main`: it can be newer than the installed
+    // core package and produce a scaffold that fails during SSR startup.
+    expect(candidates).not.toContain("main");
   });
 });
 

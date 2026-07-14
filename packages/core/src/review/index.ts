@@ -13,6 +13,12 @@ export type {
   ReviewStatusEntry,
   ReviewableResourceRegistration,
 } from "./types.js";
+export {
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  reviewAuthorNameFromContext,
+  shouldRedactReviewIdentity,
+} from "./identity.js";
 export { extractReviewMentions, normalizeReviewMentions } from "./mentions.js";
 export {
   __resetReviewableResourcesForTests,
@@ -27,5 +33,13 @@ export {
   ensureReviewTables,
   getReviewCommentById,
   getReviewStatus,
+  getReviewThreadSummary,
+  getReviewThreadRoot,
   queryReviewComments,
+  routeReviewThread,
+  sendReviewThreadToAgent,
+} from "./store.js";
+export type {
+  GetReviewThreadSummaryInput,
+  ReviewThreadSummary,
 } from "./store.js";

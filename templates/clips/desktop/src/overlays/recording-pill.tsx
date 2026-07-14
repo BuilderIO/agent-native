@@ -108,8 +108,18 @@ export function RecordingPill() {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
         };
+        const prev = ctxRef.current;
+        const isSameSession =
+          prev.meetingId === next.meetingId && prev.mode === next.mode;
         ctxRef.current = next;
         setCtx(next);
+        // The Rust side re-shows (and re-emits this event for) the same pill
+        // window whenever the tray icon re-triggers `recording_pill_show`
+        // (e.g. toggling the popover) while a meeting is already in progress.
+        // Only reset session state below when the meeting/mode actually
+        // changed — otherwise an in-progress meeting's timer, transcript, and
+        // notes would wipe out on every tray click.
+        if (isSameSession) return;
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);

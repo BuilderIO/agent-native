@@ -679,10 +679,6 @@ function DownloadDesktopAppCard() {
           })}
         </p>
       </div>
-      <CaptureInstallButton size="sm" className="gap-1.5">
-        <IconDownload className="h-3.5 w-3.5" />
-        {t("dictateRoute.downloadDesktopApp")}
-      </CaptureInstallButton>
     </div>
   );
 }

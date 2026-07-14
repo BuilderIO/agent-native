@@ -84,6 +84,7 @@ describe("post-finalize dispatch", () => {
       kind: "transcript",
       delayMs: 5_000,
       retryAttempt: 1,
+      regenerate: true,
     });
 
     expect(fetch).toHaveBeenCalledWith(
@@ -94,6 +95,7 @@ describe("post-finalize dispatch", () => {
           kind: "transcript",
           delayMs: 5_000,
           retryAttempt: 1,
+          regenerate: true,
           token: "signed-job-token",
         }),
       }),
