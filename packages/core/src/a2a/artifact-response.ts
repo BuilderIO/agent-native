@@ -6,6 +6,7 @@ export interface A2AToolResultSummary {
 export interface A2AArtifactResponseOptions {
   baseUrl?: string;
   includeReferencedArtifacts?: boolean;
+  includePersistedArtifactMarker?: boolean;
 }
 
 export interface A2AArtifactIdentity {
@@ -25,7 +26,6 @@ export interface A2AArtifactIdentity {
 }
 
 const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
-  "call-agent",
   "save-monitor",
   "create-form",
   "submit-content-database-form",
@@ -52,6 +52,56 @@ const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
   "create-file",
   "duplicate-design",
 ]);
+
+const PERSISTED_ARTIFACT_MARKER = "agent-native:persisted-artifacts=";
+const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
+  "document",
+  "deck",
+  "dashboard",
+  "analysis",
+  "image",
+  "design",
+  "monitor",
+  "form",
+]);
+
+function persistedArtifactIdentitiesFromMarker(
+  result: string,
+): A2AArtifactIdentity[] {
+  const match = result.match(
+    /<!--\s*agent-native:persisted-artifacts=([^\s]+)\s*-->/,
+  );
+  if (!match) return [];
+  try {
+    const parsed = JSON.parse(decodeURIComponent(match[1]));
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .slice(0, 12)
+      .filter((identity): identity is A2AArtifactIdentity => {
+        const item = asRecord(identity);
+        return (
+          !!item &&
+          ARTIFACT_RESOURCE_TYPES.has(
+            item.resourceType as A2AArtifactIdentity["resourceType"],
+          ) &&
+          typeof item.id === "string" &&
+          typeof item.sourceAction === "string"
+        );
+      });
+  } catch {
+    return [];
+  }
+}
+
+function withPersistedArtifactMarker(
+  text: string,
+  toolResults: A2AToolResultSummary[],
+): string {
+  const identities = extractA2AArtifactIdentities(toolResults).slice(0, 12);
+  if (identities.length === 0) return text;
+  const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${encodeURIComponent(JSON.stringify(identities))} -->`;
+  return text ? `${text}\n\n${marker}` : marker;
+}
 
 interface CreatedDocumentArtifact {
   id: string;
@@ -800,6 +850,14 @@ export function extractA2AArtifactIdentities(
   };
 
   for (const result of results) {
+    if (result.tool === "call-agent") {
+      for (const identity of persistedArtifactIdentitiesFromMarker(
+        result.result,
+      )) {
+        remember({ ...identity, sourceAction: "call-agent" });
+      }
+      continue;
+    }
     if (!ARTIFACT_IDENTITY_WRITE_TOOLS.has(result.tool)) continue;
     const artifacts = collectArtifacts([result]);
     for (const document of artifacts.documents) {
@@ -1286,6 +1344,10 @@ export function appendA2AArtifactLinks(
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
+  const finalize = (value: string) =>
+    options.includePersistedArtifactMarker
+      ? withPersistedArtifactMarker(value, toolResults)
+      : value;
   const {
     documents,
     decks,
@@ -1315,7 +1377,7 @@ export function appendA2AArtifactLinks(
     ) ||
       /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
   ) {
-    return formatIncompleteDesignMessage(incompleteShells);
+    return finalize(formatIncompleteDesignMessage(incompleteShells));
   }
 
   const unverifiedRefs = findUnverifiedArtifactReferences(
@@ -1329,15 +1391,17 @@ export function appendA2AArtifactLinks(
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
-    return formatUnverifiedArtifactMessage(
-      unverifiedRefs,
-      documents,
-      decks,
-      dashboards,
-      analyses,
-      images,
-      generatedDesigns,
-      baseUrl,
+    return finalize(
+      formatUnverifiedArtifactMessage(
+        unverifiedRefs,
+        documents,
+        decks,
+        dashboards,
+        analyses,
+        images,
+        generatedDesigns,
+        baseUrl,
+      ),
     );
   }
 
@@ -1413,9 +1477,11 @@ export function appendA2AArtifactLinks(
     }
   }
 
-  if (missingLines.length === 0) return text;
+  if (missingLines.length === 0) {
+    return finalize(text);
+  }
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
-  return text ? `${text}\n\n${artifactBlock}` : artifactBlock;
+  return finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock);
 }
 
 export function buildA2ARecoverableArtifactMessage(

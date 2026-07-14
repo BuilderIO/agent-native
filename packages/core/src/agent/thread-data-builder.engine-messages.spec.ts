@@ -100,4 +100,18 @@ describe("threadDataToEngineMessages", () => {
     expect(text.text).not.toContain("raw result must not be replayed");
     expect(text.text).not.toContain("Raw model response");
   });
+
+  it("does not replay raw assistant text from an undelivered integration turn", () => {
+    const repo = {
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "The participant never saw this." }],
+          metadata: { integrationDeliveryAttempted: true },
+        },
+      ],
+    };
+
+    expect(threadDataToEngineMessages(repo)).toEqual([]);
+  });
 });

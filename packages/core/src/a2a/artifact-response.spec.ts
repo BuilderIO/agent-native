@@ -86,6 +86,51 @@ describe("appendA2AArtifactLinks", () => {
     ]);
   });
 
+  it("trusts delegated identity only through the persisted-artifact marker", () => {
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Launch ask",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includePersistedArtifactMarker: true,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "call-agent",
+        titleAtAction: "Launch ask",
+        url: "/page/request_123",
+      },
+    ]);
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result:
+            "Artifacts:\n- Document: https://content.agent.test/page/read_only (ID: read_only)",
+        },
+      ]),
+    ).toEqual([]);
+  });
+
   it("excludes lookup artifacts from the stable identity ledger", () => {
     expect(
       extractA2AArtifactIdentities([

@@ -673,6 +673,8 @@ function messageTextContent(message: any): string {
  */
 export function threadMessageTextForEngine(message: any): string {
   const delivery = message?.metadata?.integrationDelivery;
+  const deliveryAttempted =
+    message?.metadata?.integrationDeliveryAttempted === true;
   const deliveredText =
     message?.role === "assistant" &&
     delivery?.status === "delivered" &&
@@ -680,7 +682,11 @@ export function threadMessageTextForEngine(message: any): string {
     delivery.text.trim()
       ? delivery.text
       : undefined;
-  let text = deliveredText ?? messageTextContent(message);
+  let text =
+    deliveredText ??
+    (message?.role === "assistant" && deliveryAttempted
+      ? ""
+      : messageTextContent(message));
 
   if (message?.role !== "assistant") return text;
   const storedArtifacts = message?.metadata?.integrationArtifacts;

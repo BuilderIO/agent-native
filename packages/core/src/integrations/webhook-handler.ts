@@ -1566,6 +1566,7 @@ async function persistThreadData(
       completedRun.runId,
     );
     if (assistantMsg) {
+      assistantMsg.metadata.integrationDeliveryAttempted = true;
       if (deliveredResponse) {
         assistantMsg.metadata.integrationDelivery = deliveredResponse;
         const artifactIdentities = extractA2AArtifactIdentities(toolResults);
