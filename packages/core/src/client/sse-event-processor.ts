@@ -112,6 +112,20 @@ const INTERRUPTED_TOOL_RESULT =
   "Interrupted before this tool returned a result.";
 const INTERRUPTED_ACTIVITY_RESULT = "Stopped before this action started.";
 
+/**
+ * Maximum number of assistant-ui repository updates we deliver in one browser
+ * event-loop turn. Durable-run replay can put hundreds of SSE frames into the
+ * stream queue before the client attaches; draining all of them through
+ * assistant-ui without a macrotask boundary synchronously nests React external
+ * store notifications until React throws "Maximum update depth exceeded."
+ *
+ * A timer scheduled on the first result resets the count when the stream is
+ * naturally idle between network chunks. We only await it when results are
+ * arriving densely enough to hit this bound, so normal live token streaming
+ * keeps its existing latency while replay bursts yield cooperatively.
+ */
+const SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN = 20;
+
 export function settleInterruptedToolCalls(
   content: ContentPart[],
   result = INTERRUPTED_TOOL_RESULT,
@@ -1609,6 +1623,24 @@ export async function* readSSEStream(
     completedToolsAfterLastAssistantText: new Set(),
     streamProgressDispatched: false,
   };
+  let renderUpdatesThisTurn = 0;
+  let nextEventLoopTurn: Promise<void> | null = null;
+
+  const paceRenderUpdate = async (): Promise<void> => {
+    renderUpdatesThisTurn += 1;
+    if (!nextEventLoopTurn) {
+      nextEventLoopTurn = new Promise<void>((resolve) => {
+        setTimeout(() => {
+          renderUpdatesThisTurn = 0;
+          nextEventLoopTurn = null;
+          resolve();
+        }, 0);
+      });
+    }
+    if (renderUpdatesThisTurn >= SSE_RENDER_UPDATES_PER_EVENT_LOOP_TURN) {
+      await nextEventLoopTurn;
+    }
+  };
 
   const withStreamMetadata = (r: ChatModelRunResult): ChatModelRunResult => {
     if (!runId && activityTrail.length === 0) return r;
@@ -1726,7 +1758,10 @@ export async function* readSSEStream(
           processEventState,
         );
 
-        if (result) yield withStreamMetadata(result);
+        if (result) {
+          await paceRenderUpdate();
+          yield withStreamMetadata(result);
+        }
         if (
           hasStalledPreparingAction(
             preparingActionState,
