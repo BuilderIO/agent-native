@@ -96,7 +96,7 @@ describe("appendA2AArtifactLinks", () => {
           tool: "submit-content-database-form",
           result: JSON.stringify({
             createdDocumentId: "request_123",
-            createdDocumentTitle: "Launch ask",
+            createdDocumentTitle: "Launch ask v1.2",
             urlPath: "/page/request_123",
             verification: { found: true },
           }),
@@ -117,7 +117,7 @@ describe("appendA2AArtifactLinks", () => {
         resourceType: "document",
         id: "request_123",
         sourceAction: "call-agent",
-        titleAtAction: "Launch ask",
+        titleAtAction: "Launch ask v1.2",
         url: "/page/request_123",
       },
     ]);

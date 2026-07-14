@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
 import type { A2AContinuation } from "./a2a-continuations-store.js";
 import type { PlatformAdapter } from "./types.js";
 
@@ -13,6 +14,9 @@ const getTaskMock = vi.hoisted(() => vi.fn());
 const signA2ATokenMock = vi.hoisted(() =>
   vi.fn(async () => "signed-a2a-token"),
 );
+const getThreadMappingMock = vi.hoisted(() => vi.fn());
+const getThreadMock = vi.hoisted(() => vi.fn());
+const updateThreadDataMock = vi.hoisted(() => vi.fn());
 const A2AClientMock = vi.hoisted(() =>
   vi.fn().mockImplementation(function A2AClient() {
     return { getTask: getTaskMock };
@@ -38,6 +42,15 @@ vi.mock("../a2a/client.js", () => ({
 
 vi.mock("./internal-token.js", () => ({
   signInternalToken: vi.fn(() => "signed-internal-token"),
+}));
+
+vi.mock("./thread-mapping-store.js", () => ({
+  getThreadMapping: getThreadMappingMock,
+}));
+
+vi.mock("../chat-threads/store.js", () => ({
+  getThread: getThreadMock,
+  updateThreadData: updateThreadDataMock,
 }));
 
 function continuation(
@@ -76,7 +89,9 @@ function continuation(
   };
 }
 
-function adapter(sendResponse = vi.fn(async () => undefined)): PlatformAdapter {
+function adapter(
+  sendResponse = vi.fn(async () => ({ status: "delivered" as const })),
+): PlatformAdapter {
   return {
     platform: "slack",
     label: "Slack",
@@ -111,6 +126,9 @@ describe("A2A continuation processor", () => {
     completeA2AContinuationMock.mockResolvedValue(undefined);
     failA2AContinuationMock.mockResolvedValue(undefined);
     rescheduleA2AContinuationMock.mockResolvedValue(undefined);
+    getThreadMappingMock.mockResolvedValue(null);
+    getThreadMock.mockResolvedValue(null);
+    updateThreadDataMock.mockResolvedValue(undefined);
     claimA2AContinuationDeliveryMock.mockImplementation(async (id: string) =>
       continuation({ id, status: "delivering" }),
     );
@@ -204,7 +222,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("posts completed remote task text and marks the continuation completed", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     const { processA2AContinuationById } =
       await import("./a2a-continuation-processor.js");
@@ -224,10 +242,80 @@ describe("A2A continuation processor", () => {
     expect(fetch).not.toHaveBeenCalled();
   });
 
+  it("persists confirmed continuation delivery and stable artifact identity", async () => {
+    process.env.A2A_SECRET = "test-a2a-secret-for-continuation-history";
+    const downstream = appendA2AArtifactLinks(
+      "Created the request.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Launch request",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://content.agent-native.test",
+        includePersistedArtifactMarker: true,
+      },
+    );
+    getTaskMock.mockResolvedValueOnce({
+      id: "a2a-task-1",
+      status: {
+        state: "completed",
+        message: {
+          role: "agent",
+          parts: [{ type: "text", text: downstream }],
+        },
+        timestamp: new Date().toISOString(),
+      },
+    });
+    getThreadMappingMock.mockResolvedValueOnce({
+      internalThreadId: "thread-123",
+    });
+    getThreadMock.mockResolvedValueOnce({
+      id: "thread-123",
+      title: "Slack thread",
+      preview: "Create the request",
+      threadData: JSON.stringify({ messages: [] }),
+    });
+    const sendResponse = vi.fn(async () => ({
+      status: "delivered" as const,
+      messageRefs: ["provider-message-123"],
+    }));
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    const persisted = JSON.parse(updateThreadDataMock.mock.calls[0][1]);
+    expect(persisted.messages.at(-1).metadata).toMatchObject({
+      integrationDelivery: {
+        platform: "slack",
+        status: "delivered",
+        messageRefs: ["provider-message-123"],
+      },
+      integrationArtifacts: [
+        {
+          resourceType: "document",
+          id: "request_123",
+          sourceAction: "call-agent",
+          titleAtAction: "Launch request",
+        },
+      ],
+    });
+  });
+
   it("finishes the resumed native progress stream when the remote task completes", async () => {
-    const sendResponse = vi.fn(async () => undefined);
-    const onEvent = vi.fn(async () => undefined);
-    const complete = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => ({ status: "delivered" as const }));
+    const complete = vi.fn(async () => ({ status: "delivered" as const }));
     const resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
       onEvent,
@@ -267,15 +355,15 @@ describe("A2A continuation processor", () => {
   });
 
   it("falls back to a thread reply when finalizing a resumed Slack stream fails", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const complete = vi.fn(async () => {
       throw new Error("chat.stopStream rejected");
     });
-    const fail = vi.fn(async () => undefined);
+    const fail = vi.fn(async () => ({ status: "delivered" as const }));
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
-      onEvent: vi.fn(async () => undefined),
+      onEvent: vi.fn(async () => ({ status: "delivered" as const })),
       complete,
       fail,
     }));
@@ -314,18 +402,18 @@ describe("A2A continuation processor", () => {
   });
 
   it("falls back to a thread reply when updating a resumed Slack stream fails", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const onEvent = vi.fn(async (event: { type: string }) => {
       if (event.type === "agent_call") {
         throw new Error("chat.updateStream rejected");
       }
     });
-    const fail = vi.fn(async () => undefined);
+    const fail = vi.fn(async () => ({ status: "delivered" as const }));
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
       onEvent,
-      complete: vi.fn(async () => undefined),
+      complete: vi.fn(async () => ({ status: "delivered" as const })),
       fail,
     }));
     claimA2AContinuationMock.mockResolvedValueOnce(
@@ -355,7 +443,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("still posts the final answer when closing a failed resumed stream also fails", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const complete = vi.fn(async () => {
       throw new Error("chat.stopStream rejected");
     });
@@ -365,7 +453,7 @@ describe("A2A continuation processor", () => {
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
-      onEvent: vi.fn(async () => undefined),
+      onEvent: vi.fn(async () => ({ status: "delivered" as const })),
       complete,
       fail,
     }));
@@ -396,7 +484,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("expands relative URLs against the agent public base, not the A2A endpoint", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({
         agentName: "Analytics",
@@ -433,7 +521,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("blocks unverified completed production artifact URLs before posting continuations", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockResolvedValueOnce({
       id: "a2a-task-1",
@@ -470,7 +558,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("allows completed continuation artifact URLs with downstream proof blocks", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockResolvedValueOnce({
       id: "a2a-task-1",
@@ -519,7 +607,7 @@ describe("A2A continuation processor", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     completeA2AContinuationMock
       .mockRejectedValueOnce(new Error("db unavailable"))
@@ -544,7 +632,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("does not post completed text when another processor already claimed delivery", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     claimA2AContinuationDeliveryMock.mockResolvedValueOnce(null);
     const { processA2AContinuationById } =
@@ -562,7 +650,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("does not bypass the store claim for an in-flight delivery", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     getA2AContinuationMock.mockResolvedValueOnce(
       continuation({
         status: "delivering",
@@ -586,7 +674,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("reuses opaque bearer tokens stored on the continuation", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({ a2aAuthToken: "original-opaque-a2a-token" }),
     );
@@ -608,7 +696,7 @@ describe("A2A continuation processor", () => {
 
   it("re-signs instead of replaying a stored A2A JWT", async () => {
     process.env.A2A_SECRET = "shared-a2a-secret";
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({ a2aAuthToken: "old.jwt.token" }),
     );
@@ -642,7 +730,7 @@ describe("A2A continuation processor", () => {
       getOrgDomain: vi.fn(async () => "builder.io"),
       getOrgA2ASecret: vi.fn(async () => "builder-org-a2a-secret"),
     }));
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({ orgId: "builder_io" }),
     );
@@ -677,7 +765,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("preserves an originally unsigned A2A call when polling a continuation", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({ a2aAuthToken: "" }),
     );
@@ -698,7 +786,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("notifies the platform when the remote task fails", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockResolvedValueOnce({
       id: "a2a-task-1",
@@ -735,7 +823,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("includes a safe downstream error code and request ID in failure replies", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({
         id: "cont-slack-lookup-456",
@@ -781,7 +869,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("normalizes explicit code= markers before including them in failure replies", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockResolvedValueOnce({
       id: "a2a-task-1",
@@ -811,7 +899,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("describes downstream LLM credential failures without naming a raw env var", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockResolvedValueOnce({
       id: "a2a-task-1",
@@ -845,7 +933,7 @@ describe("A2A continuation processor", () => {
 
   it("backs off a still-working remote task and redispatches itself", async () => {
     vi.useFakeTimers();
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockResolvedValue({
       id: "a2a-task-1",
@@ -874,7 +962,7 @@ describe("A2A continuation processor", () => {
 
   it("notifies the platform when a still-working remote task exhausts polling attempts", async () => {
     vi.useFakeTimers();
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({ attempts: 30 }),
     );
@@ -915,13 +1003,13 @@ describe("A2A continuation processor", () => {
 
   it("keeps polling when a still-working remote task reports recoverable artifacts", async () => {
     vi.useFakeTimers();
-    const sendResponse = vi.fn(async () => undefined);
-    const onEvent = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => ({ status: "delivered" as const }));
     const resumedAdapter = adapter(sendResponse);
     resumedAdapter.resumeRunProgress = vi.fn(async () => ({
       ref: { kind: "slack-stream", streamTs: "1719000000.000001" },
       onEvent,
-      complete: vi.fn(async () => undefined),
+      complete: vi.fn(async () => ({ status: "delivered" as const })),
     }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({
@@ -973,7 +1061,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("treats aborted task polling as transient while attempts remain", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockRejectedValueOnce(
       new DOMException("This operation was aborted", "AbortError"),
@@ -995,7 +1083,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("notifies the platform when transient polling errors exhaust attempts", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({ attempts: 30 }),
     );
@@ -1029,7 +1117,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("treats A2A token rejection during polling as transient while attempts remain", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockRejectedValueOnce(
       new Error(
@@ -1053,7 +1141,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("treats Netlify loop-protection 508s as transient while attempts remain", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(continuation());
     getTaskMock.mockRejectedValueOnce(
       new Error("A2A request failed (508): loop detected"),
@@ -1075,7 +1163,7 @@ describe("A2A continuation processor", () => {
   });
 
   it("reports a friendly timeout when task polling aborts after the remote work deadline", async () => {
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({
         attempts: 99,
@@ -1108,7 +1196,7 @@ describe("A2A continuation processor", () => {
   it("waits until a redispatched continuation is due before claiming it", async () => {
     vi.useFakeTimers();
     const dueAt = Date.now() + 5_000;
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     getA2AContinuationMock.mockResolvedValueOnce(
       continuation({ status: "pending", nextCheckAt: dueAt }),
     );
@@ -1140,7 +1228,7 @@ describe("A2A continuation processor", () => {
 
   it("does not claim continuations that are scheduled far in the future", async () => {
     vi.useFakeTimers();
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     getA2AContinuationMock.mockResolvedValueOnce(
       continuation({ status: "pending", nextCheckAt: Date.now() + 30_000 }),
     );
@@ -1163,7 +1251,7 @@ describe("A2A continuation processor", () => {
 
   it("notifies the platform when a remote task exceeds the continuation age limit", async () => {
     vi.useFakeTimers();
-    const sendResponse = vi.fn(async () => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     claimA2AContinuationMock.mockResolvedValueOnce(
       continuation({
         attempts: 20,

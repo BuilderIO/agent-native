@@ -73,7 +73,7 @@ function persistedArtifactIdentitiesFromMarker(
   const secret = process.env.A2A_SECRET;
   if (!secret) return [];
   const match = result.match(
-    /<!--\s*agent-native:persisted-artifacts=([^\s.]+)\.([a-f0-9]{64})\s*-->/,
+    /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/,
   );
   if (!match) return [];
   try {
@@ -86,7 +86,7 @@ function persistedArtifactIdentitiesFromMarker(
     ) {
       return [];
     }
-    const parsed = JSON.parse(decodeURIComponent(payload));
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString());
     if (!Array.isArray(parsed)) return [];
     return parsed
       .slice(0, 12)
@@ -113,7 +113,7 @@ function withPersistedArtifactMarker(
   const identities = extractA2AArtifactIdentities(toolResults).slice(0, 12);
   const secret = process.env.A2A_SECRET;
   if (identities.length === 0 || !secret) return text;
-  const payload = encodeURIComponent(JSON.stringify(identities));
+  const payload = Buffer.from(JSON.stringify(identities)).toString("base64url");
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
   const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
   return text ? `${text}\n\n${marker}` : marker;
