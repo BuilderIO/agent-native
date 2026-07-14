@@ -7,7 +7,8 @@
     "agent": "agent-native agent",
     "script": "agent-native script",
     "skills:update": "agent-native skills update scaffold --project",
-    "typecheck": "tsgo --noEmit"
+    "upgrade:agent-native": "agent-native upgrade",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@agent-native/core": "latest",
@@ -16,9 +17,8 @@
   },
   "devDependencies": {
     "@types/node": "^24.2.1",
-    "@typescript/native-preview": "catalog:",
     "oxfmt": "catalog:",
     "tsx": "^4.20.3",
-    "typescript": "^6.0.3"
+    "typescript-7": "catalog:"
   }
 }

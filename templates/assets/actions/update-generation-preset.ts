@@ -12,7 +12,13 @@ import {
   IMAGE_MODELS,
   IMAGE_SIZES,
 } from "../shared/api.js";
+import { generationPresetSettingsSchema } from "./_generation-preset-settings.js";
 import { serializeGenerationPreset } from "./_helpers.js";
+import {
+  assertPresetReferenceAssetsValid,
+  assertPresetReferenceModelCompatible,
+  assertPresetSkeletonAssetsValid,
+} from "./_preset-skeleton-validation.js";
 
 export default defineAction({
   description:
@@ -35,7 +41,7 @@ export default defineAction({
       .describe(
         "When true, images generated with this preset composite the library's canonical logo (no-op if the library has no canonical logo).",
       ),
-    settings: z.record(z.string(), z.unknown()).optional(),
+    settings: generationPresetSettingsSchema.optional(),
     sortOrder: z.coerce.number().optional(),
   }),
   run: async ({ id, ...args }) => {
@@ -81,7 +87,26 @@ export default defineAction({
       if (args.includeLogo !== undefined) {
         nextSettings.includeLogo = args.includeLogo;
       }
+      await assertPresetSkeletonAssetsValid({
+        db,
+        libraryId: preset.libraryId,
+        settings: nextSettings,
+      });
+      await assertPresetReferenceAssetsValid({
+        db,
+        libraryId: preset.libraryId,
+        settings: nextSettings,
+      });
+      assertPresetReferenceModelCompatible({
+        model: (args.model ?? preset.model) as string,
+        settings: nextSettings,
+      });
       updates.settings = stringifyJson(nextSettings);
+    } else if (args.model !== undefined) {
+      assertPresetReferenceModelCompatible({
+        model: args.model,
+        settings: parseJson<Record<string, unknown>>(preset.settings, {}),
+      });
     }
     await db
       .update(schema.assetGenerationPresets)

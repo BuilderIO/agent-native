@@ -4,7 +4,7 @@
  * Pure functions for parsing Tailwind configs, CSS files, package.json,
  * documents, and URLs to extract colors, fonts, spacing, border-radius,
  * and CSS custom properties. Used by the import-* actions across all
- * templates (design, slides, videos).
+ * templates (design and slides).
  *
  * No framework dependencies — no defineAction, no zod, no drizzle.
  */

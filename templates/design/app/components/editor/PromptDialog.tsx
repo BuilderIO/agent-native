@@ -9,6 +9,7 @@ import {
   type EmbeddedAppRef,
 } from "@agent-native/core/embedding/react";
 import {
+  IconApps,
   IconPalette,
   IconPhoto,
   IconPlus,
@@ -288,18 +289,20 @@ function AssetsPickerSkeleton() {
   );
 }
 
+export type PromptCreationMode = "design" | "app";
+
 interface PromptPopoverProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
-  onSkip?: () => void;
+  onSkip?: () => void | Promise<void>;
   skipLabel?: string;
   onSubmit: (
     prompt: string,
     files: UploadedFile[],
     options: PromptComposerSubmitOptions,
-  ) => void;
+  ) => void | Promise<void>;
   loading?: boolean;
   anchorRef?: React.RefObject<HTMLElement | null>;
   centered?: boolean;
@@ -308,6 +311,24 @@ interface PromptPopoverProps {
   selectedDesignSystemId?: string | null;
   onDesignSystemChange?: (id: string | null) => void;
   onCreateDesignSystem?: () => void;
+  /**
+   * "Design" (inline prototype, default) vs "Full app" (Builder Fusion cloud
+   * container). Omit both this and `onCreationModeChange` to hide the mode
+   * selector entirely — used when full-app building is flag-disabled, so the
+   * popover renders pixel-identical to the design-only version.
+   */
+  creationMode?: PromptCreationMode;
+  onCreationModeChange?: (mode: PromptCreationMode) => void;
+  /**
+   * Scopes the composer's localStorage draft key so an abandoned draft in
+   * this popover never bleeds into a different popover instance (e.g. the
+   * "generate design" and "tweak" popovers both mount unscoped composers
+   * that would otherwise share the same global draft key). Defaults to a
+   * scope derived from `title`, which is already distinct across the
+   * current call sites; pass an explicit value (e.g. including a design id)
+   * for finer isolation between instances that share the same title.
+   */
+  draftScope?: string;
 }
 
 export interface PromptDesignSystemOption {
@@ -328,13 +349,40 @@ function isNestedPromptPopoverTarget(target: EventTarget | null) {
   );
 }
 
+// While a nested Radix Select/Popover/Dropdown is open, Radix locks
+// `pointer-events` on everything outside its own portalled content so only
+// that content (and its trigger) remain interactive. That lockout is what
+// lets the interaction happen at all, but it also means the pointer/focus
+// event that reaches our `onInteractOutside` handler resolves its `target`
+// to `<html>`/`document` instead of the element the user actually clicked —
+// the real target sits under a `pointer-events: none` ancestor, so the
+// browser reports the outermost still-hit-testable node. That target fails
+// any `closest()` containment check, so the click looks "outside" the
+// dialog and dismisses it even though the user never left the popover.
+//
+// Rather than pattern-match on the resolved (and unreliable) target, check
+// whether any of our nested portalled surfaces are currently open in the
+// DOM — they're stamped with the same data attributes whether or not the
+// interact-outside target correctly resolved into them. If one is open,
+// this is never a genuine outside click.
+function hasOpenNestedPromptPopoverSurface() {
+  if (typeof document === "undefined") return false;
+  return Boolean(
+    document.querySelector(
+      '[data-agent-native-composer-popover][data-state="open"],' +
+        "[data-assets-picker-dialog]," +
+        '[data-agent-native-prompt-select][data-state="open"]',
+    ),
+  );
+}
+
 export default function PromptPopover({
   open,
   onOpenChange,
   title,
   placeholder,
   onSkip,
-  skipLabel = "Skip prompt",
+  skipLabel,
   onSubmit,
   loading = false,
   anchorRef,
@@ -344,18 +392,79 @@ export default function PromptPopover({
   selectedDesignSystemId,
   onDesignSystemChange,
   onCreateDesignSystem,
+  creationMode,
+  onCreationModeChange,
+  draftScope,
 }: PromptPopoverProps) {
   const t = useT();
   const [uploading, setUploading] = useState(false);
+  const [skipInFlight, setSkipInFlight] = useState(false);
+  const skipInFlightRef = useRef(false);
   const [pickedAssets, setPickedAssets] = useState<UploadedFile[]>([]);
   const [selectedUploadFiles, setSelectedUploadFiles] = useState<File[]>([]);
   const [assetsPickerOpen, setAssetsPickerOpen] = useState(false);
+  // Restores a typed prompt into the composer after a failed submit. The
+  // composer optimistically clears its text as soon as onSubmit is invoked
+  // (see TiptapComposer.submitComposer), so without this an upload failure or
+  // a rejected onSubmit would silently erase what the user wrote. Left
+  // `undefined` in the common case so the composer's normal mount behavior
+  // (restore the last localStorage draft for this scope) still applies —
+  // passing a defined `initialText` (even `""`) would short-circuit that.
+  const [restoredPromptText, setRestoredPromptText] = useState<
+    string | undefined
+  >(undefined);
+  const [restoredPromptKey, setRestoredPromptKey] = useState(0);
+  const restorePromptText = useCallback((text: string) => {
+    setRestoredPromptText(text);
+    setRestoredPromptKey((key) => key + 1);
+  }, []);
+  useEffect(() => {
+    if (open) return;
+    skipInFlightRef.current = false;
+    setSkipInFlight(false);
+  }, [open]);
+  // While the nested design-system Select is open, Radix disables pointer
+  // events on everything else and the click that closes the Select also
+  // moves focus back to its trigger. That focus-return is itself reported to
+  // the popover's dismissable layer as a "focus outside" interaction — and it
+  // fires *after* the Select has already unmounted its portalled content, so
+  // by then there is nothing left in the DOM for `onInteractOutside` to
+  // recognize as "still nested and open". Latch a short-lived flag the
+  // instant the Select reports closing, and have the popover's
+  // interact-outside guard also honor that flag so the popover survives the
+  // Select's own close-triggered focus shuffle. See PromptDialog R87/R91.
+  const justClosedNestedSelectRef = useRef(false);
+  const clearJustClosedNestedSelectTimeoutRef = useRef<ReturnType<
+    typeof setTimeout
+  > | null>(null);
+  const markNestedSelectJustClosed = useCallback(() => {
+    justClosedNestedSelectRef.current = true;
+    if (clearJustClosedNestedSelectTimeoutRef.current != null) {
+      clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
+    }
+    clearJustClosedNestedSelectTimeoutRef.current = setTimeout(() => {
+      justClosedNestedSelectRef.current = false;
+      clearJustClosedNestedSelectTimeoutRef.current = null;
+    }, 300);
+  }, []);
+  useEffect(
+    () => () => {
+      if (clearJustClosedNestedSelectTimeoutRef.current != null) {
+        clearTimeout(clearJustClosedNestedSelectTimeoutRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     if (open) return;
     setAssetsPickerOpen(false);
     setPickedAssets([]);
     setSelectedUploadFiles([]);
+    // Only sticks for the session immediately following a failed submit; a
+    // fresh open after a real close should fall back to the composer's own
+    // localStorage draft restore for this scope, not a stale failed prompt.
+    setRestoredPromptText(undefined);
   }, [open]);
 
   const uploadFiles = useCallback(
@@ -410,20 +519,39 @@ export default function PromptPopover({
       _references: unknown,
       options: PromptComposerSubmitOptions,
     ) => {
+      let uploaded: UploadedFile[];
       try {
-        const uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
-        onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
-        setPickedAssets([]);
-        setSelectedUploadFiles([]);
+        uploaded = await uploadFiles([...files, ...selectedUploadFiles]);
       } catch (error) {
+        restorePromptText(text);
         toast.error(
           error instanceof Error
             ? error.message
             : t("promptDialog.failedToUploadFile"),
         );
+        return;
+      }
+      try {
+        await onSubmit(text.trim(), [...uploaded, ...pickedAssets], options);
+        setPickedAssets([]);
+        setSelectedUploadFiles([]);
+      } catch (error) {
+        restorePromptText(text);
+        toast.error(
+          error instanceof Error
+            ? error.message
+            : t("promptDialog.failedToSubmitPrompt"),
+        );
       }
     },
-    [onSubmit, pickedAssets, selectedUploadFiles, uploadFiles],
+    [
+      onSubmit,
+      pickedAssets,
+      restorePromptText,
+      selectedUploadFiles,
+      t,
+      uploadFiles,
+    ],
   );
 
   const handleAssetsPickerReady = useCallback(
@@ -489,10 +617,48 @@ export default function PromptPopover({
     [assetsPickerOpen, onOpenChange],
   );
 
-  const hasVirtualAnchor = !centered && Boolean(anchorRef?.current);
-  const virtualAnchorRef = anchorRef as React.RefObject<{
-    getBoundingClientRect: () => DOMRect;
-  }>;
+  const hasLiveVirtualAnchor = !centered && Boolean(anchorRef?.current);
+  // Radix keeps the closed popover mounted while the exit animation plays, but
+  // callers may clear `anchorRef` as soon as they close it. Latch the anchor
+  // mode from the last open render so the closing popover never swaps over to
+  // the static fallback anchor mid-exit (which re-anchored the fading popover
+  // to the top-left corner of the screen).
+  const anchorModeWhileOpenRef = useRef(hasLiveVirtualAnchor);
+  if (open) {
+    anchorModeWhileOpenRef.current = hasLiveVirtualAnchor;
+  }
+  const hasVirtualAnchor = open
+    ? hasLiveVirtualAnchor
+    : anchorModeWhileOpenRef.current;
+
+  // Stable virtual anchor that measures the live anchor element while it is
+  // attached and falls back to the last good rect afterwards. The anchor
+  // element can unmount on unrelated sidebar re-renders, and the ref can be
+  // cleared during the exit animation; measuring a detached element returns a
+  // zero rect, which used to reposition the popover to the viewport origin.
+  const latestAnchorRef = useRef(anchorRef);
+  latestAnchorRef.current = anchorRef;
+  const lastAnchorRectRef = useRef<DOMRect | null>(null);
+  const [virtualAnchorRef] = useState<
+    React.RefObject<{ getBoundingClientRect: () => DOMRect }>
+  >(() => ({
+    current: {
+      getBoundingClientRect: () => {
+        const el = latestAnchorRef.current?.current;
+        if (el?.isConnected) {
+          const rect = el.getBoundingClientRect();
+          if (rect.width > 0 || rect.height > 0) {
+            lastAnchorRectRef.current = rect;
+            return rect;
+          }
+        }
+        return (
+          lastAnchorRectRef.current ??
+          new DOMRect(window.innerWidth / 2, window.innerHeight / 2, 0, 0)
+        );
+      },
+    },
+  }));
 
   return (
     <Popover open={open} onOpenChange={handlePopoverOpenChange}>
@@ -526,17 +692,28 @@ export default function PromptPopover({
           if (assetsPickerOpen) event.preventDefault();
         }}
         onInteractOutside={(event) => {
-          if (isNestedPromptPopoverTarget(event.target)) {
+          if (
+            isNestedPromptPopoverTarget(event.target) ||
+            hasOpenNestedPromptPopoverSurface() ||
+            justClosedNestedSelectRef.current
+          ) {
             event.preventDefault();
           }
         }}
         data-agent-native-prompt-popover
         className="z-[200] w-[min(420px,calc(100vw-24px))] rounded-xl border-border p-0 shadow-2xl shadow-black/60"
       >
-        <div className="px-3.5 pt-3 pb-2">
+        <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
           <span className="text-sm font-medium text-foreground/90">
             {title}
           </span>
+          {creationMode && onCreationModeChange ? (
+            <CreationModeToggle
+              mode={creationMode}
+              onChange={onCreationModeChange}
+              disabled={loading || uploading}
+            />
+          ) : null}
         </div>
 
         <div className="px-2 pb-2">
@@ -546,6 +723,9 @@ export default function PromptPopover({
             disabled={loading || uploading}
             placeholder={placeholder ?? t("home.describeBuild")}
             onSubmit={handleSubmit}
+            draftScope={draftScope ?? title}
+            initialText={restoredPromptText}
+            initialTextKey={restoredPromptKey}
             attachButton={
               <PromptAttachmentMenu
                 disabled={loading || uploading}
@@ -568,6 +748,9 @@ export default function PromptPopover({
                   onValueChange={(value) =>
                     onDesignSystemChange?.(value === "none" ? null : value)
                   }
+                  onOpenChange={(nextOpen) => {
+                    if (!nextOpen) markNestedSelectJustClosed();
+                  }}
                   disabled={designSystemsLoading}
                 >
                   <SelectTrigger className="h-8 min-w-0 flex-1 text-xs">
@@ -655,13 +838,26 @@ export default function PromptPopover({
           <div className="flex justify-end border-t border-border px-3.5 py-2">
             <button
               type="button"
+              disabled={loading || skipInFlight}
               onClick={() => {
-                onSkip();
-                onOpenChange(false);
+                if (loading || skipInFlightRef.current) return;
+                skipInFlightRef.current = true;
+                setSkipInFlight(true);
+                void (async () => {
+                  try {
+                    await onSkip();
+                    onOpenChange(false);
+                  } catch {
+                    // The caller owns error presentation. Keep the prompt open
+                    // and usable so the user can retry or submit a prompt.
+                    skipInFlightRef.current = false;
+                    setSkipInFlight(false);
+                  }
+                })();
               }}
-              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA]"
+              className="cursor-pointer text-xs text-[#609FF8] hover:text-[#7AB2FA] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {skipLabel}
+              {skipLabel ?? t("promptDialog.skipPrompt")}
             </button>
           </div>
         )}
@@ -755,5 +951,64 @@ function PromptAttachmentMenu({
         </button>
       </PopoverContent>
     </Popover>
+  );
+}
+
+/**
+ * Compact segmented "Design" / "Full app" pill selector shown in the new-design
+ * popover title row. Only rendered by the caller when full-app building is
+ * flag-enabled (see FULL_APP_BUILDING_ENABLED in shared/full-app.ts) — when
+ * absent the popover renders with no mode control at all.
+ */
+function CreationModeToggle({
+  mode,
+  onChange,
+  disabled,
+}: {
+  mode: "design" | "app";
+  onChange: (mode: "design" | "app") => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div
+      role="radiogroup"
+      aria-label={
+        "Design or full app" /* i18n-ignore compact new-design mode toggle, flag-gated */
+      }
+      className="flex shrink-0 items-center gap-0.5 rounded-full border border-border bg-muted/40 p-0.5"
+    >
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode === "design"}
+        disabled={disabled}
+        onClick={() => onChange("design")}
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          mode === "design"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground/80"
+        }`}
+      >
+        <IconPalette className="h-3 w-3" />
+        {"Design" /* i18n-ignore compact new-design mode toggle, flag-gated */}
+      </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={mode === "app"}
+        disabled={disabled}
+        onClick={() => onChange("app")}
+        className={`flex cursor-pointer items-center gap-1 rounded-full px-2 py-1 !text-[11px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+          mode === "app"
+            ? "bg-background text-foreground shadow-sm"
+            : "text-muted-foreground hover:text-foreground/80"
+        }`}
+      >
+        <IconApps className="h-3 w-3" />
+        {
+          "Full app" /* i18n-ignore compact new-design mode toggle, flag-gated */
+        }
+      </button>
+    </div>
   );
 }

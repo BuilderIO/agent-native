@@ -4,13 +4,15 @@ import {
   generateTabId,
   emailToColor,
   emailToName,
+  useAvatarUrl,
+  useDbSync,
   useSession,
   useT,
   agentNativePath,
   type CollabUser,
 } from "@agent-native/core/client";
 import type { Document, DocumentSyncStatus } from "@shared/api";
-import { IconArrowLeft, IconDatabase } from "@tabler/icons-react";
+import { IconArrowLeft, IconDatabase, IconLoader2 } from "@tabler/icons-react";
 import { IconLock } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
@@ -31,14 +33,15 @@ import {
 } from "@/blocks/contentBlockRegistry";
 import { Button } from "@/components/ui/button";
 import { Sheet, SheetContent } from "@/components/ui/sheet";
-import { Skeleton } from "@/components/ui/skeleton";
 import { useComments } from "@/hooks/use-comments";
 import { useProcessBuilderBodyHydration } from "@/hooks/use-content-database";
 import {
+  isDocumentUpdateConflict,
   useDocument,
   useDocuments,
   useUpdateDocument,
 } from "@/hooks/use-documents";
+import type { DocumentUpdateConflictResponse } from "@/hooks/use-documents";
 import { useLocalStorage } from "@/hooks/use-local-storage";
 import {
   documentSyncStatusQueryKey,
@@ -47,15 +50,20 @@ import {
 } from "@/hooks/use-notion";
 import {
   canWriteLinkedLocalSource,
-  readDocumentFromLinkedLocalSource,
   writeDocumentToLinkedLocalSource,
 } from "@/lib/local-content-source-files";
 import { cn } from "@/lib/utils";
 
+import {
+  documentBodyHydrationIsPending,
+  isEffectivelyEmptyDocumentContent,
+} from "./body-hydration";
+import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
+import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
 import { DocumentProperties } from "./DocumentProperties";
 import { DocumentToolbar } from "./DocumentToolbar";
 import { EmojiPicker } from "./EmojiPicker";
@@ -121,41 +129,6 @@ function adoptConfirmedSaveWatermarks({
   }
 }
 
-function DocumentEditorSkeleton() {
-  return (
-    <div className="flex min-h-0 flex-1 flex-col bg-background">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-border px-4">
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-6 w-6 rounded-md" />
-          <Skeleton className="h-4 w-36" />
-        </div>
-        <div className="flex items-center gap-2">
-          <Skeleton className="h-7 w-20 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-          <Skeleton className="h-7 w-7 rounded-md" />
-        </div>
-      </div>
-      <div className="min-h-0 flex-1 overflow-hidden">
-        <div className="mx-auto w-full max-w-3xl px-4 pt-14 pb-16 sm:px-8 md:px-16 md:pt-16">
-          <Skeleton className="mb-4 h-12 w-12 rounded-lg" />
-          <Skeleton className="h-11 w-2/3 rounded-md" />
-          <div className="space-y-3 pt-12">
-            <Skeleton className="h-4 w-full" />
-            <Skeleton className="h-4 w-11/12" />
-            <Skeleton className="h-4 w-5/6" />
-            <Skeleton className="h-4 w-3/4" />
-          </div>
-          <div className="space-y-3 pt-8">
-            <Skeleton className="h-4 w-10/12" />
-            <Skeleton className="h-4 w-4/5" />
-            <Skeleton className="h-4 w-7/12" />
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
   const t = useT();
 
@@ -185,8 +158,10 @@ function DocumentUnavailable({ onOpenHome }: { onOpenHome: () => void }) {
  * an infinite spinner plus repeating 404/403 polls in the console.
  */
 export function DocumentEditor({ documentId }: DocumentEditorProps) {
-  const { data: document, isError } = useDocument(documentId);
+  const { data: queriedDocument, isError } = useDocument(documentId);
   const navigate = useNavigate();
+  const document =
+    queriedDocument?.id === documentId ? queriedDocument : undefined;
 
   if (isError && !document) {
     return <DocumentUnavailable onOpenHome={() => navigate("/")} />;
@@ -339,7 +314,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const canEdit = document.canEdit ?? true;
   const canEditRef = useRef(canEdit);
-  canEditRef.current = canEdit;
   // The block render context (asset/upload resolvers, inline markdown reader,
   // panel popover) is stable for the editor's lifetime. Created once here and
   // provided alongside the content block registry so every registry block in the
@@ -369,6 +343,23 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   const [localContentUpdatedAt, setLocalContentUpdatedAt] = useState<
     string | null
   >(document.updatedAt ?? null);
+  const flushRequestKey = `flush-request-${documentId}`;
+  const [flushRequestWake, setFlushRequestWake] = useState(0);
+  const handleFlushRequestEvent = useCallback(
+    (event: { source?: string; key?: string }) => {
+      if (
+        event.source === "app-state" &&
+        (event.key === flushRequestKey || event.key === "*")
+      ) {
+        setFlushRequestWake((wake) => wake + 1);
+      }
+    },
+    [flushRequestKey],
+  );
+  // Reuse the root's shared SSE/poll transport. This subscriber only wakes the
+  // flush reader when its exact application-state key changes; it does not open
+  // another EventSource or polling loop.
+  useDbSync({ onEvent: handleFlushRequestEvent });
   const saveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const promotedBuilderBodyRef = useRef<string | null>(null);
   const pendingDocumentSaveRef = useRef<PendingDocumentSave | null>(null);
@@ -464,28 +455,56 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   // Current user info for cursor labels
   const { session } = useSession();
+  const currentUserAvatarUrl = useAvatarUrl(session?.email);
   const currentUser: CollabUser | undefined = session?.email
     ? {
         name: emailToName(session.email),
         email: session.email,
         color: emailToColor(session.email),
+        avatarUrl: currentUserAvatarUrl ?? undefined,
       }
     : undefined;
 
-  // Collaborative editing is write-only for now. Viewers get the SQL snapshot
-  // and skip collab endpoints that reject non-editor access.
+  // Live collaboration for everyone who can open the doc — editors and viewers
+  // alike. Viewers join the shared Y.Doc read-only: they see live keystrokes,
+  // cursors, and presence (Google-Docs style) instead of a lagging SQL snapshot.
+  // The server enforces the split — collab READ routes (state / awareness GET /
+  // users) require viewer access, WRITE routes (update) require editor — so a
+  // viewer's client can subscribe but never push. The editor stays non-editable
+  // for viewers (see `editable={canEdit}` below), and VisualEditor additionally
+  // neutralizes every local Y.Doc mutation for viewers (no seed, no reconcile
+  // apply) so a read-only client can never originate a rejected `/update` POST.
+  // Local-file documents are still excluded (they have no SQL-backed collab doc).
+  const collabEnabled = !isLocalFileDocument;
   const {
     ydoc,
     awareness,
     isLoading: collabLoading,
+    isSynced: collabSynced,
     activeUsers,
     agentActive,
     agentPresent,
   } = useCollaborativeDoc({
-    docId: canEdit && !isLocalFileDocument ? documentId : "",
+    docId: collabEnabled ? documentId : "",
     requestSource: TAB_ID,
     user: currentUser,
   });
+  const bodyHydrationPending = documentBodyHydrationIsPending(document);
+  const editorCanEdit =
+    canEdit && !bodyHydrationPending && (isLocalFileDocument || !collabLoading);
+  canEditRef.current = editorCanEdit;
+
+  // Viewers intentionally join awareness so they receive live cursors, but
+  // only an editor runs the app-state flush poller below. Publish that exact
+  // capability so server-side pull/push/conflict actions do not wait on a
+  // read-only tab that can never acknowledge their request.
+  useEffect(() => {
+    if (!awareness || !collabEnabled) return;
+    awareness.setLocalStateField("canFlushDocument", editorCanEdit);
+    return () => {
+      awareness.setLocalStateField("canFlushDocument", false);
+    };
+  }, [awareness, collabEnabled, editorCanEdit]);
 
   // Initialize from fetched document, reset on document switch
   useEffect(() => {
@@ -517,71 +536,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
     }
   }, [document, documentId]);
-
-  useEffect(() => {
-    if (!isInitializedRef.current || !isLinkedLocalSourceDocument) {
-      return;
-    }
-
-    let cancelled = false;
-    readDocumentFromLinkedLocalSource(document)
-      .then((result) => {
-        if (cancelled) return;
-        if (!result.ok) {
-          toast.error(t("editor.couldNotReadLocalSourceFile"), {
-            description: result.error,
-          });
-          return;
-        }
-
-        const fileDocument = result.document;
-        setLocalTitle(fileDocument.title);
-        setLocalContent(fileDocument.content);
-        setLocalContentUpdatedAt(result.updatedAt);
-        lastSavedTitleRef.current = {
-          title: fileDocument.title,
-          updatedAt: result.updatedAt,
-        };
-        lastSavedContentRef.current = {
-          content: fileDocument.content,
-          updatedAt: result.updatedAt,
-        };
-        queryClient.setQueryData(
-          ["action", "get-document", { id: documentId }],
-          (old: Document | undefined) =>
-            old && typeof old === "object" ? { ...old, ...fileDocument } : old,
-        );
-        queryClient.setQueryData(
-          ["action", "list-documents", undefined],
-          (old: any) => {
-            const docs = old?.documents ?? (Array.isArray(old) ? old : null);
-            if (!Array.isArray(docs)) return old;
-            const nextDocs = docs.map((doc: Document) =>
-              doc.id === documentId ? { ...doc, ...fileDocument } : doc,
-            );
-            return Array.isArray(old)
-              ? nextDocs
-              : { ...old, documents: nextDocs };
-          },
-        );
-      })
-      .catch((error) => {
-        if (cancelled) return;
-        toast.error(t("editor.couldNotReadLocalSourceFile"), {
-          description:
-            error instanceof Error ? error.message : t("empty.genericError"),
-        });
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [
-    documentId,
-    document.source?.path,
-    isLinkedLocalSourceDocument,
-    queryClient,
-  ]);
 
   // NOTE: External body changes (agent edit, Notion pull, update-document) are
   // reconciled into the editor by VisualEditor via its content prop + the
@@ -619,7 +573,14 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     const serverContent = document.content;
     const lastSaved = lastSavedContentRef.current;
     if (serverContent === lastSaved.content) return;
-    const adopt = localContent === lastSaved.content || contentExternalIsNewer;
+    const staleEmptyLocalOverFreshServer =
+      isEffectivelyEmptyDocumentContent(lastSaved.content) &&
+      isEffectivelyEmptyDocumentContent(localContent) &&
+      !isEffectivelyEmptyDocumentContent(serverContent);
+    const adopt =
+      localContent === lastSaved.content ||
+      contentExternalIsNewer ||
+      staleEmptyLocalOverFreshServer;
     if (adopt) {
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
@@ -671,7 +632,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         icon?: string | null;
       },
       options: DocumentSaveOptions = {},
-    ): Promise<Document> => {
+    ): Promise<Document | DocumentUpdateConflictResponse> => {
       if (!options.allowQueuedSave && !canEditRef.current) return document;
 
       const localSource = document.source;
@@ -708,9 +669,26 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
 
       try {
+        // Content saves are guarded with a CAS against the last snapshot this
+        // editor reconciled for content, so a save can't silently clobber a
+        // concurrent update (e.g. the Notion auto-pull) that landed between
+        // this editor's last reconcile and this save reaching the server.
+        // Title/icon-only saves are unaffected (no baseUpdatedAt sent).
+        const baseUpdatedAt =
+          updates.content !== undefined
+            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            : undefined;
         return await updateDocument.mutateAsync({
           id: documentId,
+          loadedUpdatedAt: documentUpdatedAtRef.current ?? undefined,
+          loadedContentWasEmpty:
+            updates.content !== undefined
+              ? isEffectivelyEmptyDocumentContent(
+                  lastSavedContentRef.current.content,
+                )
+              : undefined,
           ...updates,
+          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
         });
       } catch (error) {
         if (!isLinkedLocalSource) throw error;
@@ -761,6 +739,19 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       }
 
       const saved = await persistDocumentUpdates(updates, options);
+      if (isDocumentUpdateConflict(saved)) {
+        // A concurrent write (e.g. the Notion auto-pull) landed after this
+        // editor's last reconciled content snapshot — the save was rejected,
+        // not applied. Don't adopt watermarks for the content we tried to
+        // send (that would make the editor believe its now-discarded content
+        // is the saved truth) and don't push to Notion below. The conflict
+        // response already lands the winning server document in the
+        // get-document cache (see useUpdateDocument), so the existing
+        // external-change effects above pick it up and reconcile the editor
+        // to it the same way they handle any other out-of-band write —
+        // silently, with no toast.
+        return { contentPersisted: false };
+      }
       // Adopt the server updatedAt per saved field.
       const savedAt = saved?.updatedAt ?? new Date().toISOString();
       adoptConfirmedSaveWatermarks({
@@ -786,6 +777,10 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
           try {
             const next = await pushDocumentToNotion.mutateAsync({
               documentId,
+              // The exact editor value was persisted immediately above. Avoid
+              // a redundant live-editor flush handshake on every auto-sync
+              // save; manual pushes/conflict choices keep the safe default.
+              flushOpenEditor: false,
             });
             queryClient.setQueryData(
               documentSyncStatusQueryKey(documentId, { autoSync }),
@@ -864,27 +859,161 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     flushPendingDocumentSave(pending);
   }, [canEdit, documentId, flushPendingDocumentSave]);
 
+  // Last-chance flush when the tab is being hidden or torn down. A normal
+  // debounced save is an async React-Query mutation; if the page unloads before
+  // it resolves the edit is lost. On `pagehide` / `visibilitychange → hidden` we
+  // fire a `keepalive` POST straight to the update-document action so the write
+  // survives navigation/close. Local-file documents persist to disk, not this
+  // endpoint, so they fall back to the best-effort async flush.
+  useEffect(() => {
+    if (!canEdit) return;
+
+    const flushForTeardown = () => {
+      const pending = pendingDocumentSaveRef.current;
+      if (!pending || !pending.canEditWhenQueued) return;
+
+      // Local-file docs can't be flushed via keepalive fetch; best-effort only.
+      if (isLocalFileDocument || isLinkedLocalSourceDocument) {
+        flushPendingDocumentSave(pending);
+        return;
+      }
+
+      // Mirror saveDocumentImmediately's per-field stale guard + diff so we only
+      // send genuinely-changed, non-stale fields.
+      const serverUpdatedAt = documentUpdatedAtRef.current;
+      const titleIsStale =
+        !!serverUpdatedAt &&
+        !!lastSavedTitleRef.current.updatedAt &&
+        serverUpdatedAt > lastSavedTitleRef.current.updatedAt;
+      const contentIsStale =
+        !!serverUpdatedAt &&
+        !!lastSavedContentRef.current.updatedAt &&
+        serverUpdatedAt > lastSavedContentRef.current.updatedAt;
+
+      const updates: Record<string, string> = {};
+      if (pending.title !== lastSavedTitleRef.current.title && !titleIsStale) {
+        updates.title = pending.title;
+      }
+      if (
+        pending.content !== lastSavedContentRef.current.content &&
+        !contentIsStale
+      ) {
+        updates.content = pending.content;
+      }
+      if (Object.keys(updates).length === 0) return;
+
+      clearTimeout(pending.timeout);
+      saveTimeoutRef.current = null;
+      pendingDocumentSaveRef.current = null;
+
+      try {
+        const url = agentNativePath("/_agent-native/actions/update-document");
+        // Include the same CAS guard as the normal save path: if content is
+        // going out, tag it with the last content snapshot this editor
+        // reconciled so a teardown flush can't clobber a concurrent write
+        // (e.g. Notion auto-pull) either. The tab is unloading, so there's no
+        // response handling — this only prevents the write from applying; it
+        // can't reconcile the editor, which is fine since it's going away.
+        const baseUpdatedAt =
+          updates.content !== undefined
+            ? (lastSavedContentRef.current.updatedAt ?? undefined)
+            : undefined;
+        const body = JSON.stringify({
+          id: documentId,
+          ...updates,
+          ...(baseUpdatedAt !== undefined ? { baseUpdatedAt } : {}),
+        });
+        const ok = fetch(url, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // Tag as a browser-originated call (ctx.caller = "frontend") so this
+            // never lights the AI-editing flag.
+            "X-Agent-Native-Frontend": "1",
+          },
+          body,
+          keepalive: true,
+          cache: "no-store",
+        });
+        // Adopt an optimistic watermark so a re-render doesn't re-queue the same
+        // save; the server bumps updatedAt, and the next poll reconciles it.
+        const optimisticAt = new Date().toISOString();
+        if (updates.title !== undefined) {
+          lastSavedTitleRef.current = {
+            title: pending.title,
+            updatedAt: optimisticAt,
+          };
+        }
+        if (updates.content !== undefined) {
+          lastSavedContentRef.current = {
+            content: pending.content,
+            updatedAt: optimisticAt,
+          };
+        }
+        void Promise.resolve(ok).catch(() => {
+          /* Page is going away; nothing more we can do. */
+        });
+      } catch {
+        // Fall back to the async flush if the keepalive fetch couldn't start.
+        flushPendingDocumentSave(pending);
+      }
+    };
+
+    const onVisibilityChange = () => {
+      if (window.document.visibilityState === "hidden") flushForTeardown();
+    };
+    window.addEventListener("pagehide", flushForTeardown);
+    window.document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => {
+      window.removeEventListener("pagehide", flushForTeardown);
+      window.document.removeEventListener(
+        "visibilitychange",
+        onVisibilityChange,
+      );
+    };
+  }, [
+    canEdit,
+    documentId,
+    isLocalFileDocument,
+    isLinkedLocalSourceDocument,
+    flushPendingDocumentSave,
+  ]);
+
   // Collab-aware ingest flush: the `pull-document` action writes a one-shot
   // `flush-request-<id>` app-state key when an external agent wants to ingest
   // the document while a live collab session is open. The DB column can lag
   // the in-memory Y.Doc, so the open editor is the only place that can
   // serialize the live content through its existing serializer. On seeing the
   // key we force an immediate (non-debounced) save of the current editor
-  // state, then delete the key so `pull-document` knows the flush landed.
+  // state, then acknowledge it so `pull-document` knows the flush landed.
+  // The shared sync transport wakes this reader for the exact app-state key;
+  // the first run covers a request that was already pending when the editor
+  // mounted.
   useEffect(() => {
-    if (!canEdit || isLocalFileDocument) return;
+    if (!editorCanEdit || isLocalFileDocument) return;
     let active = true;
-    const flushKey = `flush-request-${documentId}`;
     const flushPath = agentNativePath(
-      `/_agent-native/application-state/${flushKey}`,
+      `/_agent-native/application-state/${flushRequestKey}`,
     );
 
-    async function poll() {
+    async function flushIfRequested() {
       try {
         const res = await fetch(flushPath);
         if (res.ok) {
-          const pending = (await res.json()) as { id?: string } | null;
+          const pending = (await res.json()) as {
+            id?: string;
+            ts?: number;
+            requestId?: string;
+            status?: "pending" | "success" | "error";
+            error?: string;
+          } | null;
           if (pending && active) {
+            // A terminal acknowledgement waits for the requesting action to
+            // read and clear it. Retrying here could hide a failed flush or
+            // replace the explicit success signal before the server sees it.
+            if (pending.status === "error" || pending.status === "success") {
+              return;
+            }
             const title = localTitleRef.current;
             const content = localContentRef.current;
             const updates: Record<string, string> = {};
@@ -896,6 +1025,13 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             try {
               if (Object.keys(updates).length > 0) {
                 const saved = await persistDocumentUpdates(updates);
+                if (isDocumentUpdateConflict(saved)) {
+                  // Do not acknowledge a CAS loss as a successful flush. The
+                  // requester must stop instead of pushing/replacing stale SQL.
+                  throw new Error(
+                    "The document changed while preparing it for sync.",
+                  );
+                }
                 const savedAt = saved?.updatedAt ?? new Date().toISOString();
                 adoptConfirmedSaveWatermarks({
                   saved,
@@ -907,50 +1043,86 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   lastSavedContentRef,
                 });
               }
-            } finally {
-              // Acknowledge the flush even if nothing changed — the SQL row is
-              // already current, and pull-document is waiting on this delete.
+              // Explicitly acknowledge this exact request only after the live
+              // editor state is confirmed in SQL (or nothing needed saving).
+              // A delete is ambiguous with a transient app-state read failure.
               await fetch(flushPath, {
-                method: "DELETE",
-                headers: { "X-Agent-Native-CSRF": "1" },
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-CSRF": "1",
+                },
+                body: JSON.stringify({
+                  id: pending.id ?? documentId,
+                  ts: pending.ts ?? Date.now(),
+                  requestId: pending.requestId,
+                  status: "success",
+                }),
+              }).catch(() => {});
+            } catch (error) {
+              // Keep a durable negative acknowledgement so the requesting
+              // Notion action can fail closed instead of timing out and using a
+              // stale documents row. The server clears this after reading it.
+              await fetch(flushPath, {
+                method: "PUT",
+                headers: {
+                  "Content-Type": "application/json",
+                  "X-Agent-Native-CSRF": "1",
+                },
+                body: JSON.stringify({
+                  id: pending.id ?? documentId,
+                  ts: pending.ts ?? Date.now(),
+                  requestId: pending.requestId,
+                  status: "error",
+                  error:
+                    error instanceof Error
+                      ? error.message
+                      : t("editor.liveDocumentSaveBeforeSyncFailed"),
+                }),
               }).catch(() => {});
             }
           }
         }
       } catch {
-        // Ignore — next tick retries.
+        // Best-effort read. A later app-state event will wake the reader again.
       }
-      if (active) setTimeout(poll, 600);
     }
 
-    const timer = setTimeout(poll, 600);
+    void flushIfRequested();
     return () => {
       active = false;
-      clearTimeout(timer);
     };
-  }, [canEdit, documentId, isLocalFileDocument, persistDocumentUpdates]);
+  }, [
+    documentId,
+    editorCanEdit,
+    flushRequestKey,
+    flushRequestWake,
+    isLocalFileDocument,
+    persistDocumentUpdates,
+    t,
+  ]);
 
   const handleTitleChange = useCallback(
     (newTitle: string) => {
-      if (!canEdit) return;
+      if (!editorCanEdit) return;
       setLocalTitle(newTitle);
       debouncedSave(newTitle, localContentRef.current);
     },
-    [canEdit, debouncedSave],
+    [debouncedSave, editorCanEdit],
   );
 
   const handleContentChange = useCallback(
     (newContent: string) => {
-      if (!canEdit) return;
+      if (!editorCanEdit) return;
       setLocalContent(newContent);
       debouncedSave(localTitleRef.current, newContent);
     },
-    [canEdit, debouncedSave],
+    [debouncedSave, editorCanEdit],
   );
 
   const handleContentSaveNow = useCallback(
     async (newContent: string) => {
-      if (!canEdit) return false;
+      if (!editorCanEdit) return false;
       if (saveTimeoutRef.current) {
         clearTimeout(saveTimeoutRef.current);
         saveTimeoutRef.current = null;
@@ -964,7 +1136,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       );
       return result.contentPersisted;
     },
-    [canEdit, saveDocumentImmediately],
+    [editorCanEdit, saveDocumentImmediately],
   );
 
   // Comments state — pending comment from text selection
@@ -982,11 +1154,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
   );
   const hasComments =
     !isLocalFileDocument &&
-    canEdit &&
+    editorCanEdit &&
     ((threads?.length ?? 0) > 0 || !!pendingComment);
   const hasCommentRailSpace = useMinViewportWidth(1024);
   const showDesktopComments = hasComments && hasCommentRailSpace;
-  const showCommentsSheet = hasComments && canEdit && !showDesktopComments;
+  const showCommentsSheet =
+    hasComments && editorCanEdit && !showDesktopComments;
 
   const handleComment = useCallback(
     (
@@ -1043,7 +1216,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
   const handleTitlePaste = useCallback(
     (event: ClipboardEvent<HTMLTextAreaElement>) => {
-      if (!canEdit) return;
+      if (!editorCanEdit) return;
 
       const pastedText = event.clipboardData.getData("text/plain");
       if (!pastedText) return;
@@ -1064,12 +1237,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         titleInputRef.current?.setSelectionRange(nextCaret, nextCaret);
       });
     },
-    [canEdit, handleTitleChange, localTitle],
+    [editorCanEdit, handleTitleChange, localTitle],
   );
 
   // Auto-focus title on new empty documents once collab finishes loading
   useEffect(() => {
-    if (canEdit && !collabLoading && shouldFocusTitleRef.current) {
+    if (editorCanEdit && shouldFocusTitleRef.current) {
       shouldFocusTitleRef.current = false;
       requestAnimationFrame(() => titleInputRef.current?.focus());
     }
@@ -1079,10 +1252,6 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
     () => documentEditorBreadcrumbItems(document, documents),
     [document, documents],
   );
-
-  if (!isLocalFileDocument && collabLoading) {
-    return <DocumentEditorSkeleton />;
-  }
 
   const sidebar = (
     <CommentsSidebar
@@ -1183,7 +1352,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   />
                   {document.icon || !isDatabasePage ? (
                     <div className="mb-1">
-                      {canEdit ? (
+                      {editorCanEdit ? (
                         <EmojiPicker
                           icon={document.icon}
                           defaultIcon={defaultIcon}
@@ -1195,6 +1364,12 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                               const saved = await persistDocumentUpdates({
                                 icon: emoji,
                               });
+                              // Icon-only save: never CAS-guarded server-side
+                              // (no content in this call), so this can't come
+                              // back as a conflict — narrow defensively anyway
+                              // since persistDocumentUpdates' return type is a
+                              // union.
+                              if (isDocumentUpdateConflict(saved)) return;
                               adoptConfirmedSaveWatermarks({
                                 saved,
                                 savedAt:
@@ -1238,6 +1413,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       titleFocusedRef.current = false;
                     }}
                     onKeyDown={(e) => {
+                      if (!editorCanEdit) return;
                       if (e.key === "Enter") {
                         e.preventDefault();
                         const pm = window.document.querySelector(
@@ -1248,7 +1424,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     }}
                     aria-label={t("editor.documentTitle")}
                     placeholder={t("editor.title")}
-                    readOnly={!canEdit}
+                    readOnly={!editorCanEdit}
                     style={{ fieldSizing: "content" } as any}
                     className={cn(
                       "block w-full resize-none overflow-hidden break-words border-none bg-transparent p-0 font-bold leading-tight text-foreground outline-none placeholder:text-muted-foreground/40",
@@ -1258,7 +1434,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   {document.databaseMembership && !isLocalFileDocument ? (
                     <DocumentProperties
                       documentId={documentId}
-                      canEdit={canEdit}
+                      canEdit={editorCanEdit}
                     />
                   ) : null}
                 </div>
@@ -1280,6 +1456,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                   }}
                 >
                   {(() => {
+                    if (bodyHydrationPending) {
+                      return (
+                        <BuilderBodySyncingNotice
+                          title={t("editor.builderBodySyncing")}
+                          description={t(
+                            "editor.builderBodySyncingDescription",
+                          )}
+                        />
+                      );
+                    }
+
                     // The primary "Content" Blocks field IS the document body,
                     // with the full collaborative editor. It renders chromeless
                     // when it's the only Blocks field, or inside a
@@ -1287,7 +1474,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                     // fields.
                     const primaryEditor = (
                       <VisualEditor
-                        key={documentId}
+                        key={`${documentId}:${editorCanEdit && !isLocalFileDocument ? "live" : "snapshot"}`}
                         documentId={documentId}
                         content={
                           isLocalFileDocument ? localContent : document.content
@@ -1299,18 +1486,21 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         }
                         onChange={handleContentChange}
                         onSaveContent={handleContentSaveNow}
-                        ydoc={canEdit && !isLocalFileDocument ? ydoc : null}
-                        awareness={
-                          canEdit && !isLocalFileDocument ? awareness : null
-                        }
+                        // Bind the shared Y.Doc/awareness for viewers too — the
+                        // editor is non-editable for them and VisualEditor blocks
+                        // any local Y.Doc mutation, so they get live edits +
+                        // cursors without ever writing. Excludes local-file docs.
+                        ydoc={collabEnabled ? ydoc : null}
+                        collabSynced={collabEnabled ? collabSynced : true}
+                        awareness={collabEnabled ? awareness : null}
                         user={currentUser}
-                        editable={canEdit}
+                        editable={editorCanEdit}
                         localFileMode={isLocalFileDocument}
                         localFilePath={
                           isLocalFileDocument ? document.source?.path : null
                         }
                         onComment={
-                          canEdit && !isLocalFileDocument
+                          editorCanEdit && !isLocalFileDocument
                             ? handleComment
                             : undefined
                         }
@@ -1318,7 +1508,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                         activeThreadId={activeThreadId}
                         pendingHighlight={pendingComment?.range ?? null}
                         onActivateThread={
-                          canEdit && !isLocalFileDocument
+                          editorCanEdit && !isLocalFileDocument
                             ? setSelectedThreadId
                             : undefined
                         }
@@ -1335,7 +1525,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       return (
                         <DocumentBlockFields
                           documentId={documentId}
-                          canEdit={canEdit}
+                          canEdit={editorCanEdit}
                           primaryEditor={primaryEditor}
                         />
                       );
@@ -1343,6 +1533,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
 
                     return primaryEditor;
                   })()}
+                  {!bodyHydrationPending &&
+                  !isLocalFileDocument &&
+                  collabLoading ? (
+                    <div
+                      className="mt-4 inline-flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground"
+                      role="status"
+                    >
+                      <IconLoader2 className="size-3.5 animate-spin" />
+                      {t("editor.collabConnectingReadOnly")}
+                    </div>
+                  ) : null}
                 </div>
               </div>
 

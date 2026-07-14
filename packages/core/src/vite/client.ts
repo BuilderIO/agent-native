@@ -1,11 +1,22 @@
+import { EventEmitter } from "events";
 import fs from "fs";
 import type { IncomingMessage, ServerResponse } from "http";
 import { createRequire, syncBuiltinESMExports } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
-import type { ConfigEnv, Plugin, UserConfig } from "vite";
+import type {
+  ConfigEnv,
+  HotUpdateOptions,
+  NormalizedHotChannel,
+  Plugin,
+  UserConfig,
+} from "vite";
 
+import {
+  mergePendingChangelog,
+  parsePendingEntry,
+} from "../changelog/parse.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import { findWorkspaceRoot } from "../scripts/utils.js";
 import { verifyEmbedSessionToken } from "../server/embed-session.js";
@@ -36,6 +47,137 @@ const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 let nitroFsWatchGuardInstalled = false;
 
+type FsWatchArgs = [fs.PathLike, ...any[]];
+
+function isFileWatchLimitError(
+  error: NodeJS.ErrnoException | undefined,
+): boolean {
+  return error?.code === "EMFILE" || error?.code === "ENOSPC";
+}
+
+function watchPollingIntervalMs(): number {
+  const raw = Number(process.env.CHOKIDAR_INTERVAL ?? 1000);
+  return Number.isFinite(raw) && raw > 0 ? raw : 1000;
+}
+
+function fsWatchListener(args: FsWatchArgs): fs.WatchListener<string> | null {
+  const maybeOptionsOrListener = args[1];
+  const maybeListener = args[2];
+  if (typeof maybeOptionsOrListener === "function")
+    return maybeOptionsOrListener as fs.WatchListener<string>;
+  if (typeof maybeListener === "function")
+    return maybeListener as fs.WatchListener<string>;
+  return null;
+}
+
+function fsWatchPersistent(args: FsWatchArgs): boolean {
+  const options = args[1];
+  if (!options || typeof options === "function") return true;
+  if (typeof options === "string" || Buffer.isBuffer(options)) return true;
+  return options.persistent !== false;
+}
+
+function directEntrySnapshot(
+  target: string,
+): Map<string, { mtimeMs: number; size: number; directory: boolean }> {
+  const snapshot = new Map<
+    string,
+    { mtimeMs: number; size: number; directory: boolean }
+  >();
+  const stat = fs.statSync(target);
+  if (!stat.isDirectory()) {
+    snapshot.set(path.basename(target), {
+      mtimeMs: stat.mtimeMs,
+      size: stat.size,
+      directory: false,
+    });
+    return snapshot;
+  }
+  for (const entry of fs.readdirSync(target, { withFileTypes: true })) {
+    const entryPath = path.join(target, entry.name);
+    try {
+      const entryStat = fs.statSync(entryPath);
+      snapshot.set(entry.name, {
+        mtimeMs: entryStat.mtimeMs,
+        size: entryStat.size,
+        directory: entryStat.isDirectory(),
+      });
+    } catch {
+      // The entry may have disappeared between readdir and stat.
+    }
+  }
+  return snapshot;
+}
+
+function createPollingFsWatcher(args: FsWatchArgs): fs.FSWatcher {
+  const target = String(args[0]);
+  const listener = fsWatchListener(args);
+  const emitter = new EventEmitter() as fs.FSWatcher;
+  let closed = false;
+  let previous = directEntrySnapshot(target);
+
+  if (listener) emitter.on("change", listener);
+
+  const emitChange = (eventName: "change" | "rename", filename: string) => {
+    emitter.emit("change", eventName, filename);
+  };
+
+  const timer = setInterval(() => {
+    if (closed) return;
+    let next: typeof previous;
+    try {
+      next = directEntrySnapshot(target);
+    } catch (error) {
+      emitter.emit("error", error);
+      return;
+    }
+
+    for (const [filename, current] of next) {
+      const old = previous.get(filename);
+      if (!old) {
+        emitChange("rename", filename);
+        continue;
+      }
+      if (
+        old.mtimeMs !== current.mtimeMs ||
+        old.size !== current.size ||
+        old.directory !== current.directory
+      ) {
+        emitChange("change", filename);
+      }
+    }
+    for (const filename of previous.keys()) {
+      if (!next.has(filename)) emitChange("rename", filename);
+    }
+    previous = next;
+  }, watchPollingIntervalMs());
+
+  if (!fsWatchPersistent(args)) timer.unref();
+
+  emitter.close = () => {
+    if (closed) return;
+    closed = true;
+    clearInterval(timer);
+    emitter.removeAllListeners();
+  };
+  emitter.ref = () => {
+    timer.ref();
+    return emitter;
+  };
+  emitter.unref = () => {
+    timer.unref();
+    return emitter;
+  };
+
+  return emitter;
+}
+
+function warnNitroFsWatchFallback(target: unknown, err: NodeJS.ErrnoException) {
+  console.warn(
+    `[agent-native] Falling back to polling Nitro fs.watch for ${String(target)}: ${err.message}`,
+  );
+}
+
 function installNitroFsWatchGuard(): void {
   if (nitroFsWatchGuardInstalled) return;
   nitroFsWatchGuardInstalled = true;
@@ -49,29 +191,32 @@ function installNitroFsWatchGuard(): void {
       watcher = originalWatch(...args);
     } catch (error) {
       const err = error as NodeJS.ErrnoException;
-      if (err.code !== "EMFILE" && err.code !== "ENOSPC") throw error;
-      console.warn(
-        `[agent-native] Disabled Nitro fs.watch for ${String(args[0])}: ${err.message}`,
-      );
-      return {
-        close() {},
-        on() {
-          return this as fs.FSWatcher;
-        },
-      } as unknown as fs.FSWatcher;
+      if (!isFileWatchLimitError(err)) throw error;
+      warnNitroFsWatchFallback(args[0], err);
+      return createPollingFsWatcher(args as FsWatchArgs);
     }
 
     const originalEmit = watcher.emit.bind(watcher);
+    const originalClose = watcher.close.bind(watcher);
+    let pollingFallback: fs.FSWatcher | undefined;
+
+    watcher.close = (() => {
+      pollingFallback?.close();
+      return originalClose();
+    }) as fs.FSWatcher["close"];
+
     watcher.emit = ((eventName: string | symbol, ...eventArgs: any[]) => {
       const err = eventArgs[0] as NodeJS.ErrnoException | undefined;
-      if (
-        eventName === "error" &&
-        (err?.code === "EMFILE" || err?.code === "ENOSPC")
-      ) {
-        console.warn(
-          `[agent-native] Disabled Nitro fs.watch for ${String(args[0])}: ${err.message}`,
-        );
+      if (eventName === "error" && isFileWatchLimitError(err) && err) {
+        warnNitroFsWatchFallback(args[0], err);
         watcher.close();
+        pollingFallback = createPollingFsWatcher(args as FsWatchArgs);
+        pollingFallback.on("change", (changeEvent, filename) => {
+          originalEmit("change", changeEvent, filename);
+        });
+        pollingFallback.on("error", (pollingError) => {
+          originalEmit("error", pollingError);
+        });
         return false;
       }
       return originalEmit(eventName, ...eventArgs);
@@ -85,7 +230,124 @@ function nitroVitePlugin(
   ...args: Parameters<typeof import("nitro/vite").nitro>
 ) {
   installNitroFsWatchGuard();
-  return require("nitro/vite").nitro(...args);
+  const plugins = require("nitro/vite").nitro(...args) as Plugin[];
+  return plugins.map(debounceNitroFullReloadHotUpdate);
+}
+
+/**
+ * Debounce window for coalescing Nitro's dev-mode full-reload broadcasts.
+ *
+ * Nitro's own Vite plugin (the `hotUpdate` hook inside `nitro/vite`)
+ * invalidates each changed server module in the module graph synchronously,
+ * then sends `{ type: "full-reload" }` over that environment's hot channel —
+ * once per file-change event, with no debounce of its own. Every full-reload
+ * makes the Nitro dev worker re-import the entire SSR/server entry point,
+ * which is expensive. AI coding agents routinely write dozens of files in a
+ * single burst, so one edit session can trigger dozens of sequential
+ * re-imports back to back and pin a CPU core for minutes. This is a distinct
+ * concern from `fullReloadOnOptimizeDep504` elsewhere in this file (which
+ * rate-limits an unrelated client-reload nudge); keep the two independent.
+ */
+const NITRO_FULL_RELOAD_DEBOUNCE_MS = 300;
+
+/**
+ * Wraps a single Nitro-provided Vite plugin so that, if it defines a
+ * `hotUpdate` hook, any `environment.hot.send({ type: "full-reload" })` call
+ * made from inside that hook is coalesced with a trailing debounce (leading
+ * edge suppressed) instead of firing immediately for every changed file.
+ * Everything else — module-graph invalidation, non-reload hot messages, the
+ * hook's return value — passes through unchanged and immediate. A burst of
+ * N changes within the debounce window collapses into exactly one
+ * full-reload once things go quiet; a single isolated change still reloads,
+ * just delayed by up to `NITRO_FULL_RELOAD_DEBOUNCE_MS`.
+ *
+ * `hotUpdate` only ever runs on Vite's dev server (never during a build), so
+ * this has no effect outside `vite dev`.
+ */
+function debounceNitroFullReloadHotUpdate(plugin: Plugin): Plugin {
+  const originalHook = plugin.hotUpdate;
+  if (!originalHook) return plugin;
+
+  // Vite hook properties are either a plain function or `{ handler, ... }`
+  // ("object form", used to attach hook metadata like `order`). Support both.
+  const isHandlerForm = typeof originalHook === "object";
+  const originalHandler = (
+    isHandlerForm
+      ? (originalHook as { handler: unknown }).handler
+      : originalHook
+  ) as (
+    this: { environment: { name: string; hot: NormalizedHotChannel } },
+    options: HotUpdateOptions,
+  ) => unknown;
+
+  // One pending-reload timer per Vite environment name ("ssr" by default, or
+  // a named Nitro service environment), so unrelated environments can never
+  // block or coalesce into each other.
+  const pendingReloadTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+  function wrappedHotUpdate(
+    this: { environment: { name: string; hot: NormalizedHotChannel } },
+    options: HotUpdateOptions,
+  ) {
+    const realEnvironment = this.environment;
+    // Proxy `this.environment.hot.send` so nitro's hook body (which reads
+    // `this.environment` and calls `env.hot.send(...)`) is otherwise
+    // untouched — only full-reload payloads get intercepted below.
+    const proxiedThis = new Proxy(this, {
+      get(target, prop, receiver) {
+        if (prop !== "environment") {
+          return Reflect.get(target, prop, receiver);
+        }
+        return new Proxy(realEnvironment, {
+          get(envTarget, envProp, envReceiver) {
+            if (envProp !== "hot") {
+              return Reflect.get(envTarget, envProp, envReceiver);
+            }
+            const realHot = envTarget.hot;
+            return new Proxy(realHot, {
+              get(hotTarget, hotProp, hotReceiver) {
+                if (hotProp !== "send") {
+                  return Reflect.get(hotTarget, hotProp, hotReceiver);
+                }
+                return (payload: unknown) => {
+                  if (
+                    !payload ||
+                    typeof payload !== "object" ||
+                    (payload as { type?: string }).type !== "full-reload"
+                  ) {
+                    // Not a full-reload — pass through immediately.
+                    return (hotTarget.send as (p: unknown) => void)(payload);
+                  }
+                  const key = realEnvironment.name || "default";
+                  const pending = pendingReloadTimers.get(key);
+                  if (pending) clearTimeout(pending);
+                  const timer = setTimeout(() => {
+                    pendingReloadTimers.delete(key);
+                    (hotTarget.send as (p: unknown) => void)(payload);
+                  }, NITRO_FULL_RELOAD_DEBOUNCE_MS);
+                  // Never hold the process open just for a pending reload.
+                  timer.unref?.();
+                  pendingReloadTimers.set(key, timer);
+                };
+              },
+            });
+          },
+        });
+      },
+    });
+    return originalHandler.call(proxiedThis, options);
+  }
+
+  if (isHandlerForm) {
+    return {
+      ...plugin,
+      hotUpdate: {
+        ...(originalHook as object),
+        handler: wrappedHotUpdate,
+      },
+    } as Plugin;
+  }
+  return { ...plugin, hotUpdate: wrappedHotUpdate } as Plugin;
 }
 
 /**
@@ -169,7 +431,6 @@ function findLocalWorkspacePackageDeps(
   startDir: string,
   workspaceRoot: string | null,
 ): Array<{ packageName: string; packageDir: string }> {
-  if (!workspaceRoot) return [];
   const pkgPath = path.join(startDir, "package.json");
   if (!fs.existsSync(pkgPath)) return [];
 
@@ -180,23 +441,32 @@ function findLocalWorkspacePackageDeps(
       ...(pkg.devDependencies ?? {}),
       ...(pkg.peerDependencies ?? {}),
     } as Record<string, string>;
-    const req = createRequire(pkgPath);
     const seen = new Set<string>();
     const packages: Array<{ packageName: string; packageDir: string }> = [];
 
     for (const [packageName, range] of Object.entries(deps)) {
-      if (!range.startsWith("workspace:")) continue;
       if (seen.has(packageName)) continue;
       seen.add(packageName);
 
       try {
-        const packageJsonPath =
-          findInstalledPackageJsonPath(pkgPath, packageName) ??
-          findPackageJsonFromEntry(req.resolve(packageName));
+        let packageJsonPath: string | null = null;
+        if (range.startsWith("file:")) {
+          packageJsonPath = findFilePackageJsonPath(pkgPath, range);
+        } else if (range.startsWith("workspace:")) {
+          packageJsonPath = findWorkspacePackageJsonPath(
+            pkgPath,
+            packageName,
+            workspaceRoot,
+          );
+        } else {
+          continue;
+        }
         if (!packageJsonPath) continue;
         const packageDir = fs.realpathSync(path.dirname(packageJsonPath));
-        if (!packageDir.startsWith(path.join(workspaceRoot, "packages")))
-          continue;
+        const packageJson = JSON.parse(
+          fs.readFileSync(packageJsonPath, "utf-8"),
+        );
+        if (packageJson?.name !== packageName) continue;
         packages.push({ packageName, packageDir });
       } catch {
         // Dependency may not have been installed yet; ignore it for dev config.
@@ -209,31 +479,103 @@ function findLocalWorkspacePackageDeps(
   }
 }
 
-function findInstalledPackageJsonPath(
-  pkgPath: string,
-  packageName: string,
-): string | null {
-  const candidate = path.join(
-    path.dirname(pkgPath),
-    "node_modules",
-    ...packageName.split("/"),
-    "package.json",
-  );
-  return fs.existsSync(candidate) ? candidate : null;
+function packagePathSegments(packageName: string): string[] {
+  return packageName.split("/");
 }
 
-function findPackageJsonFromEntry(entryPath: string): string | null {
-  let dir = fs.statSync(entryPath).isDirectory()
-    ? entryPath
-    : path.dirname(entryPath);
-  for (let i = 0; i < 20; i++) {
-    const candidate = path.join(dir, "package.json");
-    if (fs.existsSync(candidate)) return candidate;
-    const parent = path.dirname(dir);
-    if (parent === dir) break;
-    dir = parent;
+function findWorkspacePackageJsonPath(
+  pkgPath: string,
+  packageName: string,
+  workspaceRoot: string | null,
+): string | null {
+  const packageSegments = packagePathSegments(packageName);
+  const candidates = [
+    path.join(path.dirname(pkgPath), "node_modules", ...packageSegments),
+    ...(workspaceRoot
+      ? [path.join(workspaceRoot, "node_modules", ...packageSegments)]
+      : []),
+  ];
+
+  for (const candidate of candidates) {
+    const packageJsonPath = path.join(candidate, "package.json");
+    if (!fs.existsSync(packageJsonPath)) continue;
+    const realPath = fs.realpathSync(packageJsonPath);
+    if (
+      workspaceRoot &&
+      !realPath.startsWith(`${fs.realpathSync(workspaceRoot)}${path.sep}`)
+    ) {
+      continue;
+    }
+    return realPath;
   }
+
+  if (workspaceRoot) {
+    return findWorkspacePackageJsonByName(workspaceRoot, packageName);
+  }
+
   return null;
+}
+
+function findWorkspacePackageJsonByName(
+  workspaceRoot: string,
+  packageName: string,
+): string | null {
+  const searchRoots = ["packages", "templates"].map((name) =>
+    path.join(workspaceRoot, name),
+  );
+
+  for (const searchRoot of searchRoots) {
+    const packageJsonPath = findPackageJsonInTree(searchRoot, packageName, 2);
+    if (packageJsonPath) return packageJsonPath;
+  }
+
+  return null;
+}
+
+function findPackageJsonInTree(
+  root: string,
+  packageName: string,
+  maxDepth: number,
+): string | null {
+  if (!fs.existsSync(root)) return null;
+
+  const packageJsonPath = path.join(root, "package.json");
+  if (fs.existsSync(packageJsonPath)) {
+    try {
+      const pkg = JSON.parse(fs.readFileSync(packageJsonPath, "utf-8"));
+      if (pkg?.name === packageName) return fs.realpathSync(packageJsonPath);
+    } catch {
+      // Ignore malformed workspace package metadata.
+    }
+  }
+
+  if (maxDepth <= 0) return null;
+
+  for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    if (entry.name === "node_modules" || entry.name.startsWith(".")) continue;
+
+    const found = findPackageJsonInTree(
+      path.join(root, entry.name),
+      packageName,
+      maxDepth - 1,
+    );
+    if (found) return found;
+  }
+
+  return null;
+}
+
+function findFilePackageJsonPath(
+  pkgPath: string,
+  range: string,
+): string | null {
+  const spec = range.slice("file:".length);
+  const packageDir = spec.startsWith("//")
+    ? fileURLToPath(range)
+    : path.resolve(path.dirname(pkgPath), spec);
+  const packageJsonPath = path.join(packageDir, "package.json");
+  return fs.existsSync(packageJsonPath) ? packageJsonPath : null;
 }
 
 function findPnpmWorkspaceRoot(startDir: string): string | null {
@@ -444,6 +786,7 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/composer",
   "@agent-native/core/client/conversation",
   "@agent-native/core/client/editor",
+  "@agent-native/core/client/i18n",
   "@agent-native/core/client/resources",
   // Dedicated subpath that exports ONLY appBasePath/agentNativePath/appPath.
   // entry.client.tsx imports from here so it never pulls the full client barrel
@@ -463,6 +806,20 @@ const CORE_CLIENT_SUBPATHS = [
   "@agent-native/core/client/transcription/use-live-transcription",
   "@agent-native/core/voice",
 ];
+
+const TOOLKIT_CLIENT_SUBPATHS = [
+  "@agent-native/toolkit",
+  "@agent-native/toolkit/app-shell",
+  "@agent-native/toolkit/collab-ui",
+  "@agent-native/toolkit/hooks",
+  "@agent-native/toolkit/onboarding",
+  "@agent-native/toolkit/provider",
+  "@agent-native/toolkit/sharing",
+  "@agent-native/toolkit/ui",
+  "@agent-native/toolkit/utils",
+];
+
+const NODE_SSR_NATIVE_EXTERNALS = ["better-sqlite3", "bindings"];
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
   const inMonorepo = findCoreSrcDir(cwd) !== null;
@@ -499,6 +856,10 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
             packageName: "@agent-native/core",
           },
           {
+            specifier: "@agent-native/core/client/i18n",
+            packageName: "@agent-native/core",
+          },
+          {
             specifier: "@agent-native/core/client/resources",
             packageName: "@agent-native/core",
           },
@@ -516,16 +877,23 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
             specifier: "@agent-native/core/client/tools",
             packageName: "@agent-native/core",
           },
+          ...TOOLKIT_CLIENT_SUBPATHS.map((specifier) => ({
+            specifier,
+            packageName: "@agent-native/toolkit",
+          })),
         ] as Array<{ specifier: string; packageName?: string }>)),
     { specifier: "@libsql/client" },
     { specifier: "@amplitude/analytics-browser" },
     { specifier: "@assistant-ui/react" },
+    { specifier: "@codemirror/lang-sql" },
+    { specifier: "@codemirror/theme-one-dark" },
     { specifier: "@excalidraw/excalidraw" },
     { specifier: "@excalidraw/mermaid-to-excalidraw" },
     {
       specifier: "@modelcontextprotocol/ext-apps/app-bridge",
       packageName: "@modelcontextprotocol/ext-apps",
     },
+    { specifier: "@paper-design/shaders-react" },
     { specifier: "@radix-ui/react-accordion" },
     { specifier: "@radix-ui/react-alert-dialog" },
     { specifier: "@radix-ui/react-aspect-ratio" },
@@ -553,6 +921,11 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@radix-ui/react-toggle" },
     { specifier: "@radix-ui/react-toggle-group" },
     { specifier: "@radix-ui/react-tooltip" },
+    { specifier: "@sentry/browser" },
+    {
+      specifier: "@shadcn/react/message-scroller",
+      packageName: "@shadcn/react",
+    },
     { specifier: "@tanstack/react-query" },
     { specifier: "@tabler/icons-react" },
     { specifier: "@tiptap/core" },
@@ -571,6 +944,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "@tiptap/pm/state", packageName: "@tiptap/pm" },
     { specifier: "@tiptap/react" },
     { specifier: "@tiptap/starter-kit" },
+    { specifier: "@uiw/react-codemirror" },
     { specifier: "@xterm/addon-fit" },
     { specifier: "@xterm/addon-web-links" },
     { specifier: "@xterm/xterm" },
@@ -623,6 +997,8 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
       specifier: "highlight.js/lib/languages/yaml",
       packageName: "highlight.js",
     },
+    { specifier: "html2canvas" },
+    { specifier: "i18next" },
     { specifier: "input-otp" },
     { specifier: "lowlight" },
     { specifier: "mermaid" },
@@ -630,6 +1006,7 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     { specifier: "next-themes" },
     { specifier: "react-hook-form" },
     { specifier: "react-day-picker" },
+    { specifier: "react-i18next" },
     { specifier: "react-markdown" },
     { specifier: "react-resizable-panels" },
     { specifier: "recharts" },
@@ -674,7 +1051,24 @@ function getDefaultOptimizeDeps(cwd: string): string[] {
     .filter(({ specifier, packageName }) =>
       hasOptimizeDep(packageName ?? specifier, cwd),
     )
-    .map(({ specifier }) => specifier);
+    .map(({ specifier, packageName }) => {
+      const dependencyName = packageName ?? specifier;
+      // In the monorepo, core is source-aliased and its dependencies live
+      // under packages/core/node_modules. A bare optimizeDeps.include entry
+      // is resolved from the template root, so core-only dependencies fail
+      // the initial prebundle and are rediscovered after the page loads. Vite
+      // then rebundles and reloads the editor. Its documented nested-dependency
+      // syntax resolves the right-hand package from core's package directory,
+      // while app-owned dependencies should remain direct entries.
+      if (
+        inMonorepo &&
+        !hasDep(dependencyName, cwd) &&
+        hasCoreDep(dependencyName, cwd)
+      ) {
+        return `@agent-native/core > ${specifier}`;
+      }
+      return specifier;
+    });
 }
 
 /**
@@ -718,6 +1112,7 @@ function getCoreSourceAliases(
       coreSrc,
       "client/editor/index.ts",
     ),
+    "@agent-native/core/client/i18n": path.join(coreSrc, "client/i18n.tsx"),
     "@agent-native/core/client/resources": path.join(
       coreSrc,
       "client/resources/index.ts",
@@ -1604,6 +1999,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "captureException",
     "common",
     "createLowlight",
+    "createNodeFromContent",
     "defaultUrlTransform",
     "extensions",
     "findTable",
@@ -1625,6 +2021,7 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
     "useCurrentEditor",
     "useEditor",
     "useLocalRuntime",
+    "useMessagePartReasoning",
     "useMessagePartText",
     "useMessageRuntime",
     "useThread",
@@ -1661,6 +2058,141 @@ function ssrStubPlugin(packages: string[]): Plugin | null {
         "export default stub;" +
         namedExports.map((name) => `export const ${name} = stub;`).join("")
       );
+    },
+  };
+}
+
+function splitViteRequest(id: string): { file: string; query: string } | null {
+  const queryIndex = id.indexOf("?");
+  if (queryIndex === -1) return null;
+  return {
+    file: id.slice(0, queryIndex),
+    query: id.slice(queryIndex + 1),
+  };
+}
+
+function hasRawQuery(query: string): boolean {
+  return new URLSearchParams(query).has("raw");
+}
+
+function normalizeViteFilePath(file: string): string | null {
+  if (!file || file.startsWith("\0")) return null;
+  const fsPath = file.startsWith("/@fs/") ? file.slice("/@fs".length) : file;
+  try {
+    return decodeURI(fsPath);
+  } catch {
+    return fsPath;
+  }
+}
+
+function changelogRawPathFromId(id: string): string | null {
+  const request = splitViteRequest(id);
+  if (!request || !hasRawQuery(request.query)) return null;
+  const file = normalizeViteFilePath(request.file);
+  if (!file || path.basename(file) !== "CHANGELOG.md") return null;
+  return path.resolve(file);
+}
+
+function resolveChangelogRawImport(
+  source: string,
+  importer: string | undefined,
+): string | null {
+  const request = splitViteRequest(source);
+  if (!request || !hasRawQuery(request.query)) return null;
+  const rawFile = normalizeViteFilePath(request.file);
+  if (!rawFile || path.basename(rawFile) !== "CHANGELOG.md") return null;
+
+  const rawImporter = importer?.split("?")[0];
+  const importerFile =
+    (rawImporter && normalizeViteFilePath(rawImporter)) ||
+    rawImporter ||
+    path.join(process.cwd(), "index.ts");
+  const resolved = path.isAbsolute(rawFile)
+    ? rawFile
+    : path.resolve(path.dirname(importerFile), rawFile);
+  return `${resolved}?${request.query}`;
+}
+
+function readAppChangelogMarkdown(
+  changelogPath: string,
+  watchFile: (file: string) => void,
+): string {
+  // Only ever register real files with Vite's `addWatchFile`. Passing a
+  // directory makes import-analysis try to resolve it as a module and fail
+  // with "Failed to resolve import .../changelog", which breaks hydration for
+  // every template in dev. New/removed pending files are still picked up via
+  // `handleHotUpdate` (Vite watches the project root recursively).
+  watchFile(changelogPath);
+  const existing = fs.existsSync(changelogPath)
+    ? fs.readFileSync(changelogPath, "utf-8")
+    : "";
+  const pendingDir = path.join(path.dirname(changelogPath), "changelog");
+  if (!fs.existsSync(pendingDir)) {
+    return existing;
+  }
+
+  const pending = fs
+    .readdirSync(pendingDir)
+    .filter(
+      (file) => file.endsWith(".md") && file.toLowerCase() !== "readme.md",
+    )
+    .sort()
+    .map((file) => {
+      const filePath = path.join(pendingDir, file);
+      watchFile(filePath);
+      // `agent-native changelog add` prefixes every pending filename with its
+      // date. Preserve that date when a hand-written entry omits `date:` so a
+      // deployed What's new surface never groups an already-merged update
+      // under an inaccurate "Unreleased" heading.
+      const filenameDate = file.match(/^(\d{4}-\d{2}-\d{2})(?:-|\.md$)/)?.[1];
+      return parsePendingEntry(
+        fs.readFileSync(filePath, "utf-8"),
+        filenameDate,
+      );
+    });
+  return mergePendingChangelog(existing, pending);
+}
+
+function isChangelogSourceFile(file: string): boolean {
+  if (path.basename(file) === "CHANGELOG.md") return true;
+  return (
+    path.basename(path.dirname(file)) === "changelog" &&
+    file.endsWith(".md") &&
+    path.basename(file).toLowerCase() !== "readme.md"
+  );
+}
+
+function invalidateChangelogRawModules(server: {
+  moduleGraph?: { idToModuleMap?: Map<string, any>; invalidateModule?: any };
+}) {
+  const moduleGraph = server.moduleGraph;
+  if (!moduleGraph?.idToModuleMap || !moduleGraph.invalidateModule) return;
+  for (const mod of moduleGraph.idToModuleMap.values()) {
+    if (!mod?.id || !changelogRawPathFromId(mod.id)) continue;
+    moduleGraph.invalidateModule(mod);
+  }
+}
+
+function appChangelogRawPlugin(): Plugin {
+  return {
+    name: "agent-native-app-changelog-raw",
+    enforce: "pre",
+    resolveId(source, importer) {
+      return resolveChangelogRawImport(source, importer);
+    },
+    load(id) {
+      const changelogPath = changelogRawPathFromId(id);
+      if (!changelogPath) return null;
+      const markdown = readAppChangelogMarkdown(changelogPath, (file) =>
+        this.addWatchFile(file),
+      );
+      return `export default ${JSON.stringify(markdown)};`;
+    },
+    handleHotUpdate(ctx) {
+      if (!isChangelogSourceFile(ctx.file)) return;
+      invalidateChangelogRawModules(ctx.server as any);
+      ctx.server.ws.send({ type: "full-reload" });
+      return [];
     },
   };
 }
@@ -1879,8 +2411,10 @@ function localWorkspacePackageAliases(
   packages: Array<{ packageName: string; packageDir: string }>,
 ): any[] {
   const aliases: any[] = [];
+  const sourceAliasExcludes = new Set(["@agent-native/pinpoint"]);
 
   for (const { packageName, packageDir } of packages) {
+    if (sourceAliasExcludes.has(packageName)) continue;
     const pkgPath = path.join(packageDir, "package.json");
     if (!fs.existsSync(pkgPath)) continue;
 
@@ -1890,12 +2424,13 @@ function localWorkspacePackageAliases(
       if (!exportsMap || typeof exportsMap !== "object") continue;
 
       for (const [exportPath, target] of Object.entries(exportsMap)) {
-        if (typeof target !== "string") continue;
+        const exportTarget = localWorkspaceExportTarget(packageDir, target);
+        if (!exportTarget) continue;
         const importPath =
           exportPath === "."
             ? packageName
             : `${packageName}${exportPath.slice(1)}`;
-        const replacement = path.resolve(packageDir, target);
+        const replacement = path.resolve(packageDir, exportTarget);
 
         if (importPath.includes("*") || replacement.includes("*")) {
           aliases.push({
@@ -1920,6 +2455,53 @@ function localWorkspacePackageAliases(
   return aliases;
 }
 
+function localWorkspaceExportTarget(
+  packageDir: string,
+  target: unknown,
+): string | null {
+  const rawTarget = pickLocalWorkspaceExportTarget(target);
+  if (!rawTarget) return null;
+  return distExportToSourceTarget(packageDir, rawTarget);
+}
+
+function pickLocalWorkspaceExportTarget(target: unknown): string | null {
+  if (typeof target === "string") return target;
+  if (!target || typeof target !== "object" || Array.isArray(target)) {
+    return null;
+  }
+
+  const record = target as Record<string, unknown>;
+  for (const condition of ["development", "browser", "import", "default"]) {
+    const resolved = pickLocalWorkspaceExportTarget(record[condition]);
+    if (resolved) return resolved;
+  }
+  return null;
+}
+
+function distExportToSourceTarget(packageDir: string, target: string): string {
+  if (!target.startsWith("./dist/")) return target;
+
+  if (target.includes("*")) {
+    return target
+      .replace("./dist/", "./src/")
+      .replace(/\.d\.ts$/, "")
+      .replace(/\.js$/, "");
+  }
+
+  const sourceBase = target
+    .replace("./dist/", "./src/")
+    .replace(/\.d\.ts$/, "")
+    .replace(/\.js$/, "");
+  const candidates = target.endsWith(".css")
+    ? [sourceBase]
+    : [`${sourceBase}.tsx`, `${sourceBase}.ts`, sourceBase];
+
+  for (const candidate of candidates) {
+    if (fs.existsSync(path.resolve(packageDir, candidate))) return candidate;
+  }
+  return target;
+}
+
 function aliasArrayFrom(alias: unknown): any[] {
   if (!alias) return [];
   if (Array.isArray(alias)) return alias;
@@ -1938,7 +2520,6 @@ const DEFAULT_VITE_WATCH_IGNORES = [
   "**/.generated/**",
   "**/.agents/**",
   "**/.claude/**",
-  "**/changelog/**",
   "**/data/**",
   "**/dist/**",
   "**/build/**",
@@ -1974,6 +2555,7 @@ function createAgentNativePlugins(
     // the server, so we can't blanket-stub it here).
     ssrStubPlugin(options.ssrStubs ?? []),
     ...userPlugins,
+    appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin(),
     autoReloadOnOptimizeDep(),
@@ -2086,6 +2668,9 @@ function createAgentNativeConfig(
       __AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID__: JSON.stringify(
         process.env.GA_MEASUREMENT_ID?.trim() || "",
       ),
+      "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
+        process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
       // Framework route warmup controls how SSR `.data` routes are fetched:
       // ordinary fetches keep them CDN-cacheable, while native prefetch headers
       // can be refused before the CDN/origin sees the request. Keep this value
@@ -2165,6 +2750,18 @@ function createAgentNativeConfig(
       ? {
           ...(userConfig.ssr ?? {}),
           noExternal: /^(?!node:)/,
+          external: [
+            // Yjs is used by both server-side collaboration actions and the
+            // client SSR graph. If Vite inlines it here, Nitro also emits its
+            // own server copy and a single request imports Yjs twice, breaking
+            // Yjs constructor identity. This externalizes only Vite's
+            // intermediate React Router SSR graph; Nitro's final Node/edge
+            // bundle still owns and bundles the dependency, so both paths
+            // share one portable module instance.
+            "yjs",
+            ...NODE_SSR_NATIVE_EXTERNALS,
+            ...arrayFrom((userConfig.ssr as { external?: any })?.external),
+          ],
           // Pick the workspace-core's compiled `dist/` exports in prod —
           // Node-style `default` condition matches what edge runtimes (CF
           // Workers, Deno) can actually load. Without this, Vite's prod
@@ -2331,4 +2928,5 @@ export {
   getDefaultOptimizeDeps as _getDefaultOptimizeDeps,
   findCorePackageRoot as _findCorePackageRoot,
   getReactRouterAliases as _getReactRouterAliases,
+  debounceNitroFullReloadHotUpdate as _debounceNitroFullReloadHotUpdate,
 };

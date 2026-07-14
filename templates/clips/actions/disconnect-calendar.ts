@@ -39,20 +39,26 @@ export default defineAction({
       .where(eq(schema.calendarAccounts.id, args.id));
     if (!account) throw new Error(`Calendar account not found: ${args.id}`);
 
+    // Secrets are scoped by the account's stored owner email (set at connect
+    // time — see server/lib/google-calendar-oauth.ts `secretScopeEmail`), not
+    // the current caller's email. A non-owner admin disconnecting someone
+    // else's account must still hit the right (scope, scopeId, key) row.
+    const secretScopeEmail = account.ownerEmail;
+
     // Best-effort revoke of any live access/refresh tokens.
     try {
       if (account.refreshTokenSecretRef) {
         const ref = await readAppSecret({
           key: account.refreshTokenSecretRef,
           scope: "user",
-          scopeId: userEmail,
+          scopeId: secretScopeEmail,
         });
         if (ref?.value) await revokeToken(ref.value);
       } else if (account.accessTokenSecretRef) {
         const ref = await readAppSecret({
           key: account.accessTokenSecretRef,
           scope: "user",
-          scopeId: userEmail,
+          scopeId: secretScopeEmail,
         });
         if (ref?.value) {
           try {
@@ -73,14 +79,14 @@ export default defineAction({
       await deleteAppSecret({
         key: account.accessTokenSecretRef,
         scope: "user",
-        scopeId: userEmail,
+        scopeId: secretScopeEmail,
       }).catch(() => {});
     }
     if (account.refreshTokenSecretRef) {
       await deleteAppSecret({
         key: account.refreshTokenSecretRef,
         scope: "user",
-        scopeId: userEmail,
+        scopeId: secretScopeEmail,
       }).catch(() => {});
     }
 

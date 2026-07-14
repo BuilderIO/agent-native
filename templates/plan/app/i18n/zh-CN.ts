@@ -445,6 +445,9 @@ const messages = {
       requestAccessTitle: "请求访问此计划",
       requestSent: "请求已发送",
       retry: "重试",
+      sendFeedback: "发送反馈",
+      feedbackPlaceholder: "描述此计划错误出现前发生了什么。",
+      openGitHubIssue: "打开 GitHub issue",
       retryHelp: "重试加载，或者如果这是私人计划链接，则使用其他帐户登录。",
       signIn: "登入",
       signInTitle: "登录查看此计划",
@@ -464,6 +467,16 @@ const messages = {
     localPlanLoadError: {
       message: "无法读取本地计划文件夹“{{slug}}”。",
       title: "未找到本地计划",
+    },
+    localPlanConnection: {
+      promptTitle: "连接到此本地计划",
+      promptMessage:
+        "此计划保留在你的电脑上。Plan 需要浏览器权限才能通过本地桥接读取它。",
+      deniedTitle: "本地网络访问已被阻止",
+      deniedMessage:
+        "打开浏览器中 Plan 的网站设置，允许访问本地网络，然后再次检查。",
+      connect: "连接到本地计划",
+      checkAgain: "再次检查",
     },
     loggedOut: {
       copied: "已复制",

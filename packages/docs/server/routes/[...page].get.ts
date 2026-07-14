@@ -63,7 +63,7 @@ function setDefaultSsrCacheHeaders(event: H3Event) {
   // Keep docs-only public text/markdown assets on the same framework SSR cache
   // policy as HTML and React Router .data. Do not move these back to
   // netlify.toml: core owns the browser/CDN/Netlify durable header set so every
-  // provider and template gets the same short-fresh/long-SWR behavior.
+  // provider and template gets the same long-fresh/long-SWR edge behavior.
   for (const [name, value] of Object.entries(DEFAULT_SSR_CACHE_HEADERS)) {
     setHeader(event, name, value);
   }

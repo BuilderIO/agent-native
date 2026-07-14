@@ -11,6 +11,8 @@ export interface CalendarEvent {
   location: string;
   allDay: boolean;
   source: "local" | "google" | "ical";
+  /** Stable feed/source identifier for non-Google inventory provenance. */
+  sourceId?: string;
   googleEventId?: string;
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;
@@ -45,6 +47,14 @@ export interface CalendarEvent {
     responseStatus?: "accepted" | "declined" | "tentative" | "needsAction";
     organizer?: boolean;
     self?: boolean;
+    /** When true, the attendee is optional (Google Calendar `optional`). */
+    optional?: boolean;
+    /**
+     * Optional IANA timezone for this attendee (e.g. America/New_York).
+     * Used to show their local time for the event start when known.
+     * Prefer user overrides via `attendee-timezones` settings when absent.
+     */
+    timeZone?: string;
   }>;
   reminders?: Array<{ method: "popup" | "email"; minutes: number }>;
   /** Whether this event uses the calendar's default reminder policy. */
@@ -114,6 +124,8 @@ export interface CalendarEvent {
   updatedAt: string;
   /** Client-only: temp id preserved across optimistic→real swap to keep React keys stable */
   _tempId?: string;
+  /** Client-only: prior provider id retained while open UI state rebinds after replacement */
+  _replacedId?: string;
 }
 
 export interface CalendarEventDraft {

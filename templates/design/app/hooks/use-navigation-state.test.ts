@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   designEditorCommandKeysForTab,
+  designSelectionCleanupKeysForTab,
+  designSelectionStateKeysForTab,
   editorCommandFromNavigate,
   editorPathFromCommand,
 } from "./use-navigation-state";
@@ -109,5 +111,20 @@ describe("design navigation state", () => {
       "design-editor-command:tab-123",
     ]);
     expect(designEditorCommandKeysForTab()).toEqual(["design-editor-command"]);
+  });
+
+  it("clears design selection for both the active browser tab and global fallback", () => {
+    expect(designSelectionStateKeysForTab("tab-123")).toEqual([
+      "design-selection:tab-123",
+      "design-selection",
+    ]);
+    expect(designSelectionStateKeysForTab()).toEqual(["design-selection"]);
+  });
+
+  it("limits route cleanup to the active tab so another editor keeps the global fallback", () => {
+    expect(designSelectionCleanupKeysForTab("tab-123")).toEqual([
+      "design-selection:tab-123",
+    ]);
+    expect(designSelectionCleanupKeysForTab()).toEqual(["design-selection"]);
   });
 });

@@ -19,13 +19,13 @@ function requestContentLength(event: Parameters<typeof getRequestHeader>[0]) {
   const raw = getRequestHeader(event, "content-length");
   if (!raw) return null;
   const parsed = Number(raw);
-  return Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
 /**
  * Builder-indexing endpoint: accepts a `.fig` upload (multipart field `file`)
- * and starts Builder's design-system indexing pipeline. The app does not decode
- * Figma files locally; Builder owns extraction, generated docs, and the
+ * and starts Builder's design-system indexing pipeline. The app does not
+ * process `.fig` files locally; Builder owns the generated docs and the
  * asynchronous indexing job.
  */
 export const indexDesignSystemWithBuilder = defineEventHandler(
@@ -37,10 +37,11 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
     }
 
     const contentLength = requestContentLength(event);
-    if (
-      contentLength !== null &&
-      contentLength > MAX_FIG_BYTES + MULTIPART_OVERHEAD_BYTES
-    ) {
+    if (contentLength === null) {
+      setResponseStatus(event, 411);
+      return { error: "A valid Content-Length header is required." };
+    }
+    if (contentLength > MAX_FIG_BYTES + MULTIPART_OVERHEAD_BYTES) {
       setResponseStatus(event, 413);
       return {
         error: `File too large (max ${Math.round(MAX_FIG_BYTES / 1024 / 1024)} MB).`,
@@ -69,6 +70,18 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         error: `File too large (max ${Math.round(MAX_FIG_BYTES / 1024 / 1024)} MB).`,
       };
     }
+    const filename = part.filename || "brand.fig";
+    const uploadedBytes = Buffer.from(part.data);
+    const isFigName = filename.toLowerCase().endsWith(".fig");
+    const isFigBytes =
+      uploadedBytes.subarray(0, 8).toString("utf8") === "fig-kiwi" ||
+      uploadedBytes
+        .subarray(0, 4)
+        .equals(Buffer.from([0x50, 0x4b, 0x03, 0x04]));
+    if (!isFigName || !isFigBytes) {
+      setResponseStatus(event, 400);
+      return { error: "Uploaded file is not a valid .fig container." };
+    }
 
     const suggestedTitle =
       (part.filename || "Imported brand")
@@ -81,7 +94,7 @@ export const indexDesignSystemWithBuilder = defineEventHandler(
         projectName: suggestedTitle,
         files: [
           {
-            name: part.filename || "brand.fig",
+            name: filename,
             data: part.data,
             mimeType: "application/octet-stream",
           },

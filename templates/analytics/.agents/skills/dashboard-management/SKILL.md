@@ -18,7 +18,9 @@ Current storage:
 | `dashboards`       | Explorer and SQL dashboard records           |
 | `dashboard_views`  | Saved filter presets per dashboard           |
 | `dashboard_shares` | Standard framework share grants              |
+| `dashboard_revisions` | Bounded dashboard history snapshots       |
 | `analyses`         | Saved ad-hoc analysis records                |
+| `analysis_revisions` | Bounded analysis history snapshots        |
 | `analysis_shares`  | Standard framework share grants for analyses |
 
 Legacy settings keys such as `u:<email>:dashboard-*`, `u:<email>:sql-dashboard-*`, `o:<orgId>:sql-dashboard-*`, and `adhoc-analysis-*` are still read as a fallback and copied into SQL on access. Do not create new dashboard settings rows.
@@ -28,6 +30,14 @@ user/org context, validates the resulting config, writes the SQL-backed record,
 syncs collab, and returns compact proof. Use `update-dashboard` for new
 full-config saves, UI full-config saves, or explicitly requested low-level
 JSON-pointer edits.
+
+Every meaningful dashboard save snapshots the previous state into
+`dashboard_revisions`. Use `list-dashboard-revisions` to inspect available undo
+points and `restore-dashboard-revision` to restore one; restore snapshots the
+current state first, then syncs open dashboard editors.
+
+Saved analyses follow the same undo model with `analysis_revisions`,
+`list-analysis-revisions`, and `restore-analysis-revision`.
 
 Never use `db-patch`, raw SQL, or settings-key edits to create or modify a
 dashboard config. Those bypass the dashboard action's access checks, SQL
@@ -47,6 +57,23 @@ once — do not switch to db-patch or raw SQL.
 | `first-party` | Read-only SQL over this template's `analytics_events` table, usually via `query-agent-native-analytics`. |
 
 Do not use `app-db` as a dashboard source. For first-party events collected through `/track`, use `source: "first-party"` or the `query-agent-native-analytics` action rather than raw internal `db-query`.
+
+AI-generated first-party panels are dashboard-time-bound by default. Set
+`config.timeScope` to `"dashboard"` and include the matching dashboard time
+filter in the SQL. The allowed values are:
+
+- `dashboard`: use the dashboard-selected time range; the default for ordinary metrics.
+- `fixed-window`: use an explicit bounded window independent of the dashboard filter.
+- `cohort-history`: use the bounded history of an explicitly defined cohort.
+- `all-time`: scan all available history; use only when the user requests it and
+  put `all-time`, `lifetime`, or `historical` in the title or description.
+
+`{{timeRange}}` requires an explicit matching `filters` entry with
+`id: "timeRange"` and `type: "select"`. `{{<id>Start}}` and `{{<id>End}}`
+require a matching `filters` entry with that id and `type: "date-range"`.
+Do not rely on undeclared time variables. Server validation rejects unbound
+first-party SQL, so declare the filter or choose an explicit non-dashboard
+scope before saving.
 
 ## Creating A Dashboard
 
@@ -144,7 +171,8 @@ Notes:
       "source": "first-party",
       "chartType": "metric",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click'",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'click' AND event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
     },
     {
       "id": "kpi-signups",
@@ -152,7 +180,8 @@ Notes:
       "source": "first-party",
       "chartType": "metric",
       "width": 1,
-      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup'",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT COUNT(*) AS value FROM analytics_events WHERE event_name = 'signup' AND event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
     },
     {
       "id": "kpi-active",
@@ -160,7 +189,8 @@ Notes:
       "source": "first-party",
       "chartType": "metric",
       "width": 1,
-      "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT COUNT(DISTINCT user_id) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
     },
     // Section header switches the grid to 2 columns for the panels below it.
     {
@@ -176,7 +206,8 @@ Notes:
       "source": "first-party",
       "chartType": "line",
       "width": 2,
-      "sql": "SELECT DATE(timestamp) AS date, COUNT(*) AS value FROM analytics_events WHERE timestamp >= '{{dateStart}}' AND timestamp < '{{dateEnd}}' GROUP BY 1 ORDER BY 1",
+      "config": { "timeScope": "dashboard" },
+      "sql": "SELECT event_date AS date, COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}' GROUP BY 1 ORDER BY 1",
     },
   ],
 }
@@ -185,6 +216,13 @@ Notes:
 ## Filters And Variables
 
 `filters[]` defines dashboard-wide controls. Filter values are available in panel SQL through `{{var}}` interpolation. Date ranges emit `{{<id>Start}}` and `{{<id>End}}`.
+
+For dashboard-time-bound first-party SQL, use `config.timeScope: "dashboard"`
+and a predicate that consumes the declared filter, such as
+`event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'`. A
+`{{timeRange}}` token must have a matching select filter and SQL branches for
+its options; date variables must have a matching date-range filter. The server
+rejects unbound first-party SQL during dashboard validation.
 
 **Filter ids must be unique.** Two filters with the same `id` collide on the same URL param, so changing one visibly updates the other in the UI. The dashboard save endpoint rejects duplicates with a 400.
 
@@ -234,15 +272,42 @@ type DashboardPatch = {
   variables?: Record<string, string>;
 };
 
+type PanelTimeScope =
+  | "dashboard"
+  | "fixed-window"
+  | "cohort-history"
+  | "all-time";
+
+type PanelConfig = Record<string, unknown> & {
+  // Use "dashboard" for AI-generated first-party panels by default.
+  timeScope?: PanelTimeScope;
+};
+
 type PanelPatch = {
   title?: string;
   sql?: string;
-  source?: "bigquery" | "ga4" | "amplitude" | "first-party" | "demo" | "prometheus";
-  chartType?: "line" | "area" | "bar" | "metric" | "table" | "pie" | "section" | "heatmap" | "callout" | "extension";
+  source?:
+    | "bigquery"
+    | "ga4"
+    | "amplitude"
+    | "first-party"
+    | "demo"
+    | "prometheus";
+  chartType?:
+    | "line"
+    | "area"
+    | "bar"
+    | "metric"
+    | "table"
+    | "pie"
+    | "section"
+    | "heatmap"
+    | "callout"
+    | "extension";
   width?: number;
   columns?: number;
   tab?: string;
-  config?: Record<string, unknown>;
+  config?: PanelConfig;
   description?: string;
 };
 
@@ -302,27 +367,29 @@ Examples:
 dashboard.panels(["dau-over-time", "wau-over-time"]).moveToTop();
 dashboard.panel("top-referrers").setTitle("Top Referrers by Domain");
 dashboard.panel("retention").set({
-  "width": 2,
-  "config": { "description": "Updated definition." }
+  width: 2,
+  config: { description: "Updated definition." },
 });
-dashboard.panelsMatching({ "source": "first-party" }).setWidth(2);
-dashboard.panelsMatching({ "titleIncludes": "Revenue" }).setConfigPath(
-  "yAxis.format",
-  "currency"
-);
-dashboard.panelsMatching({ "titleIncludes": "Signed-In" }).moveToTop();
-dashboard.section("retention-activity-section").append([
-  "repeat-users",
-  "retention-over-time"
-]);
-dashboard.insertPanel({
-  "id": "new-kpi",
-  "title": "New KPI",
-  "source": "first-party",
-  "chartType": "metric",
-  "width": 1,
-  "sql": "SELECT COUNT(*) AS value FROM analytics_events"
-}).atTop();
+dashboard.panelsMatching({ source: "first-party" }).setWidth(2);
+dashboard
+  .panelsMatching({ titleIncludes: "Revenue" })
+  .setConfigPath("yAxis.format", "currency");
+dashboard.panelsMatching({ titleIncludes: "Signed-In" }).moveToTop();
+dashboard
+  .section("retention-activity-section")
+  .append(["repeat-users", "retention-over-time"]);
+dashboard
+  .insertPanel({
+    id: "new-kpi",
+    title: "New KPI",
+    source: "first-party",
+    chartType: "metric",
+    width: 1,
+    config: { timeScope: "dashboard" },
+    // Assumes filters includes { id: "date", type: "date-range", default: "30d" }.
+    sql: "SELECT COUNT(*) AS value FROM analytics_events WHERE event_date >= '{{dateStart}}' AND event_date < '{{dateEnd}}'",
+  })
+  .atTop();
 ```
 
 Native tool call:
@@ -415,7 +482,7 @@ For a **first-party analytics** dashboard, prefer `compose-dashboard` over hand-
 - **Never hand-author large first-party configs panel-by-panel.** Call `compose-dashboard` with the metric keys instead.
 - Unknown metric keys are skipped and reported in `unknownMetrics` (not fatal). Each panel's SQL is validated independently — valid panels save, invalid ones are reported in `invalidMetrics`.
 - By default (no `overwrite`), composing into an existing dashboard APPENDS the new panels and skips ids already present. `overwrite: true` replaces the whole config.
-- Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides.
+- Each metric accepts an optional per-metric `window` of `'30d' | '90d' | 'all'` (only affects windowed virality/time metrics) and `title` / `chartType` / `width` overrides. Request `'all'` only when the user asks for all-time coverage, and describe it as full available history.
 - Returns `{ dashboardId, panelCount, createdMetrics, unknownMetrics, invalidMetrics, skippedExistingIds }` — report `panelCount` as proof-of-done.
 
 Available metric keys: `total-signups`, `signups-over-time`, `signups-by-template`, `sessions-by-app`, `sessions-over-time`, `replay-sessions`, `replay-chunks-over-time`, `recent-replay-sessions`, `signed-in-vs-anon`, `total-template-clicks`, `total-demo-clicks`, `total-cli-copies`, `template-interest-over-time`, `clicks-by-template`, `demo-clicks-by-template`, `cli-copies-by-template`, `cli-copies-over-time`, `pageviews-over-time`, `top-referrer-domains`, `referred-signups-30d`, `viral-signup-share-30d`, `clip-share-signups-30d`, `signups-by-referral-source`, `referred-signups-over-time`, `top-referrers`, `share-funnel-30d`, `viral-participation-rate-90d`, `viral-coefficient-90d`, `activated-referrers-90d`.

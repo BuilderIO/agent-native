@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
+  PR_VISUAL_RECAP_SETUP,
   RECAP_DIFF_BYTE_CAP,
   appendGateSkipLine,
   buildRecapFailureDiagnostic,
@@ -27,16 +28,22 @@ import {
   isRecapSensitivePath,
   launchRecapChromium,
   lineMatchesAllowlist,
+  matchingRecapRunners,
   normalizeRecapAgent,
   normalizeRecapSecretScanMode,
+  parseRecapGateRunsOn,
+  parseRecapRunsOn,
   parseClaudeUsage,
   parseCodexUsage,
+  parseOpenAiCompatibleUsage,
   parseRecapScanAllowlist,
   publishRecapSource,
   recapCheckOutcome,
   recapRequiredSecrets,
   readVisualRecapSkillBundle,
   readRecapSourcePayload,
+  resolveGitHubPullRequestAuthor,
+  runRecap,
   sanitizeAgentFailureSummary,
   sortDiffSourceFirst,
   runShot,
@@ -185,6 +192,25 @@ describe("recap agent failure summaries", () => {
     expect(summary).toContain("Claude exited with code 1");
     expect(summary).toContain("stderr: MCP server failed");
     expect(summary).toContain("Bearer [redacted]");
+  });
+
+  it("surfaces Codex provider quota failures from JSONL output", () => {
+    const result = [
+      JSON.stringify({
+        type: "error",
+        message: "Quota exceeded. Check your plan and billing details.",
+      }),
+      JSON.stringify({
+        type: "turn.failed",
+        error: {
+          message: "Quota exceeded. Check your plan and billing details.",
+        },
+      }),
+    ].join("\n");
+
+    expect(summarizeAgentResult("codex", result)).toContain(
+      "Quota exceeded. Check your plan and billing details.",
+    );
   });
 
   it("recovers failure summaries from local agent result files", () => {
@@ -483,6 +509,9 @@ describe("recap direct publish", () => {
         pr: "5440",
         sourcePrState: "merged",
         sourcePrMergedAt: "2026-06-18T12:30:00Z",
+        sourceAuthorEmail: "Sami@Builder.IO",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
         fetchFn,
         cwd: dir,
       });
@@ -505,6 +534,9 @@ describe("recap direct publish", () => {
         sourcePrNumber: "5440",
         sourcePrState: "merged",
         sourcePrMergedAt: "2026-06-18T12:30:00Z",
+        sourceAuthorEmail: "sami@builder.io",
+        sourceAuthorName: "Sami",
+        sourceAuthorLogin: "sami",
         currentFocus: "visual recap review",
         status: "review",
       });
@@ -512,6 +544,58 @@ describe("recap direct publish", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("infers source author metadata from GitHub PR commits while skipping noreply emails", async () => {
+    const calls: string[] = [];
+    const fetchFn: typeof fetch = (async (input) => {
+      const url = String(input);
+      calls.push(url);
+      if (url.endsWith("/repos/BuilderIO/ai-services/pulls/5578")) {
+        return jsonResponse({ user: { login: "sami" } });
+      }
+      if (url.endsWith("/users/sami")) {
+        return jsonResponse({ login: "sami", name: "Sami", email: null });
+      }
+      if (
+        url.endsWith(
+          "/repos/BuilderIO/ai-services/pulls/5578/commits?per_page=100",
+        )
+      ) {
+        return jsonResponse([
+          {
+            author: { login: "sami" },
+            commit: {
+              author: {
+                name: "Sami",
+                email: "123+sami@users.noreply.github.com",
+              },
+            },
+          },
+          {
+            author: { login: "sami" },
+            commit: {
+              author: { name: "Sami", email: "Sami@Builder.IO" },
+            },
+          },
+        ]);
+      }
+      return textResponse("not found", 404);
+    }) as typeof fetch;
+
+    const author = await resolveGitHubPullRequestAuthor({
+      token: "gh-token",
+      repo: "BuilderIO/ai-services",
+      pr: "5578",
+      fetchFn,
+    });
+
+    expect(author).toEqual({
+      email: "sami@builder.io",
+      name: "Sami",
+      login: "sami",
+    });
+    expect(calls).toHaveLength(3);
   });
 
   it("reuses the same idempotency key across publish retries", async () => {
@@ -657,9 +741,20 @@ describe("recap direct publish", () => {
 });
 
 describe("recap setup planning", () => {
+  it("documents the model as required for compatible providers", () => {
+    const guidance = PR_VISUAL_RECAP_SETUP.join("\n");
+    expect(guidance).toContain(
+      "VISUAL_RECAP_MODEL (variable, required for openai-compatible)",
+    );
+    expect(guidance).not.toContain(
+      "VISUAL_RECAP_MODEL / VISUAL_RECAP_REASONING",
+    );
+  });
+
   it("normalizes the supported recap agents", () => {
     expect(normalizeRecapAgent(undefined)).toBe("claude");
     expect(normalizeRecapAgent("Codex")).toBe("codex");
+    expect(normalizeRecapAgent("deepseek")).toBe("openai-compatible");
     expect(() => normalizeRecapAgent("gpt")).toThrow(/Unsupported recap agent/);
   });
 
@@ -672,6 +767,74 @@ describe("recap setup planning", () => {
       "PLAN_RECAP_TOKEN",
       "OPENAI_API_KEY",
     ]);
+    expect(recapRequiredSecrets("openai-compatible")).toEqual([
+      "PLAN_RECAP_TOKEN",
+      "VISUAL_RECAP_API_KEY",
+    ]);
+  });
+
+  it("parses hosted and self-hosted runner JSON", () => {
+    expect(parseRecapRunsOn('"ubuntu-latest"')).toEqual({
+      json: '"ubuntu-latest"',
+      labels: ["ubuntu-latest"],
+      selfHosted: false,
+    });
+    expect(
+      parseRecapRunsOn('["self-hosted", "Linux", "X64", "visual-recap"]'),
+    ).toEqual({
+      json: '["self-hosted","Linux","X64","visual-recap"]',
+      labels: ["self-hosted", "Linux", "X64", "visual-recap"],
+      selfHosted: true,
+    });
+  });
+
+  it("rejects invalid or unsafe runner configuration", () => {
+    expect(() => parseRecapRunsOn("ubuntu-latest")).toThrow(/valid JSON/);
+    expect(() => parseRecapRunsOn('"custom-runner"')).toThrow(
+      /standard GitHub-hosted/,
+    );
+    expect(() => parseRecapRunsOn('["linux","x64"]')).toThrow(
+      /exact "self-hosted" label/,
+    );
+    expect(() => parseRecapRunsOn("[]")).toThrow(/array of 1-20/);
+  });
+
+  it("accepts only a plain single gate runner label", () => {
+    expect(parseRecapGateRunsOn("visual-recap-gate")).toBe("visual-recap-gate");
+    expect(() => parseRecapGateRunsOn('["self-hosted"]')).toThrow(
+      /one plain runner label/,
+    );
+    expect(() => parseRecapGateRunsOn("bad label")).toThrow(
+      /one plain runner label/,
+    );
+  });
+
+  it("matches only online runners with every configured label", () => {
+    const runners = [
+      {
+        name: "ready",
+        status: "online",
+        labels: ["self-hosted", "Linux", "X64", "visual-recap"],
+      },
+      {
+        name: "offline",
+        status: "offline",
+        labels: ["self-hosted", "linux", "x64", "visual-recap"],
+      },
+      {
+        name: "wrong-label",
+        status: "online",
+        labels: ["self-hosted", "linux", "x64"],
+      },
+    ];
+    expect(
+      matchingRecapRunners(runners, [
+        "self-hosted",
+        "linux",
+        "x64",
+        "visual-recap",
+      ]).map((runner) => runner.name),
+    ).toEqual(["ready"]);
   });
 
   it("builds a setup plan from env and detects an existing workflow", () => {
@@ -692,8 +855,10 @@ describe("recap setup planning", () => {
         env: {
           PLAN_RECAP_TOKEN: "example-plan-token",
           OPENAI_API_KEY: "example-openai-key",
-          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
+          VISUAL_RECAP_RUNS_ON: '["self-hosted","linux","x64","visual-recap"]',
+          VISUAL_RECAP_GATE_RUNS_ON: "visual-recap-gate",
         } as NodeJS.ProcessEnv,
       });
 
@@ -706,8 +871,10 @@ describe("recap setup planning", () => {
         requiredSecrets: ["PLAN_RECAP_TOKEN", "OPENAI_API_KEY"],
         variableValues: {
           VISUAL_RECAP_AGENT: "codex",
-          VISUAL_RECAP_MODEL: "gpt-5.5",
+          VISUAL_RECAP_MODEL: "gpt-5.6-sol",
           VISUAL_RECAP_REASONING: "high",
+          VISUAL_RECAP_RUNS_ON: '["self-hosted","linux","x64","visual-recap"]',
+          VISUAL_RECAP_GATE_RUNS_ON: "visual-recap-gate",
         },
       });
       expect(plan.secretValues).toMatchObject({
@@ -717,6 +884,170 @@ describe("recap setup planning", () => {
       });
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("uses the generic secret and endpoint variable for compatible providers", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-compatible-"));
+    try {
+      const plan = buildRecapSetupPlan({
+        baseDir: root,
+        agent: "kimi",
+        env: {
+          PLAN_RECAP_TOKEN: "example-plan-token",
+          VISUAL_RECAP_API_KEY: "example-compatible-key",
+          VISUAL_RECAP_BASE_URL: "https://api.moonshot.ai/v1",
+          VISUAL_RECAP_MODEL: "moonshot-v1-8k",
+        } as NodeJS.ProcessEnv,
+      });
+
+      expect(plan.agent).toBe("openai-compatible");
+      expect(plan.requiredSecrets).toEqual([
+        "PLAN_RECAP_TOKEN",
+        "VISUAL_RECAP_API_KEY",
+      ]);
+      expect(plan.requiredVariables).toEqual([
+        {
+          name: "VISUAL_RECAP_BASE_URL",
+          example: "https://provider.example/v1",
+        },
+        { name: "VISUAL_RECAP_MODEL", example: "provider-model-id" },
+      ]);
+      expect(plan.variableProblems).toEqual([]);
+      expect(plan.variableValues).toMatchObject({
+        VISUAL_RECAP_AGENT: "openai-compatible",
+        VISUAL_RECAP_BASE_URL: "https://api.moonshot.ai/v1",
+        VISUAL_RECAP_MODEL: "moonshot-v1-8k",
+      });
+      expect(plan.secretValues.VISUAL_RECAP_API_KEY).toBe(
+        "example-compatible-key",
+      );
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it("tells compatible-provider users when the required model is missing", async () => {
+    const previous = {
+      PLAN_RECAP_TOKEN: process.env.PLAN_RECAP_TOKEN,
+      VISUAL_RECAP_API_KEY: process.env.VISUAL_RECAP_API_KEY,
+      VISUAL_RECAP_BASE_URL: process.env.VISUAL_RECAP_BASE_URL,
+      VISUAL_RECAP_MODEL: process.env.VISUAL_RECAP_MODEL,
+    };
+    process.env.PLAN_RECAP_TOKEN = "example-plan-token";
+    process.env.VISUAL_RECAP_API_KEY = "example-compatible-key";
+    process.env.VISUAL_RECAP_BASE_URL = "https://api.example.com/v1";
+    delete process.env.VISUAL_RECAP_MODEL;
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runRecap([
+        "setup",
+        "--repo",
+        "BuilderIO/example",
+        "--agent",
+        "openai-compatible",
+        "--dry-run",
+      ]);
+
+      expect(writes.join("")).toContain("VISUAL_RECAP_MODEL: missing value.");
+    } finally {
+      stdout.mockRestore();
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it("does not configure an invalid compatible-provider model", async () => {
+    const previous = {
+      PLAN_RECAP_TOKEN: process.env.PLAN_RECAP_TOKEN,
+      VISUAL_RECAP_API_KEY: process.env.VISUAL_RECAP_API_KEY,
+      VISUAL_RECAP_BASE_URL: process.env.VISUAL_RECAP_BASE_URL,
+      VISUAL_RECAP_MODEL: process.env.VISUAL_RECAP_MODEL,
+    };
+    process.env.PLAN_RECAP_TOKEN = "example-plan-token";
+    process.env.VISUAL_RECAP_API_KEY = "example-compatible-key";
+    process.env.VISUAL_RECAP_BASE_URL = "https://api.example.com/v1";
+    process.env.VISUAL_RECAP_MODEL = "bad model!";
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runRecap([
+        "setup",
+        "--repo",
+        "BuilderIO/example",
+        "--agent",
+        "openai-compatible",
+        "--dry-run",
+      ]);
+
+      const output = writes.join("");
+      expect(output).toContain(
+        "invalid VISUAL_RECAP_MODEL value (must be 1-200 characters without whitespace or controls)",
+      );
+      expect(output).not.toContain(
+        "VISUAL_RECAP_MODEL: would set to bad model!.",
+      );
+    } finally {
+      stdout.mockRestore();
+      for (const [name, value] of Object.entries(previous)) {
+        if (value === undefined) delete process.env[name];
+        else process.env[name] = value;
+      }
+    }
+  });
+
+  it("rejects an invalid --runs-on value before writing setup output", async () => {
+    const previousExitCode = process.exitCode;
+    const stderrWrites: string[] = [];
+    const stdoutWrites: string[] = [];
+    const stderr = vi
+      .spyOn(process.stderr, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stderrWrites.push(String(chunk));
+        return true;
+      });
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        stdoutWrites.push(String(chunk));
+        return true;
+      });
+
+    try {
+      process.exitCode = undefined;
+      await runRecap([
+        "setup",
+        "--repo",
+        "BuilderIO/example",
+        "--runs-on",
+        "not-json",
+        "--dry-run",
+      ]);
+
+      expect(process.exitCode).toBe(1);
+      expect(stderrWrites.join("")).toContain(
+        "VISUAL_RECAP_RUNS_ON must be valid JSON",
+      );
+      expect(stdoutWrites.join("")).toBe("");
+    } finally {
+      process.exitCode = previousExitCode;
+      stderr.mockRestore();
+      stdout.mockRestore();
     }
   });
 });
@@ -840,7 +1171,7 @@ describe("recap prompt builder", () => {
 
   it("builds the latest bundled skill with sibling reference files", () => {
     const bundle = readVisualRecapSkillBundle(repoRoot, "latest");
-    expect(bundle.source).toBe("bundled:@agent-native/core/visual-recap");
+    expect(bundle.source).toBe("bundled:@agent-native/recap-cli/visual-recap");
     expect(bundle.text).toContain("Bundled visual-recap reference files");
     expect(bundle.text).toContain("references/wireframe.md");
     expect(bundle.text).toContain("HTML wireframe quality");
@@ -879,7 +1210,7 @@ describe("recap prompt builder", () => {
 });
 
 describe("recap comment body", () => {
-  it("embeds an inline screenshot picture without link chrome and a plan-id marker on success", () => {
+  it("embeds an inline screenshot picture link and a plan-id marker on success", () => {
     const token = "a".repeat(64);
     const body = buildCommentBody({
       PLAN_URL: "https://plan.agent-native.com/recaps/plan-abc123",
@@ -887,12 +1218,10 @@ describe("recap comment body", () => {
       RECAP_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${token}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).not.toContain(`<a href=`);
-    expect(body).toContain("<picture>");
     expect(body).toContain(
-      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png">`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123"><picture>  <img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${token}.png"></picture></a>`,
     );
-    expect(body).toContain("</picture>");
+    expect(body).not.toContain("\n<picture>\n");
     expect(body).not.toContain(`<source media="(prefers-color-scheme: dark)"`);
     expect(body).toContain(
       "Here's a [visual recap](https://plan.agent-native.com/recaps/plan-abc123) of what changed:",
@@ -918,15 +1247,10 @@ describe("recap comment body", () => {
       RECAP_DARK_IMAGE_URL: `https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png`,
       HEAD_SHA: "abcdef1234567",
     } as NodeJS.ProcessEnv);
-    expect(body).not.toContain(`<a href=`);
-    expect(body).toContain("<picture>");
     expect(body).toContain(
-      `<source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">`,
+      `<a href="https://plan.agent-native.com/recaps/plan-abc123"><picture>  <source media="(prefers-color-scheme: dark)" srcset="https://plan.agent-native.com/_agent-native/recap-image/${darkToken}.png">  <img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png"></picture></a>`,
     );
-    expect(body).toContain(
-      `<img alt="Visual recap" src="https://plan.agent-native.com/_agent-native/recap-image/${lightToken}.png">`,
-    );
-    expect(body).toContain("</picture>");
+    expect(body).not.toContain("\n<picture>\n");
     expect(body).not.toContain("![Visual recap]");
   });
 
@@ -1225,7 +1549,12 @@ describe("recap screenshot browser launch", () => {
 describe("recap screenshot capture", () => {
   function createShotPlaywright(screenshotBytes: Buffer[]) {
     const page = {
-      goto: vi.fn(async () => undefined),
+      goto: vi.fn(async () => ({
+        ok: () => true,
+        status: () => 200,
+        url: () => "https://plan.agent-native.com/recaps/plan-abc123",
+        headers: () => ({ "content-type": "text/html; charset=utf-8" }),
+      })),
       waitForLoadState: vi.fn(async () => undefined),
       waitForSelector: vi.fn(async () => undefined),
       waitForTimeout: vi.fn(async () => undefined),
@@ -1327,6 +1656,47 @@ describe("recap screenshot capture", () => {
       );
       expect(page.waitForLoadState).toHaveBeenCalledWith("load", {
         timeout: 15_000,
+      });
+    } finally {
+      stdout.mockRestore();
+      fs.rmSync(dir, { force: true, recursive: true });
+    }
+  });
+
+  it("does not upload a screenshot when the recap page returns an HTTP error", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-recap-shot-"));
+    const out = path.join(dir, "recap.png");
+    const { page, importPlaywright } = createShotPlaywright([
+      Buffer.from("png"),
+    ]);
+    page.goto.mockResolvedValueOnce({
+      ok: () => false,
+      status: () => 500,
+      url: () => "https://plan.agent-native.com/recaps/recap-broken",
+      headers: () => ({ "content-type": "text/plain" }),
+    });
+    const writes: string[] = [];
+    const stdout = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation((chunk: string | Uint8Array) => {
+        writes.push(String(chunk));
+        return true;
+      });
+
+    try {
+      await runShot(
+        {
+          url: "https://plan.agent-native.com/recaps/recap-broken",
+          out,
+        },
+        importPlaywright,
+      );
+
+      expect(page.screenshot).not.toHaveBeenCalled();
+      expect(JSON.parse(writes.join("").trim())).toMatchObject({
+        ok: false,
+        reason:
+          "recap page returned HTTP 500 while loading https://plan.agent-native.com/recaps/recap-broken",
       });
     } finally {
       stdout.mockRestore();
@@ -1571,9 +1941,30 @@ describe("recap usage parsing", () => {
     });
   });
 
+  it("reads Agent-Native Code usage for OpenAI-compatible providers", () => {
+    expect(
+      parseOpenAiCompatibleUsage(
+        JSON.stringify({
+          inputTokens: 800,
+          outputTokens: 120,
+          cacheReadTokens: 60,
+          cacheWriteTokens: 4,
+          model: "deepseek-chat",
+        }),
+      ),
+    ).toEqual({
+      inputTokens: 800,
+      outputTokens: 120,
+      cacheReadTokens: 60,
+      cacheWriteTokens: 4,
+      model: "deepseek-chat",
+    });
+  });
+
   it("returns null when no usage is present", () => {
     expect(parseClaudeUsage("not json")).toBeNull();
     expect(parseCodexUsage('{"type":"turn.started"}')).toBeNull();
+    expect(parseOpenAiCompatibleUsage('{"message":"done"}')).toBeNull();
   });
 });
 
@@ -1590,8 +1981,10 @@ describe("recap gate decision", () => {
     hasPlan: true,
     hasAnthropic: true,
     hasOpenai: true,
+    hasOpenaiCompatible: true,
     agentRaw: "claude",
     model: undefined,
+    baseUrl: "https://api.example.com/v1",
     skillSource: "auto",
     changedFiles: ["app/page.tsx"],
     ...over,
@@ -1719,11 +2112,66 @@ describe("recap gate decision", () => {
     );
   });
 
+  it("runs an OpenAI-compatible backend with a valid endpoint", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "DeepSeek",
+        hasOpenaiCompatible: true,
+        model: "deepseek-chat",
+      }),
+    );
+    expect(result).toEqual({
+      run: true,
+      agent: "openai-compatible",
+      reasons: [],
+    });
+  });
+
+  it("requires a model for an OpenAI-compatible backend", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        hasOpenaiCompatible: true,
+        baseUrl: "https://api.example.com/v1",
+        model: "",
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "VISUAL_RECAP_MODEL is required (openai-compatible backend)",
+    );
+  });
+
+  it("requires the generic key and endpoint for an OpenAI-compatible backend", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        hasOpenaiCompatible: false,
+        baseUrl: "https://api.example.com/v1",
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "VISUAL_RECAP_API_KEY not configured (openai-compatible backend)",
+    );
+
+    const invalidUrl = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        hasOpenaiCompatible: true,
+        baseUrl: "not-a-url",
+      }),
+    );
+    expect(invalidUrl.reasons).toContain(
+      "VISUAL_RECAP_BASE_URL must be a valid http(s) URL without credentials",
+    );
+  });
+
   it("skips an unsupported agent value with the raw value in the reason", () => {
     const result = evaluateRecapGate(ok({ agentRaw: "gpt" }));
     expect(result.run).toBe(false);
     expect(result.reasons).toContain(
-      'unsupported VISUAL_RECAP_AGENT "gpt" (expected "claude" or "codex")',
+      'unsupported VISUAL_RECAP_AGENT "gpt" (expected "claude", "codex", or "openai-compatible")',
     );
   });
 
@@ -1736,8 +2184,34 @@ describe("recap gate decision", () => {
   });
 
   it("accepts a valid VISUAL_RECAP_MODEL value", () => {
-    const result = evaluateRecapGate(ok({ model: "gpt-5.5" }));
+    const result = evaluateRecapGate(ok({ model: "gpt-5.6-sol" }));
     expect(result.run).toBe(true);
+  });
+
+  it("accepts a slash-qualified OpenAI-compatible model value", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        baseUrl: "https://api.example.com/v1",
+        model: "openai/gpt-oss-120b",
+      }),
+    );
+    expect(result.run).toBe(true);
+    expect(result.reasons).toEqual([]);
+  });
+
+  it("rejects control characters in an OpenAI-compatible model value", () => {
+    const result = evaluateRecapGate(
+      ok({
+        agentRaw: "openai-compatible",
+        baseUrl: "https://api.example.com/v1",
+        model: "provider/model\u001b[31m",
+      }),
+    );
+    expect(result.run).toBe(false);
+    expect(result.reasons).toContain(
+      "invalid VISUAL_RECAP_MODEL value (must be 1-200 characters without whitespace or controls)",
+    );
   });
 
   it("skips an invalid VISUAL_RECAP_SKILL_SOURCE value", () => {
@@ -2166,6 +2640,46 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "npx -y @openai/codex@0 login --with-api-key",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "Run agent (OpenAI-compatible)",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_API_KEY");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("OPENAI_BASE_URL");
+    for (const workflow of [
+      PR_VISUAL_RECAP_WORKFLOW_YML,
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-fork.yml"),
+        "utf8",
+      ),
+      fs.readFileSync(
+        path.join(repoRoot, ".github/workflows/pr-visual-recap-reusable.yml"),
+        "utf8",
+      ),
+    ]) {
+      // Claude backend always pins a model: default to claude-sonnet-5 (a
+      // cost-efficient model) when VISUAL_RECAP_MODEL is unset, instead of
+      // falling through to the CLI's own (expensive Opus-tier) default.
+      expect(workflow).toContain(
+        'CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")',
+      );
+      expect(workflow).not.toContain(
+        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      );
+      // Codex backend keeps its own conditional — no forced default model.
+      expect(workflow).toContain(
+        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      );
+      expect(workflow).toContain(
+        "AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source",
+      );
+      expect(workflow).toContain(
+        "$CODE_CLI code exec --permission-mode auto-edit",
+      );
+      expect(workflow).not.toContain("$CODE_CLI code exec --full-auto");
+      expect(workflow).toContain("@agent-native/recap-cli@$VERSION");
+      expect(workflow).toContain("--ignore-scripts");
+      expect(workflow).not.toContain("@agent-native/core@$VERSION");
+    }
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("mcp__plan__");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
       "mcp__agent-native-plans__",
@@ -2203,6 +2717,21 @@ describe("bundled PR visual recap workflow", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain('--head-sha "$HEAD_SHA"');
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("VISUAL_RECAP_SKILL_SOURCE");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--skill-source");
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      'contains(fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\'), github.event.pull_request.author_association)',
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "(vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest') || 'ubuntu-latest'",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
+    );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
+      "self-hosted runner mode requires a trusted same-repository PR author",
+    );
   });
 });
 
@@ -2291,8 +2820,9 @@ describe("bundled workflow — RECAP_CLI_VERSION pinning", () => {
   it("uses vars.RECAP_CLI_VERSION in the Resolve recap CLI step", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_CLI_VERSION");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "@agent-native/core@$VERSION",
+      "@agent-native/recap-cli@$VERSION",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--ignore-scripts");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "vars.RECAP_CLI_VERSION || 'latest'",
     );
@@ -2532,10 +3062,20 @@ describe("reusable caller workflow builder", () => {
     // or self-hosting without changing the workflow YAML.
     expect(yml).toContain("OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}");
     expect(yml).toContain(
+      "VISUAL_RECAP_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}",
+    );
+    expect(yml).toContain(
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
     );
     expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
+    expect(yml).toContain(
+      "cli-version: ${{ vars.RECAP_CLI_VERSION || 'latest' }}",
+    );
+    expect(yml).toContain(
+      "core-cli-version: ${{ vars.CORE_CLI_VERSION || 'latest' }}",
+    );
     expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
+    expect(yml).toContain("base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}");
     expect(yml).toContain(
       "reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}",
     );
@@ -2544,6 +3084,12 @@ describe("reusable caller workflow builder", () => {
     );
     expect(yml).toContain(
       "secret-scan: ${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}",
+    );
+    expect(yml).toContain(
+      "runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '\"ubuntu-latest\"' }}",
+    );
+    expect(yml).toContain(
+      "gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}",
     );
   });
 
@@ -2572,8 +3118,24 @@ describe("reusable caller workflow builder", () => {
   });
 
   it("adds the model input line when a model is specified", () => {
-    const yml = buildReusableCallerWorkflow({ model: "gpt-5.5" });
-    expect(yml).toContain("model: gpt-5.5");
+    const yml = buildReusableCallerWorkflow({ model: "gpt-5.6-sol" });
+    expect(yml).toContain("model: gpt-5.6-sol");
+  });
+
+  it("quotes explicit runner JSON as a reusable-workflow string input", () => {
+    const yml = buildReusableCallerWorkflow({
+      runsOn: '["self-hosted","linux","x64"]',
+    });
+    expect(yml).toContain(
+      'runs-on: "[\\"self-hosted\\",\\"linux\\",\\"x64\\"]"',
+    );
+  });
+
+  it("quotes an explicit plain gate runner label", () => {
+    const yml = buildReusableCallerWorkflow({
+      gateRunsOn: "visual-recap-gate",
+    });
+    expect(yml).toContain('gate-runs-on: "visual-recap-gate"');
   });
 });
 
@@ -2675,9 +3237,12 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("workflow_call:");
     // Required inputs are present.
     expect(content).toContain("cli-version:");
+    expect(content).toContain("core-cli-version:");
     expect(content).toContain("agent:");
     expect(content).toContain("model:");
     expect(content).toContain("plan-url:");
+    expect(content).toContain("runs-on:");
+    expect(content).toContain("gate-runs-on:");
     // Required secret is declared.
     expect(content).toContain("PLAN_RECAP_TOKEN:");
     // Optional secrets for both backends are declared.
@@ -2695,6 +3260,19 @@ describe("reusable workflow file structure", () => {
     // Self-modifying guard.
     expect(content).toContain("isSensitive");
     expect(content).toContain("isTrustedAuthor");
+    expect(content).toContain(
+      'contains(fromJSON(\'["OWNER","MEMBER","COLLABORATOR"]\'), github.event.pull_request.author_association)',
+    );
+    expect(content).toContain("inputs['gate-runs-on'] || 'ubuntu-latest'");
+    expect(content).toContain(
+      "runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}",
+    );
+    expect(content).toContain(
+      "core.setOutput('runs_on', JSON.stringify(configuredRunner))",
+    );
+    expect(content).toContain(
+      "self-hosted runner mode requires a trusted same-repository PR author",
+    );
     expect(content).toContain("Fetch pull request head");
     expect(content).toContain('git update-ref refs/recap/pr-head "$HEAD_SHA"');
     expect(content).toContain("AUTHORIZATION: basic $AUTH_B64");
@@ -2722,7 +3300,9 @@ describe("reusable workflow file structure", () => {
     // always use the published CLI — consumer repos don't have packages/core.
     expect(content).not.toContain("pnpm exec tsx");
     expect(content).toContain("Install published recap CLI");
-    expect(content).toContain("@agent-native/core@$VERSION");
+    expect(content).toContain("@agent-native/recap-cli@$VERSION");
+    expect(content).toContain("--ignore-scripts");
+    expect(content).not.toContain("@agent-native/core@$VERSION");
     expect(content).toContain("node_modules/.bin/agent-native");
     expect(content).toContain("RECAP_PLAYWRIGHT");
   });
@@ -2757,6 +3337,12 @@ describe("reusable workflow file structure", () => {
     expect(content).not.toContain("steps.mcp_smoke.outputs.ok == 'true'");
     expect(content).not.toContain("recap mcp-config");
     expect(content).toContain("RECAP_AGENT_SUMMARY:");
+    expect(content).toContain(
+      "Visual recap agent failed with a non-retryable provider error",
+    );
+    expect(content).toContain(
+      "GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary",
+    );
     expect(content).toContain("--failure-summary");
     expect(content).toContain("--stderr-file");
     expect(content).toContain("--exit-code-file");
@@ -3080,6 +3666,16 @@ describe("reusable vs copy workflow step-sequence parity", () => {
     );
     expect(content).toContain("const trustedAssociations = [");
     expect(content).toContain("'OWNER', 'MEMBER', 'COLLABORATOR'");
+    expect(content).toContain("github.rest.pulls.get");
+    expect(content).toContain("github.rest.orgs.getMembershipForUser");
+    expect(content).toContain(
+      "github.rest.repos.getCollaboratorPermissionLevel",
+    );
+    expect(content).toContain("orgMember=${isOrgMember}");
+    expect(content).toContain("repoPermission=${repoPermission || 'unknown'}");
+    expect(content).toContain(
+      "pull_request_target webhook author_association is unreliable",
+    );
     expect(content).toContain("freshRecapLabel");
     expect(content).toContain(
       "external fork PR requires a maintainer to apply the recap label to the current head SHA",

@@ -1,16 +1,20 @@
-import fs from "fs";
 import path from "path";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { startBuilderDesignSystemIndex } from "@agent-native/core/server";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+} from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
-import { resolveUserUploadedFile } from "./_uploaded-files.js";
+import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
+import { readUserUploadedFile } from "./_uploaded-files.js";
 
 const DEFAULT_MAX_SOURCE_CHARS = 60_000;
 
@@ -25,9 +29,7 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe(
-        "Server path to the uploaded file (e.g. data/uploads/file.pptx)",
-      ),
+      .describe("Uploaded file path or opaque hosted upload reference"),
     format: z
       .enum(["pptx", "docx", "pdf", "fig", "auto"])
       .optional()
@@ -55,15 +57,15 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, format, deckId, importIntoDeck, maxChars }) => {
-    const absPath = resolveUserUploadedFile(filePath);
+    const uploaded = await readUserUploadedFile(filePath);
     const sourceLimit = maxChars ?? DEFAULT_MAX_SOURCE_CHARS;
-
-    const fileBuffer = await fs.promises.readFile(absPath);
+    const fileBuffer = uploaded.data;
+    const filename = uploaded.filename;
 
     // Detect format from extension if auto
     let detectedFormat = format;
     if (detectedFormat === "auto") {
-      const ext = path.extname(absPath).toLowerCase();
+      const ext = path.extname(filename).toLowerCase();
       if (ext === ".pptx") detectedFormat = "pptx";
       else if (ext === ".docx") detectedFormat = "docx";
       else if (ext === ".pdf") detectedFormat = "pdf";
@@ -81,16 +83,24 @@ export default defineAction({
           "Figma .fig imports start Builder design-system indexing, not slide replacements. Re-run without importIntoDeck.",
         );
       }
-      const title = titleFromPath(absPath);
+      const title = titleFromPath(filename);
       const result = await startBuilderDesignSystemIndex({
         projectName: title,
         files: [
           {
-            name: path.basename(absPath),
+            name: path.basename(filename),
             data: fileBuffer,
             mimeType: "application/octet-stream",
           },
         ],
+      });
+      const ownerEmail = getRequestUserEmail();
+      if (!ownerEmail) throw new Error("no authenticated user");
+      const proxy = await upsertBuilderProxyDesignSystem({
+        result,
+        ownerEmail,
+        orgId: getRequestOrgId(),
+        projectName: title,
       });
       return {
         format: "fig",
@@ -99,16 +109,11 @@ export default defineAction({
         projectId: result.projectId,
         jobId: result.jobId,
         designSystemId: result.designSystemId,
+        localDesignSystemId: proxy.localDesignSystemId,
         builderUrl: result.builderUrl,
         status: result.status,
         deckId,
-        instructions: [
-          "Sent the .fig file to Builder design-system indexing.",
-          `Builder design system: ${result.designSystemId}`,
-          `Builder job: ${result.jobId}`,
-          `Open: ${result.builderUrl}`,
-          "Do not call create-design-system locally for this .fig file; Builder owns the indexed design-system docs and generated usage guidance.",
-        ].join("\n"),
+        instructions: proxy.instructions,
       };
     }
 
@@ -118,7 +123,7 @@ export default defineAction({
       const { convertToSlideHtml } =
         await import("../server/handlers/import/html-converter.js");
       const presentation = await parsePptx(fileBuffer);
-      const title = presentation.title || titleFromPath(absPath);
+      const title = presentation.title || titleFromPath(filename);
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -164,7 +169,7 @@ export default defineAction({
         await import("../server/handlers/import/html-converter.js");
       const doc = await parseDocx(fileBuffer);
       const slideHtmlArray = convertSectionsToSlides(doc.sections);
-      const title = doc.title || titleFromPath(absPath);
+      const title = doc.title || titleFromPath(filename);
 
       if (importIntoDeck) {
         if (!deckId) throw new Error("deckId is required to import into deck");
@@ -213,7 +218,7 @@ export default defineAction({
       const result = await pdf.getText();
       const pages = normalizePdfPages(result);
       const textPages = pages.filter((p) => p.text.trim());
-      const title = titleFromPath(absPath);
+      const title = titleFromPath(filename);
 
       if (textPages.length === 0) {
         throw new Error(

@@ -1,0 +1,170 @@
+---
+title: "Doctor (Code Checks)"
+description: "agent-native doctor scans a generated app's source for the framework's security and architecture invariants — the same code-safety guards this monorepo enforces on itself, ported to run against a single app root."
+---
+
+# Doctor (Code Checks)
+
+The agent can write this app's own source code. `agent-native doctor` is the automated check for that: it scans app source for the framework's security-critical code-safety invariants — the same class of check that lives in this framework's own CI as `scripts/guard-*.mjs` — ported to run against a single generated app instead of the framework's multi-template monorepo layout. It's read-only: doctor never edits your code, it only reports.
+
+## Quick start {#quick-start}
+
+```bash
+agent-native doctor
+```
+
+Every scaffolded app also gets a `pnpm doctor` script that runs the same command:
+
+```bash
+pnpm doctor
+```
+
+A clean run:
+
+```
+agent-native doctor: /path/to/app
+Guards run: no-drizzle-push, no-unscoped-credentials, no-unscoped-queries, no-env-credentials, db-tool-scoping, no-env-mutation, no-localhost-fallback
+Clean — no findings.
+```
+
+A run with findings prints one line per finding and exits `1`:
+
+```
+2 finding(s):
+  [no-env-credentials] server/routes/webhook.ts:14 — process.env.STRIPE_KEY read — not a deploy-level allowlisted key. User credentials must be read via resolveCredential(key, { userEmail, orgId }), never process.env.
+  [no-unscoped-queries] actions/list-notes.ts:9 — unscoped select on "notes" (drizzle) — add accessFilter/resolveAccess/assertAccess or an explicit ownerEmail/userEmail/orgId filter.
+
+agent-native doctor found issues above. Fix them, or add a `// guard:allow-<check> — reason` opt-out with reviewer approval.
+```
+
+## The seven guards {#guards}
+
+v1 ships 7 guards. Each is a pure scan over the app's source tree — `node_modules`, `.git`, `dist`, `build`, and other build-output directories are always skipped.
+
+| Guard                     | What it catches                                                                                                                                                                                                                            | Why it matters                                                                                                                                                                                                                                                                             |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `no-drizzle-push`         | `drizzle-kit push` / `drizzle push` wired into a build/deploy script hook (`build`, `install`, `deploy`, `start`, `ci`, `release`, and their `pre`/`post` variants) or a `netlify.toml` build command                                      | `drizzle-kit push` can apply destructive schema changes on every deploy with no review step. Standalone `db:push` scripts are **not** flagged — those are explicit, human-invoked commands, not build hooks.                                                                               |
+| `no-unscoped-credentials` | `resolveCredential` / `hasCredential` / `saveCredential` / `deleteCredential` called with only one argument                                                                                                                                | The one-arg form skips the required `{ userEmail, orgId }` context object, so a per-user credential lookup can read (or delete) another tenant's credential.                                                                                                                               |
+| `no-unscoped-queries`     | A query in `actions/` or `server/` against a table built with `...ownableColumns()`, with no `accessFilter` / `resolveAccess` / `assertAccess` and no explicit `ownerEmail` / `userEmail` / `orgId` filter anywhere in the enclosing block | An unscoped `select`/`update`/`delete`/`insert` on a shared table returns or mutates another user's rows. Also flags a `mentionProviders` search closure that queries an ownable table without access control — every user who types `@` in chat would otherwise see rows owned by others. |
+| `no-env-credentials`      | Any `process.env.<KEY>` read whose key isn't on the fixed deploy-var allowlist (`DATABASE_URL`, `BETTER_AUTH_SECRET`, `NODE_ENV`, …), plus any dynamic `process.env[key]` read                                                             | `process.env` is one shared value per deployment, read on every signed-in user's request — reading a per-user credential from it pools every tenant onto the same secret. A dynamic key can never be safely allowlisted.                                                                   |
+| `db-tool-scoping`         | A table in `server/db/schema.ts` with no `owner_email` / `org_id` column and no matching entry in `agent-native.json`'s `doctor.dbToolScopingDenylist`                                                                                     | The agent's raw `db-query` / `db-exec` / `db-patch` tools can only safely expose tenant-scoped tables; an unscoped table needs an explicit, reviewed exception.                                                                                                                            |
+| `no-env-mutation`         | Production code assigning to, or `delete`-ing, `process.env.KEY`                                                                                                                                                                           | `process.env` is process-scoped, not request-scoped. A warm serverless container handles many concurrent requests in one process, so mutating `process.env` in a request handler leaks state across users. Use `runWithRequestContext` instead.                                            |
+| `no-localhost-fallback`   | The literal `"local@localhost"`, or `?? DEV_MODE_USER_EMAIL` / `\|\| DEV_MODE_USER_EMAIL`, used as a fallback identity                                                                                                                     | Falling back to a sentinel identity when there's no session pools every unauthenticated request onto one shared tenant. Throw or return 401 instead.                                                                                                                                       |
+
+Guard names are stable identifiers — the same strings work in `--only`, `agent-native.json`'s `doctor.disabledGuards`, and every finding's `guard` field.
+
+## Flags and exit codes {#flags}
+
+```
+agent-native doctor                        Scan app source for security-critical guard violations
+agent-native doctor --json                 Machine-readable report: { ok, findings, guardsRun, strict }
+agent-native doctor --only <guard,guard>   Run only the named guard(s)
+agent-native doctor --strict               Escalate findings to a hard failure when used by `agent-native build --strict`
+agent-native doctor --cwd <dir>            Run against a project root other than the current directory
+agent-native doctor --fix                  Not implemented in this version
+agent-native doctor --help                 Show this help
+```
+
+- `--only` takes a comma-separated list of guard names from the table above, e.g. `--only no-env-credentials,no-env-mutation`. An unknown name exits `2` with a usage error before any scan runs.
+- `--strict`, on the standalone `agent-native doctor` command, only tags the `--json` output's `strict` field — the command already exits `1` on any finding whether or not `--strict` is passed. It matters when `agent-native build --strict` runs doctor as a pre-step; see [The build hook](#build-hook).
+- `--fix` is reserved for a future version. Passing it today prints an error and exits `2` instead of silently doing nothing, so a script that already passes `--fix` fails loudly rather than getting a false "clean."
+
+Exit codes: **`0`** clean, **`1`** findings present, **`2`** usage or execution error (a bad `--cwd`, an unknown `--only` guard, or `--fix`).
+
+## The build hook {#build-hook}
+
+`agent-native build` always runs doctor as a pre-step before the real build. It's **warn-only by default**: findings print to stderr prefixed `[doctor]`, and the build continues. It only turns findings into a hard failure — `process.exit(1)` before the build runs — when:
+
+- `agent-native build --strict` was passed, or
+- `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+
+If the doctor pre-step itself throws — an unreadable file, a bug in a guard — the build step catches it, logs a warning, and continues. A doctor bug never blocks a deploy on its own.
+
+## Per-app configuration {#config}
+
+`agent-native.json`'s optional `"doctor"` key. Every field is optional with an empty/false default, so a fresh app runs every v1 guard with zero config:
+
+```json
+{
+  "doctor": {
+    "disabledGuards": ["no-drizzle-push"],
+    "dbToolScopingDenylist": {
+      "legacy_import_log": "Write-only ingestion table, no per-user reads — reviewed 2026-06-01."
+    },
+    "failOnBuild": true
+  }
+}
+```
+
+| Key                     | Type                    | Effect                                                                                                                                                                                                                                     |
+| ----------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `disabledGuards`        | `string[]`              | Guard names (from the table above) to skip — excluded from the default run and from the build hook. An explicit `--only` list overrides this and runs even a disabled guard.                                                               |
+| `dbToolScopingDenylist` | `Record<table, reason>` | Bare table name (the SQL name, not template-prefixed) → reviewer-readable reason. Used only by `db-tool-scoping`. A denylist entry with no matching table in `server/db/schema.ts` itself becomes a finding — "stale … entry — remove it." |
+| `failOnBuild`           | `boolean`               | See [The build hook](#build-hook). Default `false`.                                                                                                                                                                                        |
+
+## Opt-out markers {#opt-out}
+
+Five of the seven guards support a per-line comment marker with a required short reason after an em dash or hyphen:
+
+```ts
+// guard:allow-unscoped-credential — support tool reads any user's key by design, gated on admin role
+const key = resolveCredential("stripe_secret");
+```
+
+| Guard                     | Marker                                        | Placement                                                                                 |
+| ------------------------- | --------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `no-unscoped-credentials` | `// guard:allow-unscoped-credential — reason` | Same line as the call                                                                     |
+| `no-unscoped-queries`     | `// guard:allow-unscoped — reason`            | Anywhere in the enclosing block, or in the file's first 30 lines for a whole-file opt-out |
+| `no-env-credentials`      | `// guard:allow-env-credential — reason`      | Same line, or the line immediately above                                                  |
+| `no-env-mutation`         | `// guard:allow-env-mutation — reason`        | Same line, or the line immediately above                                                  |
+| `no-localhost-fallback`   | `// guard:allow-localhost-fallback — reason`  | Same line, or the line immediately above                                                  |
+
+`no-drizzle-push` has no opt-out marker — remove the forbidden script instead. `db-tool-scoping` doesn't use a code comment at all; add the table to `agent-native.json`'s `doctor.dbToolScopingDenylist` with a reason (above).
+
+A reason is required: `no-unscoped-credentials`, `no-env-credentials`, `no-env-mutation`, and `no-localhost-fallback` all reject a marker with no text after the dash — for `no-env-credentials` specifically, a reasonless marker still reports as an "opt-out invalid" finding rather than being silently accepted. `no-unscoped-queries`'s marker doesn't syntactically enforce a reason, but every opt-out should still carry one for the next reviewer.
+
+## JSON output for CI {#json-output}
+
+The actual `--json` payload also carries a `strict` field reflecting whether `--strict` was passed (the `--help` summary line above omits it for brevity):
+
+```json
+{
+  "ok": false,
+  "findings": [
+    {
+      "guard": "no-env-mutation",
+      "file": "server/middleware/auth.ts",
+      "line": 22,
+      "message": "process.env mutated in production code: process.env.AGENT_USER_EMAIL = userEmail. process.env is process-scoped, not request-scoped — use runWithRequestContext instead."
+    }
+  ],
+  "guardsRun": [
+    "no-drizzle-push",
+    "no-unscoped-credentials",
+    "no-unscoped-queries",
+    "no-env-credentials",
+    "db-tool-scoping",
+    "no-env-mutation",
+    "no-localhost-fallback"
+  ],
+  "strict": false
+}
+```
+
+`ok` is `true` only when `findings` is empty. `guardsRun` lists every guard that actually ran (after `--only` / `disabledGuards` filtering) — useful for confirming a guard wasn't silently skipped.
+
+The JSON report always writes to **stdout**, whether the run is clean or has findings — the exit code (`0` clean, `1` findings present) is the signal for pass/fail, not which stream the report landed on. A plain `agent-native doctor --json > report.json` captures the full report in every case, including a non-clean run; no stream redirection tricks needed. (Usage/execution errors — a bad `--cwd`, an unknown `--only` guard — still print their own JSON error payload to stderr and exit `2`; those aren't the report.)
+
+## Doctor vs. upgrade check vs. recap doctor {#relationship}
+
+`agent-native doctor` is one of three "doctor"-shaped commands in the CLI, each diagnosing a different domain — none are folded into a shared mega-doctor:
+
+- **`agent-native doctor`** (this page) — source-code safety invariants: data scoping, credential handling, environment-variable usage.
+- **`agent-native upgrade check`** — dependency-pin health: stale `@agent-native/*` pins, framework overrides/patches.
+- **`agent-native recap doctor`** — PR Visual Recap configuration health.
+
+## What's next
+
+- [**Security & Data Scoping**](/docs/security) — the `ownableColumns()` / access-guard model that `no-unscoped-queries` and `db-tool-scoping` enforce
+- [**Audit Log**](/docs/audit-log) — the durable record of who changed what, for after a mutation lands
+- [**Deployment**](/docs/deployment) — where `agent-native build` and `agent-native.json` fit into shipping

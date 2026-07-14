@@ -21,11 +21,13 @@ const rawClient = {
 
 const emitAppStateChange = vi.fn();
 const emitAppStateDelete = vi.fn();
+const dbMockState = vi.hoisted(() => ({ localDatabase: true }));
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => rawClient,
   intType: () => "INTEGER",
   isConnectionError: () => false,
+  isLocalDatabase: () => dbMockState.localDatabase,
   isPostgres: () => false,
 }));
 
@@ -34,8 +36,13 @@ vi.mock("./emitter.js", () => ({
   emitAppStateDelete: (...args: unknown[]) => emitAppStateDelete(...args),
 }));
 
-const { appStatePut, appStateGet, appStateList, appStateDeleteByPrefix } =
-  await import("./store.js");
+const {
+  appStatePut,
+  appStateGet,
+  appStateGetMany,
+  appStateList,
+  appStateDeleteByPrefix,
+} = await import("./store.js");
 
 const SESSION = "alice@example.com";
 
@@ -53,6 +60,7 @@ beforeEach(() => {
 afterEach(() => {
   sqlite.close();
   vi.clearAllMocks();
+  dbMockState.localDatabase = true;
 });
 
 describe("application-state store", () => {
@@ -93,6 +101,35 @@ describe("application-state store", () => {
     expect(rows).toEqual([{ key: "compose_draft", value: { id: "draft" } }]);
   });
 
+  it("reads several exact keys in one query and preserves missing keys", async () => {
+    await appStatePut(SESSION, "apollo", { apiKey: "example-apollo-key" });
+    await appStatePut(SESSION, "gong", { apiKey: "example-gong-key" });
+    await appStatePut("other@example.com", "pylon", {
+      apiKey: "example-other-key",
+    });
+    rawClient.execute.mockClear();
+
+    const values = await appStateGetMany(SESSION, [
+      "apollo",
+      "gong",
+      "pylon",
+      "apollo",
+    ]);
+
+    expect(values).toEqual({
+      apollo: { apiKey: "example-apollo-key" },
+      gong: { apiKey: "example-gong-key" },
+      pylon: null,
+    });
+    expect(rawClient.execute).toHaveBeenCalledTimes(1);
+    expect(rawClient.execute).toHaveBeenCalledWith(
+      expect.objectContaining({
+        sql: expect.stringContaining("key IN (?, ?, ?)"),
+        args: [SESSION, "apollo", "gong", "pylon"],
+      }),
+    );
+  });
+
   it("deletes literal prefixes without treating LIKE metacharacters as wildcards", async () => {
     await appStatePut(SESSION, "compose_%", { id: "draft" });
     await appStatePut(SESSION, "compose_X", { id: "not-draft" });
@@ -113,5 +150,13 @@ describe("application-state store", () => {
       undefined,
       SESSION,
     );
+  });
+
+  it("rejects oversized hosted application_state values", async () => {
+    dbMockState.localDatabase = false;
+
+    await expect(
+      appStatePut(SESSION, "huge", { data: "x".repeat(1024 * 1024 + 1) }),
+    ).rejects.toThrow(/too large for hosted SQL storage/);
   });
 });

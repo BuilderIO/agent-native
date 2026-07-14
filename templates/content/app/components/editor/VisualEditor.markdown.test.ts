@@ -6,24 +6,33 @@ import {
   parseNfmForEditor,
   serializeEditorToNfm,
 } from "@shared/notion-markdown";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Editor, getSchema } from "@tiptap/core";
 import StarterKit from "@tiptap/starter-kit";
+import { act, createElement } from "react";
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { Markdown } from "tiptap-markdown";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
+  getRecentEditPresenceMarkerRect,
+  parseNfmForCollabReconcile,
   uploadAndInsertAudioFiles,
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
   shouldApplyExternalContentSync,
   shouldPersistLocalFileEditorUpdate,
   shouldSeedCollaborativeContent,
+  VisualEditor,
 } from "./VisualEditor";
 
 function createMarkdownEditor(content: string) {
@@ -53,6 +62,10 @@ function createFullEditor(content = "") {
       ? parseNfmForEditor(content)
       : { type: "doc", content: [{ type: "paragraph" }] },
   });
+}
+
+function waitForDeferredCallback() {
+  return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
 function triggerTextInput(editor: Editor, text: string) {
@@ -99,6 +112,24 @@ afterEach(() => {
 });
 
 describe("VisualEditor markdown round-tripping", () => {
+  it("renders recent edits as presence markers instead of range boxes", () => {
+    const marker = getRecentEditPresenceMarkerRect(
+      new DOMRect(120, 240, 680, 22),
+    );
+
+    expect(marker.left).toBe(120);
+    expect(marker.top).toBe(240);
+    expect(marker.width).toBe(2);
+    expect(marker.height).toBe(22);
+  });
+
+  it("keeps recent edit markers visible for collapsed caret coordinates", () => {
+    const marker = getRecentEditPresenceMarkerRect(new DOMRect(120, 240, 0, 0));
+
+    expect(marker.width).toBe(2);
+    expect(marker.height).toBe(18);
+  });
+
   it("preserves intentional empty paragraphs through the real TipTap serializer", () => {
     const editor = createMarkdownEditor("A\n<empty-block/>\n<empty-block/>\nB");
 
@@ -630,6 +661,189 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(false);
   });
 
+  it("keeps adjacent NFM blocks separate in collaborative external reconciles", () => {
+    const editor = createFullEditor();
+    const incoming = [
+      "→ → slack questions",
+      '\tmuch simpler "what"',
+      "\twhat is it and how different from other app builders",
+      "\twhen to engage prospects",
+    ].join("\n");
+
+    try {
+      const parsed = parseNfmForCollabReconcile(editor, incoming);
+
+      expect(parsed).not.toBeNull();
+      expect(parsed?.childCount).toBe(4);
+      expect(
+        Array.from(
+          { length: parsed?.childCount ?? 0 },
+          (_, index) => parsed?.child(index).textContent,
+        ),
+      ).toEqual([
+        "→ → slack questions",
+        'much simpler "what"',
+        "what is it and how different from other app builders",
+        "when to engage prospects",
+      ]);
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("uses the NFM parser when a newer SQL snapshot reconciles into a live Y.Doc", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    let root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const incoming = [
+      "→ → slack questions",
+      '\tmuch simpler "what"',
+      "\twhat is it and how different from other app builders",
+      "\twhen to engage prospects",
+    ].join("\n");
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const emitted: string[] = [];
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const renderEditor = (content: string, contentUpdatedAt: string) =>
+      createElement(
+        MemoryRouter,
+        null,
+        createElement(TooltipProvider, {
+          delayDuration: 0,
+          children: createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(VisualEditor, {
+              content,
+              contentUpdatedAt,
+              onChange: (markdown) => emitted.push(markdown),
+              ydoc,
+              collabSynced: true,
+              editable: true,
+            }),
+          ),
+        }),
+      );
+
+    try {
+      // Match a real reload after an external version was previously live: seed
+      // the persisted Y.Doc through the actual VisualEditor, unmount the page,
+      // then mount a fresh editor whose SQL snapshot points somewhere else.
+      act(() => {
+        root.render(renderEditor(incoming, "2026-07-09T19:59:59.000Z"));
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      act(() => root.unmount());
+      root = createRoot(container);
+
+      act(() => {
+        root.render(
+          renderEditor("Initial local block", "2026-07-09T20:00:00.000Z"),
+        );
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(
+        Array.from(
+          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+          (node) => node.textContent,
+        ),
+      ).toEqual(["Initial local block"]);
+
+      act(() => {
+        root.render(renderEditor(incoming, "2026-07-09T20:00:01.000Z"));
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      expect(
+        Array.from(
+          container.querySelectorAll<HTMLElement>(".notion-editor > p"),
+          (node) => node.textContent,
+        ),
+      ).toEqual([
+        "→ → slack questions",
+        'much simpler "what"',
+        "what is it and how different from other app builders",
+        "when to engage prospects",
+      ]);
+      expect(emitted).not.toContain("<empty-block/>");
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      container.remove();
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
+  it("does not clear awareness owned by the shared collab connection on unmount", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    const queryClient = new QueryClient();
+    const actEnvironment = globalThis as typeof globalThis & {
+      IS_REACT_ACT_ENVIRONMENT?: boolean;
+    };
+    const previousActEnvironment = actEnvironment.IS_REACT_ACT_ENVIRONMENT;
+    actEnvironment.IS_REACT_ACT_ENVIRONMENT = true;
+    const user = {
+      name: "Awareness Owner",
+      email: "awareness-owner@example.com",
+      color: "#60a5fa",
+    };
+
+    try {
+      act(() => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(TooltipProvider, {
+              children: createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(VisualEditor, {
+                  content: "Shared awareness body",
+                  contentUpdatedAt: "2026-07-09T20:00:00.000Z",
+                  onChange: () => {},
+                  ydoc,
+                  collabSynced: true,
+                  awareness,
+                  user,
+                  editable: true,
+                }),
+              ),
+            }),
+          ),
+        );
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+      expect(awareness.getLocalState()?.user).toMatchObject({
+        email: user.email,
+      });
+
+      act(() => root.unmount());
+
+      expect(awareness.getLocalState()?.user).toMatchObject({
+        email: user.email,
+      });
+    } finally {
+      queryClient.clear();
+      awareness.destroy();
+      ydoc.destroy();
+      container.remove();
+      actEnvironment.IS_REACT_ACT_ENVIRONMENT = previousActEnvironment;
+    }
+  });
+
   it("does not apply stale SQL snapshots over live collaborative edits", () => {
     expect(
       shouldApplyExternalContentSync({
@@ -833,7 +1047,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Backspace")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",
@@ -865,7 +1079,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Delete")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",
@@ -903,7 +1117,7 @@ describe("VisualEditor markdown round-tripping", () => {
       editor.commands.setTextSelection(1);
 
       expect(triggerKeyDown(editor, "Backspace")).toBe(true);
-      await Promise.resolve();
+      await waitForDeferredCallback();
       expect(joinedText).toBe("Move me up");
       expect(editor.getJSON()).toMatchObject({
         type: "doc",

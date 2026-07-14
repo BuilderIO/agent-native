@@ -4,8 +4,10 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { designDataForAccessRole } from "../server/lib/design-data-access.js";
 import {
   exportFilename,
+  injectHiddenLayerExportStyle,
   trySaveExportFile,
 } from "../server/lib/design-export.js";
 import { isBoardFile } from "../shared/board-file.js";
@@ -71,12 +73,25 @@ export default defineAction({
         file.filename,
         `design-file-${index + 1}.txt`,
       );
-      zip.file(filename, file.content ?? "");
+      // Layers toggled hidden in the editor are only suppressed by the live
+      // editor bridge; inject the same display:none rule into exported HTML
+      // files so opening them directly from the zip doesn't reveal layers
+      // the user hid in the editor.
+      const content =
+        file.fileType === "html"
+          ? injectHiddenLayerExportStyle(file.content ?? "")
+          : (file.content ?? "");
+      zip.file(filename, content);
     }
 
-    // Add design data if present
-    if (row.data) {
-      zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, row.data);
+    // Add design data if present. Public/viewer exports keep render metadata
+    // but must never serialize a localhost bridge token into the archive.
+    const exportDesignData = designDataForAccessRole(
+      row.data ?? null,
+      access.role,
+    );
+    if (typeof exportDesignData === "string") {
+      zip.file(`${METADATA_ARCHIVE_DIR}/design-data.json`, exportDesignData);
     }
 
     // Generate ZIP

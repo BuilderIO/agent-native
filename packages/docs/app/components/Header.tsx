@@ -12,6 +12,9 @@ const SearchModal = lazy(() =>
   import("./SearchModal").then((m) => ({ default: m.SearchModal })),
 );
 
+const feedbackTriggerClassName =
+  "h-8 items-center rounded-md border border-[var(--docs-border)] bg-transparent px-3 text-sm text-[var(--fg-secondary)] transition hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]";
+
 function SearchTrigger({
   onClick,
   label,
@@ -149,6 +152,8 @@ export default function Header() {
   const showHeaderBg = !isHome || scrolled;
 
   const closeMobileMenu = () => setMobileMenuOpen(false);
+  const feedbackLabel = t("feedback.label");
+  const feedbackPlaceholder = t("feedback.placeholder");
 
   return (
     <>
@@ -167,22 +172,30 @@ export default function Header() {
               alt=""
               className="block h-6 w-6 min-[380px]:hidden dark:hidden"
               aria-hidden="true"
+              loading="lazy"
+              decoding="async"
             />
             <img
               src="/agent-native-icon-dark.svg"
               alt=""
               className="hidden h-6 w-6 dark:block min-[380px]:dark:hidden"
               aria-hidden="true"
+              loading="lazy"
+              decoding="async"
             />
             <img
               src="/agent-native-logo-light.svg"
               alt="Agent-Native"
               className="hidden h-[1.155rem] w-auto min-[380px]:block dark:hidden"
+              loading="lazy"
+              decoding="async"
             />
             <img
               src="/agent-native-logo-dark.svg"
               alt="Agent-Native"
               className="hidden h-[1.155rem] w-auto min-[380px]:dark:block"
+              loading="lazy"
+              decoding="async"
             />
           </Link>
 
@@ -205,15 +218,6 @@ export default function Header() {
               }
             >
               {t("header.templates")}
-            </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to={localizedPath("/skills")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-            >
-              {t("header.skills")}
             </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
@@ -241,10 +245,17 @@ export default function Header() {
 
           <div className="ms-auto flex min-w-0 items-center gap-2 sm:gap-3">
             <FeedbackButton
-              variant="outlined"
-              label={t("feedback.label")}
-              placeholder={t("feedback.placeholder")}
-              className="hidden lg:flex border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              label={feedbackLabel}
+              placeholder={feedbackPlaceholder}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={feedbackLabel}
+                  className={`${feedbackTriggerClassName} hidden lg:flex`}
+                >
+                  {feedbackLabel}
+                </button>
+              }
               align="end"
               side="bottom"
             />
@@ -304,16 +315,6 @@ export default function Header() {
             >
               {t("header.templates")}
             </NavLink>
-            <NavLink
-              data-an-prefetch="render"
-              to={localizedPath("/skills")}
-              className={({ isActive }) =>
-                isActive ? "header-link is-active" : "header-link"
-              }
-              onClick={closeMobileMenu}
-            >
-              {t("header.skills")}
-            </NavLink>
             <a
               href="https://github.com/BuilderIO/agent-native"
               target="_blank"
@@ -337,10 +338,17 @@ export default function Header() {
               </span>
             </a>
             <FeedbackButton
-              variant="outlined"
-              label={t("feedback.label")}
-              placeholder={t("feedback.placeholder")}
-              className="self-start border-[var(--docs-border)] text-[var(--fg-secondary)] hover:border-[var(--fg-secondary)] hover:text-[var(--fg)]"
+              label={feedbackLabel}
+              placeholder={feedbackPlaceholder}
+              trigger={
+                <button
+                  type="button"
+                  aria-label={feedbackLabel}
+                  className={`${feedbackTriggerClassName} inline-flex self-start`}
+                >
+                  {feedbackLabel}
+                </button>
+              }
               align="start"
               side="bottom"
             />

@@ -19,36 +19,12 @@ import { describe, expect, it } from "vitest";
 
 // Each entry: [primitive filename, template name, reason for deviation]
 const ALLOW_LIST: Array<[string, string, string]> = [
-  // scroll-area.tsx — content always renders a horizontal ScrollBar so deeply
-  // nested page rows in the document sidebar stay reachable; guarded by
-  // templates/content/app/components/sidebar/DocumentSidebar.layout.test.ts.
-  [
-    "scroll-area.tsx",
-    "content",
-    "always renders horizontal ScrollBar for nested sidebar rows",
-  ],
-
-  // button.tsx — macros has a fully custom design theme (bg-foreground primary,
-  // rounded-2xl, active:scale press feedback, custom ghost/link palette).
-  // The canonical 13-template version uses standard bg-primary, rounded-md.
-  [
-    "button.tsx",
-    "macros",
-    "custom-themed: bg-foreground, rounded-lg, active:scale",
-  ],
-
   // calendar.tsx — DayPicker v9 class-name API split across templates.
   // The majority (7 templates) use the older v9 API (caption, nav_button, …).
-  // Two templates are ahead of this:
-  //   • analytics: new v9 renamed API (month_caption, button_previous, day_button)
-  //   • forms/mail: newest shadcn with getDefaultClassNames + DayButton + captionLayout
+  // Forms/mail are ahead with the newest shadcn API:
+  // getDefaultClassNames + DayButton + captionLayout.
   // Unifying these requires a coordinated DayPicker API migration; defer until
   // the 7-template group catches up.
-  [
-    "calendar.tsx",
-    "analytics",
-    "ahead of majority: new v9 renamed classname API (month_caption, button_previous)",
-  ],
   [
     "calendar.tsx",
     "forms",
@@ -60,147 +36,87 @@ const ALLOW_LIST: Array<[string, string, string]> = [
     "newest shadcn: getDefaultClassNames + DayButton + captionLayout",
   ],
 
-  // card.tsx — macros uses rounded-2xl, border-border/40, and a custom
-  // transition. The canonical 12-template version uses rounded-lg, border.
-  [
-    "card.tsx",
-    "macros",
-    "custom-themed: rounded-2xl, border-border/40, custom transition",
-  ],
-
   // chart.tsx — analytics adds the useChartTooltipFlip hook (which only exists
-  // in the analytics template's hooks/ dir) and uses `[_, config]` destructuring.
-  // forms/mail have a shared variant without that hook and with `[, config]`.
-  // The canonical 8-template version (calendar/chat/clips/design/macros/plan/
-  // slides/videos) has neither analytics-specific hook nor forms/mail style.
+  // in the analytics template's hooks/ dir) and uses `[_, config]`
+  // destructuring. The canonical template has no analytics-specific hook.
   [
     "chart.tsx",
     "analytics",
     "analytics-specific: useChartTooltipFlip hook (only exists in analytics hooks/)",
   ],
-  [
-    "chart.tsx",
-    "forms",
-    "no useChartTooltipFlip hook (analytics-specific); minor style differences",
-  ],
-  [
-    "chart.tsx",
-    "mail",
-    "no useChartTooltipFlip hook (analytics-specific); minor style differences",
-  ],
 
-  // command.tsx — forms/mail were scaffolded with "use client" (Next.js artifact)
-  // and use `const CommandDialog = ({ children, ...props }: DialogProps)` instead
-  // of the interface-wrapped variant. Behaviorally equivalent; clean up on next
-  // major template refresh.
-  [
-    "command.tsx",
-    "forms",
-    '"use client" artifact + inline type (no interface wrapper)',
-  ],
-  [
-    "command.tsx",
-    "mail",
-    '"use client" artifact + inline type (no interface wrapper)',
-  ],
+  // command.tsx — forms/mail still carry the local cmdk dialog wrapper while
+  // the canonical templates re-export the toolkit primitive.
+  ["command.tsx", "forms", "local cmdk dialog wrapper pending toolkit sync"],
+  ["command.tsx", "mail", "local cmdk dialog wrapper pending toolkit sync"],
 
-  // context-menu.tsx — forms/mail add origin-[--radix-context-menu-content-
-  // transform-origin] and max-h CSS variables from a newer shadcn snapshot.
-  // Not harmful but haven't been audited for all usage sites yet.
+  // context-menu.tsx — forms/mail still carry the local Radix implementation
+  // while the canonical group re-exports the toolkit primitive.
   [
     "context-menu.tsx",
     "forms",
-    "newer shadcn: origin CSS var + max-h constraint on sub-content",
+    "local Radix context-menu implementation pending toolkit sync",
   ],
   [
     "context-menu.tsx",
     "mail",
-    "newer shadcn: origin CSS var + max-h constraint on sub-content",
+    "local Radix context-menu implementation pending toolkit sync",
   ],
 
-  // dialog.tsx — macros has a mobile-optimized layout: top-4 positioned (not
-  // centered), max-h with overflow-y-auto for tall forms, backdrop-blur-sm overlay.
-  [
-    "dialog.tsx",
-    "macros",
-    "mobile-optimized: top-positioned, scrollable, backdrop-blur overlay",
-  ],
-
-  // dropdown-menu.tsx — brain was rewritten with the new shadcn v2 function-
-  // component API (data-slot attributes, variant prop on MenuItem, gap-2 layout,
-  // overflow-x-hidden content). The canonical 13-template version uses the older
-  // React.forwardRef style.
+  // dropdown-menu.tsx — brain uses the newer shadcn data-slot implementation.
   [
     "dropdown-menu.tsx",
     "brain",
-    "shadcn v2 function-component API with data-slot + variant prop",
+    "newer shadcn data-slot dropdown implementation",
   ],
 
-  // input.tsx — three intentional variants beyond the canonical 11-template version:
-  //   • macros: adds transition-all hover:border-ring/50 (custom visual polish)
-  //   • mail: uses h-9 instead of h-10 (intentional compact sizing for dense UI)
-  //   • videos: adds text-foreground class (explicit foreground color)
-  [
-    "input.tsx",
-    "macros",
-    "custom: transition-all hover:border-ring/50 animation",
-  ],
+  // input.tsx — mail uses h-9 instead of h-10 for intentional compact sizing
+  // in its dense UI.
   ["input.tsx", "mail", "intentional compact sizing: h-9 vs canonical h-10"],
-  ["input.tsx", "videos", "adds explicit text-foreground class"],
 
-  // menubar.tsx — macros uses a different trigger style. forms/mail use a newer
-  // shadcn snapshot with improved data-[state=open] focus/hover handling and
-  // function-component wrappers for MenubarMenu.
+  // macros.tsx primitives — macros has a distinct visual system while the
+  // shared canonical primitives re-export toolkit UI.
+  ["button.tsx", "macros", "custom macros visual system"],
+  ["card.tsx", "macros", "custom macros visual system"],
+  ["dialog.tsx", "macros", "custom macros visual system"],
+  ["input.tsx", "macros", "custom macros visual system"],
+  // menubar.tsx — macros uses a different trigger style.
   ["menubar.tsx", "macros", "custom-themed trigger style"],
+  ["progress.tsx", "macros", "custom macros visual system"],
+  ["tabs.tsx", "macros", "custom macros visual system"],
+
+  // scroll-area.tsx — content keeps the local horizontal scrollbar and
+  // viewport block override needed by editor/database surfaces.
   [
-    "menubar.tsx",
-    "forms",
-    "newer shadcn: improved data-[state=open] states + function-component wrappers",
-  ],
-  [
-    "menubar.tsx",
-    "mail",
-    "newer shadcn: improved data-[state=open] states + function-component wrappers",
+    "scroll-area.tsx",
+    "content",
+    "content editor needs horizontal scrollbar and viewport block override",
   ],
 
-  // progress.tsx — macros uses h-1.5 (slim) instead of h-4 and bg-foreground/80
-  // instead of bg-primary. Custom design language for the macros app.
-  ["progress.tsx", "macros", "custom-themed: h-1.5 slim bar, bg-foreground/80"],
+  // sonner.tsx — calendar uses responsive wide toast layout classes.
+  ["sonner.tsx", "calendar", "responsive wide toast layout classes"],
 
-  // sonner.tsx — two intentional variants:
-  //   • mail: heavily custom-styled toasts (bg-card, rounded-lg, text-13px,
-  //     custom action/cancel button styles)
-  //   • calendar: uses w-fit instead of w-[var(--width)] for a compact toast
+  // sonner.tsx — mail has heavily custom-styled toasts (bg-card, rounded-lg,
+  // text-13px, custom action/cancel button styles).
   [
     "sonner.tsx",
     "mail",
     "heavily custom-styled toasts (bg-card, 13px, custom action styles)",
   ],
-  ["sonner.tsx", "calendar", "compact variant: w-fit instead of fixed-width"],
 
-  // tabs.tsx — two intentional variants:
-  //   • plan: adds border border-transparent to TabsTrigger for layout stability
-  //   • macros: adds duration-200 transition and hover:text-foreground
+  // tabs.tsx — plan adds border border-transparent to TabsTrigger for layout
+  // stability.
   [
     "tabs.tsx",
     "plan",
     "border border-transparent on trigger for layout stability",
   ],
-  [
-    "tabs.tsx",
-    "macros",
-    "adds duration-200 transition + hover:text-foreground",
-  ],
 
-  // textarea.tsx — three intentional variants beyond the canonical 10-template version:
-  //   • assets: adds autoGrow prop for auto-expanding textareas (used at call sites)
-  //   • macros: adds transition-all hover:border-ring/50 (custom visual polish)
+  // textarea.tsx — two intentional variants beyond the canonical version:
+  //   • assets: adds autoGrow behavior for asset prompt/editing forms
+  //   • macros: adds transition-all hover:border-ring/50 custom visual polish
   //   • mail: minor whitespace/style difference; same functional behaviour
-  [
-    "textarea.tsx",
-    "assets",
-    "autoGrow prop: auto-expanding textarea, used at call sites",
-  ],
+  ["textarea.tsx", "assets", "autoGrow behavior for asset forms"],
   [
     "textarea.tsx",
     "macros",

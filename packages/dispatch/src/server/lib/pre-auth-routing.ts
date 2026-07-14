@@ -26,6 +26,7 @@ const DISPATCH_PAGE_PATHS = new Set([
   "/destinations",
   "/identities",
   "/approvals",
+  "/automations",
   "/audit",
   "/team",
 ]);

@@ -45,7 +45,7 @@ Copilot, or Cursor should render an inline route from your app.
   <div class="diagram-card col">
     <div class="diagram-pill ok">DataTable</div>
     <div class="diagram-pill ok">DataChart</div>
-    <div class="diagram-pill ok">DataInsights</div>
+    <div class="diagram-pill ok">Combined card</div>
   </div>
 </div>
 ```
@@ -90,41 +90,32 @@ matching payload:
 
 | Widget            | Required payload             | Renders as                                      |
 | ----------------- | ---------------------------- | ----------------------------------------------- |
-| `"data-table"`    | `table`                      | A native, reusable data table                   |
 | `"data-chart"`    | `chartSeries`                | A native bar, line, or area chart               |
-| `"data-insights"` | `table` and/or `chartSeries` | A combined insight card with chart/table output |
+| `"data-table"`    | `table`                      | A native, reusable data table for SQL/list rows |
+| `"data-insights"` | `table` and/or `chartSeries` | A combined insight card for summary dashboards  |
 
 Server actions should import the server-safe helpers and schemas from
 `@agent-native/core/data-widgets`; client code can import the same types from
 `@agent-native/core/client/chat` or `@agent-native/core/client`.
 
-```ts
+```ts filename="actions/chart-form-responses.ts"
 import { defineAction } from "@agent-native/core/action";
-import { ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER } from "@agent-native/core/action-ui";
+import { ACTION_CHAT_UI_DATA_CHART_RENDERER } from "@agent-native/core/action-ui";
 import {
-  createDataInsightsWidgetResult,
-  dataInsightsWidgetResultSchema,
+  createDataChartWidgetResult,
+  dataChartWidgetResultSchema,
 } from "@agent-native/core/data-widgets";
 
 export default defineAction({
-  description: "Analyze form responses.",
+  description: "Chart form responses.",
   readOnly: true,
-  outputSchema: dataInsightsWidgetResultSchema,
+  outputSchema: dataChartWidgetResultSchema,
   chatUI: {
-    renderer: ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER,
-    title: "Response insights",
+    renderer: ACTION_CHAT_UI_DATA_CHART_RENDERER,
+    title: "Response chart",
   },
   run: async () =>
-    createDataInsightsWidgetResult({
-      title: "Response insights",
-      display: {
-        title: "42 responses",
-        description: "Completion rate rose this week.",
-        primaryAction: {
-          label: "Open response insights",
-          href: "/response-insights",
-        },
-      },
+    createDataChartWidgetResult({
       chartSeries: {
         type: "bar",
         title: "Responses by day",
@@ -135,21 +126,15 @@ export default defineAction({
           { day: "Tue", responses: 13 },
         ],
       },
-      table: {
-        title: "Top answers",
-        columns: [
-          { key: "answer", label: "Answer" },
-          { key: "count", label: "Count", align: "right" },
-        ],
-        rows: [
-          { answer: "Yes", count: 31 },
-          { answer: "No", count: 11 },
-        ],
-        totalRows: 2,
-      },
     }),
 });
 ```
+
+Use the same pattern with `ACTION_CHAT_UI_DATA_TABLE_RENDERER`,
+`createDataTableWidgetResult`, and `dataTableWidgetResultSchema` when an action
+returns SQL or list rows. Use `ACTION_CHAT_UI_DATA_INSIGHTS_RENDERER` and
+`createDataInsightsWidgetResult` for a deliberate combined summary card that may
+include scalar `summary` values, a chart, a table, and `display.primaryAction`.
 
 <Callout id="doc-block-1f4si4a" tone="success">
 
@@ -231,7 +216,7 @@ deep link fallback.
 Register product-specific components by exact renderer id, then declare that id
 on the action:
 
-```tsx
+```tsx filename="app/chat-renderers.tsx"
 import { registerActionChatRenderer } from "@agent-native/core/client/chat";
 
 registerActionChatRenderer({
@@ -241,7 +226,7 @@ registerActionChatRenderer({
 });
 ```
 
-```ts
+```ts filename="actions/show-deal-card.ts"
 export default defineAction({
   description: "Show a deal card.",
   outputSchema: dealCardSchema,
@@ -412,7 +397,7 @@ connector helpers. ACP remains coding-agent/editor interoperability, not the
 general app-chat runtime for end users. A2UI is not claimed as supported here;
 if it matures, it should adapt into this same explicit runtime/widget contract.
 
-## Related docs {#related-docs}
+## What's next {#whats-next}
 
 - [Actions](/docs/actions) — define the operations that return native widget data.
 - [Agent Surfaces](/docs/agent-surfaces) — decide whether you need headless, chat, sidecar, or full app.

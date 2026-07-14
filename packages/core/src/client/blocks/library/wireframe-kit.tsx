@@ -26,10 +26,10 @@ import type {
  * DECOUPLING: the only behavioral change from the plan copy is theme detection —
  * core blocks read `document.documentElement.classList.contains("dark")` (the
  * MermaidBlock precedent) instead of importing `next-themes`. Everything else
- * (the `.plan-wf` / `[data-rough]` class contract the rough overlay measures,
- * the `--wf-*` / `--ink` / `--paper` token names every primitive reads) is
- * preserved exactly, so the kit looks identical in plan and renders correctly in
- * any app once the matching tokens exist in `core/styles/blocks.css`.
+ * (the `.plan-wf` / `.wf-*` / `[data-rough]` class contract the rough overlay
+ * measures, the `--wf-*` / `--ink` / `--paper` token names every primitive
+ * reads) is preserved exactly, so the kit looks identical in plan and renders
+ * correctly in any app once the matching tokens exist in `core/styles/blocks.css`.
  */
 
 /* ========================================================================== */
@@ -121,6 +121,7 @@ export function useIsDark(): boolean {
  */
 export const KitConfigContext = createContext<{
   skeleton?: boolean;
+  flushFrame?: boolean;
   sketch?: number;
   theme?: "light" | "dark";
   style?: "sketchy" | "clean";
@@ -195,6 +196,7 @@ export function Screen({
   const isSkeleton = skeleton || Boolean(cfg.skeleton);
   const wfStyle = cfg.style ?? "sketchy";
   const wfTheme = theme ?? cfg.theme ?? "light";
+  const effectivePad = cfg.flushFrame ? 0 : pad;
   void sketch;
   return (
     <div
@@ -211,14 +213,14 @@ export function Screen({
         // clipping. The frame shell (`ArtboardFrame`) owns the height policy; a
         // caller can still override via `style.height` for a fixed canvas.
         minHeight: "100%",
-        background: V.paper,
+        background: "transparent",
         color: V.ink,
         fontFamily: V.hand,
         fontSize: V.fs,
         lineHeight: 1.25,
         display: "flex",
         flexDirection: "column",
-        padding: pad,
+        padding: effectivePad,
         boxSizing: "border-box",
         overflow: "hidden",
         ...style,
@@ -1425,9 +1427,9 @@ const gen = rough.generator();
 
 type RoughPath = { d: string; stroke: string; strokeWidth: number };
 
-/** The default selector used for HTML mockups: controls plus explicit opt-ins. */
+/** The default selector used for HTML mockups: standard wireframe primitives plus explicit opt-ins. */
 export const HTML_ROUGH_SELECTOR =
-  "[data-rough],button,input,textarea,select,hr";
+  "[data-rough],button,input,textarea,select,hr,.wf-btn,.wf-card,.wf-box,.wf-pill,.wf-chip,.wf-icon-fallback,[style*='border:'],[style*='border-top:'],[style*='border-right:'],[style*='border-bottom:'],[style*='border-left:']";
 
 /** Stable per-element seed so a frame doesn't re-wobble on every measure. */
 function seedFrom(...parts: Array<string | number>): number {
@@ -1509,6 +1511,20 @@ function roundedRectPath(
   ].join(" ");
 }
 
+/** Rough.js cannot safely render paths whose inset consumes the whole box. */
+export function hasDrawableRoughBounds(
+  width: number,
+  height: number,
+  inset: number,
+): boolean {
+  return (
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > inset * 2 &&
+    height > inset * 2
+  );
+}
+
 function elementStroke(node: Element, fallback: string): string {
   const explicit = readVar(node, "--rough-stroke");
   if (explicit) return explicit;
@@ -1526,6 +1542,50 @@ function elementStroke(node: Element, fallback: string): string {
     if (width > 0 && color && color !== "rgba(0, 0, 0, 0)") return color;
   }
   return fallback;
+}
+
+function visibleBorderSides(
+  node: Element,
+): Array<"top" | "right" | "bottom" | "left"> {
+  const cs = getComputedStyle(node);
+  const sides: Array<"top" | "right" | "bottom" | "left"> = [];
+  for (const [side, widthProp, colorProp] of [
+    ["top", "borderTopWidth", "borderTopColor"],
+    ["right", "borderRightWidth", "borderRightColor"],
+    ["bottom", "borderBottomWidth", "borderBottomColor"],
+    ["left", "borderLeftWidth", "borderLeftColor"],
+  ] as const) {
+    const width = parseFloat(cs[widthProp]);
+    const color = cs[colorProp];
+    if (
+      width > 0 &&
+      color &&
+      color !== "rgba(0, 0, 0, 0)" &&
+      color !== "transparent"
+    ) {
+      sides.push(side);
+    }
+  }
+  return sides;
+}
+
+function inferRoughKind(node: HTMLElement): string {
+  const explicit = node.getAttribute("data-rough");
+  if (explicit) return explicit;
+  if (node.tagName === "HR") return "line:middle";
+  const sides = visibleBorderSides(node);
+  if (sides.length !== 1) return "rect";
+  switch (sides[0]) {
+    case "top":
+      return "line:top";
+    case "right":
+      return "line:right";
+    case "bottom":
+      return "line:bottom";
+    case "left":
+      return "line:left";
+  }
+  return "rect";
 }
 
 function build(
@@ -1577,7 +1637,7 @@ function build(
     preserveVertices: true,
   });
 
-  if (opts.drawFrame) {
+  if (opts.drawFrame && hasDrawableRoughBounds(layoutW, layoutH, 2)) {
     const sw = 2;
     push(
       gen.path(
@@ -1601,8 +1661,8 @@ function build(
     const y = (r.top - base.top) / zoom;
     const w = r.width / zoom;
     const h = r.height / zoom;
-    if (w < 2 || h < 2) return;
-    const kind = node.getAttribute("data-rough") || "rect";
+    if (!hasDrawableRoughBounds(w, h, 1)) return;
+    const kind = inferRoughKind(node);
     const rawStroke = elementStroke(node, sketch);
     const stroke =
       sameColor(rawStroke, ink) || (line !== "" && sameColor(rawStroke, line))
@@ -1621,11 +1681,15 @@ function build(
     let drawable: unknown;
     if (kind === "ellipse") {
       drawable = gen.ellipse(x + w / 2, y + h / 2, w, h, o);
+    } else if (kind === "line:left") {
+      drawable = gen.line(x, y, x, y + h, o);
     } else if (kind === "line:right") {
       drawable = gen.line(x + w, y, x + w, y + h, o);
     } else if (kind === "line:bottom") {
       drawable = gen.line(x, y + h, x + w, y + h, o);
-    } else if (kind === "line:top" || node.tagName === "HR") {
+    } else if (kind === "line:top") {
+      drawable = gen.line(x, y, x + w, y, o);
+    } else if (kind === "line:middle") {
       drawable = gen.line(x, y + h / 2, x + w, y + h / 2, o);
     } else {
       const cr = parseFloat(getComputedStyle(node).borderTopLeftRadius) || 0;

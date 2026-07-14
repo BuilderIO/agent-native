@@ -2,8 +2,9 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
 import { Button } from "@agent-native/dispatch/components/ui/button";
@@ -15,6 +16,7 @@ import {
   CardTitle,
 } from "@agent-native/dispatch/components/ui/card";
 import { Label } from "@agent-native/dispatch/components/ui/label";
+import { useMemo } from "react";
 import { Link } from "react-router";
 
 import { messagesByLocale } from "@/i18n-data";
@@ -27,16 +29,37 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
+
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "dispatch-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "dispatch-workspace",
+        label: t("settings.workspaceTitle"),
+        keywords: "workspace resources integrations vault destinations",
+        hash: "workspace-resources",
+      },
+    ],
+    [t],
+  );
 
   return (
     <SettingsTabsPage
+      extraTabs={agentSettingsTabs}
+      generalSearchEntries={generalSearchEntries}
       general={
-        <div className="mx-auto w-full max-w-3xl space-y-6">
+        <div className="mx-auto w-full max-w-2xl space-y-6">
           <p className="text-sm leading-6 text-muted-foreground">
             {t("settings.description")}
           </p>
 
-          <Card>
+          <Card id="language" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.languageTitle")}
@@ -51,7 +74,7 @@ export default function SettingsRoute() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="workspace-resources" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.workspaceTitle")}
@@ -68,22 +91,6 @@ export default function SettingsRoute() {
               </Button>
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       }
       team={
@@ -95,7 +102,7 @@ export default function SettingsRoute() {
         </div>
       }
       whatsNew={
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-2xl">
           <ChangelogSettingsCard markdown={changelog} />
         </div>
       }

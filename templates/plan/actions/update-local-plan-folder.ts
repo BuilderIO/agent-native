@@ -8,9 +8,15 @@ import {
   readPlanLocalFolder,
   writePlanLocalFolder,
 } from "../server/lib/local-plan-files.js";
+import {
+  localPlanKindSchema,
+  resolveLocalPlanKind,
+} from "../server/lib/local-plan-kind.js";
 import { normalizePlanContent } from "../server/plan-content.js";
 import { referencedBlockIdsForPlanComments } from "../server/plan-mdx.js";
 import {
+  agentPlanContentPatchesSchema,
+  agentPlanContentSchema,
   applyPlanContentPatches,
   planContentPatchesSchema,
   planContentSchema,
@@ -18,43 +24,52 @@ import {
 } from "../shared/plan-content.js";
 import type { PlanKind } from "../shared/types.js";
 
-const localPlanKindSchema = z.enum(["plan", "recap"]);
+const CONTENT_DESCRIPTION =
+  "Full structured content replacement. Prefer contentPatches for targeted edits.";
+const CONTENT_PATCHES_DESCRIPTION =
+  "Targeted structured content edits addressed by stable block/prototype/canvas ids.";
+
+// Named so `agentInputSchema` below can `.extend()` it with compact
+// `content`/`contentPatches` fields instead of duplicating every other key.
+const updateLocalPlanFolderSchema = z.object({
+  slug: z
+    .string()
+    .min(1)
+    .regex(/^[A-Za-z0-9._-]+$/)
+    .describe("Folder name under PLAN_LOCAL_DIR, for example checkout-review."),
+  path: z
+    .string()
+    .optional()
+    .describe(
+      "Optional repo-relative folder path, for example plans/checkout-review.",
+    ),
+  title: z.string().optional().describe("Plan title."),
+  brief: z
+    .string()
+    .optional()
+    .describe("One-line plan summary shown under the title."),
+  kind: localPlanKindSchema.optional(),
+  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  contentPatches: planContentPatchesSchema
+    .optional()
+    .default([])
+    .describe(CONTENT_PATCHES_DESCRIPTION),
+  note: z.string().optional().describe("Short audit note for callers."),
+});
 
 export default defineAction({
   description:
     "Update a DB-free local Agent-Native Plan MDX folder from PLAN_LOCAL_DIR or an optional repo-relative path. Applies the same structured contentPatches used by update-visual-plan, writes plan.mdx/canvas.mdx/prototype.mdx back to the same local folder, and never writes to the database.",
-  schema: z.object({
-    slug: z
-      .string()
-      .min(1)
-      .regex(/^[A-Za-z0-9._-]+$/)
-      .describe(
-        "Folder name under PLAN_LOCAL_DIR, for example checkout-review.",
-      ),
-    path: z
-      .string()
-      .optional()
-      .describe(
-        "Optional repo-relative folder path, for example plans/checkout-review.",
-      ),
-    title: z.string().optional().describe("Plan title."),
-    brief: z
-      .string()
-      .optional()
-      .describe("One-line plan summary shown under the title."),
-    kind: localPlanKindSchema.optional(),
-    content: planContentSchema
-      .optional()
-      .describe(
-        "Full structured content replacement. Prefer contentPatches for targeted edits.",
-      ),
-    contentPatches: planContentPatchesSchema
+  schema: updateLocalPlanFolderSchema,
+  // ADVERTISED-ONLY: same shape, but `content`/`contentPatches` swap the deep
+  // per-block-type union for a compact `type`-enum stand-in. Runtime
+  // validation always runs the full schema above — see the `actions` skill.
+  agentInputSchema: updateLocalPlanFolderSchema.extend({
+    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+    contentPatches: agentPlanContentPatchesSchema
       .optional()
       .default([])
-      .describe(
-        "Targeted structured content edits addressed by stable block/prototype/canvas ids.",
-      ),
-    note: z.string().optional().describe("Short audit note for callers."),
+      .describe(CONTENT_PATCHES_DESCRIPTION),
   }),
   requiresAuth: false,
   publicAgent: {
@@ -80,7 +95,9 @@ export default defineAction({
     const currentComments = await readLocalPlanComments(current.folder);
     const kind = resolveLocalPlanKind(args.kind, current.mdx) as PlanKind;
     if (kind === "recap") {
-      throw new Error("Local recap folders are read-only in the browser.");
+      throw new Error(
+        "Local recap folders are read-only through this action; do not retry it. To change this recap, edit the folder's MDX files (plan.mdx / canvas.mdx / prototype.mdx) directly on disk, or re-run create-visual-recap to publish a fresh hosted recap.",
+      );
     }
 
     let nextContent: PlanContent =
@@ -151,23 +168,3 @@ export default defineAction({
     view: "plan",
   }),
 });
-
-function resolveLocalPlanKind(
-  explicit: "plan" | "recap" | undefined,
-  mdx: { "plan.mdx": string; ".plan-state.json"?: string },
-): "plan" | "recap" {
-  if (explicit) return explicit;
-  const frontmatterMatch = mdx["plan.mdx"].match(
-    /^---[\s\S]*?^kind:\s*["']?(plan|recap)["']?\s*$/m,
-  );
-  if (frontmatterMatch) return frontmatterMatch[1] as "plan" | "recap";
-  try {
-    const state = mdx[".plan-state.json"]
-      ? (JSON.parse(mdx[".plan-state.json"]) as { kind?: unknown })
-      : null;
-    if (state?.kind === "plan" || state?.kind === "recap") return state.kind;
-  } catch {
-    // Optional state file.
-  }
-  return "plan";
-}

@@ -233,7 +233,7 @@ receives upstream security updates.
 
 ### Docker {#docker}
 
-```dockerfile
+```dockerfile filename="Dockerfile"
 FROM node:24-slim AS build
 WORKDIR /app
 COPY package.json pnpm-lock.yaml ./
@@ -273,7 +273,7 @@ node .output/server/index.mjs
 A reusable workspace Dockerfile can take the app name and path prefix as build
 arguments:
 
-```dockerfile maxLines=12
+```dockerfile filename="Dockerfile.workspace-app" maxLines=12
 FROM node:24-slim AS build
 WORKDIR /workspace
 RUN corepack enable
@@ -303,7 +303,7 @@ Then compose Postgres, the app containers, and your proxy. This example uses
 Caddy because it can terminate HTTP locally or sit behind Cloudflare's SSL
 proxy, but the important part is the path-prefix routing:
 
-```yaml maxLines=30
+```yaml filename="docker-compose.yml" maxLines=30
 services:
   postgres:
     image: postgres:17
@@ -365,7 +365,7 @@ volumes:
   postgres-data:
 ```
 
-```caddyfile
+```caddyfile filename="Caddyfile"
 agents.example.com {
   reverse_proxy /mail* mail:3000
   reverse_proxy /calendar* calendar:3000
@@ -387,8 +387,7 @@ Notes for this shape:
 
 ## Vercel {#vercel}
 
-```ts
-// vite.config.ts
+```ts filename="vite.config.ts"
 export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "vercel" } })],
 });
@@ -418,8 +417,7 @@ The workspace build copies each app's Nitro `vercel` output into the root `.verc
 
 The Nitro `netlify` preset works well and, in practice, has given us much faster cold starts than Cloudflare Pages (~200ms TTFB vs ~9s) for templates that talk to external Postgres (Neon). Either set the preset in `vite.config.ts`:
 
-```ts
-// vite.config.ts
+```ts filename="vite.config.ts"
 export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "netlify" } })],
 });
@@ -437,8 +435,7 @@ The workspace build writes static assets under `dist/_workspace_static/` and rou
 
 ## Cloudflare Pages {#cloudflare-pages}
 
-```ts
-// vite.config.ts
+```ts filename="vite.config.ts"
 export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "cloudflare_pages" } })],
 });
@@ -446,8 +443,7 @@ export default defineConfig({
 
 ## AWS Lambda {#aws-lambda}
 
-```ts
-// vite.config.ts
+```ts filename="vite.config.ts"
 export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "aws_lambda" } })],
 });
@@ -455,8 +451,7 @@ export default defineConfig({
 
 ## Deno Deploy {#deno-deploy}
 
-```ts
-// vite.config.ts
+```ts filename="vite.config.ts"
 export default defineConfig({
   plugins: [agentNative({ nitro: { preset: "deno_deploy" } })],
 });
@@ -517,24 +512,23 @@ Rotate them by replacing the env var on every instance and redeploying — sessi
 ## Production Agent Tools {#production-agent-tools}
 
 Production agents get the app's registered actions plus framework tools from
-the agent chat plugin. Database writes are enabled by default because raw DB
-tools are scoped to the authenticated user/org, but app owners can narrow the
-surface when a deployment should be more opinionated:
+the agent chat plugin. SQL inspection is enabled by default, while database
+writes go through typed app actions unless the app explicitly opts into raw
+write tools:
 
-```ts
-// server/plugins/agent-chat.ts
+```ts filename="server/plugins/agent-chat.ts"
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — default. Registers `db-schema`, `db-query`,
-  `db-exec`, and `db-patch`. Writes are scoped to the current user/org and
-  schema changes are blocked.
-- `databaseTools: "read"` — registers only `db-schema` and `db-query`; agents
-  inspect data with SQL but must use typed app actions for writes.
+- `databaseTools: "read"` — default. Registers only `db-schema` and `db-query`;
+  agents inspect data with SQL but must use typed app actions for writes.
+- `databaseTools: "write"` or `true` — additionally registers `db-exec` and
+  `db-patch` for deliberate raw SQL maintenance. Writes are scoped to the
+  current user/org and schema changes are blocked.
 - `databaseTools: "off"` or `false` — removes raw database tools from the
   agent surface so the app's actions are the only data access path.
 - `extensionTools: false` — removes framework extension-management actions and
@@ -547,8 +541,7 @@ By default, production agents run without code-execution tools. They can call ap
 
 Node-compatible deployments can opt into production code execution through the agent chat plugin or an environment override:
 
-```ts
-// server/plugins/agent-chat.ts
+```ts filename="server/plugins/agent-chat.ts"
 export default createAgentChatPlugin({
   codeExecution: { production: "sandboxed" },
 });
@@ -586,3 +579,11 @@ See [Frames](/docs/frames) for more on the embedded agent panel vs. cloud frame 
 ## Multi-instance deploys {#multi-instance}
 
 Agent-native apps store all state in SQL via Drizzle and sync the UI via [polling](/docs/key-concepts#polling-sync) against the database — no file-system state, no sticky sessions, no in-memory caches. That means multi-instance and serverless deployments work out of the box: point every instance at the same `DATABASE_URL` and they converge automatically. See [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) and [Portability](/docs/key-concepts#hosting-agnostic).
+
+## What's next
+
+- [**Database**](/docs/database#production) — pick a persistent SQL backend before your first production deploy
+- [**Security**](/docs/security) — the production checklist and opt-in flags referenced throughout this page
+- [**Authentication**](/docs/authentication) — OAuth credentials and env vars for the auth mode you choose
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — the workspace model behind `deploy`'s one-origin build
+- [**Frames**](/docs/frames) — the embedded agent panel vs. Builder.io's cloud frame for production UI edits

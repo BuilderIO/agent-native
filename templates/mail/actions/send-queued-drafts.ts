@@ -2,9 +2,10 @@ import { defineAction } from "@agent-native/core";
 import { z } from "zod";
 
 import {
+  claimQueuedDraftForSending,
   listQueuedDrafts,
   markQueuedDraftSent,
-  requireQueuedDraft,
+  releaseQueuedDraftClaim,
   type QueuedEmailDraft,
 } from "../server/lib/queued-drafts.js";
 import sendEmailAction from "./send-email.js";
@@ -21,28 +22,60 @@ function extractSentMessageId(result: unknown): string | undefined {
   return result.match(/\bid:\s*([^)]+)/)?.[1]?.trim();
 }
 
-async function sendOne(draft: QueuedEmailDraft) {
-  const result = await (sendEmailAction as any).run({
-    to: draft.to,
-    cc: draft.cc || undefined,
-    bcc: draft.bcc || undefined,
-    subject: draft.subject,
-    body: draft.body,
-    account: draft.accountEmail || undefined,
-  });
+type SendOutcome =
+  | {
+      outcome: "sent";
+      id: string;
+      sentMessageId?: string;
+      draft: QueuedEmailDraft;
+    }
+  | { outcome: "skipped"; id: string; reason: string }
+  | { outcome: "failed"; id: string; error: string };
 
-  if (typeof result === "string" && result.startsWith("Error")) {
-    throw new Error(result);
+async function sendOne(id: string): Promise<SendOutcome> {
+  const claim = await claimQueuedDraftForSending(id);
+  if (!claim.claimed) {
+    if (claim.reason === "sent") {
+      return { outcome: "skipped", id, reason: "Already sent." };
+    }
+    if (claim.reason === "sending") {
+      return {
+        outcome: "skipped",
+        id,
+        reason: "Already being sent by another request.",
+      };
+    }
+    return { outcome: "skipped", id, reason: "No longer active." };
   }
 
-  const sentMessageId = extractSentMessageId(result);
-  const updated = await markQueuedDraftSent(draft.id, sentMessageId);
-  return {
-    id: draft.id,
-    status: "sent" as const,
-    sentMessageId,
-    draft: updated,
-  };
+  const { ctx, draft, claimId, priorStatus } = claim;
+  try {
+    const result = await (sendEmailAction as any).run({
+      to: draft.to,
+      cc: draft.cc || undefined,
+      bcc: draft.bcc || undefined,
+      subject: draft.subject,
+      body: draft.body,
+      account: draft.accountEmail || undefined,
+    });
+
+    if (typeof result === "string" && result.startsWith("Error")) {
+      throw new Error(result);
+    }
+
+    const sentMessageId = extractSentMessageId(result);
+    const updated = await markQueuedDraftSent(id, ctx, claimId, sentMessageId);
+    return { outcome: "sent", id, sentMessageId, draft: updated };
+  } catch (err) {
+    // Release the claim so the draft goes back to a sendable state instead
+    // of being stuck as "sending" forever after a failed send attempt.
+    await releaseQueuedDraftClaim(id, ctx, claimId, priorStatus);
+    return {
+      outcome: "failed",
+      id,
+      error: err instanceof Error ? err.message : String(err),
+    };
+  }
 }
 
 export default defineAction({
@@ -63,25 +96,26 @@ export default defineAction({
       .describe("Maximum drafts to send when all=true"),
   }),
   run: async (args) => {
-    let drafts: QueuedEmailDraft[] = [];
+    let ids: string[] = [];
 
     if (args.all) {
-      drafts = (
-        await listQueuedDrafts({
-          scope: "review",
-          status: "active",
-          limit: args.limit ?? 50,
-        })
-      ).filter(
-        (draft) => draft.status === "queued" || draft.status === "in_review",
-      );
+      const drafts = await listQueuedDrafts({
+        scope: "review",
+        status: "active",
+        limit: args.limit ?? 50,
+      });
+      ids = drafts
+        .filter(
+          (draft: QueuedEmailDraft) =>
+            draft.status === "queued" || draft.status === "in_review",
+        )
+        .map((draft: QueuedEmailDraft) => draft.id);
     } else {
       if (!args.id) throw new Error("Provide id, or set all=true.");
-      const { draft } = await requireQueuedDraft(args.id, { ownerOnly: true });
-      drafts = [draft];
+      ids = [args.id];
     }
 
-    if (drafts.length === 0) {
+    if (ids.length === 0) {
       return {
         sent: [],
         failed: [],
@@ -89,18 +123,19 @@ export default defineAction({
       };
     }
 
-    const sent: Array<Awaited<ReturnType<typeof sendOne>>> = [];
+    const sent: Array<Extract<SendOutcome, { outcome: "sent" }>> = [];
     const failed: Array<{ id: string; error: string }> = [];
 
-    for (const draft of drafts) {
-      try {
-        sent.push(await sendOne(draft));
-      } catch (err) {
-        failed.push({
-          id: draft.id,
-          error: err instanceof Error ? err.message : String(err),
-        });
+    for (const id of ids) {
+      const result = await sendOne(id);
+      if (result.outcome === "sent") {
+        sent.push(result);
+      } else if (result.outcome === "failed") {
+        failed.push({ id: result.id, error: result.error });
       }
+      // "skipped" (already sent / already sending / no longer active)
+      // reports cleanly by simply not appearing in either list — re-running
+      // an already-sent draft is a clean no-op, not an error.
     }
 
     return { sent, failed };

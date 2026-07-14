@@ -336,12 +336,12 @@ describe("@agent-native/skills", () => {
     });
 
     const selected = await (options as any).promptSkills({
-      initialTargets: ["visual-plan", "visual-recap"],
+      initialTargets: ["visual-plan", "visual-recap", "visualize-repo"],
       options: [{ value: "quick-recap", label: "quick-recap", hint: "Recap" }],
     });
     expect(selected).toEqual(["quick-recap"]);
     expect(skillContext).toMatchObject({
-      initialSkills: ["visual-plan", "visual-recap"],
+      initialSkills: ["visual-plan", "visual-recap", "visualize-repo"],
       options: [{ value: "quick-recap" }],
     });
   });
@@ -835,7 +835,7 @@ describe("@agent-native/skills", () => {
       scope: "project",
       baseDir: project,
       planMode: "self-hosted",
-      mcpUrl: "https://plans.example.com/team",
+      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
       updateInstructions: false,
       connect: false,
       yes: true,
@@ -845,7 +845,7 @@ describe("@agent-native/skills", () => {
     expect(result.mcpServers).toHaveLength(1);
     expect(result.mcpServers[0]).toMatchObject({
       serverName: "plan",
-      mcpUrl: "https://plans.example.com/team/_agent-native/mcp",
+      mcpUrl: "https://plans.example.com/team/mcp",
     });
   });
 
@@ -1166,6 +1166,12 @@ describe("@agent-native/skills", () => {
     );
     expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
       "pr-visual-recap-reusable.yml@main",
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}`,
+    );
+    expect(fs.readFileSync(result.githubActionPath!, "utf-8")).toContain(
+      `gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}`,
     );
   });
 });

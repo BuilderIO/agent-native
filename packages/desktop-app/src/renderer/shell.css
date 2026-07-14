@@ -8,21 +8,21 @@
 :root {
   --sidebar-width: 56px;
   --tabbar-height: 38px;
-  --macos-traffic-light-safe-area: 140px;
-  --sidebar-bg: #1a1a1a;
-  --sidebar-border: rgba(255, 255, 255, 0.1);
-  --item-hover-bg: rgba(255, 255, 255, 0.07);
-  --icon-inactive: #555;
-  --icon-hover: rgba(255, 255, 255, 0.55);
+  --macos-traffic-light-safe-area: 100px;
+  --sidebar-bg: #121212;
+  --app-surface-radius: 12px;
+  --item-hover-bg: rgba(255, 255, 255, 0.1);
+  --icon-inactive: rgba(255, 255, 255, 0.52);
+  --icon-hover: rgba(255, 255, 255, 0.8);
   --icon-active: #ffffff;
-  --label-inactive: #444;
-  --label-hover: rgba(255, 255, 255, 0.4);
-  --label-active: rgba(255, 255, 255, 0.7);
-  --shell-bg: #1a1a1a;
+  --label-inactive: rgba(255, 255, 255, 0.48);
+  --label-hover: rgba(255, 255, 255, 0.72);
+  --label-active: rgba(255, 255, 255, 0.88);
+  --shell-bg: #121212;
   --separator: rgba(255, 255, 255, 0.1);
-  --tabbar-bg: #212121;
+  --tabbar-bg: #121212;
   --tab-bg: transparent;
-  --tab-active-bg: #262626;
+  --tab-active-bg: #1a1a1a;
   --tab-hover-bg: rgba(255, 255, 255, 0.06);
   --tab-text: #666;
   --tab-active-text: #ccc;
@@ -128,7 +128,6 @@ body {
   height: var(--tabbar-height);
   min-height: var(--tabbar-height);
   background: var(--tabbar-bg);
-  border-bottom: 1px solid var(--separator);
   display: flex;
   align-items: stretch;
   overflow: hidden;
@@ -144,7 +143,8 @@ body {
 
 .tabbar-strip {
   display: flex;
-  align-items: stretch;
+  align-items: center;
+  gap: 2px;
   flex: 1 1 auto;
   min-width: 0;
   height: 100%;
@@ -163,10 +163,10 @@ body {
   align-items: center;
   gap: 6px;
   padding: 0 14px;
-  height: 100%;
+  height: 28px;
   background: var(--tab-bg);
   border: none;
-  border-right: 1px solid var(--separator);
+  border-radius: 7px;
   color: var(--tab-text);
   font-size: 12px;
   font-weight: 450;
@@ -250,8 +250,9 @@ body {
   justify-content: center;
   width: 32px;
   min-width: 32px;
-  height: 100%;
+  height: 28px;
   border: none;
+  border-radius: 7px;
   background: transparent;
   color: var(--tab-text);
   cursor: pointer;
@@ -280,7 +281,6 @@ body {
   width: var(--sidebar-width);
   min-width: var(--sidebar-width);
   background: var(--sidebar-bg);
-  border-right: 1px solid var(--sidebar-border);
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -324,7 +324,6 @@ body {
   align-items: center;
   gap: 2px;
   padding: 8px 0 12px;
-  border-top: 1px solid var(--separator);
 }
 
 /* ─── Sidebar item ───────────────────────────────────────────── */
@@ -342,24 +341,6 @@ body {
   background: none;
   color: inherit;
   -webkit-app-region: no-drag;
-}
-
-/* Active indicator — colored pill on the left edge */
-.sidebar-item::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 0;
-  border-radius: 0 3px 3px 0;
-  background: #888;
-  transition: height var(--ease);
-}
-
-.sidebar-item.sidebar-item--active::before {
-  height: 28px;
 }
 
 /* ─── Icon wrapper ───────────────────────────────────────────── */
@@ -490,6 +471,8 @@ body {
   background: var(--shell-bg);
   height: 100%;
   min-width: 0;
+  border-radius: var(--app-surface-radius) 0 0 var(--app-surface-radius);
+  isolation: isolate;
 }
 
 .code-agents-shell-surface {
@@ -501,6 +484,12 @@ body {
   background: var(--shell-bg);
   isolation: isolate;
   transform: translate3d(0, 0, 0);
+}
+
+.code-agents-shell-surface--hidden {
+  opacity: 0;
+  pointer-events: none;
+  transform: translate3d(-200vw, 0, 0);
 }
 
 .code-agents-embedded-app-surface {
@@ -852,6 +841,7 @@ body {
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
+  animation: settings-overlay-in 180ms ease-out both;
 }
 
 .settings-panel {
@@ -864,6 +854,51 @@ body {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  animation: settings-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.settings-overlay--closing {
+  pointer-events: none;
+  animation: settings-overlay-out 160ms ease-out both;
+}
+
+.settings-overlay--closing .settings-panel {
+  animation: settings-panel-out 160ms ease-out both;
+}
+
+@keyframes settings-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes settings-panel-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-panel,
+  .settings-overlay--closing,
+  .settings-overlay--closing .settings-panel {
+    animation: none;
+  }
 }
 
 .settings-header {
@@ -1160,6 +1195,10 @@ body {
 }
 
 .settings-builder-connect-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+.settings-codex-status-spinner {
   animation: spin 0.8s linear infinite;
 }
 
@@ -1991,6 +2030,104 @@ body {
 
 .settings-add-form {
   width: 440px;
+  max-height: min(760px, calc(100vh - 48px));
+  overflow-y: auto;
+}
+
+.settings-create-prompt {
+  width: 100%;
+  min-height: 118px;
+  resize: vertical;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 9px;
+  outline: none;
+  background: #111;
+  padding: 11px 12px;
+  color: #fff;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  transition: border-color var(--ease);
+}
+
+.settings-create-prompt::placeholder {
+  color: rgba(255, 255, 255, 0.3);
+}
+
+.settings-create-prompt:focus {
+  border-color: rgba(59, 130, 246, 0.55);
+}
+
+.settings-create-location {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  margin-top: 8px;
+  color: rgba(255, 255, 255, 0.38);
+  font-size: 10px;
+}
+
+.settings-create-location > span {
+  flex: 0 0 auto;
+}
+
+.settings-create-location input {
+  min-width: 0;
+  flex: 1;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: 2px 0;
+  color: rgba(255, 255, 255, 0.52);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+}
+
+.settings-create-location input:focus {
+  color: rgba(255, 255, 255, 0.8);
+}
+
+.settings-create-location-button {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  padding: 3px;
+  color: rgba(255, 255, 255, 0.42);
+  cursor: pointer;
+}
+
+.settings-create-location-button:hover {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.76);
+}
+
+.settings-create-actions {
+  margin-top: 12px;
+}
+
+.settings-advanced-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin-top: 18px;
+  border: 0;
+  background: transparent;
+  padding: 2px 0;
+  color: rgba(255, 255, 255, 0.42);
+  font-size: 11px;
+  cursor: pointer;
+}
+
+.settings-advanced-trigger:hover {
+  color: rgba(255, 255, 255, 0.72);
+}
+
+.settings-advanced-trigger + .settings-choice-grid {
+  margin-top: 12px;
 }
 
 .settings-choice-grid {

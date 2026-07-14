@@ -6,6 +6,7 @@ import { getDbExec } from "../../db/client.js";
 import { getAppProductionUrl } from "../../server/app-url.js";
 import { renderEmail, emailStrong } from "../../server/email-template.js";
 import { sendEmail, isEmailConfigured } from "../../server/email.js";
+import { invalidateCollabAccessCache } from "../../server/poll.js";
 import { getRequestUserEmail } from "../../server/request-context.js";
 import { assertAccess, ForbiddenError } from "../access.js";
 import { requireShareableResource } from "../registry.js";
@@ -98,6 +99,10 @@ function normalizePrincipalId(
     : principalId;
 }
 
+function isEmailPrincipalId(value: string): boolean {
+  return /^[^\s@]+@[^\s@]+$/.test(value.trim());
+}
+
 function principalIdMatches(
   sharesTable: any,
   principalType: "user" | "org",
@@ -186,6 +191,11 @@ export default defineAction({
       args.principalType,
       args.principalId,
     );
+    if (args.principalType === "user" && !isEmailPrincipalId(principalId)) {
+      throw new Error(
+        "User shares must use an email address, not an internal user id.",
+      );
+    }
     const beforeExtensionTargets = await getExtensionShareChangeTargets(
       args.resourceType,
       args.resourceId,
@@ -235,6 +245,7 @@ export default defineAction({
         .update(reg.sharesTable)
         .set({ role: args.role })
         .where(eq(reg.sharesTable.id, existing.id));
+      invalidateCollabAccessCache(args.resourceType, args.resourceId);
       await notifyExtensionShareChanged(
         args.resourceType,
         args.resourceId,
@@ -253,6 +264,7 @@ export default defineAction({
       createdBy: actor,
       createdAt: new Date().toISOString(),
     });
+    invalidateCollabAccessCache(args.resourceType, args.resourceId);
     await notifyExtensionShareChanged(
       args.resourceType,
       args.resourceId,

@@ -20,8 +20,13 @@ import {
   assertSafeMotionCssProperty,
   assertSafeMotionCssToken,
 } from "../shared/motion-compiler.js";
-import {
+import action, {
+  assertValidMotionEase,
   canPatchManagedMotionCss,
+  MAX_MOTION_DURATION_MS,
+  MAX_MOTION_KEYFRAMES_PER_TRACK,
+  MAX_MOTION_TRACKS,
+  motionTrackKey,
   resolveMotionTimelineInsertOwnership,
 } from "./apply-motion-edit.js";
 
@@ -233,5 +238,258 @@ describe("apply-motion-edit write ordering (Issue 2 — non-atomic write)", () =
     expect(src).toContain(
       "ALTER TABLE motion_timeline ADD COLUMN IF NOT EXISTS visibility",
     );
+  });
+});
+
+// ─── Issue 6: duplicate-track key separator must not be a literal NUL ─────────
+//
+// The duplicate (targetNodeId, property) guard joins the two fields with a
+// separator. Previously that separator was a literal NUL (\0) embedded in the
+// source, which made tooling (grep, editors, diff) treat the file as binary.
+// motionTrackKey now uses the ASCII Unit Separator (\x1f), an escape in source
+// so the file stays plain text, while still being a delimiter that cannot
+// appear in a CSS-safe nodeId or property.
+
+describe("motionTrackKey (Issue 6 — NUL separator made the file binary)", () => {
+  it("does not contain a literal NUL byte", () => {
+    expect(motionTrackKey("node-1", "opacity")).not.toContain("\0");
+  });
+
+  it("uses the ASCII Unit Separator (\\x1f) as the field delimiter", () => {
+    expect(motionTrackKey("node-1", "opacity")).toBe("node-1\x1fopacity");
+  });
+
+  it("distinguishes distinct (nodeId, property) pairs", () => {
+    const a = motionTrackKey("node-1", "opacity");
+    const b = motionTrackKey("node-1", "transform");
+    const c = motionTrackKey("node-2", "opacity");
+    expect(a).not.toBe(b);
+    expect(a).not.toBe(c);
+    expect(b).not.toBe(c);
+  });
+
+  it("returns the same key for the same pair (duplicate detection works)", () => {
+    expect(motionTrackKey("node-9", "color")).toBe(
+      motionTrackKey("node-9", "color"),
+    );
+  });
+
+  it("cannot be forged by a nodeId/property boundary shift", () => {
+    // Without a delimiter, ("ab","c") and ("a","bc") would collide. The
+    // separator keeps them distinct.
+    expect(motionTrackKey("ab", "c")).not.toBe(motionTrackKey("a", "bc"));
+  });
+
+  it("the action source file contains no literal NUL byte", () => {
+    const actionPath = path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    );
+    const src = readFileSync(actionPath, "utf8");
+    expect(src.includes("\0")).toBe(false);
+  });
+});
+
+// ─── Figma Motion parity: spring ease validation + playback mode plumbing ───
+
+describe("assertValidMotionEase", () => {
+  it("accepts CSS keywords, beziers, steps, linear() lists, and spring tokens", () => {
+    for (const ease of [
+      "linear",
+      "ease-in-out",
+      "step-start", // the "Hold" preset
+      "cubic-bezier(0.42, 0, 0.58, 1)",
+      "steps(4, end)",
+      "linear(0, 0.5, 1)",
+      "spring",
+      "spring(0.25)",
+      "spring(0.69)",
+      "spring(0.2, 0.5)",
+    ]) {
+      expect(() => assertValidMotionEase(ease, "keyframe ease")).not.toThrow();
+    }
+  });
+
+  it("rejects malformed spring tokens that would emit invalid CSS", () => {
+    for (const ease of ["spring(oops)", "spring(0.5, x)", "spring(1 2)"]) {
+      expect(() => assertValidMotionEase(ease, "keyframe ease")).toThrow();
+    }
+  });
+
+  it("still rejects CSS-injection payloads", () => {
+    expect(() =>
+      assertValidMotionEase("spring(0.5); } body { display: none", "ease"),
+    ).toThrow();
+  });
+});
+
+describe("playback mode + track timing plumbing (source contract)", () => {
+  const src = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    ),
+    "utf8",
+  );
+
+  it("exposes a top-level playbackMode enum parameter", () => {
+    expect(src).toContain('.enum(["loop", "once", "ping-pong"])');
+    expect(src).toContain("playbackMode: z");
+  });
+
+  it("stamps the mode into the persisted tracks JSON via withTimelinePlaybackMode", () => {
+    expect(src).toContain(
+      "withTimelinePlaybackMode(inputTracks, playbackMode)",
+    );
+  });
+
+  it("accepts per-track delayMs/durationMs in the track schema", () => {
+    expect(src).toContain("delayMs:");
+    expect(src).toContain("durationMs:");
+  });
+
+  it("validates keyframe ease and defaultEase with the spring-aware guard", () => {
+    expect(src).toContain('assertValidMotionEase(kf.ease, "keyframe ease")');
+    expect(src).toContain('assertValidMotionEase(defaultEase, "defaultEase")');
+  });
+});
+
+// ─── DoS-guard caps: tracks/keyframes/duration ────────────────────────────────
+//
+// Mirrors the existing shader-mount cap style (a small exported constant plus
+// a clear thrown Error, never a silent clamp). durationMs is capped directly
+// in the zod schema (tested here via action.schema.safeParse, no DB needed).
+// tracks.length / keyframes.length are capped in run()'s early validation
+// loop, which requires a resolved design file to reach — like the other
+// run()-internal contracts in this file (write ordering, playback mode
+// plumbing), those are verified via static source inspection.
+
+function fadeKeyframe(t: number) {
+  return { t, value: String(t) };
+}
+
+function makeTrack(index: number, keyframeCount = 2) {
+  const keyframes = Array.from({ length: keyframeCount }, (_, i) =>
+    fadeKeyframe(i / Math.max(1, keyframeCount - 1)),
+  );
+  return {
+    targetNodeId: `node-${index}`,
+    property: "opacity",
+    keyframes,
+  };
+}
+
+describe("MAX_MOTION_* caps are exported with the documented values", () => {
+  it("caps tracks at 64, keyframes-per-track at 128, duration at 120000ms", () => {
+    expect(MAX_MOTION_TRACKS).toBe(64);
+    expect(MAX_MOTION_KEYFRAMES_PER_TRACK).toBe(128);
+    expect(MAX_MOTION_DURATION_MS).toBe(120_000);
+  });
+});
+
+describe("durationMs cap (zod schema)", () => {
+  const baseTracks = [makeTrack(0)];
+
+  it("accepts exactly the cap (120000ms)", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: baseTracks,
+      durationMs: MAX_MOTION_DURATION_MS,
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects one millisecond over the cap with a clear error", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: baseTracks,
+      durationMs: MAX_MOTION_DURATION_MS + 1,
+    });
+    expect(result.success).toBe(false);
+    if (!result.success) {
+      const message = JSON.stringify(result.error.issues);
+      expect(message).toMatch(/120000/);
+    }
+  });
+
+  it("still accepts the default (omitted) duration", () => {
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: baseTracks,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("tracks-per-timeline cap (run() DoS guard, source contract)", () => {
+  const src = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    ),
+    "utf8",
+  );
+
+  it("rejects (throws) before compiling when tracks.length exceeds MAX_MOTION_TRACKS", () => {
+    expect(src).toContain("inputTracks.length > MAX_MOTION_TRACKS");
+    expect(src).toMatch(/Too many motion tracks/);
+  });
+
+  it("the track-count guard runs before compile() is invoked", () => {
+    const guardIdx = src.indexOf("inputTracks.length > MAX_MOTION_TRACKS");
+    const compileIdx = src.indexOf("const { css, hash } = compile(");
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(compileIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(compileIdx);
+  });
+
+  it("zod itself accepts a request at exactly the 64-track cap (schema does not itself cap tracks — run() does)", () => {
+    const tracks = Array.from({ length: MAX_MOTION_TRACKS }, (_, i) =>
+      makeTrack(i),
+    );
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks,
+      durationMs: 1000,
+    });
+    expect(result.success).toBe(true);
+  });
+});
+
+describe("keyframes-per-track cap (run() DoS guard, source contract)", () => {
+  const src = readFileSync(
+    path.resolve(
+      path.dirname(fileURLToPath(import.meta.url)),
+      "apply-motion-edit.ts",
+    ),
+    "utf8",
+  );
+
+  it("rejects (throws) before compiling when a track's keyframes exceed MAX_MOTION_KEYFRAMES_PER_TRACK", () => {
+    expect(src).toContain(
+      "track.keyframes.length > MAX_MOTION_KEYFRAMES_PER_TRACK",
+    );
+    expect(src).toMatch(/Too many keyframes/);
+  });
+
+  it("the keyframe-count guard runs before compile() is invoked", () => {
+    const guardIdx = src.indexOf(
+      "track.keyframes.length > MAX_MOTION_KEYFRAMES_PER_TRACK",
+    );
+    const compileIdx = src.indexOf("const { css, hash } = compile(");
+    expect(guardIdx).toBeGreaterThan(-1);
+    expect(compileIdx).toBeGreaterThan(-1);
+    expect(guardIdx).toBeLessThan(compileIdx);
+  });
+
+  it("zod itself accepts a track at exactly the 128-keyframe cap", () => {
+    const track = makeTrack(0, MAX_MOTION_KEYFRAMES_PER_TRACK);
+    expect(track.keyframes).toHaveLength(MAX_MOTION_KEYFRAMES_PER_TRACK);
+    const result = action.schema.safeParse({
+      designId: "d1",
+      tracks: [track],
+      durationMs: 1000,
+    });
+    expect(result.success).toBe(true);
   });
 });

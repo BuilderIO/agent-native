@@ -49,6 +49,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 
 vi.mock("@agent-native/core/server", () => ({
+  captureRouteError: vi.fn(),
+  getRequestOrgId: vi.fn(() => undefined),
+  resolveSecret: vi.fn(async () => null),
+  resolveBuilderPrivateKey: vi.fn(async () => null),
   getSession: (...args: unknown[]) => mockGetSession(...args),
   runWithRequestContext: (...args: unknown[]) =>
     mockRunWithRequestContext(...args),
@@ -79,6 +83,10 @@ vi.mock("../../../db/index.js", () => ({
   },
 }));
 
+import {
+  isLoomEmbedBackedRecording,
+  loomEmbedUrlForRecording,
+} from "../../../../shared/loom.js";
 import handler from "./[recordingId].get";
 
 function createDbWithSelectResult(rows: unknown[]) {
@@ -251,6 +259,108 @@ describe("/api/video/:recordingId route", () => {
     expect(vi.mocked(fetch).mock.calls[2][0].toString()).toBe(originalUrl);
   });
 
+  it("falls back to original media when the compressed Builder probe returns 500", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-compressed-500?apiKey=org-probe&token=asset-compressed-500&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-compressed-500%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+  });
+
+  it("falls back to original media when the compressed Builder probe throws", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-compressed-throw?apiKey=org-probe&token=asset-compressed-throw&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockRejectedValueOnce(new TypeError("fetch failed"))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(2);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-compressed-throw%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+  });
+
+  it("briefly suppresses repeated compressed Builder probes after a 500 miss", async () => {
+    const originalUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-compressed-500-cache?apiKey=org-probe&token=asset-compressed-500-cache&alt=media";
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: originalUrl,
+      },
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(new Response("", { status: 500 }))
+      .mockResolvedValueOnce(
+        new Response("original media", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response("original media again", {
+          status: 206,
+          headers: { "content-type": "video/webm" },
+        }),
+      );
+
+    const firstResult = await handler(makeEvent() as any);
+    const secondResult = await handler(makeEvent() as any);
+
+    expect(firstResult).toBeInstanceOf(Response);
+    expect(secondResult).toBeInstanceOf(Response);
+    expect(fetch).toHaveBeenCalledTimes(3);
+    expect(new URL(vi.mocked(fetch).mock.calls[0][0].toString()).pathname).toBe(
+      "/o/assets%2Forg-probe%2Fasset-compressed-500-cache%2Fcompressed",
+    );
+    expect(vi.mocked(fetch).mock.calls[1][0].toString()).toBe(originalUrl);
+    expect(vi.mocked(fetch).mock.calls[2][0].toString()).toBe(originalUrl);
+  });
+
   it("accepts a protected media cookie when the query token is expired", async () => {
     mockResolveAccess.mockResolvedValue({
       role: "viewer",
@@ -335,6 +445,32 @@ describe("/api/video/:recordingId route", () => {
     expect(result).toBeInstanceOf(Response);
     expect(event.status).not.toBe(403);
     expect(fetch).toHaveBeenCalled();
+  });
+
+  it("does not emit a CSP header on Loom embed HTML responses", async () => {
+    vi.mocked(isLoomEmbedBackedRecording).mockReturnValueOnce(true);
+    vi.mocked(loomEmbedUrlForRecording).mockReturnValueOnce(
+      "https://www.loom.com/embed/recording",
+    );
+    mockResolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        visibility: "public",
+        password: null,
+        expiresAt: null,
+        videoUrl: "loom:recording",
+      },
+    });
+
+    const result = await handler(makeEvent() as any);
+
+    expect(result).toBeInstanceOf(Response);
+    expect(
+      (result as Response).headers.get("content-security-policy"),
+    ).toBeNull();
+    expect((result as Response).headers.get("content-type")).toContain(
+      "text/html",
+    );
   });
 
   it("forbids anonymous viewers on a non-public recording with no grant", async () => {

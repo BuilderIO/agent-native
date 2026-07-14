@@ -22,7 +22,7 @@ export default defineAction({
   }),
   run: async (args) => {
     const agents = await discoverAgents("dispatch");
-    const knownIds = new Set(agents.map((agent) => agent.id));
+    const knownIds = new Set(["dispatch", ...agents.map((agent) => agent.id)]);
     const selectedAppIds = Array.from(
       new Set(
         args.selectedAppIds
@@ -36,10 +36,6 @@ export default defineAction({
         `Unknown app(s): ${unknown.join(", ")}. Use list-mcp-app-access to see available app IDs.`,
       );
     }
-    if (args.mode === "selected-apps" && selectedAppIds.length === 0) {
-      throw new Error("selected-apps mode requires at least one app ID.");
-    }
-
     await setDispatchMcpAppAccessSettings({
       mode: args.mode,
       selectedAppIds,

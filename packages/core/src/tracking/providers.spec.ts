@@ -56,6 +56,72 @@ describe("tracking providers", () => {
     });
   });
 
+  it("falls back to the public Vite key for server-side Agent Native Analytics", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_vite_test");
+    const { listTrackingProviders, registerBuiltinProviders } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+
+    expect(listTrackingProviders()).toContain("agent-native-analytics");
+  });
+
+  it("flushes Agent Native Analytics events immediately in serverless runtimes", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("AGENT_NATIVE_ANALYTICS_PUBLIC_KEY", "anpk_test");
+    vi.stubEnv(
+      "AGENT_NATIVE_ANALYTICS_ENDPOINT",
+      "https://analytics.example.test/track",
+    );
+    vi.stubEnv("NETLIFY", "true");
+    const { registerBuiltinProviders, track } = await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track("http.response", { status_code: 200 });
+
+    await vi.waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("sends PostHog AI observability events to the AI event endpoint", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response("{}"));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+    vi.stubEnv("POSTHOG_HOST", "https://us.i.posthog.com");
+    const { flushTracking, registerBuiltinProviders, track } =
+      await freshTrackingModules();
+
+    registerBuiltinProviders();
+    track(
+      "$ai_generation",
+      {
+        $ai_trace_id: "run-1",
+        $ai_model: "gpt-5",
+        $ai_input_tokens: 10,
+        $ai_output_tokens: 20,
+      },
+      { userId: "u1" },
+    );
+    await flushTracking();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://us.i.posthog.com/i/v0/e/");
+    expect(JSON.parse(init.body)).toMatchObject({
+      api_key: "ph_test",
+      event: "$ai_generation",
+      properties: {
+        distinct_id: "u1",
+        $ai_trace_id: "run-1",
+        $ai_model: "gpt-5",
+        $ai_input_tokens: 10,
+        $ai_output_tokens: 20,
+      },
+    });
+  });
+
   it("waits for queued provider sends when flushing", async () => {
     let resolveFetch: (() => void) | undefined;
     const fetchMock = vi.fn(

@@ -21,7 +21,6 @@ export interface LocalhostWriteConsentPayload {
   /** Pending callback to invoke after user grants consent. */
   onGranted: (grant: {
     grantId: string;
-    bridgeToken: string;
     rootPath: string;
     grantedUntil: string;
   }) => void;
@@ -58,7 +57,6 @@ export function LocalhostWriteConsentDialog({
     try {
       const result = await callAction<{
         grantId: string;
-        bridgeToken: string;
         rootPath: string;
         grantedUntil: string;
       }>("grant-localhost-write-consent", {
@@ -133,7 +131,7 @@ export function LocalhostWriteConsentDialog({
 
           <p className="text-xs text-muted-foreground">
             {
-              "Only .html and .css files can be written. Paths outside the root folder are always blocked." /* i18n-ignore */
+              "Only text and code files can be written — never secrets like .env or key files. Paths outside the root folder are always blocked." /* i18n-ignore */
             }
           </p>
         </div>

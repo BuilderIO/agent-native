@@ -11,6 +11,7 @@ import {
   IconTool,
   IconEye,
   IconEyeOff,
+  IconHelpCircle,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useCallback, useMemo } from "react";
@@ -62,6 +63,7 @@ import {
   extensionPopularityOf,
   useExtensionPopularity,
 } from "./extension-popularity.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;
@@ -114,6 +116,7 @@ type ExtensionsCopy = {
   delete: string;
   showLess: string;
   showMore: string;
+  loadError: string;
 };
 
 const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
@@ -149,6 +152,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Delete",
     showLess: "show less",
     showMore: "show more",
+    loadError: "Couldn't load extensions.",
   },
   "zh-CN": {
     title: "扩展",
@@ -181,6 +185,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "删除",
     showLess: "收起",
     showMore: "显示更多",
+    loadError: "无法加载扩展。",
   },
   "zh-TW": {
     title: "擴充功能",
@@ -214,6 +219,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "刪除",
     showLess: "顯示較少",
     showMore: "顯示更多",
+    loadError: "無法載入擴充功能。",
   },
   "es-ES": {
     title: "Extensiones",
@@ -247,6 +253,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Eliminar",
     showLess: "mostrar menos",
     showMore: "mostrar más",
+    loadError: "No se pudieron cargar las extensiones.",
   },
   "fr-FR": {
     title: "Extensions",
@@ -280,6 +287,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Supprimer",
     showLess: "afficher moins",
     showMore: "afficher plus",
+    loadError: "Impossible de charger les extensions.",
   },
   "de-DE": {
     title: "Erweiterungen",
@@ -313,6 +321,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Löschen",
     showLess: "weniger anzeigen",
     showMore: "mehr anzeigen",
+    loadError: "Erweiterungen konnten nicht geladen werden.",
   },
   "ja-JP": {
     title: "拡張機能",
@@ -346,6 +355,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "削除",
     showLess: "少なく表示",
     showMore: "さらに表示",
+    loadError: "拡張機能を読み込めませんでした。",
   },
   "ko-KR": {
     title: "확장",
@@ -379,6 +389,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "삭제",
     showLess: "덜 보기",
     showMore: "더 보기",
+    loadError: "확장 프로그램을 불러올 수 없습니다.",
   },
   "pt-BR": {
     title: "Extensões",
@@ -412,6 +423,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "Excluir",
     showLess: "mostrar menos",
     showMore: "mostrar mais",
+    loadError: "Não foi possível carregar as extensões.",
   },
   "hi-IN": {
     title: "एक्सटेंशन",
@@ -445,6 +457,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "हटाएं",
     showLess: "कम दिखाएं",
     showMore: "और दिखाएं",
+    loadError: "एक्सटेंशन लोड नहीं हो सके।",
   },
   "ar-SA": {
     title: "الإضافات",
@@ -478,6 +491,7 @@ const EXTENSIONS_COPY: Record<LocaleCode, ExtensionsCopy> = {
     delete: "حذف",
     showLess: "إظهار أقل",
     showMore: "إظهار المزيد",
+    loadError: "تعذر تحميل الإضافات.",
   },
 };
 
@@ -567,7 +581,7 @@ function ExtensionSortMenu({
           <DropdownMenuTrigger asChild>
             <button
               type="button"
-              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-all hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
+              className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-muted-foreground/45 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/extensions-section:opacity-100"
               aria-label={copy.sortOptions}
             >
               <IconFilter className="h-3.5 w-3.5" />
@@ -638,7 +652,7 @@ export function ExtensionsSidebarSection() {
   const [showAllExtensions, setShowAllExtensions] = useState(false);
   const [showGloballyHidden, setShowGloballyHidden] = useState(false);
 
-  const { data: extensions, isLoading } = useQuery<Extension[]>({
+  const extensionsQuery = useQuery<Extension[]>({
     queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
       const res = await fetch(
@@ -648,10 +662,11 @@ export function ExtensionsSidebarSection() {
             : "/_agent-native/extensions",
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
       return res.json();
     },
   });
+  const extensions = extensionsQuery.data;
 
   const toggleFavorite = useCallback((id: string) => {
     setFavoriteIds((prev) => {
@@ -870,7 +885,7 @@ export function ExtensionsSidebarSection() {
       <div className="relative min-w-0 py-1">
         <div
           className={cn(
-            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-all hover:text-primary",
+            "group/extensions-section relative flex w-full min-w-0 items-center rounded-md text-sm font-medium transition-[opacity,color,background-color] hover:text-primary",
             location.pathname.startsWith("/extensions")
               ? "text-sidebar-accent-foreground"
               : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -940,7 +955,7 @@ export function ExtensionsSidebarSection() {
               <PopoverTrigger asChild>
                 <button
                   type="button"
-                  className="inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 transition-colors hover:bg-accent hover:text-accent-foreground"
+                  className="pointer-events-none inline-flex h-6 w-6 shrink-0 cursor-pointer items-center justify-center rounded-md text-muted-foreground/70 opacity-0 transition-[opacity,color,background-color] hover:bg-accent hover:text-accent-foreground focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/extensions-section:pointer-events-auto group-hover/extensions-section:opacity-100 group-focus-within/extensions-section:pointer-events-auto group-focus-within/extensions-section:opacity-100 data-[state=open]:pointer-events-auto data-[state=open]:opacity-100"
                   aria-label={copy.newExtension}
                 >
                   <IconPlus className="h-3.5 w-3.5" />
@@ -949,11 +964,28 @@ export function ExtensionsSidebarSection() {
               <PopoverContent
                 side="right"
                 align="start"
-                className="w-[420px] p-3"
+                collisionPadding={8}
+                className="relative z-[360] w-[min(420px,calc(100vw-16px))] px-2 pb-2 pt-3"
               >
-                <p className="px-1 pb-2 text-sm font-semibold text-foreground">
-                  {copy.newExtension}
-                </p>
+                <div className="flex items-center justify-between gap-2 ps-1 pb-2">
+                  <p className="text-sm font-semibold text-foreground">
+                    {copy.newExtension}
+                  </p>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <a
+                        href="https://agent-native.com/docs/extensions"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                        aria-label={copy.learnMore}
+                      >
+                        <IconHelpCircle className="size-4" />
+                      </a>
+                    </TooltipTrigger>
+                    <TooltipContent>{copy.learnMore}</TooltipContent>
+                  </Tooltip>
+                </div>
                 <PromptComposer
                   autoFocus
                   placeholder={copy.createPlaceholder}
@@ -980,7 +1012,7 @@ export function ExtensionsSidebarSection() {
         </div>
 
         {extensionsOpen &&
-          (isLoading ? (
+          (extensionsQuery.isLoading ? (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {[1, 2, 3].map((i) => (
                 <div
@@ -994,6 +1026,13 @@ export function ExtensionsSidebarSection() {
                 </div>
               ))}
             </div>
+          ) : extensionsQuery.isError ? (
+            <ExtensionQueryErrorState
+              compact
+              message={copy.loadError}
+              onRetry={() => void extensionsQuery.refetch()}
+              retrying={extensionsQuery.isFetching}
+            />
           ) : sortedTools.length === 0 ? null : (
             <div className="min-w-0 space-y-0.5 px-0.5">
               {visibleTools.map((extension) => {
@@ -1053,7 +1092,7 @@ export function ExtensionsSidebarSection() {
                             setDraggingId(null);
                             setDragOverId(null);
                           }}
-                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
+                          className="-ml-2 cursor-grab rounded p-0.5 text-muted-foreground/30 opacity-0 transition-[opacity,color] hover:text-muted-foreground/70 active:cursor-grabbing group-hover/extension:opacity-100 group-focus-within/extension:opacity-100"
                           aria-label={copy.reorder(extension.name)}
                         >
                           <IconGripVertical className="h-3 w-3" />

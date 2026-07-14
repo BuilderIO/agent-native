@@ -20,11 +20,11 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { getCurrentOwnerEmail } from "../server/lib/recordings.js";
 import { buildCaptionSegmentsFromText } from "../shared/transcript-segments.js";
 import { booleanParam } from "./lib/cli-params.js";
 import { isAutoTitleReplaceable } from "./lib/title-source.js";
-import regenerateTitle from "./regenerate-title.js";
 
 function nativeSegmentsJson(fullText: string): string {
   return JSON.stringify(buildCaptionSegmentsFromText(fullText));
@@ -33,6 +33,11 @@ function nativeSegmentsJson(fullText: string): string {
 // Real transcript segments supplied by a caller that already has accurate
 // timestamps (e.g. the desktop Whisper engine). When present these are stored
 // verbatim instead of synthesizing timings from the text.
+//
+// Live-capture engines can occasionally emit a segment with startMs > endMs
+// (clock-skew / chunk-boundary rounding). Repair rather than reject: a single
+// bad segment must never fail the whole array and drop the entire meeting's
+// transcript.
 const segmentSchema = z
   .object({
     startMs: z.number().nonnegative(),
@@ -41,8 +46,14 @@ const segmentSchema = z
     // Stream the segment came from; the transcript UI maps mic→"Me", system→"Them".
     source: z.enum(["mic", "system"]).optional(),
   })
-  .refine((s) => s.startMs <= s.endMs, {
-    message: "startMs must be <= endMs",
+  .transform((s) => {
+    if (s.endMs < s.startMs) {
+      console.warn(
+        `[clips] save-browser-transcript: repaired reversed segment timestamps (startMs=${s.startMs}, endMs=${s.endMs})`,
+      );
+      return { ...s, endMs: s.startMs };
+    }
+    return s;
   });
 
 export default defineAction({
@@ -207,6 +218,8 @@ export default defineAction({
       .select({
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
+        description: schema.recordings.description,
+        status: schema.recordings.status,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -215,15 +228,14 @@ export default defineAction({
     const titleQueued = !!(
       rec && isAutoTitleReplaceable(rec.title, rec.titleSource)
     );
-    if (titleQueued) {
-      void Promise.resolve(
-        regenerateTitle.run({
-          recordingId: args.recordingId,
-          transcriptText: fullText,
-        }),
-      ).catch((err: unknown) => {
+    const summaryQueued = Boolean(rec && !rec.description?.trim());
+    if (rec?.status === "ready" && (titleQueued || summaryQueued)) {
+      await dispatchPostFinalizeJob({
+        recordingId: args.recordingId,
+        kind: "transcript",
+      }).catch((err: unknown) => {
         console.warn(
-          `[clips] native transcript title generation skipped for ${args.recordingId}:`,
+          `[clips] native transcript metadata dispatch failed for ${args.recordingId}:`,
           (err as Error)?.message ?? String(err),
         );
       });
@@ -235,6 +247,7 @@ export default defineAction({
       provider: args.source ?? "web-speech",
       chars: fullText.length,
       titleQueued,
+      summaryQueued,
     };
   },
 });

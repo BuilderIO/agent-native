@@ -9,6 +9,12 @@ import {
   uniqueIndex,
 } from "@agent-native/core/db/schema";
 
+// Feature-owned schema modules. Re-exported so their tables join this app's
+// Drizzle schema namespace (schema.<table>). Each file is owned by a single
+// feature so parallel work never collides on this shared file.
+export * from "./schema-monitoring.js";
+export * from "./schema-errors.js";
+
 /**
  * Dashboards table — covers both Explorer and SQL dashboards. The
  * distinction lives in `kind` and the shape of the `config` JSON blob.
@@ -32,10 +38,37 @@ export const dashboards = table("dashboards", {
   /** Hidden dashboards are omitted from default navigation but remain openable. */
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
+  /** Last authenticated user who changed dashboard metadata/config, if tracked. */
+  updatedBy: text("updated_by"),
   ...ownableColumns(),
 });
 
 export const dashboardShares = createSharesTable("dashboard_shares");
+
+/**
+ * Bounded dashboard history. Each row snapshots the previous dashboard config
+ * before a meaningful save so users and agents can restore known-good states.
+ */
+export const dashboardRevisions = table(
+  "dashboard_revisions",
+  {
+    id: text("id").primaryKey(),
+    dashboardId: text("dashboard_id").notNull(),
+    kind: text("kind", { enum: ["explorer", "sql"] }).notNull(),
+    title: text("title").notNull(),
+    config: text("config").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by"),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+  (t) => ({
+    dashboardCreatedIdx: index("dashboard_revisions_dashboard_created_idx").on(
+      t.dashboardId,
+      t.createdAt,
+    ),
+  }),
+);
 
 /**
  * Saved filter views per dashboard. Lives alongside the parent and is
@@ -110,6 +143,31 @@ export const analyses = table("analyses", {
   hiddenBy: text("hidden_by"),
   ...ownableColumns(),
 });
+
+export const analysisRevisions = table(
+  "analysis_revisions",
+  {
+    id: text("id").primaryKey(),
+    analysisId: text("analysis_id").notNull(),
+    name: text("name").notNull(),
+    description: text("description").notNull().default(""),
+    question: text("question").notNull().default(""),
+    instructions: text("instructions").notNull().default(""),
+    dataSources: text("data_sources").notNull().default("[]"),
+    resultMarkdown: text("result_markdown").notNull().default(""),
+    resultData: text("result_data"),
+    createdAt: text("created_at").notNull().default(now()),
+    createdBy: text("created_by"),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+  },
+  (t) => ({
+    analysisCreatedIdx: index("analysis_revisions_analysis_created_idx").on(
+      t.analysisId,
+      t.createdAt,
+    ),
+  }),
+);
 
 export const analysisShares = createSharesTable("analysis_shares");
 
@@ -203,11 +261,15 @@ export const analyticsAlertRules = table("analytics_alert_rules", {
     .default("warning"),
   channels: text("channels").notNull().default('["inbox"]'),
   emailRecipients: text("email_recipients").notNull().default("[]"),
+  /** Optional per-rule Slack incoming webhook URL (overrides workspace env). */
+  slackWebhookUrl: text("slack_webhook_url"),
+  /** Optional per-rule generic webhook URL (overrides workspace env). */
+  webhookUrl: text("webhook_url"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   lastEvaluatedAt: text("last_evaluated_at"),
   lastTriggeredAt: text("last_triggered_at"),
   lastStatus: text("last_status", {
-    enum: ["ok", "triggered", "cooldown", "error"],
+    enum: ["ok", "triggered", "cooldown", "error", "running"],
   }),
   lastError: text("last_error"),
   createdAt: text("created_at").notNull().default(now()),
@@ -235,6 +297,33 @@ export const analyticsAlertIncidents = table("analytics_alert_incidents", {
 });
 
 /**
+ * Admin-only registry of external agent-native app databases that Analytics can
+ * inspect. Secret values live in app_secrets; this table stores metadata and
+ * secret keys scoped to the active organization.
+ */
+export const analyticsDbAdminConnections = table(
+  "analytics_db_admin_connections",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    appId: text("app_id"),
+    appUrl: text("app_url"),
+    databaseUrlSecretKey: text("database_url_secret_key").notNull(),
+    databaseAuthTokenSecretKey: text("database_auth_token_secret_key"),
+    createdBy: text("created_by").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+    orgId: text("org_id").notNull(),
+  },
+  (connection) => ({
+    orgUpdatedIdx: index("analytics_db_admin_connections_org_updated_idx").on(
+      connection.orgId,
+      connection.updatedAt,
+    ),
+  }),
+);
+
+/**
  * Session replay summaries recorded through the first-party analytics replay
  * endpoint. Raw replay chunks live in session_replay_chunks and are only read
  * through scoped replay helpers, not first-party dashboard SQL.
@@ -255,6 +344,9 @@ export const sessionRecordings = table("session_recordings", {
   totalBytes: integer("total_bytes").notNull().default(0),
   pageCount: integer("page_count").notNull().default(0),
   errorCount: integer("error_count").notNull().default(0),
+  // Additive column: failed network requests (status >= 400 or status 0)
+  // observed in captured replay diagnostics events.
+  networkErrorCount: integer("network_error_count").notNull().default(0),
   rageClickCount: integer("rage_click_count").notNull().default(0),
   privacyMode: text("privacy_mode").notNull().default("unknown"),
   firstUrl: text("first_url"),

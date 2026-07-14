@@ -1,11 +1,10 @@
+import { AgentToggleButton } from "@agent-native/core/client";
 import {
-  AgentToggleButton,
-  NotificationsBell,
-} from "@agent-native/core/client";
+  useHeaderTitle,
+  useHeaderActions,
+} from "@agent-native/toolkit/app-shell";
 import type { ReactNode } from "react";
 import { useLocation } from "react-router";
-
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
   "/": "Content",
@@ -41,7 +40,6 @@ export function Header({ sidebarTrigger }: HeaderProps) {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <NotificationsBell />
         <AgentToggleButton />
       </div>
     </header>

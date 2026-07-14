@@ -12,6 +12,12 @@ export const designs = table("designs", {
   title: text("title").notNull(),
   description: text("description"),
   data: text("data").notNull(),
+  // Monotonic per-client sequence numbers for path-addressed data writes.
+  // Kept outside `data` so editor/export payloads stay free of transport
+  // bookkeeping while late keepalive requests can be rejected atomically.
+  dataOperationRevisions: text("data_operation_revisions")
+    .notNull()
+    .default("{}"),
   projectType: text("project_type").notNull().default("prototype"),
   designSystemId: text("design_system_id"),
   createdAt: text("created_at").default(now()),
@@ -20,6 +26,50 @@ export const designs = table("designs", {
 });
 
 export const designShares = createSharesTable("design_shares");
+
+/**
+ * Reusable starting points captured from a Design project. Template metadata
+ * stays light enough for the gallery list; the full design data and file
+ * contents load only when a template is instantiated.
+ */
+export const designTemplates = table("design_templates", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  description: text("description"),
+  category: text("category", {
+    enum: [
+      "ad",
+      "one-pager",
+      "landing-page",
+      "social",
+      "presentation",
+      "other",
+    ],
+  })
+    .notNull()
+    .default("other"),
+  sourceDesignId: text("source_design_id"),
+  designSystemId: text("design_system_id"),
+  data: text("data").notNull().default("{}"),
+  width: integer("width"),
+  height: integer("height"),
+  lockedLayerCount: integer("locked_layer_count").notNull().default(0),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
+
+export const designTemplateShares = createSharesTable("design_template_shares");
+
+export const designTemplateFiles = table("design_template_files", {
+  id: text("id").primaryKey(),
+  templateId: text("template_id").notNull(),
+  filename: text("filename").notNull(),
+  content: text("content").notNull(),
+  fileType: text("file_type").notNull().default("html"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+});
 
 export const designSystems = table("design_systems", {
   id: text("id").primaryKey(),
@@ -43,6 +93,12 @@ export const designFiles = table("design_files", {
   designId: text("design_id").notNull(),
   filename: text("filename").notNull(),
   content: text("content").notNull(),
+  // Last accepted browser content-save operation. This transport metadata
+  // stays beside (rather than inside) the document so a late unload
+  // keepalive can be rejected without parsing or rewriting user content.
+  contentOperationSource: text("content_operation_source"),
+  contentOperationRevision: integer("content_operation_revision"),
+  contentOperationResultHash: text("content_operation_result_hash"),
   fileType: text("file_type").notNull().default("html"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),
@@ -75,6 +131,10 @@ export const designLocalhostConnections = table(
       .notNull()
       .default("connected"),
     lastSeenAt: text("last_seen_at"),
+    /** Read-only credential used by browser preview/bridge-registration calls.
+     * It is one-way derived from the filesystem token when not supplied by a
+     * newer bridge, so leaking it cannot grant source-file access. */
+    previewToken: text("preview_token"),
     bridgeToken: text("bridge_token"),
     ownerEmail: text("owner_email").notNull(),
     orgId: text("org_id"),
@@ -200,6 +260,37 @@ export const designLocalhostWriteGrants = table(
     ...ownableColumns(),
   },
 );
+
+/**
+ * Queued AI edit requests for fusion-backed (full app) designs.
+ *
+ * Fusion screens are URL-backed iframes of a real running app, so edits cannot
+ * be applied synchronously to local HTML. Instead they queue here as pending
+ * intents; `apply-fusion-edits` batches pending rows into one prompt for the
+ * in-container app agent and marks them `sent`. The app agent applies the code
+ * changes in the fusion container; screens pick them up on reload.
+ */
+export const designFusionEdits = table("design_fusion_edits", {
+  id: text("id").primaryKey(),
+  designId: text("design_id").notNull(),
+  /** design_files.id of the URL-backed screen this edit targets, when known. */
+  screenFileId: text("screen_file_id"),
+  /** Natural-language edit instruction for the app agent. */
+  instruction: text("instruction").notNull(),
+  /** JSON: optional target context ({ selector, path, url, nodeName }). */
+  target: text("target"),
+  /** 'pending' — queued; 'sent' — dispatched to the app agent; 'error'. */
+  status: text("status", { enum: ["pending", "sent", "error"] })
+    .notNull()
+    .default("pending"),
+  /** Groups edits dispatched together in one agent message. */
+  batchId: text("batch_id"),
+  error: text("error"),
+  sentAt: text("sent_at"),
+  createdAt: text("created_at").default(now()),
+  updatedAt: text("updated_at").default(now()),
+  ...ownableColumns(),
+});
 
 /**
  * Cached accessibility audit + visual diff results for a design.

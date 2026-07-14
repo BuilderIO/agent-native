@@ -13,6 +13,7 @@ import {
 import { getOrgContext } from "../org/context.js";
 import { deleteAppSecret, writeAppSecret } from "../secrets/storage.js";
 import { getSession } from "./auth.js";
+import { clearProviderCredentialAuthFailure } from "./credential-provider.js";
 import { readBody } from "./h3-helpers.js";
 
 const PROVIDER_TO_ENV_VAR = new Map(
@@ -201,6 +202,10 @@ export function createAgentEngineApiKeyHandler() {
         value: payload.value,
         scope: resolved.target.scope,
         scopeId: resolved.target.scopeId,
+      });
+      await clearProviderCredentialAuthFailure({
+        key: payload.key,
+        value: payload.value,
       });
     }
 

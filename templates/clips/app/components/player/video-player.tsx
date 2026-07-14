@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 
+import { resolveMediaDurationMs } from "@/components/player/media-duration";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +29,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
+import { useMseVideoSource } from "@/hooks/use-mse-video-source";
 import {
   parsePlaybackSpeed,
   readPlaybackSpeedPreference,
@@ -47,6 +49,10 @@ import { cn } from "@/lib/utils";
 
 import { CaptionsOverlay } from "./captions-overlay";
 import { CtaButton } from "./cta-button";
+import {
+  PlaybackCommentOverlay,
+  type PlaybackComment,
+} from "./playback-comment-overlay";
 import { PlayerControls, SPEED_OPTIONS } from "./player-controls";
 
 function resolveLocalUrl(url: string | null | undefined): string | undefined {
@@ -63,6 +69,7 @@ function resolveLocalUrl(url: string | null | undefined): string | undefined {
 
 const VOLATILE_VIDEO_QUERY_PARAMS = new Set([
   "t",
+  "cb",
   LOOM_START_MS_QUERY_PARAM,
   "password",
   "X-Amz-Algorithm",
@@ -125,6 +132,14 @@ function applyLoomStartToVideoSrc(src: string, ms: number): string {
   return setUrlSearchParam(src, LOOM_START_MS_QUERY_PARAM, String(ms));
 }
 
+function isPlayerUiTarget(target: EventTarget | null): boolean {
+  return (
+    typeof Element !== "undefined" &&
+    target instanceof Element &&
+    Boolean(target.closest("[data-player-ui]"))
+  );
+}
+
 export interface VideoPlayerHandle {
   video: HTMLVideoElement | null;
   play: () => Promise<void> | void;
@@ -140,6 +155,14 @@ export interface VideoPlayerHandle {
 export interface VideoPlayerProps {
   recordingId: string;
   videoUrl: string | null | undefined;
+  /**
+   * Container format of `videoUrl`, when known. Used only to pick an accurate
+   * `canPlayType` MIME check (e.g. Safari cannot play `video/webm`) — Clips
+   * stores a single `videoUrl` per recording, so there is no alternate-format
+   * URL to fall back to. Defaults to `"webm"` (the format every browser
+   * MediaRecorder-based recording is stored as).
+   */
+  videoFormat?: "webm" | "mp4" | null;
   embedProvider?: "loom" | null;
   durationMs: number;
   thumbnailUrl?: string | null;
@@ -151,7 +174,7 @@ export interface VideoPlayerProps {
   startMs?: number;
   /** Comment + chapter overlays for the scrubber. */
   editsJson?: string | null;
-  comments?: { id: string; videoTimestampMs: number; content: string }[];
+  comments?: PlaybackComment[];
   chapters?: { startMs: number; title: string }[];
   reactions?: { id: string; emoji: string; videoTimestampMs: number }[];
   transcriptSegments?: { startMs: number; endMs: number; text: string }[];
@@ -195,6 +218,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const t = useT();
     const {
       videoUrl,
+      videoFormat,
       embedProvider,
       durationMs,
       thumbnailUrl,
@@ -232,8 +256,29 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const videoRef = useRef<HTMLVideoElement | null>(null);
     const containerRef = useRef<HTMLDivElement | null>(null);
     const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const touchTapCandidateRef = useRef<{
+      pointerId: number;
+      x: number;
+      y: number;
+    } | null>(null);
+    const suppressNextClickRef = useRef(false);
     const playAttemptPendingRef = useRef(false);
     const playAttemptIdRef = useRef(0);
+    // Position to restore after `v.load()` resets `currentTime` to 0 while
+    // recovering from a media error (see `requestPlay`).
+    const resumeAfterReloadMsRef = useRef<number | null>(null);
+    // Whether we've already attempted the automatic, cache-busted MediaError
+    // recovery for the current source (see `onError` below). Reset per source
+    // so a genuinely new video gets its own single automatic attempt.
+    const autoRetriedErrorRef = useRef(false);
+    // True from the moment the automatic MediaError recovery swaps in a
+    // cache-busted src until the reload resolves (loadeddata/canPlay/another
+    // error). While true, the resolved-prop sync effect below must not
+    // overwrite `activeVideoSrc` back to the plain (non-cache-busted) prop
+    // value — `videoSourceIdentity` intentionally ignores the `cb` param, so
+    // without this guard that effect would treat the two URLs as the "same
+    // resource" and immediately revert our retry before `.load()` completes.
+    const recoveringFromErrorRef = useRef(false);
     const [activeVideoSrc, setActiveVideoSrc] = useState(resolvedVideoSrc);
     const [isPlaying, setIsPlaying] = useState(false);
     const [currentMs, setCurrentMs] = useState(startMs ?? 0);
@@ -291,6 +336,26 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       () => embedProvider === "loom" || isLoomEmbedUrl(activeVideoSrc),
       [activeVideoSrc, embedProvider],
     );
+    // Clips stores exactly one `videoUrl` per recording (no alternate-format
+    // fallback to select between), and every browser MediaRecorder-based
+    // recording is stored as `webm` — which Safari (desktop and iOS) cannot
+    // decode at all. Ask the browser up front via `canPlayType` instead of
+    // discovering that the hard way through a MediaError + our auto-retry
+    // loop, which would just cache-bust-reload a format that will never
+    // decode. Uploaded/stitched/Loom-reuploaded recordings are `mp4`, which
+    // every evergreen browser supports, so this only ever fires for native
+    // webm recordings on Safari.
+    const unsupportedFormat = useMemo(() => {
+      if (isLoomEmbed || !activeVideoSrc) return false;
+      if (typeof document === "undefined") return false;
+      const mime = videoFormat === "mp4" ? "video/mp4" : "video/webm";
+      try {
+        const probe = document.createElement("video");
+        return probe.canPlayType(mime) === "";
+      } catch {
+        return false;
+      }
+    }, [activeVideoSrc, isLoomEmbed, videoFormat]);
     const loomIframeSrc = useMemo(() => {
       if (!isLoomEmbed || !activeVideoSrc || loomStartMs === null) {
         return activeVideoSrc;
@@ -302,6 +367,32 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       [resolvedVideoSrc],
     );
 
+    // Media Source Extensions path for raw fragmented-MP4 recordings (desktop
+    // live-stream uploads). Those files declare no up-front duration, so the
+    // native progressive pipeline scans the whole file before it can play from
+    // a CDN. When the asset sniffs as fragmented, `mse.mode === "mse"` and we
+    // hand the element a MediaSource object URL instead of the raw URL, with the
+    // duration supplied from the DB. Everything else (classic MP4, WebM, Loom,
+    // browsers without MediaSource) stays on the native `<video src>` path,
+    // byte-for-byte unchanged.
+    const mse = useMseVideoSource({
+      videoRef,
+      sourceUrl: resolvedVideoSrc,
+      durationMs,
+      videoFormat,
+      disabled: isLoomEmbed || unsupportedFormat,
+    });
+    const mseActive = mse.mode === "mse" && Boolean(mse.objectUrl);
+    // The URL actually put on the <video> element: the MediaSource object URL
+    // while MSE drives playback, nothing while we're still sniffing an eligible
+    // asset (so the browser never starts the slow native scan), otherwise the
+    // normal resolved/cache-busted source.
+    const domVideoSrc = mseActive
+      ? mse.objectUrl
+      : mse.mode === "pending"
+        ? undefined
+        : activeVideoSrc;
+
     useEffect(() => {
       if (!resolvedVideoSrc) {
         setActiveVideoSrc(undefined);
@@ -311,6 +402,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         setActiveVideoSrc(resolvedVideoSrc);
         return;
       }
+
+      if (recoveringFromErrorRef.current) return;
 
       const v = videoRef.current;
       const sameResource =
@@ -359,6 +452,12 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const resolvePlayAttempt = useCallback((attemptId: number) => {
       if (attemptId !== playAttemptIdRef.current) return;
       playAttemptPendingRef.current = false;
+      const v = videoRef.current;
+      if (v && !v.paused && !v.ended) {
+        setIsPlaying(true);
+        setHasPlaybackStarted(true);
+      }
+      setCanPlay(true);
       setIsPlayPending(false);
       setIsBuffering(false);
       setIsPreparing(false);
@@ -410,6 +509,40 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       bumpControls();
       setPlayError(null);
+
+      if (
+        !hasPlaybackStarted &&
+        (!startMs || startMs <= 0) &&
+        ((initialVisibleFrameSeekedRef.current && v.currentTime > 0.05) ||
+          // The WebM duration probe seeks to 1e10. If Chrome never resolves the
+          // durationchange, first play must rewind instead of starting there.
+          v.currentTime > 1e7)
+      ) {
+        try {
+          v.currentTime = 0;
+          setCurrentMs(0);
+        } catch {
+          // If the browser refuses the rewind, continue with the normal play
+          // attempt; playback is still better than blocking on a cosmetic seek.
+        }
+      }
+
+      // A <video> element left in an error state (network/decode/unsupported
+      // format) will just re-reject on `.play()` forever — it needs `.load()`
+      // to reset `readyState`/`error` and re-fetch the source before playback
+      // can be retried. Remember the last known position so we can restore it
+      // once the reloaded source is ready (best-effort; `loadeddata`/`canPlay`
+      // below call `retryPendingPlay`, which resumes the pending play attempt).
+      if (v.error) {
+        resumeAfterReloadMsRef.current = currentMs > 0 ? currentMs : null;
+        setCanPlay(false);
+        setIsPreparing(true);
+        setIsBuffering(false);
+        v.load();
+      } else if (v.readyState >= 2 || v.currentTime > 0) {
+        setCanPlay(true);
+        setIsPreparing(false);
+      }
       setIsBuffering(v.readyState < 3);
       setIsPlayPending(true);
 
@@ -422,7 +555,15 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       } catch (err) {
         rejectPlayAttempt(attemptId, err);
       }
-    }, [activeVideoSrc, attachPlayPromise, bumpControls, rejectPlayAttempt]);
+    }, [
+      activeVideoSrc,
+      attachPlayPromise,
+      bumpControls,
+      currentMs,
+      hasPlaybackStarted,
+      rejectPlayAttempt,
+      startMs,
+    ]);
 
     const retryPendingPlay = useCallback(
       (v: HTMLVideoElement) => {
@@ -453,6 +594,72 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       }
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
+
+    const activateVideoSurface = useCallback(
+      (input: "mouse" | "touch") => {
+        // Match native mobile players: touching the video reveals the controls
+        // without unexpectedly pausing or resuming it. Embeds that explicitly
+        // hide their chrome keep surface-tap playback so they remain usable.
+        if (input === "touch" && !hideChrome) {
+          bumpControls();
+          return;
+        }
+
+        togglePlayback();
+        bumpControls();
+      },
+      [bumpControls, hideChrome, togglePlayback],
+    );
+
+    const handlePlayerPointerDown = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (
+          e.pointerType === "mouse" ||
+          e.button !== 0 ||
+          isLoomEmbed ||
+          isPlayerUiTarget(e.target)
+        ) {
+          return;
+        }
+
+        touchTapCandidateRef.current = {
+          pointerId: e.pointerId,
+          x: e.clientX,
+          y: e.clientY,
+        };
+      },
+      [isLoomEmbed],
+    );
+
+    const handlePlayerPointerUp = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        const candidate = touchTapCandidateRef.current;
+        if (!candidate || candidate.pointerId !== e.pointerId) return;
+        touchTapCandidateRef.current = null;
+
+        if (isLoomEmbed || isPlayerUiTarget(e.target)) return;
+
+        const moved = Math.max(
+          Math.abs(e.clientX - candidate.x),
+          Math.abs(e.clientY - candidate.y),
+        );
+        if (moved > 12) return;
+
+        e.preventDefault();
+        suppressNextClickRef.current = true;
+        activateVideoSurface("touch");
+      },
+      [activateVideoSurface, isLoomEmbed],
+    );
+
+    const handlePlayerPointerCancel = useCallback(
+      (e: React.PointerEvent<HTMLDivElement>) => {
+        if (touchTapCandidateRef.current?.pointerId === e.pointerId) {
+          touchTapCandidateRef.current = null;
+        }
+      },
+      [],
+    );
 
     const applySpeed = useCallback(
       (rate: number) => {
@@ -517,6 +724,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         onTimeUpdate,
         resolvedDurationMs,
       ],
+    );
+
+    const seekByMs = useCallback(
+      (deltaMs: number) => {
+        const v = videoRef.current;
+        const liveMs =
+          v &&
+          Number.isFinite(v.currentTime) &&
+          v.currentTime >= 0 &&
+          v.currentTime < 1e7
+            ? Math.floor(v.currentTime * 1000)
+            : currentMs;
+        seekToVisibleMs(liveMs + deltaMs);
+      },
+      [currentMs, seekToVisibleMs],
     );
 
     // Imperative handle for parent
@@ -603,22 +825,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       durationProbedRef.current = false;
     }, [activeVideoSrc, durationMs]);
 
-    // The recorder's elapsed-time counter (durationMs prop) is the most
-    // trustworthy length we have. A MediaRecorder WebM's own duration is
-    // cluster-estimated and lands short by up to one timeslice, so we never
-    // let it overwrite a real prop — doing so makes the scrubber jump to a
-    // shorter length than the actual recording on first watch.
-    const hasReliableDurationProp =
-      Number.isFinite(durationMs) && durationMs > 0;
-
+    // Prefer the recorder's elapsed-time counter for ordinary WebM timeslice
+    // drift, but let clearly different playable-media metadata win. This also
+    // repairs playback controls for older clips whose stored duration counted
+    // time spent paused.
     const probeDurationIfNeeded = useCallback(
       (v: HTMLVideoElement) => {
         if (durationProbedRef.current) return;
         if (Number.isFinite(v.duration) && v.duration > 0) {
           durationProbedRef.current = true;
-          if (!hasReliableDurationProp) {
-            setResolvedDurationMs(Math.round(v.duration * 1000));
-          }
+          setResolvedDurationMs(resolveMediaDurationMs(durationMs, v.duration));
           return;
         }
         if (playAttemptPendingRef.current || !v.paused) return;
@@ -634,7 +850,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // picks up the real duration.
         }
       },
-      [hasReliableDurationProp],
+      [durationMs],
     );
 
     // Resolve the WebM-duration-is-Infinity Chrome quirk: when a video created
@@ -652,11 +868,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       const onDurationChange = () => {
         if (Number.isFinite(v.duration) && v.duration > 0) {
-          // Don't downgrade a trustworthy recorder duration to the
-          // cluster-estimated WebM duration; only adopt it as a fallback.
-          if (!hasReliableDurationProp) {
-            setResolvedDurationMs(Math.round(v.duration * 1000));
-          }
+          setResolvedDurationMs(resolveMediaDurationMs(durationMs, v.duration));
           // After we've resolved the real duration, rewind back to 0 so the
           // user isn't sitting at the end of the clip.
           if (durationProbedRef.current && v.currentTime > v.duration) {
@@ -679,7 +891,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("loadedmetadata", onLoadedMetadata);
         v.removeEventListener("durationchange", onDurationChange);
       };
-    }, [activeVideoSrc, hasReliableDurationProp, probeDurationIfNeeded]);
+    }, [activeVideoSrc, durationMs, probeDurationIfNeeded]);
 
     // Reset the thumbnail-capture flag when the source changes (e.g. the
     // player is reused for a different recording via React Router).
@@ -687,6 +899,8 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       thumbnailCapturedRef.current = false;
       initialVisibleFrameSeekedRef.current = false;
       loomInitialStartAppliedRef.current = "";
+      autoRetriedErrorRef.current = false;
+      recoveringFromErrorRef.current = false;
       setLoomStartMs(null);
       playAttemptIdRef.current += 1;
       playAttemptPendingRef.current = false;
@@ -780,7 +994,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         initialVisibleFrameSeekedRef.current = true;
         try {
           v.currentTime = visibleMs / 1000;
-          setCurrentMs(visibleMs);
           return true;
         } catch {
           return false;
@@ -810,7 +1023,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         return;
       }
       setIsPreparing(true);
-      const t = setTimeout(() => setIsPreparing(false), 10000);
+      const t = setTimeout(() => {
+        setIsPreparing(false);
+        setCanPlay(true);
+      }, 10000);
       return () => clearTimeout(t);
     }, [activeVideoSrc]);
 
@@ -885,12 +1101,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
     const fullscreenMenuContainer = isFullscreen ? containerRef.current : null;
 
     const showThroughoutCta = cta && cta.placement === "throughout";
+    // Mobile Safari may defer loadeddata/canplay until playback starts. Keep
+    // the paused state actionable even when those readiness events have not
+    // fired yet; once the user asks to play, the pending/buffering states give
+    // them accurate loading feedback.
     const centerOverlayMode =
       activeVideoSrc &&
       !isLoomEmbed &&
+      !unsupportedFormat &&
       !showEndCta &&
       (!isPlaying || isPlayPending || isBuffering)
-        ? isPreparing || isPlayPending || isBuffering || !canPlay
+        ? isPlayPending || isBuffering
           ? "loading"
           : "ready"
         : null;
@@ -913,12 +1134,19 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         )}
         onMouseMove={bumpControls}
         onMouseLeave={() => !alwaysShowControls && setShowControls(false)}
+        onPointerDown={handlePlayerPointerDown}
+        onPointerUp={handlePlayerPointerUp}
+        onPointerCancel={handlePlayerPointerCancel}
         onClick={(e) => {
-          // Clicking the video toggles play — but not when clicking controls.
-          const target = e.target as HTMLElement;
-          if (target.closest("[data-player-ui]")) return;
+          if (suppressNextClickRef.current) {
+            suppressNextClickRef.current = false;
+            return;
+          }
+          // Clicking the video surface toggles playback, but actual controls
+          // keep their own behavior.
+          if (isPlayerUiTarget(e.target)) return;
           if (isLoomEmbed) return;
-          togglePlayback();
+          activateVideoSurface("mouse");
         }}
       >
         {isLoomEmbed && loomIframeSrc ? (
@@ -930,10 +1158,31 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             allowFullScreen
             referrerPolicy="no-referrer"
           />
+        ) : unsupportedFormat ? (
+          // Don't even attempt to load a format the browser has told us it
+          // cannot decode (Safari + webm) — that would just surface a
+          // MediaError after a real network fetch and burn our one automatic
+          // retry on a format that will never play. Show the poster with a
+          // clear, non-looping explanation instead.
+          <div className="relative flex h-full w-full items-center justify-center bg-black">
+            {thumbnailUrl ? (
+              <img
+                src={resolveLocalUrl(thumbnailUrl)}
+                alt=""
+                className={cn(
+                  "absolute inset-0 h-full w-full",
+                  cover ? "object-cover" : "object-contain",
+                )}
+              />
+            ) : null}
+            <div className="relative z-10 mx-4 max-w-xs rounded-md bg-black/70 px-4 py-3 text-center text-sm font-medium text-white/85 ring-1 ring-white/10">
+              {t("videoPlayer.unsupportedFormat")}
+            </div>
+          </div>
         ) : activeVideoSrc ? (
           <video
             ref={videoRef}
-            src={activeVideoSrc}
+            src={domVideoSrc}
             poster={resolveLocalUrl(thumbnailUrl)}
             // `crossOrigin` is only needed so the owner's canvas thumbnail
             // capture isn't tainted. For everyone else (viewers, and the Slack
@@ -958,6 +1207,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             onPlay={() => {
               setIsPlaying(true);
               setHasPlaybackStarted(true);
+              setCanPlay(true);
+              setIsPreparing(false);
+              setIsBuffering(false);
               onPlay?.();
             }}
             onPlaying={() => {
@@ -980,6 +1232,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onPause?.();
             }}
             onLoadedData={(e) => {
+              recoveringFromErrorRef.current = false;
+              const resumeMs = resumeAfterReloadMsRef.current;
+              if (resumeMs != null) {
+                resumeAfterReloadMsRef.current = null;
+                try {
+                  e.currentTarget.currentTime = resumeMs / 1000;
+                  setCurrentMs(resumeMs);
+                } catch {
+                  // Ignore — worst case playback resumes from 0.
+                }
+              }
               const didSeek = seekInitialVisibleFrame(e.currentTarget);
               setCanPlay(e.currentTarget.readyState >= 2);
               setIsPreparing(false);
@@ -996,6 +1259,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
             }}
             onCanPlayThrough={(e) => {
               setCanPlay(true);
+              setIsPreparing(false);
               setIsBuffering(false);
               retryPendingPlay(e.currentTarget);
             }}
@@ -1010,7 +1274,9 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               }
             }}
             onSeeked={() => {
+              setCanPlay(true);
               setIsPreparing(false);
+              setIsBuffering(false);
               captureThumbnail();
             }}
             onTimeUpdate={(e) => {
@@ -1022,6 +1288,17 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               const ct =
                 Number.isFinite(raw) && raw >= 0 && raw < 1e7 ? raw : 0;
               const ms = Math.floor(ct * 1000);
+              if (
+                initialVisibleFrameSeekedRef.current &&
+                !hasPlaybackStarted &&
+                !playAttemptPendingRef.current &&
+                v.paused &&
+                (!startMs || startMs <= 0)
+              ) {
+                setCurrentMs(0);
+                onTimeUpdate?.(0, resolvedDurationMs);
+                return;
+              }
               const visibleMs = clampSeek(
                 skipExcludedRange(ms, excludedRanges, resolvedDurationMs),
                 v,
@@ -1030,25 +1307,92 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               if (visibleMs !== ms) {
                 v.currentTime = visibleMs / 1000;
                 setCurrentMs(visibleMs);
-                if (visibleMs > 0) setHasPlaybackStarted(true);
-                if (visibleMs > 0) setIsPreparing(false);
+                if (visibleMs > 0) {
+                  setCanPlay(true);
+                  setHasPlaybackStarted(true);
+                  setIsPreparing(false);
+                  setIsBuffering(false);
+                }
                 onTimeUpdate?.(visibleMs, resolvedDurationMs);
                 return;
               }
               setCurrentMs(ms);
-              if (ms > 0) setHasPlaybackStarted(true);
-              if (ms > 0) setIsPreparing(false);
+              if (ms > 0) {
+                setCanPlay(true);
+                setHasPlaybackStarted(true);
+                setIsPreparing(false);
+                setIsBuffering(false);
+              }
               onTimeUpdate?.(ms, resolvedDurationMs);
             }}
             onEnded={() => {
+              const endedMs =
+                resolvedDurationMs > 0
+                  ? resolvedDurationMs
+                  : videoRef.current &&
+                      Number.isFinite(videoRef.current.duration) &&
+                      videoRef.current.duration > 0
+                    ? Math.round(videoRef.current.duration * 1000)
+                    : currentMs;
+              setCurrentMs(endedMs);
               setIsPlaying(false);
               setIsPlayPending(false);
               setIsBuffering(false);
+              setIsPreparing(false);
+              onTimeUpdate?.(endedMs, resolvedDurationMs);
               onEnded?.();
             }}
             onError={(e) => {
               playAttemptPendingRef.current = false;
               setIsPlayPending(false);
+
+              // If the MSE pipeline surfaced a media error, tear it down and let
+              // the native <video src> path take over the raw asset URL instead
+              // of running the cache-bust retry against a MediaSource blob URL.
+              if (mseActive) {
+                mse.fallbackToNative();
+                setIsBuffering(false);
+                setIsPreparing(true);
+                setCanPlay(false);
+                return;
+              }
+
+              // Most "format not supported" / decode errors reported here are
+              // transient — e.g. the share page's video element started
+              // fetching a moment before a background seekable-remux pass
+              // (`ensureRecordingSeekable`) swapped `videoUrl` to the repaired
+              // upload, or a flaky CDN edge served a truncated response. Give
+              // playback one automatic, cache-busted reload before showing the
+              // fatal error UI, so most viewers never see an error at all. A
+              // manual "Try again" (via `requestPlay`'s `v.error` branch)
+              // remains available afterward if the retry also fails.
+              if (!autoRetriedErrorRef.current && activeVideoSrc) {
+                autoRetriedErrorRef.current = true;
+                recoveringFromErrorRef.current = true;
+                const v = e.currentTarget;
+                const cacheBustedSrc = setUrlSearchParam(
+                  activeVideoSrc,
+                  "cb",
+                  String(Date.now()),
+                );
+                resumeAfterReloadMsRef.current =
+                  currentMs > 0 ? currentMs : null;
+                setIsBuffering(false);
+                setIsPreparing(true);
+                setCanPlay(false);
+                // Set `src` on the live element and call `.load()` in the same
+                // tick — waiting for the React re-render to land the new `src`
+                // would call `.load()` against the stale (already-errored) URL.
+                // `setActiveVideoSrc` still runs so React's own render/effects
+                // (and a subsequent unrelated re-render) stay consistent with
+                // what the element is actually playing.
+                v.src = cacheBustedSrc;
+                v.load();
+                setActiveVideoSrc(cacheBustedSrc);
+                return;
+              }
+
+              recoveringFromErrorRef.current = false;
               setIsBuffering(false);
               setIsPreparing(false);
               const desc = describeMediaError(e.currentTarget.error);
@@ -1059,6 +1403,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 {
                   recordingId,
                   videoSrc: activeVideoSrc,
+                  autoRetried: autoRetriedErrorRef.current,
                 },
               );
               setPlayError(
@@ -1110,6 +1455,11 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           <CaptionsOverlay text={currentSegment.text} />
         ) : null}
 
+        {/* Timestamped comments */}
+        {!hideChrome && !isLoomEmbed && hasPlaybackStarted ? (
+          <PlaybackCommentOverlay comments={comments} currentMs={currentMs} />
+        ) : null}
+
         {/* Floating CTA (throughout placement) */}
         {showThroughoutCta ? (
           <div data-player-ui className="absolute bottom-16 right-4 z-20">
@@ -1141,7 +1491,6 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         {/* Controls */}
         {!hideChrome && !isLoomEmbed ? (
           <div
-            data-player-ui
             className={cn(
               "absolute inset-x-0 bottom-0 z-20 transition-opacity duration-200",
               showControls ? "opacity-100" : "opacity-0 pointer-events-none",
@@ -1169,6 +1518,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
               onSeek={(ms) => {
                 seekToVisibleMs(ms);
               }}
+              onSeekRelative={seekByMs}
               onVolumeChange={(vol) => {
                 const v = videoRef.current;
                 if (v) {

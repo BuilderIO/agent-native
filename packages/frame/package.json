@@ -41,11 +41,10 @@
     "@tailwindcss/vite": "catalog:",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react": "catalog:",
     "tailwindcss": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite": "catalog:"
   },
   "peerDependencies": {

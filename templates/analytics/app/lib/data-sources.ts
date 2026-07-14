@@ -481,6 +481,34 @@ export const dataSources: DataSource[] = [
       },
     ],
   },
+  {
+    id: "clay",
+    name: "Clay",
+    description:
+      "GTM search, enrichment routines, and read-only table queries through Clay's Public API",
+    category: "crm",
+    icon: IconUserSearch,
+    envKeys: ["CLAY_PUBLIC_API_KEY"],
+    docsUrl: "https://developers.clay.com/",
+    walkthroughSteps: [
+      {
+        title: "Create a Clay Public API key",
+        description:
+          "In Clay, go to Settings > Account > API keys (beta) and create a key for the user and workspace this connection should access.",
+        url: "https://developers.clay.com/public-api/authentication",
+        linkText: "Clay API authentication",
+      },
+      {
+        title: "Enter your Public API key",
+        description:
+          "This hosted API credential is separate from the optional local clay CLI/MCP browser-login session.",
+        inputKey: "CLAY_PUBLIC_API_KEY",
+        inputLabel: "Public API key",
+        inputPlaceholder: "your-clay-public-api-key",
+        inputType: "password",
+      },
+    ],
+  },
 
   // --- Engineering ---
   {
@@ -720,14 +748,15 @@ export const dataSources: DataSource[] = [
   {
     id: "slack",
     name: "Slack",
-    description: "Channel messages and workspace search",
+    description:
+      "Channel history and workspace search. Prefer a Slack workspace integration from Settings > Connections; a local bot token remains available as a legacy fallback.",
     category: "communication",
     icon: IconMessage,
     envKeys: ["SLACK_BOT_TOKEN"],
     docsUrl: "https://api.slack.com/methods",
     walkthroughSteps: [
       {
-        title: "Create a Slack App",
+        title: "Create a Slack App for local fallback access",
         description:
           "Go to api.slack.com/apps, create a new app, and add OAuth scopes: channels:read, channels:history, search:read.",
         url: "https://api.slack.com/apps",
@@ -739,10 +768,10 @@ export const dataSources: DataSource[] = [
           'Under "OAuth & Permissions", install the app and copy the Bot User OAuth Token.',
       },
       {
-        title: "Enter your Bot Token",
+        title: "Enter your local fallback Bot Token",
         description: 'Paste the Bot User OAuth Token (starts with "xoxb-").',
         inputKey: "SLACK_BOT_TOKEN",
-        inputLabel: "Bot Token",
+        inputLabel: "Bot Token (legacy local fallback)",
         inputPlaceholder: "xoxb-...",
         inputType: "password",
       },

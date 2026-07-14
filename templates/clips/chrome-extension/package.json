@@ -7,7 +7,8 @@
     "dev": "vite build --watch",
     "dev:hot": "tsx scripts/dev.ts",
     "build": "vite build",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
     "package": "pnpm build && tsx scripts/package.ts"
   },
   "dependencies": {
@@ -15,9 +16,9 @@
   },
   "devDependencies": {
     "@types/chrome": "^0.2.0",
-    "@typescript/native-preview": "catalog:",
     "tsx": "catalog:",
-    "typescript": "catalog:",
-    "vite": "catalog:"
+    "typescript-7": "catalog:",
+    "vite": "catalog:",
+    "vitest": "catalog:"
   }
 }

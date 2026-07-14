@@ -29,11 +29,13 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { useFormatters, useT } from "../i18n.js";
+import { useChangeVersion } from "../use-change-version.js";
 import { usePausingInterval } from "../use-pausing-interval.js";
 import { cn } from "../utils.js";
 
 type AgentRunDto = AgentRun;
 type RunsTrayTriggerVariant = "icon" | "pill";
+const RUN_CHANGE_SETTLE_MS = 250;
 
 interface RunsTrayProps {
   /** Poll interval in ms. 0 disables. Default 3000. */
@@ -77,6 +79,7 @@ function useRunsTrayState({
   const t = useT();
   const [runs, setRuns] = useState<AgentRunDto[]>([]);
   const includeRecent = showRecent ?? !hideWhenIdle;
+  const runsVersion = useChangeVersion("runs");
 
   const refresh = useCallback(async () => {
     try {
@@ -94,8 +97,17 @@ function useRunsTrayState({
   }, [includeRecent, limit]);
 
   useEffect(() => {
-    refresh();
+    void refresh();
   }, [refresh]);
+
+  useEffect(() => {
+    if (runsVersion <= 0) return;
+    const timeout = window.setTimeout(
+      () => void refresh(),
+      RUN_CHANGE_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [refresh, runsVersion]);
 
   usePausingInterval(refresh, pollMs);
 
@@ -249,7 +261,11 @@ export function RunsTray({
               >
                 <TriggerIcon
                   size={triggerVariant === "pill" ? 14 : 18}
-                  className={cn(triggerTone, activeCount > 0 && "animate-spin")}
+                  className={cn(
+                    triggerTone,
+                    activeCount > 0 &&
+                      "animate-spin motion-reduce:animate-none",
+                  )}
                   aria-hidden
                 />
                 {triggerVariant === "pill" ? (
@@ -559,14 +575,17 @@ function RunRow({
           {run.percent != null ? (
             <div
               className={cn(
-                "h-full transition-all",
+                "h-full origin-left transition-transform duration-200 ease-[var(--ease-collapse)]",
                 run.status === "failed"
                   ? "bg-destructive"
                   : run.status === "cancelled"
                     ? "bg-muted-foreground/50"
                     : "bg-primary",
               )}
-              style={{ width: `${run.percent}%` }}
+              style={{
+                transform: `scaleX(${run.percent / 100})`,
+                width: "100%",
+              }}
             />
           ) : (
             <div className="h-full w-1/3 animate-pulse bg-primary/60" />

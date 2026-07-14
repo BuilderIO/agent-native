@@ -307,6 +307,25 @@ interface DefineActionWithSchema<
   schema: TSchema;
   /** Legacy parameters — ignored when `schema` is provided. */
   parameters?: never;
+  /**
+   * Optional alternate Standard Schema (Zod, Valibot, ArkType) used ONLY to
+   * build the tool definition advertised to the model — the JSON Schema that
+   * lands in the Claude `tools` array (and MCP/A2A tool listings, which read
+   * the same `tool.parameters`). Runtime validation always runs against
+   * `schema` above via the normal `wrapWithValidation` path; setting this
+   * never weakens validation and never changes `run()`'s argument type.
+   *
+   * Use this when the full input schema is much richer than what the model
+   * needs to see up front — the canonical example is a deep discriminated
+   * union of block/shape types where a per-call catalog lookup tool (e.g.
+   * `get-plan-blocks`) already teaches the full field shapes. Advertise a
+   * compact version (e.g. an enum of valid `type` values plus a note to call
+   * the lookup tool) instead of embedding every variant's fields in every
+   * request. Invalid calls still get the full, actionable validation error
+   * (missing/invalid fields, received args) from `schema` — this only trims
+   * what is proactively shown, not what is accepted or checked.
+   */
+  agentInputSchema?: StandardSchemaV1;
   /** Optional Standard Schema-compatible schema (Zod, Valibot, ArkType) the
    *  action's RETURN value is validated against AFTER `run()` resolves. Borrowed
    *  from Mastra/Flue structured-output. When omitted, behavior is byte-for-byte
@@ -345,6 +364,10 @@ interface DefineActionWithSchema<
    *  Only set this manually when you need to override the inference — e.g. a
    *  POST action that only reads data but can't use GET for a protocol reason. */
   readOnly?: boolean;
+  /** Set false for read-only tools that should stay available in Act mode but
+   *  must not run during Plan mode because they perform substantive work
+   *  rather than lightweight inspection. Defaults to allowed when read-only. */
+  allowInPlanMode?: boolean;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn.
    *  Only set this for mutating actions that are internally concurrency-safe
@@ -433,6 +456,10 @@ interface DefineActionWithParams<
   parameters?: TParams;
   /** Standard Schema — not used in this overload. */
   schema?: never;
+  /** Advertised-only schema override — not used in this overload (no runtime
+   *  schema to advertise a compact alternative for). See the schema overload
+   *  above. */
+  agentInputSchema?: never;
   /** Optional Standard Schema-compatible schema the action's RETURN value is
    *  validated against AFTER `run()` resolves. See the schema overload above.
    *  When omitted, behavior is byte-for-byte unchanged. */
@@ -460,6 +487,9 @@ interface DefineActionWithParams<
   /** If true, the framework will NOT emit a screen-refresh change event after a
    *  successful call. Auto-inferred as `true` when `http.method === "GET"`. */
   readOnly?: boolean;
+  /** Set false for read-only tools that should stay available in Act mode but
+   *  must not run during Plan mode. See the schema overload above. */
+  allowInPlanMode?: boolean;
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
@@ -525,6 +555,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
+  readonly allowInPlanMode?: boolean;
   readonly parallelSafe?: boolean;
   readonly toolCallable?: boolean;
   readonly publicAgent?: PublicAgentActionConfig;
@@ -622,6 +653,25 @@ export function defineAction(options: any) {
       type: "object" as const,
       properties: options.parameters,
     };
+  }
+
+  // `agentInputSchema` swaps in a compact JSON Schema for the ADVERTISED tool
+  // definition only (what the model/MCP/A2A tool listings see). It never
+  // touches validation below — `wrapWithValidation` is always called with
+  // `options.schema`, the full schema, as the source of truth for what's
+  // accepted. Passing the same (compact) `toolParameters` into it only
+  // affects the top-level "Expected: { ... }" hint text and gateway string
+  // coercion, both of which only look at top-level property names/types —
+  // unaffected by trimming a nested union, so this stays safe either way.
+  if (
+    hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+  ) {
+    toolParameters = schemaToJsonSchema(
+      options.agentInputSchema,
+      options.description,
+    );
   }
 
   // Wrap run() with INPUT validation when schema is provided.
@@ -752,6 +802,9 @@ export function defineAction(options: any) {
       : {}),
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
+    ...(typeof options.allowInPlanMode === "boolean"
+      ? { allowInPlanMode: options.allowInPlanMode }
+      : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
@@ -821,6 +874,80 @@ function wrapRunWithAudit(
 // Schema → JSON Schema conversion
 // ---------------------------------------------------------------------------
 
+// Keywords whose value is a single subschema.
+const SUBSCHEMA_VALUE_KEYS = [
+  "items",
+  "additionalItems",
+  "contains",
+  "additionalProperties",
+  "not",
+  "if",
+  "then",
+  "else",
+] as const;
+// Keywords whose value is an array of subschemas.
+const SUBSCHEMA_ARRAY_KEYS = [
+  "allOf",
+  "anyOf",
+  "oneOf",
+  "prefixItems",
+] as const;
+// Keywords whose value is a map of name → subschema.
+const SUBSCHEMA_MAP_KEYS = [
+  "properties",
+  "patternProperties",
+  "$defs",
+  "definitions",
+  "dependentSchemas",
+] as const;
+
+/**
+ * Remove JSON Schema keywords that some providers' function-calling schema
+ * validators reject. OpenAI (and Gemini via the Builder gateway) reject
+ * `propertyNames` — which Zod v4 emits for `z.record(z.string(), …)` — with a
+ * `400 invalid_function_parameters` error, causing the model turn to produce no
+ * content (surfacing as an empty assistant response). Anthropic ignores the
+ * keyword, so stripping it is safe across providers and keeps action schemas
+ * portable. `propertyNames` only constrained object *keys*; the value/shape of
+ * the object is unaffected by its removal.
+ *
+ * Only descends through actual subschema positions (properties, items, union
+ * branches, definitions, etc.) — never through value-bearing keywords like
+ * `default`, `const`, `enum`, or `examples`, whose objects may legitimately
+ * contain a `propertyNames` data key that must be preserved.
+ */
+function stripUnsupportedSchemaKeywords<T>(node: T): T {
+  if (!node || typeof node !== "object" || Array.isArray(node)) return node;
+  const obj = node as Record<string, unknown>;
+
+  delete obj.propertyNames;
+
+  for (const key of SUBSCHEMA_VALUE_KEYS) {
+    // `items`/`additionalItems` may also be an array of subschemas.
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    } else {
+      stripUnsupportedSchemaKeywords(value);
+    }
+  }
+  for (const key of SUBSCHEMA_ARRAY_KEYS) {
+    const value = obj[key];
+    if (Array.isArray(value)) {
+      for (const sub of value) stripUnsupportedSchemaKeywords(sub);
+    }
+  }
+  for (const key of SUBSCHEMA_MAP_KEYS) {
+    const value = obj[key];
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      for (const sub of Object.values(value)) {
+        stripUnsupportedSchemaKeywords(sub);
+      }
+    }
+  }
+  return node;
+}
+
 /**
  * Convert a Standard Schema to JSON Schema for the Claude API.
  * Tries vendor-specific toJSONSchema first (Zod v4), then falls back
@@ -844,7 +971,7 @@ function schemaToJsonSchema(
       if (result && typeof result === "object") {
         delete result.$schema;
       }
-      return result as ActionTool["parameters"];
+      return stripUnsupportedSchemaKeywords(result) as ActionTool["parameters"];
     } catch {
       // Fall through to manual converter
     }
@@ -852,7 +979,7 @@ function schemaToJsonSchema(
 
   // Fallback: manual conversion from Zod v4 internal defs
   if (s._zod?.def) {
-    return zodDefToJsonSchema(s._zod.def);
+    return stripUnsupportedSchemaKeywords(zodDefToJsonSchema(s._zod.def));
   }
 
   // Last resort: empty object schema

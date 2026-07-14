@@ -1,8 +1,8 @@
 import { useLocale, useT } from "@agent-native/core/client";
-import { IconCode } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 
+import { BuildFromScratchCta } from "../components/BuildFromScratchCta";
 import CodeBlock from "../components/CodeBlock";
 import { sitePathForLocale } from "../components/docs-locale";
 import Seascape from "../components/Seascape";
@@ -72,6 +72,7 @@ const homepageTemplateSlugs = [
   "content",
   "slides",
   "analytics",
+  "chat",
 ];
 
 const homepageTemplates = homepageTemplateSlugs.flatMap((slug) =>
@@ -398,7 +399,11 @@ function FeatureWordCloud({ className = "" }: { className?: string }) {
   );
 }
 
-function BatteriesIncludedCloud() {
+function BatteriesIncludedCloud({
+  localizedPath,
+}: {
+  localizedPath: (path: string) => string;
+}) {
   const t = useT();
   return (
     <section className="batteries-cloud-section relative overflow-hidden border-t border-[var(--docs-border)] bg-white px-6 py-24 text-neutral-950 dark:bg-black dark:text-white sm:py-28 lg:flex lg:min-h-[680px] lg:items-center lg:py-36">
@@ -414,6 +419,32 @@ function BatteriesIncludedCloud() {
           <p className="mx-auto mb-5 max-w-[350px] text-base leading-relaxed text-neutral-600 dark:text-white/58 lg:mx-0">
             {t("home.batteries.body")}
           </p>
+          <Link
+            data-an-prefetch="render"
+            to={localizedPath("/docs/agent-native-toolkit")}
+            className="inline-flex items-center gap-2 rounded-full border border-neutral-300 px-6 py-3 text-sm font-medium text-neutral-950 no-underline transition hover:border-neutral-500 dark:border-white/20 dark:text-white dark:hover:border-white/40"
+            onClick={() =>
+              trackEvent("click cta", {
+                label: "browse_toolkits",
+                location: "batteries_section",
+              })
+            }
+          >
+            {t("home.batteries.browseToolkits")}
+            <svg
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="5" y1="12" x2="19" y2="12" />
+              <polyline points="12 5 19 12 12 19" />
+            </svg>
+          </Link>
         </div>
 
         <FeatureWordCloud className="relative -mx-6 mt-12 h-[480px] sm:h-[560px] lg:hidden" />
@@ -435,46 +466,148 @@ function ActionSurfaceSection({
     <section className="border-t border-[var(--docs-border)] bg-black px-6 py-20 text-white md:py-24">
       <div className="mx-auto grid max-w-[1200px] gap-10 lg:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)] lg:items-center">
         <div className="min-w-0">
-          <h2 className="m-0 max-w-xl text-4xl font-semibold leading-tight tracking-tight md:text-5xl">
+          <h2 className="m-0 max-w-xl text-3xl font-bold leading-tight tracking-tight md:text-4xl">
             {t("home.actionSurface.title")}
           </h2>
-          <p className="mt-6 max-w-xl text-base leading-relaxed text-white/62 md:text-lg">
+          <p className="mt-4 max-w-xl text-base leading-relaxed text-white/58">
             {t("home.actionSurface.body")}
           </p>
           <div className="mt-7 flex flex-col gap-3 sm:flex-row">
             <Link
               data-an-prefetch="render"
-              to={localizedPath("/docs/actions")}
+              to={localizedPath("/docs/getting-started")}
               className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full bg-white px-6 py-3 text-sm font-medium text-black no-underline transition hover:opacity-[0.85] hover:no-underline"
               onClick={() =>
                 trackEvent("click cta", {
-                  label: "see_actions",
+                  label: "build_action",
                   location: "action_surface_section",
                 })
               }
             >
-              {t("home.actionSurface.seeActions")}
-              <IconCode size={16} stroke={1.8} aria-hidden />
-            </Link>
-            <Link
-              data-an-prefetch="render"
-              to={localizedPath("/docs/what-is-agent-native")}
-              className="inline-flex min-w-0 items-center justify-center gap-2 rounded-full border border-white/16 px-6 py-3 text-sm font-medium text-white no-underline transition hover:border-white/40 hover:no-underline"
-              onClick={() =>
-                trackEvent("click cta", {
-                  label: "framework_guide",
-                  location: "action_surface_section",
-                })
-              }
-            >
-              {t("home.actionSurface.frameworkGuide")}
-              <span aria-hidden>→</span>
+              {t("home.actionSurface.buildAction")}
             </Link>
           </div>
         </div>
 
         <div className="min-w-0">
           <CodeBlock code={frameworkCode} lang="typescript" />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ComparisonSection() {
+  const t = useT();
+
+  return (
+    <section className="border-t border-[var(--docs-border)] px-6 py-20">
+      <div className="mx-auto max-w-[1200px]">
+        <div className="mb-12 text-center">
+          <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
+            {t("home.comparison.titleLine1")}
+          </h2>
+          <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+            <span className="font-semibold text-[var(--docs-accent)]">
+              {t("home.comparison.titleAccent")}
+            </span>
+          </p>
+        </div>
+
+        <div className="approaches-table-outer">
+          <div className="approaches-table-wrapper">
+            <div className="approaches-table-scroll">
+              <table className="approaches-table">
+                <thead>
+                  <tr className="border-b border-[var(--docs-border)] bg-[var(--bg-secondary)]">
+                    <th className="approaches-th approaches-col-dim"></th>
+                    <th className="approaches-th approaches-col-muted">
+                      {t("home.comparison.columns.saas")}
+                    </th>
+                    <th className="approaches-th approaches-col-muted">
+                      {t("home.comparison.columns.agents")}
+                    </th>
+                    <th className="approaches-th approaches-col-muted">
+                      {t("home.comparison.columns.internal")}
+                    </th>
+                    <th className="approaches-th">
+                      {t("home.comparison.columns.native")}
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr className="border-b border-[var(--docs-border)]">
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.ui")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.polishedButRigid")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.none")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.mixedQuality")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.fullUi")}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-[var(--docs-border)]">
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.ai")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.boltedOn")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.powerful")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.shallowlyConnected")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.agentFirst")}
+                    </td>
+                  </tr>
+                  <tr className="border-b border-[var(--docs-border)]">
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.customization")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.cant")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.instructionsAndSkills")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.fullHighMaintenance")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.agentModifies")}
+                    </td>
+                  </tr>
+                  <tr>
+                    <td className="approaches-td approaches-td--dim">
+                      {t("home.comparison.rows.ownership")}
+                    </td>
+                    <td className="approaches-td approaches-td--bad">
+                      {t("home.comparison.cells.rented")}
+                    </td>
+                    <td className="approaches-td approaches-td--warn">
+                      {t("home.comparison.cells.somewhatYours")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.youOwnCode")}
+                    </td>
+                    <td className="approaches-td approaches-td--good">
+                      {t("home.comparison.cells.youOwnCode")}
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
         </div>
       </div>
     </section>
@@ -497,20 +630,25 @@ function AppsSection({
         <h2 className="mb-3 text-3xl font-bold tracking-tight md:text-4xl">
           {t("home.templates.title")}
         </h2>
-        <p className="mb-3 text-sm font-semibold text-[var(--docs-accent)]">
-          {t("home.templates.eyebrow")}
+        <p className="mx-auto max-w-2xl text-base leading-relaxed text-[var(--fg-secondary)]">
+          {t("templatesPage.eyebrow")}
+          <span className="font-semibold text-[var(--docs-accent)]">
+            {" "}
+            {t("templatesPage.body")}
+          </span>
         </p>
       </div>
 
-      <div className="templates-side-scroll -mx-6 flex snap-x gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10 [scroll-padding-left:2.5rem]">
+      <div className="templates-side-scroll -mx-6 flex gap-5 overflow-x-auto overflow-y-hidden px-8 pb-3 pl-10">
         {homepageTemplates.map((template) => (
           <div
             key={template.name}
-            className="template-rail-card w-[320px] shrink-0 snap-start scroll-ml-10 sm:w-[360px]"
+            className="template-rail-card w-[320px] shrink-0 sm:w-[360px]"
           >
             <TemplateCard template={template} />
           </div>
         ))}
+        <BuildFromScratchCta location="homepage_rail" />
       </div>
 
       <div className="mt-10 text-center">
@@ -608,11 +746,11 @@ export default defineAction({
             <div className="flex flex-wrap items-center justify-center gap-4">
               <Link
                 data-an-prefetch="render"
-                to={localizedPath("/docs/getting-started")}
+                to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_building",
+                    label: "try_app",
                     location: "hero",
                   })
                 }
@@ -634,11 +772,11 @@ export default defineAction({
               </Link>
               <Link
                 data-an-prefetch="render"
-                to={localizedPath("/apps")}
+                to={localizedPath("/docs")}
                 className="inline-flex items-center gap-2 rounded-full border border-[var(--docs-border)] px-6 py-3 text-sm font-medium text-[var(--fg)] no-underline transition hover:border-[var(--fg-secondary)] hover:no-underline"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "browse_apps",
+                    label: "read_the_docs",
                     location: "hero",
                   })
                 }
@@ -651,6 +789,8 @@ export default defineAction({
           </div>
         </section>
 
+        <ComparisonSection />
+
         <AppsSection localizedPath={localizedPath} />
 
         <ActionSurfaceSection
@@ -658,7 +798,7 @@ export default defineAction({
           localizedPath={localizedPath}
         />
 
-        <BatteriesIncludedCloud />
+        <BatteriesIncludedCloud localizedPath={localizedPath} />
 
         <div className="mx-auto max-w-[1200px] px-6">
           {/* Bottom CTA */}
@@ -672,11 +812,11 @@ export default defineAction({
             <div className="flex flex-col items-center justify-center gap-4 sm:flex-row">
               <Link
                 data-an-prefetch="render"
-                to={localizedPath("/docs/getting-started")}
+                to={localizedPath("/apps")}
                 className="primary-button"
                 onClick={() =>
                   trackEvent("click cta", {
-                    label: "start_with_action",
+                    label: "try_app",
                     location: "footer",
                   })
                 }

@@ -45,7 +45,7 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
               onClick={() => fire(emoji)}
               disabled={disabled}
               className={cn(
-                "flex h-8 w-8 items-center justify-center rounded-full text-lg sm:h-9 sm:w-9 sm:text-xl",
+                "flex h-7 w-7 items-center justify-center rounded-full text-base sm:h-9 sm:w-9 sm:text-xl",
                 disabled && "opacity-50 cursor-not-allowed",
               )}
             >
@@ -61,11 +61,8 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
         {floats.map((f) => (
           <span
             key={f.id}
-            className="absolute bottom-1 text-2xl"
-            style={{
-              left: f.left + "%",
-              animation: "float-up 2.5s ease-out forwards",
-            }}
+            className="floating-reaction absolute bottom-1 text-2xl"
+            style={{ left: f.left + "%" }}
           >
             {f.emoji}
           </span>
@@ -73,9 +70,24 @@ export function ReactionsTray({ onReact, disabled }: ReactionsTrayProps) {
       </div>
 
       <style>{`
+        .floating-reaction {
+          animation: float-up 2.5s ease-out forwards;
+        }
+
         @keyframes float-up {
           0% { transform: translateY(0); opacity: 1; }
           100% { transform: translateY(-200px); opacity: 0; }
+        }
+
+        @keyframes float-fade {
+          0% { opacity: 1; }
+          100% { opacity: 0; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .floating-reaction {
+            animation: float-fade 600ms ease-out forwards;
+          }
         }
       `}</style>
     </div>

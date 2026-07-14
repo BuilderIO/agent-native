@@ -8,6 +8,11 @@ import type {
   BuilderTextData,
 } from "./builder-docs-blocks";
 import {
+  builderSourceComponentMappingFor,
+  type BuilderSourceComponentMapping,
+  unknownBuilderSourceComponentMappingFor,
+} from "./builder-source-component-registry";
+import {
   parseRegistryBlockData,
   serializeRegistryBlockToMdx,
 } from "./nfm-registry";
@@ -386,6 +391,12 @@ function childBlocks(block: unknown): unknown[] {
   return Array.isArray(block.children) ? block.children : [];
 }
 
+function shouldReadThroughBuilderChildren(componentName: string | null) {
+  return (
+    builderSourceComponentMappingFor(componentName).mappingStatus === "unknown"
+  );
+}
+
 function isReadableUnsupportedBuilderPlaceholder(value: string) {
   const trimmed = value.trim();
   return (
@@ -504,7 +515,7 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
       continue;
     }
     const children = childBlocks(block);
-    if (children.length && children.some(builderBlockHasReadableOutput)) {
+    if (shouldReadThroughBuilderChildren(name) && children.length) {
       fingerprint.push(...(await expectedReadableLayoutFingerprint(children)));
       continue;
     }
@@ -786,6 +797,7 @@ function pluralize(count: number, singular: string) {
 
 function builderSourceComponentPreview(
   block: unknown,
+  mapping: BuilderSourceComponentMapping,
 ): Pick<
   SourceComponentData,
   "previewKind" | "previewUrl" | "previewItems" | "preview" | "summary"
@@ -830,7 +842,7 @@ function builderSourceComponentPreview(
       summary,
     };
   }
-  if (name === "Table" || name?.toLowerCase().includes("table")) {
+  if (mapping.id === "builder-table-preserved") {
     const shape = tableShapeFromOptions(options);
     const items = shape
       ? [pluralize(shape.rows, "row"), pluralize(shape.columns, "column")]
@@ -883,12 +895,14 @@ function builderSourceComponentPreview(
     };
   }
   const summary = blockSummary(block);
+  const previewStatus =
+    mapping.mappingStatus === "unknown" ? "warning" : "available";
   return {
     previewKind: "component",
     preview: {
-      status: name ? "available" : "unavailable",
+      status: name ? previewStatus : "unavailable",
       kind: "component",
-      label: name ? `Builder ${name}` : "Builder component",
+      label: mapping.label,
       summary,
     },
     summary,
@@ -913,6 +927,16 @@ function rawRefData(args: {
     rawHash: stableHash(args.block),
     componentName: args.componentName,
   };
+}
+
+function escapeBuilderMdxText(value: string) {
+  return value.replace(/(^|[^\\])([<{}])/g, (_match, prefix, character) => {
+    return `${prefix}\\${character}`;
+  });
+}
+
+function unescapeBuilderMdxText(value: string) {
+  return value.replace(/\\([<{}])/g, "$1");
 }
 
 interface BlocksToMdxContext {
@@ -974,7 +998,9 @@ async function builderBlockToMdx(
   if (name === "Text") {
     const data: BuilderTextData = {
       ...raw,
-      body: htmlToMarkdown(String(options.text ?? "")).trim(),
+      body: escapeBuilderMdxText(
+        htmlToMarkdown(String(options.text ?? "")).trim(),
+      ),
     };
     return serializeRegistryBlockToMdx("builder-text", {
       id,
@@ -1075,6 +1101,23 @@ async function builderBlockToMdx(
     });
   }
 
+  const mapping = builderSourceComponentMappingFor(name);
+  if (mapping.mappingStatus === "preserved") {
+    const data: BuilderRawBlockData = {
+      ...raw,
+      summary: blockSummary(block),
+    };
+    if (childBlocks(block).length) {
+      ctx.warnings.push(
+        `${mapping.label} has child blocks that are preserved only in the raw sidecar.`,
+      );
+    }
+    return serializeRegistryBlockToMdx("builder-raw-block", {
+      id,
+      data,
+    });
+  }
+
   const children = childBlocks(block);
   if (children.length) {
     const childBody = await builderBlocksToMdxBody(children, ctx);
@@ -1104,6 +1147,7 @@ async function builderBlockToReadableMdx(
 ) {
   const name = componentName(block);
   const options = componentOptions(block);
+  const mapping = builderSourceComponentMappingFor(name);
 
   if (name === "Text") {
     return htmlToMarkdown(String(options.text ?? "")).trim();
@@ -1140,14 +1184,19 @@ async function builderBlockToReadableMdx(
   }
 
   const children = childBlocks(block);
-  if (children.length) {
+  if (shouldReadThroughBuilderChildren(name) && children.length) {
     const childBody = await builderBlocksToReadableMdxBody(children, ctx);
     if (childBody) return childBody;
   }
 
+  const markerMapping =
+    mapping.readableMode === "editable-markdown"
+      ? unknownBuilderSourceComponentMappingFor(name)
+      : mapping;
+
   if (name) {
     ctx.warnings.push(
-      `${name} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
+      `${markerMapping.label} is preserved in the Builder raw sidecar and shown as a read-only source component.`,
     );
   }
   const data: SourceComponentData = {
@@ -1156,9 +1205,20 @@ async function builderBlockToReadableMdx(
     rawRef,
     rawHash: stableHash(block),
     sourceLabel: "Builder body",
-    previewStatus: name ? "available" : "unavailable",
-    title: name ? `Builder ${name}` : "Builder component",
-    ...builderSourceComponentPreview(block),
+    mappingId: markerMapping.id,
+    mappingStatus: markerMapping.mappingStatus,
+    mappingReason: markerMapping.reason,
+    sourceEditState: markerMapping.sourceEditState,
+    previewStatus:
+      markerMapping.mappingStatus === "unknown"
+        ? name
+          ? "warning"
+          : "unavailable"
+        : name
+          ? "available"
+          : "unavailable",
+    title: markerMapping.label,
+    ...builderSourceComponentPreview(block, markerMapping),
   };
   const id = sourceComponentMarkerIdForBlock(block);
   return serializeRegistryBlockToMdx("source-component", { id, data });
@@ -1262,7 +1322,9 @@ function collectReadableEditableSegments(
       }
       continue;
     }
-    collectReadableEditableSegments(childBlocks(block), segments);
+    if (shouldReadThroughBuilderChildren(name)) {
+      collectReadableEditableSegments(childBlocks(block), segments);
+    }
   }
   return segments;
 }
@@ -1289,7 +1351,9 @@ function builderBlockHasReadableOutput(block: unknown): boolean {
     });
   }
   const children = childBlocks(block);
-  return children.length ? children.some(builderBlockHasReadableOutput) : true;
+  return shouldReadThroughBuilderChildren(name) && children.length
+    ? children.some(builderBlockHasReadableOutput)
+    : true;
 }
 
 function countExpectedReadableSourceComponentMarkers(
@@ -1318,7 +1382,11 @@ function countExpectedReadableSourceComponentMarkers(
       continue;
     }
     const children = childBlocks(block);
-    if (children.length && children.some(builderBlockHasReadableOutput)) {
+    if (
+      shouldReadThroughBuilderChildren(name) &&
+      children.length &&
+      children.some(builderBlockHasReadableOutput)
+    ) {
       count += countExpectedReadableSourceComponentMarkers(children);
       continue;
     }
@@ -1775,14 +1843,15 @@ function applyTextData(
   const block = rawBlockForData(data, sidecars);
   const rawOptions = componentOptions(block);
   const originalBody = htmlToMarkdown(String(rawOptions.text ?? ""));
+  const body = unescapeBuilderMdxText(data.body);
   if (
-    normalizeMarkdownForCompare(data.body) ===
+    normalizeMarkdownForCompare(body) ===
     normalizeMarkdownForCompare(originalBody)
   ) {
     return block;
   }
   const options = ensureComponentOptions(block, data.componentName ?? "Text");
-  options.text = markdownToBuilderTextHtml(data.body);
+  options.text = markdownToBuilderTextHtml(body);
   return block;
 }
 

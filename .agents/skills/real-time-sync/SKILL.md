@@ -30,7 +30,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
    useDbSync({ queryClient });
    ```
 
-   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries for ordinary domain events — that caused a request storm in production. The exception is `source: "action"`: a successful mutating action is the framework-wide "agent changed app data" signal, so `useDbSync` also refreshes active React Query observers as a compatibility safety net for custom apps that have not yet moved every read to `useActionQuery` or source-versioned query keys.
+   For each non-own event, `useDbSync` bumps a per-source counter (e.g. `dashboards`, `analyses`, `settings`, `action`) and invalidates a small fixed list of framework-internal prefixes (`["action"]`, `["app-state"]`, `["__set_url__"]`, etc.). It does **not** blanket-invalidate templates' own data queries — that caused request storms in production. A successful mutating action refreshes active `useActionQuery` observers under the `["action"]` prefix. Browser actions carry a tab id so their originating tab ignores the sync echo while other tabs refresh. Legacy apps can opt into broader compatibility with `actionInvalidatePredicate`, but first-party apps should use action-backed or source-versioned query keys. Idle fallback polling runs once per minute; active agent work temporarily uses the faster cadence.
 
 3. **Templates fold per-source counters into their query keys.** This is the pattern that makes "agent writes show up without a manual refresh" reliable:
 
@@ -50,7 +50,7 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
    For list/sidebar queries, use the same pattern — pass the counter into the queryKey of every list query you want to keep fresh.
 
-4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds (`SSE_FALLBACK_INTERVAL_MS`). If SSE is disabled or unavailable (e.g., edge/serverless deployments), polling continues at the 2 s cadence. Polling is the universal serverless fallback — it detects DB timestamp changes even when the write happened in a different process or invocation.
+4. **Fallback** polling calls `/_agent-native/poll?since=N`. It runs every 2 seconds until SSE is connected, then relaxes to 15 seconds (`SSE_FALLBACK_INTERVAL_MS`). If SSE is disabled or unavailable (e.g., edge/serverless deployments), polling continues at the 2 s cadence. Polling is the universal serverless fallback: new framework writes are read from the durable `sync_events` log, while the older DB timestamp scan remains as a slower safety net for direct SQL writes and older processes.
 
 5. When the agent writes to the database, the version increments, SSE/polling detects it, and React Query refetches the affected queries.
 
@@ -58,6 +58,21 @@ The agent modifies data in SQL, but the UI runs in the browser. SSE bridges same
 
 - Don't create manual polling loops — `useDbSync()` handles SSE plus fallback polling
 - Don't create your own fetch-based polling alongside `useDbSync` — use the `onEvent` callback for custom handling
+- Don't open your own `EventSource` to `/_agent-native/events`. A tab must hold exactly ONE SSE connection no matter how many features listen — extra streams eat the browser's per-origin connection budget and can starve ordinary data fetches (worst on HTTP/1.1 dev servers). Subscribe to the shared transport instead:
+
+  ```ts
+  import { subscribeSyncEvents } from "@agent-native/core/client";
+
+  const unsubscribe = subscribeSyncEvents({
+    onEvents: (events) => {
+      // filter by event.source and handle push-style updates
+    },
+    // Optional: relax your own fallback cadence while push is healthy.
+    onSseStateChange: (connected) => {},
+  });
+  ```
+
+  `useDbSync` and every `subscribeSyncEvents` subscriber share one `EventSource` and one fallback poll loop per tab — this is how collaborative documents receive doc updates and cursor/awareness events.
 
 ## Which sources to depend on
 
@@ -102,7 +117,7 @@ useQuery({
 | UI not updating after agent writes | Is `useDbSync` called with the correct `queryClient`? Does the affected query have an active observer?         |
 | Poll endpoint not responding       | Is `/_agent-native/poll` accessible? Is the server running?                                                    |
 | SSE not connecting                 | Is `/_agent-native/events` accessible and authenticated? Polling should still keep the UI fresh as fallback.   |
-| High CPU / event storms            | The agent is writing rapidly. Add `staleTime` to queries to debounce refetches.                                |
+| High CPU / event storms            | Use targeted source keys, settle bursty list counters, and avoid broad action invalidation.                   |
 
 ## Jitter Prevention
 

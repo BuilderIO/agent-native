@@ -36,7 +36,15 @@ method gives the UI, docs, and future agents one stable contract.
    | Agent chat context | Agent chat client helpers from `@agent-native/core/client` |
    | Ask the user a multiple-choice question from app code | `askUserQuestion` from `@agent-native/core/client` (renders inline in the agent panel; answer goes to the agent — do not build a custom modal) |
    | Live sync | `useDbSync`, `useChangeVersion`, `useChangeVersions` |
+   | Listen to the shared SSE/poll change stream | `subscribeSyncEvents` from `@agent-native/core/client` — never open a second `EventSource` to `/_agent-native/events` |
    | Extension iframe calls | `appAction`, `appFetch`, `extensionFetch` from the extension runtime |
+
+   Action fetch behavior: every `useActionQuery` / `useActionMutation` /
+   `callAction` request is bounded by a 60s timeout, and timeouts surface as
+   errors instead of retrying silently. `useActionQuery` cancels superseded
+   requests automatically via React Query's abort signal. For imperative
+   calls, `callAction(name, params, { method, signal, timeoutMs })` accepts an
+   `AbortSignal` and a `timeoutMs` override for legitimately long operations.
 
 2. If no client API exists, add the narrowest helper at the boundary.
 

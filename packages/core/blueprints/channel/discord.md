@@ -66,7 +66,7 @@ Study the existing adapters as the pattern to copy:
 
 ## Verify
 
-1. `tsgo --noEmit` for `@agent-native/core` passes.
+1. `tsc --noEmit` for `@agent-native/core` passes.
 2. `discord.spec.ts` passes (`vitest --run src/integrations/adapters/discord`).
 3. End-to-end smoke: send a signed test interaction to
    `/_agent-native/integrations/discord/webhook`; confirm a `200` returns

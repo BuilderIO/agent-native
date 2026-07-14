@@ -474,6 +474,10 @@ const messages = {
       requestAccessTitle: "Solicitar acceso a este plan",
       requestSent: "Solicitud enviada",
       retry: "Rever",
+      sendFeedback: "Enviar comentarios",
+      feedbackPlaceholder:
+        "Describe qué pasó antes de que apareciera este error del plan.",
+      openGitHubIssue: "Abrir issue en GitHub",
       retryHelp:
         "Vuelva a intentar la carga o inicie sesión con otra cuenta si se trata de un enlace de plan privado.",
       signIn: "Iniciar sesión",
@@ -495,6 +499,16 @@ const messages = {
     localPlanLoadError: {
       message: 'No se pudo leer la carpeta del plan local "{{slug}}".',
       title: "Plan local no encontrado",
+    },
+    localPlanConnection: {
+      promptTitle: "Conectarse a este plan local",
+      promptMessage:
+        "Este plan permanece en tu ordenador. Plan necesita permiso del navegador para leerlo desde el puente local.",
+      deniedTitle: "El acceso a la red local está bloqueado",
+      deniedMessage:
+        "Abre la configuración del sitio de Plan en el navegador, permite el acceso a la red local y vuelve a comprobarlo.",
+      connect: "Conectarse al plan local",
+      checkAgain: "Comprobar de nuevo",
     },
     loggedOut: {
       copied: "copiado",

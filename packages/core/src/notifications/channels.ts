@@ -1,17 +1,22 @@
 /**
  * Built-in notification channels.
  *
- * Set environment variables to auto-register the webhook channel at startup.
+ * Webhook and Slack are always registered. Delivery uses (in order):
+ *   1. per-notification `metadata.webhookUrl` / `metadata.slackWebhookUrl`
+ *   2. the matching `NOTIFICATIONS_*` env URL (workspace default)
+ * If neither is set, that channel no-ops for the emission.
+ *
  * Extra channels can be registered at any time via
  * `registerNotificationChannel()` from a server plugin.
  *
- * NOTIFICATIONS_WEBHOOK_URL  → POST notifications as JSON to this URL.
+ * NOTIFICATIONS_WEBHOOK_URL  → default POST JSON URL when metadata omits one.
  *                              Supports `${keys.NAME}` substitution — the raw
  *                              value never enters the agent context.
  * NOTIFICATIONS_WEBHOOK_AUTH → optional `Authorization` header value (also
  *                              supports `${keys.NAME}`).
  * NOTIFICATIONS_SLACK_WEBHOOK_URL
- *                            → POST notifications to a Slack incoming webhook.
+ *                            → default Slack incoming webhook when metadata
+ *                              omits `slackWebhookUrl`.
  *                              Supports `${keys.NAME}` substitution.
  * NOTIFICATIONS_EMAIL_CHANNEL=1
  *                            → enable the built-in email channel for
@@ -24,13 +29,13 @@
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
-  resolveKeyReferences,
+  resolveKeyReferencesWithRequestScopes,
   validateUrlAllowlist,
   getKeyAllowlist,
 } from "../secrets/substitution.js";
 import { sendEmail } from "../server/email.js";
 import { registerNotificationChannel } from "./registry.js";
-import type { NotificationChannel } from "./types.js";
+import type { NotificationChannel, NotificationInput } from "./types.js";
 
 let _registered = false;
 
@@ -38,30 +43,38 @@ export function registerBuiltinNotificationChannels(): void {
   if (_registered) return;
   _registered = true;
 
-  const url = process.env.NOTIFICATIONS_WEBHOOK_URL;
-  if (url) {
-    registerNotificationChannel(createWebhookChannel(url));
-  }
-
-  const slackUrl = process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL;
-  if (slackUrl) {
-    registerNotificationChannel(createSlackWebhookChannel(slackUrl));
-  }
-
-  const emailRecipients = process.env.NOTIFICATIONS_EMAIL_RECIPIENTS?.trim();
-  if (process.env.NOTIFICATIONS_EMAIL_CHANNEL === "1" || emailRecipients) {
-    registerNotificationChannel(createEmailChannel());
-  }
+  registerNotificationChannel(
+    createWebhookChannel(process.env.NOTIFICATIONS_WEBHOOK_URL),
+  );
+  registerNotificationChannel(
+    createSlackWebhookChannel(process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL),
+  );
+  // Email is always registered so per-notification `metadata.emailRecipients`
+  // work without a workspace-wide env flag (same pattern as webhook/slack).
+  registerNotificationChannel(createEmailChannel());
 }
 
-function createWebhookChannel(urlTemplate: string): NotificationChannel {
+function createWebhookChannel(
+  envUrlTemplate: string | undefined,
+): NotificationChannel {
   const authTemplate = process.env.NOTIFICATIONS_WEBHOOK_AUTH;
   return {
     name: "webhook",
     async deliver(input, meta) {
+      const overrideUrlTemplate = deliveryMetadataString(
+        input.metadata,
+        "webhookUrl",
+      );
+      const urlTemplate =
+        overrideUrlTemplate ??
+        metadataString(input.metadata, "webhookUrl") ??
+        envUrlTemplate?.trim();
+      // No-op when neither a per-notification nor workspace URL is set —
+      // mirrors email's empty-recipients behavior so notify-all stays quiet.
+      if (!urlTemplate) return false;
       const { url, headers } = await resolveWebhookRequest(
         urlTemplate,
-        authTemplate,
+        overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
         "webhook",
       );
@@ -74,7 +87,7 @@ function createWebhookChannel(urlTemplate: string): NotificationChannel {
             severity: input.severity,
             title: input.title,
             body: input.body,
-            metadata: input.metadata,
+            metadata: scrubDeliveryMetadata(input.metadata),
             owner: meta.owner,
             emittedAt: new Date().toISOString(),
           }),
@@ -92,14 +105,25 @@ function createWebhookChannel(urlTemplate: string): NotificationChannel {
   };
 }
 
-function createSlackWebhookChannel(urlTemplate: string): NotificationChannel {
+function createSlackWebhookChannel(
+  envUrlTemplate: string | undefined,
+): NotificationChannel {
   const authTemplate = process.env.NOTIFICATIONS_SLACK_WEBHOOK_AUTH;
   return {
     name: "slack",
     async deliver(input, meta) {
+      const overrideUrlTemplate = deliveryMetadataString(
+        input.metadata,
+        "slackWebhookUrl",
+      );
+      const urlTemplate =
+        overrideUrlTemplate ??
+        metadataString(input.metadata, "slackWebhookUrl") ??
+        envUrlTemplate?.trim();
+      if (!urlTemplate) return false;
       const { url, headers } = await resolveWebhookRequest(
         urlTemplate,
-        authTemplate,
+        overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
         "Slack webhook",
       );
@@ -159,23 +183,16 @@ function createEmailChannel(): NotificationChannel {
     name: "email",
     async deliver(input) {
       const recipients = notificationEmailRecipients(input.metadata);
-      if (recipients.length === 0) return;
+      if (recipients.length === 0) return false;
       const subject =
         typeof input.metadata?.emailSubject === "string" &&
         input.metadata.emailSubject.trim()
           ? input.metadata.emailSubject.trim()
           : `[${input.severity}] ${input.title}`;
-      const metadata = scrubEmailMetadata(input.metadata);
-      const metadataText = metadata
-        ? `\n\nMetadata:\n${JSON.stringify(metadata, null, 2)}`
-        : "";
-      const text = `${input.title}\n\n${input.body ?? ""}${metadataText}`;
+      const text = `${input.title}\n\n${input.body ?? ""}`;
       const html = [
         `<p><strong>${escapeHtml(input.title)}</strong></p>`,
         input.body ? `<p>${escapeHtml(input.body)}</p>` : "",
-        metadata
-          ? `<pre>${escapeHtml(JSON.stringify(metadata, null, 2))}</pre>`
-          : "",
       ].join("");
 
       await Promise.all(
@@ -198,21 +215,30 @@ async function resolveWebhookRequest(
   owner: string,
   label: string,
 ): Promise<{ url: string; headers: Record<string, string> }> {
-  // Resolve `${keys.NAME}` references against the owner's user-scope secrets.
+  // Resolve `${keys.NAME}` references through the same request-scope
+  // cascade already used by extension fetches (extensions/routes.ts) and
+  // automation connector headers (automation/index.ts): user scope first
+  // (a personal override always wins), then the active org scope — where
+  // the Dispatch vault syncs workspace secrets — then workspace scope.
+  // Org/workspace vault rows are write-gated (org-admin + Dispatch vault
+  // UI), so reading them here is safe by default; this is unrelated to the
+  // opt-in-only user→workspace fallback in resolveKeyReferences (audit 05
+  // H2 in secrets/substitution.ts), which stays off. In headless contexts
+  // (e.g. a scheduled monitor check) getRequestOrgId() may be unset, in
+  // which case the cascade checks user + solo-workspace scopes only — a
+  // strict superset of the previous user-scope-only behavior.
   // Missing keys throw — the error surfaces in logs and the channel is marked
   // un-delivered, but other channels still run.
-  const { resolved: url } = await resolveKeyReferences(
+  const { resolved: url } = await resolveKeyReferencesWithRequestScopes(
     urlTemplate,
-    "user",
     owner,
   );
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (authTemplate) {
-    const { resolved: auth } = await resolveKeyReferences(
+    const { resolved: auth } = await resolveKeyReferencesWithRequestScopes(
       authTemplate,
-      "user",
       owner,
     );
     headers.Authorization = auth;
@@ -220,6 +246,11 @@ async function resolveWebhookRequest(
 
   // If the user set an allowlist on a referenced key, enforce it here —
   // origin-level check, same rule the automations fetch-tool applies.
+  // NOTE: this still checks the allowlist at user scope only (unlike the
+  // fetch tool's validateUrl, which now consults getResolvedKeyAllowlist at
+  // the scope the key actually resolved at — see agent-chat-plugin.ts). A
+  // key that resolves at org/workspace scope with an allowlist configured
+  // on that org/workspace row will not have it enforced here.
   const keyNames = Array.from(
     new Set(
       Array.from(urlTemplate.matchAll(/\$\{keys\.([A-Za-z0-9_-]+)\}/g), (m) =>
@@ -238,6 +269,41 @@ async function resolveWebhookRequest(
     }
   });
   return { url, headers };
+}
+
+function metadataString(
+  metadata: NotificationInput["metadata"],
+  key: string,
+): string | undefined {
+  const value = metadata?.[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function deliveryMetadataString(
+  metadata: NotificationInput["metadata"],
+  key: string,
+): string | undefined {
+  const delivery = metadata?.delivery;
+  if (!delivery || typeof delivery !== "object" || Array.isArray(delivery)) {
+    return undefined;
+  }
+  const value = (delivery as Record<string, unknown>)[key];
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
+}
+
+function scrubDeliveryMetadata(
+  metadata: Record<string, unknown> | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const entries = Object.entries(metadata).filter(
+    ([key]) =>
+      key !== "delivery" && key !== "webhookUrl" && key !== "slackWebhookUrl",
+  );
+  return entries.length ? Object.fromEntries(entries) : undefined;
 }
 
 function notificationEmailRecipients(
@@ -268,16 +334,6 @@ function commaList(value: string | undefined): string[] {
         .map((item) => item.trim())
         .filter(Boolean)
     : [];
-}
-
-function scrubEmailMetadata(
-  metadata: Record<string, unknown> | undefined,
-): Record<string, unknown> | null {
-  if (!metadata) return null;
-  const entries = Object.entries(metadata).filter(
-    ([key]) => key !== "emailRecipients" && key !== "emailSubject",
-  );
-  return entries.length ? Object.fromEntries(entries) : null;
 }
 
 function slackText(

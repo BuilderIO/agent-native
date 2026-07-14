@@ -1,0 +1,124 @@
+---
+title: "Settings Kit"
+description: "A standard, searchable settings-page contract for app, agent, provider, team, and language settings."
+---
+
+# Settings Kit
+
+The Settings Kit gives every app one predictable settings surface. Users should
+not have to wonder whether model keys live in an app settings page, a giant
+agent sidebar panel, or a provider-specific setup card. The app route owns the
+page; framework tabs can be mounted inside it.
+
+Every settings page is **searchable out of the box**: `<SettingsTabsPage>`
+renders a search box that indexes tabs and their controls, so a user can type
+"language", "S3", or "API key" and jump straight to the right section across any
+tab — no hunting through the nav. This is a core value prop of the kit and comes
+free the moment an app adopts the shared page.
+
+<WireframeBlock id="doc-block-toolkit-settings">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:200px 1fr;gap:18px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:6px'><strong style='margin-bottom:4px'>Settings</strong><div class='wf-box' style='display:flex;align-items:center;gap:8px;margin-bottom:4px'><span data-icon='search'></span><span class='wf-muted'>Search settings</span></div><div style='padding:7px 9px;border-radius:8px'>General</div><div style='padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;gap:8px'><span data-icon='settings'></span> AI and models</div><div style='padding:7px 9px;border-radius:8px'>Connections</div><div style='padding:7px 9px;border-radius:8px'>Team</div><div style='padding:7px 9px;border-radius:8px'>Developer</div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><h2 style='margin:0'>AI and models</h2><div style='display:flex;flex-direction:column;gap:6px'><small class='wf-muted'>Default model</small><div class='wf-box' style='display:flex;align-items:center;gap:8px'><div style='flex:1'>GPT-5</div><span data-icon='chevronDown'></span></div></div><div style='display:flex;flex-direction:column;gap:8px'><small class='wf-muted'>Provider keys</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>OpenAI</div><span class='wf-pill'>Connected</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='lock'></span><div style='flex:1'>Anthropic</div><button>Add key</button></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Builder</div><span class='wf-pill'>Connected</span></div></div><div style='flex:1'></div><div style='display:flex;gap:10px'><button>Open agent settings</button><div style='flex:1'></div><button class='primary'>Save changes</button></div></main></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                    | Purpose                                                                               |
+| ------------------------ | ------------------------------------------------------------------------------------- |
+| `<SettingsTabsPage>`     | Standard tabbed settings route surface with a built-in settings search box.           |
+| `useAgentSettingsTabs()` | Framework-provided agent, model, key, automation, and voice tabs that apps can mount. |
+| `SettingsSearchEntry`    | A deep-link target (label, keywords, tab, and hash) that makes a control findable.    |
+| `<LanguagePicker>`       | Standard language selector for app settings.                                          |
+| `openAgentSettings()`    | Compatibility escape hatch for opening the sidebar settings tab when needed.          |
+| Hash deep links          | Stable links such as `/settings#secrets:OPENAI_API_KEY` and `/settings#connections`.  |
+
+## Page Contract {#page-contract}
+
+Every app should expose `/settings`. App-specific tabs can sit beside framework
+tabs; framework tabs should not be hidden in a second settings universe.
+
+```tsx
+import {
+  LanguagePicker,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
+} from "@agent-native/core/client";
+
+export default function SettingsRoute() {
+  const agentSettingsTabs = useAgentSettingsTabs();
+  return (
+    <SettingsTabsPage
+      extraTabs={agentSettingsTabs}
+      general={<LanguagePicker label="Interface language" />}
+    />
+  );
+}
+```
+
+## Search {#search}
+
+The search box is enabled by default. With no extra work it matches on tab
+labels, so users can already filter the nav. To make individual controls
+discoverable, register `SettingsSearchEntry` items — each result switches to the
+right tab and scrolls to the target section:
+
+```tsx
+const agentSettingsTabs = useAgentSettingsTabs(); // already ships search entries
+
+return (
+  <SettingsTabsPage
+    extraTabs={[
+      {
+        id: "alerts",
+        label: "Alerts",
+        content: <AlertRulesSettingsCard />,
+        keywords: "notifications thresholds monitors",
+        searchEntries: [
+          { id: "alert-rules", label: "Alert rules", hash: "alert-rules" },
+        ],
+      },
+      ...agentSettingsTabs,
+    ]}
+    general={<LanguagePicker label="Interface language" />}
+    // Deep-link targets that live inside the General tab.
+    generalSearchEntries={[
+      {
+        id: "language",
+        label: "Language",
+        keywords: "locale translation interface",
+        hash: "language",
+      },
+    ]}
+  />
+);
+```
+
+Give each searchable card a matching `id` (e.g. `id="language"`) so the entry's
+`hash` can scroll to it. Add `keywords` for synonyms and provider names the
+label does not contain (e.g. "S3", "R2", "bucket" for replay storage). Set
+`enableSearch={false}` only for trivial single-section pages; prefer keeping it
+on so settings stay findable everywhere.
+
+## UX Standard {#ux-standard}
+
+- Keep model keys, OAuth connections, Builder connect, language, team, and app
+  preferences in one route.
+- Keep search on and register a `SettingsSearchEntry` for every meaningful
+  control so users can find settings by name instead of scanning tabs.
+- Link to tabs by hash so setup prompts can send users to the exact missing
+  credential.
+- Use the agent sidebar settings only as a compact access point, not as the
+  primary home for every setting.
+
+## What's next
+
+- [**Internationalization**](/docs/internationalization) — localize the
+  language picker and settings copy.
+- [**Onboarding**](/docs/onboarding) — register the setup steps that settings
+  deep links jump users to.
+- [**Workspace Connections**](/docs/workspace-connections) — the shared
+  provider-connection model behind provider readiness.

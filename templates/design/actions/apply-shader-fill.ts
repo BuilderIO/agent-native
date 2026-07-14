@@ -27,12 +27,22 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { agentUpdateSelection } from "@agent-native/core/collab";
+import {
+  agentEnterDocument,
+  agentLeaveDocument,
+  agentUpdateSelection,
+} from "@agent-native/core/collab";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  prepareInlineSourceEdit,
+  SourceWorkspaceEditConflictError,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   applyVisualEdit,
   type CodeLayerSource,
@@ -141,9 +151,10 @@ interface ResolvedDesignFile {
   id: string;
   designId: string;
   filename: string;
+  fileType: string;
   content: string;
-  updatedAt: string | null;
-  expectedUpdatedAt?: string;
+  /** versionHash of `content` — the exact base the transform reads from. */
+  versionHash: string;
   codeLayerSource: CodeLayerSource;
 }
 
@@ -151,6 +162,11 @@ interface ResolvedDesignFile {
  * Resolve the target HTML design file with an access-scoped read, then assert
  * editor access. Mirrors `resolveEditableDesignFile` in apply-visual-edit.ts so
  * the shader-fill write goes through the exact same ownership gate.
+ *
+ * `prepareInlineSourceEdit` keeps the caller's working copy (the transform
+ * base) separate from the live hash it is allowed to replace (the write CAS).
+ * This preserves unsaved local edits based on the matching SQL revision while
+ * still rejecting a third, concurrently-edited live value.
  */
 async function resolveEditableDesignFile(source: {
   designId?: string;
@@ -221,26 +237,36 @@ async function resolveEditableDesignFile(source: {
       "source.revision is required when source.currentContent is provided.",
     );
   }
-  if (
-    source.currentContent !== undefined &&
-    source.revision &&
-    file.updatedAt &&
-    source.revision !== file.updatedAt
-  ) {
-    throw new ShaderFillRevisionConflictError();
+  const workspaceFile: SourceWorkspaceFile = {
+    id: file.id,
+    designId: file.designId,
+    filename: file.filename,
+    fileType: file.fileType,
+    content: file.content,
+    createdAt: null,
+    updatedAt: file.updatedAt,
+  };
+  let prepared: Awaited<ReturnType<typeof prepareInlineSourceEdit>>;
+  try {
+    prepared = await prepareInlineSourceEdit({
+      file: workspaceFile,
+      currentContent: source.currentContent,
+      revision: source.revision,
+    });
+  } catch (error) {
+    if (error instanceof SourceWorkspaceEditConflictError) {
+      throw new ShaderFillRevisionConflictError();
+    }
+    throw error;
   }
 
   return {
     id: file.id,
     designId: file.designId,
     filename: file.filename,
-    updatedAt: file.updatedAt,
-    expectedUpdatedAt:
-      source.currentContent !== undefined ? source.revision : undefined,
-    content:
-      source.currentContent !== undefined
-        ? source.currentContent
-        : (file.content ?? ""),
+    fileType: file.fileType,
+    content: prepared.content,
+    versionHash: prepared.expectedVersionHash,
     codeLayerSource: {
       kind: "design-file",
       designId: file.designId,
@@ -251,69 +277,52 @@ async function resolveEditableDesignFile(source: {
   };
 }
 
+/**
+ * Persist the patched HTML through the collab-aware seam
+ * (`writeInlineSourceFile`), conditioned on the versionHash of the SAME base
+ * the `applyVisualEdit` transform used — not a fresh re-read/re-check at
+ * persist time. `writeInlineSourceFile` re-reads the live text immediately
+ * before its own write and throws "Source file changed since it was read..."
+ * if it no longer matches; callers map that rejection to the existing
+ * `ShaderFillRevisionConflictError`-shaped response (see run()'s catch block).
+ */
 async function persistDesignFileEdit(file: {
   id: string;
   designId: string;
+  filename: string;
+  fileType: string;
   content: string;
-  expectedUpdatedAt?: string;
+  expectedVersionHash: string;
 }): Promise<string> {
-  await assertAccess("design", file.designId, "editor");
-
-  const db = getDb();
-  const now = new Date().toISOString();
-
-  if (file.expectedUpdatedAt) {
-    const [latest] = await db
-      .select({ updatedAt: schema.designFiles.updatedAt })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.id, file.id))
-      .limit(1);
-    if (!latest) {
-      throw new Error("Design HTML file not found.");
-    }
-    if (latest.updatedAt && latest.updatedAt !== file.expectedUpdatedAt) {
+  agentEnterDocument(file.id);
+  try {
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: file.fileType,
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
+    const result = await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content: file.content,
+      expectedVersionHash: file.expectedVersionHash,
+    });
+    return result.updatedAt;
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      /changed since it was read/.test(error.message)
+    ) {
       throw new ShaderFillRevisionConflictError();
     }
+    throw error;
+  } finally {
+    agentLeaveDocument(file.id);
   }
-
-  await db
-    .update(schema.designFiles)
-    .set({ content: file.content, updatedAt: now })
-    .where(
-      file.expectedUpdatedAt
-        ? and(
-            eq(schema.designFiles.id, file.id),
-            eq(schema.designFiles.updatedAt, file.expectedUpdatedAt),
-          )
-        : eq(schema.designFiles.id, file.id),
-    );
-
-  if (file.expectedUpdatedAt) {
-    const [saved] = await db
-      .select({
-        content: schema.designFiles.content,
-        updatedAt: schema.designFiles.updatedAt,
-      })
-      .from(schema.designFiles)
-      .where(eq(schema.designFiles.id, file.id))
-      .limit(1);
-    if (!saved || saved.updatedAt !== now || saved.content !== file.content) {
-      throw new ShaderFillRevisionConflictError();
-    }
-  }
-
-  // Keep SQL as the source of truth for this guarded server write. The editor
-  // already has the live shader preview applied; feeding a full HTML document
-  // back through an existing collab text snapshot can merge against stale
-  // iframe state and corrupt the saved source.
-  // guard:allow-unscoped — editor access on this design is asserted above
-  // before this helper is invoked; this only bumps the addressed design row.
-  await db
-    .update(schema.designs)
-    .set({ updatedAt: now })
-    .where(eq(schema.designs.id, file.designId));
-
-  return now;
 }
 
 // ─── Action ──────────────────────────────────────────────────────────────────
@@ -448,8 +457,10 @@ snippet (WebGL canvas / JSX component), call apply-shader.
         updatedAt = await persistDesignFileEdit({
           id: file.id,
           designId: file.designId,
+          filename: file.filename,
+          fileType: file.fileType,
           content: patch.content,
-          expectedUpdatedAt: file.expectedUpdatedAt,
+          expectedVersionHash: file.versionHash,
         });
       } catch (error) {
         if (error instanceof ShaderFillRevisionConflictError) {

@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -142,6 +143,28 @@
   padding-bottom: clamp(4rem, 12vh, 8rem);
 }
 
+.analytics-mobile-nav {
+  height: 2.75rem;
+  min-height: 2.75rem;
+  background-color: hsl(var(--background)) !important;
+}
+
+.analytics-chat-panel .agent-thread-content {
+  padding-top: 4.5rem;
+}
+
+.analytics-chat-panel
+  [data-agent-page-chat-scrolled]
+  [data-agent-page-chat-fade] {
+  opacity: 1;
+}
+
+@media (max-width: 767px) {
+  .analytics-chat-panel [data-agent-page-new-chat] {
+    display: none;
+  }
+}
+
 .analytics-chat-intro {
   display: none;
 }
@@ -163,7 +186,7 @@
   .analytics-chat-intro {
   display: grid;
   width: 100%;
-  max-width: min(760px, 90%);
+  max-width: min(684px, 90%);
   gap: 0.5rem;
   margin: 0 auto 1rem;
   text-align: center;
@@ -172,7 +195,7 @@
 .analytics-chat-intro h1 {
   margin: 0;
   color: hsl(var(--foreground));
-  font-size: clamp(1.75rem, 2.5vw, 2.75rem);
+  font-size: 2.25rem;
   font-weight: 600;
   letter-spacing: 0;
   line-height: 1.12;
@@ -195,14 +218,17 @@
   padding-inline: 1rem;
 }
 
-.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area {
+.analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-area,
+.analytics-chat-panel
+  [data-agent-empty-state="centered"]
+  .agent-plan-mode-callout {
   width: 100%;
-  max-width: min(760px, 90%);
+  max-width: min(684px, 90%);
   padding: 0;
 }
 
 .analytics-chat-panel [data-agent-empty-state="centered"] .agent-composer-root {
-  min-height: 10.5rem;
+  min-height: 7.875rem;
   border-color: hsl(var(--border));
   border-radius: 1rem;
   background: hsl(var(--card));
@@ -215,7 +241,83 @@
 }
 
 .an-replay-stage-root .replayer-wrapper {
+  position: relative;
   transform-origin: top left;
+}
+
+/* INTENTIONAL — DO NOT REMOVE OR REPLACE WITH rrweb's STOCK CURSOR.
+   The recorded visitor cursor is a core session-replay affordance: users need
+   to see the Mac-style arrow where the visitor clicked, including on dark
+   recordings. rrweb's bundled cursor is a small black sprite that disappears
+   against those pages. Use the normal black Mac cursor with its white outline;
+   the small shadow below keeps it legible on either background. */
+.an-replay-stage-root .replayer-mouse {
+  position: absolute;
+  z-index: 2;
+  /* Render at 2x locally, then downscale to the compact 0.72rem x 0.96rem
+     screen size. This keeps the small cursor's rounded outline smooth. */
+  width: 1.44rem;
+  height: 1.92rem;
+  border-radius: 0;
+  background: transparent;
+  background-image: none;
+  box-shadow: none;
+  visibility: hidden;
+  /* The stage is fit-to-container, but the recorded cursor should stay at a
+     normal on-screen size. The stage supplies the inverse scale variable. */
+  transform: scale(calc(var(--an-replay-cursor-scale, 1) * 0.5));
+  transform-origin: top left;
+  transition:
+    left 80ms linear,
+    top 80ms linear;
+  pointer-events: none;
+}
+
+.an-replay-stage-root .replayer-mouse.has-position {
+  visibility: visible;
+}
+
+.an-replay-stage-root .replayer-mouse::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("./assets/replay-cursor.svg") center / contain no-repeat;
+  filter: drop-shadow(0 1px 1px hsl(0 0% 0% / 0.4));
+}
+
+.an-replay-stage-root .replayer-mouse::after {
+  content: "";
+  position: absolute;
+  left: -0.5rem;
+  top: -0.5rem;
+  width: 1rem;
+  height: 1rem;
+  border: 2px solid hsl(217 91% 60%);
+  border-radius: 9999px;
+  background: transparent;
+  opacity: 0;
+}
+
+/* rrweb toggles `.active` on mouse interactions; pulse a click ripple. */
+.an-replay-stage-root .replayer-mouse.active::after {
+  animation: an-replay-mouse-click 0.4s ease-out 1;
+}
+
+@keyframes an-replay-mouse-click {
+  0% {
+    opacity: 0.5;
+    transform: scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(3.5);
+  }
+}
+
+.an-replay-stage-root .replayer-mouse-tail {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
 }
 
 .analytics-session-snippet .plan-code-surface {
@@ -254,23 +356,33 @@
   opacity: 0.55;
 }
 
+/* Keep the playhead visually distinct from red console-error marker dots on
+   the scrubber track — those markers used to look like a second thumb. */
 .an-replay-scrub::-webkit-slider-thumb {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
   appearance: none;
   border: 2px solid hsl(var(--background));
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  box-shadow: 0 0 0 1px hsl(var(--border));
+  background: hsl(217 91% 60%);
+  box-shadow:
+    0 0 0 1px hsl(217 91% 60% / 0.55),
+    0 1px 2px hsl(0 0% 0% / 0.35);
+  position: relative;
+  z-index: 40;
 }
 
 .an-replay-scrub::-moz-range-thumb {
-  width: 0.75rem;
-  height: 0.75rem;
+  width: 0.875rem;
+  height: 0.875rem;
   border: 2px solid hsl(var(--background));
   border-radius: 9999px;
-  background: hsl(var(--primary));
-  box-shadow: 0 0 0 1px hsl(var(--border));
+  background: hsl(217 91% 60%);
+  box-shadow:
+    0 0 0 1px hsl(217 91% 60% / 0.55),
+    0 1px 2px hsl(0 0% 0% / 0.35);
+  position: relative;
+  z-index: 40;
 }
 
 .dark
@@ -285,7 +397,7 @@
 .analytics-chat-panel
   [data-agent-empty-state="centered"]
   .agent-composer-prosemirror {
-  min-height: 6.75rem;
+  min-height: 5.0625rem;
   font-size: 1rem;
   line-height: 1.625rem;
 }
@@ -300,11 +412,18 @@
     [data-agent-empty-state="centered"]
     .analytics-chat-intro {
     width: 100%;
+    max-width: min(640px, 95%);
     margin-bottom: 0.875rem;
   }
 
   .analytics-chat-intro h1 {
-    font-size: 1.75rem;
+    font-size: 1.5rem;
+    white-space: nowrap;
+  }
+
+  .analytics-chat-intro p {
+    font-size: 0.875rem;
+    white-space: nowrap;
   }
 
   .analytics-chat-panel
@@ -316,7 +435,7 @@
   .analytics-chat-panel
     [data-agent-empty-state="centered"]
     .agent-composer-root {
-    min-height: 9rem;
+    min-height: 6.75rem;
   }
 }
 
@@ -403,6 +522,11 @@
   overflow-wrap: anywhere;
 }
 
+.analytics-sessions-filter-search {
+  flex: 1 1 100%;
+  order: 4;
+}
+
 @container agent-native-main (min-width: 720px) {
   .analytics-sessions-page {
     padding-inline: 1.5rem;
@@ -410,6 +534,15 @@
 }
 
 @container analytics-sessions (min-width: 640px) {
+  .analytics-sessions-filter-bar {
+    flex-wrap: nowrap;
+  }
+
+  .analytics-sessions-filter-search {
+    flex: 1 1 0;
+    order: initial;
+  }
+
   .analytics-session-row {
     grid-template-columns: 104px minmax(0, 0.9fr) minmax(0, 1.15fr);
     align-items: center;
@@ -441,21 +574,6 @@
   .analytics-session-badges {
     justify-content: flex-end;
   }
-
-  .analytics-sessions-filter-extra {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-}
-
-@container analytics-sessions (min-width: 920px) {
-  .analytics-sessions-filter-grid {
-    grid-template-columns: 150px minmax(260px, 1fr) 160px auto auto;
-    align-items: center;
-  }
-
-  .analytics-sessions-filter-label {
-    min-width: 0;
-  }
 }
 
 @container analytics-sessions (min-width: 960px) {
@@ -480,13 +598,19 @@
   }
 }
 
-@container analytics-session-detail (min-width: 1040px) {
+@container analytics-session-detail (min-width: 880px) {
   .analytics-session-detail-workbench {
-    grid-template-columns: minmax(0, 1fr) 330px;
+    grid-template-columns: minmax(0, 1fr) minmax(260px, 300px);
   }
 
   .analytics-session-detail-timeline {
     display: flex;
+  }
+}
+
+@container analytics-session-detail (min-width: 1200px) {
+  .analytics-session-detail-workbench {
+    grid-template-columns: minmax(0, 1fr) 330px;
   }
 }
 
@@ -496,6 +620,7 @@
 .dashboard-grid-container {
   --dashboard-drop-line: hsl(217 91% 60%);
   container: dashboard-grid / inline-size;
+  gap: 0;
 }
 
 .dashboard-grid {
@@ -526,6 +651,16 @@
 .dashboard-column-drop-slot {
   height: 1.5rem;
   margin-block: -0.75rem;
+}
+
+/* At compact widths, panels from the same dashboard row stack vertically.
+   Give the drop targets between those panels the same 1rem footprint as the
+   row drop targets so every adjacent chart has consistent spacing. */
+@container dashboard-grid (max-width: 767px) {
+  .dashboard-grid
+    > .dashboard-column-drop-slot:not(:first-child):not(:last-child) {
+    margin-block: -0.25rem;
+  }
 }
 
 .dashboard-row-drop-slot::after,

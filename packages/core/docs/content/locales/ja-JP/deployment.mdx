@@ -384,24 +384,23 @@ openssl rand -hex 32
 ## 本番エージェント ツール {#production-agent-tools}
 
 運用エージェントは、アプリの登録済み actions とフレームワーク ツールを次のサイトから取得します
-エージェント チャット プラグイン。 raw DB
-ツールのスコープは認証されたユーザー/組織に限定されますが、アプリ所有者は範囲を狭めることができます
-展開にもっと独自性を持たせる必要がある場合に浮上します:
+エージェント チャット プラグイン。SQL 検査はデフォルトで有効です。データベース書き込みは、
+アプリが明示的に raw write tools を有効にしない限り、型付きアプリ actions を通ります:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — デフォルト。 `db-schema`、`db-query`、
-  `db-exec`、および `db-patch`。書き込みの範囲は現在のユーザー/組織に限定されます。
-  スキーマの変更はブロックされます。
-- `databaseTools: "read"` — `db-schema` および `db-query` のみを登録します。エージェント
-  SQL を使用してデータを検査しますが、書き込みには型付きアプリ actions を使用する必要があります。
+- `databaseTools: "read"` — デフォルト。`db-schema` と `db-query` のみを登録します。
+  エージェントは SQL でデータを検査しますが、書き込みには型付きアプリ actions を使用します。
+- `databaseTools: "write"` または `true` — 意図的な raw SQL メンテナンス用に
+  `db-exec` と `db-patch` も登録します。書き込みは現在のユーザー/組織に
+  スコープされ、スキーマ変更はブロックされます。
 - `databaseTools: "off"` または `false` — 生のデータベース ツールを
   エージェント サーフェスのため、アプリの actions が唯一のデータ アクセス パスになります。
 - `extensionTools: false` — フレームワーク拡張管理 actions を削除し、
@@ -453,3 +452,11 @@ export default createAgentChatPlugin({
 ## マルチインスタンスの展開 {#multi-instance}
 
 エージェント ネイティブ アプリは、Drizzle 経由ですべての状態を SQL に保存し、[polling](/docs/key-concepts#polling-sync) 経由で UI をデータベースと同期します。ファイル システムの状態、スティッキー セッション、メモリ内キャッシュはありません。つまり、マルチインスタンスおよびサーバーレスのデプロイメントはすぐに機能し、すべてのインスタンスを同じ `DATABASE_URL` にポイントすると、それらは自動的に収束します。 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) および [Portability](/docs/key-concepts#hosting-agnostic) を参照してください。
+
+## 次のステップ
+
+- [**Database**](/docs/database#production) — 最初の本番デプロイ前に永続 SQL バックエンドを選択します
+- [**Security**](/docs/security) — このページで参照されている本番チェックリストとオプトイン フラグ
+- [**Authentication**](/docs/authentication) — 選択した認証モードの OAuth 資格情報と環境変数
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` の単一オリジン ビルドを支えるワークスペース モデル
+- [**Frames**](/docs/frames) — 本番 UI 編集における埋め込みエージェント パネルと Builder.io クラウド フレームの違い

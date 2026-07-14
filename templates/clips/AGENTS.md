@@ -9,6 +9,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use actions for recording metadata, transcripts, cleanup, summaries, chapters,
   comments, spaces/folders, meetings, and sharing. Do not bypass access helpers.
@@ -28,8 +32,21 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   Clips-hosted recording, and imports Loom's public transcript when the share
   page exposes one. If Loom does not expose a downloadable MP4, ask the user to
   download the original from Loom and use "Upload video".
-- Native transcript first. Cleanup and title generation can run in the
-  background; do not hide a usable native transcript behind a failed cleanup.
+- Native transcript first. Cleanup and transcript-backed title/summary
+  generation run in the durable post-finalize path; do not hide a usable native
+  transcript behind failed metadata work, and keep heuristic titles replaceable
+  until the agent refinement lands.
+- Desktop native transcripts merge microphone and system-audio streams while
+  removing overlapping duplicate speech and low-speech Whisper hallucinations;
+  keep system audio enabled when the meeting audio comes from another app.
+- Use `request-transcript --recordingId=<id> --force=true` to retry a failed
+  transcript. Pass `--regenerate=true` to replace an existing ready transcript
+  from the stored recording media; if regeneration fails, keep the prior ready
+  transcript available.
+- The transcript embedded by `view-screen` is a bounded preview. If
+  `previewTruncated` is true, it may end mid-sentence and does not show where
+  transcription ended. Call `get-recording-player-data` before judging
+  completeness or quoting the full transcript.
 - Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are
@@ -55,6 +72,9 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   sharing/status boundary.
 - Use framework sharing actions for recordings. Password and expiry are extra
   controls on top of visibility/share grants.
+- Use `list-recordings --view=shared` for the current user's "Shared with me"
+  collection. It returns recordings admitted by sharing access that are owned
+  by someone else; public-link-only clips remain out of this list.
 - Public recordings expose AI-readable URLs for external agents:
   `/api/agent-context.json?id=<recordingId>` for metadata, transcript, and frame
   API discovery; `/api/agent-transcript.json?id=<recordingId>` for transcript
@@ -82,6 +102,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   (`connect-slack`, `/api/slack/oauth/callback`) so each Slack workspace gets
   its own encrypted bot token in `app_secrets`. `SLACK_BOT_TOKEN` is only a
   legacy single-workspace fallback and must remain behind the team allowlist.
+- Atlassian/Jira is available through the shared MCP integration catalog. It
+  uses Atlassian Rovo MCP OAuth; explain that an Atlassian organization admin
+  may need to allow the Clips app domain and enable the required Read, Write,
+  and Search permissions before the connection can complete.
 - Browser recordings can include redacted browser diagnostics captured during
   the recording session. `save-browser-diagnostics` is UI/internal and stores
   bounded console logs plus fetch/XHR method, URL path/query keys, status, and
@@ -124,16 +148,24 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
 
 ## Application State
 
-- `navigation` exposes library, recording, share, meeting, dictation, settings,
-  and transcript context. `selection` exposes selected library recording ids
-  when the user is in selection mode.
+- `navigation` exposes library, shared-with-me, recording, share, meeting,
+  dictation, settings, and transcript context. `selection` exposes selected
+  library recording ids when the user is in selection mode.
+- `navigate --view=shared` opens the shared-with-me collection, and
+  `view-screen` returns its currently visible recordings.
 - `recording-setup.import` exposes Loom import UI state while the `/record`
   surface is open, without storing the pasted URL in ambient screen context.
 - `navigate` moves the UI to recording/library/meeting/share surfaces.
 - Use data actions for full transcripts and media metadata.
 - For the in-app Clips agent, prefer `get-recording-player-data` for full
-  private/authenticated recording context. Use the public agent-context URLs
-  when preparing a link for another agent outside Clips.
+  private/authenticated recording context. When preparing a link for another
+  agent outside Clips, use `create-recording-agent-link`; it mints a two-hour
+  `agent_access` share URL without changing recording visibility.
+- Use `@agent-native/core/server` and `@agent-native/core/shared` agent-access
+  helpers for scoped token mint/verify and bot-visible URL construction. Keep
+  Clips-specific visibility, password, transcript, frame, and player behavior
+  in Clips. New URLs should use `agent_access`; existing agent API routes should
+  keep accepting legacy `t` tokens for copied links.
 
 ## Skills
 

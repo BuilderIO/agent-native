@@ -55,7 +55,10 @@ export function useNavigationState() {
     }).catch(() => {});
   }, [location.pathname, location.search]);
 
-  // Listen for navigate commands from agent
+  // Listen for one-shot navigate commands from the agent. useDbSync
+  // invalidates this exact key when the shared SSE/poll transport receives an
+  // app-state:navigate event, so this stays idle between real commands instead
+  // of charging the host for a request every two seconds.
   const { data: navCommand } = useQuery({
     queryKey: ["navigate-command"],
     queryFn: async () => {
@@ -70,7 +73,7 @@ export function useNavigationState() {
       }
       return null;
     },
-    refetchInterval: 2_000,
+    retry: false,
     structuralSharing: false,
   });
 
@@ -106,7 +109,16 @@ export function useNavigationState() {
     const path = planNavigateCommandPath(cmd);
     void prewarmPlanRoutePath(path);
     if (path !== "/") markAgentChatHomeHandoff("plans");
-    navigate(path, { replace: true, flushSync: true });
+    const commitNavigation = () =>
+      navigate(path, { replace: true, flushSync: true });
+    if (
+      typeof window !== "undefined" &&
+      typeof window.queueMicrotask === "function"
+    ) {
+      window.queueMicrotask(commitNavigation);
+    } else {
+      window.setTimeout(commitNavigation, 0);
+    }
     qc.setQueryData(["navigate-command"], null);
   }, [navCommand, navigate, qc]);
 }
@@ -186,7 +198,7 @@ function pathForView(view?: string): string {
     case "settings":
       return "/settings";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     default:
       return "/";
   }

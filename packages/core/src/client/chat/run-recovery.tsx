@@ -10,7 +10,6 @@ import {
   IconX,
   IconChevronDown,
   IconExternalLink,
-  IconKey,
   IconGitFork,
   IconGauge,
   IconSettings,
@@ -318,8 +317,7 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 
   return (
     <div className="rounded-md border border-border bg-background/60 p-3">
-      <div className="mb-2 flex items-center gap-1.5 text-[11px] font-medium text-foreground">
-        <IconKey size={12} strokeWidth={1.9} />
+      <div className="mb-2 text-[11px] font-medium text-foreground">
         Use your own API key
       </div>
       <p className="mb-2.5 text-[11px] leading-relaxed text-muted-foreground">
@@ -400,6 +398,71 @@ export function ApiKeyConnect({ onConnected }: { onConnected?: () => void }) {
 
 export type BuilderSetupCardLayout = "default" | "sidebar";
 
+export function BuilderSetupContent({
+  onConnected,
+  layout = "default",
+}: {
+  onConnected?: () => void;
+  layout?: BuilderSetupCardLayout;
+}) {
+  const [keyOpen, setKeyOpen] = useState(false);
+  const sidebarLayout = layout === "sidebar";
+
+  return (
+    <div
+      className={cn(
+        "agent-builder-setup-content",
+        sidebarLayout && "agent-builder-setup-card--sidebar",
+      )}
+    >
+      <div
+        className={cn(
+          "agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between",
+          sidebarLayout ? "gap-2" : "gap-3",
+        )}
+      >
+        <div className="agent-builder-setup-card__copy min-w-0">
+          <h3 className="text-[13px] font-medium text-foreground">
+            Connect AI
+          </h3>
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            Use Builder.io (free credits), or add an Anthropic/OpenAI key.
+          </p>
+        </div>
+        <div
+          className={cn(
+            "agent-builder-setup-card__actions flex shrink-0",
+            sidebarLayout
+              ? "flex-col items-start gap-1 sm:items-center"
+              : "flex-nowrap items-center gap-2",
+          )}
+        >
+          <BuilderConnectCta variant="compact" onConnected={onConnected} />
+          <button
+            type="button"
+            onClick={() => setKeyOpen((open) => !open)}
+            className={cn(
+              "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
+              sidebarLayout
+                ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
+                : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
+            )}
+            aria-expanded={keyOpen}
+          >
+            Use API key
+          </button>
+        </div>
+      </div>
+
+      {keyOpen ? (
+        <div className="mt-3">
+          <ApiKeyConnect onConnected={onConnected} />
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 export function BuilderSetupCard({
   onConnected,
   bouncePulse,
@@ -411,9 +474,6 @@ export function BuilderSetupCard({
   fullWidth?: boolean;
   layout?: BuilderSetupCardLayout;
 }) {
-  // Progressive disclosure: the card leads with one-click Builder connect while
-  // keeping the bring-your-own-key path close by.
-  const [keyOpen, setKeyOpen] = useState(false);
   const sidebarLayout = layout === "sidebar";
 
   const cardRef = useRef<HTMLDivElement>(null);
@@ -448,50 +508,7 @@ export function BuilderSetupCard({
           sidebarLayout ? "p-2.5" : "p-3",
         )}
       >
-        <div
-          className={cn(
-            "agent-builder-setup-card__content flex flex-col sm:flex-row sm:items-center sm:justify-between",
-            sidebarLayout ? "gap-2" : "gap-3",
-          )}
-        >
-          <div className="agent-builder-setup-card__copy min-w-0">
-            <h3 className="text-[13px] font-medium text-foreground">
-              Connect AI
-            </h3>
-            <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-              Use Builder.io (free credits), or add an Anthropic/OpenAI key.
-            </p>
-          </div>
-          <div
-            className={cn(
-              "agent-builder-setup-card__actions flex shrink-0",
-              sidebarLayout
-                ? "flex-col items-start gap-1 sm:items-center"
-                : "flex-nowrap items-center gap-2",
-            )}
-          >
-            <BuilderConnectCta variant="compact" onConnected={onConnected} />
-            <button
-              type="button"
-              onClick={() => setKeyOpen((open) => !open)}
-              className={cn(
-                "agent-builder-setup-card__key-button inline-flex shrink-0 items-center whitespace-nowrap rounded-md text-[11px] font-medium",
-                sidebarLayout
-                  ? "h-7 border-0 bg-transparent px-0 text-muted-foreground hover:bg-transparent hover:text-foreground"
-                  : "h-8 border border-border bg-background px-3 text-foreground hover:bg-accent",
-              )}
-              aria-expanded={keyOpen}
-            >
-              Use API key
-            </button>
-          </div>
-        </div>
-
-        {keyOpen ? (
-          <div className="mt-3">
-            <ApiKeyConnect onConnected={onConnected} />
-          </div>
-        ) : null}
+        <BuilderSetupContent onConnected={onConnected} layout={layout} />
       </div>
     </div>
   );
@@ -920,6 +937,12 @@ export function LoopLimitContinueCard({
 }
 
 // ─── PlanModeCallout ──────────────────────────────────────────────────────────
+//
+// Renders inside the same width-constrained column as the composer (see
+// `.agent-plan-mode-callout` in agent-native.css and the fullscreen rule
+// injected by AgentPanel) so the pill hugs the composer's right edge in both
+// narrow sidebar chats and wide/centered page layouts, instead of floating
+// against the full pane width.
 
 export function PlanModeCallout({
   canImplementPlan,
@@ -931,7 +954,7 @@ export function PlanModeCallout({
   onSwitchToAct: () => void;
 }) {
   return (
-    <div className="shrink-0 px-3 pt-1">
+    <div className="agent-plan-mode-callout shrink-0 px-3">
       <div className="ml-auto flex w-fit max-w-full items-center gap-2 rounded-full border border-border/70 bg-background/95 px-2 py-1.5 text-xs text-muted-foreground shadow-sm">
         <IconClipboardList size={13} className="shrink-0" />
         <span className="min-w-0 truncate">

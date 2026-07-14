@@ -20,6 +20,7 @@ export interface NavigationState {
   dreamId?: string;
   sourceId?: string;
   query?: string;
+  operationsView?: "monitoring" | "database";
 }
 
 export function useNavigationState(extensions?: DispatchExtensionConfig) {
@@ -92,6 +93,12 @@ export function buildDispatchNavigationState(
     if (query) state.query = query;
   }
 
+  if (state.view === "operations") {
+    const params = new URLSearchParams(search);
+    state.operationsView =
+      params.get("view") === "database" ? "database" : "monitoring";
+  }
+
   return state;
 }
 
@@ -153,6 +160,7 @@ function resolveView(
   }
   if (pathname.startsWith("/chat")) return "chat";
   if (pathname.startsWith("/apps")) return "apps";
+  if (pathname.startsWith("/operations")) return "operations";
   if (pathname.startsWith("/metrics")) return "metrics";
   if (pathname.startsWith("/new-app")) return "new-app";
   if (pathname.startsWith("/vault")) return "vault";
@@ -183,6 +191,11 @@ function resolvePath(
       return "/overview";
     case "apps":
       return "/apps";
+    case "operations":
+    case "monitoring":
+    case "observability":
+    case "database":
+      return view === "database" ? "/operations?view=database" : "/operations";
     case "metrics":
     case "usage":
       return "/metrics";
@@ -216,7 +229,7 @@ function resolvePath(
     case "threads":
       return "/thread-debug";
     case "team":
-      return "/settings#team";
+      return "/settings#organization";
     case "extensions":
       return command?.extensionId
         ? `/extensions/${encodeURIComponent(command.extensionId)}`

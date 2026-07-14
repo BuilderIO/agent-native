@@ -1,11 +1,11 @@
-import path from "node:path";
-
 import type { AppConfig, FrameSettings } from "@shared/app-registry";
 import type { CodeAgentPermissionMode } from "@shared/code-agents";
 import {
   IPC,
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
+  type CodeAgentComputerSetupAction,
+  type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpRequest,
@@ -36,6 +36,11 @@ import {
   type CodeAgentProviderSettingsUpdate,
   type CodeAgentProviderSettingsUpdateResult,
   type DesktopOpenRequest,
+  type DesktopAppContextAction,
+  type DesktopAppCreationSettings,
+  type DesktopAppRuntimeStatus,
+  type DesktopCreateAppRequest,
+  type DesktopCreateAppResult,
   type DesktopShortcutActivationRequest,
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
@@ -52,6 +57,10 @@ const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
 const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
 const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+const WEBVIEW_PRELOAD_PATH =
+  process.argv
+    .find((arg) => arg.startsWith("--an-webview-preload="))
+    ?.slice("--an-webview-preload=".length) ?? "";
 
 type CodeAgentTranscriptSubscriptionBatch = CodeAgentTranscriptResult & {
   subscriptionId?: string;
@@ -69,7 +78,7 @@ const electronAPI = {
   },
 
   /** Dedicated preload for hosted app webviews. Exposes only app-safe bridges. */
-  webviewPreloadPath: path.join(__dirname, "webview.js"),
+  webviewPreloadPath: WEBVIEW_PRELOAD_PATH,
 
   /** Window chrome controls */
   windowControls: {
@@ -150,9 +159,33 @@ const electronAPI = {
       ipcRenderer.invoke(IPC.APPS_REMOVE, id),
     update: (id: string, updates: Partial<AppConfig>): Promise<AppConfig[]> =>
       ipcRenderer.invoke(IPC.APPS_UPDATE, id, updates),
+    reorder: (id: string, direction: "up" | "down"): Promise<AppConfig[]> =>
+      ipcRenderer.invoke(IPC.APPS_REORDER, id, direction),
     reset: (): Promise<AppConfig[]> => ipcRenderer.invoke(IPC.APPS_RESET),
     chooseLocalFolder: (): Promise<LocalAppFolderSelectResult> =>
       ipcRenderer.invoke(IPC.APPS_CHOOSE_LOCAL_FOLDER),
+    getCreationSettings: (): Promise<DesktopAppCreationSettings> =>
+      ipcRenderer.invoke(IPC.APPS_GET_CREATION_SETTINGS),
+    updateCreationSettings: (
+      settings: Partial<DesktopAppCreationSettings>,
+    ): Promise<DesktopAppCreationSettings> =>
+      ipcRenderer.invoke(IPC.APPS_UPDATE_CREATION_SETTINGS, settings),
+    createFromPrompt: (
+      request: DesktopCreateAppRequest,
+    ): Promise<DesktopCreateAppResult> =>
+      ipcRenderer.invoke(IPC.APPS_CREATE_FROM_PROMPT, request),
+    showContextMenu: (appId: string): Promise<DesktopAppContextAction | null> =>
+      ipcRenderer.invoke(IPC.APPS_SHOW_CONTEXT_MENU, appId),
+    onRuntimeStatus: (
+      cb: (status: DesktopAppRuntimeStatus) => void,
+    ): (() => void) => {
+      const handler = (
+        _: Electron.IpcRendererEvent,
+        status: DesktopAppRuntimeStatus,
+      ) => cb(status);
+      ipcRenderer.on(IPC.APP_STATUS, handler);
+      return () => ipcRenderer.removeListener(IPC.APP_STATUS, handler);
+    },
   },
 
   /** Tell main process which app webview is currently active (for DevTools targeting) */
@@ -265,6 +298,10 @@ const electronAPI = {
       }),
     getHostMetadata: (): Promise<CodeAgentHostMetadata> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_GET_HOST_METADATA),
+    runComputerSetupAction: (
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_COMPUTER_SETUP, action),
     listCodePacks: (cwd?: string): Promise<CodeAgentCodePackResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS, { cwd }),
     listProjects: (): Promise<CodeAgentProjectListResult> =>
@@ -280,6 +317,8 @@ const electronAPI = {
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL, request),
+    openCodexLogin: (): Promise<CodeAgentTerminalResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_CODEX_LOGIN),
     getRemoteConnectorStatus: (): Promise<CodeAgentRemoteConnectorStatus> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS),
     setRemoteConnectorEnabled: (

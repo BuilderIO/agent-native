@@ -1,5 +1,4 @@
 import { IconX } from "@tabler/icons-react";
-import { invoke } from "@tauri-apps/api/core";
 import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
@@ -84,8 +83,17 @@ export function FlowBar() {
     const BAR_COUNT = 14;
     const BAR_WIDTH = 2;
     const BAR_GAP = 3;
+    // A bar waveform reads the same well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the bar is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
+    let lastDrawMs = 0;
 
-    function draw() {
+    function draw(timestamp: number) {
+      rafRef.current = requestAnimationFrame(draw);
+      if (timestamp - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = timestamp;
+
       const canvas = canvasRef.current;
       if (!canvas) return;
       const ctx = canvas.getContext("2d");
@@ -120,8 +128,6 @@ export function FlowBar() {
         ctx.roundRect(x, y, BAR_WIDTH, h, 1);
         ctx.fill();
       }
-
-      rafRef.current = requestAnimationFrame(draw);
     }
 
     rafRef.current = requestAnimationFrame(draw);
@@ -136,12 +142,11 @@ export function FlowBar() {
 
   const handleCancel = () => {
     // Broadcast to the popover webview where voice-dictation.ts lives —
-    // it will abort any in-flight transcribe, stop recording, and hide
-    // the bar without pasting text.
+    // it will abort any in-flight transcribe, stop recording, hide the
+    // bar without pasting text, and own the delayed defensive re-hide
+    // (gated on no new session having started since) so a fast re-press
+    // right after cancel doesn't hide a brand-new session's bar (R21).
     emit("voice:cancel").catch(() => {});
-    window.setTimeout(() => {
-      invoke("hide_flow_bar").catch(() => {});
-    }, 250);
   };
 
   return (

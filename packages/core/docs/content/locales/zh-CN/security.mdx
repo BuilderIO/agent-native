@@ -386,6 +386,8 @@ A2A_SECRET=your-shared-secret-at-least-32-chars
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **未**设置，除非您的组织实际上共享工作区密钥 - 请参阅 [Cross-User Tooling Secrets](#tooling-secrets)
 - [] 在多租户部署中，**用户自带 `ANTHROPIC_API_KEY`** - 框架拒绝回退到部署级别环境变量
 
+运行 `agent-native doctor`（在脚手架生成的应用中为 `pnpm doctor`）可自动检查此清单中的架构、凭据和环境变量项 — 每条发现都会标明 guard、文件和行号。请参阅 [Doctor](/docs/doctor) 文档。
+
 ---
 
 以下部分介绍了您只能在特定部署中使用的利基环境标志。大多数应用程序从不接触它们。
@@ -413,3 +415,11 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 无论此标志如何，工作空间范围的秘密写入仍然需要组织所有者/管理员角色。
+
+## 下一步
+
+- [**Authentication**](/docs/authentication) — 本页所依赖的身份验证模式、cookie realm 和会话细节
+- [**Multi-Tenancy**](/docs/multi-tenancy) — `org_id` 范围界定背后的组织成员模型
+- [**Sharing**](/docs/sharing) — 应用于可共享资源的 `ownableColumns()` 和访问守卫模式
+- [**Messaging**](/docs/messaging#env-vars) — 上方清单中提到的每个集成的 webhook 签名密钥
+- [**Deployment**](/docs/deployment) — 此清单假定已设置的生产环境变量

@@ -7,6 +7,8 @@ description: "Comment créer et publier vos propres modèles d'applications nati
 
 Les modèles sont des applications natives d'agent complètes et exploitables qui résolvent un véritable flux de travail. Les modèles propriétaires sont créés avec la même surface de structure que vous utilisez : routes React pour le UI, Drizzle SQL pour les données, actions pour les opérations, ressources d'espace de travail pour le comportement de l'agent et synchronisation des interrogations afin que l'agent et le UI restent alignés.
 
+Utilisez `@agent-native/core` pour le contrat de runtime : actions, plugins serveur, aides de base de données, état de l'application, aides de routage et chat de l'agent. Utilisez `@agent-native/toolkit` pour l'UI réutilisable de construction d'applications et les aides comme les primitives partagées, les hooks toast/mobile, les sélecteurs de date et les slots simples de shell d'application. Gardez les variantes propres au modèle locales lorsqu'elles encodent un comportement produit ou une identité visuelle.
+
 Un bon modèle :
 
 - Résout un flux de travail de bout en bout, avec des données de départ utiles ou un flux à état vide.
@@ -42,7 +44,6 @@ Chaque modèle suit la même présentation générale :
 <FileTree
   id="doc-block-ixpw0s"
   title={"Structure du projet de modèle"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -168,8 +169,7 @@ Les quatre zones de chaque modèle s'articulent via une surface d'action partag�
 
 Définissez des tables de domaines avec les assistants du framework Drizzle afin que les schémas restent portables sur SQLite, Postgres, D1, Turso, Supabase, Neon et d'autres backends pris en charge :
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -200,8 +200,7 @@ Les modifications du schéma doivent être additives. Ajoutez des tables et des 
 
 Pour les lectures et écritures d'applications, utilisez le générateur de requêtes de Drizzle et les opérateurs portables de `drizzle-orm`. N'écrivez pas de code produit avec SQL brut lorsque Drizzle peut exprimer la requête, et n'importez pas depuis `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core` dans des modèles.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -345,8 +344,7 @@ Pour la navigation dans les applications, préférez une commande `navigate` inc
 `path` lorsque le URL est connu. N'écrivez pas également `__set_url__` pour le même coup ;
 cette clé est réservée aux outils du framework URL et aux modifications de filtre URL uniquement.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

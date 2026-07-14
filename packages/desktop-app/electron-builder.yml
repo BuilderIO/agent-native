@@ -14,6 +14,14 @@ files:
   - "!{.env,.env.*,.npmrc,pnpm-lock.yaml}"
   - "!{tsconfig.json,tsconfig.*.json}"
 
+extraResources:
+  - from: native/bin/agent-native-computer-helper
+    to: native/agent-native-computer-helper
+  - from: ../agent-chrome-extension/dist
+    to: chrome-extension
+  - from: build/Assets.car
+    to: Assets.car
+
 protocols:
   - name: Agent Native
     schemes:
@@ -23,6 +31,9 @@ mac:
   category: public.app-category.developer-tools
   identity: "Builder.io, Inc (W3PMF2T3MW)"
   icon: build/icon.icns
+  extendInfo:
+    CFBundleIconName: agent-native
+    NSMicrophoneUsageDescription: Agent Native uses your microphone for dictation and realtime voice conversations.
   notarize: true
   target:
     - target: dmg

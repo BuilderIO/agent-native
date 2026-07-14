@@ -1,10 +1,13 @@
 import { describe, expect, it } from "vitest";
 
+import { buildComponentPropRows } from "./edit-panel/component-section";
 import {
   alpineDataValueLiteral,
   canRebuildAlpineDataLosslessly,
   elementHtmlPreview,
   isBooleanPropValue,
+  mergeRotationValue,
+  normalizeRotationDegrees,
   openingTagOf,
   parseAlpineDataObject,
   replaceAlpineDataKeyValue,
@@ -308,6 +311,85 @@ describe("canRebuildAlpineDataLosslessly", () => {
 // isBooleanPropValue — toggle detection
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// buildComponentPropRows — row model + persist-surface selection (Bug: a
+// never-observed persisted-variant group used to route its first edit to
+// whichever surface an UNRELATED sibling x-data key happened to use).
+// ---------------------------------------------------------------------------
+
+describe("buildComponentPropRows", () => {
+  it("lists Alpine x-data keys first, tagged for the alpineData surface", () => {
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ variant: 'solid', open: false }" },
+      observedProps: [],
+      persistedVariants: { variant: ["solid", "outline"] },
+    });
+    const variantRow = rows.find((r) => r.name === "variant");
+    expect(variantRow).toMatchObject({
+      value: "solid",
+      surface: "alpineData",
+      options: ["solid", "outline"],
+    });
+    const openRow = rows.find((r) => r.name === "open");
+    expect(openRow).toMatchObject({ value: "false", surface: "alpineData" });
+  });
+
+  it("lists observed data-attribute props not already in x-data, tagged attribute", () => {
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ open: false }" },
+      observedProps: [{ name: "label", value: "Save" }],
+      persistedVariants: {},
+    });
+    expect(rows.find((r) => r.name === "label")).toMatchObject({
+      value: "Save",
+      surface: "attribute",
+    });
+    // The x-data key isn't duplicated as an attribute row.
+    expect(rows.filter((r) => r.name === "open")).toHaveLength(1);
+  });
+
+  it("defaults a never-observed persisted-variant group to the attribute surface even when x-data exists for other keys", () => {
+    // This instance's x-data only carries `open` — `size` is a persisted
+    // variant group that has never appeared in x-data or observedProps on
+    // this instance, meaning it must be attribute-driven. Regression: this
+    // used to key off `alpineData` being truthy for the unrelated `open`
+    // key and route `size`'s first edit into an x-data rewrite instead.
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ open: false }" },
+      observedProps: [],
+      persistedVariants: { size: ["sm", "md", "lg"] },
+    });
+    const sizeRow = rows.find((r) => r.name === "size");
+    expect(sizeRow).toMatchObject({
+      value: "sm",
+      surface: "attribute",
+      options: ["sm", "md", "lg"],
+    });
+  });
+
+  it("defaults a never-observed persisted-variant group to attribute when there is no x-data at all", () => {
+    const rows = buildComponentPropRows({
+      instance: null,
+      observedProps: [],
+      persistedVariants: { size: ["sm", "lg"] },
+    });
+    expect(rows.find((r) => r.name === "size")).toMatchObject({
+      value: "sm",
+      surface: "attribute",
+    });
+  });
+
+  it("does not duplicate a group already covered by x-data or an observed attribute", () => {
+    const rows = buildComponentPropRows({
+      instance: { alpineData: "{ variant: 'solid' }" },
+      observedProps: [{ name: "label", value: "Save" }],
+      persistedVariants: { variant: ["solid", "outline"], label: [] },
+    });
+    expect(rows.filter((r) => r.name === "variant")).toHaveLength(1);
+    expect(rows.filter((r) => r.name === "label")).toHaveLength(1);
+  });
+});
+
 describe("isBooleanPropValue", () => {
   it("recognizes true/false case-insensitively", () => {
     expect(isBooleanPropValue("true")).toBe(true);
@@ -319,5 +401,56 @@ describe("isBooleanPropValue", () => {
     expect(isBooleanPropValue("outline")).toBe(false);
     expect(isBooleanPropValue("1")).toBe(false);
     expect(isBooleanPropValue("")).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// normalizeRotationDegrees / mergeRotationValue — rotation commit path
+// ---------------------------------------------------------------------------
+
+describe("normalizeRotationDegrees", () => {
+  it("maps angles into (-180, 180]", () => {
+    expect(normalizeRotationDegrees(0)).toBe(0);
+    expect(normalizeRotationDegrees(45)).toBe(45);
+    expect(normalizeRotationDegrees(180)).toBe(180);
+    expect(normalizeRotationDegrees(-180)).toBe(180);
+    expect(normalizeRotationDegrees(190)).toBe(-170);
+    expect(normalizeRotationDegrees(270)).toBe(-90);
+    expect(normalizeRotationDegrees(-270)).toBe(90);
+    expect(normalizeRotationDegrees(360)).toBe(0);
+    expect(normalizeRotationDegrees(540)).toBe(180);
+    expect(normalizeRotationDegrees(-540)).toBe(180);
+    expect(normalizeRotationDegrees(725)).toBe(5);
+  });
+
+  it("never returns -0 and handles non-finite input", () => {
+    expect(Object.is(normalizeRotationDegrees(-360), -0)).toBe(false);
+    expect(normalizeRotationDegrees(Number.NaN)).toBe(0);
+    expect(normalizeRotationDegrees(Number.POSITIVE_INFINITY)).toBe(0);
+  });
+});
+
+describe("mergeRotationValue", () => {
+  it("normalizes the committed angle into (-180, 180]", () => {
+    expect(mergeRotationValue(undefined, 270)).toBe("rotate(-90deg)");
+    expect(mergeRotationValue("none", 360)).toBe("rotate(0deg)");
+    expect(mergeRotationValue(undefined, -180)).toBe("rotate(180deg)");
+  });
+
+  it("replaces an existing rotate() in any unit without compounding", () => {
+    expect(mergeRotationValue("rotate(30deg)", 190)).toBe("rotate(-170deg)");
+    expect(mergeRotationValue("translateX(4px) rotate(0.5turn)", 45)).toBe(
+      "translateX(4px) rotate(45deg)",
+    );
+  });
+
+  it("appends rotate when the transform has none", () => {
+    expect(mergeRotationValue("scale(2)", 90)).toBe("scale(2) rotate(90deg)");
+  });
+
+  it("rounds to one decimal before normalizing", () => {
+    // -179.96 rounds to -180, which must land back inside the range as +180.
+    expect(mergeRotationValue(undefined, -179.96)).toBe("rotate(180deg)");
+    expect(mergeRotationValue(undefined, 12.34)).toBe("rotate(12.3deg)");
   });
 });

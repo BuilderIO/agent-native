@@ -9,15 +9,38 @@
  * registered the same key (often with stricter settings like `required: true`)
  * wins — the framework registration is a fallback, not an override.
  *
- * NOTE: The framework previously registered OPENAI_API_KEY here for Whisper
- * voice transcription. Voice transcription now routes through the Builder.io
- * gateway (or Groq as a BYOK fallback), so the framework no longer registers
- * the OpenAI key. Templates that need it (e.g. Clips) register it themselves.
+ * OPENAI_API_KEY is optional framework-wide because it enables the shared
+ * realtime speech-to-speech agent mode. Templates can pre-register the same
+ * key with stricter requirements; the guard below preserves their definition.
  */
 
 import { getRequiredSecret, registerRequiredSecret } from "./register.js";
 
 export function registerFrameworkSecrets(): void {
+  if (!getRequiredSecret("OPENAI_API_KEY")) {
+    registerRequiredSecret({
+      key: "OPENAI_API_KEY",
+      label: "OpenAI API key",
+      description:
+        "Optional fallback for realtime voice when Builder is not connected, and for OpenAI transcription.",
+      docsUrl: "https://platform.openai.com/api-keys",
+      scope: "user",
+      kind: "api-key",
+      required: false,
+      validator: async (value) => {
+        const response = await fetch("https://api.openai.com/v1/models", {
+          headers: { Authorization: `Bearer ${value}` },
+        });
+        return response.ok
+          ? { ok: true }
+          : {
+              ok: false,
+              error: `OpenAI rejected the key (HTTP ${response.status}).`,
+            };
+      },
+    });
+  }
+
   // Web-search tool backends — optional; the tool selects the first
   // configured manual key at call time, then falls back to Builder Connect.
   const webSearchKeys: Array<{

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 
 import {
+  getAppBasePathFromViteEnv,
   normalizeAppBasePath,
   withConfiguredAppBasePath,
 } from "./app-base-path.js";
@@ -32,5 +33,10 @@ describe("server app base path helpers", () => {
     expect(withConfiguredAppBasePath("https://app.test/docs")).toBe(
       "https://app.test/docs",
     );
+  });
+
+  it("uses the Vite-prefixed base path when APP_BASE_PATH is unset", () => {
+    process.env.VITE_APP_BASE_PATH = "/docs";
+    expect(getAppBasePathFromViteEnv()).toBe("/docs");
   });
 });

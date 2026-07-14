@@ -65,6 +65,29 @@ describe("createSecurityHeadersMiddleware", () => {
     );
   });
 
+  it("applies MCP resource headers to the public /mcp alias", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+
+    const router = createRouter();
+    router.post(
+      "/mcp",
+      defineEventHandler(() => new Response("ok")),
+    );
+    app.use(router);
+
+    const res = await app.request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      },
+    });
+
+    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+  });
+
   it("keeps ordinary app responses same-site", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
@@ -83,7 +106,7 @@ describe("createSecurityHeadersMiddleware", () => {
     expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe("same-site");
   });
 
-  it("does not set Content-Security-Policy (document CSP is applied in ssr-handler, not here)", async () => {
+  it("does not set Content-Security-Policy", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());
 
@@ -98,10 +121,8 @@ describe("createSecurityHeadersMiddleware", () => {
 
     const res = await app.request("http://localhost/settings");
 
-    // The security-headers middleware intentionally omits CSP — document CSP
-    // (object-src, base-uri, script-src report-only) is applied by the SSR
-    // handler after the response body is available and the HTML content-type
-    // is confirmed.
+    // App documents intentionally omit CSP so framework bootstrap scripts and
+    // Google Tag Manager are not blocked by a shared header.
     expect(res.headers.get("Content-Security-Policy")).toBeNull();
     expect(res.headers.get("Content-Security-Policy-Report-Only")).toBeNull();
   });

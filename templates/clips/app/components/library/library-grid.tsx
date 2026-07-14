@@ -1,30 +1,20 @@
 import {
   getBrowserTabId,
   setClientAppState,
-  useSession,
   useT,
 } from "@agent-native/core/client";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { IconAlertTriangle } from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
 import { ShareRecordingDialog } from "@/components/player/share-dialog";
 import { Button } from "@/components/ui/button";
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { isDefaultTitle } from "@/hooks/use-auto-title";
 import {
   useFolders,
   useRecordings,
   useTrashRecording,
   useArchiveRecording,
   useRestoreRecording,
-  useRenameRecording,
   useMoveRecording,
   type ListRecordingsArgs,
   type RecordingSummary,
@@ -35,14 +25,15 @@ import { EmptyState } from "./empty-state";
 import { FilterChips, type FilterChip } from "./filter-chips";
 import { PageHeader } from "./page-header";
 import { RecordingCard } from "./recording-card";
+import { SearchBar } from "./search-bar";
 import { SortMenu, type SortKey } from "./sort-menu";
 
 interface LibraryGridProps {
-  view: "library" | "space" | "archive" | "trash" | "all";
+  view: "library" | "shared" | "space" | "archive" | "trash" | "all";
   folderId?: string | null;
   spaceId?: string | null;
   /** What empty-state illustration to render. Defaults from `view`. */
-  emptyKind?: "library" | "folder" | "space" | "archive" | "trash";
+  emptyKind?: "library" | "shared" | "folder" | "space" | "archive" | "trash";
   title?: string;
   tagFilter?: string | null;
   onClearTag?: () => void;
@@ -109,10 +100,7 @@ export function LibraryGrid({
   const [sort, setSort] = useState<SortKey>("recent");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const selectionMode = selected.size > 0;
-  const [renamingRec, setRenamingRec] = useState<RecordingSummary | null>(null);
-  const [renameValue, setRenameValue] = useState("");
   const [sharingRec, setSharingRec] = useState<RecordingSummary | null>(null);
-  const renameInputRef = useRef<HTMLInputElement>(null);
   const [isBulkPending, setIsBulkPending] = useState(false);
   const selectionStateKey = useMemo(() => `selection:${getBrowserTabId()}`, []);
 
@@ -127,16 +115,15 @@ export function LibraryGrid({
     [view, folderId, spaceId, tagFilter, sort],
   );
 
-  const { data, isLoading } = useRecordings(args);
+  const { data, isLoading, isError, refetch, isRefetching } =
+    useRecordings(args);
   const recordings = data?.recordings ?? [];
-  const { session } = useSession();
-  const currentUserEmail = session?.email?.toLowerCase();
 
   const trashRecording = useTrashRecording();
   const archiveRecording = useArchiveRecording();
   const restoreRecording = useRestoreRecording();
-  const renameRecording = useRenameRecording();
   const moveRecording = useMoveRecording();
+  const canManageRecordings = view !== "shared";
   const canMoveSelection = view === "library" || view === "space";
   const { data: scopedFolders } = useFolders(
     {
@@ -239,32 +226,6 @@ export function LibraryGrid({
     }
   };
 
-  const openRenameDialog = (rec: RecordingSummary) => {
-    setRenamingRec(rec);
-    setRenameValue(isDefaultTitle(rec.title) ? "" : (rec.title ?? ""));
-    // Focus the input after dialog opens
-    setTimeout(() => renameInputRef.current?.select(), 50);
-  };
-
-  const submitRename = () => {
-    if (!renamingRec) return;
-    const trimmed = renameValue.trim();
-    if (!trimmed) {
-      toast.error(t("libraryGrid.titleRequired"));
-      return;
-    }
-    renameRecording.mutate(
-      { id: renamingRec.id, title: trimmed },
-      {
-        onSuccess: () => {
-          toast.success(t("libraryGrid.clipRenamed"));
-          setRenamingRec(null);
-        },
-        onError: () => toast.error(t("libraryGrid.renameFailed")),
-      },
-    );
-  };
-
   const chips: FilterChip[] = [];
   if (tagFilter) {
     chips.push({
@@ -281,11 +242,13 @@ export function LibraryGrid({
       ? "archive"
       : view === "trash"
         ? "trash"
-        : view === "space"
-          ? "space"
-          : folderId
-            ? "folder"
-            : "library");
+        : view === "shared"
+          ? "shared"
+          : view === "space"
+            ? "space"
+            : folderId
+              ? "folder"
+              : "library");
 
   return (
     <div className="flex flex-1 flex-col min-h-0">
@@ -294,6 +257,7 @@ export function LibraryGrid({
         <ShareRecordingDialog
           recordingId={sharingRec.id}
           recordingTitle={sharingRec.title}
+          initialVisibility={sharingRec.visibility}
           open={!!sharingRec}
           onOpenChange={(open) => {
             if (!open) setSharingRec(null);
@@ -301,58 +265,20 @@ export function LibraryGrid({
         />
       )}
 
-      {/* Rename dialog */}
-      <Dialog
-        open={!!renamingRec}
-        onOpenChange={(open) => {
-          if (!open) setRenamingRec(null);
-        }}
-      >
-        <DialogContent className="sm:max-w-md">
-          <DialogHeader>
-            <DialogTitle>{t("libraryGrid.renameClip")}</DialogTitle>
-          </DialogHeader>
-          <Input
-            ref={renameInputRef}
-            value={renameValue}
-            onChange={(e) => setRenameValue(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") submitRename();
-            }}
-            placeholder={t("libraryGrid.clipTitle")}
-            className="mt-1"
-            autoFocus
-          />
-          <DialogFooter>
-            <Button
-              variant="outline"
-              onClick={() => setRenamingRec(null)}
-              disabled={renameRecording.isPending}
-            >
-              {t("common.cancel")}
-            </Button>
-            <Button
-              onClick={submitRename}
-              disabled={renameRecording.isPending || !renameValue.trim()}
-            >
-              {renameRecording.isPending
-                ? t("common.saving")
-                : t("common.save")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
       {/* Page header — rendered into the top app bar */}
       <PageHeader>
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 shrink-0">
           {title && (
             <h1 className="text-base font-semibold text-foreground truncate">
               {title}
             </h1>
           )}
         </div>
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        <SearchBar
+          side="bottom"
+          className="hidden min-w-52 max-w-xl flex-1 md:block"
+        />
+        <div className="ms-auto flex shrink-0 items-center gap-2">
           {extraActions}
           <SortMenu value={sort} onChange={setSort} />
         </div>
@@ -373,6 +299,25 @@ export function LibraryGrid({
                 <Skeleton key={i} />
               ))}
             </div>
+          ) : isError && recordings.length === 0 ? (
+            <div className="flex flex-1 flex-col items-center justify-center py-20 px-8 text-center">
+              <div className="relative mb-6 flex h-20 w-20 items-center justify-center rounded-2xl bg-destructive/10">
+                <IconAlertTriangle className="h-10 w-10 text-destructive" />
+              </div>
+              <h2 className="text-base font-semibold text-foreground mb-1">
+                {t("libraryGrid.loadFailedTitle")}
+              </h2>
+              <p className="text-sm text-muted-foreground max-w-sm mb-5">
+                {t("libraryGrid.loadFailedBody")}
+              </p>
+              <Button
+                onClick={() => refetch()}
+                disabled={isRefetching}
+                size="sm"
+              >
+                {t("libraryGrid.retry")}
+              </Button>
+            </div>
           ) : recordings.length === 0 ? (
             <EmptyState
               kind={resolvedEmptyKind}
@@ -385,51 +330,60 @@ export function LibraryGrid({
                 <RecordingCard
                   key={r.id}
                   recording={r}
-                  selected={selected.has(r.id)}
-                  selectionMode={selectionMode}
-                  onToggleSelect={toggleSelect}
-                  onShare={(rec) => setSharingRec(rec)}
-                  canRenameTitle={
-                    !!currentUserEmail &&
-                    r.ownerEmail.toLowerCase() === currentUserEmail
+                  selected={
+                    canManageRecordings ? selected.has(r.id) : undefined
                   }
-                  onRename={
-                    currentUserEmail &&
-                    r.ownerEmail.toLowerCase() === currentUserEmail
-                      ? openRenameDialog
+                  selectionMode={canManageRecordings && selectionMode}
+                  onToggleSelect={
+                    canManageRecordings ? toggleSelect : undefined
+                  }
+                  onShare={
+                    canManageRecordings
+                      ? (rec) => setSharingRec(rec)
                       : undefined
                   }
                   moveTargets={moveTargets}
                   onMove={canMoveSelection ? moveSingle : undefined}
                   isMovePending={moveRecording.isPending}
-                  onTrash={(rec) => {
-                    trashRecording.mutate(
-                      { id: rec.id },
-                      {
-                        onSuccess: () =>
-                          toast.success(t("libraryGrid.movedToTrash")),
-                      },
-                    );
-                  }}
-                  onArchive={(rec) => {
-                    if (rec.archivedAt) {
-                      restoreRecording.mutate(
-                        { id: rec.id },
-                        {
-                          onSuccess: () =>
-                            toast.success(t("libraryGrid.restoredFromArchive")),
-                        },
-                      );
-                    } else {
-                      archiveRecording.mutate(
-                        { id: rec.id },
-                        {
-                          onSuccess: () =>
-                            toast.success(t("libraryGrid.archived")),
-                        },
-                      );
-                    }
-                  }}
+                  onTrash={
+                    canManageRecordings
+                      ? (rec) => {
+                          trashRecording.mutate(
+                            { id: rec.id },
+                            {
+                              onSuccess: () =>
+                                toast.success(t("libraryGrid.movedToTrash")),
+                            },
+                          );
+                        }
+                      : undefined
+                  }
+                  onArchive={
+                    canManageRecordings
+                      ? (rec) => {
+                          if (rec.archivedAt) {
+                            restoreRecording.mutate(
+                              { id: rec.id },
+                              {
+                                onSuccess: () =>
+                                  toast.success(
+                                    t("libraryGrid.restoredFromArchive"),
+                                  ),
+                              },
+                            );
+                          } else {
+                            archiveRecording.mutate(
+                              { id: rec.id },
+                              {
+                                onSuccess: () =>
+                                  toast.success(t("libraryGrid.archived")),
+                              },
+                            );
+                          }
+                        }
+                      : undefined
+                  }
+                  readOnly={!canManageRecordings}
                 />
               ))}
             </div>
@@ -437,7 +391,7 @@ export function LibraryGrid({
         </div>
 
         {/* Sticky bulk-action toolbar */}
-        {selected.size > 0 && (
+        {canManageRecordings && selected.size > 0 && (
           <div className="pointer-events-none sticky bottom-0 flex justify-center pb-4">
             <div className="pointer-events-auto">
               <BulkActionToolbar

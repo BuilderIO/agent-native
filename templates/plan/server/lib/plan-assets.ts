@@ -32,6 +32,8 @@ export {
 
 /** The route prefix under which plan assets are served. */
 export const PLAN_ASSET_ROUTE_PREFIX = "/_agent-native/plan-asset";
+const PLAN_ASSET_STORAGE_REQUIRED_REASON =
+  "Image storage is not connected yet. Connect Builder.io or configure S3-compatible storage to add images to visual plans.";
 
 /**
  * Build the serving URL for an asset stored in the `plan_assets` table.
@@ -55,21 +57,44 @@ export interface UpsertPlanAssetResult {
   assetId: string;
   /**
    * A CDN URL when an upload provider was configured and the upload succeeded.
-   * `null` when falling back to the local `plan_assets` table.
+   * `null` only for local-development fallback rows in `plan_assets`.
    */
   cdnUrl: string | null;
   /**
    * The final `src` to embed in the image block.
    * - CDN URL when provider upload succeeded.
-   * - Local route URL (`/_agent-native/plan-asset/...`) otherwise.
+   * - Local route URL (`/_agent-native/plan-asset/...`) for dev fallback rows.
    */
   src: string;
   filename: string;
 }
 
+function requiresConfiguredPlanAssetStorage(): boolean {
+  return process.env.NODE_ENV === "production" || !isLocalPlanAssetDatabase();
+}
+
+function appDatabaseUrl(): string {
+  const appName = process.env.APP_NAME?.toUpperCase().replace(/-/g, "_");
+  if (appName) {
+    const appUrl = process.env[`${appName}_DATABASE_URL`];
+    if (appUrl) return appUrl;
+  }
+  return process.env.DATABASE_URL || process.env.NETLIFY_DATABASE_URL || "";
+}
+
+function isLocalPlanAssetDatabase(): boolean {
+  const url = appDatabaseUrl().toLowerCase();
+  return (
+    url === "" ||
+    url.startsWith("file:") ||
+    url.startsWith("pglite:") ||
+    !url.includes("://")
+  );
+}
+
 /**
  * Store a plan asset, uploading via the active file-upload provider first.
- * Falls back to the `plan_assets` SQL table when no provider is configured.
+ * Falls back to the `plan_assets` SQL table only on local databases.
  *
  * Enforces single-asset and per-plan size caps.
  */
@@ -130,7 +155,11 @@ export async function upsertPlanAsset(
     };
   }
 
-  // SQL fallback: store base64 in plan_assets.
+  if (requiresConfiguredPlanAssetStorage()) {
+    throw new Error(PLAN_ASSET_STORAGE_REQUIRED_REASON);
+  }
+
+  // Local SQL fallback: store base64 in plan_assets for development-only use.
   const assetId = `passet_${randomUUID().replace(/-/g, "")}`;
   const now = new Date().toISOString();
   await db.insert(schema.planAssets).values({

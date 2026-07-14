@@ -4,6 +4,7 @@
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -428,8 +429,8 @@
   color: hsl(var(--foreground));
   cursor: text;
   transition:
-    background-color 120ms ease-in,
-    color 120ms ease-in;
+    background-color 120ms ease-out,
+    color 120ms ease-out;
 }
 
 .notion-toggle__body-placeholder::before {
@@ -1010,7 +1011,7 @@
   width: 1rem;
   height: 1.7em;
   border-radius: 3px;
-  transition: background 120ms ease-in;
+  transition: background-color 120ms ease-out;
 }
 .notion-toggle__chevron:hover {
   background: hsl(var(--muted));
@@ -1342,6 +1343,47 @@ div[data-notion-column] > :last-child {
   user-select: none;
 }
 
+.media-block__broken {
+  display: flex;
+  align-items: center;
+  width: min(100%, 42rem);
+  min-width: min(18rem, calc(100vw - 3rem));
+  min-height: 10rem;
+  gap: 0.9rem;
+  border: 1px dashed hsl(var(--border));
+  border-radius: 8px;
+  background: hsl(var(--muted) / 0.45);
+  color: hsl(var(--muted-foreground));
+  padding: 1.25rem;
+  line-height: 1.4;
+}
+
+.media-block__broken-icon {
+  width: 1.75rem;
+  height: 1.75rem;
+  flex: 0 0 auto;
+  color: hsl(var(--muted-foreground));
+}
+
+.media-block__broken-copy {
+  min-width: 0;
+}
+
+.media-block__broken-title {
+  display: block;
+  color: hsl(var(--foreground));
+  font-size: 0.92rem;
+  font-weight: 600;
+}
+
+.media-block__broken-alt {
+  display: block;
+  max-width: 34rem;
+  margin-top: 0.25rem;
+  overflow-wrap: anywhere;
+  font-size: 0.86rem;
+}
+
 .media-block[data-resized="true"] .media-block__content {
   width: 100%;
 }
@@ -1410,9 +1452,9 @@ audio.media-block__content {
   pointer-events: none;
   transform: translateY(-4px);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
-    visibility 0s linear 300ms;
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
+    visibility 0s linear 200ms;
   visibility: hidden;
 }
 
@@ -1421,8 +1463,8 @@ audio.media-block__content {
   pointer-events: auto;
   transform: translateY(0);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
     visibility 0s linear 0s;
   visibility: visible;
 }
@@ -1441,9 +1483,9 @@ audio.media-block__content {
   pointer-events: none;
   transform: translateY(-50%) scaleX(0.96);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
-    visibility 0s linear 300ms;
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
+    visibility 0s linear 200ms;
   visibility: hidden;
 }
 
@@ -1452,8 +1494,8 @@ audio.media-block__content {
   pointer-events: auto;
   transform: translateY(-50%) scaleX(1);
   transition:
-    opacity 300ms ease-in-out,
-    transform 300ms ease-in-out,
+    opacity 200ms ease-out,
+    transform 200ms ease-out,
     visibility 0s linear 0s;
   visibility: visible;
 }
@@ -1516,10 +1558,10 @@ audio.media-block__content {
     0 1px 3px hsl(0 0% 0% / 0.12);
   cursor: pointer;
   transition:
-    background 300ms ease-in-out,
-    border-color 300ms ease-in-out,
-    color 300ms ease-in-out,
-    transform 300ms ease-in-out;
+    background 200ms ease-out,
+    border-color 200ms ease-out,
+    color 200ms ease-out,
+    transform 200ms ease-out;
 }
 
 .media-block__alt-badge:hover,
@@ -1656,8 +1698,8 @@ audio.media-block__content {
   color: hsl(var(--muted-foreground));
   cursor: pointer;
   transition:
-    background 300ms ease-in-out,
-    color 300ms ease-in-out;
+    background 200ms ease-out,
+    color 200ms ease-out;
 }
 
 .media-block__toolbar-btn:hover,

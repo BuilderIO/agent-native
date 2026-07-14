@@ -5,11 +5,12 @@ import {
 } from "@agent-native/core/client";
 import {
   IconAlertTriangle,
-  IconAppWindow,
+  IconBellRinging,
   IconCalendar,
   IconCheck,
   IconExternalLink,
   IconLoader2,
+  IconMicrophone2,
   IconNotes,
   IconPlugConnected,
   IconPlugOff,
@@ -22,7 +23,6 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { NavLink, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import { CaptureInstallButton } from "@/components/capture-install-options";
 import { PageHeader } from "@/components/library/page-header";
 import type { AttendeeStackParticipant } from "@/components/meetings/attendee-stack";
 import { DayHeader, formatDayLabel } from "@/components/meetings/day-header";
@@ -50,7 +50,6 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
-import { useDesktopPromo } from "@/hooks/use-desktop-promo";
 import enMessages from "@/i18n/en-US";
 
 export function meta() {
@@ -428,6 +427,60 @@ function CalendarConnectionAction({
   );
 }
 
+function MeetingNotesSteps() {
+  const t = useT();
+  return (
+    <div className="grid gap-2 sm:grid-cols-3">
+      <div className="rounded-md border border-border bg-background/70 p-3">
+        <IconCalendar className="h-4 w-4 text-muted-foreground" />
+        <div className="mt-2 text-xs font-medium text-foreground">
+          {t("meetingsRoute.guideCalendarTitle")}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("meetingsRoute.guideCalendarDescription")}
+        </p>
+      </div>
+      <div className="rounded-md border border-border bg-background/70 p-3">
+        <IconMicrophone2 className="h-4 w-4 text-muted-foreground" />
+        <div className="mt-2 text-xs font-medium text-foreground">
+          {t("meetingsRoute.guideDesktopTitle")}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("meetingsRoute.guideDesktopDescription")}
+        </p>
+      </div>
+      <div className="rounded-md border border-border bg-background/70 p-3">
+        <IconBellRinging className="h-4 w-4 text-muted-foreground" />
+        <div className="mt-2 text-xs font-medium text-foreground">
+          {t("meetingsRoute.guideStartTitle")}
+        </div>
+        <p className="mt-1 text-[11px] leading-snug text-muted-foreground">
+          {t("meetingsRoute.guideStartDescription")}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MeetingNotesGuide() {
+  const t = useT();
+  return (
+    <section className="mb-6 rounded-lg border border-border bg-accent/20 p-4">
+      <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="min-w-0">
+          <h2 className="text-sm font-semibold text-foreground">
+            {t("meetingsRoute.howToTriggerTitle")}
+          </h2>
+          <p className="mt-1 max-w-2xl text-xs leading-relaxed text-muted-foreground">
+            {t("meetingsRoute.howToTriggerDescription")}
+          </p>
+        </div>
+      </div>
+      <MeetingNotesSteps />
+    </section>
+  );
+}
+
 function ConnectCalendarEmptyState({
   onConnected,
 }: {
@@ -453,6 +506,9 @@ function ConnectCalendarEmptyState({
                 label={t("meetingsRoute.connectGoogleCalendar")}
                 onConnected={onConnected}
               />
+            </div>
+            <div className="mt-4">
+              <MeetingNotesSteps />
             </div>
           </div>
         </div>
@@ -627,14 +683,12 @@ function CalendarAccountMenu({
 function MeetingsHeader({
   query,
   onQueryChange,
-  showDesktopCta,
   calendarAccounts,
   onConnected,
   onDisconnected,
 }: {
   query: string;
   onQueryChange: (next: string) => void;
-  showDesktopCta: boolean;
   calendarAccounts: CalendarAccount[];
   onConnected?: () => void | Promise<void>;
   onDisconnected?: () => void;
@@ -679,21 +733,6 @@ function MeetingsHeader({
             )}
           </div>
         </div>
-        {showDesktopCta && (
-          <div className="flex w-fit shrink-0 flex-col items-start gap-1 sm:items-end">
-            <CaptureInstallButton
-              size="sm"
-              variant="secondary"
-              className="h-8 w-fit gap-1.5 cursor-pointer"
-            >
-              <IconAppWindow className="h-4 w-4" />
-              {t("meetingsRoute.getDesktopApp")}
-            </CaptureInstallButton>
-            <p className="max-w-56 text-[11px] leading-snug text-muted-foreground">
-              {t("meetingsRoute.requiredForReminders")}
-            </p>
-          </div>
-        )}
       </div>
     </>
   );
@@ -738,7 +777,6 @@ export default function MeetingsIndexRoute() {
   }, [query]);
 
   const queryClient = useQueryClient();
-  const { shouldShowSidebarLink: showDesktopCta } = useDesktopPromo();
 
   const accounts = useActionQuery<{ accounts: CalendarAccount[] } | undefined>(
     "list-calendar-accounts",
@@ -942,7 +980,6 @@ export default function MeetingsIndexRoute() {
         <MeetingsHeader
           query={query}
           onQueryChange={setQuery}
-          showDesktopCta={showDesktopCta}
           calendarAccounts={calendarAccounts}
           onConnected={handleCalendarConnected}
           onDisconnected={handleCalendarDisconnected}
@@ -964,7 +1001,6 @@ export default function MeetingsIndexRoute() {
       <MeetingsHeader
         query={query}
         onQueryChange={setQuery}
-        showDesktopCta={showDesktopCta}
         calendarAccounts={calendarAccounts}
         onConnected={handleCalendarConnected}
         onDisconnected={handleCalendarDisconnected}
@@ -973,6 +1009,8 @@ export default function MeetingsIndexRoute() {
       {needsCalendarReauth && (
         <CalendarReauthBanner onReconnect={handleReconnectCalendar} />
       )}
+
+      {hasCalendar && meetings.length === 0 && <MeetingNotesGuide />}
 
       {nothingAtAll ? (
         <div className="rounded-lg border border-dashed border-border bg-accent/20 px-6 py-16 text-center">

@@ -384,24 +384,23 @@ openssl rand -hex 32
 ## أدوات وكيل الإنتاج {#production-agent-tools}
 
 يحصل وكلاء الإنتاج على أدوات إطار العمل actions بالإضافة إلى أدوات إطار العمل المسجلة للتطبيق من
-المكون الإضافي للدردشة مع الوكيل. يتم تمكين عمليات الكتابة في قاعدة البيانات افتراضيًا لأن قاعدة البيانات الأولية
-يتم تحديد نطاق الأدوات ليشمل المستخدم/المؤسسة التي تمت مصادقتها، ولكن يمكن لمالكي التطبيق تضييق نطاق
-السطح عندما يجب أن يكون النشر أكثر رأيًا:
+المكون الإضافي للدردشة مع الوكيل. يتم تمكين فحص SQL افتراضيًا، بينما تمر
+عمليات الكتابة عبر actions التطبيق المكتوبة ما لم يشترك التطبيق صراحة في أدوات الكتابة الخام:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — افتراضي. يسجل `db-schema`، `db-query`،
-  `db-exec`، و`db-patch`. يتم تحديد نطاق عمليات الكتابة للمستخدم/المؤسسة الحالية و
-  تم حظر تغييرات المخطط.
-- `databaseTools: "read"` — يُسجل `db-schema` و`db-query` فقط؛ وكلاء
-  افحص البيانات باستخدام SQL ولكن يجب استخدام التطبيق المكتوب actions للكتابة.
+- `databaseTools: "read"` — افتراضي. يُسجل `db-schema` و`db-query` فقط؛
+  يفحص الوكلاء البيانات باستخدام SQL ويجب أن يستخدموا actions التطبيق المكتوبة للكتابة.
+- `databaseTools: "write"` أو `true` — يسجل أيضًا `db-exec` و`db-patch`
+  للصيانة الخام المقصودة. يتم تحديد نطاق عمليات الكتابة للمستخدم/المؤسسة الحالية
+  ويتم حظر تغييرات المخطط.
 - `databaseTools: "off"` أو `false` — يزيل أدوات قاعدة البيانات الأولية من
   سطح الوكيل، لذا فإن actions الخاص بالتطبيق هو المسار الوحيد للوصول إلى البيانات.
 - `extensionTools: false` — يزيل إدارة امتداد إطار العمل actions و
@@ -453,3 +452,11 @@ export default createAgentChatPlugin({
 ## نشر المثيلات المتعددة {#multi-instance}
 
 تقوم تطبيقات Agent-Native بتخزين جميع الحالات في SQL عبر Drizzle ومزامنة UI عبر [polling](/docs/key-concepts#polling-sync) مع قاعدة البيانات - لا توجد حالة نظام ملفات، ولا توجد جلسات ثابتة، ولا توجد ذاكرة تخزين مؤقت في الذاكرة. وهذا يعني أن عمليات النشر متعددة المثيلات وبدون خادم تعمل خارج الصندوق: قم بتوجيه كل مثيل إلى نفس `DATABASE_URL` وستتقارب تلقائيًا. انظر [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) و[Portability](/docs/key-concepts#hosting-agnostic).
+
+## الخطوات التالية
+
+- [**Database**](/docs/database#production) — اختر قاعدة بيانات SQL دائمة قبل أول نشر للإنتاج
+- [**Security**](/docs/security) — قائمة تحقق الإنتاج والعلامات الاختيارية المشار إليها في هذه الصفحة
+- [**Authentication**](/docs/authentication) — بيانات اعتماد OAuth ومتغيرات البيئة لوضع المصادقة الذي تختاره
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — نموذج مساحة العمل وراء بنية `deploy` ذات الأصل الواحد
+- [**Frames**](/docs/frames) — لوحة الوكيل المضمنة مقارنةً بإطار Builder.io السحابي لتعديلات واجهة الإنتاج

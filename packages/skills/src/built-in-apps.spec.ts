@@ -12,10 +12,8 @@ describe("resolveAppForSkill", () => {
     expect(app).toBeDefined();
     expect(app?.appId).toBe("visual-plans");
     expect(app?.serverName).toBe("plan");
-    expect(app?.mcpUrl).toBe("https://plan.agent-native.com/_agent-native/mcp");
-    expect(
-      app?.mcpUrl.endsWith("plan.agent-native.com/_agent-native/mcp"),
-    ).toBe(true);
+    expect(app?.mcpUrl).toBe("https://plan.agent-native.com/mcp");
+    expect(app?.mcpUrl.endsWith("plan.agent-native.com/mcp")).toBe(true);
     expect(app?.aliases).toContain("agent-native-plans");
   });
 
@@ -24,9 +22,7 @@ describe("resolveAppForSkill", () => {
     const recapSkill = resolveAppForSkill("visual-recap");
     expect(recapSkill).toBeDefined();
     expect(recapSkill?.serverName).toBe("plan");
-    expect(
-      recapSkill?.mcpUrl.endsWith("plan.agent-native.com/_agent-native/mcp"),
-    ).toBe(true);
+    expect(recapSkill?.mcpUrl.endsWith("plan.agent-native.com/mcp")).toBe(true);
     expect(recapSkill?.aliases).toContain("agent-native-plans");
     // Both skills resolve to the very same registry entry.
     expect(recapSkill).toBe(planSkill);
@@ -43,9 +39,7 @@ describe("resolveAppForSkill", () => {
     const app = resolveAppForSkill("content");
     expect(app?.appId).toBe("content");
     expect(app?.serverName).toBe("agent-native-content");
-    expect(app?.mcpUrl).toBe(
-      "https://content.agent-native.com/_agent-native/mcp",
-    );
+    expect(app?.mcpUrl).toBe("https://content.agent-native.com/mcp");
   });
 
   it("maps design-exploration to the agent-native-design server", () => {
@@ -70,6 +64,7 @@ describe("resolveAppForSkill", () => {
 
   it("is case-insensitive", () => {
     expect(resolveAppForSkill("Visual-Plan")?.serverName).toBe("plan");
+    expect(resolveAppForSkill("Visualize-Repo")?.serverName).toBe("plan");
     expect(resolveAppForSkill("ASSETS")?.serverName).toBe(
       "agent-native-assets",
     );
@@ -85,6 +80,7 @@ describe("appHasMcp", () => {
   it("is true for known skills and false otherwise", () => {
     expect(appHasMcp("visual-plan")).toBe(true);
     expect(appHasMcp("visual-recap")).toBe(true);
+    expect(appHasMcp("visualize-repo")).toBe(true);
     expect(appHasMcp("assets")).toBe(true);
     expect(appHasMcp("content")).toBe(true);
     expect(appHasMcp("design-exploration")).toBe(true);
@@ -103,7 +99,7 @@ describe("BUILT_IN_APP_MCP registry shape", () => {
   it("every hosted MCP url is under its hosted base url", () => {
     for (const app of BUILT_IN_APP_MCP) {
       expect(app.mcpUrl.startsWith(app.hostedUrl)).toBe(true);
-      expect(app.mcpUrl).toBe(`${app.hostedUrl}/_agent-native/mcp`);
+      expect(app.mcpUrl).toBe(`${app.hostedUrl}/mcp`);
     }
   });
 });

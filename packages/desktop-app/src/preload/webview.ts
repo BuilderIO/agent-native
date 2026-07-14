@@ -1,3 +1,7 @@
+import type {
+  DesktopDesignPreviewRequest,
+  DesktopDesignPreviewState,
+} from "@shared/design-preview-protocol";
 import {
   IPC,
   type DesktopContentFilesClearFolderRequest,
@@ -17,6 +21,26 @@ import {
 import { contextBridge, ipcRenderer } from "electron";
 
 const agentNativeDesktop = {
+  clipboard: {
+    writeText: (text: string): Promise<boolean> =>
+      ipcRenderer.invoke(IPC.CLIPBOARD_WRITE_TEXT, text),
+  },
+  designPreview: {
+    request: (request: DesktopDesignPreviewRequest): void => {
+      ipcRenderer.send(IPC.DESIGN_PREVIEW_REQUEST, request);
+    },
+    onState: (
+      callback: (state: DesktopDesignPreviewState) => void,
+    ): (() => void) => {
+      const handler = (
+        _event: Electron.IpcRendererEvent,
+        state: DesktopDesignPreviewState,
+      ) => callback(state);
+      ipcRenderer.on(IPC.DESIGN_PREVIEW_STATE, handler);
+      return () =>
+        ipcRenderer.removeListener(IPC.DESIGN_PREVIEW_STATE, handler);
+    },
+  },
   planFiles: {
     getFolder: (
       request: DesktopPlanFilesFolderRequest,

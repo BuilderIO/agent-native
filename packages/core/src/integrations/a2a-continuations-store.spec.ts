@@ -43,6 +43,8 @@ function continuationRow(overrides: Record<string, unknown> = {}) {
       timestamp: 1,
     }),
     placeholder_ref: null,
+    progress_ref: null,
+    progress_ref_claimed: 0,
     owner_email: "alice+qa@agent-native.test",
     org_id: null,
     agent_name: "Slides",
@@ -83,6 +85,25 @@ describe("A2A continuations store", () => {
     expect(dedupeAlterIndex).toBeGreaterThan(-1);
     expect(dedupeIndexIndex).toBeGreaterThan(-1);
     expect(dedupeAlterIndex).toBeLessThan(dedupeIndexIndex);
+    expect(calls).toContainEqual(
+      expect.stringContaining("ADD COLUMN progress_ref"),
+    );
+    const progressOwnerAlterIndex = calls.findIndex((sql) =>
+      sql.includes("ADD COLUMN progress_ref_claimed"),
+    );
+    const progressOwnerIndexIndex = calls.findIndex((sql) =>
+      sql.includes("idx_a2a_continuations_one_progress_owner"),
+    );
+    const progressOwnerBackfillIndex = calls.findIndex(
+      (sql) =>
+        sql.includes("SET progress_ref_claimed = 1") &&
+        sql.includes("ORDER BY selected.created_at ASC, selected.id ASC"),
+    );
+    expect(progressOwnerAlterIndex).toBeGreaterThan(-1);
+    expect(progressOwnerBackfillIndex).toBeGreaterThan(-1);
+    expect(progressOwnerIndexIndex).toBeGreaterThan(-1);
+    expect(progressOwnerAlterIndex).toBeLessThan(progressOwnerBackfillIndex);
+    expect(progressOwnerBackfillIndex).toBeLessThan(progressOwnerIndexIndex);
   });
 
   it("does not swallow non-duplicate column migration errors", async () => {
@@ -200,8 +221,10 @@ describe("A2A continuations store", () => {
     ]);
   });
 
-  it("allows multiple downstream continuations for one integration task", async () => {
+  it("assigns a native progress stream to only one continuation per integration task", async () => {
     const { insertA2AContinuation } = await loadStore();
+    const progressRefs = new Map<string, string | null>();
+    let progressOwnerClaimed = false;
     executeMock.mockImplementation(
       async (query: string | { sql: string; args?: unknown[] }) => {
         const sql = querySql(query);
@@ -209,6 +232,17 @@ describe("A2A continuations store", () => {
         if (
           sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
         ) {
+          progressRefs.set(args[0] as string, null);
+          return { rows: [], rowsAffected: 1 };
+        }
+        if (sql.includes("SET progress_ref = ?, progress_ref_claimed = 1")) {
+          if (progressOwnerClaimed) {
+            throw new Error(
+              "UNIQUE constraint failed: integration_a2a_continuations.integration_task_id",
+            );
+          }
+          progressOwnerClaimed = true;
+          progressRefs.set(args[1] as string, args[0] as string);
           return { rows: [], rowsAffected: 1 };
         }
         if (
@@ -224,7 +258,292 @@ describe("A2A continuations store", () => {
                 agent_name: "Analytics",
                 agent_url: "https://analytics.agent-native.test",
                 a2a_task_id: "a2a-task-new",
+                progress_ref: progressRefs.get(args[0] as string),
               }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const first = await insertA2AContinuation({
+      integrationTaskId: "task-existing",
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      incoming: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a deck",
+        platformContext: {},
+        responseContext: { interactionToken: "active-token-example" },
+        timestamp: 1,
+      },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      ownerEmail: "alice+qa@agent-native.test",
+      agentName: "Analytics",
+      agentUrl: "https://analytics.agent-native.test",
+      a2aTaskId: "a2a-task-new",
+    });
+
+    const second = await insertA2AContinuation({
+      integrationTaskId: "task-existing",
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      incoming: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a report",
+        platformContext: {},
+        responseContext: { interactionToken: "active-token-example" },
+        timestamp: 1,
+      },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000001" },
+      ownerEmail: "alice+qa@agent-native.test",
+      agentName: "Research",
+      agentUrl: "https://research.agent-native.test",
+      a2aTaskId: "a2a-task-second",
+    });
+
+    expect(first.integrationTaskId).toBe("task-existing");
+    expect(first.agentName).toBe("Analytics");
+    expect(first.a2aTaskId).toBe("a2a-task-new");
+    expect(first.progressRef).toEqual({
+      kind: "slack-stream",
+      streamTs: "1719000000.000001",
+    });
+    expect(second.progressRef).toBeNull();
+    const insertCalls = executeMock.mock.calls.filter(([query]) =>
+      querySql(query)
+        .trim()
+        .startsWith("INSERT INTO integration_a2a_continuations"),
+    );
+    expect(insertCalls).toHaveLength(2);
+    expect(JSON.parse(String(queryArgs(insertCalls[0]![0])[4]))).toMatchObject({
+      responseContext: { interactionToken: "active-token-example" },
+    });
+    expect(queryArgs(insertCalls[0]![0])[6]).toBeNull();
+    expect(queryArgs(insertCalls[0]![0])[7]).toBe(0);
+    const progressClaimCalls = executeMock.mock.calls.filter(([query]) =>
+      querySql(query).includes(
+        "SET progress_ref = ?, progress_ref_claimed = 1",
+      ),
+    );
+    expect(progressClaimCalls).toHaveLength(2);
+    expect(queryArgs(progressClaimCalls[0]![0])).toEqual([
+      JSON.stringify({ kind: "slack-stream", streamTs: "1719000000.000001" }),
+      expect.any(String),
+    ]);
+  });
+
+  it.each([
+    ["missing", null],
+    [
+      "stale",
+      JSON.stringify({
+        kind: "slack-stream",
+        streamTs: "1719000000.000001",
+      }),
+    ],
+  ])(
+    "upgrades a duplicate active continuation with a %s resumable progress reference",
+    async (_state, initialProgressRef) => {
+      const { insertA2AContinuation } = await loadStore();
+      const newerProgressRef = {
+        kind: "slack-stream",
+        streamTs: "1719000000.000002",
+      };
+      let progressRef = initialProgressRef;
+      executeMock.mockImplementation(
+        async (query: string | { sql: string; args?: unknown[] }) => {
+          const sql = querySql(query);
+          const args = queryArgs(query);
+          if (
+            sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
+          ) {
+            throw Object.assign(new Error("duplicate key value"), {
+              code: "23505",
+            });
+          }
+          if (
+            sql.includes("WHERE integration_task_id = ?") &&
+            sql.includes("a2a_task_id = ?")
+          ) {
+            return {
+              rows: [
+                continuationRow({
+                  id: "cont-duplicate",
+                  status: "pending",
+                  progress_ref: progressRef,
+                  progress_ref_claimed: 1,
+                }),
+              ],
+              rowsAffected: 0,
+            };
+          }
+          if (
+            sql.includes("UPDATE integration_a2a_continuations") &&
+            sql.includes("SET progress_ref = ?")
+          ) {
+            progressRef = String(args[0]);
+            return { rows: [], rowsAffected: 1 };
+          }
+          if (
+            sql.includes(
+              "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+            )
+          ) {
+            return {
+              rows: [
+                continuationRow({
+                  id: "cont-duplicate",
+                  status: "pending",
+                  progress_ref: progressRef,
+                  progress_ref_claimed: 1,
+                }),
+              ],
+              rowsAffected: 0,
+            };
+          }
+          return { rows: [], rowsAffected: 0 };
+        },
+      );
+
+      const continuation = await insertA2AContinuation({
+        integrationTaskId: "task-existing",
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        incoming: {
+          platform: "slack",
+          externalThreadId: "C123:123.456",
+          text: "make a deck",
+          platformContext: {},
+          timestamp: 1,
+        },
+        progressRef: newerProgressRef,
+        ownerEmail: "alice+qa@agent-native.test",
+        agentName: "Analytics",
+        agentUrl: "https://analytics.agent-native.test",
+        a2aTaskId: "a2a-task-existing",
+      });
+
+      expect(continuation.progressRef).toEqual(newerProgressRef);
+      const updateCall = executeMock.mock.calls.find(([query]) =>
+        querySql(query).includes("SET progress_ref = ?"),
+      );
+      expect(updateCall).toBeDefined();
+      expect(queryArgs(updateCall![0])).toEqual([
+        JSON.stringify(newerProgressRef),
+        expect.any(Number),
+        "cont-duplicate",
+        JSON.stringify(newerProgressRef),
+      ]);
+    },
+  );
+
+  it("does not let a duplicate retry reclaim a sibling's native progress stream", async () => {
+    const { insertA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (
+          sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
+        ) {
+          throw Object.assign(new Error("duplicate key value"), {
+            code: "23505",
+          });
+        }
+        if (
+          sql.includes("WHERE integration_task_id = ?") &&
+          sql.includes("a2a_task_id = ?")
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                id: "cont-lost-owner-race",
+                status: "pending",
+                progress_ref: null,
+                progress_ref_claimed: 0,
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        if (sql.includes("SET progress_ref = ?, progress_ref_claimed = 1")) {
+          throw new Error(
+            "UNIQUE constraint failed: integration_a2a_continuations.integration_task_id",
+          );
+        }
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [
+              continuationRow({
+                id: "cont-lost-owner-race",
+                status: "pending",
+                progress_ref: null,
+                progress_ref_claimed: 0,
+              }),
+            ],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuation = await insertA2AContinuation({
+      integrationTaskId: "task-existing",
+      platform: "slack",
+      externalThreadId: "C123:123.456",
+      incoming: {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "retry the report",
+        platformContext: {},
+        timestamp: 1,
+      },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000002" },
+      ownerEmail: "alice+qa@agent-native.test",
+      agentName: "Research",
+      agentUrl: "https://research.agent-native.test",
+      a2aTaskId: "a2a-task-existing",
+    });
+
+    expect(continuation.progressRef).toBeNull();
+    expect(continuation.progressRefClaimed).toBe(false);
+    expect(
+      executeMock.mock.calls.some(([query]) =>
+        querySql(query).includes(
+          "SET progress_ref = ?, progress_ref_claimed = 1",
+        ),
+      ),
+    ).toBe(true);
+  });
+
+  it("does not restore progress on duplicate terminal continuations", async () => {
+    const { insertA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        if (
+          sql.trim().startsWith("INSERT INTO integration_a2a_continuations")
+        ) {
+          throw Object.assign(new Error("duplicate key value"), {
+            code: "23505",
+          });
+        }
+        if (
+          sql.includes("WHERE integration_task_id = ?") &&
+          sql.includes("a2a_task_id = ?")
+        ) {
+          return {
+            rows: [
+              continuationRow({ id: "cont-completed", status: "completed" }),
             ],
             rowsAffected: 0,
           };
@@ -244,22 +563,80 @@ describe("A2A continuations store", () => {
         platformContext: {},
         timestamp: 1,
       },
+      progressRef: { kind: "slack-stream", streamTs: "1719000000.000002" },
       ownerEmail: "alice+qa@agent-native.test",
       agentName: "Analytics",
       agentUrl: "https://analytics.agent-native.test",
-      a2aTaskId: "a2a-task-new",
+      a2aTaskId: "a2a-task-existing",
     });
 
-    expect(continuation.integrationTaskId).toBe("task-existing");
-    expect(continuation.agentName).toBe("Analytics");
-    expect(continuation.a2aTaskId).toBe("a2a-task-new");
+    expect(continuation.progressRef).toBeNull();
     expect(
       executeMock.mock.calls.some(([query]) =>
-        querySql(query)
-          .trim()
-          .startsWith("INSERT INTO integration_a2a_continuations"),
+        querySql(query).includes("SET progress_ref = ?"),
       ),
-    ).toBe(true);
+    ).toBe(false);
+  });
+
+  it("treats invalid stored progress references as unavailable", async () => {
+    const { getA2AContinuation } = await loadStore();
+    executeMock.mockImplementation(
+      async (query: string | { sql: string; args?: unknown[] }) => {
+        const sql = querySql(query);
+        const args = queryArgs(query);
+        if (
+          sql.includes(
+            "SELECT * FROM integration_a2a_continuations WHERE id = ?",
+          )
+        ) {
+          return {
+            rows: [continuationRow({ id: args[0], progress_ref: "not-json" })],
+            rowsAffected: 0,
+          };
+        }
+        return { rows: [], rowsAffected: 0 };
+      },
+    );
+
+    const continuation = await getA2AContinuation("cont-invalid-progress");
+
+    expect(continuation?.progressRef).toBeNull();
+  });
+
+  it("scrubs short-lived delivery context from terminal continuation rows", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { completeA2AContinuation, failA2AContinuation } = await loadStore();
+
+    await completeA2AContinuation("cont-completed");
+    await failA2AContinuation("cont-failed", "remote task failed");
+
+    const terminalUpdates = executeMock.mock.calls
+      .map(([query]) => query)
+      .filter(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("UPDATE integration_a2a_continuations"),
+      );
+    expect(terminalUpdates).toHaveLength(2);
+    for (const update of terminalUpdates) {
+      expect(update.sql).toContain("incoming_payload = ?");
+      expect(update.sql).toContain("a2a_auth_token = NULL");
+      expect(update.sql).toContain("progress_ref = NULL");
+    }
+    expect(terminalUpdates[0].args).toEqual([
+      "completed",
+      expect.any(Number),
+      expect.any(Number),
+      "{}",
+      "cont-completed",
+    ]);
+    expect(terminalUpdates[1].args).toEqual([
+      "failed",
+      expect.any(Number),
+      "remote task failed",
+      "{}",
+      "cont-failed",
+    ]);
   });
 
   it("atomically marks a processing continuation as delivering before platform send", async () => {

@@ -1,6 +1,6 @@
 ---
 title: "Analytics"
-description: "Ask analytics questions in plain English, get charts and dashboards back. An open-source replacement for Amplitude, Mixpanel, and Looker."
+description: "Ask analytics questions in plain English, get charts and dashboards back — an open-source replacement for Amplitude, Mixpanel, and Looker that connects your own warehouse and event sources."
 ---
 
 # Analytics
@@ -11,7 +11,7 @@ Ask analytics questions in plain English, get charts and dashboards back. The ag
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:32%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:48%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:63%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:80%;flex:1;background:var(--wf-accent-soft)'></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><br/><small class='wf-muted'>Lower chart begins below the main charts.</small></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:500px;box-sizing:border-box'><h1 style='margin:0'>Agent-Native Templates</h1><p class='wf-muted' style='margin:0'>Adoption and engagement across the last 12 weeks.</p><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:12px'><div class='wf-card'><small class='wf-muted'>Weekly active users</small><br/><strong>24,318</strong><br/><span class='wf-pill accent'>+12.4%</span></div><div class='wf-card'><small class='wf-muted'>New signups</small><br/><strong>1,842</strong><br/><span class='wf-pill accent'>+8.7%</span></div><div class='wf-card'><small class='wf-muted'>Revenue MRR</small><br/><strong>$48,210</strong><br/><span class='wf-pill accent'>+21.3%</span></div></div><div style='display:grid;grid-template-columns:1fr 1fr;gap:12px;flex:1'><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Weekly active users</strong><div style='flex:1;display:flex;align-items:end;gap:8px'><div style='height:38%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:44%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:58%;flex:1;background:var(--wf-accent-soft)'></div><div style='height:74%;flex:1;background:var(--wf-accent-soft)'></div></div></div><div class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Revenue over time</strong><div style='flex:1;position:relative;background:linear-gradient(115deg,var(--wf-accent-soft) 0%,transparent 60%);border-radius:6px'><div style='position:absolute;inset:0;display:flex;align-items:end;gap:10px;padding:0 6px 6px'><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:14%'></span><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:30%'></span><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:48%'></span><span style='width:7px;height:7px;border-radius:50%;background:var(--wf-accent);margin-bottom:72%'></span></div></div></div></div><div class='wf-card'><strong>Signups by source</strong><div style='display:flex;flex-direction:column;gap:6px;margin-top:10px'><div style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='width:60px;font-size:11px'>Organic</span><div class='wf-box' style='height:12px;width:70%;padding:0'></div></div><div style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='width:60px;font-size:11px'>Referral</span><div class='wf-box' style='height:12px;width:45%;padding:0'></div></div><div style='display:flex;align-items:center;gap:8px'><span class='wf-muted' style='width:60px;font-size:11px'>Paid ads</span><div class='wf-box' style='height:12px;width:28%;padding:0'></div></div></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -125,11 +125,6 @@ Create a new Analytics app from the CLI:
 
 ```bash
 npx @agent-native/core@latest create my-analytics --standalone --template analytics
-```
-
-Local dev:
-
-```bash
 cd my-analytics
 pnpm install
 pnpm dev
@@ -151,6 +146,14 @@ The CLI prints the local dev URL. Sign in with Google, then open the **Data Sour
 **Living data dictionary.** Metric definitions, owners, source tables, and known caveats give the agent the real warehouse vocabulary before it writes queries.
 
 **Broad connector surface.** BigQuery, GA4, product analytics, CRM, support, community, GitHub/Jira, SEO, and first-party `/track` events all come through actions the agent can call.
+
+**Session replay agent handoff.** Session recordings stay private, but the session detail page can mint a temporary **Copy for agent** link. The two-hour `agent_access` URL lets an external agent read replay summaries, timelines, and bounded event details without exposing blob/provider URLs or making the recording public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep replay chunk authorization, diagnostics payloads, and the
+session detail UI local to Analytics.
 
 ### Working with the agent
 
@@ -363,3 +366,11 @@ To add a new data source, drop a script in `actions/` that calls the provider an
 To add a new chart type, extend the `ChartType` union in `app/pages/adhoc/sql-dashboard/types.ts`, handle it in `SqlChartCard.tsx`, and the agent can use it in any panel.
 
 For the broader pattern on extending templates, see the [Skills guide](/docs/skills-guide) and [Actions](/docs/actions).
+
+## What's next
+
+- [**Templates**](/docs/cloneable-saas) — the clone-and-own model, and every other domain template to start from
+- [**Getting Started**](/docs/getting-started) — the framework fundamentals: actions, application state, and live sync
+- [**Actions**](/docs/actions) — the action system dashboards, analyses, and the dictionary are built on
+- [**Sharing**](/docs/sharing) — the share-grant model dashboards and analyses build on
+- [**Automations**](/docs/automations) — schedule recurring dashboard refreshes or alerts

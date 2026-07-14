@@ -25,6 +25,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => ({
@@ -343,12 +344,21 @@ describe("update-visual-plan comments", () => {
     const txInsertMock = vi.fn(() => ({
       values: txInsertValuesMock,
     }));
+    const txSelectMock = vi.fn(() => ({
+      from: vi.fn(() => ({ where: vi.fn(async () => []) })),
+    }));
+    const transactionMock = vi.fn(async (callback) =>
+      callback({
+        update: txUpdateMock,
+        insert: txInsertMock,
+        select: txSelectMock,
+      }),
+    );
     getDbMock.mockReturnValue({
+      transaction: transactionMock,
       update: txUpdateMock,
       insert: txInsertMock,
-      select: vi.fn(() => ({
-        from: vi.fn(() => ({ where: vi.fn(async () => []) })),
-      })),
+      select: txSelectMock,
     });
     loadPlanBundleMock.mockResolvedValue({
       plan: {
@@ -527,7 +537,15 @@ describe("update-visual-plan comments", () => {
     const dbInsertMock = vi.fn(() => ({
       values: dbInsertValuesMock,
     }));
+    const dbTransactionMock = vi.fn(async (callback) =>
+      callback({
+        update: dbUpdateMock,
+        insert: dbInsertMock,
+        select: vi.fn(),
+      }),
+    );
     getDbMock.mockReturnValue({
+      transaction: dbTransactionMock,
       update: dbUpdateMock,
       insert: dbInsertMock,
       select: vi.fn(),

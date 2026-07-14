@@ -52,8 +52,8 @@ describe("list-agent-engines", () => {
 
   it("does not report AGENT_ENGINE as current when only blocked hosted deploy credentials exist", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
-    vi.stubEnv("AGENT_ENGINE", "test:openai");
-    vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
+    vi.stubEnv("AGENT_ENGINE", "test:blocked-provider");
+    vi.stubEnv("BLOCKED_PROVIDER_API_KEY", "blocked-provider-test-key");
 
     const { registerAgentEngine } = await import("../../agent/engine/index.js");
     const { runWithRequestContext } =
@@ -61,13 +61,13 @@ describe("list-agent-engines", () => {
     const { run } = await import("./list-agent-engines.js");
 
     registerAgentEngine({
-      name: "test:openai",
-      label: "OpenAI Test",
+      name: "test:blocked-provider",
+      label: "Blocked Provider Test",
       description: "",
       capabilities: {} as any,
-      defaultModel: "gpt-test",
-      supportedModels: ["gpt-test"],
-      requiredEnvVars: ["OPENAI_API_KEY"],
+      defaultModel: "blocked-test-model",
+      supportedModels: ["blocked-test-model"],
+      requiredEnvVars: ["BLOCKED_PROVIDER_API_KEY"],
       create: vi.fn() as any,
     });
 
@@ -80,7 +80,7 @@ describe("list-agent-engines", () => {
     expect(result.current).toBeNull();
   });
 
-  it("does not auto-detect hosted deploy provider env as the current engine", async () => {
+  it("auto-detects hosted app-provided provider env as the current engine", async () => {
     vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
     vi.stubEnv("OPENAI_API_KEY", "sk-test-example");
 
@@ -106,7 +106,28 @@ describe("list-agent-engines", () => {
       ),
     );
 
-    expect(result.current?.engine).not.toBe("test:openai");
-    expect(result.current?.model).not.toBe("gpt-test");
+    expect(result.current?.engine).toBe("test:openai");
+    expect(result.current?.model).toBe("gpt-test");
+  });
+
+  it("reports the Builder engine default without a hosted experiment assignment", async () => {
+    vi.stubEnv("BUILDER_PRIVATE_KEY", "builder-private-example");
+    vi.stubEnv("BUILDER_PUBLIC_KEY", "builder-public-example");
+    vi.stubEnv("URL", "https://chat.agent-native.com");
+
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(
+      await runWithRequestContext({ userEmail: "hosted@example.com" }, () =>
+        run(),
+      ),
+    );
+
+    expect(result.current).toEqual({
+      engine: "builder",
+      model: "claude-sonnet-5",
+    });
   });
 });

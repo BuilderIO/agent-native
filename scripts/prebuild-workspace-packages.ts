@@ -95,6 +95,16 @@ function exportedDistOutputs(packageDir: string): string[] {
 
 const targets: PackageTarget[] = [
   {
+    id: "recap-cli",
+    name: "@agent-native/recap-cli",
+    dir: "packages/recap-cli",
+    expectedOutputs: [
+      ...exportedDistOutputs("packages/recap-cli"),
+      "dist/cli.js",
+    ],
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/recap-cli.tsbuildinfo"],
+  },
+  {
     id: "shared-app-config",
     name: "@agent-native/shared-app-config",
     dir: "packages/shared-app-config",
@@ -102,6 +112,13 @@ const targets: PackageTarget[] = [
     tsBuildInfoFiles: [
       "node_modules/.cache/tsbuildinfo/shared-app-config.tsbuildinfo",
     ],
+  },
+  {
+    id: "toolkit",
+    name: "@agent-native/toolkit",
+    dir: "packages/toolkit",
+    expectedOutputs: exportedDistOutputs("packages/toolkit"),
+    tsBuildInfoFiles: ["node_modules/.cache/tsbuildinfo/toolkit.tsbuildinfo"],
   },
   {
     id: "core",
@@ -165,7 +182,9 @@ const targets: PackageTarget[] = [
 
 const modeTargets: Record<PrebuildMode, string[]> = {
   dev: [
+    "recap-cli",
     "shared-app-config",
+    "toolkit",
     "core",
     "code-agents-ui",
     "scheduling",
@@ -173,7 +192,9 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "pinpoint",
   ],
   postinstall: [
+    "recap-cli",
     "shared-app-config",
+    "toolkit",
     "core",
     "code-agents-ui",
     "migrate",

@@ -20,6 +20,7 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useEffect, useRef, useMemo } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -33,7 +34,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
 
 import {
   MAX_BUILDER_INDEX_UPLOAD_BYTES,
@@ -85,6 +85,11 @@ function normalizeWebsiteUrlInput(input: string): string | null {
   } catch {
     return null;
   }
+}
+
+function isDesignMdFile(file: UploadedFile) {
+  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+  return name === "design.md" || name === "design.mdx";
 }
 
 export function DesignSystemSetup({
@@ -300,12 +305,9 @@ export function DesignSystemSetup({
         customInstructions,
       });
       onComplete();
-      toast({ title: t("designSystemSetup.updated") });
+      toast.success(t("designSystemSetup.updated"));
     } catch {
-      toast({
-        title: t("designSystemSetup.updateFailed"),
-        variant: "destructive",
-      });
+      toast.error(t("designSystemSetup.updateFailed"));
     } finally {
       setGenerating(false);
     }
@@ -328,7 +330,7 @@ export function DesignSystemSetup({
 
     const parts: string[] = [];
     parts.push(
-      "Set up a design system from the following sources. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system for my slide decks.",
+      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system for my slide decks.",
     );
 
     if (companyName.trim()) {
@@ -343,15 +345,21 @@ export function DesignSystemSetup({
 
     if (githubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nStart Builder design-system indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${githubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Slides flows. If Builder is not connected, stop and tell me to connect Builder from Settings.`,
       );
     }
 
+    const designMdFiles = [...codeFiles, ...docFiles].filter(
+      (file) => file.textContent && isDesignMdFile(file),
+    );
+
     if (codeFiles.length > 0) {
-      const withContent = codeFiles.filter((f) => f.textContent);
+      const withContent = codeFiles.filter(
+        (f) => f.textContent && !isDesignMdFile(f),
+      );
       if (withContent.length > 0) {
         parts.push(
-          `\n## Code Files (${withContent.length} files)\nStart Builder design-system indexing with \`index-design-system-with-builder\` using these files:`,
+          `\n## Connect Code: Code Files (${withContent.length} files)\nStart Builder DSI indexing with \`index-design-system-with-builder\` using these files as the \`codeFiles\` argument:`,
         );
         for (const f of withContent) {
           parts.push(
@@ -361,14 +369,27 @@ export function DesignSystemSetup({
       }
     }
 
+    if (designMdFiles.length > 0) {
+      parts.push(
+        `\n## Optional design.md (${designMdFiles.length} file${designMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+      );
+      for (const f of designMdFiles) {
+        parts.push(
+          `\n### ${f.name}\n\`\`\`md\n${inlineText(f.textContent!)}\n\`\`\``,
+        );
+      }
+    }
+
     if (builderIndexResult) {
       parts.push(
-        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
+        `\n## Connect Figma: Builder-Indexed Figma File\nBuilder DSI indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for indexed tokens, assets, components, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
       );
     }
 
     if (docFiles.length > 0) {
-      const inlined = docFiles.filter((f) => f.textContent);
+      const inlined = docFiles.filter(
+        (f) => f.textContent && !isDesignMdFile(f),
+      );
       const binary = docFiles.filter((f) => !f.textContent);
       if (inlined.length > 0) {
         parts.push(
@@ -413,7 +434,7 @@ export function DesignSystemSetup({
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder design-system indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for those Builder-indexed sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
@@ -422,8 +443,7 @@ export function DesignSystemSetup({
 
     openAgentSidebar();
     sendToAgentChat({ message: parts.join("\n"), submit: true });
-    toast({
-      title: t("designSystemSetup.generationStarted"),
+    toast(t("designSystemSetup.generationStarted"), {
       description: t("designSystemSetup.generationStartedDescription"),
     });
     onComplete();
@@ -624,7 +644,7 @@ export function DesignSystemSetup({
                     ref={codeInputRef}
                     type="file"
                     multiple
-                    accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html"
+                    accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
                     onChange={(e) => {
                       if (e.target.files)
                         readTextFiles(e.target.files, setCodeFiles);

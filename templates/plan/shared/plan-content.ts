@@ -148,6 +148,7 @@ export type PlanWireframeSurface =
   | "browser";
 
 export type PlanVisualCanvasMode = "wireframe" | "design";
+export type PlanVisualFrame = "auto" | "show" | "hide";
 
 /** Tone keyword reused across screen primitives. The renderer maps to color. */
 export type PlanWireframeTone = "default" | "accent" | "warn" | "ok" | "muted";
@@ -259,6 +260,8 @@ export type PlanWireframeBlock = PlanBlockBase & {
     /** `design` renders full-fidelity branded HTML/CSS instead of a sketch. */
     renderMode?: PlanVisualCanvasMode;
     caption?: string;
+    /** Outer surface frame. `auto` lets the host choose the right default. */
+    frame?: PlanVisualFrame;
     /**
      * Neutral, textless loading register. The renderer drops borders, the sketch
      * outline, and color, rendering soft placeholder geometry only — a real
@@ -365,6 +368,8 @@ export type PlanDiagramBlock = PlanBlockBase & {
     html?: string;
     css?: string;
     caption?: string;
+    /** Outer surface frame. `auto` lets the host choose the right default. */
+    frame?: PlanVisualFrame;
     nodes?: PlanDiagramNode[];
     edges?: PlanDiagramEdge[];
     notes?: Array<{
@@ -1215,12 +1220,14 @@ const wireframeSurfaceSchema = z.enum([
 ]);
 
 const visualCanvasModeSchema = z.enum(["wireframe", "design"]);
+const visualFrameSchema = z.enum(["auto", "show", "hide"]);
 
-export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
+export const wireframeDataSchema = z
   .object({
     surface: wireframeSurfaceSchema,
     renderMode: visualCanvasModeSchema.optional(),
     caption: z.string().trim().max(400).optional(),
+    frame: visualFrameSchema.optional(),
     skeleton: z.boolean().optional(),
     html: z
       .string()
@@ -1287,6 +1294,25 @@ export const wireframeDataSchema: z.ZodType<PlanWireframeBlock["data"]> = z
   })
   .strict();
 
+/**
+ * Compact ADVERTISED-ONLY stand-in for `wireframeDataSchema`. Only the
+ * `screen` field changes: it's the same legacy per-node kit-tree schema also
+ * reachable through `planBlockSchema`'s `wireframe` block type (see
+ * `agentPlanBlockSchema`), reused here because `canvas.frames` (artboards)
+ * and the `update-canvas-frame` content patch can ALSO carry an inline
+ * wireframe outside of `blocks`. New wireframes should set `html` (semantic
+ * HTML) instead — `screen` kit trees are legacy-compatibility only.
+ */
+export const agentWireframeDataSchema = wireframeDataSchema.extend({
+  screen: z
+    .array(z.record(z.string(), z.unknown()))
+    .max(WIREFRAME_MAX_NODES)
+    .optional()
+    .describe(
+      "Legacy kit-tree node array — do not author new wireframes this way; prefer `html` (semantic HTML fragment). Call get-plan-blocks for the node shape before editing an existing kit-tree wireframe.",
+    ),
+});
+
 const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   id: idSchema,
   kind: z.enum([
@@ -1308,21 +1334,35 @@ const wireframeRegionSchema: z.ZodType<PlanWireframeRegion> = z.object({
   emphasis: z.boolean().optional(),
 });
 
-const legacyWireframeDataSchema: z.ZodType<PlanLegacyWireframeBlock["data"]> =
-  z.object({
-    viewport: z.enum(["desktop", "tablet", "phone"]).optional(),
-    template: z
-      .enum([
-        "context-xray-app",
-        "context-xray-default",
-        "context-xray-expanded",
-        "context-xray-map",
-        "context-xray-chat-cleanup",
-      ])
-      .optional(),
-    caption: z.string().trim().max(400).optional(),
-    regions: z.array(wireframeRegionSchema).max(80).default([]),
-  });
+const legacyWireframeDataSchema = z.object({
+  viewport: z.enum(["desktop", "tablet", "phone"]).optional(),
+  template: z
+    .enum([
+      "context-xray-app",
+      "context-xray-default",
+      "context-xray-expanded",
+      "context-xray-map",
+      "context-xray-chat-cleanup",
+    ])
+    .optional(),
+  caption: z.string().trim().max(400).optional(),
+  regions: z.array(wireframeRegionSchema).max(80).default([]),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `legacyWireframeDataSchema`. Only
+ * `regions` changes — this is an old region-based wireframe fallback; new
+ * work should use the `wireframe` block/field (semantic HTML) instead.
+ */
+const agentLegacyWireframeDataSchema = legacyWireframeDataSchema.extend({
+  regions: z
+    .array(z.record(z.string(), z.unknown()))
+    .max(80)
+    .default([])
+    .describe(
+      "Legacy region-based wireframe — do not author new content this way; use the `wireframe` block/field (semantic HTML) instead. Call get-plan-blocks for the region shape before editing an existing one.",
+    ),
+});
 
 const diagramNodeSchema: z.ZodType<PlanDiagramNode> = z.object({
   id: idSchema,
@@ -1357,6 +1397,7 @@ const diagramDataSchema: z.ZodType<PlanDiagramBlock["data"]> = z
       })
       .optional(),
     caption: z.string().trim().max(600).optional(),
+    frame: visualFrameSchema.optional(),
     nodes: z.array(diagramNodeSchema).max(80).optional(),
     edges: z.array(diagramEdgeSchema).max(120).optional(),
     notes: z
@@ -1776,6 +1817,116 @@ export const planBlockSchema: z.ZodType<PlanBlock> = z.lazy(() =>
   ]),
 ) as z.ZodType<PlanBlock>;
 
+/**
+ * Every `PlanBlock` `type` literal, kept in sync with the discriminated union
+ * above. Reused by `agentPlanBlockSchema` (the compact advertised stand-in)
+ * so the enum can never silently drift from the real block types.
+ */
+export const PLAN_BLOCK_TYPES = [
+  "rich-text",
+  "callout",
+  "checklist",
+  "table",
+  "code-tabs",
+  "code",
+  "implementation-map",
+  "wireframe",
+  "legacy-wireframe",
+  "diagram",
+  "image",
+  "tabs",
+  "columns",
+  "custom-html",
+  "question-form",
+  "visual-questions",
+  "mermaid",
+  "api-endpoint",
+  "openapi-spec",
+  "data-model",
+  "diff",
+  "file-tree",
+  "json-explorer",
+  "annotated-code",
+] as const satisfies readonly PlanBlock["type"][];
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `planBlockSchema`. The real union's
+ * per-type `data` shapes (wireframe kit trees, diagram nodes/edges,
+ * api-endpoint params, data-model entities/fields, diff/annotated-code line
+ * refs, ...) serialize to tens of KB of JSON Schema once embedded in an
+ * action's tool definition — see the `actions` skill and
+ * `agent-native.json`'s "compact agent schemas" note. Plan's own workflow
+ * already mandates calling `get-plan-blocks` / `list-plan-components` before
+ * authoring blocks, so re-teaching every field shape inline is redundant
+ * documentation that costs real context on every request.
+ *
+ * Pass this as `defineAction`'s `agentInputSchema` (never as the real
+ * `schema`) so the model only sees a `type` enum plus a pointer to the
+ * lookup tool; runtime validation still runs the full `planBlockSchema` via
+ * `planContentSchema` / `planContentPatchSchema`, so an invalid `data` shape
+ * still fails loudly with the real, actionable zod error.
+ */
+export const agentPlanBlockSchema = z.object({
+  id: idSchema.describe(
+    "Stable block id (short, unique within the plan) — required.",
+  ),
+  type: z
+    .enum(PLAN_BLOCK_TYPES)
+    .describe(
+      "Block type: rich-text=prose/heading, callout=toned note, " +
+        "checklist=to-dos, table=rows/cols, code-tabs=multi-snippet tabs, " +
+        "code=one snippet, implementation-map=file list+notes, " +
+        "wireframe=semantic-HTML UI screen, legacy-wireframe=region UI " +
+        "(legacy, do not author new), diagram=HTML/SVG flow diagram, " +
+        "image=asset/URL image, tabs=nested block tabs, " +
+        "columns=nested block columns, custom-html=bounded HTML/CSS, " +
+        "question-form=reviewer questions, visual-questions=alias of " +
+        "question-form, mermaid=mermaid source, api-endpoint=one HTTP " +
+        "endpoint, openapi-spec=full OpenAPI spec, " +
+        "data-model=entities/fields/relations, diff=before/after code diff, " +
+        "file-tree=annotated file tree, json-explorer=JSON viewer, " +
+        "annotated-code=code+line annotations. Call get-plan-blocks (or " +
+        "list-plan-components) FIRST for exact per-type `data` field shapes " +
+        "and authoring rules — do not guess from memory.",
+    ),
+  title: z.string().trim().max(180).optional(),
+  summary: z.string().trim().max(600).optional(),
+  editable: z.boolean().optional(),
+  data: z
+    .record(z.string(), z.unknown())
+    .describe(
+      "Type-specific fields — shape depends on `type`. Call get-plan-blocks " +
+        "for the exact fields before authoring; do not guess from memory. " +
+        "`tabs`/`columns` nest child blocks with this same compact shape.",
+    ),
+});
+
+/**
+ * Terser sibling of `agentPlanBlockSchema` for the `replace-block` /
+ * `replace-blocks` / `append-block` content-patch ops. Those ops already sit
+ * next to `content` (which carries the full per-type gloss on `blocks[].type`)
+ * in the same action's advertised schema, so repeating the ~900-character
+ * enum description 3 more times would only burn context for no new
+ * information — a short cross-reference is enough here.
+ */
+const agentPlanBlockSchemaTerse = z.object({
+  id: idSchema.describe(
+    "Stable block id (short, unique within the plan) — required.",
+  ),
+  type: z
+    .enum(PLAN_BLOCK_TYPES)
+    .describe(
+      "Block type — same options as content.blocks. Call get-plan-blocks " +
+        "for the per-type `data` field shapes.",
+    ),
+  title: z.string().trim().max(180).optional(),
+  summary: z.string().trim().max(600).optional(),
+  editable: z.boolean().optional(),
+  data: z
+    .record(z.string(), z.unknown())
+    .describe("Type-specific fields — call get-plan-blocks for the shape."),
+});
+
 const annotationPlacementSchema = z.enum([
   "top",
   "right",
@@ -1800,20 +1951,34 @@ const annotationStyleSchema: z.ZodType<PlanAnnotationStyle> = z.object({
   width: z.number().min(1).max(12).optional(),
 });
 
-const artboardSchema: z.ZodType<PlanArtboard> = z
-  .object({
-    id: idSchema,
-    label: z.string().trim().max(180).optional(),
-    surface: wireframeSurfaceSchema.optional(),
-    blockId: idSchema.optional(),
-    wireframe: wireframeDataSchema.optional(),
-    legacyWireframe: legacyWireframeDataSchema.optional(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    width: z.number().min(80).optional(),
-    height: z.number().min(80).optional(),
-    order: z.number().optional(),
-  })
+/**
+ * Named so `agentArtboardSchema` below can `.extend()` it with a compact
+ * `wireframe` field instead of duplicating every other key.
+ */
+const artboardObjectSchema = z.object({
+  id: idSchema,
+  label: z.string().trim().max(180).optional(),
+  surface: wireframeSurfaceSchema.optional(),
+  blockId: idSchema.optional(),
+  wireframe: wireframeDataSchema.optional(),
+  legacyWireframe: legacyWireframeDataSchema.optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().min(80).optional(),
+  height: z.number().min(80).optional(),
+  order: z.number().optional(),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `artboardSchema` (a canvas frame).
+ * `wireframe`/`legacyWireframe` swap in their compact stand-ins.
+ */
+export const agentArtboardSchema = artboardObjectSchema.extend({
+  wireframe: agentWireframeDataSchema.optional(),
+  legacyWireframe: agentLegacyWireframeDataSchema.optional(),
+});
+
+const artboardSchema: z.ZodType<PlanArtboard> = artboardObjectSchema
   // An artboard is a titled frame on the canvas; a label with no interior
   // wireframe renders as an empty dashed box (a label-only artboard). Reject
   // those at parse time so generation can never emit a frame with no content:
@@ -2060,41 +2225,81 @@ function preflightPlanContentInput(input: unknown): unknown {
   };
 }
 
-export const planContentSchema: z.ZodType<PlanContent> = z
-  .preprocess(
-    preflightPlanContentInput,
-    z.object({
-      version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
-      title: z.string().trim().max(240).optional(),
-      brief: z.string().trim().max(4_000).optional(),
-      notionSync: z.boolean().optional(),
-      prototype: prototypeSchema.optional(),
-      canvas: z
+/**
+ * Inner object schema behind `planContentSchema`'s preprocess/superRefine
+ * wrapper, extracted so `agentPlanContentSchema` below can `.extend()` it
+ * with a compact `blocks` field instead of duplicating every other key.
+ */
+/**
+ * Named so `agentPlanContentSchema` below can `.extend()` it with a compact
+ * `frames` field instead of duplicating every other canvas key.
+ */
+const canvasSchema = z.object({
+  mode: visualCanvasModeSchema.optional(),
+  title: z.string().trim().max(180).optional(),
+  design: designMetadataSchema.optional(),
+  viewport: z
+    .object({
+      zoom: z.number().min(0.05).max(8).optional(),
+      pan: z
         .object({
-          mode: visualCanvasModeSchema.optional(),
-          title: z.string().trim().max(180).optional(),
-          design: designMetadataSchema.optional(),
-          viewport: z
-            .object({
-              zoom: z.number().min(0.05).max(8).optional(),
-              pan: z
-                .object({
-                  x: z.number().optional(),
-                  y: z.number().optional(),
-                })
-                .optional(),
-            })
-            .optional(),
-          sections: z.array(boardSectionSchema).max(40).optional(),
-          frames: z.array(artboardSchema).max(40).default([]),
-          flow: z.array(connectorSchema).max(80).optional(),
-          annotations: z.array(annotationSchema).max(80).optional(),
-          notes: z.array(legacyNoteSchema).max(80).optional(),
+          x: z.number().optional(),
+          y: z.number().optional(),
         })
         .optional(),
-      blocks: z.array(planBlockSchema).max(200).default([]),
-    }),
-  )
+    })
+    .optional(),
+  sections: z.array(boardSectionSchema).max(40).optional(),
+  frames: z.array(artboardSchema).max(40).default([]),
+  flow: z.array(connectorSchema).max(80).optional(),
+  annotations: z.array(annotationSchema).max(80).optional(),
+  notes: z.array(legacyNoteSchema).max(80).optional(),
+});
+
+const planContentObjectSchema = z.object({
+  version: z.number().int().min(PLAN_CONTENT_MIN_VERSION),
+  title: z.string().trim().max(240).optional(),
+  brief: z.string().trim().max(4_000).optional(),
+  notionSync: z.boolean().optional(),
+  prototype: prototypeSchema.optional(),
+  canvas: canvasSchema.optional(),
+  blocks: z.array(planBlockSchema).max(200).default([]),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `canvasSchema`. Only `frames` changes:
+ * each frame's `wireframe` swaps in the compact `agentWireframeDataSchema`.
+ */
+const agentCanvasSchema = canvasSchema.extend({
+  frames: z
+    .array(agentArtboardSchema)
+    .max(40)
+    .default([])
+    .describe(
+      "Canvas frames (artboards). Reference an existing `wireframe` block via `blockId` when possible instead of inlining `wireframe`/`legacyWireframe`.",
+    ),
+});
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `planContentSchema`, for use as
+ * `defineAction`'s `agentInputSchema`. Identical top-level shape — only
+ * `blocks` and `canvas` swap in their compact stand-ins. Runtime validation
+ * of `content` always goes through the real `planContentSchema` (see the
+ * `actions` skill: `agentInputSchema` never weakens validation).
+ */
+export const agentPlanContentSchema = planContentObjectSchema.extend({
+  canvas: agentCanvasSchema.optional(),
+  blocks: z
+    .array(agentPlanBlockSchema)
+    .max(200)
+    .default([])
+    .describe(
+      "Plan content blocks, in document order. Call get-plan-blocks first.",
+    ),
+});
+
+export const planContentSchema: z.ZodType<PlanContent> = z
+  .preprocess(preflightPlanContentInput, planContentObjectSchema)
   .superRefine((content, context) => {
     const checkUniqueIds = (
       items: Array<{ id: string }> | undefined,
@@ -2368,22 +2573,36 @@ const wireframeNodePatchSchema = z
     message: "Patch must include at least one wireframe node field.",
   });
 
-const canvasFramePatchSchema = z
-  .object({
-    label: z.string().trim().max(180).optional(),
-    surface: wireframeSurfaceSchema.optional(),
-    blockId: idSchema.optional(),
-    wireframe: wireframeDataSchema.optional(),
-    legacyWireframe: legacyWireframeDataSchema.optional(),
-    x: z.number().optional(),
-    y: z.number().optional(),
-    width: z.number().min(80).optional(),
-    height: z.number().min(80).optional(),
-    order: z.number().optional(),
-  })
-  .refine((value) => Object.keys(value).length > 0, {
-    message: "Patch must include at least one canvas frame field.",
-  });
+/**
+ * Named so the compact `agentCanvasFramePatchSchema` below can `.extend()` it
+ * instead of duplicating every other key.
+ */
+const canvasFramePatchObjectSchema = z.object({
+  label: z.string().trim().max(180).optional(),
+  surface: wireframeSurfaceSchema.optional(),
+  blockId: idSchema.optional(),
+  wireframe: wireframeDataSchema.optional(),
+  legacyWireframe: legacyWireframeDataSchema.optional(),
+  x: z.number().optional(),
+  y: z.number().optional(),
+  width: z.number().min(80).optional(),
+  height: z.number().min(80).optional(),
+  order: z.number().optional(),
+});
+
+const canvasFramePatchSchema = canvasFramePatchObjectSchema.refine(
+  (value) => Object.keys(value).length > 0,
+  { message: "Patch must include at least one canvas frame field." },
+);
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `canvasFramePatchSchema` —
+ * `wireframe`/`legacyWireframe` swap in their compact stand-ins.
+ */
+const agentCanvasFramePatchSchema = canvasFramePatchObjectSchema.extend({
+  wireframe: agentWireframeDataSchema.optional(),
+  legacyWireframe: agentLegacyWireframeDataSchema.optional(),
+});
 
 const canvasAnnotationPatchSchema = z
   .object({
@@ -2440,197 +2659,272 @@ const prototypeScreenPatchSchema = z
     message: "Patch must include at least one prototype screen field.",
   });
 
-export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
-  z.discriminatedUnion("op", [
-    z
-      .object({
-        op: z.literal("set-metadata"),
-        title: z.string().trim().min(1).max(240).optional(),
-        brief: z.string().trim().max(4_000).optional(),
-      })
-      .refine(
-        (patch) => patch.title !== undefined || patch.brief !== undefined,
-        {
-          message: "Metadata patch must include title or brief.",
-        },
+/**
+ * Raw (uncast) discriminated union behind `planContentPatchSchema`, kept as a
+ * named const so `agentPlanContentPatchSchema` below can walk `.options` and
+ * swap only the block-carrying ops for the compact `agentPlanBlockSchema`
+ * instead of duplicating this whole 20-branch union.
+ */
+const planContentPatchUnion = z.discriminatedUnion("op", [
+  z
+    .object({
+      op: z.literal("set-metadata"),
+      title: z.string().trim().min(1).max(240).optional(),
+      brief: z.string().trim().max(4_000).optional(),
+    })
+    .refine((patch) => patch.title !== undefined || patch.brief !== undefined, {
+      message: "Metadata patch must include title or brief.",
+    }),
+  z.object({
+    op: z.literal("set-prototype"),
+    prototype: prototypeSchema,
+  }),
+  z.object({
+    op: z.literal("remove-prototype"),
+  }),
+  z.object({
+    op: z.literal("update-prototype-screen"),
+    screenId: idSchema,
+    patch: prototypeScreenPatchSchema,
+  }),
+  z.object({
+    op: z.literal("patch-prototype-html"),
+    screenId: idSchema,
+    edits: z
+      .array(
+        z.object({
+          find: z.string().min(1).max(20_000),
+          replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+            message:
+              "Prototype html replacement must be a bounded fragment without html/head/body/script/style tags.",
+          }),
+          all: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z
+    .object({
+      op: z.literal("update-design-element-style"),
+      elementId: z.string().trim().min(1).max(160),
+      frameId: idSchema.optional(),
+      blockId: idSchema.optional(),
+      styles: z.record(
+        z.string().trim().min(1).max(80),
+        z.union([z.string().max(400), z.null()]),
       ),
-    z.object({
-      op: z.literal("set-prototype"),
-      prototype: prototypeSchema,
+    })
+    .refine((patch) => Boolean(patch.frameId || patch.blockId), {
+      message: "Provide frameId or blockId for update-design-element-style.",
+    })
+    .refine((patch) => Object.keys(patch.styles).length > 0, {
+      message: "Provide at least one style to update.",
+      path: ["styles"],
     }),
-    z.object({
-      op: z.literal("remove-prototype"),
-    }),
-    z.object({
-      op: z.literal("update-prototype-screen"),
-      screenId: idSchema,
-      patch: prototypeScreenPatchSchema,
-    }),
-    z.object({
-      op: z.literal("patch-prototype-html"),
-      screenId: idSchema,
-      edits: z
-        .array(
-          z.object({
-            find: z.string().min(1).max(20_000),
-            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
-              message:
-                "Prototype html replacement must be a bounded fragment without html/head/body/script/style tags.",
-            }),
-            all: z.boolean().optional(),
-          }),
-        )
-        .min(1)
-        .max(40),
-    }),
-    z
-      .object({
-        op: z.literal("update-design-element-style"),
-        elementId: z.string().trim().min(1).max(160),
-        frameId: idSchema.optional(),
-        blockId: idSchema.optional(),
-        styles: z.record(
-          z.string().trim().min(1).max(80),
-          z.union([z.string().max(400), z.null()]),
-        ),
+  z.object({
+    op: z.literal("replace-block"),
+    blockId: idSchema,
+    block: planBlockSchema,
+  }),
+  z.object({
+    op: z.literal("update-block"),
+    blockId: idSchema,
+    patch: blockUpdatePatchSchema,
+  }),
+  z.object({
+    op: z.literal("replace-blocks"),
+    blocks: z.array(planBlockSchema).max(200),
+  }),
+  z.object({
+    op: z.literal("update-rich-text"),
+    blockId: idSchema,
+    title: z.string().trim().min(1).max(180).optional(),
+    markdown: z.string().max(100_000).optional(),
+  }),
+  z.object({
+    op: z.literal("update-custom-html"),
+    blockId: idSchema,
+    title: z.string().trim().min(1).max(180).optional(),
+    html: z
+      .string()
+      .max(100_000)
+      .refine(noFullHtmlDocument, {
+        message:
+          "Custom HTML blocks must be bounded fragments without html/head/body/script/style tags.",
       })
-      .refine((patch) => Boolean(patch.frameId || patch.blockId), {
-        message: "Provide frameId or blockId for update-design-element-style.",
+      .optional(),
+    css: z
+      .string()
+      .max(50_000)
+      .refine(noFullHtmlDocument, {
+        message: "Custom CSS blocks must not include document or script tags.",
       })
-      .refine((patch) => Object.keys(patch.styles).length > 0, {
-        message: "Provide at least one style to update.",
-        path: ["styles"],
-      }),
-    z.object({
-      op: z.literal("replace-block"),
-      blockId: idSchema,
-      block: planBlockSchema,
-    }),
-    z.object({
-      op: z.literal("update-block"),
-      blockId: idSchema,
-      patch: blockUpdatePatchSchema,
-    }),
-    z.object({
-      op: z.literal("replace-blocks"),
-      blocks: z.array(planBlockSchema).max(200),
-    }),
-    z.object({
-      op: z.literal("update-rich-text"),
-      blockId: idSchema,
-      title: z.string().trim().min(1).max(180).optional(),
-      markdown: z.string().max(100_000).optional(),
-    }),
-    z.object({
-      op: z.literal("update-custom-html"),
-      blockId: idSchema,
-      title: z.string().trim().min(1).max(180).optional(),
-      html: z
-        .string()
-        .max(100_000)
-        .refine(noFullHtmlDocument, {
-          message:
-            "Custom HTML blocks must be bounded fragments without html/head/body/script/style tags.",
-        })
-        .optional(),
-      css: z
-        .string()
-        .max(50_000)
-        .refine(noFullHtmlDocument, {
-          message:
-            "Custom CSS blocks must not include document or script tags.",
-        })
-        .nullable()
-        .optional(),
-      caption: z.string().trim().max(400).nullable().optional(),
-    }),
-    z.object({
-      op: z.literal("patch-diagram-html"),
-      blockId: idSchema,
-      edits: z
-        .array(
-          z.object({
-            find: z.string().min(1).max(20_000),
-            replace: z.string().max(40_000).refine(noActiveDiagramHtml, {
-              message:
-                "Diagram html replacement must be an inert fragment; SVG is allowed, scripts/events are not.",
-            }),
-            all: z.boolean().optional(),
+      .nullable()
+      .optional(),
+    caption: z.string().trim().max(400).nullable().optional(),
+  }),
+  z.object({
+    op: z.literal("patch-diagram-html"),
+    blockId: idSchema,
+    edits: z
+      .array(
+        z.object({
+          find: z.string().min(1).max(20_000),
+          replace: z.string().max(40_000).refine(noActiveDiagramHtml, {
+            message:
+              "Diagram html replacement must be an inert fragment; SVG is allowed, scripts/events are not.",
           }),
-        )
-        .min(1)
-        .max(40),
-    }),
-    z.object({
-      op: z.literal("update-wireframe-node"),
-      blockId: idSchema,
-      nodeId: idSchema,
-      patch: wireframeNodePatchSchema,
-    }),
-    z.object({
-      op: z.literal("replace-wireframe-screen"),
-      blockId: idSchema,
-      screen: z.array(wireframeNodeSchema).max(WIREFRAME_MAX_NODES),
-    }),
-    z.object({
-      op: z.literal("patch-wireframe-html"),
-      blockId: idSchema,
-      edits: z
-        .array(
-          z.object({
-            find: z.string().min(1).max(20_000),
-            replace: z.string().max(40_000).refine(noFullHtmlDocument, {
-              message:
-                "Wireframe html replacement must be a bounded fragment without html/head/body/script/style tags.",
-            }),
-            all: z.boolean().optional(),
+          all: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z.object({
+    op: z.literal("update-wireframe-node"),
+    blockId: idSchema,
+    nodeId: idSchema,
+    patch: wireframeNodePatchSchema,
+  }),
+  z.object({
+    op: z.literal("replace-wireframe-screen"),
+    blockId: idSchema,
+    screen: z.array(wireframeNodeSchema).max(WIREFRAME_MAX_NODES),
+  }),
+  z.object({
+    op: z.literal("patch-wireframe-html"),
+    blockId: idSchema,
+    edits: z
+      .array(
+        z.object({
+          find: z.string().min(1).max(20_000),
+          replace: z.string().max(40_000).refine(noFullHtmlDocument, {
+            message:
+              "Wireframe html replacement must be a bounded fragment without html/head/body/script/style tags.",
           }),
-        )
-        .min(1)
-        .max(40),
-    }),
-    z.object({
-      op: z.literal("update-canvas-frame"),
-      frameId: idSchema,
-      patch: canvasFramePatchSchema,
-    }),
-    z.object({
-      op: z.literal("update-canvas-annotation"),
-      annotationId: idSchema,
-      patch: canvasAnnotationPatchSchema,
-    }),
-    z.object({
-      op: z.literal("append-canvas-annotation"),
-      annotation: annotationSchema,
-    }),
-    z.object({
-      op: z.literal("append-block"),
-      block: planBlockSchema,
-      afterBlockId: idSchema.optional(),
-      parent: z
-        .union([
-          z.object({
-            tabBlockId: idSchema,
-            tabId: idSchema,
-          }),
-          z.object({
-            columnBlockId: idSchema,
-            columnId: idSchema,
-          }),
-        ])
-        .optional(),
-    }),
-    z.object({
-      op: z.literal("remove-block"),
-      blockId: idSchema,
-    }),
-    z.object({
-      op: z.literal("set-notion-sync"),
-      value: z.boolean(),
-    }),
-  ]) as z.ZodType<PlanContentPatch>;
+          all: z.boolean().optional(),
+        }),
+      )
+      .min(1)
+      .max(40),
+  }),
+  z.object({
+    op: z.literal("update-canvas-frame"),
+    frameId: idSchema,
+    patch: canvasFramePatchSchema,
+  }),
+  z.object({
+    op: z.literal("update-canvas-annotation"),
+    annotationId: idSchema,
+    patch: canvasAnnotationPatchSchema,
+  }),
+  z.object({
+    op: z.literal("append-canvas-annotation"),
+    annotation: annotationSchema,
+  }),
+  z.object({
+    op: z.literal("append-block"),
+    block: planBlockSchema,
+    afterBlockId: idSchema.optional(),
+    parent: z
+      .union([
+        z.object({
+          tabBlockId: idSchema,
+          tabId: idSchema,
+        }),
+        z.object({
+          columnBlockId: idSchema,
+          columnId: idSchema,
+        }),
+      ])
+      .optional(),
+  }),
+  z.object({
+    op: z.literal("remove-block"),
+    blockId: idSchema,
+  }),
+  z.object({
+    op: z.literal("set-notion-sync"),
+    value: z.boolean(),
+  }),
+]);
+
+export const planContentPatchSchema: z.ZodType<PlanContentPatch> =
+  planContentPatchUnion as unknown as z.ZodType<PlanContentPatch>;
 
 export const planContentPatchesSchema = z.array(planContentPatchSchema).max(80);
+
+/**
+ * Compact ADVERTISED-ONLY placeholder for editing an existing legacy kit-tree
+ * wireframe node/screen in-place (`update-wireframe-node` /
+ * `replace-wireframe-screen`). These ops only touch OLD kit-tree wireframes —
+ * new wireframes use `patch-wireframe-html` on semantic HTML instead — so the
+ * advertised shape is an opaque record/array plus a pointer to the lookup
+ * tool, not the full ~30-field node schema repeated per op.
+ */
+const AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION =
+  "Legacy kit-tree node field patch — do not use for new html-based wireframes; prefer patch-wireframe-html. Call get-plan-blocks for the node field shape.";
+
+/**
+ * Compact ADVERTISED-ONLY stand-in for `planContentPatchSchema`, for use as
+ * part of `defineAction`'s `agentInputSchema`. Same 20 `op` branches as the
+ * real union — only the ops that carry a deep block/wireframe union swap in
+ * their compact stand-ins:
+ * - `replace-block` / `append-block` / `replace-blocks`: `agentPlanBlockSchema`
+ * - `update-canvas-frame`: `agentCanvasFramePatchSchema` (compact `wireframe`)
+ * - `update-wireframe-node` / `replace-wireframe-screen`: opaque legacy
+ *   kit-tree placeholders (see above)
+ * Runtime validation of `contentPatches` always goes through the real
+ * `planContentPatchesSchema`.
+ */
+const agentPlanContentPatchOptions = planContentPatchUnion.options.map(
+  (option) => {
+    const opLiteral = (option.shape as { op: { value: string } }).op.value;
+    if (opLiteral === "replace-block" || opLiteral === "append-block") {
+      return option.extend({ block: agentPlanBlockSchemaTerse });
+    }
+    if (opLiteral === "replace-blocks") {
+      return option.extend({
+        blocks: z.array(agentPlanBlockSchemaTerse).max(200),
+      });
+    }
+    if (opLiteral === "update-canvas-frame") {
+      return option.extend({ patch: agentCanvasFramePatchSchema });
+    }
+    if (opLiteral === "update-wireframe-node") {
+      return option.extend({
+        patch: z
+          .record(z.string(), z.unknown())
+          .describe(AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION),
+      });
+    }
+    if (opLiteral === "replace-wireframe-screen") {
+      return option.extend({
+        screen: z
+          .array(z.record(z.string(), z.unknown()))
+          .max(WIREFRAME_MAX_NODES)
+          .describe(AGENT_WIREFRAME_NODE_PATCH_DESCRIPTION),
+      });
+    }
+    return option;
+  },
+);
+
+export const agentPlanContentPatchSchema = z.discriminatedUnion(
+  "op",
+  agentPlanContentPatchOptions as unknown as Parameters<
+    typeof z.discriminatedUnion
+  >[1],
+);
+
+export const agentPlanContentPatchesSchema = z
+  .array(agentPlanContentPatchSchema)
+  .max(80)
+  .describe(
+    "Structured edits to plan content. Call get-plan-blocks before " +
+      "replace-block / replace-blocks / append-block.",
+  );
 
 export function applyPlanContentPatches(
   content: PlanContent,

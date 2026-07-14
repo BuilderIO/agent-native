@@ -11,6 +11,15 @@ Se você usou QuickBooks Online, você viu o modelo: QBO fornece um produto cont
 
 O enquadramento é importante: uma extensão não é uma sandbox genérica do tipo "faça o que quiser". É um **miniaplicativo que estende um modelo específico** — Mail, Analytics, Calendar, Clips, Design — e usa o actions e os dados desse modelo. Uma extensão Mail lê e-mails. Uma extensão do Analytics lê as métricas de um painel. Uma extensão do Calendário atua no evento aberto. Eles se sentem parte do produto hospedeiro porque _são_ parte do produto hospedeiro.
 
+> **As extensões adicionam interface; elas não reescrevem a interface do
+> aplicativo host.** Uma extensão é exibida em sua própria página ou em um
+> [slot](#slots) nomeado exposto pelo modelo. Ela não pode inserir elementos em
+> componentes nativos arbitrários — por exemplo, ao lado de cada participante
+> no Calendário — a menos que o modelo exponha um slot nesse local. Para uma
+> personalização mais profunda, peça ao agente para editar o código-fonte do
+> modelo. A personalização completa do código é um recurso central do Agent
+> Native; as extensões são a camada rápida, sem implantação.
+
 Três coisas fazem as extensões funcionarem:
 
 - **Sem código, sem implantação.** O agente os grava e eles ficam ativos em segundos. Armazenado no banco de dados, não no repositório.
@@ -34,7 +43,7 @@ agente de aplicativo intacto.
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -227,7 +236,7 @@ Dentro da sandbox iframe, cada extensão tem estes auxiliares em `window`:
 | `appAction(name, params)`                        | Chame qualquer actions do modelo de host                       | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Chamar endpoints de estrutura permitidos em `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql, args)`                             | Ler de SQL (com escopo automático para o usuário)              | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Escrever para SQL                                              | `dbExec('INSERT INTO ...')`                               |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions          | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | Atingir APIs externos através de um proxy seguro com segredos  | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Persistir dados por extensão (escopo de usuário/organização)   | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | Listar itens persistentes                                      | `extensionData.list('notes', { scope: 'all' })`           |
@@ -397,7 +406,7 @@ As extensões locais têm um modelo de permissão v1 mais rígido:
 
 - `extensionData` está disponível para estado de tempo de execução pequeno, a menos que esteja desativado.
 - As chamadas `appAction` devem ser listadas explicitamente em `permissions.appActions`.
-- `dbQuery`, `dbExec` e `extensionFetch` estão bloqueados por enquanto.
+- `dbQuery` e `extensionFetch` estão bloqueados por enquanto.
 - Atualização, exclusão, compartilhamento e histórico apoiados por SQL actions retornam uma mensagem que
   aponta para o arquivo de entrada local.
 
@@ -430,6 +439,8 @@ A estrutura permite que o agente edite o código-fonte do aplicativo diretamente
 
 Regra geral: **se for para um usuário ou uma equipe, é uma extensão.** Se todos os usuários do modelo quiserem obtê-lo, envie-o como um recurso real.
 
+Para busca de dados personalizada que deva alimentar gráficos e tabelas nativos em vez de uma UI de widget sob medida, veja [Programas de dados](/docs/data-programs) — um script `run-code` armazenado e atualizável ao qual os painéis de dashboard se vinculam diretamente, sem nenhum iframe de extensão envolvido.
+
 ## Segurança {#security}
 
 <Callout id="doc-block-frp4nq" tone="success">
@@ -444,7 +455,7 @@ As extensões são executadas em um iframe em sandbox:
 - **Injeção de segredo no lado do servidor** por meio do modelo `${keys.NAME}` — o valor real da chave nunca chega ao navegador.
 - **Segredos bloqueados por domínio** — cada chave está vinculada a uma lista de permissões URL; o proxy recusa solicitações para outros hosts.
 - **Proteção de rede privada** — as extensões não podem alcançar endereços internos.
-- **Autenticação necessária** — as extensões são executadas apenas para usuários logados, e as chamadas `dbQuery`/`dbExec` têm escopo automático.
+- **Autenticação necessária** — as extensões são executadas apenas para usuários logados, e as chamadas `dbQuery` têm escopo automático.
 
 ## Algumas coisas que você deve saber sobre nomenclatura {#naming-back-compat}
 

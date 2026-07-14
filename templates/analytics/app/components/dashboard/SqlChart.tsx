@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { useDemoModeStatus, useT } from "@agent-native/core/client";
 import { EmbeddedExtension } from "@agent-native/core/client/extensions";
 import {
   IconArrowsSort,
@@ -24,6 +24,7 @@ import {
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router";
 import {
   Area,
   AreaChart,
@@ -45,6 +46,11 @@ import {
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
+  Popover,
+  PopoverAnchor,
+  PopoverContent,
+} from "@/components/ui/popover";
+import {
   Select,
   SelectContent,
   SelectItem,
@@ -54,6 +60,7 @@ import {
 import { Skeleton } from "@/components/ui/skeleton";
 
 const PAGE_SIZE_OPTIONS = [10, 25, 50, 100];
+import { createDemoChartTrendRows } from "@/lib/demo-chart-trend";
 import { useSqlQuery } from "@/lib/sql-query";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
 import { pivotRows } from "@/pages/adhoc/sql-dashboard/pivot";
@@ -113,6 +120,8 @@ const CHART_LEGEND_PROPS = {
 const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
 const PARTIAL_DAY_DASH = "3 5";
 const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
+const TABLE_PANEL_MIN_HEIGHT_CLASS = "min-h-[386px]";
+const TABLE_PANEL_SKELETON_ROWS = 10;
 
 function formatYValue(
   value: number,
@@ -153,6 +162,24 @@ export function formatMetricValue(
   return numericRaw !== null
     ? formatYValue(numericRaw, formatter)
     : String(raw ?? "-");
+}
+
+function isNumericLikeValue(value: unknown): boolean {
+  if (typeof value === "number") return Number.isFinite(value);
+  return (
+    typeof value === "string" &&
+    value.trim() !== "" &&
+    Number.isFinite(Number(value))
+  );
+}
+
+export function detectMetricValueColumn(
+  row: Record<string, unknown>,
+  configuredKey?: string,
+): string {
+  const cols = Object.keys(row);
+  if (configuredKey && cols.includes(configuredKey)) return configuredKey;
+  return cols.find((key) => isNumericLikeValue(row[key])) || cols[0] || "";
 }
 
 function parsePrometheusSeriesLabel(label: string): {
@@ -413,10 +440,18 @@ export function sortTooltipPayloadItems<
   });
 }
 
+export function getHiddenSeriesKeysAfterFilter(
+  keys: string[],
+  filteredKey: string,
+): Set<string> {
+  return new Set(keys.filter((key) => key !== filteredKey));
+}
+
 function useSeriesVisibility(keys: string[]): {
   hiddenKeys: Set<string>;
   visibleKeys: string[];
   toggleSeries: (key: string) => void;
+  filterSeries: (key: string) => void;
 } {
   const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(() => new Set());
 
@@ -451,54 +486,159 @@ function useSeriesVisibility(keys: string[]): {
     [keys],
   );
 
-  return { hiddenKeys, visibleKeys, toggleSeries };
+  const filterSeries = useCallback(
+    (key: string) => {
+      setHiddenKeys(getHiddenSeriesKeysAfterFilter(keys, key));
+    },
+    [keys],
+  );
+
+  return { hiddenKeys, visibleKeys, toggleSeries, filterSeries };
 }
 
-function SeriesLegend({
+export function SeriesLegend({
   keys,
   colors,
   panel,
   hiddenKeys,
   onToggleKey,
+  onFilterKey,
 }: {
   keys: string[];
   colors: string[];
   panel: SqlPanel;
   hiddenKeys?: Set<string>;
   onToggleKey?: (key: string) => void;
+  onFilterKey?: (key: string) => void;
 }) {
+  const t = useT();
+  const hasLegendActions = Boolean(onToggleKey || onFilterKey);
+  const [openKey, setOpenKey] = useState<string | null>(null);
+  const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const clearCloseTimeout = useCallback(() => {
+    if (closeTimeoutRef.current) {
+      clearTimeout(closeTimeoutRef.current);
+      closeTimeoutRef.current = null;
+    }
+  }, []);
+
+  const openLegendActions = useCallback(
+    (key: string) => {
+      clearCloseTimeout();
+      setOpenKey(key);
+    },
+    [clearCloseTimeout],
+  );
+
+  const scheduleCloseLegendActions = useCallback(() => {
+    clearCloseTimeout();
+    closeTimeoutRef.current = setTimeout(() => {
+      setOpenKey(null);
+      closeTimeoutRef.current = null;
+    }, 120);
+  }, [clearCloseTimeout]);
+
+  useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
+
   if (!shouldShowLegend(panel, keys.length)) return null;
 
   return (
-    <div className="mt-2 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
+    <div className="mt-2 min-h-16 max-h-16 overflow-y-auto overflow-x-hidden pr-1 text-[11px] leading-4 text-muted-foreground">
       <div className="flex flex-wrap gap-x-3 gap-y-1">
         {keys.map((key, i) => {
           const hidden = hiddenKeys?.has(key) ?? false;
           const label = formatSeriesLabelForPanel(panel, key);
           const color = colors[i % colors.length];
           return (
-            <button
+            <Popover
               key={key}
-              type="button"
-              aria-pressed={!hidden}
-              className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
-                hidden ? "opacity-35" : "opacity-100"
-              } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
-              title={label}
-              onClick={() => onToggleKey?.(key)}
+              open={openKey === key}
+              onOpenChange={(open) => setOpenKey(open ? key : null)}
             >
-              <span className="relative h-2.5 w-3 shrink-0">
-                <span
-                  className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
-                  style={{ backgroundColor: color }}
-                />
-                <span
-                  className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
-                  style={{ backgroundColor: color }}
-                />
-              </span>
-              <span className="truncate">{label}</span>
-            </button>
+              <PopoverAnchor asChild>
+                <div
+                  className="inline-flex max-w-[14rem]"
+                  onPointerEnter={
+                    hasLegendActions ? () => openLegendActions(key) : undefined
+                  }
+                  onPointerLeave={
+                    hasLegendActions ? scheduleCloseLegendActions : undefined
+                  }
+                  onFocusCapture={
+                    hasLegendActions ? () => openLegendActions(key) : undefined
+                  }
+                  onBlurCapture={
+                    hasLegendActions ? scheduleCloseLegendActions : undefined
+                  }
+                >
+                  <button
+                    type="button"
+                    aria-pressed={!hidden}
+                    className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                      hidden ? "opacity-35" : "opacity-100"
+                    } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
+                    title={label}
+                    onClick={() => onToggleKey?.(key)}
+                  >
+                    <span className="relative h-2.5 w-3 shrink-0">
+                      <span
+                        className="absolute left-0 right-0 top-1/2 h-px -translate-y-1/2"
+                        style={{ backgroundColor: color }}
+                      />
+                      <span
+                        className="absolute left-1/2 top-1/2 h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full"
+                        style={{ backgroundColor: color }}
+                      />
+                    </span>
+                    <span className="truncate">{label}</span>
+                  </button>
+                </div>
+              </PopoverAnchor>
+              {hasLegendActions && (
+                <PopoverContent
+                  side="top"
+                  align="start"
+                  sideOffset={6}
+                  className="w-auto min-w-28 p-1"
+                  onPointerEnter={clearCloseTimeout}
+                  onPointerLeave={scheduleCloseLegendActions}
+                  onFocusCapture={clearCloseTimeout}
+                >
+                  <div className="flex items-center gap-0.5">
+                    {onFilterKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="filter"
+                        aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
+                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        onClick={() => {
+                          onFilterKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.filterSeries")}
+                      </button>
+                    )}
+                    {onToggleKey && (
+                      <button
+                        type="button"
+                        data-chart-legend-action="hide"
+                        aria-label={`${t("sqlDashboard.hide")} ${label}`}
+                        disabled={hidden}
+                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        onClick={() => {
+                          onToggleKey(key);
+                          setOpenKey(null);
+                        }}
+                      >
+                        {t("sqlDashboard.hide")}
+                      </button>
+                    )}
+                  </div>
+                </PopoverContent>
+              )}
+            </Popover>
           );
         })}
       </div>
@@ -526,6 +666,7 @@ function ChartFrame({
   colors,
   hiddenKeys,
   onToggleLegendKey,
+  onFilterLegendKey,
   showCustomLegend = false,
   children,
 }: {
@@ -534,6 +675,7 @@ function ChartFrame({
   colors: string[];
   hiddenKeys?: Set<string>;
   onToggleLegendKey?: (key: string) => void;
+  onFilterLegendKey?: (key: string) => void;
   showCustomLegend?: boolean;
   children: ReactNode;
 }) {
@@ -563,7 +705,115 @@ function ChartFrame({
         panel={panel}
         hiddenKeys={hiddenKeys}
         onToggleKey={onToggleLegendKey}
+        onFilterKey={onFilterLegendKey}
       />
+    </div>
+  );
+}
+
+function isTableLikeChartType(type: ChartType): boolean {
+  return type === "table" || type === "heatmap";
+}
+
+function chartTypeReservesLegend(panel: SqlPanel): boolean {
+  if (panel.config?.legend === false) return false;
+  const chartUsesFrame =
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    panel.chartType === "pie";
+  if (!chartUsesFrame) return false;
+  return (
+    panel.chartType === "line" ||
+    panel.chartType === "area" ||
+    panel.chartType === "bar" ||
+    usesPrometheusPresentation(panel)
+  );
+}
+
+function TableLoadingSkeleton() {
+  const columnWidths = ["w-24", "w-32", "w-20", "w-28"];
+
+  return (
+    <div
+      data-dashboard-report-loading="true"
+      className={`w-full flex-1 space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+    >
+      <div className="relative overflow-x-auto">
+        <div className="min-w-[480px]">
+          <div className="grid h-8 grid-cols-4 items-center border-b border-border px-2">
+            {columnWidths.map((width, index) => (
+              <Skeleton key={index} className={`h-3 ${width}`} />
+            ))}
+          </div>
+          {Array.from({ length: TABLE_PANEL_SKELETON_ROWS }).map((_, row) => (
+            <div
+              key={row}
+              className="grid h-8 grid-cols-4 items-center border-b border-border/50 px-2"
+            >
+              {columnWidths.map((width, col) => (
+                <Skeleton
+                  key={col}
+                  className={`h-3 ${
+                    col === 0 ? "w-36" : col === 2 ? "ml-auto w-16" : width
+                  }`}
+                />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="flex h-8 items-center justify-between border-t border-border px-1 text-xs">
+        <Skeleton className="h-3 w-28" />
+        <Skeleton className="h-3 w-24" />
+      </div>
+    </div>
+  );
+}
+
+function SqlChartLoadingSkeleton({ panel }: { panel: SqlPanel }) {
+  const fill = useContext(ChartFillHeightContext);
+
+  if (panel.chartType === "metric") {
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className="w-full flex-1 min-h-12"
+      />
+    );
+  }
+
+  if (isTableLikeChartType(panel.chartType)) {
+    return <TableLoadingSkeleton />;
+  }
+
+  const reserveLegend = chartTypeReservesLegend(panel);
+
+  if (!reserveLegend) {
+    return (
+      <Skeleton
+        data-dashboard-report-loading="true"
+        className={`w-full flex-1 ${fill ? "h-full min-h-[250px]" : "min-h-[250px]"}`}
+      />
+    );
+  }
+
+  return (
+    <div
+      data-dashboard-report-loading="true"
+      className={`flex w-full flex-1 flex-col overflow-hidden ${fill ? "h-full" : ""}`}
+    >
+      <Skeleton
+        className={`w-full ${fill ? "h-full min-h-[250px] flex-1" : "h-[250px]"}`}
+      />
+      <div className="mt-2 grid min-h-16 grid-cols-2 gap-x-3 gap-y-1 overflow-hidden pr-1 sm:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, index) => (
+          <div key={index} className="flex items-center gap-1.5">
+            <Skeleton className="h-2.5 w-3 shrink-0 rounded-sm" />
+            <Skeleton className="h-3 w-20 min-w-0" />
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -804,7 +1054,7 @@ function detectKeys(
   if (yKeys.length === 0) {
     for (const c of cols) {
       if (c === xKey) continue;
-      if (typeof sample[c] === "number") yKeys.push(c);
+      if (isNumericLikeValue(sample[c])) yKeys.push(c);
     }
   }
   if (yKeys.length === 0 && cols.length > 1) {
@@ -867,6 +1117,7 @@ export function SqlChart({
   onExportCsvChange,
 }: SqlChartProps) {
   const t = useT();
+  const { enabled: demoModeEnabled } = useDemoModeStatus();
   // Hooks must be called unconditionally before any early return.
   const isSection = panel.chartType === "section";
   const isExtension = panel.chartType === "extension";
@@ -877,6 +1128,7 @@ export function SqlChart({
   const {
     data: result,
     isLoading,
+    isFetching,
     error: queryError,
   } = useSqlQuery(
     ["sql-chart", panel.id, sql, panel.source],
@@ -896,7 +1148,7 @@ export function SqlChart({
   const error =
     rawRows.length === 0 ? (result?.error ?? queryErrorMessage) : undefined;
 
-  const { rows, forcedYKeys } = useMemo(() => {
+  const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
       const pivoted = pivotRows(rawRows, panel.config.pivot);
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
@@ -905,8 +1157,20 @@ export function SqlChart({
   }, [rawRows, panel.config?.pivot]);
 
   const { xKey, yKeys } = useMemo(
-    () => detectKeys(rows, panel.config, forcedYKeys),
-    [rows, panel.config, forcedYKeys],
+    () => detectKeys(queryRows, panel.config, forcedYKeys),
+    [queryRows, panel.config, forcedYKeys],
+  );
+  const shouldCreateDemoTrend =
+    demoModeEnabled &&
+    (panel.chartType === "line" ||
+      panel.chartType === "area" ||
+      (panel.chartType as string) === "stacked-area");
+  const rows = useMemo(
+    () =>
+      shouldCreateDemoTrend
+        ? createDemoChartTrendRows(queryRows, yKeys, panel.id)
+        : queryRows,
+    [queryRows, yKeys, panel.id, shouldCreateDemoTrend],
   );
 
   // Section panels are pure layout — no query, no chart. Render a header with
@@ -944,16 +1208,16 @@ export function SqlChart({
   const yFormatter = panel.config?.yFormatter;
 
   const isMetric = panel.chartType === "metric";
-  const placeholderMinH = isMetric ? "min-h-12" : "min-h-[250px]";
+  const isTableLike = isTableLikeChartType(panel.chartType);
+  const placeholderMinH = isMetric
+    ? "min-h-12"
+    : isTableLike
+      ? TABLE_PANEL_MIN_HEIGHT_CLASS
+      : "min-h-[250px]";
   const placeholderPadY = isMetric ? "py-2" : "py-8";
 
-  if (!loadData || isLoading) {
-    return (
-      <Skeleton
-        data-dashboard-report-loading="true"
-        className={`w-full flex-1 ${placeholderMinH}`}
-      />
-    );
+  if (!loadData || isLoading || isFetching) {
+    return <SqlChartLoadingSkeleton panel={panel} />;
   }
 
   if (error) {
@@ -1120,14 +1384,10 @@ function MetricRenderer({
   panel: SqlPanel;
 }) {
   const row = rows[0];
-  const cols = Object.keys(row);
-  const valueCol =
-    panel.config?.yKey ||
-    cols.find((c) => typeof row[c] === "number") ||
-    cols[0];
+  const valueCol = detectMetricValueColumn(row, panel.config?.yKey);
 
   let raw: unknown;
-  if (rows.length > 1 && typeof row[valueCol] === "number") {
+  if (rows.length > 1 && isNumericLikeValue(row[valueCol])) {
     raw = rows.reduce((sum, r) => sum + (Number(r[valueCol]) || 0), 0);
   } else {
     raw = row[valueCol];
@@ -1352,7 +1612,7 @@ function TableRenderer({
   }, [handleExportCsv, onExportCsvChange]);
 
   return (
-    <div className="space-y-1">
+    <div className={`space-y-1 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}>
       <div className="relative overflow-x-auto">
         <table className="w-full text-sm">
           <thead>
@@ -1441,12 +1701,12 @@ function TableRenderer({
                       {replayHref ? (
                         <span className="inline-flex flex-col gap-0.5">
                           <span>{content}</span>
-                          <a
-                            href={replayHref}
+                          <Link
+                            to={replayHref}
                             className="text-xs font-medium text-primary hover:underline"
                           >
                             {t("sessions.watchReplay")}
-                          </a>
+                          </Link>
                         </span>
                       ) : (
                         content
@@ -1592,7 +1852,7 @@ function BarRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
-  const { hiddenKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
 
   return (
     <ChartFrame
@@ -1601,6 +1861,7 @@ function BarRenderer({
       colors={colors}
       hiddenKeys={hiddenKeys}
       onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
       showCustomLegend
     >
       <ResponsiveContainer width="100%" height="100%">
@@ -1680,7 +1941,8 @@ function TimeSeriesRenderer({
     formatXLabel(String(value ?? ""), panel);
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
-  const { hiddenKeys, visibleKeys, toggleSeries } = useSeriesVisibility(yKeys);
+  const { hiddenKeys, visibleKeys, toggleSeries, filterSeries } =
+    useSeriesVisibility(yKeys);
   const splitPartialDay = shouldSplitCurrentDayTimeSeries(panel, xKey);
   const { rows: chartRows, series } = useMemo(
     () =>
@@ -1705,6 +1967,7 @@ function TimeSeriesRenderer({
         colors={colors}
         hiddenKeys={hiddenKeys}
         onToggleLegendKey={toggleSeries}
+        onFilterLegendKey={filterSeries}
         showCustomLegend
       >
         <ResponsiveContainer width="100%" height="100%">
@@ -1786,6 +2049,7 @@ function TimeSeriesRenderer({
       colors={colors}
       hiddenKeys={hiddenKeys}
       onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
       showCustomLegend
     >
       <ResponsiveContainer width="100%" height="100%">
@@ -1975,7 +2239,9 @@ function HeatmapRenderer({
 
   if (rows.length === 0 || !valueKey) {
     return (
-      <div className="flex min-h-[250px] items-center justify-center py-8">
+      <div
+        className={`flex items-center justify-center py-8 ${TABLE_PANEL_MIN_HEIGHT_CLASS}`}
+      >
         <p className="text-sm text-muted-foreground text-center">
           {t("common.noData")}
         </p>
@@ -1996,7 +2262,7 @@ function HeatmapRenderer({
   };
 
   return (
-    <div className="overflow-x-auto">
+    <div className={`${TABLE_PANEL_MIN_HEIGHT_CLASS} overflow-x-auto`}>
       <table className="w-full border-collapse text-sm">
         <thead>
           <tr className="border-b border-border">

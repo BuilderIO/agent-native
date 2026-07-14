@@ -1,5 +1,6 @@
 import {
   getDbExec,
+  isLocalDatabase,
   isConnectionError,
   isPostgres,
   intType,
@@ -10,6 +11,7 @@ import type { StoreWriteOptions } from "../settings/store.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
 let _initPromise: Promise<void> | undefined;
+const MAX_HOSTED_APP_STATE_VALUE_BYTES = 1024 * 1024;
 
 // Escapes LIKE wildcards (`%`, `_`) and the escape char itself so a caller's
 // literal prefix is matched verbatim. Used with `ESCAPE '!'` in prefix queries
@@ -115,6 +117,38 @@ export async function appStateGet(
   }
 }
 
+/**
+ * Read several application-state keys for one session in a single SQL query.
+ * Missing keys are returned as `null` so callers can preserve the requested
+ * shape without issuing one fallback query per key.
+ */
+export async function appStateGetMany(
+  sessionId: string,
+  keys: readonly string[],
+): Promise<Record<string, Record<string, unknown> | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const values: Record<string, Record<string, unknown> | null> = {};
+  for (const key of uniqueKeys) values[key] = null;
+  if (uniqueKeys.length === 0) return values;
+
+  try {
+    await ensureTable();
+    const client = getDbExec();
+    const placeholders = uniqueKeys.map(() => "?").join(", ");
+    const { rows } = await client.execute({
+      sql: `SELECT key, value FROM application_state WHERE session_id = ? AND key IN (${placeholders})`,
+      args: [sessionId, ...uniqueKeys],
+    });
+    for (const row of rows) {
+      values[row.key as string] = JSON.parse(row.value as string);
+    }
+    return values;
+  } catch (err) {
+    if (isConnectionError(err)) return values;
+    throw err;
+  }
+}
+
 export async function appStatePut(
   sessionId: string,
   key: string,
@@ -123,11 +157,20 @@ export async function appStatePut(
 ): Promise<void> {
   await ensureTable();
   const client = getDbExec();
+  const serialized = JSON.stringify(value);
+  if (
+    !isLocalDatabase() &&
+    Buffer.byteLength(serialized, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
+  ) {
+    throw new Error(
+      `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
+    );
+  }
   await client.execute({
     sql: isPostgres()
       ? `INSERT INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT (session_id, key) DO UPDATE SET value=EXCLUDED.value, updated_at=EXCLUDED.updated_at`
       : `INSERT OR REPLACE INTO application_state (session_id, key, value, updated_at) VALUES (?, ?, ?, ?)`,
-    args: [sessionId, key, JSON.stringify(value), Date.now()],
+    args: [sessionId, key, serialized, Date.now()],
   });
   emitAppStateChange(key, options?.requestSource, sessionId);
 }

@@ -15,9 +15,16 @@ import { EventEmitter } from "node:events";
 import { defineEventHandler, setResponseStatus, getRouterParam } from "h3";
 import type { H3Event } from "h3";
 
+import { getSession } from "../server/auth.js";
 import { readBody } from "../server/h3-helpers.js";
+import {
+  deleteAwarenessRow,
+  loadAwarenessRows,
+  upsertAwarenessRow,
+} from "./awareness-store.js";
 
 const AWARENESS_TIMEOUT = 30_000; // 30 seconds
+const CLEAR_TOMBSTONE_TTL = AWARENESS_TIMEOUT + 5_000;
 
 export interface AwarenessEntry {
   clientId: number;
@@ -42,34 +49,111 @@ export interface AwarenessChangeEvent {
   owner?: string;
   /** Org ID for org-scoped delivery. */
   orgId?: string;
+  /** Shareable resource type this awareness event belongs to, when known. */
+  resourceType?: string;
+  /** Shareable resource id this awareness event belongs to, when known. */
+  resourceId?: string;
+}
+
+export interface AwarenessScope {
+  owner?: string;
+  orgId?: string;
+  resourceType?: string;
+  resourceId?: string;
 }
 
 const _awarenessEmitter = new EventEmitter();
 _awarenessEmitter.setMaxListeners(0);
 
+const _awarenessScopes = new Map<string, AwarenessScope>();
+
 export function getAwarenessEmitter(): EventEmitter {
   return _awarenessEmitter;
+}
+
+export function rememberAwarenessScope(
+  docId: string,
+  scope: AwarenessScope | undefined,
+): void {
+  if (!scope) return;
+  const next = { ...(_awarenessScopes.get(docId) ?? {}), ...scope };
+  if (!next.owner && !next.orgId && !next.resourceType && !next.resourceId) {
+    return;
+  }
+  _awarenessScopes.set(docId, next);
 }
 
 export function emitAwarenessChange(
   docId: string,
   states: Array<{ clientId: number; state: string }>,
-  owner?: string,
-  orgId?: string,
+  scope?: AwarenessScope,
 ): void {
+  rememberAwarenessScope(docId, scope);
+  const resolvedScope = _awarenessScopes.get(docId) ?? {};
   const event: AwarenessChangeEvent = {
     source: "awareness",
     type: "awareness-change",
     docId,
     states,
-    ...(owner && { owner }),
-    ...(orgId && { orgId }),
+    ...(resolvedScope.owner && { owner: resolvedScope.owner }),
+    ...(resolvedScope.orgId && { orgId: resolvedScope.orgId }),
+    ...(resolvedScope.resourceType && {
+      resourceType: resolvedScope.resourceType,
+    }),
+    ...(resolvedScope.resourceId && { resourceId: resolvedScope.resourceId }),
   };
   _awarenessEmitter.emit(AWARENESS_CHANGE_EVENT, event);
 }
 
 // docId → Map<clientId, AwarenessEntry>
 const _awarenessMap = new Map<string, Map<number, AwarenessEntry>>();
+// docId + clientId -> clearedAt. Prevents a stale SQL mirror from resurrecting
+// a participant after an explicit leave/delete raced with the next poll.
+const _awarenessClearTombstones = new Map<string, number>();
+
+function awarenessKey(docId: string, clientId: number): string {
+  return `${docId}\0${clientId}`;
+}
+
+function pruneAwarenessClearTombstones(now: number): void {
+  for (const [key, clearedAt] of _awarenessClearTombstones) {
+    if (now - clearedAt > CLEAR_TOMBSTONE_TTL) {
+      _awarenessClearTombstones.delete(key);
+    }
+  }
+}
+
+export function rememberAwarenessClear(
+  docId: string,
+  clientId: number,
+  clearedAt: number = Date.now(),
+): void {
+  pruneAwarenessClearTombstones(clearedAt);
+  const key = awarenessKey(docId, clientId);
+  const prev = _awarenessClearTombstones.get(key);
+  if (prev == null || clearedAt > prev) {
+    _awarenessClearTombstones.set(key, clearedAt);
+  }
+}
+
+export function forgetAwarenessClear(docId: string, clientId: number): void {
+  _awarenessClearTombstones.delete(awarenessKey(docId, clientId));
+}
+
+function isBlockedByAwarenessClear(
+  docId: string,
+  clientId: number,
+  lastSeen: number,
+  now: number,
+): boolean {
+  pruneAwarenessClearTombstones(now);
+  const key = awarenessKey(docId, clientId);
+  const clearedAt = _awarenessClearTombstones.get(key);
+  if (clearedAt == null) return false;
+  if (lastSeen <= clearedAt) return true;
+  _awarenessClearTombstones.delete(key);
+  return false;
+}
 
 export function getDocAwareness(docId: string): Map<number, AwarenessEntry> {
   let map = _awarenessMap.get(docId);
@@ -98,6 +182,30 @@ function pruneIfEmpty(docId: string, map: Map<number, AwarenessEntry>): void {
 }
 
 /**
+ * Merge SQL-mirrored awareness rows (written by other server instances —
+ * or by an agent action running in its own serverless invocation) into the
+ * in-memory map, newest lastSeen wins. Degrades to memory-only when the DB
+ * is unavailable.
+ */
+async function mergeStoredAwareness(
+  docId: string,
+  map: Map<number, AwarenessEntry>,
+): Promise<void> {
+  const now = Date.now();
+  const rows = await loadAwarenessRows(docId, now);
+  for (const row of rows) {
+    if (isBlockedByAwarenessClear(docId, row.clientId, row.lastSeen, now)) {
+      void deleteAwarenessRow(docId, row.clientId, row.lastSeen);
+      continue;
+    }
+    const existing = map.get(row.clientId);
+    if (!existing || row.lastSeen > existing.lastSeen) {
+      map.set(row.clientId, row);
+    }
+  }
+}
+
+/**
  * POST /_agent-native/collab/:docId/awareness
  *
  * Client sends its awareness state and receives other clients' states.
@@ -111,6 +219,10 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 400);
     return { error: "docId required" };
   }
+  const session = await getSession(event).catch(() => null);
+  const contextScope = (
+    event.context as { _collabAwarenessScope?: AwarenessScope } | undefined
+  )?._collabAwarenessScope;
 
   const body = await readBody(event);
   const { clientId, state } = body as {
@@ -128,11 +240,24 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
   const map = getDocAwareness(docId);
 
   if (state === null) {
+    const clearedAt = Date.now();
     map.delete(clientId);
+    rememberAwarenessClear(docId, clientId, clearedAt);
+    // Best-effort cross-instance removal (never blocks the response).
+    void deleteAwarenessRow(docId, clientId, clearedAt);
   } else {
+    forgetAwarenessClear(docId, clientId);
     // Store this client's state
-    map.set(clientId, { clientId, state, lastSeen: Date.now() });
+    const entry = { clientId, state, lastSeen: Date.now() };
+    map.set(clientId, entry);
+    // Mirror to SQL so other instances (and serverless action invocations)
+    // see this participant. Throttled internally; never throws.
+    void upsertAwarenessRow(docId, clientId, state, entry.lastSeen);
   }
+
+  // Pull in participants known to other instances (multi-instance serverless)
+  // before building the response, so every poller sees the full set.
+  await mergeStoredAwareness(docId, map);
 
   // Clean expired entries, then prune the outer-map entry if it becomes empty.
   // Without pruning, a deployment with many transient docIds (e.g. one per
@@ -154,7 +279,14 @@ export const postAwareness = defineEventHandler(async (event: H3Event) => {
 
   // Fast-path: push the updated state set to SSE-connected peers so they
   // don't have to wait for the next poll cycle for cursor/selection updates.
-  emitAwarenessChange(docId, allStates);
+  emitAwarenessChange(
+    docId,
+    allStates,
+    contextScope ?? {
+      ...(session?.email ? { owner: session.email } : {}),
+      ...(session?.orgId ? { orgId: session.orgId } : {}),
+    },
+  );
 
   return { states: otherStates };
 });
@@ -172,6 +304,7 @@ export const getActiveUsers = defineEventHandler(async (event: H3Event) => {
   }
 
   const map = getDocAwareness(docId);
+  await mergeStoredAwareness(docId, map);
   cleanExpired(map);
   pruneIfEmpty(docId, map);
 

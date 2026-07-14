@@ -47,12 +47,15 @@ export {
   listCustomProviders,
   getCustomProvider,
   validateCustomBaseUrl,
+  assertCanMutateCustomProviderScope,
+  CustomProviderAuthError,
 } from "./custom-registry.js";
 
 export const PROVIDER_API_IDS = [
   "amplitude",
   "apollo",
   "bigquery",
+  "clay",
   "commonroom",
   "dataforseo",
   "ga4",
@@ -647,6 +650,56 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
   },
+  clay: {
+    id: "clay",
+    label: "Clay Public API",
+    defaultBaseUrl: "https://api.clay.com/public/v0",
+    auth: {
+      type: "api-key-header",
+      key: "CLAY_PUBLIC_API_KEY",
+      header: "clay-api-key",
+    },
+    credentialKeys: ["CLAY_PUBLIC_API_KEY"],
+    docsUrls: [
+      "https://developers.clay.com/llms.txt",
+      "https://developers.clay.com/public-api/authentication",
+      "https://developers.clay.com/concepts/execution-model.md",
+    ],
+    specUrls: ["https://developers.clay.com/openapi.json"],
+    templateUses: ["analytics"],
+    examples: [
+      {
+        label: "Get authenticated user and workspace",
+        method: "GET",
+        path: "/me",
+      },
+      {
+        label: "List people search filter fields",
+        method: "GET",
+        path: "/search/filters-mode/fields",
+        query: { source_type: "people" },
+      },
+      {
+        label: "Create a people search",
+        method: "POST",
+        path: "/search/filters-mode",
+        body: {
+          source_type: "people",
+          filters: {
+            job_title_keywords: ["software engineer"],
+            location_cities_include: ["New York"],
+          },
+        },
+      },
+    ],
+    notes: [
+      "Clay is a GTM provider API capability, not a messaging channel.",
+      "The Public API key is tied to a Clay user and workspace. It is separate from the optional local clay CLI/MCP session created by clay login; hosted Agent Native access does not require that plugin session.",
+      "Search results use a stateful forward-only iterator: repeat POST /search/filters-mode/{search_id}/run while has_more is true.",
+      "The Tables API is query-only, requires an Enterprise plan, and needs a known table id; the Public API does not list, create, or update tables.",
+      "Routine runs are asynchronous. Start a run, then poll the documented results endpoint or use a verified completion webhook.",
+    ],
+  },
   commonroom: {
     id: "commonroom",
     label: "Common Room",
@@ -789,10 +842,25 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       header: "X-Figma-Token",
     },
     credentialKeys: ["FIGMA_ACCESS_TOKEN"],
-    docsUrls: ["https://www.figma.com/developers/api"],
+    docsUrls: [
+      "https://developers.figma.com/docs/rest-api/",
+      "https://developers.figma.com/docs/rest-api/scopes/",
+      "https://developers.figma.com/docs/rest-api/file-endpoints/",
+    ],
     allowedHostSuffixes: ["figma.com"],
     templateUses: ["design"],
     examples: [
+      {
+        label: "Get file document",
+        method: "GET",
+        path: "/files/{fileKey}",
+      },
+      {
+        label: "Get exact file nodes",
+        method: "GET",
+        path: "/files/{fileKey}/nodes",
+        query: { ids: "1:2" },
+      },
       {
         label: "List file components",
         method: "GET",
@@ -804,6 +872,11 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
         path: "/images/{fileKey}",
         query: { ids: "1:2", format: "svg" },
       },
+    ],
+    notes: [
+      "Personal access tokens should include current_user:read for validation and file_content:read for file/node imports. Add library_content:read for file libraries, team_library_content:read for team libraries, or library_assets:read for individual published assets only when needed.",
+      "Enterprise Variables endpoints require file_variables:read; writes additionally require file_variables:write, a Full seat, and edit access.",
+      "The REST API cannot create arbitrary canvas frames or layers. Use Figma's official OAuth MCP write tools when connected, or export a Design selection as Figma-compatible SVG for visual handoff.",
     ],
   },
   gmail: {

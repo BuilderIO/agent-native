@@ -390,6 +390,8 @@ Esta era anteriormente una postura de "advertir y aceptar": establezca el secret
 - [ ] `AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK` **no** está configurado a menos que su organización realmente comparta claves de espacio de trabajo; consulte [Cross-User Tooling Secrets](#tooling-secrets)
 - [ ] En implementaciones multiinquilino, **los usuarios traen su propio `ANTHROPIC_API_KEY`**: el marco se niega a recurrir a la var de entorno de nivel de implementación
 
+Ejecuta `agent-native doctor` (`pnpm doctor` en una app generada con el scaffold) para comprobar automáticamente los elementos de esquema, credenciales y variables de entorno de esta lista de verificación — cada hallazgo indica el guard, el archivo y la línea. Consulta la documentación de [Doctor](/docs/doctor).
+
 ---
 
 Las secciones siguientes cubren indicadores de entornos especializados que solo utiliza en implementaciones específicas. La mayoría de las aplicaciones nunca los tocan.
@@ -417,3 +419,11 @@ AGENT_NATIVE_KEYS_WORKSPACE_FALLBACK=1
 ```
 
 Las escrituras secretas en el ámbito del espacio de trabajo aún requieren la función de propietario/administrador de la organización, independientemente de esta marca.
+
+## Siguientes pasos
+
+- [**Authentication**](/docs/authentication) — modos de auth, cookie realms y detalles de sesión sobre los que se construye esta página
+- [**Multi-Tenancy**](/docs/multi-tenancy) — el modelo de membresía de la organización detrás del scoping por `org_id`
+- [**Sharing**](/docs/sharing) — el patrón `ownableColumns()` y de access-guard aplicado a los recursos compartibles
+- [**Messaging**](/docs/messaging#env-vars) — los secretos de firma de webhook por integración referenciados en la lista de verificación anterior
+- [**Deployment**](/docs/deployment) — las variables de entorno de producción que esta lista de verificación asume que están configuradas

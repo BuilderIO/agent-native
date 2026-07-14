@@ -1,7 +1,15 @@
-import { IconHistory, IconSettings, IconUsers } from "@tabler/icons-react";
 import {
+  IconHistory,
+  IconSearch,
+  IconSettings,
+  IconUsers,
+  IconX,
+} from "@tabler/icons-react";
+import {
+  useCallback,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ComponentType,
   type ReactNode,
@@ -11,11 +19,46 @@ import { cn } from "../utils.js";
 
 type SettingsTabIcon = ComponentType<{ className?: string }>;
 
+/**
+ * A single deep-link target inside settings that the settings search can jump
+ * to. Entries usually map to a section within a tab (via a `hash`/anchor id),
+ * making individual controls discoverable without hunting through every tab.
+ */
+export interface SettingsSearchEntry {
+  /** Stable unique id for the entry. */
+  id: string;
+  /** Primary label shown in the search results. */
+  label: string;
+  /** Extra space-separated terms to match against (synonyms, provider names). */
+  keywords?: string;
+  /** Optional secondary description shown under the label. */
+  description?: string;
+  /** Tab to activate when the entry is picked. Defaults to the owning tab. */
+  tabId?: string;
+  /**
+   * Optional section id / DOM element id to open + scroll to after switching
+   * tabs. Handled by the inner panels' own hash listeners.
+   */
+  hash?: string;
+  /** Optional icon override; defaults to the owning tab's icon. */
+  icon?: SettingsTabIcon;
+}
+
 export interface SettingsTabItem {
   id: string;
   label: string;
   icon?: SettingsTabIcon;
   content: ReactNode;
+  /**
+   * Optional visual navigation group. Adjacent tabs with the same group render
+   * together; a quiet divider separates each group on desktop while mobile
+   * keeps the compact horizontal tab scroller unchanged.
+   */
+  group?: string;
+  /** Extra space-separated terms so this tab is findable via search. */
+  keywords?: string;
+  /** Deep-link entries within this tab for the settings search. */
+  searchEntries?: SettingsSearchEntry[];
 }
 
 export interface SettingsTabsPageProps {
@@ -31,6 +74,34 @@ export interface SettingsTabsPageProps {
   className?: string;
   navClassName?: string;
   contentClassName?: string;
+  /** Whether to render the settings search box. Defaults to true. */
+  enableSearch?: boolean;
+  /** Placeholder for the settings search box. */
+  searchPlaceholder?: string;
+  /** Extra global search entries (e.g. anchors within the General tab). */
+  searchEntries?: SettingsSearchEntry[];
+  /** Deep-link entries for the General tab. */
+  generalSearchEntries?: SettingsSearchEntry[];
+  /**
+   * Controlled active tab id. When provided, the parent owns tab state (and is
+   * responsible for URL/app-state sync). Recognized top-level tab hashes still
+   * report through `onValueChange`, so shared links such as
+   * `/settings#organization` can select the matching controlled Team tab.
+   * Leave undefined for the default uncontrolled, hash-driven behavior.
+   */
+  value?: string;
+  /**
+   * Called whenever the active tab changes via a tab click or a search result
+   * selection. Fires in both controlled and uncontrolled modes.
+   */
+  onValueChange?: (tabId: string) => void;
+}
+
+interface ResolvedSearchEntry extends SettingsSearchEntry {
+  tabId: string;
+  tabLabel: string;
+  icon?: SettingsTabIcon;
+  haystack: string;
 }
 
 function normalizeTabId(value?: string | null): string | null {
@@ -49,15 +120,35 @@ function normalizeTabId(value?: string | null): string | null {
   ) {
     return "whats-new";
   }
-  if (
-    normalized === "workspace" ||
-    normalized === "workspace-settings" ||
-    normalized === "organization" ||
-    normalized === "org"
-  ) {
-    return "team";
+  if (normalized === "workspace" || normalized === "workspace-settings") {
+    return "workspace";
   }
   return normalized;
+}
+
+function resolveTabId(
+  tabs: SettingsTabItem[],
+  value?: string | null,
+): string | null {
+  const normalized = normalizeTabId(value);
+  if (!normalized) return null;
+  if (tabs.some((tab) => tab.id === normalized)) return normalized;
+  const section = normalized.split(":", 1)[0];
+  const owner = tabs.find((tab) =>
+    tab.searchEntries?.some(
+      (entry) => normalizeTabId(entry.hash ?? entry.id) === section,
+    ),
+  );
+  if (owner) return owner.id;
+  if (
+    normalized === "organization" ||
+    normalized === "org" ||
+    normalized === "team"
+  ) {
+    if (tabs.some((tab) => tab.id === "organization")) return "organization";
+    if (tabs.some((tab) => tab.id === "team")) return "team";
+  }
+  return null;
 }
 
 function activeTabFromHash(
@@ -65,9 +156,7 @@ function activeTabFromHash(
   defaultTab: string,
 ): string {
   if (typeof window === "undefined") return defaultTab;
-  const fromHash = normalizeTabId(window.location.hash);
-  if (fromHash && tabs.some((tab) => tab.id === fromHash)) return fromHash;
-  return defaultTab;
+  return resolveTabId(tabs, window.location.hash) ?? defaultTab;
 }
 
 function updateHashForTab(tabId: string) {
@@ -75,6 +164,17 @@ function updateHashForTab(tabId: string) {
   const { pathname, search } = window.location;
   const hash = tabId === "general" ? "" : `#${encodeURIComponent(tabId)}`;
   window.history.pushState(null, "", `${pathname}${search}${hash}`);
+}
+
+function isEditableElement(element: Element | null): boolean {
+  if (!(element instanceof HTMLElement)) return false;
+  const tagName = element.tagName.toLowerCase();
+  return (
+    tagName === "input" ||
+    tagName === "textarea" ||
+    tagName === "select" ||
+    element.isContentEditable
+  );
 }
 
 export function SettingsTabsPage({
@@ -90,21 +190,37 @@ export function SettingsTabsPage({
   className,
   navClassName,
   contentClassName,
+  enableSearch = true,
+  searchPlaceholder = "Search settings",
+  searchEntries,
+  generalSearchEntries,
+  value,
+  onValueChange,
 }: SettingsTabsPageProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const autoFocusedSearchRef = useRef(false);
+  const controlledHashRef = useRef<string | null>(null);
   const tabs = useMemo<SettingsTabItem[]>(() => {
+    const hasOrganizationTab = extraTabs.some(
+      (tab) => tab.id === "organization",
+    );
     const next: SettingsTabItem[] = [
       {
         id: "general",
         label: generalLabel,
         icon: IconSettings,
         content: general,
+        searchEntries: generalSearchEntries,
       },
     ];
-    if (team) {
+    next.push(...extraTabs);
+    if (team && !hasOrganizationTab) {
       next.push({
         id: "team",
         label: teamLabel,
         icon: IconUsers,
+        group: "workspace",
         content: team,
       });
     }
@@ -113,15 +229,16 @@ export function SettingsTabsPage({
         id: "whats-new",
         label: whatsNewLabel,
         icon: IconHistory,
+        group: "updates",
         content: whatsNew,
       });
     }
-    next.push(...extraTabs);
     return next;
   }, [
     extraTabs,
     general,
     generalLabel,
+    generalSearchEntries,
     team,
     teamLabel,
     whatsNew,
@@ -131,81 +248,338 @@ export function SettingsTabsPage({
   const fallbackTab = tabs.some((tab) => tab.id === defaultTab)
     ? defaultTab
     : (tabs[0]?.id ?? "general");
-  const [activeTab, setActiveTab] = useState(() =>
+  const tabGroups = useMemo(() => {
+    const groups: Array<{ id: string; tabs: SettingsTabItem[] }> = [];
+
+    for (const tab of tabs) {
+      const groupId = tab.group ?? "app";
+      const previousGroup = groups.at(-1);
+      if (previousGroup?.id === groupId) {
+        previousGroup.tabs.push(tab);
+      } else {
+        groups.push({ id: groupId, tabs: [tab] });
+      }
+    }
+
+    return groups;
+  }, [tabs]);
+  const isControlled = value !== undefined;
+  const [internalTab, setInternalTab] = useState(() =>
     activeTabFromHash(tabs, fallbackTab),
+  );
+  const activeTab = isControlled ? value : internalTab;
+  const [query, setQuery] = useState("");
+
+  const changeTab = useCallback(
+    (tabId: string) => {
+      if (!isControlled) setInternalTab(tabId);
+      onValueChange?.(tabId);
+    },
+    [isControlled, onValueChange],
   );
 
   useEffect(() => {
-    if (tabs.some((tab) => tab.id === activeTab)) return;
-    setActiveTab(fallbackTab);
-  }, [activeTab, fallbackTab, tabs]);
+    // In controlled mode the parent owns (and validates) the active tab.
+    if (isControlled) return;
+    if (tabs.some((tab) => tab.id === internalTab)) return;
+    setInternalTab(fallbackTab);
+  }, [fallbackTab, internalTab, isControlled, tabs]);
 
   useEffect(() => {
+    // Hash-driven tab tracking only applies to the uncontrolled mode. Only
+    // react to hashes that name a top-level tab. Section-level hashes
+    // (e.g. `#llm`, `#secrets`) are consumed by the inner panels, so leave
+    // the active tab untouched to avoid bouncing back to General.
+    if (isControlled) return;
     const handleHashChange = () => {
-      setActiveTab(activeTabFromHash(tabs, fallbackTab));
+      const fromHash = resolveTabId(tabs, window.location.hash);
+      if (fromHash) {
+        setInternalTab(fromHash);
+      }
     };
     window.addEventListener("hashchange", handleHashChange);
     return () => window.removeEventListener("hashchange", handleHashChange);
-  }, [fallbackTab, tabs]);
+  }, [isControlled, tabs]);
+
+  useEffect(() => {
+    // Controlled pages retain ownership of their active state, but shared
+    // organization navigation uses a hash deep link. Report only recognized
+    // top-level tab hashes; section hashes remain available to inner panels.
+    if (!isControlled) return;
+    const syncControlledHash = () => {
+      const hash = window.location.hash;
+      const fromHash = resolveTabId(tabs, hash);
+      if (!fromHash || controlledHashRef.current === hash) return;
+      controlledHashRef.current = hash;
+      onValueChange?.(fromHash);
+    };
+    syncControlledHash();
+    window.addEventListener("hashchange", syncControlledHash);
+    return () => window.removeEventListener("hashchange", syncControlledHash);
+  }, [isControlled, onValueChange, tabs, value]);
+
+  useEffect(() => {
+    if (!enableSearch || autoFocusedSearchRef.current) return;
+    if (
+      typeof window === "undefined" ||
+      typeof window.matchMedia !== "function"
+    ) {
+      return;
+    }
+    if (window.matchMedia("(max-width: 767px)").matches) return;
+
+    const frame = window.requestAnimationFrame(() => {
+      autoFocusedSearchRef.current = true;
+      const input = searchInputRef.current;
+      if (!input) return;
+
+      const activeElement = document.activeElement;
+      const activeInsideSettings =
+        !!activeElement && rootRef.current?.contains(activeElement);
+      if (
+        activeElement !== input &&
+        (isEditableElement(activeElement) || activeInsideSettings)
+      ) {
+        return;
+      }
+
+      input.focus({ preventScroll: true });
+    });
+
+    return () => window.cancelAnimationFrame(frame);
+  }, [enableSearch]);
 
   const selectedTab = tabs.find((tab) => tab.id === activeTab) ?? tabs[0];
 
+  // Flatten tab + deep-link entries into one searchable index.
+  const searchIndex = useMemo<ResolvedSearchEntry[]>(() => {
+    const entries: ResolvedSearchEntry[] = [];
+    const seen = new Set<string>();
+    const add = (entry: ResolvedSearchEntry) => {
+      if (seen.has(entry.id)) return;
+      seen.add(entry.id);
+      entries.push(entry);
+    };
+    for (const tab of tabs) {
+      add({
+        id: `tab:${tab.id}`,
+        label: tab.label,
+        keywords: tab.keywords,
+        tabId: tab.id,
+        tabLabel: tab.label,
+        icon: tab.icon,
+        haystack: `${tab.label} ${tab.keywords ?? ""}`.toLowerCase(),
+      });
+      for (const sub of tab.searchEntries ?? []) {
+        add({
+          ...sub,
+          tabId: sub.tabId ?? tab.id,
+          tabLabel: tab.label,
+          icon: sub.icon ?? tab.icon,
+          haystack:
+            `${sub.label} ${sub.keywords ?? ""} ${sub.description ?? ""} ${tab.label}`.toLowerCase(),
+        });
+      }
+    }
+    for (const sub of searchEntries ?? []) {
+      const owner = tabs.find((tab) => tab.id === (sub.tabId ?? "general"));
+      add({
+        ...sub,
+        tabId: sub.tabId ?? "general",
+        tabLabel: owner?.label ?? sub.tabId ?? "General",
+        icon: sub.icon ?? owner?.icon,
+        haystack:
+          `${sub.label} ${sub.keywords ?? ""} ${sub.description ?? ""} ${owner?.label ?? ""}`.toLowerCase(),
+      });
+    }
+    return entries;
+  }, [searchEntries, tabs]);
+
+  const trimmedQuery = query.trim().toLowerCase();
+  const results = useMemo<ResolvedSearchEntry[]>(() => {
+    if (!trimmedQuery) return [];
+    const terms = trimmedQuery.split(/\s+/).filter(Boolean);
+    return searchIndex
+      .filter((entry) => terms.every((term) => entry.haystack.includes(term)))
+      .sort((a, b) => {
+        const aStarts = a.label.toLowerCase().startsWith(trimmedQuery) ? 0 : 1;
+        const bStarts = b.label.toLowerCase().startsWith(trimmedQuery) ? 0 : 1;
+        if (aStarts !== bStarts) return aStarts - bStarts;
+        return a.label.localeCompare(b.label);
+      });
+  }, [searchIndex, trimmedQuery]);
+
+  const selectEntry = (entry: ResolvedSearchEntry) => {
+    changeTab(entry.tabId);
+    setQuery("");
+    if (typeof window === "undefined") return;
+    const hash = entry.hash?.replace(/^#/, "");
+    if (hash) {
+      const { pathname, search } = window.location;
+      window.history.pushState(null, "", `${pathname}${search}#${hash}`);
+      // Let the inner panels open + scroll to their section.
+      window.dispatchEvent(new Event("hashchange"));
+      window.requestAnimationFrame(() => {
+        document
+          .getElementById(hash)
+          ?.scrollIntoView({ block: "start", behavior: "smooth" });
+      });
+    } else if (!isControlled) {
+      updateHashForTab(entry.tabId);
+    }
+  };
+
+  const searching = enableSearch && trimmedQuery.length > 0;
+
   return (
     <div
+      ref={rootRef}
       className={cn(
-        "flex min-h-full w-full flex-col overflow-hidden bg-background sm:flex-row",
+        "flex h-full min-h-0 w-full flex-col overflow-hidden bg-background sm:flex-row",
         className,
       )}
     >
-      <nav
-        aria-label={ariaLabel}
-        role="tablist"
+      <div
         className={cn(
-          "flex shrink-0 gap-1 overflow-x-auto border-b border-border/50 bg-muted/30 p-2 sm:w-48 sm:flex-col sm:overflow-x-visible sm:border-b-0 sm:border-e",
+          "flex shrink-0 flex-col gap-2 bg-background p-2 sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:p-3",
           navClassName,
         )}
       >
-        {tabs.map((tab) => {
-          const Icon = tab.icon;
-          const selected = tab.id === selectedTab?.id;
-          return (
-            <button
-              key={tab.id}
-              type="button"
-              role="tab"
-              aria-selected={selected}
-              aria-controls={`settings-tabpanel-${tab.id}`}
-              id={`settings-tab-${tab.id}`}
-              onClick={() => {
-                setActiveTab(tab.id);
-                updateHashForTab(tab.id);
+        {enableSearch ? (
+          <div className="relative sm:mb-1">
+            <IconSearch className="pointer-events-none absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              ref={searchInputRef}
+              type="search"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Escape") setQuery("");
+                if (event.key === "Enter" && results[0]) {
+                  event.preventDefault();
+                  selectEntry(results[0]);
+                }
               }}
-              className={cn(
-                "flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start text-sm font-medium transition-colors sm:w-full",
-                selected
-                  ? "bg-background text-foreground shadow-sm ring-1 ring-border/60"
-                  : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
-              )}
-            >
-              {Icon ? (
-                <Icon
-                  className={cn(
-                    "size-4 shrink-0",
-                    selected ? "text-foreground" : "text-muted-foreground",
-                  )}
-                />
-              ) : null}
-              <span className="truncate">{tab.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+              placeholder={searchPlaceholder}
+              aria-label={searchPlaceholder}
+              className="h-8 w-full rounded-md border border-border bg-background ps-8 pe-7 text-[13px] text-foreground outline-none transition-colors placeholder:text-muted-foreground focus:border-foreground/30 focus:ring-2 focus:ring-accent/40"
+            />
+            {query ? (
+              <button
+                type="button"
+                onClick={() => setQuery("")}
+                aria-label="Clear search"
+                className="absolute end-1.5 top-1/2 flex size-5 -translate-y-1/2 items-center justify-center rounded text-muted-foreground hover:bg-accent/60 hover:text-foreground"
+              >
+                <IconX className="size-3.5" />
+              </button>
+            ) : null}
+          </div>
+        ) : null}
+
+        {searching ? (
+          <div
+            role="listbox"
+            aria-label="Settings search results"
+            className="flex flex-col gap-0.5"
+          >
+            {results.length === 0 ? (
+              <p className="px-2 py-6 text-center text-[12px] text-muted-foreground">
+                No matching settings
+              </p>
+            ) : (
+              results.map((entry) => {
+                const Icon = entry.icon;
+                return (
+                  <button
+                    key={entry.id}
+                    type="button"
+                    role="option"
+                    aria-selected={false}
+                    onClick={() => selectEntry(entry)}
+                    className="flex items-start gap-2 rounded-md px-2.5 py-2 text-start text-sm text-foreground transition-colors hover:bg-accent/60"
+                  >
+                    {Icon ? (
+                      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+                    ) : null}
+                    <span className="flex min-w-0 flex-col">
+                      <span className="truncate font-medium">
+                        {entry.label}
+                      </span>
+                      <span className="truncate text-[11px] text-muted-foreground">
+                        {entry.description ?? entry.tabLabel}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        ) : (
+          <nav
+            aria-label={ariaLabel}
+            role="tablist"
+            className="flex gap-1 overflow-x-auto sm:flex-col sm:overflow-x-visible"
+          >
+            {tabGroups.map((group, groupIndex) => (
+              <div
+                key={group.id}
+                data-settings-tab-group={group.id}
+                className={cn(
+                  "contents sm:block",
+                  groupIndex > 0 &&
+                    "sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2",
+                )}
+              >
+                <div className="contents sm:flex sm:flex-col sm:gap-1">
+                  {group.tabs.map((tab) => {
+                    const Icon = tab.icon;
+                    const selected = tab.id === selectedTab?.id;
+                    return (
+                      <button
+                        key={tab.id}
+                        type="button"
+                        role="tab"
+                        aria-selected={selected}
+                        aria-controls={`settings-tabpanel-${tab.id}`}
+                        id={`settings-tab-${tab.id}`}
+                        onClick={() => {
+                          changeTab(tab.id);
+                          if (!isControlled) updateHashForTab(tab.id);
+                        }}
+                        className={cn(
+                          "flex min-h-9 shrink-0 items-center gap-2 rounded-md px-3 py-2 text-start text-sm font-medium transition-colors sm:w-full",
+                          selected
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                        )}
+                      >
+                        {Icon ? (
+                          <Icon
+                            className={cn(
+                              "size-4 shrink-0",
+                              selected
+                                ? "text-foreground"
+                                : "text-muted-foreground",
+                            )}
+                          />
+                        ) : null}
+                        <span className="truncate">{tab.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
+          </nav>
+        )}
+      </div>
       <div
         id={`settings-tabpanel-${selectedTab?.id ?? "general"}`}
         role="tabpanel"
         aria-labelledby={`settings-tab-${selectedTab?.id ?? "general"}`}
         className={cn(
-          "min-w-0 flex-1 overflow-y-auto p-4 sm:p-6",
+          "min-h-0 min-w-0 flex-1 overflow-y-auto p-4 sm:p-6",
           contentClassName,
         )}
       >

@@ -431,6 +431,16 @@ const messages = {
       title: "स्थानीय योजना नहीं मिली",
       message: 'स्थानीय योजना फ़ोल्डर "{{slug}}" पढ़ा नहीं जा सका।',
     },
+    localPlanConnection: {
+      promptTitle: "इस स्थानीय योजना से कनेक्ट करें",
+      promptMessage:
+        "यह योजना आपके कंप्यूटर पर ही रहती है। इसे स्थानीय ब्रिज से पढ़ने के लिए Plan को ब्राउज़र की अनुमति चाहिए।",
+      deniedTitle: "स्थानीय नेटवर्क की पहुँच अवरुद्ध है",
+      deniedMessage:
+        "अपने ब्राउज़र में Plan की साइट सेटिंग खोलें, स्थानीय नेटवर्क की पहुँच की अनुमति दें और फिर दोबारा जाँचें।",
+      connect: "स्थानीय योजना से कनेक्ट करें",
+      checkAgain: "फिर से जाँचें",
+    },
     overview: {
       title: "योजना",
       documentCount_other: "{{count}} दस्तावेज़",
@@ -626,6 +636,9 @@ const messages = {
       signIn: "लॉग इन करें",
       haveAccount: "मेरा पहले से ही खाता है",
       retry: "पुनः प्रयास करें",
+      sendFeedback: "फ़ीडबैक भेजें",
+      feedbackPlaceholder: "इस प्लान त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
+      openGitHubIssue: "GitHub issue खोलें",
       joinedOrg: "{{orgName}} से जुड़े। उद्घाटन योजना...",
       acceptingInvite: "निमंत्रण स्वीकार कर रहा हूँ",
       joiningOrg: "संगठन से जुड़ना",

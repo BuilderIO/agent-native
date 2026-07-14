@@ -151,6 +151,7 @@ Example provenance footer:
 
 ```markdown
 ## Methodology
+
 - Identities: HubSpot contacts (joined to BigQuery on contact_id + lowercased email)
 - Usage: BigQuery `analytics.events`, 2026-04-01 .. 2026-05-01 UTC
 - Support: Pylon tickets, same window

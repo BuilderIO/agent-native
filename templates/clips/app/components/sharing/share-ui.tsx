@@ -4,11 +4,11 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
-  IconBuilding,
   IconCheck,
   IconCopy,
   IconLock,
   IconTrash,
+  IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -55,7 +55,7 @@ export const VIS_META: Record<Visibility, { Icon: typeof IconLock }> = {
     Icon: IconLock,
   },
   org: {
-    Icon: IconBuilding,
+    Icon: IconUsersGroup,
   },
   public: {
     Icon: IconWorld,
@@ -270,9 +270,11 @@ export function CopyField({
   };
   return (
     <div>
-      <div className="mb-1 text-xs font-medium text-muted-foreground">
-        {label}
-      </div>
+      {label ? (
+        <div className="mb-1 text-xs font-medium text-muted-foreground">
+          {label}
+        </div>
+      ) : null}
       <div className="flex items-stretch gap-2">
         <Input
           readOnly
@@ -306,7 +308,7 @@ export function Avatar({ label, org }: { label: string; org?: boolean }) {
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
       {org ? (
-        <IconBuilding size={14} strokeWidth={1.75} />
+        <IconUsersGroup size={14} strokeWidth={1.75} />
       ) : (
         (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
       )}

@@ -6,17 +6,21 @@ import {
 } from "@agent-native/core/application-state";
 import { seedFromText } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { and, eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { getDb, schema } from "../server/db/index.js";
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   mergeCanvasFramePlacements,
   type CanvasFramePlacement,
 } from "../shared/canvas-frames.js";
+import { isUniqueConstraintViolation } from "../shared/db-conflict.js";
+import { widthToPrefix } from "../shared/responsive-classes.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 const VARIANT_GAP = 96;
 const MAX_COLUMNS = 3;
@@ -24,8 +28,22 @@ const MOBILE_WIDTH = 390;
 const MOBILE_HEIGHT = 844;
 const TABLET_WIDTH = 768;
 const TABLET_HEIGHT = 1024;
-const DESKTOP_WIDTH = 1280;
-const DESKTOP_HEIGHT = 900;
+const DESKTOP_WIDTH = 1440;
+const DESKTOP_HEIGHT = 1024;
+const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
+  id: `generated-${widthPx}`,
+  label: widthPx === 390 ? "Mobile" : widthPx === 768 ? "Tablet" : "Desktop",
+  widthPx,
+  prefix: widthToPrefix(widthPx),
+}));
+
+function hasBreakpointSet(value: unknown): boolean {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return false;
+  }
+  const breakpoints = (value as { breakpoints?: unknown }).breakpoints;
+  return Array.isArray(breakpoints) && breakpoints.length > 0;
+}
 
 function designDeepLink(designId: string): string {
   return buildDeepLink({
@@ -42,13 +60,22 @@ const FALLBACK_INSTRUCTIONS =
   "a screen by name if the inline buttons are not available; after they pick, " +
   "delete each other variant screen at most once, call get-design-snapshot with fileId for " +
   "the kept screen once, then call edit-design on that same fileId in a bounded pass. " +
-  'Use mode "replace-file" when expanding the representative placeholder. ' +
+  'Use mode "replace-file" to replace the representative direction screen with ' +
+  "the actual requested product UI; make the result complete but compact and " +
+  "prefer visible controls/affordances over exhaustive content if the request is large. " +
+  "Do not leave a direction board, summary card, or variant brief as the final result. " +
   "Do not call generate-design after a variant pick.";
 
 const VARIANT_PICK_SUBMIT_MESSAGE =
   "Use this design direction. Keep the selected screen, clean up each other " +
   "variant screen at most once, read only the kept screen, then update that " +
-  "same screen in one bounded pass. If a cleanup action reports a screen was " +
+  "same screen in one bounded pass into the requested app/product UI. Make it " +
+  "complete but compact: prioritize the primary workflow, and if the full feature " +
+  "list is too large for one reliable edit, render secondary details as visible " +
+  "controls, states, or affordances instead of expanding the action input. " +
+  "The selected screen is only a representative direction; the final saved " +
+  "screen must not be a direction board, variant brief, or summary card. " +
+  "If a cleanup action reports a screen was " +
   "already missing, continue. Use the exact file ids and tool instructions in " +
   "the selected answer below. Do not repeat cleanup/read cycles, do not create " +
   "a new index.html, and stop after the first successful screen update.";
@@ -109,14 +136,334 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
 }
 
-function parseJsonRecord(value: string | null | undefined) {
-  if (!value) return {};
-  try {
-    const parsed = JSON.parse(value);
-    return isRecord(parsed) ? parsed : {};
-  } catch {
-    return {};
+const MAX_FILENAME_INSERT_ATTEMPTS = 5;
+
+/**
+ * True only when `rawSet` proves none of its screens has ever been removed by
+ * delete-file.ts. This action stamps every variant set it creates with
+ * `screenCount` — the exact number of screens it generated, which never
+ * changes afterward (present-design-variants.ts never mutates an existing
+ * set's `screenCount`, and delete-file.ts's `pruneDesignVariantSets` only
+ * ever shortens/removes a set's `screens` array, never touches `screenCount`).
+ * The moment any member is deleted, `screens.length` drops below the
+ * recorded `screenCount` (or the whole entry is removed once <=1 screens
+ * remain) — either way, `screens.length === screenCount` no longer holds. So
+ * this equality proves no delete-file call has EVER resolved against this
+ * set.
+ *
+ * IMPORTANT: this does NOT prove the user never picked a screen from the set.
+ * A pick only exists as a chat instruction (see `VARIANT_PICK_SUBMIT_MESSAGE`)
+ * until the agent's follow-up turn actually calls delete-file for the losers;
+ * there is no synchronous server-side seam that records a pick before that
+ * turn runs (an agent retry after a run cutoff, or a second
+ * present-design-variants call, can both land before the delete-file calls
+ * do). So `isUntouchedVariantSet` is used only to decide whether a set is
+ * eligible to be *marked* superseded — never as authority to delete its
+ * files. See `markSupersededVariantSets` / `deleteVariantSetsByIds` below.
+ * Sets without a numeric `screenCount` at all (legacy data predating this
+ * field) are NOT treated as untouched either, since we cannot prove those
+ * were never picked.
+ */
+function isUntouchedVariantSet(
+  rawSet: unknown,
+): rawSet is { screens: unknown[]; screenCount: number } & Record<
+  string,
+  unknown
+> {
+  return (
+    isRecord(rawSet) &&
+    Array.isArray(rawSet.screens) &&
+    typeof rawSet.screenCount === "number" &&
+    rawSet.screens.length === rawSet.screenCount
+  );
+}
+
+function collectUnmarkedSupersededCandidateIds(
+  variantSets: Record<string, unknown>,
+): string[] {
+  const setIds: string[] = [];
+  for (const [setId, rawSet] of Object.entries(variantSets)) {
+    if (!isUntouchedVariantSet(rawSet)) continue;
+    if (isRecord(rawSet) && rawSet.superseded === true) continue;
+    setIds.push(setId);
   }
+  return setIds;
+}
+
+function screenFileIdsForSet(rawSet: { screens: unknown[] }): string[] {
+  const fileIds = new Set<string>();
+  for (const screen of rawSet.screens) {
+    const id = isRecord(screen)
+      ? screen.id
+      : typeof screen === "string"
+        ? screen
+        : undefined;
+    if (typeof id === "string") fileIds.add(id);
+  }
+  return Array.from(fileIds);
+}
+
+function pruneKeyedRecordForIds(
+  value: unknown,
+  ids: string[],
+): Record<string, unknown> {
+  const next = isRecord(value) ? { ...value } : {};
+  for (const id of ids) delete next[id];
+  return next;
+}
+
+/**
+ * Marks each PREVIOUS present-design-variants set for this design that is
+ * proven untouched (see `isUntouchedVariantSet`) as `superseded: true`,
+ * whenever a new variant set is created for the same design. This is
+ * bookkeeping ONLY — it never deletes files, never touches `canvasFrames` or
+ * `screenMetadata`, and is always safe to run unconditionally. A set with
+ * `superseded: true` still renders normally; the flag only makes it eligible
+ * for the opt-in `deleteSupersededSetIds` path below.
+ *
+ * Deletion is intentionally NOT automatic here. The failure mode this
+ * guards against: set V1=[S1,S2,S3] is generated; the user picks S2 in chat;
+ * before the agent's delete-file turn for S1/S3 actually runs (run cutoff,
+ * retry, or a second present-design-variants call arriving first),
+ * `screens.length === screenCount` still holds for V1 — a pick is not
+ * observable server-side until delete-file resolves it. Auto-deleting on
+ * that inference would have hard-deleted the picked screen S2 with no
+ * recovery. So this function only records bookkeeping; real deletion
+ * requires the agent to explicitly name the set via `deleteSupersededSetIds`
+ * — see that action param's description for the discipline expected of
+ * callers.
+ */
+async function markSupersededVariantSets(
+  designId: string,
+): Promise<{ markedSetIds: string[] }> {
+  const db = getDb();
+
+  // Cheap early-exit read so the common case (no stale variant set to mark)
+  // never bumps the design's updatedAt via a no-op mutateDesignData call —
+  // mutateDesignDataUnlocked always advances updatedAt on every commit, even
+  // when the payload is unchanged. The authoritative check still runs inside
+  // the mutate() callback below, so a race against this snapshot is harmless.
+  const [designRow] = await db
+    .select({ data: schema.designs.data })
+    .from(schema.designs)
+    .where(
+      and(
+        eq(schema.designs.id, designId),
+        accessFilter(schema.designs, schema.designShares),
+      ),
+    );
+  if (!designRow) return { markedSetIds: [] };
+  let precheckVariantSets: Record<string, unknown> = {};
+  if (designRow.data) {
+    try {
+      const parsed: unknown = JSON.parse(designRow.data);
+      if (isRecord(parsed) && isRecord(parsed.designVariantSets)) {
+        precheckVariantSets = parsed.designVariantSets;
+      }
+    } catch {
+      return { markedSetIds: [] };
+    }
+  }
+  if (collectUnmarkedSupersededCandidateIds(precheckVariantSets).length === 0) {
+    return { markedSetIds: [] };
+  }
+
+  let markedSetIds: string[] = [];
+
+  await mutateDesignData({
+    designId,
+    mutate: (current, { updatedAt }) => {
+      const variantSets = isRecord(current.designVariantSets)
+        ? current.designVariantSets
+        : {};
+      const setIds = collectUnmarkedSupersededCandidateIds(variantSets);
+      markedSetIds = setIds;
+      if (setIds.length === 0) return current;
+
+      const nextVariantSets = { ...variantSets };
+      for (const setId of setIds) {
+        const rawSet = variantSets[setId];
+        if (isRecord(rawSet)) {
+          nextVariantSets[setId] = { ...rawSet, superseded: true };
+        }
+      }
+
+      return {
+        ...current,
+        designVariantSets: nextVariantSets,
+        updatedAt,
+      };
+    },
+    isApplied: (current) => {
+      const variantSets = isRecord(current.designVariantSets)
+        ? current.designVariantSets
+        : {};
+      return markedSetIds.every(
+        (setId) =>
+          isRecord(variantSets[setId]) &&
+          variantSets[setId]!.superseded === true,
+      );
+    },
+  });
+
+  return { markedSetIds };
+}
+
+/**
+ * Explicit, opt-in permanent deletion of specific variant sets by id. This is
+ * the ONLY path that hard-deletes variant-set files; it never runs
+ * automatically. The caller (the agent) must pass `deleteSupersededSetIds`
+ * naming the exact sets it knows were abandoned without any user pick — e.g.
+ * generating a brand-new set after the user asked to see different options.
+ * Never pass a previous set's id here on the strength of a guess or a retry;
+ * only do so when there is no reason to believe the user discussed or picked
+ * one of its screens.
+ *
+ * As a safety net, a requested id is only honored when the set is already
+ * flagged `superseded: true` by `markSupersededVariantSets` (i.e. proven
+ * untouched by any delete-file call as of this same run). A set that has
+ * already had even one delete-file call resolve against it — the normal sign
+ * that a pick is mid-flight — is never marked superseded and is therefore
+ * never eligible here, regardless of what the caller requests.
+ */
+async function deleteVariantSetsByIds(
+  designId: string,
+  requestedSetIds: string[],
+): Promise<{ removedSetIds: string[]; removedFileIds: string[] }> {
+  const db = getDb();
+
+  // Same cheap early-exit as markSupersededVariantSets: skip the
+  // updatedAt-bumping mutateDesignData commit when none of the requested set
+  // ids currently qualifies for deletion. The authoritative check still runs
+  // inside the mutate() callback below.
+  const [designRow] = await db
+    .select({ data: schema.designs.data })
+    .from(schema.designs)
+    .where(
+      and(
+        eq(schema.designs.id, designId),
+        accessFilter(schema.designs, schema.designShares),
+      ),
+    );
+  if (!designRow) return { removedSetIds: [], removedFileIds: [] };
+  let precheckVariantSets: Record<string, unknown> = {};
+  if (designRow.data) {
+    try {
+      const parsed: unknown = JSON.parse(designRow.data);
+      if (isRecord(parsed) && isRecord(parsed.designVariantSets)) {
+        precheckVariantSets = parsed.designVariantSets;
+      }
+    } catch {
+      return { removedSetIds: [], removedFileIds: [] };
+    }
+  }
+  if (
+    !requestedSetIds.some((setId) => {
+      const rawSet = precheckVariantSets[setId];
+      return (
+        isRecord(rawSet) &&
+        rawSet.superseded === true &&
+        Array.isArray(rawSet.screens)
+      );
+    })
+  ) {
+    return { removedSetIds: [], removedFileIds: [] };
+  }
+
+  let removedSetIds: string[] = [];
+  let removedFileIds: string[] = [];
+
+  await mutateDesignData({
+    designId,
+    mutate: (current, { updatedAt }) => {
+      const variantSets = isRecord(current.designVariantSets)
+        ? current.designVariantSets
+        : {};
+      const setIds: string[] = [];
+      const fileIds = new Set<string>();
+      for (const setId of requestedSetIds) {
+        const rawSet = variantSets[setId];
+        if (
+          !isRecord(rawSet) ||
+          rawSet.superseded !== true ||
+          !Array.isArray(rawSet.screens)
+        ) {
+          continue;
+        }
+        setIds.push(setId);
+        for (const id of screenFileIdsForSet(
+          rawSet as { screens: unknown[] },
+        )) {
+          fileIds.add(id);
+        }
+      }
+      removedSetIds = setIds;
+      removedFileIds = Array.from(fileIds);
+      if (setIds.length === 0) return current;
+
+      const nextVariantSets = { ...variantSets };
+      for (const setId of setIds) delete nextVariantSets[setId];
+
+      return {
+        ...current,
+        canvasFrames: pruneKeyedRecordForIds(
+          current.canvasFrames,
+          removedFileIds,
+        ),
+        screenMetadata: pruneKeyedRecordForIds(
+          current.screenMetadata,
+          removedFileIds,
+        ),
+        designVariantSets: nextVariantSets,
+        updatedAt,
+      };
+    },
+    isApplied: (current) => {
+      const variantSets = isRecord(current.designVariantSets)
+        ? current.designVariantSets
+        : {};
+      return removedSetIds.every((setId) => !(setId in variantSets));
+    },
+  });
+
+  if (removedFileIds.length > 0) {
+    await db
+      .delete(schema.designFiles)
+      .where(inArray(schema.designFiles.id, removedFileIds));
+
+    // Closes the small window between the metadata prune above and the
+    // physical row delete: mirrors delete-file.ts's before/delete/after
+    // pattern so a sibling request that refreshed canvasFrames/screenMetadata
+    // for one of these now-deleted ids in that window still gets swept.
+    await mutateDesignData({
+      designId,
+      mutate: (current, { updatedAt }) => ({
+        ...current,
+        canvasFrames: pruneKeyedRecordForIds(
+          current.canvasFrames,
+          removedFileIds,
+        ),
+        screenMetadata: pruneKeyedRecordForIds(
+          current.screenMetadata,
+          removedFileIds,
+        ),
+        updatedAt,
+      }),
+      isApplied: (current) => {
+        const frames = isRecord(current.canvasFrames)
+          ? current.canvasFrames
+          : {};
+        const metadata = isRecord(current.screenMetadata)
+          ? current.screenMetadata
+          : {};
+        return removedFileIds.every(
+          (id) => !(id in frames) && !(id in metadata),
+        );
+      },
+    });
+  }
+
+  return { removedSetIds, removedFileIds };
 }
 
 function slugify(value: string, fallback: string) {
@@ -241,7 +588,7 @@ function colorForVariant(
 ) {
   const provided = variant.accentColor?.trim();
   if (provided) return provided;
-  return ["#8b5cf6", "#06b6d4", "#10b981", "#f43f5e", "#f59e0b"][index % 5]!;
+  return ["#f59e0b", "#06b6d4", "#10b981", "#f43f5e", "#d97706"][index % 5]!;
 }
 
 function fallbackVariantContent(
@@ -298,7 +645,7 @@ function fallbackVariantContent(
 <style>
 :root { color-scheme: dark; --accent: ${accent}; --bg: #080a0f; --panel: rgba(18, 22, 33, 0.82); --line: rgba(255,255,255,.11); --muted: #94a3b8; }
 * { box-sizing: border-box; }
-body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
+body { margin: 0; width: ${screenWidth}px; min-height: ${screenHeight}px; overflow: hidden; font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #f8fafc; background:
   radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 42%, transparent), transparent 30%),
   linear-gradient(140deg, #05070b 0%, #111827 48%, #05070b 100%); }
 .shell { width: ${screenWidth}px; min-height: ${screenHeight}px; padding: ${compact ? "18" : "34"}px; display: grid; grid-template-columns: ${compact ? "1fr" : tablet ? "220px 1fr" : "258px 1fr 304px"}; gap: ${compact ? "14" : "22"}px; }
@@ -424,14 +771,17 @@ export default defineAction({
     "call get-design-snapshot with fileId for the kept screen before " +
     "calling edit-design on that same fileId in a bounded pass. Use " +
     '`mode: "replace-file"` when expanding the representative placeholder ' +
-    "into the full chosen direction. Do not call generate-design after a " +
+    "into a complete but compact product UI in the chosen direction. Do not call generate-design after a " +
     "variant pick. Stop after the first successful edit-design save. For " +
     "complex apps, " +
     "make each variant a " +
     "compact representative screen; pass concise labels/descriptions/features " +
     "and omit content when full HTML would be too large. Design will render " +
     "compact screens from the direction data. Expand the chosen direction " +
-    "after the user picks.",
+    "after the user picks. Screens from an earlier variant set are never " +
+    "deleted automatically: if you are knowingly replacing your own earlier " +
+    "set that the user never picked from or discussed, pass its set id in " +
+    "deleteSupersededSetIds; otherwise leave old sets in place.",
   schema: z.object({
     designId: z.string().describe("Design project ID to show variants for"),
     prompt: z
@@ -445,6 +795,19 @@ export default defineAction({
       .describe(
         "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
       ),
+    deleteSupersededSetIds: z
+      .array(z.string())
+      .optional()
+      .describe(
+        "OPT-IN permanent deletion of earlier variant sets you are knowingly " +
+          "replacing. Pass a previous variantSetId ONLY when you created that " +
+          "set yourself and the user never picked, kept, or discussed any of " +
+          "its screens (e.g. the user asked for a completely different set of " +
+          "directions). If the user may have picked a screen — even if the " +
+          "losing screens have not been deleted yet — do NOT pass the set id: " +
+          "deletion is permanent and would destroy the picked screen. Ids are " +
+          "only honored for sets provably untouched by any delete-file call.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -457,16 +820,24 @@ export default defineAction({
       height: 720,
     }),
   },
-  run: async ({ designId, prompt, variants }) => {
+  run: async ({ designId, prompt, variants, deleteSupersededSetIds }) => {
     await assertAccess("design", designId, "editor");
+
+    // Non-destructive bookkeeping: flag earlier still-complete variant sets
+    // as superseded. Files are NEVER deleted automatically — a user's pick
+    // exists only as a chat instruction until the agent's delete-file turn
+    // runs, so an automatic sweep here could destroy the picked screen. Real
+    // deletion happens only for set ids the caller explicitly opts into via
+    // `deleteSupersededSetIds` below (and only when the set is provably
+    // untouched by any delete-file call).
+    await markSupersededVariantSets(designId);
+    const variantSetCleanup =
+      deleteSupersededSetIds && deleteSupersededSetIds.length > 0
+        ? await deleteVariantSetsByIds(designId, deleteSupersededSetIds)
+        : { removedSetIds: [], removedFileIds: [] };
 
     const db = getDb();
     const now = new Date().toISOString();
-    const [design] = await db
-      .select({ data: schema.designs.data })
-      .from(schema.designs)
-      .where(eq(schema.designs.id, designId))
-      .limit(1);
     const existingFiles = await db
       .select()
       .from(schema.designFiles)
@@ -479,27 +850,58 @@ export default defineAction({
       const variant = variants[index]!;
       const label = variant.label.trim() || optionName(index);
       const slug = slugify(label, `option-${index + 1}`);
-      const preferredFilename = `variant-${slug}.html`;
-      const filename = uniqueFilename(preferredFilename, usedFilenames);
-      const fileId = nanoid();
+      let filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
+      let fileId = nanoid();
       const providedContent = variant.content?.trim();
       const initialSize = inferVariantSize(variant, prompt);
-      const content =
+      const rawContent =
         providedContent ||
         fallbackVariantContent(variant, index, prompt, initialSize);
       const { width, height } = providedContent
-        ? inferVariantSize({ ...variant, content })
+        ? inferVariantSize({ ...variant, content: rawContent })
         : initialSize;
+      // Stamp missing data-agent-native-node-id attributes before persisting
+      // so each variant screen is fully addressable by id-keyed editor
+      // operations as soon as it lands on the overview board.
+      const content = annotateScreenHtmlForPersist(rawContent, "html");
 
-      await db.insert(schema.designFiles).values({
-        id: fileId,
-        designId,
-        filename,
-        fileType: "html",
-        content,
-        createdAt: now,
-        updatedAt: now,
-      });
+      // `usedFilenames` is a snapshot taken once at the top of run(), so a
+      // concurrent present-design-variants call (an agent retry after a
+      // timeout is the common trigger) can independently compute the same
+      // (designId, filename) pair and win the insert first. The
+      // `design_files_design_filename_unique_idx` unique index (see
+      // server/plugins/db.ts) turns the loser's insert into a constraint
+      // error instead of a silently duplicated screen; recover by refreshing
+      // the real filename list from the DB, picking a fresh unique name, and
+      // retrying — bounded so a persistent non-race failure still surfaces.
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          await db.insert(schema.designFiles).values({
+            id: fileId,
+            designId,
+            filename,
+            fileType: "html",
+            content,
+            createdAt: now,
+            updatedAt: now,
+          });
+          break;
+        } catch (err) {
+          if (
+            !isUniqueConstraintViolation(err) ||
+            attempt >= MAX_FILENAME_INSERT_ATTEMPTS
+          ) {
+            throw err;
+          }
+          const freshFiles = await db
+            .select({ filename: schema.designFiles.filename })
+            .from(schema.designFiles)
+            .where(eq(schema.designFiles.designId, designId));
+          for (const file of freshFiles) usedFilenames.add(file.filename);
+          filename = uniqueFilename(`variant-${slug}.html`, usedFilenames);
+          fileId = nanoid();
+        }
+      }
       await seedFromText(fileId, content);
 
       screens.push({
@@ -513,62 +915,96 @@ export default defineAction({
     }
 
     const placements = placeVariantScreens(screens);
-    await db.transaction(async (tx) => {
-      const [currentDesign] = await tx
-        .select({ data: schema.designs.data })
-        .from(schema.designs)
-        .where(eq(schema.designs.id, designId))
-        .limit(1);
-      const prevData = parseJsonRecord(currentDesign?.data ?? design?.data);
-      const mergedFrames = mergeCanvasFramePlacements({
-        existing: prevData.canvasFrames,
-        placements,
-        resolveFileId: (placement) => placement.fileId,
-      });
-      const previousMetadata = isRecord(prevData.screenMetadata)
-        ? { ...prevData.screenMetadata }
-        : {};
-      const previousVariantSets = isRecord(prevData.designVariantSets)
-        ? { ...prevData.designVariantSets }
-        : {};
-      for (const screen of screens) {
-        previousMetadata[screen.id] = {
-          sourceType: "inline",
-          previewState: "preview",
-          title: screen.label,
-          width: screen.width,
-          height: screen.height,
-          variantSetId,
-          variantId: screen.variantId,
+    await mutateDesignData({
+      designId,
+      mutate: (current, { updatedAt }) => {
+        const mergedFrames = mergeCanvasFramePlacements({
+          existing: current.canvasFrames,
+          placements,
+          resolveFileId: (placement) => placement.fileId,
+        });
+        const previousMetadata = isRecord(current.screenMetadata)
+          ? { ...current.screenMetadata }
+          : {};
+        const previousVariantSets = isRecord(current.designVariantSets)
+          ? { ...current.designVariantSets }
+          : {};
+        for (const screen of screens) {
+          previousMetadata[screen.id] = {
+            sourceType: "inline",
+            previewState: "preview",
+            title: screen.label,
+            width: screen.width,
+            height: screen.height,
+            variantSetId,
+            variantId: screen.variantId,
+          };
+        }
+        previousVariantSets[variantSetId] = {
+          id: variantSetId,
+          prompt: prompt ?? "Pick a direction",
+          createdAt: now,
+          // Immutable record of how many screens this set started with, so a
+          // later present-design-variants call can prove no delete-file call
+          // has ever resolved against any of this set's screens — see
+          // markSupersededVariantSets / isUntouchedVariantSet above.
+          // delete-file.ts's pruneDesignVariantSets only ever shortens or
+          // removes `screens`; it never rewrites this field.
+          screenCount: screens.length,
+          screens: screens.map((screen) => ({
+            id: screen.id,
+            variantId: screen.variantId,
+            label: screen.label,
+            filename: screen.filename,
+            width: screen.width,
+            height: screen.height,
+          })),
         };
-      }
-      previousVariantSets[variantSetId] = {
-        id: variantSetId,
-        prompt: prompt ?? "Pick a direction",
-        createdAt: now,
-        screens: screens.map((screen) => ({
-          id: screen.id,
-          variantId: screen.variantId,
-          label: screen.label,
-          filename: screen.filename,
-          width: screen.width,
-          height: screen.height,
-        })),
-      };
 
-      await tx
-        .update(schema.designs)
-        .set({
-          data: JSON.stringify({
-            ...prevData,
-            canvasFrames: mergedFrames.canvasFrames,
-            screenMetadata: previousMetadata,
-            designVariantSets: previousVariantSets,
-            updatedAt: now,
-          }),
-          updatedAt: now,
-        })
-        .where(eq(schema.designs.id, designId));
+        return {
+          ...current,
+          canvasFrames: mergedFrames.canvasFrames,
+          screenMetadata: previousMetadata,
+          designVariantSets: previousVariantSets,
+          ...(hasBreakpointSet(current.breakpointSet)
+            ? {}
+            : {
+                breakpointSet: {
+                  id: "generated-responsive",
+                  breakpoints: DEFAULT_RESPONSIVE_BREAKPOINTS,
+                },
+                breakpointSetUpdatedAt: updatedAt,
+              }),
+          updatedAt,
+        };
+      },
+      isApplied: (current) => {
+        const canvasFrames = isRecord(current.canvasFrames)
+          ? current.canvasFrames
+          : {};
+        const metadata = isRecord(current.screenMetadata)
+          ? current.screenMetadata
+          : {};
+        const variantSets = isRecord(current.designVariantSets)
+          ? current.designVariantSets
+          : {};
+        const set = isRecord(variantSets[variantSetId])
+          ? variantSets[variantSetId]
+          : null;
+        const persistedScreens = Array.isArray(set?.screens) ? set.screens : [];
+        return (
+          hasBreakpointSet(current.breakpointSet) &&
+          screens.every(
+            (screen) =>
+              isRecord(canvasFrames[screen.id]) &&
+              isRecord(metadata[screen.id]) &&
+              persistedScreens.some(
+                (persisted) =>
+                  isRecord(persisted) && persisted.id === screen.id,
+              ),
+          )
+        );
+      },
     });
 
     await writeAppState("navigate", {
@@ -580,7 +1016,7 @@ export default defineAction({
     await writeAppStateForCurrentTab("guided-questions", {
       title: prompt ?? "Pick a direction",
       description:
-        "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and edit that same file in a bounded pass.",
+        "All options are on the board. Choose one to keep; I will delete the others, read only the kept screen, and turn that direction into the final requested screen.",
       submitLabel: "Use selected direction",
       submitMessage: VARIANT_PICK_SUBMIT_MESSAGE,
       skipLabel: "Show another set",
@@ -608,7 +1044,7 @@ export default defineAction({
               value:
                 `Keep "${screen.label}" (${screen.filename}, file id ${screen.id}) ` +
                 `from variant set ${variantSetId}. Delete each other variant screen at most once: ${otherScreens}. If delete-file says a screen is already missing, continue. ` +
-                `Then call get-design-snapshot exactly once with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use mode "replace-file" when replacing the representative placeholder with the full chosen direction, or search/replace for smaller refinements. Do not call generate-design after this variant pick, do not repeat delete/snapshot cycles, do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
+                `Then call get-design-snapshot exactly once with designId ${designId} and fileId ${screen.id} (filename ${screen.filename}), then call edit-design with fileId ${screen.id} on that same kept file in a bounded single-file pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow; if the full feature list is too large for one reliable edit, render secondary details as visible controls, states, or affordances instead of expanding the action input. The final saved screen must be the actual usable UI requested by the user, not a direction board, variant brief, summary card, or description of the direction. Do not call generate-design after this variant pick, do not repeat delete/snapshot cycles, do not create index.html, and do not resend a huge payload. Stop after the first successful edit-design save.`,
             };
           }),
         },
@@ -624,9 +1060,11 @@ export default defineAction({
       screens,
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
       embed: true,
+      cleanedUpPreviousVariantScreens: variantSetCleanup.removedFileIds.length,
+      deletedSupersededSetIds: variantSetCleanup.removedSetIds,
       fallbackInstructions: FALLBACK_INSTRUCTIONS,
       nextRequiredAction:
-        'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" when expanding the placeholder into the full chosen direction. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
+        'Wait for the user to pick a screen in chat. Then delete each unchosen variant screen with delete-file at most once, call get-design-snapshot exactly once with fileId for the chosen screen, and call edit-design with that same fileId in a bounded pass. Use mode "replace-file" to replace the representative direction screen with a complete but compact requested app/product UI in the chosen visual style. Prioritize the primary workflow and render secondary details as visible controls, states, or affordances if the full feature list is too large for one reliable edit. Do not leave a direction board, variant brief, or summary card as the final result. Do not repeat delete/snapshot cycles. Do not call generate-design after a variant pick. Stop after the first successful edit-design save.',
     };
   },
   link: ({ result }) => {

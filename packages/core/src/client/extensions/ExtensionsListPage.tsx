@@ -1,5 +1,4 @@
 import {
-  IconArrowLeft,
   IconDotsVertical,
   IconEye,
   IconEyeOff,
@@ -16,13 +15,18 @@ import { sendToAgentChat } from "../agent-chat.js";
 import { AgentToggleButton } from "../AgentPanel.js";
 import { agentNativePath } from "../api-path.js";
 import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuTrigger,
+} from "../components/ui/dropdown-menu.js";
+import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "../components/ui/popover.js";
 import { PromptComposer } from "../composer/PromptComposer.js";
 import { useT } from "../i18n.js";
-import { NotificationsBell } from "../notifications/NotificationsBell.js";
 import { cn } from "../utils.js";
 import {
   deleteOrHideExtension,
@@ -33,6 +37,7 @@ import {
   applyToolsOrder,
   getToolsOrder,
 } from "./extension-order.js";
+import { ExtensionQueryErrorState } from "./ExtensionQueryErrorState.js";
 
 interface Extension {
   id: string;
@@ -124,7 +129,7 @@ export function ExtensionsListPage() {
     };
   }, []);
 
-  const { data: extensions, isLoading } = useQuery<Extension[]>({
+  const extensionsQuery = useQuery<Extension[]>({
     queryKey: ["extensions", { includeGloballyHidden: showGloballyHidden }],
     queryFn: async () => {
       const res = await fetch(
@@ -134,10 +139,11 @@ export function ExtensionsListPage() {
             : "/_agent-native/extensions",
         ),
       );
-      if (!res.ok) return [];
+      if (!res.ok) throw new Error(`Failed to load extensions (${res.status})`);
       return res.json();
     },
   });
+  const extensions = extensionsQuery.data;
 
   const toolList =
     toolOrderState.length > 0
@@ -186,36 +192,9 @@ export function ExtensionsListPage() {
     <div className="flex h-full w-full flex-col">
       <header className="flex h-12 items-center justify-between border-b px-4 shrink-0">
         <div className="flex items-center gap-2">
-          <Link
-            to="/"
-            className="inline-flex h-8 w-8 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
-            aria-label={t("extensions.backToApp")}
-          >
-            <IconArrowLeft className="h-4 w-4" />
-          </Link>
           <h1 className="text-sm font-semibold">{t("extensions.title")}</h1>
         </div>
         <div className="flex items-center gap-2">
-          <button
-            type="button"
-            onClick={() => setShowGloballyHidden((prev) => !prev)}
-            aria-pressed={showGloballyHidden}
-            className={cn(
-              "inline-flex cursor-pointer items-center justify-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm font-medium",
-              showGloballyHidden
-                ? "bg-accent text-foreground"
-                : "text-muted-foreground hover:bg-accent hover:text-foreground",
-            )}
-          >
-            {showGloballyHidden ? (
-              <IconEye className="h-4 w-4" />
-            ) : (
-              <IconEyeOff className="h-4 w-4" />
-            )}
-            {showGloballyHidden
-              ? t("extensions.hiddenShown")
-              : t("extensions.showHidden")}
-          </button>
           <Popover open={showCreate} onOpenChange={setShowCreate}>
             <PopoverTrigger asChild>
               <button
@@ -242,13 +221,35 @@ export function ExtensionsListPage() {
               />
             </PopoverContent>
           </Popover>
-          <NotificationsBell />
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <button
+                type="button"
+                className="inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                aria-label={t("extensions.optionsFor", {
+                  name: t("extensions.title"),
+                })}
+              >
+                <IconDotsVertical className="h-4 w-4" />
+              </button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-44">
+              <DropdownMenuCheckboxItem
+                checked={showGloballyHidden}
+                onCheckedChange={(checked) =>
+                  setShowGloballyHidden(Boolean(checked))
+                }
+              >
+                {t("extensions.showHidden")}
+              </DropdownMenuCheckboxItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
           <AgentToggleButton />
         </div>
       </header>
 
       <div className="flex-1 overflow-auto px-5 py-8 sm:px-8 sm:py-10">
-        {isLoading ? (
+        {extensionsQuery.isLoading ? (
           <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {Array.from({ length: 6 }).map((_, i) => (
               <div
@@ -261,6 +262,13 @@ export function ExtensionsListPage() {
               </div>
             ))}
           </div>
+        ) : extensionsQuery.isError ? (
+          <ExtensionQueryErrorState
+            className="min-h-[calc(100vh-9rem)]"
+            message={t("extensions.loadError")}
+            onRetry={() => void extensionsQuery.refetch()}
+            retrying={extensionsQuery.isFetching}
+          />
         ) : toolList.length === 0 ? (
           <div className="flex min-h-[calc(100vh-9rem)] flex-col items-center justify-start px-2 pb-12 pt-[clamp(5rem,18vh,11rem)] sm:pb-16">
             <div className="mx-auto flex w-full max-w-[34rem] flex-col gap-7">

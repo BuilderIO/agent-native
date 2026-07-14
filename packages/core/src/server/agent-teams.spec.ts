@@ -120,6 +120,7 @@ describe("agent teams message queue", () => {
 
     expect(result).toMatchObject({
       retryMessage: expect.stringContaining("one last constraint"),
+      expandToolSurface: true,
     });
     await expect(
       _agentTeamsQueueForTests.drainQueuedTaskMessages("task-1"),
@@ -315,7 +316,21 @@ describe("agent teams message queue", () => {
         seq: 8,
         event: { type: "clear" },
       }),
-    ).toBeNull();
+    ).toMatchObject({
+      id: "run-task-task-1:8",
+      kind: "status",
+      message: "",
+      metadata: {
+        agentChatEventType: "clear",
+        seq: 8,
+        sourceSeq: 8,
+      },
+      sourceRecord: {
+        type: "agent-team-run-event",
+        id: "run-task-task-1:8",
+        seq: 8,
+      },
+    });
   });
 
   it("sends background-run follow-ups through the existing task queue", async () => {

@@ -91,12 +91,18 @@ interface LocaleContextValue {
 }
 
 declare global {
+  var __AGENT_NATIVE_LOCALE_CONTEXT__:
+    | React.Context<LocaleContextValue | null>
+    | undefined;
   interface Window {
     __AGENT_NATIVE_LOCALE__?: LocaleHydrationPayload;
   }
 }
 
-const LocaleContext = createContext<LocaleContextValue | null>(null);
+const LocaleContext =
+  globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ ??
+  (globalThis.__AGENT_NATIVE_LOCALE_CONTEXT__ =
+    createContext<LocaleContextValue | null>(null));
 
 const LANGUAGE_PICKER_COPY: Record<
   LocaleCode,
@@ -407,6 +413,7 @@ export function AgentNativeI18nProvider({
   }, []);
 
   useEffect(() => {
+    if (!persistPreference) return;
     void setClientAppState(
       "localization",
       {
@@ -418,7 +425,7 @@ export function AgentNativeI18nProvider({
     ).catch(() => {
       // Public/anonymous pages cannot write app-state; localization still works.
     });
-  }, [locale, preference]);
+  }, [locale, persistPreference, preference]);
 
   const setPreference = useCallback(
     async (next: LocalePreference) => {

@@ -208,6 +208,33 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
     expect(result.patchedContent).toContain("text-sm");
   });
 
+  it("reports conflict for a breakpoint-scoped 'replace' when 'from' does not match the current utility (VE1 regression)", async () => {
+    // Stale selection: caller believes the md: font-size utility is
+    // "text-lg", but the node's md: override is actually "text-base" (or
+    // absent). scopeClassIntentToBreakpoint must thread `from` through to the
+    // responsive-class conversion so the mismatch is rejected instead of
+    // silently overwriting the wrong utility.
+    const htmlWithOverride = `<div id="card" class="text-sm md:text-base p-4">Hello</div>`;
+
+    const result = await action.run({
+      source: { kind: "inline-html", html: htmlWithOverride },
+      intent: {
+        kind: "class",
+        target: { selector: "#card" },
+        operation: "replace",
+        from: "text-lg", // does NOT match the current md: utility (text-base)
+        to: "text-xl",
+      },
+      includeContent: true,
+      activeBreakpoint: "md",
+    });
+
+    expect(result.result.status).toBe("conflict");
+    expect(result.result.changed).toBe(false);
+    // Content must be untouched — no silent overwrite of the wrong utility.
+    expect(result.patchedContent).toBe(htmlWithOverride);
+  });
+
   it("scopes a 'remove' class edit to the active breakpoint prefix", async () => {
     const htmlWithOverride = `<div id="card" class="text-sm md:text-base p-4">Hello</div>`;
 
@@ -263,5 +290,125 @@ describe("apply-visual-edit breakpoint-aware class edits", () => {
 
     expect(result.result.status).toBe("applied");
     expect(result.patchedContent).toContain('style="color: blue"');
+  });
+});
+
+describe("apply-visual-edit Framer-scoped edits (maxWidthPx)", () => {
+  it("accepts the optional maxWidthPx param", () => {
+    const base = {
+      source: { kind: "inline-html", html },
+      intent: {
+        kind: "class",
+        target: { selector: "#card" },
+        operation: "add",
+        className: "text-lg",
+      },
+    };
+    expect(action.schema.safeParse({ ...base, maxWidthPx: 809 }).success).toBe(
+      true,
+    );
+    expect(action.schema.safeParse({ ...base, maxWidthPx: 0 }).success).toBe(
+      false,
+    );
+  });
+
+  it("scopes a class edit to a desktop-down max-width bound", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: {
+        kind: "class",
+        target: { selector: "#card" },
+        operation: "add",
+        className: "text-lg",
+      },
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.patchedContent).toContain("max-[809px]:text-lg");
+    // Base class untouched — it keeps rendering at wider viewports.
+    expect(result.patchedContent).toContain("text-sm");
+  });
+
+  it("scopes a raw-CSS style edit into the managed @media block", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: {
+        kind: "style",
+        target: { selector: "#card" },
+        property: "left",
+        value: "137px",
+      },
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.patchedContent).toContain(
+      "<style data-agent-native-breakpoints>",
+    );
+    expect(result.patchedContent).toContain("@media (max-width: 809px)");
+    expect(result.patchedContent).toContain("left: 137px;");
+    // No base inline style written.
+    expect(result.patchedContent).not.toContain('style="left');
+  });
+
+  it("routes a utility-valued style edit to a scoped class instead", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: {
+        kind: "style",
+        target: { selector: "#card" },
+        property: "fontSize",
+        value: "text-lg",
+      },
+      includeContent: true,
+      maxWidthPx: 809,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.patchedContent).toContain("max-[809px]:text-lg");
+    expect(result.patchedContent).not.toContain(
+      "data-agent-native-breakpoints",
+    );
+  });
+
+  it("maxWidthPx takes priority over activeBreakpoint/activeFrameWidthPx", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: {
+        kind: "class",
+        target: { selector: "#card" },
+        operation: "add",
+        className: "text-lg",
+      },
+      includeContent: true,
+      maxWidthPx: 809,
+      activeBreakpoint: "md",
+      activeFrameWidthPx: 768,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.patchedContent).toContain("max-[809px]:text-lg");
+    expect(result.patchedContent).not.toContain("md:text-lg");
+  });
+
+  it("supports the breakpoint-style intent directly", async () => {
+    const result = await action.run({
+      source: { kind: "inline-html", html },
+      intent: {
+        kind: "breakpoint-style",
+        target: { selector: "#card" },
+        maxWidthPx: 1279,
+        property: "top",
+        value: "24px",
+      },
+      includeContent: true,
+    });
+
+    expect(result.result.status).toBe("applied");
+    expect(result.patchedContent).toContain("@media (max-width: 1279px)");
+    expect(result.patchedContent).toContain("top: 24px;");
   });
 });

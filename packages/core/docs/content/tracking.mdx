@@ -121,11 +121,12 @@ Need a custom backend, the provider-registry API, or the batching/singleton inte
 
 Call `track()` from action handlers to record user or agent activity:
 
-```ts
-// actions/create-project.ts
+```ts filename="actions/create-project.ts"
 import { defineAction } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import { z } from "zod";
+
+import { getDb, schema } from "../server/db/index.js";
 
 export default defineAction({
   description: "Create a new project.",
@@ -134,14 +135,15 @@ export default defineAction({
     template: z.string().optional(),
   }),
   run: async ({ name, template }, ctx) => {
-    const project = await db
-      .insert(projects)
+    const db = getDb();
+    const [project] = await db
+      .insert(schema.projects)
       .values({ name, template })
       .returning();
 
-    track("project.created", { name, template }, { userId: ctx.userEmail });
+    track("project.created", { name, template }, { userId: ctx?.userEmail });
 
-    return { ok: true, projectId: project[0].id };
+    return { ok: true, projectId: project.id };
   },
 });
 ```
@@ -200,7 +202,7 @@ configureTracking({
   endpoint: "https://analytics.example.com/api/analytics/track",
   sessionReplay: {
     enabled: true,
-    sampleRate: 0.1,
+    sampleRate: 1,
   },
   getDefaultProps: (_event, props) => ({
     ...props,
@@ -218,14 +220,14 @@ Agent Native template roots already call `configureTracking()`. Hosted template 
 VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY=anpk_...
 VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT=https://analytics.example.com/api/analytics/track
 VITE_AGENT_NATIVE_SESSION_REPLAY_ENABLED=true
-VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=0.1
+VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 ```
 
 The browser helper also performs a best-effort, non-blocking read of the current Agent Native auth session. Replay is signed-in-only by default: when `sessionReplay` is enabled, recording does not start unless the session resolves to a user email address. Signed-in replays include email-backed `userId`/`userEmail` plus `orgId`.
 
 Set `sessionReplay.requireSignedInUser: false` or `VITE_AGENT_NATIVE_SESSION_REPLAY_REQUIRE_AUTH=false` only for an intentional anonymous replay deployment. When auth gating is disabled, anonymous recordings remain queryable by anonymous visitor, session, app/template, hostname, and path.
 
-Session replay is sampled deterministically per browser session. A `sampleRate` of `0.1` records about 10% of eligible sessions; use `1` when the eligible population is intentionally small, such as logged-in-only dogfooding.
+Session replay is sampled deterministically per browser session. A `sampleRate` of `1` records all eligible sessions; use lower values, such as `0.1`, when the eligible population is intentionally broad.
 
 Privacy defaults are intentionally conservative but still useful for playback:
 
@@ -235,7 +237,19 @@ Privacy defaults are intentionally conservative but still useful for playback:
 - URLs are scrubbed with the same `scrubUrl()` helper used by browser analytics.
 - Replay capture is web-only and opt-in; it does not record native desktop screens.
 
+Framework-owned iframes, including extensions and rendered email content, are included in replay capture. The same masking and blocking selectors apply inside recorded frames. A third-party cross-origin iframe remains opaque unless its own document runs a compatible rrweb recorder with cross-origin iframe recording enabled; browser origin boundaries cannot be bypassed from the parent page.
+
+While recording, session replay also captures browser console output (`log`, `info`, `warn`, `error`, `debug`, plus window `error` / `unhandledrejection`) and network request metadata (`fetch` and XHR) as tagged rrweb custom events, so agents and the replay viewer can debug user-reported issues. Capture is on by default when replay is enabled; tune or disable it with the `sessionReplay.console` and `sessionReplay.network` options, each accepting a boolean or an options object (`{ maxEvents?: number }`, with `network` additionally accepting `captureErrorBodies` and `maxErrorBodyLength`). Request bodies and headers are never captured; response bodies are captured only as a bounded, redacted snippet for 5xx (server error) responses (`captureErrorBodies`, default true, capped at `maxErrorBodyLength` chars, default 2048) — non-5xx and network-failure responses never carry a body. URLs are scrubbed, messages are truncated, the recorder's own ingest/tracking traffic is excluded, and per-session budgets (1000 console / 2000 network events) add a truncation notice when exceeded.
+
 The Analytics template stores replay metadata in SQL (`session_recordings`) and stores chunks through private blob refs (`session_replay_chunks`). Browsers and agents never receive provider URLs. Playback goes through scoped server routes and the default agent tools return summaries or bounded replay events, not raw chunk table access.
+
+When you need to hand a private recording to an external agent, use the session detail page's **Copy for agent** control. It mints a two-hour, recording-scoped `agent_access` link, SSRs a small discovery payload on `/sessions/:recordingId`, and exposes only the agent context/events JSON APIs. The recording's visibility does not change.
+
+Implementation note: the reusable layer is the core agent-access URL contract,
+not a replay-specific UI abstraction. Use `createScopedAgentAccessGrant`,
+`verifyScopedAgentAccessToken`, `buildAgentAccessUrl`, and
+`buildAgentAccessApiUrl` for scoped SSR and JSON API links; keep replay storage,
+diagnostics shaping, and access policy inside the Analytics template.
 
 For local development only, Analytics can fall back to capped SQL inline chunks when private blob storage is unavailable. Production deployments should configure private or encrypted blob storage rather than relying on Postgres for replay payloads.
 
@@ -339,5 +353,5 @@ The framework also tracks `builder connect clicked` from Connect Builder CTAs, a
 ## What's next
 
 - [**Actions**](/docs/actions) — where most tracking calls originate
-- [**Server Plugins**](/docs/server) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
-- [**Secrets**](/docs/security) — manage API keys for tracking providers
+- [**Server Plugins**](/docs/server#server-plugins) — `registerBuiltinProviders()` runs in the core-routes plugin at startup
+- [**Security — Secrets Management**](/docs/security#secrets) — manage API keys for tracking providers

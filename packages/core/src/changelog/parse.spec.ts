@@ -5,6 +5,7 @@ import {
   parsePendingEntry,
   renderReleaseBody,
   rollupChangelog,
+  mergePendingChangelog,
   changelogSlug,
 } from "./parse.js";
 
@@ -89,6 +90,27 @@ describe("parsePendingEntry", () => {
       "no frontmatter at all",
     );
   });
+
+  it("uses a dated filename fallback when hand-written frontmatter omits date", () => {
+    expect(
+      parsePendingEntry("---\ntype: fixed\n---\nFixed it.", "2026-07-08"),
+    ).toMatchObject({
+      type: "fixed",
+      date: "2026-07-08",
+    });
+  });
+
+  it("uses the filename fallback when hand-written frontmatter has an invalid date", () => {
+    expect(
+      parsePendingEntry(
+        "---\ntype: fixed\ndate: yesterday\n---\nFixed it.",
+        "2026-07-08",
+      ),
+    ).toMatchObject({
+      type: "fixed",
+      date: "2026-07-08",
+    });
+  });
 });
 
 describe("renderReleaseBody", () => {
@@ -136,6 +158,50 @@ describe("rollupChangelog", () => {
 
   it("is a no-op (returns existing) when there are no pending entries", () => {
     expect(rollupChangelog(SAMPLE, [], "2026-06-30")).toBe(SAMPLE);
+  });
+});
+
+describe("mergePendingChangelog", () => {
+  it("shows pending entries above released entries grouped by authored date", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      { type: "fixed", text: "Fixed C", date: "2026-06-30" },
+      { type: "added", text: "Added B", date: "2026-07-01" },
+      { type: "improved", text: "Improved D", date: "2026-06-30" },
+    ]);
+
+    const entries = parseChangelog(next);
+    expect(entries.map((entry) => entry.title)).toEqual([
+      "2026-07-01",
+      "2026-06-30",
+      "2026-06-23",
+      "2026-05-01",
+    ]);
+    expect(entries[0].body).toContain("Added B");
+    expect(entries[1].body).toContain("### Improved");
+    expect(entries[1].body).toContain("Fixed C");
+  });
+
+  it("merges pending entries into an existing release with the same date", () => {
+    const next = mergePendingChangelog(SAMPLE, [
+      { type: "improved", text: "Same-day improvement.", date: "2026-06-23" },
+    ]);
+
+    const entries = parseChangelog(next);
+    expect(entries.map((entry) => entry.title)).toEqual([
+      "2026-06-23",
+      "2026-05-01",
+    ]);
+    expect(entries[0].body).toContain("Same-day improvement.");
+    expect(entries[0].body).toContain("Recordings can now be trimmed");
+  });
+
+  it("keeps pending entries non-destructive when there are no existing releases", () => {
+    const next = mergePendingChangelog("", [
+      { type: "added", text: "First visible entry.", date: "2026-06-30" },
+    ]);
+
+    expect(next).toContain("# Changelog");
+    expect(parseChangelog(next)[0].body).toContain("First visible entry.");
   });
 });
 

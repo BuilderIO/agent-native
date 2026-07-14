@@ -1,10 +1,195 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import { loadActionsFromStaticRegistry } from "./action-discovery.js";
 import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
+  createA2AEngineToolSurface,
+  runMCPAgentLoop,
+  runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
+
+describe("delegated A2A final response guards", () => {
+  it("runs an Analytics-style real-data guard for delegated turns", async () => {
+    const analyticsGuard = vi.fn(
+      (context: { text: string; toolResults: unknown[] }) =>
+        context.toolResults.length === 0 && context.text.includes("42")
+          ? {
+              retryMessage: "Query a real analytics source before answering.",
+              fallbackMessage: "No grounded analytics result is available.",
+            }
+          : null,
+    );
+    const delegatedRunner = vi.fn(async (options: any) => {
+      const guardResult = await options.finalResponseGuard?.({
+        messages: options.messages,
+        assistantContent: [{ type: "text", text: "The answer is 42." }],
+        text: "The answer is 42.",
+        toolCalls: [],
+        toolResults: [],
+        retryCount: 0,
+        executionMode: "act",
+      });
+      expect(guardResult).toEqual({
+        retryMessage: "Query a real analytics source before answering.",
+        fallbackMessage: "No grounded analytics result is available.",
+      });
+      return {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runA2AAgentLoop(
+      {
+        engine: {} as any,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "What were sales this week?" }],
+          },
+        ],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      {
+        finalResponseGuard: analyticsGuard as any,
+        runSoftTimeoutMs: 12_345,
+      },
+      { backgroundFunction: true },
+      delegatedRunner as any,
+    );
+
+    expect(analyticsGuard).toHaveBeenCalledOnce();
+    expect(delegatedRunner).toHaveBeenCalledWith(
+      expect.objectContaining({ finalResponseGuard: analyticsGuard }),
+      12_345,
+      { backgroundFunction: true },
+    );
+  });
+
+  it("keeps the MCP-local ask_app loop on the same guard contract", async () => {
+    const guard = vi.fn(() => null);
+    const runner = vi.fn(async (options: any) => {
+      expect(options.finalResponseGuard).toBe(guard);
+      return {
+        inputTokens: 0,
+        outputTokens: 0,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+    });
+
+    await runMCPAgentLoop(
+      {
+        engine: {} as any,
+        model: "gpt-5.6",
+        systemPrompt: "system",
+        tools: [],
+        messages: [],
+        actions: {},
+        send: () => {},
+        signal: new AbortController().signal,
+      },
+      { finalResponseGuard: guard as any, runSoftTimeoutMs: 1_000 },
+      { backgroundFunction: false },
+      runner as any,
+    );
+
+    expect(runner).toHaveBeenCalledWith(
+      expect.objectContaining({
+        finalResponseGuard: guard,
+        maxOutputTokens: 32_000,
+        reasoningEffort: "medium",
+      }),
+      1_000,
+      { backgroundFunction: false },
+    );
+  });
+});
+
+describe("delegated A2A tool surface", () => {
+  const tool = (name: string) => ({
+    name,
+    description: `${name} description`,
+    inputSchema: { type: "object" as const },
+  });
+
+  it("starts with configured tools plus tool-search and retains the full registry for discovery", () => {
+    const availableTools = [
+      tool("starter"),
+      tool("tool-search"),
+      tool("rare-analytics-action"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, ["starter"]);
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "tool-search",
+    ]);
+    // `runAgentLoop` uses this full list to load a matched schema after the
+    // initial `tool-search` call, rather than forcing the whole registry into
+    // the first model request.
+    expect(surface.availableTools.map((entry) => entry.name)).toEqual([
+      "starter",
+      "tool-search",
+      "rare-analytics-action",
+    ]);
+  });
+
+  it("keeps the existing full A2A tool surface without an initial allow-list", () => {
+    const availableTools = [tool("starter"), tool("tool-search"), tool("rare")];
+
+    const surface = createA2AEngineToolSurface(availableTools);
+
+    expect(surface.tools).toBe(availableTools);
+    expect(surface.availableTools).toBe(availableTools);
+  });
+
+  // agent-chat-plugin.ts's MCP `ask_app` inner loop (the `askAgent` closure
+  // passed to `mountMCP`) reuses this exact helper with the same
+  // `effectiveInitialToolNames` the interactive chat path uses, instead of
+  // handing `actionsToEngineTools(mcpActions)` straight to the engine
+  // unfiltered. Before that fix, every external host calling `ask_app` over
+  // MCP triggered a near-full-catalog first request, undermining the compact
+  // MCP catalog this surface exists to keep external callers on. This test
+  // locks in the same compaction guarantee for a registry shaped like the
+  // MCP loop's (template action + a much larger set of framework additions —
+  // resource/docs/chat/fetch/web-search/workspace-files/tool/MCP entries).
+  it("compacts the MCP ask_app inner loop's first request the same way as A2A", () => {
+    const availableTools = [
+      tool("template-app-action"),
+      tool("tool-search"),
+      tool("list-integration-memory"),
+      tool("provider-api-request"),
+      tool("mcp__some-server__some-tool"),
+    ];
+
+    const surface = createA2AEngineToolSurface(availableTools, [
+      "template-app-action",
+    ]);
+
+    expect(surface.tools.map((entry) => entry.name)).toEqual([
+      "template-app-action",
+      "tool-search",
+    ]);
+    // The full registry is preserved separately so `runAgentLoop`'s mid-run
+    // tool-search expansion (`expandActiveTools` in production-agent.ts,
+    // exercised end-to-end in production-agent.spec.ts's "expands the
+    // provider tool list after tool-search returns matches") can still load
+    // any of these once the model searches for them.
+    expect(surface.availableTools).toBe(availableTools);
+  });
+});
 
 describe("agent-chat A2A public skills", () => {
   it("advertises Brain retrieval actions from the static registry in dev mode", () => {

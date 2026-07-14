@@ -17,7 +17,8 @@ import {
 import { useEffect, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "@/components/dispatch-shell";
+import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,9 +29,9 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+} from "../../components/ui/alert-dialog";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
 import {
   Dialog,
   DialogContent,
@@ -39,23 +40,28 @@ import {
   DialogHeader,
   DialogTitle,
   DialogTrigger,
-} from "@/components/ui/dialog";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
+} from "../../components/ui/dialog";
+import { Input } from "../../components/ui/input";
+import { Label } from "../../components/ui/label";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
+} from "../../components/ui/select";
+import { Skeleton } from "../../components/ui/skeleton";
+import {
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
+} from "../../components/ui/tabs";
+import { Textarea } from "../../components/ui/textarea";
 import {
   ImpactPreview,
   workspaceResourceMutationMessage,
-} from "@/components/workspace-resource-impact-preview";
+} from "../../components/workspace-resource-impact-preview";
 
 export function meta() {
   return [{ title: "Workspace Resources — Dispatch" }];
@@ -1009,11 +1015,10 @@ function GlobalContextSection({ resources }: { resources: any[] }) {
 }
 
 export default function WorkspaceRoute() {
-  const { data: resources, isLoading } = useActionQuery(
-    "list-workspace-resources",
-    {},
-  );
-  const { data: grants } = useActionQuery("list-workspace-resource-grants", {});
+  const resourcesQuery = useActionQuery("list-workspace-resources", {});
+  const grantsQuery = useActionQuery("list-workspace-resource-grants", {});
+  const { data: resources, isLoading } = resourcesQuery;
+  const { data: grants } = grantsQuery;
 
   const grantsByResource = (grants || []).reduce(
     (acc: Record<string, any[]>, g: any) => {
@@ -1083,6 +1088,15 @@ export default function WorkspaceRoute() {
       title="Workspace Resources"
       description="Manage inherited workspace skills, guardrail instructions, agent profiles, reference resources, and MCP servers. All-app resources are available to every app without syncing."
     >
+      {resourcesQuery.isError || grantsQuery.isError ? (
+        <ActionQueryError
+          error={resourcesQuery.error ?? grantsQuery.error}
+          onRetry={() => {
+            void resourcesQuery.refetch();
+            void grantsQuery.refetch();
+          }}
+        />
+      ) : null}
       <div className="flex items-center justify-between">
         <div className="text-sm text-muted-foreground">
           {isLoading ? (
@@ -1096,62 +1110,67 @@ export default function WorkspaceRoute() {
         </div>
       </div>
 
-      <GlobalContextSection resources={resources || []} />
+      {!resourcesQuery.isError ? (
+        <GlobalContextSection resources={resources || []} />
+      ) : null}
 
-      <Tabs defaultValue="skills">
-        <TabsList>
-          <TabsTrigger value="skills">
-            Skills {skills.length > 0 && `(${skills.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="instructions">
-            Instructions {instructions.length > 0 && `(${instructions.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="agents">
-            Agents {agents.length > 0 && `(${agents.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="knowledge">
-            Knowledge {knowledge.length > 0 && `(${knowledge.length})`}
-          </TabsTrigger>
-          <TabsTrigger value="mcp">
-            MCP {mcpServers.length > 0 && `(${mcpServers.length})`}
-          </TabsTrigger>
-        </TabsList>
+      {!resourcesQuery.isError && !grantsQuery.isError ? (
+        <Tabs defaultValue="skills">
+          <TabsList>
+            <TabsTrigger value="skills">
+              Skills {skills.length > 0 && `(${skills.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="instructions">
+              Instructions{" "}
+              {instructions.length > 0 && `(${instructions.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="agents">
+              Agents {agents.length > 0 && `(${agents.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="knowledge">
+              Knowledge {knowledge.length > 0 && `(${knowledge.length})`}
+            </TabsTrigger>
+            <TabsTrigger value="mcp">
+              MCP {mcpServers.length > 0 && `(${mcpServers.length})`}
+            </TabsTrigger>
+          </TabsList>
 
-        <TabsContent value="skills" className="mt-4">
-          <ResourceList
-            items={skills}
-            emptyText="No workspace skills yet. Add a skill to share agent guidance across apps."
-          />
-        </TabsContent>
+          <TabsContent value="skills" className="mt-4">
+            <ResourceList
+              items={skills}
+              emptyText="No workspace skills yet. Add a skill to share agent guidance across apps."
+            />
+          </TabsContent>
 
-        <TabsContent value="instructions" className="mt-4">
-          <ResourceList
-            items={instructions}
-            emptyText="No workspace instructions yet. Add instructions to set behavioral rules across apps."
-          />
-        </TabsContent>
+          <TabsContent value="instructions" className="mt-4">
+            <ResourceList
+              items={instructions}
+              emptyText="No workspace instructions yet. Add instructions to set behavioral rules across apps."
+            />
+          </TabsContent>
 
-        <TabsContent value="agents" className="mt-4">
-          <ResourceList
-            items={agents}
-            emptyText="No workspace agents yet. Add a reusable agent profile to share specialist agents across apps."
-          />
-        </TabsContent>
+          <TabsContent value="agents" className="mt-4">
+            <ResourceList
+              items={agents}
+              emptyText="No workspace agents yet. Add a reusable agent profile to share specialist agents across apps."
+            />
+          </TabsContent>
 
-        <TabsContent value="knowledge" className="mt-4">
-          <ResourceList
-            items={knowledge}
-            emptyText="No knowledge packs yet. Add GTM, product, or domain context that apps can reuse."
-          />
-        </TabsContent>
+          <TabsContent value="knowledge" className="mt-4">
+            <ResourceList
+              items={knowledge}
+              emptyText="No knowledge packs yet. Add GTM, product, or domain context that apps can reuse."
+            />
+          </TabsContent>
 
-        <TabsContent value="mcp" className="mt-4">
-          <ResourceList
-            items={mcpServers}
-            emptyText="No workspace MCP servers yet. Add an HTTP MCP server to share external tools across apps."
-          />
-        </TabsContent>
-      </Tabs>
+          <TabsContent value="mcp" className="mt-4">
+            <ResourceList
+              items={mcpServers}
+              emptyText="No workspace MCP servers yet. Add an HTTP MCP server to share external tools across apps."
+            />
+          </TabsContent>
+        </Tabs>
+      ) : null}
     </DispatchShell>
   );
 }

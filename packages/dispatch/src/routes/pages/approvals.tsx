@@ -3,18 +3,21 @@ import { useOrg } from "@agent-native/core/client/org";
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Switch } from "@/components/ui/switch";
+import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Button } from "../../components/ui/button";
+import { Input } from "../../components/ui/input";
+import { Switch } from "../../components/ui/switch";
 
 export function meta() {
   return [{ title: "Approvals — Dispatch" }];
 }
 
 export default function ApprovalsRoute() {
-  const { data: settings } = useActionQuery("get-dispatch-settings", {});
-  const { data: approvals } = useActionQuery("list-dispatch-approvals", {});
+  const settingsQuery = useActionQuery("get-dispatch-settings", {});
+  const approvalsQuery = useActionQuery("list-dispatch-approvals", {});
+  const { data: settings } = settingsQuery;
+  const { data: approvals } = approvalsQuery;
   const { data: org } = useOrg();
   const hasOrg = !!org?.orgId;
   const [emails, setEmails] = useState("");
@@ -51,106 +54,122 @@ export default function ApprovalsRoute() {
           <h2 className="text-lg font-semibold text-foreground">
             Approval policy
           </h2>
-          <div className="mt-4 space-y-4">
-            <label className="flex items-center justify-between rounded-xl border px-4 py-3">
-              <div>
+          {settingsQuery.isError ? (
+            <ActionQueryError
+              className="mt-4"
+              error={settingsQuery.error}
+              onRetry={() => void settingsQuery.refetch()}
+            />
+          ) : (
+            <div className="mt-4 space-y-4">
+              <label className="flex items-center justify-between rounded-xl border px-4 py-3">
+                <div>
+                  <div className="text-sm font-medium text-foreground">
+                    Require approval for durable changes
+                  </div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    {hasOrg
+                      ? "Applies to saved destinations, shared dream proposals, All-app workspace resources, and dispatch settings."
+                      : "Requires a team workspace. Set one up on the Team page."}
+                  </div>
+                </div>
+                <Switch
+                  checked={settings?.enabled || false}
+                  disabled={!hasOrg || savePolicy.isPending}
+                  onCheckedChange={(checked) =>
+                    savePolicy.mutate({
+                      enabled: checked,
+                      approverEmails: settings?.approverEmails || approverList,
+                    })
+                  }
+                />
+              </label>
+              <div className="space-y-2">
                 <div className="text-sm font-medium text-foreground">
-                  Require approval for durable changes
+                  Approver emails
                 </div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {hasOrg
-                    ? "Applies to saved destinations, shared dream proposals, All-app workspace resources, and dispatch settings."
-                    : "Requires a team workspace. Set one up on the Team page."}
-                </div>
+                <Input
+                  value={emails}
+                  onChange={(event) => setEmails(event.target.value)}
+                  placeholder={(settings?.approverEmails || []).join(", ")}
+                  disabled={!hasOrg}
+                />
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  disabled={!hasOrg || savePolicy.isPending}
+                  onClick={() =>
+                    savePolicy.mutate({
+                      enabled: settings?.enabled || false,
+                      approverEmails: approverList,
+                    })
+                  }
+                >
+                  Save approvers
+                </Button>
               </div>
-              <Switch
-                checked={settings?.enabled || false}
-                disabled={!hasOrg || savePolicy.isPending}
-                onCheckedChange={(checked) =>
-                  savePolicy.mutate({
-                    enabled: checked,
-                    approverEmails: settings?.approverEmails || approverList,
-                  })
-                }
-              />
-            </label>
-            <div className="space-y-2">
-              <div className="text-sm font-medium text-foreground">
-                Approver emails
-              </div>
-              <Input
-                value={emails}
-                onChange={(event) => setEmails(event.target.value)}
-                placeholder={(settings?.approverEmails || []).join(", ")}
-                disabled={!hasOrg}
-              />
-              <Button
-                className="w-full"
-                variant="outline"
-                disabled={!hasOrg || savePolicy.isPending}
-                onClick={() =>
-                  savePolicy.mutate({
-                    enabled: settings?.enabled || false,
-                    approverEmails: approverList,
-                  })
-                }
-              >
-                Save approvers
-              </Button>
             </div>
-          </div>
+          )}
         </section>
 
         <section className="rounded-2xl border bg-card p-5">
           <h2 className="text-lg font-semibold text-foreground">
             Pending and recent requests
           </h2>
-          <div className="mt-4 space-y-3">
-            {(approvals || []).map((approval: any) => (
-              <div
-                key={approval.id}
-                className="rounded-xl border bg-muted/30 px-4 py-3"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div>
-                    <div className="text-sm font-medium text-foreground">
-                      {approval.summary}
+          {approvalsQuery.isError ? (
+            <ActionQueryError
+              className="mt-4"
+              error={approvalsQuery.error}
+              onRetry={() => void approvalsQuery.refetch()}
+            />
+          ) : (
+            <div className="mt-4 space-y-3">
+              {(approvals || []).map((approval: any) => (
+                <div
+                  key={approval.id}
+                  className="rounded-xl border bg-muted/30 px-4 py-3"
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {approval.summary}
+                      </div>
+                      <div className="mt-1 text-xs text-muted-foreground">
+                        {approval.status} · requested by {approval.requestedBy}
+                      </div>
                     </div>
-                    <div className="mt-1 text-xs text-muted-foreground">
-                      {approval.status} · requested by {approval.requestedBy}
-                    </div>
+                    {approval.status === "pending" && (
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          onClick={() => approve.mutate({ id: approval.id })}
+                        >
+                          Approve
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() =>
+                            reject.mutate({
+                              id: approval.id,
+                              reason: "Rejected in dispatch UI",
+                            })
+                          }
+                        >
+                          Reject
+                        </Button>
+                      </div>
+                    )}
                   </div>
-                  {approval.status === "pending" && (
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        onClick={() => approve.mutate({ id: approval.id })}
-                      >
-                        Approve
-                      </Button>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        onClick={() =>
-                          reject.mutate({
-                            id: approval.id,
-                            reason: "Rejected in dispatch UI",
-                          })
-                        }
-                      >
-                        Reject
-                      </Button>
-                    </div>
-                  )}
                 </div>
-              </div>
-            ))}
-            {(approvals?.length || 0) === 0 && (
-              <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
-                No approval requests yet.
-              </div>
-            )}
-          </div>
+              ))}
+              {(approvals?.length || 0) === 0 && (
+                <div className="rounded-xl border border-dashed px-4 py-8 text-sm text-muted-foreground">
+                  No approval requests yet.
+                </div>
+              )}
+            </div>
+          )}
         </section>
       </div>
     </DispatchShell>

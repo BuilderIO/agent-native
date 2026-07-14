@@ -154,9 +154,14 @@ function stripBrackets(title: string): string {
 
 /**
  * Parse a pending `changelog/<file>.md` entry: optional `---` frontmatter
- * (`type:` / `date:`) followed by the markdown description body.
+ * (`type:` / `date:`) followed by the markdown description body. Callers that
+ * know the entry filename can provide its date as a fallback for hand-written
+ * entries that omit `date:`.
  */
-export function parsePendingEntry(content: string): PendingChangelogEntry {
+export function parsePendingEntry(
+  content: string,
+  fallbackDate?: string,
+): PendingChangelogEntry {
   let type: string | undefined;
   let date: string | undefined;
   let body = content;
@@ -176,7 +181,7 @@ export function parsePendingEntry(content: string): PendingChangelogEntry {
 
   return {
     type: normalizeType(type),
-    date,
+    date: date?.match(ISO_DATE)?.[1] ?? fallbackDate?.match(ISO_DATE)?.[1],
     text: body.trim(),
   };
 }
@@ -240,6 +245,84 @@ export function rollupChangelog(
   const head = doc.slice(0, firstRelease).replace(/\s+$/, "");
   const rest = doc.slice(firstRelease);
   return `${head}\n\n${section}\n${rest}\n`;
+}
+
+function changelogHeader(markdown: string): string {
+  const doc = (markdown || CHANGELOG_HEADER).replace(/\s+$/, "");
+  const firstRelease = doc.search(/^##\s+(?!#)/m);
+  const header =
+    (firstRelease === -1 ? doc : doc.slice(0, firstRelease)).replace(
+      /\s+$/,
+      "",
+    ) || CHANGELOG_HEADER.trim();
+  return header;
+}
+
+function pendingSectionTitle(entry: PendingChangelogEntry): string {
+  return entry.date?.match(ISO_DATE)?.[1] ?? "Unreleased";
+}
+
+function pendingSectionSort(a: string, b: string): number {
+  const aDate = a.match(ISO_DATE)?.[1];
+  const bDate = b.match(ISO_DATE)?.[1];
+  if (aDate && bDate) return bDate.localeCompare(aDate);
+  if (!aDate && bDate) return -1;
+  if (aDate && !bDate) return 1;
+  return a.localeCompare(b);
+}
+
+/**
+ * Render an app-facing changelog that includes both released CHANGELOG.md
+ * sections and adjacent pending `changelog/*.md` entries. Unlike `release`,
+ * this is pure and non-destructive, so build/dev bundles can show current
+ * product notes without deleting the conflict-free pending files.
+ */
+export function mergePendingChangelog(
+  existing: string,
+  pending: PendingChangelogEntry[],
+): string {
+  const pendingWithText = pending.filter((entry) => entry.text.trim());
+  if (pendingWithText.length === 0) return existing || CHANGELOG_HEADER;
+
+  const existingEntries = parseChangelog(existing);
+  const usedExistingIndexes = new Set<number>();
+  const pendingByTitle = new Map<string, PendingChangelogEntry[]>();
+
+  for (const entry of pendingWithText) {
+    const title = pendingSectionTitle(entry);
+    pendingByTitle.set(title, [...(pendingByTitle.get(title) ?? []), entry]);
+  }
+
+  const sections: string[] = [];
+  for (const title of [...pendingByTitle.keys()].sort(pendingSectionSort)) {
+    const body = renderReleaseBody(pendingByTitle.get(title) ?? []);
+    if (!body) continue;
+
+    const existingIndex = existingEntries.findIndex((entry, index) => {
+      if (usedExistingIndexes.has(index)) return false;
+      return entry.date === title || entry.title === title;
+    });
+
+    if (existingIndex === -1) {
+      sections.push(`## ${title}\n\n${body}`);
+      continue;
+    }
+
+    usedExistingIndexes.add(existingIndex);
+    const existingEntry = existingEntries[existingIndex];
+    sections.push(
+      `## ${existingEntry.title}\n\n${[body, existingEntry.body]
+        .filter(Boolean)
+        .join("\n\n")}`,
+    );
+  }
+
+  existingEntries.forEach((entry, index) => {
+    if (usedExistingIndexes.has(index)) return;
+    sections.push(`## ${entry.title}\n\n${entry.body}`);
+  });
+
+  return `${changelogHeader(existing)}\n\n${sections.join("\n\n")}\n`;
 }
 
 export { CHANGELOG_HEADER, GROUP_LABELS };

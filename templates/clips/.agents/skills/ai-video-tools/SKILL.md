@@ -27,14 +27,42 @@ The agent is already the user's primary interface — it has full project contex
 
 | Feature                   | Trigger                                                                               | What the action does                                                                                  |
 | ------------------------- | ------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| Default title             | Native transcript is saved and the recording still has the default title              | `regenerate-title --recordingId=<id>` → writes `clips-ai-request-:id`; the UI bridge sends it to the agent chat |
+| Include full video        | User toggles "Include full video" in the AI tools menu                                | `update-clips-ai-prefs --includeFullVideoInAi=true\|false` → stored in `clips-user-prefs`; default off |
+| Default title             | Native/cloud transcript becomes ready and the recording still has an automatic title   | `regenerate-title --recordingId=<id> --includeSummary=true` tries the transcript-only Gemini fast path, keeps any local heuristic title replaceable, and queues a `generate-metadata` agent refinement that writes a specific title plus description. If Include full video is on, it always delegates so the agent watches the recording |
 | Manual title suggestion   | User asks the agent "rename this"                                                     | Agent reads transcript and calls `update-recording --id=<id> --title=...`                             |
-| Summary / description     | Upload completes, or user clicks "Summarize"                                          | `generate-ai-metadata --id=<id> --kind=summary` → agent writes `update-recording --description=...`   |
-| Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` → agent writes `chapters_json`                                          |
+| Summary / description     | Transcript becomes ready, or user clicks "Summarize" / "Regenerate description"       | The automatic metadata handoff or `regenerate-summary` asks the agent to write `update-recording --description=...`. Existing user-authored descriptions are preserved. With Include full video, the agent must watch the clip, not transcript alone |
+| Chapters                  | User clicks "Add chapters" or transcript > 3 minutes                                  | `generate-chapters --id=<id>` / `regenerate-chapters` → agent writes `chapters_json` (same full-video preference) |
 | Tags                      | On upload complete                                                                    | `generate-ai-metadata --id=<id> --kind=tags` → agent inserts `recording_tags` rows                    |
 | Filler-word removal       | User clicks "Remove ums and uhs"                                                      | `generate-filler-removal --id=<id>` → agent writes proposed cuts into `editor-draft` for user review  |
 | Comment auto-reply        | User types "reply with …" in the agent chat                                           | agent calls `add-comment` directly                                                                    |
 | **Transcription**         | On upload complete (automatic) + live during recording                                | `request-transcript` → native (Web Speech / macOS SFSpeech) first, then cloud fallback Builder.io managed Gemini → Groq; `save-browser-transcript` for instant Web Speech result — see "Transcription" section below |
+
+## Include full video
+
+Screen recordings often have thin or misleading audio ("real quick", "um this
+thing"). Titles, descriptions, chapters, and workflow docs (PR / SOP / ticket /
+email) are more accurate when the agent can **see** the UI, product names, and
+on-screen text.
+
+- Preference key: `includeFullVideoInAi` on user setting `clips-user-prefs`.
+- UI: checkbox at the top of the recording-page **AI tools** dropdown (copy
+  notes Gemini-only).
+- Actions: `get-clips-ai-prefs`, `update-clips-ai-prefs`.
+- **Gemini only:** sending / understanding the full recording video requires a
+  Gemini model (Builder Gemini or `GEMINI_API_KEY`). Claude and OpenAI cannot
+  ingest the MP4/WebM. When the preference is on, the AI-request bridge prefers
+  Builder `gemini-3-5-flash` for that turn.
+- When on, queued `clips-ai-request-*` messages include instructions to attach
+  or upload the recording to Gemini when possible, otherwise use
+  `get-recording-player-data` / `create-recording-agent-link` and follow
+  recommended frames / the frame API across the timeline — not transcript only.
+- Default title generation also honors this: `regenerate-title` skips the
+  transcript-only Gemini cleanup path and always queues the agent. Automatic
+  post-transcription work uses one `generate-metadata` request so title and
+  description are not competing application-state entries.
+
+Do not invent a parallel "video LLM" path in the UI. Keep the preference on the
+shared user-prefs object and keep delegation through the agent chat.
 
 ## The delegation pattern
 
@@ -100,12 +128,24 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 **Provider priority:**
 
 1. **Native (highest priority).** The browser's Web Speech API, desktop local Whisper/macOS SFSpeech when available, and desktop Web Speech fallback on non-mac run during recording and save results via `save-browser-transcript`. This gives an instant transcript with no API key when the local/browser recognizer is available. When `request-transcript` runs afterward, it preserves the ready native transcript and only falls back to a cloud provider if native text is missing.
-2. **Cloud fallback — Builder.io managed (Gemini).** When a Builder account is connected (`BUILDER_PRIVATE_KEY` or per-user OAuth, no separate API key needed), `request-transcript` calls `transcribeWithBuilder()`, which routes audio to Builder.io's managed Gemini transcription. Returns text plus timestamped segments.
+2. **Cloud fallback — Builder.io managed (Gemini).** When a Builder account is connected (`BUILDER_PRIVATE_KEY` or per-user OAuth, no separate API key needed), `request-transcript` calls `transcribeWithBuilder()`, which routes audio to Builder.io's managed Gemini transcription. Returns text plus timestamped segments. Retry a failed transcript with `force: true`; pass `regenerate: true` to replace an existing ready transcript from the stored recording media. Regeneration keeps the prior ready transcript available if the new provider attempt fails.
 3. **Cloud fallback — Groq Whisper.** `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Fast (~$0.04/hour of audio) Whisper-compatible speech-to-text used when Builder is unavailable.
+
+The transcript included by `view-screen` is only a bounded preview. When its
+`previewTruncated` field is true, the preview may end mid-sentence and does not
+show where transcription ended. Call `get-recording-player-data` before
+judging completeness or quoting the full transcript.
 
 Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
 If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.
+
+When a transcript becomes ready, `request-transcript` must await native cleanup
+and the metadata handoff before its durable post-finalize worker returns.
+Do not leave title/summary work as an unawaited promise in that worker:
+serverless runtimes may freeze it immediately. A local heuristic title uses
+`titleSource: "context"` so it remains a temporary UI fallback until the
+`generate-metadata` agent request replaces it with a transcript-backed title.
 
 If Builder transcription fails because credits are exhausted, explain that
 Builder.io credits/upgrade or a Groq key are the supported speech-to-text

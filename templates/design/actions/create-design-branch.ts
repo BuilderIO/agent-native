@@ -36,12 +36,13 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
+import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
   resolveSourceCapabilities,
   resolveFusionCapabilities,
 } from "../shared/capability-resolver.js";
 import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -127,8 +128,7 @@ export default defineAction({
 
     // ── Source type + capability check ──────────────────────────────────────
     const designData = parseDesignData(resource.data);
-    const sourceType =
-      normalizeDesignSourceType(designData["sourceType"]) ?? "inline";
+    const sourceType = designSourceTypeFromData(designData);
 
     // For fusion sources, resolve the Builder connection status first so that
     // resolveFusionCapabilities returns the CONNECTED map (with branch/deploy
@@ -219,10 +219,6 @@ export default defineAction({
     });
 
     // ── Persist branch metadata into the design's data blob ─────────────────
-    const existingBranches = Array.isArray(designData["branches"])
-      ? (designData["branches"] as unknown[])
-      : [];
-
     const branchEntry = {
       branchName: builderResult.branchName,
       projectId: builderResult.projectId,
@@ -233,18 +229,42 @@ export default defineAction({
       createdAt: now,
     };
 
-    const updatedData = JSON.stringify({
-      ...designData,
-      branches: [...existingBranches, branchEntry],
-      // Upgrade the source type to fusion once a Builder branch is provisioned,
-      // so the capability matrix reflects the new real-app tier.
-      sourceType: "fusion",
+    await mutateDesignData({
+      designId,
+      mutate: (current) => {
+        const existingBranches = Array.isArray(current.branches)
+          ? current.branches
+          : [];
+        const alreadyAppended = existingBranches.some(
+          (candidate) =>
+            candidate !== null &&
+            typeof candidate === "object" &&
+            !Array.isArray(candidate) &&
+            (candidate as Record<string, unknown>).preSnapshotVersionId ===
+              versionId,
+        );
+        return {
+          ...current,
+          branches: alreadyAppended
+            ? existingBranches
+            : [...existingBranches, branchEntry],
+          // Upgrade the source type to fusion once a Builder branch is
+          // provisioned so the capability matrix reflects the real-app tier.
+          sourceType: "fusion",
+        };
+      },
+      isApplied: (current) =>
+        current.sourceType === "fusion" &&
+        Array.isArray(current.branches) &&
+        current.branches.some(
+          (candidate) =>
+            candidate !== null &&
+            typeof candidate === "object" &&
+            !Array.isArray(candidate) &&
+            (candidate as Record<string, unknown>).preSnapshotVersionId ===
+              versionId,
+        ),
     });
-
-    await db
-      .update(schema.designs)
-      .set({ data: updatedData, updatedAt: now })
-      .where(eq(schema.designs.id, designId));
 
     return {
       designId,

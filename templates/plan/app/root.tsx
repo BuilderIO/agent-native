@@ -13,6 +13,7 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import {
+  IconBrain,
   IconMoon,
   IconScribble,
   IconShape2,
@@ -20,13 +21,14 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import {
   Links,
   Meta,
   Outlet,
   Scripts,
   ScrollRestoration,
+  useLocation,
   useNavigate,
 } from "react-router";
 import type { LinksFunction } from "react-router";
@@ -37,18 +39,23 @@ import {
   useWireframeStyle,
 } from "@/components/plan/wireframe/use-wireframe-style";
 import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
-import { APP_TITLE } from "@/lib/app-config";
 // Side effect: register Plan's native chat renderers so visual answers render
 // their diagram/wireframe/api-spec blocks inline in the agent chat.
 import "@/lib/register-chat-renderers";
+import { APP_TITLE } from "@/lib/app-config";
+import { shouldCapturePlanContent } from "@/lib/plan-tracking";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
 
 import stylesheet from "./global.css?url";
+// Keep standard pageviews, explicit analytics, and Sentry on local-plan routes,
+// but disable DOM/session capture so rendered plan contents stay on-device.
 configureTracking({
+  contentCaptureForPath: shouldCapturePlanContent,
   getDefaultProps: (_name, properties) => ({
     ...properties,
     app: "plan",
@@ -170,6 +177,13 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => go("/recaps")}>
             {t("root.openRecaps")}
           </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => go("/agent")}
+            keywords={["agent", "context", "connections", "jobs", "access"]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
+          </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
           <CommandMenu.Item
@@ -210,18 +224,36 @@ function AppContent() {
 
 export default function Root() {
   const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const sessionBypass =
+    location.pathname === "/" ||
+    location.pathname === "/plans" ||
+    location.pathname.startsWith("/plans/") ||
+    location.pathname === "/recaps" ||
+    location.pathname.startsWith("/recaps/") ||
+    location.pathname === "/local-plans" ||
+    location.pathname.startsWith("/local-plans/");
+  const localPlanPrivacyRoute = !shouldCapturePlanContent(location.pathname);
   return (
     // Pass the plan-specific styled Toaster via `toaster` so only one sonner
     // instance renders (avoids the duplicate that would appear if AppProviders'
     // built-in Toaster AND a children-rendered Toaster both mounted).
-    <AppProviders
-      queryClient={queryClient}
-      toaster={<Toaster richColors position="bottom-left" />}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <DbSyncSetup />
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        sessionBypass={sessionBypass}
+        toaster={<Toaster richColors position="bottom-left" />}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <div
+          data-an-mask={localPlanPrivacyRoute ? "" : undefined}
+          style={{ display: "contents" }}
+        >
+          <DbSyncSetup />
+          <AppContent />
+        </div>
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

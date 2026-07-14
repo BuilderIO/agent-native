@@ -98,11 +98,29 @@ describe("db/client dialect detection", () => {
     expect(neonPoolMax()).toBe(2);
   });
 
-  it("uses the background Neon pool when the verified process-run marker expects a background function", async () => {
+  it("keeps the foreground pool when only the dispatch marker (expected, not landed) is set", async () => {
+    // The marker records which URL the foreground TARGETED, not where the
+    // request landed. A misrouted worker on the ~60s sync function must NOT
+    // take the 8-connection background pool (it runs as one of many warm
+    // instances and would exhaust the Neon pooler → connection terminated →
+    // failed heartbeat → stale_run). Only proof-of-landing unlocks the big pool.
     vi.stubEnv("NETLIFY", "true");
     (
       globalThis as Record<string, unknown>
     ).__AGENT_NATIVE_BACKGROUND_RUNTIME_EXPECTED__ = true;
+
+    const { neonPoolMax, isBackgroundFunctionPoolContext } =
+      await import("./client.js");
+
+    expect(isBackgroundFunctionPoolContext()).toBe(false);
+    expect(neonPoolMax()).toBe(2);
+  });
+
+  it("uses the background Neon pool when the -background function marked the runtime at cold start", async () => {
+    vi.stubEnv("NETLIFY", "true");
+    (
+      globalThis as Record<string, unknown>
+    ).__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 
     const { neonPoolMax, isBackgroundFunctionPoolContext } =
       await import("./client.js");
@@ -202,6 +220,37 @@ describe("getMigrationDatabaseUrl", () => {
     vi.stubEnv("DATABASE_URL", "file:./data/app.db");
     const { getMigrationDatabaseUrl } = await import("./client.js");
     expect(getMigrationDatabaseUrl()).toBe("file:./data/app.db");
+  });
+
+  it("prefers Netlify's explicit unpooled migration URL over a stale generic unpooled URL", async () => {
+    vi.stubEnv(
+      "DATABASE_URL_UNPOOLED",
+      "postgresql://old:pw@old.example.com/db",
+    );
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgresql://fresh:pw@fresh.example.com/db",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://fresh:pw@fresh.example.com/db",
+    );
+  });
+
+  it("keeps app-specific unpooled migration URLs ahead of Netlify's shared unpooled env", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv(
+      "PLAN_DATABASE_URL_UNPOOLED",
+      "postgresql://plan:pw@plan.example.com/db",
+    );
+    vi.stubEnv(
+      "NETLIFY_DATABASE_URL_UNPOOLED",
+      "postgresql://netlify:pw@netlify.example.com/db",
+    );
+    const { getMigrationDatabaseUrl } = await import("./client.js");
+    expect(getMigrationDatabaseUrl()).toBe(
+      "postgresql://plan:pw@plan.example.com/db",
+    );
   });
 });
 

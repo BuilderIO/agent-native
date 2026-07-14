@@ -13,14 +13,14 @@ description: >-
 **`bigquery` is available directly in the agent's tool list as a native callable tool.**
 
 - If you see `bigquery` in your available tools — **call it directly with your SQL**. Do not use HTTP workarounds, web-request hacks, or scripts as a substitute.
-- The `server/lib/bigquery.ts` description below is the *underlying implementation*. It does **not** mean BigQuery is only accessible via terminal commands or scripts.
+- The `server/lib/bigquery.ts` description below is the _underlying implementation_. It does **not** mean BigQuery is only accessible via terminal commands or scripts.
 - **When uncertain if the tool works, call it — don't reason your way to "it won't work".** Empirically test by calling the tool.
 
 ## Data-Dictionary-First Discipline
 
 **Before writing any SQL, verify the metric definition and exact table/column names.**
 
-1. Check the injected `<data-dictionary>` block and call `list-data-dictionary` first.
+1. Call `list-data-dictionary` with a focused search first; dictionary definitions are loaded on demand rather than injected into every chat request.
 2. Use `search-bigquery-schema` to confirm exact dataset, table, and column names.
 3. Only write SQL after you know the correct table and columns. Do not guess.
 
@@ -33,7 +33,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-1. The injected `<data-dictionary>` block and `list-data-dictionary`.
+1. `list-data-dictionary` with a focused search or department filter.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
 4. A concise user clarification when the business meaning cannot be inferred.
@@ -71,12 +71,12 @@ answers the question.
 
 ## Actions
 
-| Action | Use |
-| --- | --- |
-| `data-source-status --key bigquery` | Check whether BigQuery credentials and project are configured. |
-| `list-data-dictionary --search <topic>` | Find canonical metric/table definitions before SQL. |
-| `search-bigquery-schema` | List datasets, list tables in a dataset, or describe table columns. |
-| `bigquery --sql "<sql>"` | Run a real warehouse query after table/column names are known. |
+| Action                                  | Use                                                                 |
+| --------------------------------------- | ------------------------------------------------------------------- |
+| `data-source-status --key bigquery`     | Check whether BigQuery credentials and project are configured.      |
+| `list-data-dictionary --search <topic>` | Find canonical metric/table definitions before SQL.                 |
+| `search-bigquery-schema`                | List datasets, list tables in a dataset, or describe table columns. |
+| `bigquery --sql "<sql>"`                | Run a real warehouse query after table/column names are known.      |
 
 For direct Amplitude/PostHog/Mixpanel product-event data (outside the warehouse
 copy), there is no first-class action — call `provider-api-catalog` /
@@ -122,15 +122,15 @@ prefer saving a reviewed dictionary update once the meaning is clear.
 
 ## Column Name Differences (Common Bug Sources)
 
-| Spec Column | Actual Column | Table |
-|---|---|---|
+| Spec Column           | Actual Column              | Table           |
+| --------------------- | -------------------------- | --------------- |
 | `first_pageview_date` | `created_date` (TIMESTAMP) | first_pageviews |
-| `channel` (pageviews) | `first_touch_channel` | all_pageviews |
-| `referrer` | `c_referrer` | all_pageviews |
-| `referrer_channel` | `session_channel` | all_pageviews |
-| `user_create_date` | `user_create_d` | product_signups |
-| `deal_stage` | `stage_name` | dim_deals |
-| `deal_amount` | `amount` | dim_deals |
+| `channel` (pageviews) | `first_touch_channel`      | all_pageviews   |
+| `referrer`            | `c_referrer`               | all_pageviews   |
+| `referrer_channel`    | `session_channel`          | all_pageviews   |
+| `user_create_date`    | `user_create_d`            | product_signups |
+| `deal_stage`          | `stage_name`               | dim_deals       |
+| `deal_amount`         | `amount`                   | dim_deals       |
 
 Always verify with `search-bigquery-schema` before writing SQL against an unfamiliar table.
 

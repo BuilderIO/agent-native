@@ -264,7 +264,7 @@ Os IDs iniciais do provedor são:
 | `google_drive` | pesquisar, importar, documentos            | cérebro, conteúdo, slides                     |
 | `hubspot`      | pesquisar, importar, CRM                   | analítica, cérebro, e-mail                    |
 | `granola`      | pesquisa, importação, reuniões, documentos | cérebro, calendário, envio                    |
-| `clips`        | pesquisa, importação, reuniões             | cérebro, clipes, vídeos                       |
+| `clips`        | pesquisa, importação, reuniões             | cérebro, clipes                               |
 | `generic`      | pesquisar, importar, documentos            | webhooks personalizado e descarte de arquivos |
 
 As chaves de credenciais são apenas nomes, como `SLACK_BOT_TOKEN` ou `GITHUB_TOKEN`. Os metadados do provedor nunca devem incluir valores de credenciais reais.
@@ -425,10 +425,9 @@ Não duplique o armazenamento OAuth/token em cada aplicativo. O registro de cone
 
 ### Configuração do plano de controle de despacho
 
-O Dispatch expõe o plano de controle actions que escreve as mesmas funções de armazenamento compartilhado que um aplicativo poderia chamar diretamente:
+O Dispatch expõe actions do plano de controle que usam as mesmas funções de armazenamento compartilhado que um aplicativo poderia chamar diretamente — sua action `upsert-workspace-connection` valida a entrada em relação ao catálogo de provedores e então delega para a mesma `upsertWorkspaceConnection()` mostrada nesta página:
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -493,3 +492,11 @@ O catálogo de provedores e o armazenamento de concessões são a base para uma 
 Mantenha os limites rígidos: os metadados do provedor podem ser exibidos com segurança; os valores das credenciais permanecem no cofre.
 
 </details>
+
+## O que vem a seguir {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — o aplicativo que normalmente gerencia a configuração de conexões do espaço de trabalho e o cofre
+- [**Segurança**](/docs/security) — o cofre de credenciais, o escopo de segredos e o modelo de acesso para os quais as conexões apontam
+- [**Integração**](/docs/onboarding#checking-workspace-connections-in-onboarding) — verificar a prontidão da conexão na lista de configuração de um modelo
+- [**Clientes MCP**](/docs/mcp-clients) — compartilhar credenciais de servidores MCP no espaço de trabalho como um padrão relacionado de configuração reutilizável
+- [**Brain**](/docs/template-brain) — a implementação de referência de uma página Sources de provedores criada sobre este modelo

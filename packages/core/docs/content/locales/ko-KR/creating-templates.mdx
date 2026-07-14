@@ -7,6 +7,8 @@ description: "자신만의 에이전트 기반 앱 템플릿을 만들고 게시
 
 템플릿은 실제 워크플로를 해결하는 완전하고 포크 가능한 에이전트 기반 앱입니다. 자사 템플릿은 귀하가 사용하는 것과 동일한 프레임워크 표면으로 구축됩니다. UI용 React 경로, 데이터용 Drizzle SQL, 작업용 actions, 에이전트 동작용 작업 공간 리소스, 에이전트와 UI가 정렬 상태를 유지하도록 폴링 동기화합니다.
 
+`@agent-native/core`는 runtime contract에 사용하세요: actions, server plugins, database helpers, app state, routing helpers, agent chat입니다. `@agent-native/toolkit`은 shared primitives, toast/mobile hooks, date pickers, simple app shell slots 같은 reusable app-building UI와 helpers에 사용하세요. 제품 동작이나 visual identity를 담는 template-specific variants는 로컬에 유지하세요.
+
 좋은 템플릿:
 
 - 유용한 시드 데이터 또는 빈 상태 흐름을 사용하여 하나의 워크플로를 엔드 투 엔드로 해결합니다.
@@ -42,7 +44,6 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
 <FileTree
   id="doc-block-1sjtdow"
   title={"템플릿 프로젝트 구조"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -170,8 +171,7 @@ Chat은 인증, 내구성 있는 채팅 스레드, SQL 지원 리소스, 도구,
 
 SQLite, Postgres, D1, Turso, Supabase, Neon 및 기타 지원되는 백엔드에서 스키마 이식성을 유지할 수 있도록 프레임워크 Drizzle 도우미를 사용하여 도메인 테이블을 정의하세요.
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -202,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 앱 읽기 및 쓰기의 경우 Drizzle의 쿼리 빌더와 `drizzle-orm`의 이식 가능한 연산자를 사용하세요. Drizzle가 쿼리를 표현할 수 있는 경우 원시 SQL로 제품 코드를 작성하지 말고 템플릿의 `drizzle-orm/sqlite-core` 또는 `drizzle-orm/pg-core`에서 가져오지 마세요.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -347,8 +346,7 @@ URL 쿼리 매개변수에 공유 가능한 필터를 유지합니다. 프레임
 URL가 알려진 경우 `path`. 동일한 동작에 `__set_url__`를 쓰지 마세요;
 해당 키는 프레임워크 URL 도구 및 URL 전용 필터 변경용으로 예약되어 있습니다.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

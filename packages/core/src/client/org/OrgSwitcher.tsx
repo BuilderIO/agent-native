@@ -5,7 +5,6 @@ import {
   IconBrain,
   IconBrandJira,
   IconBrush,
-  IconBuilding,
   IconCalendar,
   IconCalendarTime,
   IconChartBar,
@@ -13,7 +12,6 @@ import {
   IconChevronRight,
   IconClipboardList,
   IconCode,
-  IconContract,
   IconFileText,
   IconLayoutBoard,
   IconLoader2,
@@ -34,7 +32,7 @@ import {
   IconUser,
   IconUserPlus,
   IconUsers,
-  IconVideo,
+  IconUsersGroup,
   IconWorld,
 } from "@tabler/icons-react";
 import { useState } from "react";
@@ -64,7 +62,7 @@ export interface OrgSwitcherProps {
   reserveSpace?: boolean;
   /**
    * Path to navigate to when the user clicks "Organization settings".
-   * Defaults to the standard Team tab inside Settings. Templates with an
+   * Defaults to the Organization tab inside Settings. Templates with an
    * established org surface can pass their own path; pass `null` to only open
    * the in-sidebar settings panel.
    */
@@ -100,7 +98,7 @@ const APP_SUBMENU_CONTENT_CLASS =
 const SWITCHER_BUTTON_CLASS =
   "flex w-full items-center gap-2 rounded-md border border-border/70 px-2.5 py-1.5 text-xs font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 cursor-pointer";
 
-const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#team";
+const DEFAULT_ORGANIZATION_SETTINGS_PATH = "/settings#organization";
 
 const APP_ICON_MAP: Record<string, typeof IconApps> = {
   Mail: IconMail,
@@ -109,12 +107,10 @@ const APP_ICON_MAP: Record<string, typeof IconApps> = {
   LayoutBoard: IconLayoutBoard,
   BarChart2: IconChartBar,
   GalleryHorizontal: IconPresentation,
-  Video: IconVideo,
   BrandJira: IconBrandJira,
   ClipboardList: IconClipboardList,
   Users: IconUsers,
   Code: IconCode,
-  Contract: IconContract,
   MessageCircle: IconMessageCircle,
   Route: IconRoute,
   ScreenShare: IconScreenShare,
@@ -134,7 +130,9 @@ function appMenuIcon(app: OrgSwitcherAppLink): typeof IconApps {
 }
 
 function organizationSettingsPath(path: string): string {
-  return path.includes("#") ? path : `${path}#team`;
+  if (path.includes("#")) return path;
+  const pathname = path.split("?")[0]?.replace(/\/+$/, "");
+  return pathname === "/settings" ? `${path}#organization` : path;
 }
 
 function AppMenuLink({
@@ -289,7 +287,7 @@ function OrgSwitcherLoadingPlaceholder({ className }: { className?: string }) {
       aria-label="Loading organization"
       className={`${SWITCHER_BUTTON_CLASS} animate-pulse ${className ?? ""}`}
     >
-      <IconBuilding className="h-3.5 w-3.5 shrink-0 opacity-60" />
+      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 opacity-60" />
       <span className="h-3 min-w-0 flex-1 rounded-sm bg-muted-foreground/20" />
       <IconSelector className="h-3 w-3 shrink-0 opacity-30" />
     </button>
@@ -380,7 +378,7 @@ export function OrgSwitcher({
   const personalLabel = personalLabelFromEmail(org.email);
   const inOrg = !!org.orgId;
   const buttonLabel = org.orgName ?? "Personal";
-  const ButtonIcon = inOrg ? IconBuilding : IconUser;
+  const ButtonIcon = inOrg ? IconUsersGroup : IconUser;
   const organizationSettingsHref = settingsPath
     ? organizationSettingsPath(settingsPath)
     : null;
@@ -444,7 +442,7 @@ export function OrgSwitcher({
                   disabled={switchOrg.isPending}
                   className={`${ITEM_CLASS} cursor-pointer`}
                 >
-                  <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                  <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                   <span className="truncate flex-1 text-start">
                     {o.orgName}
                   </span>
@@ -463,7 +461,7 @@ export function OrgSwitcher({
                       key={inv.id}
                       className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                     >
-                      <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                      <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                       <span className="truncate flex-1 text-foreground">
                         {inv.orgName}
                       </span>
@@ -505,7 +503,7 @@ export function OrgSwitcher({
                         key={match.orgId}
                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs"
                       >
-                        <IconBuilding className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                        <IconUsersGroup className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                         <span className="truncate flex-1 text-foreground">
                           {match.orgName}
                         </span>
@@ -551,14 +549,15 @@ export function OrgSwitcher({
                   type="button"
                   onClick={() => {
                     setOpen(false);
-                    window.dispatchEvent(new CustomEvent("agent-panel:open"));
-                    window.dispatchEvent(
-                      new CustomEvent("agent-panel:open-settings", {
-                        detail: { section: "workspace-settings" },
-                      }),
-                    );
                     if (organizationSettingsHref) {
                       navigate(organizationSettingsHref);
+                    } else {
+                      window.dispatchEvent(new CustomEvent("agent-panel:open"));
+                      window.dispatchEvent(
+                        new CustomEvent("agent-panel:open-settings", {
+                          detail: { section: "workspace-settings" },
+                        }),
+                      );
                     }
                   }}
                   className={`${ITEM_CLASS} cursor-pointer`}

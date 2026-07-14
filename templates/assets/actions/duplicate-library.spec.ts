@@ -6,6 +6,9 @@ const nanoidMock = vi.hoisted(() => vi.fn());
 const neMock = vi.hoisted(() =>
   vi.fn((column, value) => ({ op: "ne", column, value })),
 );
+const notInArrayMock = vi.hoisted(() =>
+  vi.fn((column, values) => ({ op: "notInArray", column, values })),
+);
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (entry: unknown) => entry,
@@ -31,6 +34,7 @@ vi.mock("drizzle-orm", () => ({
   eq: vi.fn((column, value) => ({ op: "eq", column, value })),
   inArray: vi.fn((column, values) => ({ op: "inArray", column, values })),
   ne: neMock,
+  notInArray: notInArrayMock,
 }));
 
 vi.mock("nanoid", () => ({
@@ -72,6 +76,7 @@ vi.mock("../server/db/index.js", () => ({
       libraryId: "presets.library_id",
     },
     assets: {
+      id: "assets.id",
       libraryId: "assets.library_id",
       status: "assets.status",
       role: "assets.role",
@@ -172,7 +177,19 @@ describe("duplicate-library", () => {
       model: "gemini-3.1-flash-image",
       textPolicy: "",
       referencePolicy: "auto",
-      settings: JSON.stringify({ pinnedAssetId: "asset-ref" }),
+      settings: JSON.stringify({
+        pinnedAssetId: "asset-ref",
+        presetReferences: [
+          {
+            id: "steve",
+            label: "Steve",
+            role: "subject",
+            assetIds: ["asset-ref", "asset-saved"],
+            variable: false,
+            required: false,
+          },
+        ],
+      }),
       sortOrder: 3,
     };
     const referenceAsset = {
@@ -257,6 +274,14 @@ describe("duplicate-library", () => {
       libraryId: "copy-lib",
       collectionId: "copy-collection",
     });
+    expect(JSON.parse(result.generationPresets[0].settings)).toMatchObject({
+      presetReferences: [
+        {
+          id: "steve",
+          assetIds: ["copy-reference", "copy-saved"],
+        },
+      ],
+    });
     expect(result.assets[0]).toMatchObject({
       id: "copy-reference",
       libraryId: "copy-lib",
@@ -267,5 +292,123 @@ describe("duplicate-library", () => {
     expect(JSON.parse(result.assets[0].metadata)).toMatchObject({
       sourceAssetId: "copy-saved",
     });
+  });
+
+  it("copies board-pinned subject_reference uploads the general filter skips", async () => {
+    nanoidMock
+      .mockReset()
+      .mockReturnValueOnce("copy-lib")
+      .mockReturnValueOnce("copy-preset")
+      .mockReturnValueOnce("copy-style")
+      .mockReturnValueOnce("copy-subject");
+    const sourceLibrary = {
+      id: "source-lib",
+      title: "Acme",
+      description: null,
+      customInstructions: "",
+      styleBrief: "{}",
+      settings: "{}",
+      canonicalLogoAssetId: null,
+      coverAssetId: null,
+    };
+    const preset = {
+      id: "preset-main",
+      collectionId: null,
+      title: "Livestream announcement",
+      description: null,
+      category: "social",
+      mediaType: "image",
+      promptTemplate: null,
+      aspectRatio: "1:1",
+      imageSize: "2K",
+      model: "gemini-3.1-flash-image",
+      textPolicy: "",
+      referencePolicy: "auto",
+      settings: JSON.stringify({
+        presetReferences: [
+          {
+            id: "guest-speaker",
+            label: "Guest speaker",
+            role: "subject",
+            assetIds: ["asset-subject"],
+            variable: true,
+            required: true,
+          },
+        ],
+      }),
+      sortOrder: 1,
+    };
+    const styleAsset = {
+      id: "asset-style",
+      collectionId: null,
+      folderId: null,
+      mediaType: "image",
+      role: "style_reference",
+      status: "reference",
+      title: "Style",
+      description: null,
+      altText: null,
+      prompt: null,
+      model: null,
+      aspectRatio: null,
+      imageSize: null,
+      mimeType: "image/png",
+      width: 100,
+      height: 100,
+      durationSeconds: null,
+      sizeBytes: 10,
+      objectKey: "local:style.png",
+      thumbnailObjectKey: null,
+      sourceUrl: null,
+      generationRunId: null,
+      metadata: "{}",
+    };
+    const subjectAsset = {
+      ...styleAsset,
+      id: "asset-subject",
+      role: "subject_reference",
+      title: "Guest photo",
+      objectKey: "local:guest.png",
+      metadata: JSON.stringify({ intent: "subject" }),
+    };
+    const db = createDb([
+      [sourceLibrary],
+      [],
+      [],
+      [preset],
+      [styleAsset],
+      [subjectAsset],
+    ]);
+    getDbMock.mockReturnValue(db);
+
+    const result = (await action.run({ id: "source-lib" })) as any;
+
+    expect(notInArrayMock).toHaveBeenCalledWith("assets.status", [
+      "archived",
+      "failed",
+    ]);
+    expect(result.copiedCounts).toEqual({
+      collections: 0,
+      folders: 0,
+      presets: 1,
+      assets: 2,
+    });
+    expect(JSON.parse(result.generationPresets[0].settings)).toMatchObject({
+      presetReferences: [
+        {
+          id: "guest-speaker",
+          assetIds: ["copy-subject"],
+        },
+      ],
+    });
+    expect(result.assets).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "copy-subject",
+          libraryId: "copy-lib",
+          role: "subject_reference",
+        }),
+      ]),
+    );
   });
 });

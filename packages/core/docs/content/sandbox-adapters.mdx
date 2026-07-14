@@ -6,8 +6,12 @@ search: "adapters sandbox adapter cli adapter run-code SandboxAdapter CliAdapter
 
 # Adapters
 
-> **Who is this for:** host authors extending the runtime. App developers rarely
-> need this — the defaults work out of the box.
+<Callout id="doc-block-adap1who" tone="info">
+
+**Who is this for:** host authors extending the runtime. App developers rarely
+need this — the defaults work out of the box.
+
+</Callout>
 
 Agent-Native has two adapter seams that factor a concern out behind a narrow,
 swappable interface:
@@ -26,15 +30,15 @@ not run on edge/worker runtimes — see [Edge and serverless](#edge-serverless).
 | You want to…                                                               | Use                                          |
 | -------------------------------------------------------------------------- | -------------------------------------------- |
 | Swap the backend that runs the agent's **`run-code` tool**                 | **Sandbox adapters** (this page)             |
-| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | **CLI adapters** (this page)                 |
+| Wrap a CLI tool (`gh`, `ffmpeg`) for the agent to call                     | [CLI Adapters](/docs/cli-adapters)           |
 | Render a Claude-Code/Codex-style **coding workspace UI**                   | [Agent-Native Code UI](/docs/code-agents-ui) |
 | Run Claude Code / Codex / Pi **as the agent**, with their own loop + tools | [Harness Agents](/docs/harness-agents)       |
 
-# Sandbox Adapters
+## Sandbox Adapters {#sandbox-adapters}
 
 The `run-code` tool runs agent-supplied JavaScript in an isolated environment. **Sandbox adapters** factor the _execution_ concern out of that tool so the backend can be swapped — a local child process by default, or a Docker / remote / durable runner — without touching the agent loop, `run-code.ts`, the localhost bridge, the env scrub, or the output formatting.
 
-## Why a seam {#why}
+### Why a seam {#why}
 
 The default backend spawns a locked-down local Node child process. That's bounded by the hosting process: on the hosted platform it shares the agent loop's soft execution ceiling (~40s before timeout/continuation thrash). A remote or durable adapter is the lever to exceed that ceiling — it runs large data jobs to completion independently of the request lifecycle.
 
@@ -86,14 +90,13 @@ Keeping the contract narrow means a remote adapter inherits the same security po
 
 </Diagram>
 
-## The interface {#interface}
+### The interface {#interface}
 
 The seam lives in core at `packages/core/src/coding-tools/sandbox/` — `adapter.ts` (the contract), `index.ts` (selection: `getSandboxAdapter()` / `registerSandboxAdapter()`), and `local-child-process-adapter.ts` (the default). It is wired in-package by `run-code.ts`; a host plugs in a different backend through the `index.ts` registration helper (or, for a Docker backend, via the [blueprint](/docs/blueprint-installer) that edits these files directly).
 
 <FileTree
   id="doc-block-b1k8n3"
   title="The sandbox seam in core"
-  title="packages/core/src/coding-tools/sandbox/"
   entries={[
     {
       path: "adapter.ts",
@@ -102,6 +105,10 @@ The seam lives in core at `packages/core/src/coding-tools/sandbox/` — `adapter
     {
       path: "index.ts",
       note: "selection: getSandboxAdapter() / registerSandboxAdapter()",
+    },
+    {
+      path: "background.ts",
+      note: "durable queue marker and background execution lifecycle",
     },
     {
       path: "local-child-process-adapter.ts",
@@ -160,7 +167,7 @@ interface SandboxRunResult {
 }
 ```
 
-## The default: `LocalChildProcessAdapter` {#default}
+### The default: `LocalChildProcessAdapter` {#default}
 
 Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "local-child-process"`). It preserves the historical `run-code` behavior byte-for-byte:
 
@@ -170,10 +177,13 @@ Out of the box, `getSandboxAdapter()` returns `LocalChildProcessAdapter` (`id: "
 - A timeout sends `SIGTERM`, then `SIGKILL` after a 2s grace period.
 - Temp files are cleaned up best-effort after the run.
 
-> [!WARNING]
-> The default adapter uses `node:child_process`, which does not exist on edge/worker runtimes. Run `run-code` in a standard Node.js environment, or register a remote adapter — see [Edge and serverless](#edge-serverless).
+<Callout id="doc-block-adap1def" tone="warning">
 
-## Selecting an adapter {#selection}
+The default adapter uses `node:child_process`, which does not exist on edge/worker runtimes. Run `run-code` in a standard Node.js environment, or register a remote adapter — see [Edge and serverless](#edge-serverless).
+
+</Callout>
+
+### Selecting an adapter {#selection}
 
 Resolution order — an explicitly registered adapter wins; otherwise the env var selects a built-in; otherwise the local default is used:
 
@@ -181,15 +191,20 @@ Resolution order — an explicitly registered adapter wins; otherwise the env va
 registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 ```
 
-### `AGENT_NATIVE_SANDBOX` env var {#env}
+#### `AGENT_NATIVE_SANDBOX` env var {#env}
 
-Selects a built-in adapter by id. Currently only `local` (the default) is wired; unknown values fall back to local rather than failing the run.
+Selects a built-in adapter by id. Both `local` (the default) and `background` are wired; unknown values fall back to local rather than failing the run.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # the default — explicit
+AGENT_NATIVE_SANDBOX=local        # the default — explicit
+AGENT_NATIVE_SANDBOX=background   # enqueue every run-code call durably
 ```
 
-### `registerSandboxAdapter()` {#register}
+`background` stores the raw code in `sandbox_executions` and returns an `executionId` with `status: "queued"` immediately. A signed self-dispatch starts a fresh serverless invocation; long-lived Node starts detached in-process work; status polling and the periodic sweep redrive lost dispatches or expired leases. Poll the execution later for its persisted result.
+
+`BackgroundQueueAdapter` is a durable queue marker, not the executor. Queued work uses a registered non-queued execution adapter when one is available; otherwise it falls back to the local child process. Selecting `background` alone does not provide remote or container isolation, and it does not make an edge runtime compatible with `node:child_process`.
+
+#### `registerSandboxAdapter()` {#register}
 
 A host process overrides the backend for all subsequent `run-code` invocations through the seam's `index.ts` — for example, to run every call in a remote container:
 
@@ -211,64 +226,37 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 // Pass `null` to clear the override and fall back to env-var / default resolution.
 ```
 
-## The seam for a durable runner {#durable}
+### The seam for a durable runner {#durable}
 
-This interface is deliberately the seam for a future remote/durable sandbox. A remote or durable adapter (Docker, a Vercel-Sandbox-style runner, or a queued background worker) would:
+The built-in `background` adapter already provides durable queuing and a fresh execution budget, while actual execution still uses a non-queued adapter or the local child-process fallback. A separately registered remote or isolated adapter (Docker or a Vercel-Sandbox-style runner) can provide a different execution boundary and can also execute per-call background work.
+
+Such an adapter would:
 
 1. Implement `SandboxAdapter.run` against an out-of-process runtime.
 2. Tunnel the loopback bridge (or proxy bridge calls back to the parent).
-3. Let large data jobs run to completion independently of the request lifecycle — exceeding the hosted ~40s code-exec ceiling that bounds the local child-process adapter.
+3. Supply remote or container isolation independently of the shipped durable queue lifecycle.
 
-Register it under a new `AGENT_NATIVE_SANDBOX` value (e.g. `remote`) and/or via `registerSandboxAdapter()`. The agent loop and `run-code.ts` never change.
+Register it programmatically via `registerSandboxAdapter()`. The agent loop and `run-code.ts` do not need to change.
 
-> [!TIP]
-> The `agent-native add sandbox docker` blueprint emits a full, self-contained recipe for implementing a Docker adapter against this seam. See [Blueprint Installer](/docs/blueprint-installer).
+<Callout id="doc-block-adap1tip" tone="info">
 
-# CLI Adapters
+The `agent-native add sandbox docker` blueprint emits a full, self-contained recipe for implementing a Docker adapter against this seam. See [Blueprint Installer](/docs/blueprint-installer).
 
-The other adapter seam wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result. Every CLI adapter implements `CliAdapter`:
+</Callout>
 
-```ts
-import type { CliAdapter, CliResult } from "@agent-native/core/adapters/cli";
+## CLI Adapters {#cli-adapters}
 
-interface CliAdapter {
-  name: string; // "gh", "stripe", "ffmpeg"
-  description: string; // What the agent sees during discovery
-  isAvailable(): Promise<boolean>;
-  execute(args: string[]): Promise<CliResult>;
-}
+The other adapter seam wraps a single command-line tool (`gh`, `ffmpeg`, `stripe`, `aws`) behind a `CliAdapter` contract, so the agent can discover it, check whether it's installed, and run it with a consistent stdout/stderr/exit-code result.
 
-interface CliResult {
-  stdout: string;
-  stderr: string;
-  exitCode: number;
-}
-```
-
-For most CLIs, `ShellCliAdapter` wraps any binary with sensible defaults, and `CliRegistry` collects adapters for runtime discovery:
-
-```ts
-import { CliRegistry, ShellCliAdapter } from "@agent-native/core/adapters/cli";
-
-const cliRegistry = new CliRegistry();
-cliRegistry.register(
-  new ShellCliAdapter({
-    command: "gh",
-    description: "GitHub CLI — manage repos, PRs, issues, and releases",
-  }),
-);
-
-await cliRegistry.describe(); // [{ name, description, available }] for discovery
-const gh = cliRegistry.get("gh");
-const result = await gh?.execute(["pr", "list", "--json", "title,url"]);
-```
-
-Wrap a CLI call in `defineAction` to expose it on the action surface. See the [CLI Adapters](/docs/cli-adapters) quick reference for `ShellCliAdapter` options, custom adapters, and the action-wrapping pattern.
+See [CLI Adapters](/docs/cli-adapters) for the `CliAdapter` contract, `ShellCliAdapter`, `CliRegistry`, and the action-wrapping pattern — this page only covers the seam it shares with sandbox adapters.
 
 ## Edge and serverless {#edge-serverless}
 
-> [!WARNING]
-> Both adapter seams rely on Node.js system bindings. The sandbox `LocalChildProcessAdapter` and CLI adapters (`ShellCliAdapter` and custom adapters) use `node:child_process` (`execFile` / `spawn`), which **does not exist** on edge/worker runtimes such as Cloudflare Workers or Netlify Edge Functions. If you deploy server routes to these edge presets, executing these adapters throws a runtime exception. Run adapter endpoints and tasks in a standard Node.js environment (traditional server containers or serverless Node functions) — or, for the sandbox seam, register a remote adapter that ships work out of process.
+<Callout id="doc-block-adap1edge" tone="warning">
+
+Both adapter seams rely on Node.js system bindings. The sandbox `LocalChildProcessAdapter` and CLI adapters (`ShellCliAdapter` and custom adapters) use `node:child_process` (`execFile` / `spawn`), which **does not exist** on edge/worker runtimes such as Cloudflare Workers or Netlify Edge Functions. If you deploy server routes to these edge presets, executing these adapters throws a runtime exception. Run adapter endpoints and tasks in a standard Node.js environment (traditional server containers or serverless Node functions) — or, for the sandbox seam, register a remote adapter that ships work out of process.
+
+</Callout>
 
 ## What's next
 

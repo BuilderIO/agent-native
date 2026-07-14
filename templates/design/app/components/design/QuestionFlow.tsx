@@ -10,7 +10,7 @@ import {
 } from "@agent-native/core/client";
 import type { QuestionFlowQuestion } from "@shared/api";
 import { IconCheck, IconPalette, IconUpload, IconX } from "@tabler/icons-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Slider } from "@/components/ui/slider";
@@ -39,6 +39,15 @@ export function QuestionFlow({
   const t = useT();
   const guidedQuestions = questions as GuidedQuestion[];
   const [answers, setAnswers] = useState<Record<string, unknown>>({});
+  // Guards against a rapid double-click (or two events firing within the
+  // same React batch) triggering onSubmit/onSkip twice before the parent
+  // hook clears the persisted question payload and this component unmounts.
+  // Both handlers post a message to the agent chat, so firing twice would
+  // duplicate the turn. A ref is required (not just state) because the gate
+  // must be visible synchronously to a second click handled in the same
+  // task, before React has flushed the re-render that disables the button.
+  const respondedRef = useRef(false);
+  const [responded, setResponded] = useState(false);
   const questionsFingerprint = useMemo(
     () => questionFlowFingerprint(guidedQuestions),
     [guidedQuestions],
@@ -46,6 +55,8 @@ export function QuestionFlow({
 
   useEffect(() => {
     setAnswers({});
+    respondedRef.current = false;
+    setResponded(false);
   }, [questionsFingerprint]);
 
   const setAnswer = useCallback((id: string, value: unknown) => {
@@ -98,8 +109,13 @@ export function QuestionFlow({
           <Button
             type="button"
             size="sm"
-            onClick={() => onSubmit(normalizeGuidedAnswers(answers))}
-            disabled={!allRequiredAnswered}
+            onClick={() => {
+              if (respondedRef.current) return;
+              respondedRef.current = true;
+              setResponded(true);
+              onSubmit(normalizeGuidedAnswers(answers));
+            }}
+            disabled={responded || !allRequiredAnswered}
             className="h-8 cursor-pointer rounded-md bg-[var(--design-editor-accent-color)] px-3 text-[12px] text-[var(--design-editor-accent-contrast-color)] shadow-none hover:bg-[var(--design-editor-accent-hover-color)] hover:text-[var(--design-editor-accent-contrast-color)] focus-visible:ring-[var(--design-editor-accent-color)]"
           >
             {submitLabel ?? t("questionFlow.continue")}
@@ -108,8 +124,14 @@ export function QuestionFlow({
             type="button"
             variant="ghost"
             size="sm"
-            onClick={onSkip}
-            className="h-8 cursor-pointer rounded-md px-3 text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground"
+            onClick={() => {
+              if (respondedRef.current) return;
+              respondedRef.current = true;
+              setResponded(true);
+              onSkip();
+            }}
+            disabled={responded}
+            className="h-8 cursor-pointer rounded-md px-3 text-[12px] text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
           >
             {skipLabel ?? t("questionFlow.skip")}
           </Button>
@@ -318,7 +340,7 @@ function OptionButton({
         compact ? "px-2.5 py-1.5" : "px-3 py-2",
         selected
           ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-          : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]",
+          : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
       )}
     >
       <span
@@ -396,7 +418,7 @@ function ColorOptions({
               "group inline-flex min-h-8 min-w-0 max-w-full cursor-pointer items-center gap-2 rounded-md border px-2.5 py-1.5 text-start transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)] focus-visible:ring-offset-0",
               selected
                 ? "border-[var(--design-editor-accent-color)] bg-[var(--design-editor-selection-color)] text-foreground"
-                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-foreground hover:bg-[var(--design-editor-panel-raised-bg)]",
+                : "border-[var(--design-editor-control-border)] bg-[var(--design-editor-question-option-bg)] text-foreground hover:bg-[var(--design-editor-control-bg)]",
             )}
           >
             <span

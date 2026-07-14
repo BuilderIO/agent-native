@@ -1,3 +1,5 @@
+import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
+
 const EXTENSION_IFRAME_CSP_BASE =
   "default-src 'none'; script-src 'self' https://cdn.jsdelivr.net 'unsafe-eval' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; font-src https://fonts.gstatic.com; connect-src 'self'; img-src 'self' data: blob:; media-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none';";
 
@@ -24,10 +26,11 @@ export const EXTENSION_IFRAME_META_CSP = EXTENSION_IFRAME_CSP_BASE;
  *
  *   1. The iframe MUST be rendered with a `sandbox` attribute that does NOT
  *      include `allow-same-origin`. The viewer (`ExtensionViewer.tsx`,
- *      `EmbeddedExtension.tsx`) sets `sandbox="allow-scripts allow-forms"` —
- *      and that is the only acceptable shape. Adding `allow-same-origin`
- *      would give the extension full DOM access to the parent window via
- *      cross-frame script.
+ *      `EmbeddedExtension.tsx`) normalizes the sandbox through
+ *      `normalizeAgentNativeExtensionSandbox()`, which permits scripts, forms,
+ *      popups, and downloads but strips `allow-same-origin`. Adding
+ *      `allow-same-origin` would give the extension full DOM access to the
+ *      parent window via cross-frame script.
  *
  *   2. Every reachable parent action must treat the postMessage payload as
  *      hostile. The bridge in `iframe-bridge.ts` enforces a path allowlist,
@@ -743,6 +746,7 @@ export function buildExtensionHtml(
 	      }
 	    });
 	  </script>
+	${buildSessionReplayIframeBootstrap()}
 	</head>
 	<body${extensionId ? ` data-extension-id="${extensionIdAttr}" data-tool-id="${extensionIdAttr}"` : ""} class="text-foreground">
 	${content}

@@ -384,24 +384,23 @@ Gírelos reemplazando la var de entorno en cada instancia y volviéndolos a impl
 ## Herramientas del agente de producción {#production-agent-tools}
 
 Los agentes de producción obtienen las herramientas de marco actions plus registradas de la aplicación de
-el complemento de chat del agente. Las escrituras en bases de datos están habilitadas de forma predeterminada porque la base de datos sin formato
-herramientas están dirigidas al usuario/organización autenticado, pero los propietarios de aplicaciones pueden limitar el
-cuando una implementación debería ser más obstinada:
+el complemento de chat del agente. La inspección SQL está habilitada de forma predeterminada;
+las escrituras pasan por actions tipadas de la app salvo que la app active explícitamente las herramientas de escritura sin formato:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"`: predeterminado. Registros `db-schema`, `db-query`,
-  `db-exec` y `db-patch`. Las escrituras tienen como ámbito el usuario/organización actual y
-  Los cambios de esquema están bloqueados.
-- `databaseTools: "read"`: registra solo `db-schema` y `db-query`; agentes
-  inspecciona los datos con SQL pero debes usar la aplicación escrita actions para las escrituras.
+- `databaseTools: "read"`: predeterminado. Registra solo `db-schema` y `db-query`;
+  los agentes inspeccionan datos con SQL, pero deben usar actions tipadas de la app para escribir.
+- `databaseTools: "write"` o `true`: registra además `db-exec` y `db-patch`
+  para mantenimiento SQL sin formato deliberado. Las escrituras se limitan al
+  usuario/organización actual y los cambios de esquema están bloqueados.
 - `databaseTools: "off"` o `false`: elimina las herramientas de base de datos sin procesar del
   superficie del agente para que los actions de la aplicación sean la única ruta de acceso a los datos.
 - `extensionTools: false`: elimina la gestión de extensiones del marco actions y
@@ -453,3 +452,11 @@ Consulte [Frames](/docs/frames) para obtener más información sobre el panel de
 ## Implementaciones de instancias múltiples {#multi-instance}
 
 Las aplicaciones nativas del agente almacenan todo el estado en SQL a través de Drizzle y sincronizan el UI a través de [polling](/docs/key-concepts#polling-sync) con la base de datos: sin estado del sistema de archivos, sin sesiones fijas, sin cachés en memoria. Eso significa que las implementaciones de múltiples instancias y sin servidor funcionan de inmediato: apunte cada instancia al mismo `DATABASE_URL` y convergerán automáticamente. Ver [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) y [Portability](/docs/key-concepts#hosting-agnostic).
+
+## Qué sigue
+
+- [**Database**](/docs/database#production) — elige un backend SQL persistente antes de tu primera implementación en producción
+- [**Security**](/docs/security) — la lista de comprobación de producción y los indicadores opcionales mencionados en esta página
+- [**Authentication**](/docs/authentication) — credenciales OAuth y variables de entorno para el modo de autenticación que elijas
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — el modelo de espacio de trabajo detrás de la compilación de origen único de `deploy`
+- [**Frames**](/docs/frames) — el panel de agente integrado frente al marco en la nube de Builder.io para editar la UI de producción

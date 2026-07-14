@@ -5,7 +5,11 @@ description: "Claude-Code-level customization per user — skills, memory, instr
 
 # Workspace
 
-> **Which workspace doc?** This page covers the **customization layer** — what a workspace _is_. For the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+<Callout tone="info">
+
+**Which workspace doc?** This page covers the **customization layer** — what a workspace _is_. For the deployment shape (one monorepo, many apps) see [Multi-App Workspaces](/docs/multi-app-workspace); for governance (who reviews, approves, and owns what) see [Workspace Governance](/docs/workspace-management).
+
+</Callout>
 
 Every agent-native app ships with a **workspace**: the customization layer that makes the agent yours. It contains team instructions (`AGENTS.md`), shared learnings (`LEARNINGS.md`), personal structured memory (`memory/MEMORY.md`), skills the agent pulls in on demand, custom sub-agents, scheduled jobs, and connected MCP servers — everything you'd expect from a Claude Code / Codex setup.
 
@@ -219,11 +223,9 @@ workspace context/brand.md
 -> personal context/brand.md
 ```
 
-Keep `context/` files short and factual — a few bullets the agent can skim:
+For example:
 
-```text
-<!-- context/brand.md -->
-
+```text filename="context/brand.md"
 # Brand
 
 - Voice: direct, warm, concrete
@@ -386,15 +388,9 @@ There are two agent types in Workspace:
 
 Use custom agents for delegation within one app. Use connected agents when you need to call another app over A2A.
 
-## @ Tagging {#at-tagging}
+## @ Tagging and / Slash Commands {#at-tagging}
 
-Type `@` in the chat input to reference workspace items. A dropdown appears at the cursor showing matching agents and files. Use arrow keys to navigate and Enter to select. The selected item appears as an inline chip in the input.
-
-When you send a message, **files/resources** are passed as references the agent can read, **custom agents** run locally with their profile instructions, and **connected agents** are called over A2A.
-
-## / Slash Commands {#slash-commands}
-
-Type `/` at the start of a line to invoke a skill. A dropdown shows available skills with their names and descriptions; selecting one adds an inline chip and includes its content as context when the message is sent. If no skills are configured, the dropdown links to these docs.
+Type `@` in the chat input to reference an agent, file, or resource, or `/` to invoke a skill — both open a dropdown at the cursor and add an inline chip when you select an item. See [Agent Mentions](/docs/agent-mentions) for the full mechanics (routing, `MentionProvider`, sub-agent selection) and [Skills Guide](/docs/skills-guide) for how skills are authored and discovered.
 
 ## Code vs App Mode {#dev-vs-prod}
 
@@ -413,10 +409,6 @@ The resource system works identically in both modes. What differs is the additio
 Workspace Connections let apps share the same provider account (Slack, GitHub, HubSpot, etc.) without duplicating credentials. A connection records provider identity, account labels, status, scopes, app grants, and credential references in SQL. Secrets stay in the credential store; connections only point at credential key names such as `SLACK_BOT_TOKEN`.
 
 See [Workspace Connections](/docs/workspace-connections) for the quickstart, connection/grant/credentialRef API, and concrete Slack, HubSpot, and GitHub examples.
-
----
-
-# Reference
 
 ## Resource API {#resource-api}
 
@@ -461,3 +453,12 @@ pnpm action resource-write --path "notes/meeting.md" --content "# Meeting Notes.
 # Delete a resource
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+## What's next {#whats-next}
+
+- [**Skills Guide**](/docs/skills-guide) — author and scope the skill files referenced from `skills/`
+- [**Agent Mentions**](/docs/agent-mentions) — `@`-mention and `/`-command mechanics in full
+- [**Recurring Jobs**](/docs/recurring-jobs) — schedule the prompts created from Scheduled Tasks
+- [**Workspace Governance**](/docs/workspace-management) — who reviews, approves, and owns workspace changes
+- [**Multi-App Workspaces**](/docs/multi-app-workspace) — the deployment shape one workspace spans
+- [**Workspace Connections**](/docs/workspace-connections) — share provider credentials across apps

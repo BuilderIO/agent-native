@@ -264,7 +264,7 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 | `google_drive` | 検索、インポート、ドキュメント         | 頭脳、コンテンツ、スライド            |
 | `hubspot`      | 検索、インポート、CRM                  | 分析、脳、メール                      |
 | `granola`      | 検索、インポート、会議、ドキュメント   | 脳、カレンダー、ディスパッチ          |
-| `clips`        | 検索、インポート、会議                 | 脳、クリップ、ビデオ                  |
+| `clips`        | 検索、インポート、会議                 | 脳、クリップ                          |
 | `generic`      | 検索、インポート、ドキュメント         | カスタム webhooks とファイル ドロップ |
 
 資格情報キーは、`SLACK_BOT_TOKEN` や `GITHUB_TOKEN` などの名前のみです。プロバイダーのメタデータには、実際の認証情報の値を決して含めてはなりません。
@@ -425,10 +425,9 @@ Brain の Sources ページはリファレンス実装です。 Brain ソース 
 
 ### ディスパッチ コントロール プレーンのセットアップ
 
-Dispatch は、アプリが直接呼び出すことができるのと同じ共有ストア関数を記述するコントロール プレーン actions を公開します。
+Dispatch は、アプリが直接呼び出せるものと同じ共有ストア関数を使うコントロールプレーン actions を公開します。`upsert-workspace-connection` action は入力をプロバイダーカタログに照らして検証し、このページで示している同じ `upsertWorkspaceConnection()` に委譲します。
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -493,3 +492,11 @@ await upsertWorkspaceConnectionGrant({
 境界を厳密に保ちます。プロバイダーのメタデータは表示しても安全です。資格情報の値はボールトに残ります。
 
 </details>
+
+## 次のステップ {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — 通常、ワークスペース接続の設定と Vault を管理するアプリ
+- [**セキュリティ**](/docs/security) — 接続が参照する認証情報 Vault、シークレットのスコープ、アクセスモデル
+- [**オンボーディング**](/docs/onboarding#checking-workspace-connections-in-onboarding) — テンプレートのセットアップチェックリストから接続準備状況を確認する方法
+- [**MCP クライアント**](/docs/mcp-clients) — ワークスペース全体で MCP サーバー認証情報を共有する、関連する再利用可能な構成パターン
+- [**Brain**](/docs/template-brain) — このモデル上に構築されたプロバイダー Sources ページの参照実装

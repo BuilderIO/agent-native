@@ -1,147 +1,96 @@
-import { agentNativePath } from "@agent-native/core/client";
 import {
+  disconnectManagedIntegrationInstallation,
+  listManagedIntegrationBudgets,
+  listManagedIntegrationInstallations,
+  listManagedIntegrationScopes,
+  listIntegrationEnvStatuses,
+  listIntegrationStatuses,
+  managedIntegrationOAuthUrl,
+  managedSlackAgentManifestUrl,
+  saveIntegrationEnvVars,
+  saveManagedIntegrationBudget,
+  saveManagedIntegrationScope,
+  setIntegrationEnabled,
+  setupIntegration,
+  testManagedIntegrationInstallation,
+  type ClientIntegrationInstallation,
+  type ClientIntegrationScope,
+  type ClientIntegrationUsageBudget,
+  type ClientIntegrationStatus,
+  type IntegrationEnvStatus,
+  useFormatters,
+  useT,
+} from "@agent-native/core/client";
+import {
+  listBuiltInChannelIntegrations,
+  type IntegrationCatalogEntry,
+  type IntegrationCredentialRequirement,
+} from "@agent-native/core/integrations";
+import {
+  IconBrandDiscord,
   IconBrandSlack,
   IconBrandTelegram,
+  IconBrandTeams,
   IconBrandWhatsapp,
   IconCheck,
   IconChevronRight,
   IconCopy,
   IconExternalLink,
+  IconFileDescription,
   IconInfoCircle,
   IconLoader2,
   IconMail,
+  IconPlug,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
+import { Button } from "./ui/button";
 import {
   Collapsible,
   CollapsibleContent,
   CollapsibleTrigger,
-} from "@/components/ui/collapsible";
-import { Input } from "@/components/ui/input";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "@/components/ui/tooltip";
+} from "./ui/collapsible";
+import { Input } from "./ui/input";
+import { Switch } from "./ui/switch";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
-interface EnvStatus {
-  key: string;
-  label: string;
-  required: boolean;
-  configured: boolean;
-  helpText?: string;
+const CHANNELS = listBuiltInChannelIntegrations();
+
+const PLATFORM_ICONS: Partial<Record<string, typeof IconBrandSlack>> = {
+  slack: IconBrandSlack,
+  "microsoft-teams": IconBrandTeams,
+  discord: IconBrandDiscord,
+  telegram: IconBrandTelegram,
+  whatsapp: IconBrandWhatsapp,
+  email: IconMail,
+};
+
+function hasMissingRequiredCredentials(
+  credentials: readonly IntegrationCredentialRequirement[],
+  envStatusByKey: Map<string, IntegrationEnvStatus>,
+) {
+  const alternatives = new Map<
+    string,
+    readonly IntegrationCredentialRequirement[]
+  >();
+
+  for (const credential of credentials) {
+    if (!credential.required) continue;
+    if (!credential.alternativeGroup) {
+      if (!envStatusByKey.get(credential.key)?.configured) return true;
+      continue;
+    }
+    const group = alternatives.get(credential.alternativeGroup) ?? [];
+    alternatives.set(credential.alternativeGroup, [...group, credential]);
+  }
+
+  return [...alternatives.values()].some((group) =>
+    group.every(
+      (credential) => !envStatusByKey.get(credential.key)?.configured,
+    ),
+  );
 }
-
-interface RequiredEnvKey {
-  key: string;
-  label: string;
-  required: boolean;
-  helpText?: string;
-}
-
-interface IntegrationStatus {
-  platform: string;
-  label: string;
-  enabled: boolean;
-  configured: boolean;
-  webhookUrl?: string;
-  requiredEnvKeys?: RequiredEnvKey[];
-}
-
-interface PlatformDefinition {
-  id: "slack" | "telegram" | "email" | "whatsapp";
-  label: string;
-  icon: typeof IconBrandSlack;
-  description: string;
-  /** Our own docs anchor — keep these on /docs/messaging so users land on
-   *  the page that explains the platform in plain English. */
-  docsUrl: string;
-  /** Optional external link (e.g. to the platform's developer console). */
-  externalUrl?: string;
-  externalLabel?: string;
-  setupSteps: string[];
-  /** Fallback env keys when the adapter doesn't surface them via
-   *  `IntegrationStatus.requiredEnvKeys`. The panel prefers adapter-supplied
-   *  keys when present so optional fields (webhook secrets, etc.) appear
-   *  automatically. */
-  envKeys: string[];
-}
-
-const PLATFORM_DEFINITIONS: PlatformDefinition[] = [
-  {
-    id: "slack",
-    label: "Slack",
-    icon: IconBrandSlack,
-    description: "Receive mentions and DMs in one workspace-aware dispatch.",
-    docsUrl: "/docs/messaging#slack",
-    externalUrl: "https://api.slack.com/apps",
-    externalLabel: "Open Slack apps",
-    envKeys: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
-    setupSteps: [
-      "Create or open a Slack app at api.slack.com/apps.",
-      "Save the bot token and signing secret below — the webhook URL appears once they're saved.",
-      "Back in Slack, enable Event Subscriptions and paste the webhook URL.",
-      "Subscribe to app_mention and message.im events, then install the app.",
-      "Optional but recommended: Basic Information → Display Information → upload an app icon and pick a background color so the bot has a clean avatar in every channel.",
-    ],
-  },
-  {
-    id: "telegram",
-    label: "Telegram",
-    icon: IconBrandTelegram,
-    description: "Chat with dispatch through a Telegram bot.",
-    docsUrl: "/docs/messaging#telegram",
-    externalUrl: "https://t.me/BotFather",
-    externalLabel: "Open BotFather",
-    envKeys: ["TELEGRAM_BOT_TOKEN"],
-    setupSteps: [
-      "Open @BotFather in Telegram and send /newbot.",
-      "Save the bot token here, then click Set up webhook below.",
-      "DM the bot in Telegram to test.",
-    ],
-  },
-  {
-    id: "email",
-    label: "Email",
-    icon: IconMail,
-    description:
-      "Give your agent an email address. People can email it directly or CC it on threads.",
-    docsUrl: "/docs/messaging#email",
-    externalUrl: "https://resend.com/webhooks",
-    externalLabel: "Open Resend webhooks",
-    envKeys: ["EMAIL_AGENT_ADDRESS"],
-    setupSteps: [
-      "Save your Resend or SendGrid API key (Vault or onboarding).",
-      "Pick an email address — the easiest is a free <slug>.resend.app address.",
-      "If using your own domain, add MX records pointing to your provider.",
-      "Save the address here, then register the webhook URL below in Resend (event: email.received).",
-    ],
-  },
-  {
-    id: "whatsapp",
-    label: "WhatsApp",
-    icon: IconBrandWhatsapp,
-    description:
-      "Receive WhatsApp messages and reply through a Meta-managed phone number.",
-    docsUrl: "/docs/messaging#whatsapp",
-    externalUrl: "https://developers.facebook.com/apps",
-    externalLabel: "Open Meta developer console",
-    envKeys: [
-      "WHATSAPP_ACCESS_TOKEN",
-      "WHATSAPP_VERIFY_TOKEN",
-      "WHATSAPP_PHONE_NUMBER_ID",
-    ],
-    setupSteps: [
-      "Create a Meta app and add the WhatsApp product.",
-      "Save the access token, verify token, and phone number ID below.",
-      "In Meta's WhatsApp configuration, paste the webhook URL and your verify token.",
-      "Subscribe to the messages field, then enable here.",
-    ],
-  },
-];
 
 function HelpTooltip({ content }: { content: string }) {
   return (
@@ -215,24 +164,32 @@ function ConnectionStatus({
 }
 
 export function MessagingSetupPanel() {
-  const [statuses, setStatuses] = useState<IntegrationStatus[]>([]);
+  const t = useT();
+  const { formatDate } = useFormatters();
+  const [statuses, setStatuses] = useState<ClientIntegrationStatus[]>([]);
   const [loading, setLoading] = useState(true);
-  const [envStatuses, setEnvStatuses] = useState<EnvStatus[]>([]);
+  const [envStatuses, setEnvStatuses] = useState<IntegrationEnvStatus[]>([]);
   const [envLoading, setEnvLoading] = useState(true);
   const [envValues, setEnvValues] = useState<Record<string, string>>({});
   const [savingKeysFor, setSavingKeysFor] = useState<string | null>(null);
   const [togglingPlatform, setTogglingPlatform] = useState<string | null>(null);
   const [setupPlatform, setSetupPlatform] = useState<string | null>(null);
   const [copiedWebhook, setCopiedWebhook] = useState<string | null>(null);
+  const [installations, setInstallations] = useState<
+    ClientIntegrationInstallation[]
+  >([]);
+  const [installationAction, setInstallationAction] = useState<string | null>(
+    null,
+  );
+  const [scopes, setScopes] = useState<ClientIntegrationScope[]>([]);
+  const [budgets, setBudgets] = useState<ClientIntegrationUsageBudget[]>([]);
+  const [scopeBudget, setScopeBudget] = useState<Record<string, string>>({});
+  const [savingScope, setSavingScope] = useState<string | null>(null);
 
   const refreshStatuses = async () => {
     setLoading(true);
     try {
-      const res = await fetch(
-        agentNativePath("/_agent-native/integrations/status"),
-      );
-      const rows = res.ok ? await res.json() : [];
-      setStatuses(Array.isArray(rows) ? rows : []);
+      setStatuses(await listIntegrationStatuses());
     } finally {
       setLoading(false);
     }
@@ -240,11 +197,10 @@ export function MessagingSetupPanel() {
 
   useEffect(() => {
     let active = true;
-    fetch(agentNativePath("/_agent-native/integrations/status"))
-      .then((res) => (res.ok ? res.json() : []))
+    listIntegrationStatuses()
       .then((rows) => {
         if (active) {
-          setStatuses(Array.isArray(rows) ? rows : []);
+          setStatuses(rows);
           setLoading(false);
         }
       })
@@ -258,11 +214,32 @@ export function MessagingSetupPanel() {
 
   useEffect(() => {
     let active = true;
-    fetch(agentNativePath("/_agent-native/env-status"))
-      .then((res) => (res.ok ? res.json() : []))
+    listManagedIntegrationInstallations("slack")
+      .then((rows) => {
+        if (active) setInstallations(rows);
+      })
+      .catch(() => {});
+    listManagedIntegrationScopes("slack")
+      .then((rows) => {
+        if (active) setScopes(rows);
+      })
+      .catch(() => {});
+    listManagedIntegrationBudgets()
+      .then((rows) => {
+        if (active) setBudgets(rows);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    listIntegrationEnvStatuses()
       .then((rows) => {
         if (active) {
-          setEnvStatuses(Array.isArray(rows) ? rows : []);
+          setEnvStatuses(rows);
           setEnvLoading(false);
         }
       })
@@ -286,15 +263,16 @@ export function MessagingSetupPanel() {
   const refreshEnvStatus = async () => {
     setEnvLoading(true);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/env-status"));
-      const rows = res.ok ? await res.json() : [];
-      setEnvStatuses(Array.isArray(rows) ? rows : []);
+      setEnvStatuses(await listIntegrationEnvStatuses());
     } finally {
       setEnvLoading(false);
     }
   };
 
-  const saveEnvKeys = async (platform: PlatformDefinition, keys: string[]) => {
+  const saveEnvKeys = async (
+    platform: IntegrationCatalogEntry,
+    keys: string[],
+  ) => {
     const vars = keys
       .map((key) => ({ key, value: envValues[key]?.trim() || "" }))
       .filter((item) => item.value);
@@ -306,18 +284,9 @@ export function MessagingSetupPanel() {
 
     setSavingKeysFor(platform.id);
     try {
-      const res = await fetch(agentNativePath("/_agent-native/env-vars"), {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ vars }),
-      });
+      await saveIntegrationEnvVars(vars);
 
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || "Failed to save credentials");
-      }
-
-      toast.success(`${platform.label} credentials saved`);
+      toast.success(`${platform.name} credentials saved`);
       setEnvValues((current) => {
         const next = { ...current };
         for (const key of keys) delete next[key];
@@ -335,28 +304,16 @@ export function MessagingSetupPanel() {
   };
 
   const togglePlatform = async (
-    platform: PlatformDefinition,
+    platform: IntegrationCatalogEntry,
     enabled: boolean,
   ) => {
     setTogglingPlatform(platform.id);
     try {
-      const action = enabled ? "disable" : "enable";
-      const res = await fetch(
-        agentNativePath(`/_agent-native/integrations/${platform.id}/${action}`),
-        {
-          method: "POST",
-        },
-      );
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(
-          payload.error || `Failed to ${action} ${platform.label}`,
-        );
-      }
+      await setIntegrationEnabled(platform.id, !enabled);
       toast.success(
         enabled
-          ? `${platform.label} disconnected`
-          : `${platform.label} connected`,
+          ? `${platform.name} disconnected`
+          : `${platform.name} connected`,
       );
       await refreshStatuses();
     } catch (error) {
@@ -368,30 +325,21 @@ export function MessagingSetupPanel() {
     }
   };
 
-  const runSetup = async (platform: PlatformDefinition) => {
+  const runSetup = async (platform: IntegrationCatalogEntry) => {
     setSetupPlatform(platform.id);
     try {
-      const res = await fetch(
-        agentNativePath(`/_agent-native/integrations/${platform.id}/setup`),
-        {
-          method: "POST",
-        },
-      );
-      if (!res.ok) {
-        const payload = await res.json().catch(() => ({}));
-        throw new Error(payload.error || `Failed to set up ${platform.label}`);
-      }
+      await setupIntegration(platform.id);
       toast.success(
         platform.id === "telegram"
           ? "Telegram webhook registered"
-          : `${platform.label} setup complete`,
+          : `${platform.name} setup complete`,
       );
       await refreshStatuses();
     } catch (error) {
       toast.error(
         error instanceof Error
           ? error.message
-          : `Failed to set up ${platform.label}`,
+          : `Failed to set up ${platform.name}`,
       );
     } finally {
       setSetupPlatform(null);
@@ -405,24 +353,119 @@ export function MessagingSetupPanel() {
     setTimeout(() => setCopiedWebhook(null), 1500);
   };
 
+  const runInstallationAction = async (
+    installation: ClientIntegrationInstallation,
+    action: "test" | "disconnect",
+  ) => {
+    setInstallationAction(`${action}:${installation.id}`);
+    try {
+      await (action === "test"
+        ? testManagedIntegrationInstallation(installation.id)
+        : disconnectManagedIntegrationInstallation(installation.id));
+      setInstallations(await listManagedIntegrationInstallations("slack"));
+      toast.success(
+        action === "test"
+          ? t("messaging.managed.connectionChecked")
+          : t("messaging.managed.workspaceDisconnected"),
+      );
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("messaging.managed.actionFailed"),
+      );
+    } finally {
+      setInstallationAction(null);
+    }
+  };
+
+  const updateScopePolicy = async (
+    scope: ClientIntegrationScope,
+    policy: Partial<ClientIntegrationScope["policy"]>,
+  ) => {
+    setSavingScope(scope.id);
+    try {
+      await saveManagedIntegrationScope({
+        platform: scope.platform,
+        tenantId: scope.tenantId,
+        conversationId: scope.conversationId,
+        conversationType: scope.conversationType,
+        trust: scope.trust,
+        orgId: scope.orgId,
+        serviceOwnerEmail: scope.serviceOwnerEmail,
+        defaultModel: scope.defaultModel,
+        policy: { ...scope.policy, ...policy },
+      });
+      setScopes(await listManagedIntegrationScopes("slack"));
+      toast.success(t("messaging.managed.channelPolicyUpdated"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("messaging.managed.policyUpdateFailed"),
+      );
+    } finally {
+      setSavingScope(null);
+    }
+  };
+
+  const saveScopeBudget = async (scope: ClientIntegrationScope) => {
+    const dollars = Number(scopeBudget[scope.id]);
+    if (!Number.isFinite(dollars) || dollars <= 0) {
+      toast.error(t("messaging.managed.positiveMonthlyBudget"));
+      return;
+    }
+    setSavingScope(`budget:${scope.id}`);
+    try {
+      await saveManagedIntegrationBudget({
+        subject: {
+          type: "scope",
+          scope: {
+            platform: scope.platform,
+            tenantId: scope.tenantId,
+            conversationId: scope.conversationId,
+          },
+        },
+        period: "month",
+        limitMicros: Math.round(dollars * 1_000_000),
+      });
+      setBudgets(await listManagedIntegrationBudgets());
+      toast.success(t("messaging.managed.channelBudgetSaved"));
+    } catch (error) {
+      toast.error(
+        error instanceof Error
+          ? error.message
+          : t("messaging.managed.budgetSaveFailed"),
+      );
+    } finally {
+      setSavingScope(null);
+    }
+  };
+
   return (
     <div className="space-y-4">
       <div className="grid gap-4 xl:grid-cols-2">
-        {PLATFORM_DEFINITIONS.map((platform) => {
+        {CHANNELS.map((platform) => {
           const status = statusByPlatform.get(platform.id);
-          const configured = !!status?.configured;
+          const configured =
+            !!status?.configured ||
+            (platform.id === "slack" &&
+              installations.some(
+                (installation) => installation.status === "connected",
+              ));
           const enabled = !!status?.enabled;
-          // Prefer adapter-supplied env keys (includes optional fields like
-          // webhook secrets); fall back to the static list.
-          const adapterKeys = status?.requiredEnvKeys;
-          const envKeys: RequiredEnvKey[] =
-            adapterKeys && adapterKeys.length > 0
-              ? adapterKeys
-              : platform.envKeys.map((key) => ({
-                  key,
-                  label: key,
-                  required: true,
-                }));
+          const envKeys = platform.credentialRequirements;
+          const primaryEnvKeys = envKeys.filter(
+            (envKey) => envKey.key !== "SLACK_BOT_TOKEN",
+          );
+          const legacyEnvKeys = envKeys.filter(
+            (envKey) => envKey.key === "SLACK_BOT_TOKEN",
+          );
+          const missingRequiredCredentials = hasMissingRequiredCredentials(
+            envKeys,
+            envStatusByKey,
+          );
+          const Icon = PLATFORM_ICONS[platform.iconKey] ?? IconPlug;
 
           return (
             <section
@@ -432,12 +475,12 @@ export function MessagingSetupPanel() {
               <div className="flex items-start justify-between gap-4">
                 <div className="flex items-start gap-3">
                   <div className="flex h-10 w-10 items-center justify-center rounded-xl border bg-muted/30 text-foreground">
-                    <platform.icon size={18} />
+                    <Icon size={18} />
                   </div>
                   <div>
                     <div className="flex items-center gap-2">
                       <h3 className="text-base font-semibold text-foreground">
-                        {platform.label}
+                        {platform.name}
                       </h3>
                       <ConnectionStatus
                         configured={configured}
@@ -456,12 +499,16 @@ export function MessagingSetupPanel() {
                     size="sm"
                     className="h-7 px-2 text-xs text-muted-foreground"
                   >
-                    <a href={platform.docsUrl} target="_blank" rel="noreferrer">
+                    <a
+                      href={platform.documentation.href}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
                       Docs
                       <IconExternalLink className="ml-1 h-3 w-3" />
                     </a>
                   </Button>
-                  {platform.externalUrl ? (
+                  {platform.documentation.externalHref ? (
                     <Button
                       asChild
                       variant="ghost"
@@ -469,17 +516,251 @@ export function MessagingSetupPanel() {
                       className="h-7 px-2 text-xs text-muted-foreground"
                     >
                       <a
-                        href={platform.externalUrl}
+                        href={platform.documentation.externalHref}
                         target="_blank"
                         rel="noreferrer"
                       >
-                        {platform.externalLabel ?? "Open"}
+                        {platform.documentation.externalLabel ?? "Open"}
                         <IconExternalLink className="ml-1 h-3 w-3" />
                       </a>
                     </Button>
                   ) : null}
                 </div>
               </div>
+
+              {platform.id === "slack" ? (
+                <div className="mt-5 space-y-3 rounded-xl border bg-muted/20 p-4">
+                  <div className="flex flex-wrap items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-foreground">
+                        {t("messaging.managed.title")}
+                      </div>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("messaging.managed.description")}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        {t("messaging.managed.agentManifestDescription")}
+                      </p>
+                    </div>
+                    <div className="space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Button asChild variant="outline" size="sm">
+                          <a href={managedSlackAgentManifestUrl()}>
+                            <IconFileDescription className="mr-2 h-4 w-4" />
+                            {t("messaging.managed.agentManifest")}
+                          </a>
+                        </Button>
+                        {missingRequiredCredentials ? (
+                          <Button size="sm" disabled>
+                            <IconBrandSlack className="mr-2 h-4 w-4" />
+                            {t("messaging.managed.addToSlack")}
+                          </Button>
+                        ) : (
+                          <Button asChild size="sm">
+                            <a href={managedIntegrationOAuthUrl("slack")}>
+                              <IconBrandSlack className="mr-2 h-4 w-4" />
+                              {t("messaging.managed.addToSlack")}
+                            </a>
+                          </Button>
+                        )}
+                      </div>
+                      {missingRequiredCredentials ? (
+                        <p className="max-w-72 text-xs text-amber-700 dark:text-amber-300">
+                          {t("messaging.managed.requiredCredentials")}
+                        </p>
+                      ) : null}
+                    </div>
+                  </div>
+                  {installations.length ? (
+                    <div className="space-y-2">
+                      {installations.map((installation) => (
+                        <div
+                          key={installation.id}
+                          className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-background/60 px-3 py-2"
+                        >
+                          <div>
+                            <div className="text-sm font-medium text-foreground">
+                              {installation.teamName ||
+                                installation.enterpriseName ||
+                                installation.teamId ||
+                                t("messaging.managed.workspaceFallback")}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {t("messaging.managed.scopesUpdated", {
+                                count: installation.scopes.length,
+                                date: formatDate(installation.updatedAt, {
+                                  dateStyle: "medium",
+                                }),
+                              })}
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <StatusPill
+                              tone={
+                                installation.health === "healthy"
+                                  ? "success"
+                                  : installation.health === "degraded" ||
+                                      installation.health === "revoked"
+                                    ? "warning"
+                                    : "neutral"
+                              }
+                              label={t(
+                                `messaging.managed.health.${installation.health}`,
+                              )}
+                            />
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                runInstallationAction(installation, "test")
+                              }
+                              disabled={
+                                installationAction === `test:${installation.id}`
+                              }
+                            >
+                              {t("messaging.managed.test")}
+                            </Button>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              onClick={() =>
+                                runInstallationAction(
+                                  installation,
+                                  "disconnect",
+                                )
+                              }
+                              disabled={
+                                installationAction ===
+                                `disconnect:${installation.id}`
+                              }
+                            >
+                              {t("messaging.managed.disconnect")}
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      {t("messaging.managed.empty")}
+                    </p>
+                  )}
+                </div>
+              ) : null}
+
+              {platform.id === "slack" && scopes.length ? (
+                <div className="mt-4 space-y-3 rounded-xl border bg-muted/20 p-4">
+                  <div>
+                    <div className="text-sm font-medium text-foreground">
+                      {t("messaging.managed.channelAccessTitle")}
+                    </div>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      {t("messaging.managed.channelAccessDescription")}
+                    </p>
+                  </div>
+                  {scopes.map((scope) => {
+                    const subjectId = JSON.stringify([
+                      scope.platform,
+                      scope.tenantId,
+                      scope.conversationId,
+                    ]);
+                    const budget = budgets.find(
+                      (item) =>
+                        item.subjectType === "scope" &&
+                        item.subjectId === subjectId &&
+                        item.period === "month",
+                    );
+                    return (
+                      <div
+                        key={scope.id}
+                        className="space-y-3 rounded-lg border bg-background/60 p-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <div className="font-mono text-xs text-foreground">
+                              {scope.conversationId}
+                            </div>
+                            <div className="mt-0.5 text-xs text-muted-foreground">
+                              {t("messaging.managed.isolatedIdentity", {
+                                trust: t(
+                                  `messaging.managed.trust.${scope.trust}`,
+                                ),
+                              })}
+                            </div>
+                          </div>
+                          <StatusPill
+                            tone={
+                              scope.trust === "trusted" ? "success" : "warning"
+                            }
+                            label={t(`messaging.managed.trust.${scope.trust}`)}
+                          />
+                        </div>
+                        <div className="grid gap-2 sm:grid-cols-3">
+                          {[
+                            [
+                              "requireMention",
+                              t("messaging.managed.requireMention"),
+                            ],
+                            ["allowGuests", t("messaging.managed.allowGuests")],
+                            [
+                              "allowExternalShared",
+                              t("messaging.managed.allowSlackConnect"),
+                            ],
+                          ].map(([key, label]) => (
+                            <label
+                              key={key}
+                              className="flex items-center justify-between gap-2 rounded-md border px-2.5 py-2 text-xs"
+                            >
+                              {label}
+                              <Switch
+                                checked={
+                                  scope.policy[
+                                    key as keyof ClientIntegrationScope["policy"]
+                                  ]
+                                }
+                                disabled={savingScope === scope.id}
+                                onCheckedChange={(checked) =>
+                                  updateScopePolicy(scope, { [key]: checked })
+                                }
+                              />
+                            </label>
+                          ))}
+                        </div>
+                        <div className="flex flex-wrap items-end gap-2">
+                          <div className="min-w-40 flex-1 space-y-1">
+                            <label className="text-xs font-medium text-foreground">
+                              {t("messaging.managed.monthlyBudgetUsd")}
+                            </label>
+                            <Input
+                              inputMode="decimal"
+                              value={
+                                scopeBudget[scope.id] ??
+                                (budget
+                                  ? String(budget.limitMicros / 1_000_000)
+                                  : "")
+                              }
+                              onChange={(event) =>
+                                setScopeBudget((current) => ({
+                                  ...current,
+                                  [scope.id]: event.target.value,
+                                }))
+                              }
+                              placeholder="25"
+                            />
+                          </div>
+                          <Button
+                            variant="outline"
+                            onClick={() => saveScopeBudget(scope)}
+                            disabled={savingScope === `budget:${scope.id}`}
+                          >
+                            {t("messaging.managed.saveBudget")}
+                          </Button>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
 
               <Collapsible className="mt-5">
                 <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
@@ -489,7 +770,7 @@ export function MessagingSetupPanel() {
                 <CollapsibleContent>
                   <div className="mt-2 rounded-xl border bg-muted/20 p-4">
                     <ol className="space-y-2 text-sm text-muted-foreground">
-                      {platform.setupSteps.map((step, index) => (
+                      {platform.setup.steps.map((step, index) => (
                         <li key={step} className="flex gap-2">
                           <span className="text-muted-foreground/60">
                             {index + 1}.
@@ -514,7 +795,7 @@ export function MessagingSetupPanel() {
                   ) : null}
                 </div>
                 <div className="space-y-3">
-                  {envKeys.map((envKey) => {
+                  {primaryEnvKeys.map((envKey) => {
                     const envStatus = envStatusByKey.get(envKey.key);
                     const isConfigured = !!envStatus?.configured;
                     const helpText = envKey.helpText ?? envStatus?.helpText;
@@ -572,7 +853,81 @@ export function MessagingSetupPanel() {
                     );
                   })}
                 </div>
-                {envKeys.some((k) => !envStatusByKey.get(k.key)?.configured) ? (
+                {legacyEnvKeys.length ? (
+                  <Collapsible>
+                    <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                      <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                      <span>{legacyEnvKeys[0]?.label}</span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                        <p className="text-xs text-muted-foreground">
+                          {legacyEnvKeys[0]?.helpText}
+                        </p>
+                        {legacyEnvKeys.map((envKey) => {
+                          const envStatus = envStatusByKey.get(envKey.key);
+                          const isConfigured = !!envStatus?.configured;
+                          const helpText =
+                            envKey.helpText ?? envStatus?.helpText;
+                          const label =
+                            envKey.label || envStatus?.label || envKey.key;
+                          return (
+                            <div key={envKey.key} className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-xs font-medium text-foreground">
+                                    {label}
+                                  </label>
+                                  {helpText ? (
+                                    <HelpTooltip content={helpText} />
+                                  ) : null}
+                                </div>
+                                <StatusPill
+                                  tone={isConfigured ? "success" : "neutral"}
+                                  label={isConfigured ? "Saved" : "Not set"}
+                                />
+                              </div>
+                              {!isConfigured ? (
+                                <Input
+                                  type="password"
+                                  value={envValues[envKey.key] || ""}
+                                  onChange={(event) =>
+                                    setEnvValues((current) => ({
+                                      ...current,
+                                      [envKey.key]: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={`Enter ${label}`}
+                                  autoComplete="off"
+                                />
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                        {legacyEnvKeys.some(
+                          (envKey) =>
+                            !envStatusByKey.get(envKey.key)?.configured,
+                        ) ? (
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              saveEnvKeys(
+                                platform,
+                                legacyEnvKeys.map((envKey) => envKey.key),
+                              )
+                            }
+                            disabled={savingKeysFor === platform.id}
+                          >
+                            {savingKeysFor === platform.id
+                              ? "Saving..."
+                              : "Save credentials"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ) : null}
+                {missingRequiredCredentials ? (
                   <Button
                     variant="outline"
                     onClick={() =>
@@ -608,7 +963,7 @@ export function MessagingSetupPanel() {
                       variant="outline"
                       size="icon"
                       onClick={() => copyWebhook(status.webhookUrl!)}
-                      aria-label={`Copy ${platform.label} webhook URL`}
+                      aria-label={`Copy ${platform.name} webhook URL`}
                     >
                       {copiedWebhook === status.webhookUrl ? (
                         <IconCheck className="h-4 w-4" />

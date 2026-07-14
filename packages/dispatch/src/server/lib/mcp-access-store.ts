@@ -1,3 +1,4 @@
+import { getDbExec } from "@agent-native/core/db";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -18,6 +19,16 @@ export interface DispatchMcpAppAccessSettings {
   selectedAppIds: string[];
   updatedAt?: string;
   updatedBy?: string;
+}
+
+class McpAppAccessError extends Error {
+  statusCode: number;
+
+  constructor(message: string, statusCode: number) {
+    super(message);
+    this.name = "McpAppAccessError";
+    this.statusCode = statusCode;
+  }
 }
 
 interface AccessScope {
@@ -64,6 +75,28 @@ function currentAccessScope(): AccessScope {
   return { kind: "user", id: actor, actor };
 }
 
+async function assertCanManageMcpAppAccess(scope: AccessScope): Promise<void> {
+  if (scope.kind === "user") return;
+
+  let role: unknown = null;
+  try {
+    const { rows } = await getDbExec().execute({
+      sql: `SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1`,
+      args: [scope.id, scope.actor.toLowerCase()],
+    });
+    role = rows[0]?.role;
+  } catch {
+    // Fail closed when org membership cannot be verified.
+  }
+
+  if (role !== "owner" && role !== "admin") {
+    throw new McpAppAccessError(
+      "Only organization owners and admins can change Dispatch MCP app access.",
+      403,
+    );
+  }
+}
+
 export async function getDispatchMcpAppAccessSettings(): Promise<DispatchMcpAppAccessSettings> {
   const scope = currentAccessScope();
   const raw =
@@ -78,6 +111,7 @@ export async function setDispatchMcpAppAccessSettings(input: {
   selectedAppIds?: string[];
 }): Promise<DispatchMcpAppAccessSettings> {
   const scope = currentAccessScope();
+  await assertCanManageMcpAppAccess(scope);
   const next: DispatchMcpAppAccessSettings = {
     mode: input.mode,
     selectedAppIds: uniqueAppIds(input.selectedAppIds),

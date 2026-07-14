@@ -27,6 +27,9 @@ import {
   appendAgentLoopContinuation,
   isResumableEngineError,
   continuationReasonForResumableError,
+  lastUnfinishedPreparingActionToolFromEvents,
+  resolveFinalResponseGuardRequestText,
+  type AgentLoopContinuationReason,
 } from "./production-agent.js";
 import { resolveRunSoftTimeoutMs } from "./run-manager.js";
 import type { ResolveRunSoftTimeoutOptions } from "./run-manager.js";
@@ -35,6 +38,35 @@ import {
   classifyToolCallJournal,
   buildResumeJournalNote,
 } from "./tool-call-journal.js";
+import type { AgentChatEvent } from "./types.js";
+
+async function readCurrentTurnEventsForResume(
+  threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
+): Promise<AgentChatEvent[]> {
+  let persistedEvents: AgentChatEvent[] = [];
+  try {
+    persistedEvents = threadId
+      ? await getCurrentTurnEventsForThread(threadId)
+      : [];
+  } catch {
+    persistedEvents = [];
+  }
+  if (localEvents.length === 0) return persistedEvents;
+  const seen = new Set(persistedEvents.map((event) => JSON.stringify(event)));
+  return [
+    ...persistedEvents,
+    ...localEvents.filter((event) => !seen.has(JSON.stringify(event))),
+  ];
+}
+
+function actionPreparationContinuationOptions(
+  events: readonly AgentChatEvent[],
+): { actionPreparationTool?: string } {
+  const actionPreparationTool =
+    lastUnfinishedPreparingActionToolFromEvents(events);
+  return actionPreparationTool ? { actionPreparationTool } : {};
+}
 
 /**
  * Derive the per-turn tool-call journal from the durable run-event ledger and,
@@ -57,13 +89,11 @@ import {
  * complete write tool (returning the journaled result instead). See
  * `tool-call-journal.ts` (`findCompletedJournalEntry`) for the keying used.
  */
-async function appendToolCallJournalNote(
+function appendToolCallJournalNote(
   messages: EngineMessage[],
-  threadId: string | undefined,
-): Promise<void> {
-  if (!threadId) return;
+  events: readonly AgentChatEvent[],
+): void {
   try {
-    const events = await getCurrentTurnEventsForThread(threadId);
     if (events.length === 0) return;
     const journal = classifyToolCallJournal(events);
     const note = buildResumeJournalNote(journal);
@@ -79,12 +109,27 @@ async function appendToolCallJournalNote(
   }
 }
 
+async function appendContinuationAndJournal(
+  messages: EngineMessage[],
+  reason: AgentLoopContinuationReason,
+  threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
+): Promise<void> {
+  const events = await readCurrentTurnEventsForResume(threadId, localEvents);
+  appendAgentLoopContinuation(
+    messages,
+    reason,
+    actionPreparationContinuationOptions(events),
+  );
+  appendToolCallJournalNote(messages, events);
+}
+
 async function hasCompletedSideEffectToolCallInCurrentTurn(
   threadId: string | undefined,
+  localEvents: readonly AgentChatEvent[] = [],
 ): Promise<boolean> {
-  if (!threadId) return false;
   try {
-    const events = await getCurrentTurnEventsForThread(threadId);
+    const events = await readCurrentTurnEventsForResume(threadId, localEvents);
     if (events.length === 0) return false;
     return events.some(
       (event) =>
@@ -95,6 +140,24 @@ async function hasCompletedSideEffectToolCallInCurrentTurn(
   } catch {
     return false;
   }
+}
+
+function internalContinuationReasonForAttempt(
+  events: readonly AgentChatEvent[],
+): AgentLoopContinuationReason | undefined {
+  const last = events.at(-1);
+  if (last?.type !== "auto_continue") return undefined;
+  if (
+    last.reason === "run_timeout" ||
+    last.reason === "loop_limit" ||
+    last.reason === "no_progress" ||
+    last.reason === "stream_ended" ||
+    last.reason === "gateway_timeout" ||
+    last.reason === "network_interrupted"
+  ) {
+    return last.reason;
+  }
+  return undefined;
 }
 
 /**
@@ -141,8 +204,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
   softTimeoutMs?: number,
   timeoutOptions?: ResolveRunSoftTimeoutOptions,
 ): Promise<Awaited<ReturnType<typeof runAgentLoop>>> {
+  const finalResponseGuardRequestText =
+    opts.finalResponseGuardRequestText ??
+    resolveFinalResponseGuardRequestText(opts.messages);
+  const stableOpts = { ...opts, finalResponseGuardRequestText };
   const timeoutMs = resolveRunSoftTimeoutMs(softTimeoutMs, timeoutOptions);
-  if (timeoutMs <= 0) return runAgentLoop(opts);
+  if (timeoutMs <= 0) return runAgentLoop(stableOpts);
 
   const upstreamSignal = opts.signal;
   const usage: Awaited<ReturnType<typeof runAgentLoop>> = {
@@ -161,6 +228,7 @@ export async function runAgentLoopDirectWithSoftTimeout(
     usage.model = next.model;
   };
 
+  const localTurnEvents: AgentChatEvent[] = [];
   let attempts = 0;
   // Tracks whether the most recent attempt ended by scheduling another
   // continuation (soft-timeout or resumable error → `continue`) rather than
@@ -189,16 +257,49 @@ export async function runAgentLoopDirectWithSoftTimeout(
       controller.abort();
     }, timeoutMs);
 
+    const attemptStartIndex = localTurnEvents.length;
+    const send = (event: AgentChatEvent) => {
+      localTurnEvents.push(event);
+      opts.send(event);
+    };
+
     try {
       const nextUsage = await runAgentLoop({
-        ...opts,
+        ...stableOpts,
+        send,
         signal: controller.signal,
       });
       addUsage(nextUsage);
+      const attemptEvents = localTurnEvents.slice(attemptStartIndex);
+      const internalContinuationReason =
+        internalContinuationReasonForAttempt(attemptEvents);
+      if (internalContinuationReason && !upstreamSignal.aborted) {
+        lastAttemptWasUnfinishedContinuation = true;
+        const continuationEvents = [...localTurnEvents];
+        if (
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            continuationEvents,
+          ))
+        ) {
+          opts.send({ type: "clear" });
+        }
+        await appendContinuationAndJournal(
+          opts.messages,
+          internalContinuationReason,
+          opts.threadId,
+          continuationEvents,
+        );
+        continue;
+      }
       if (softTimedOut && !upstreamSignal.aborted) {
         lastAttemptWasUnfinishedContinuation = true;
-        appendAgentLoopContinuation(opts.messages, "run_timeout");
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
+        await appendContinuationAndJournal(
+          opts.messages,
+          "run_timeout",
+          opts.threadId,
+          localTurnEvents,
+        );
         continue;
       }
       return usage;
@@ -208,12 +309,19 @@ export async function runAgentLoopDirectWithSoftTimeout(
         // resumed model doesn't re-emit it and produce duplicated output.
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
         ) {
           opts.send({ type: "clear" });
         }
-        appendAgentLoopContinuation(opts.messages, "run_timeout");
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
+        await appendContinuationAndJournal(
+          opts.messages,
+          "run_timeout",
+          opts.threadId,
+          localTurnEvents,
+        );
         continue;
       }
       // Resumable transport / gateway interruptions: the LLM call was cut off
@@ -232,15 +340,19 @@ export async function runAgentLoopDirectWithSoftTimeout(
       if (!upstreamSignal.aborted && isResumableEngineError(err)) {
         lastAttemptWasUnfinishedContinuation = true;
         if (
-          !(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))
+          !(await hasCompletedSideEffectToolCallInCurrentTurn(
+            opts.threadId,
+            localTurnEvents,
+          ))
         ) {
           opts.send({ type: "clear" });
         }
-        appendAgentLoopContinuation(
+        await appendContinuationAndJournal(
           opts.messages,
           continuationReasonForResumableError(err),
+          opts.threadId,
+          localTurnEvents,
         );
-        await appendToolCallJournalNote(opts.messages, opts.threadId);
         continue;
       }
       throw err;
@@ -262,7 +374,12 @@ export async function runAgentLoopDirectWithSoftTimeout(
     // the terminal message stands alone instead of trailing a half sentence.
     // Preserve completed tool cards: they are the user's only durable proof
     // that a side effect landed before the final assistant note timed out.
-    if (!(await hasCompletedSideEffectToolCallInCurrentTurn(opts.threadId))) {
+    if (
+      !(await hasCompletedSideEffectToolCallInCurrentTurn(
+        opts.threadId,
+        localTurnEvents,
+      ))
+    ) {
       opts.send({ type: "clear" });
     }
     opts.send({

@@ -34,6 +34,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Database id to omit from the results."),
+    excludeDatabaseIds: z
+      .array(z.string())
+      .optional()
+      .describe("Database ids to omit from the results."),
     query: z.string().optional().describe("Optional title search text."),
     limit: z.coerce
       .number()
@@ -49,6 +53,12 @@ export default defineAction({
     const db = getDb();
     const query = args.query?.trim();
     const pattern = query ? `%${escapeLike(query.toLowerCase())}%` : null;
+    const excludedDatabaseIds = new Set(
+      [
+        args.excludeDatabaseId?.trim(),
+        ...(args.excludeDatabaseIds ?? []).map((id) => id.trim()),
+      ].filter((id): id is string => !!id),
+    );
     // The same access + discovery filter the sidebar uses, so the picker shows
     // owned AND shared/org databases and never a trashed/hidden one.
     const queryBuilder = db
@@ -67,8 +77,11 @@ export default defineAction({
           accessFilter(schema.documents, schema.documentShares),
           documentDiscoveryFilter(),
           isNull(schema.contentDatabases.deletedAt),
-          args.excludeDatabaseId
-            ? ne(schema.contentDatabases.id, args.excludeDatabaseId)
+          excludedDatabaseIds.size === 1
+            ? ne(
+                schema.contentDatabases.id,
+                Array.from(excludedDatabaseIds)[0]!,
+              )
             : undefined,
           pattern
             ? sql`lower(${schema.documents.title}) LIKE ${pattern} ESCAPE '\\'`
@@ -81,52 +94,48 @@ export default defineAction({
       ? await queryBuilder.limit(args.limit)
       : await queryBuilder;
 
-    const sources =
-      rows.length > 0
+    const localTableSources =
+      excludedDatabaseIds.size > 0
         ? await db
             .select({
-              id: schema.contentDatabaseSources.id,
               databaseId: schema.contentDatabaseSources.databaseId,
-              sourceType: schema.contentDatabaseSources.sourceType,
-              sourceName: schema.contentDatabaseSources.sourceName,
               sourceTable: schema.contentDatabaseSources.sourceTable,
             })
             .from(schema.contentDatabaseSources)
-            .where(
-              inArray(
-                schema.contentDatabaseSources.databaseId,
-                rows.map((row) => row.id),
-              ),
-            )
+            .where(eq(schema.contentDatabaseSources.sourceType, "local-table"))
         : [];
-    const sourcesByDatabaseId = new Map<
-      string,
-      Array<{
-        id: string;
-        sourceType: ContentDatabaseSourceType;
-        sourceName: string;
-        sourceTable: string;
-      }>
-    >();
-    for (const source of sources) {
-      const databaseSources = sourcesByDatabaseId.get(source.databaseId) ?? [];
-      databaseSources.push({
-        id: source.id,
-        sourceType: normalizeSummarySourceType(source.sourceType),
-        sourceName: source.sourceName,
-        sourceTable: source.sourceTable,
-      });
-      sourcesByDatabaseId.set(source.databaseId, databaseSources);
-    }
+    const localTableTargetByDatabaseId = new Map(
+      localTableSources.map((source) => [
+        source.databaseId,
+        source.sourceTable,
+      ]),
+    );
+    const sourceChainIncludesExcludedDatabase = (databaseId: string) => {
+      const seen = new Set<string>();
+      let current: string | undefined = databaseId;
+      while (current && !seen.has(current)) {
+        if (excludedDatabaseIds.has(current)) return true;
+        seen.add(current);
+        current = localTableTargetByDatabaseId.get(current);
+      }
+      return false;
+    };
 
-    const databases = rows.map((row) => ({
-      databaseId: row.id,
-      documentId: row.documentId,
-      // The document's live title (matches the sidebar) rather than the
-      // possibly-stale content_databases.title.
-      title: row.title ?? "Untitled database",
-      sources: sourcesByDatabaseId.get(row.id) ?? [],
-    }));
+    const databases = rows
+      // Exclusion ids may be database ids OR database document ids — the
+      // settings panel only has the document id before any source exists.
+      .filter(
+        (row) =>
+          !excludedDatabaseIds.has(row.documentId) &&
+          !sourceChainIncludesExcludedDatabase(row.id),
+      )
+      .map((row) => ({
+        databaseId: row.id,
+        documentId: row.documentId,
+        // The document's live title (matches the sidebar) rather than the
+        // possibly-stale content_databases.title.
+        title: row.title ?? "Untitled database",
+      }));
 
     return { databases };
   },

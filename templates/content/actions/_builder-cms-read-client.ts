@@ -22,6 +22,18 @@ export interface BuilderCmsReadResult {
   entries: BuilderCmsSourceEntry[];
   fetchedAt: string;
   message: string | null;
+  progress: BuilderCmsReadProgress;
+}
+
+export interface BuilderCmsReadProgress {
+  requestedLimit: number;
+  pageSize: number;
+  startOffset: number;
+  nextOffset: number;
+  fetchedEntryCount: number;
+  hasMore: boolean;
+  partial: boolean;
+  readMode: "builder-api" | "mcp" | "none";
 }
 
 export interface BuilderCmsEntryLiveState {
@@ -44,11 +56,78 @@ type BuilderMcpToolResult = {
 };
 
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
-const BUILDER_CMS_MAX_READ_LIMIT = 1000;
+const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
 const BUILDER_CMS_READ_RETRIES = 2;
-const BUILDER_CMS_ENTRY_FIELDS =
-  "id,name,published,lastUpdated,createdDate,data.title,data.handle,data.url,data.slug,data.date,data.description,data.status,data.author,data.image,data.blocks,data.blocksString";
+const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
+  "id",
+  "name",
+  "published",
+  "lastUpdated",
+  "createdDate",
+  "data.title",
+  "data.handle",
+  "data.url",
+  "data.slug",
+  "data.date",
+  "data.description",
+  "data.status",
+  "data.author",
+  "data.image",
+] as const;
+const BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS = new Set(
+  BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS.filter(
+    (fieldPath) => !fieldPath.startsWith("data."),
+  ).map((fieldPath) => fieldPath.toLowerCase()),
+);
+const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
+  "data.blocks",
+  "data.blocksString",
+] as const;
+const BUILDER_CMS_FIELD_PATH_PATTERN =
+  /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
+
+function normalizeBuilderCmsListFieldPath(fieldPath: string) {
+  const trimmed = fieldPath.trim();
+  if (!trimmed || !BUILDER_CMS_FIELD_PATH_PATTERN.test(trimmed)) return null;
+  const normalized = trimmed.includes(".")
+    ? trimmed
+    : BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(trimmed.toLowerCase())
+      ? trimmed
+      : `data.${trimmed}`;
+  const lower = normalized.toLowerCase();
+  if (
+    BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.some((heavyFieldPath) => {
+      const heavyLower = heavyFieldPath.toLowerCase();
+      return lower === heavyLower || lower.startsWith(`${heavyLower}.`);
+    })
+  ) {
+    return null;
+  }
+  if (
+    normalized.includes(".") &&
+    !normalized.toLowerCase().startsWith("data.")
+  ) {
+    return null;
+  }
+  return normalized;
+}
+
+export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
+  const fields = new Map<string, string>();
+  for (const fieldPath of [
+    ...BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS,
+    ...fieldPaths,
+  ]) {
+    const normalized = normalizeBuilderCmsListFieldPath(fieldPath);
+    if (!normalized) continue;
+    if (!fields.has(normalized)) fields.set(normalized, normalized);
+  }
+  return Array.from(fields.values()).join(",");
+}
+
+const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
+const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
 
 function builderContentApiHost() {
   return (
@@ -309,12 +388,35 @@ function normalizeBuilderCmsModel(
           const fieldName =
             typeof fieldRecord.name === "string" ? fieldRecord.name.trim() : "";
           if (!fieldName) return null;
+          const inputType =
+            typeof fieldRecord.inputType === "string" &&
+            fieldRecord.inputType.trim()
+              ? fieldRecord.inputType.trim()
+              : typeof fieldRecord.input === "string" &&
+                  fieldRecord.input.trim()
+                ? fieldRecord.input.trim()
+                : undefined;
+          const label =
+            typeof fieldRecord.label === "string" && fieldRecord.label.trim()
+              ? fieldRecord.label.trim()
+              : typeof fieldRecord.friendlyName === "string" &&
+                  fieldRecord.friendlyName.trim()
+                ? fieldRecord.friendlyName.trim()
+                : undefined;
+          const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
+          const options = stringOptionsFromUnknown(
+            fieldRecord.options ?? fieldRecord.allowedValues,
+          );
           return {
             name: fieldName,
+            ...(label ? { label } : {}),
             type:
               typeof fieldRecord.type === "string" && fieldRecord.type.trim()
                 ? fieldRecord.type.trim()
                 : "unknown",
+            ...(inputType ? { inputType } : {}),
+            ...(enumOptions ? { enum: enumOptions } : {}),
+            ...(options ? { options } : {}),
             required: fieldRecord.required === true,
           };
         })
@@ -324,6 +426,30 @@ function normalizeBuilderCmsModel(
     : [];
 
   return { id, name, displayName, kind, fields };
+}
+
+function stringOptionsFromUnknown(value: unknown): string[] | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const options = value
+    .map((option) => {
+      if (typeof option === "string" || typeof option === "number") {
+        return String(option).trim();
+      }
+      if (!option || typeof option !== "object") return "";
+      const record = option as Record<string, unknown>;
+      for (const key of ["label", "name", "value"]) {
+        const candidate = record[key];
+        if (typeof candidate === "string" && candidate.trim()) {
+          return candidate.trim();
+        }
+        if (typeof candidate === "number" && Number.isFinite(candidate)) {
+          return String(candidate);
+        }
+      }
+      return "";
+    })
+    .filter(Boolean);
+  return options.length > 0 ? Array.from(new Set(options)) : undefined;
 }
 
 function builderMcpModelsFromToolResponse(
@@ -384,7 +510,10 @@ async function initializeBuilderMcp(args: {
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
+  fieldPaths?: readonly string[];
   limit?: number;
+  maxPages?: number;
+  offset?: number;
   fetchImpl: FetchLike;
   privateKey: string;
 }): Promise<BuilderCmsReadResult> {
@@ -397,10 +526,17 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   });
 
   const limit = readLimit(args.limit);
+  const startOffset =
+    typeof args.offset === "number" && Number.isFinite(args.offset)
+      ? Math.max(0, Math.floor(args.offset))
+      : 0;
   const contentEntries: BuilderCmsSourceEntry[] = [];
+  const fields = builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
+  let pagesRead = 0;
+  let hasMore = false;
   for (
-    let offset = 0;
+    let offset = startOffset;
     contentEntries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
@@ -420,7 +556,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: pageLimit,
             offset,
-            fields: BUILDER_CMS_ENTRY_FIELDS,
+            fields,
             enrich: true,
           },
         },
@@ -436,7 +572,10 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       seenContentIds,
       pageEntries,
     );
-    if (pageEntries.length < pageLimit || appended === 0) break;
+    pagesRead += 1;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
+    if (args.maxPages && pagesRead >= args.maxPages) break;
+    if (!hasMore) break;
   }
   if (contentEntries.length > 0) {
     return {
@@ -444,6 +583,16 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       entries: contentEntries,
       fetchedAt,
       message: null,
+      progress: {
+        requestedLimit: limit,
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset,
+        nextOffset: startOffset + contentEntries.length,
+        fetchedEntryCount: startOffset + contentEntries.length,
+        hasMore,
+        partial: hasMore,
+        readMode: "mcp",
+      },
     };
   }
 
@@ -458,6 +607,16 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       entries: [],
       fetchedAt,
       message: null,
+      progress: {
+        requestedLimit: limit,
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset,
+        nextOffset: startOffset,
+        fetchedEntryCount: startOffset,
+        hasMore: false,
+        partial: false,
+        readMode: "mcp",
+      },
     };
   }
 
@@ -504,7 +663,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields: BUILDER_CMS_ENTRY_FIELDS,
+            fields,
             enrich: true,
           },
         },
@@ -522,12 +681,25 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     entries: hydratedEntries,
     fetchedAt,
     message: null,
+    progress: {
+      requestedLimit: limit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: startOffset + hydratedEntries.length,
+      fetchedEntryCount: startOffset + hydratedEntries.length,
+      hasMore: false,
+      partial: false,
+      readMode: "mcp",
+    },
   };
 }
 
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
+  fieldPaths?: readonly string[];
   limit?: number;
+  maxPages?: number;
+  offset?: number;
   fetchImpl: FetchLike;
   publicKey: string;
 }): Promise<BuilderCmsReadResult> {
@@ -542,12 +714,19 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
   // bare reference id.
   url.searchParams.set("enrich", "true");
   url.searchParams.set("noCache", "true");
+  url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
 
   const limit = readLimit(args.limit);
+  const startOffset =
+    typeof args.offset === "number" && Number.isFinite(args.offset)
+      ? Math.max(0, Math.floor(args.offset))
+      : 0;
   const entries: BuilderCmsSourceEntry[] = [];
   const seenIds = new Set<string>();
+  let pagesRead = 0;
+  let hasMore = false;
   for (
-    let offset = 0;
+    let offset = startOffset;
     entries.length < limit;
     offset += BUILDER_CMS_PAGE_SIZE
   ) {
@@ -571,6 +750,16 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
           error instanceof Error
             ? `Builder CMS read failed: ${error.message}`
             : "Builder CMS read failed.",
+        progress: {
+          requestedLimit: limit,
+          pageSize: BUILDER_CMS_PAGE_SIZE,
+          startOffset,
+          nextOffset: startOffset + entries.length,
+          fetchedEntryCount: startOffset + entries.length,
+          hasMore,
+          partial: Boolean(args.maxPages) && hasMore,
+          readMode: "builder-api",
+        },
       };
     }
 
@@ -580,6 +769,16 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
         entries: [],
         fetchedAt,
         message: `Builder CMS read failed with HTTP ${response.status}.`,
+        progress: {
+          requestedLimit: limit,
+          pageSize: BUILDER_CMS_PAGE_SIZE,
+          startOffset,
+          nextOffset: startOffset + entries.length,
+          fetchedEntryCount: startOffset + entries.length,
+          hasMore,
+          partial: Boolean(args.maxPages) && hasMore,
+          readMode: "builder-api",
+        },
       };
     }
 
@@ -588,7 +787,10 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
       .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
     const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
-    if (pageEntries.length < pageLimit || appended === 0) break;
+    pagesRead += 1;
+    hasMore = pageEntries.length >= pageLimit && appended > 0;
+    if (args.maxPages && pagesRead >= args.maxPages) break;
+    if (!hasMore) break;
   }
 
   return {
@@ -596,6 +798,16 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     entries,
     fetchedAt,
     message: null,
+    progress: {
+      requestedLimit: limit,
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset,
+      nextOffset: startOffset + entries.length,
+      fetchedEntryCount: startOffset + entries.length,
+      hasMore,
+      partial: hasMore,
+      readMode: "builder-api",
+    },
   };
 }
 
@@ -642,6 +854,50 @@ export async function readBuilderCmsEntryLiveState(args: {
 
   const json = (await response.json()) as unknown;
   return liveStateFromBuilderEntry(json);
+}
+
+export async function readBuilderCmsContentEntry(args: {
+  model: string;
+  entryId: string;
+  fetchImpl?: FetchLike;
+}): Promise<BuilderCmsSourceEntry | null> {
+  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (!publicKey) {
+    throw new Error(
+      "Builder CMS entry read skipped because BUILDER_PUBLIC_KEY is not configured.",
+    );
+  }
+
+  const url = new URL(
+    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
+      args.entryId,
+    )}`,
+    builderContentApiHost(),
+  );
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+
+  const response = await fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl ?? fetch,
+    url,
+  });
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(
+      `Builder CMS entry read failed with HTTP ${response.status}.`,
+    );
+  }
+
+  const json = (await response.json()) as unknown;
+  const rawEntry = Array.isArray(json)
+    ? json[0]
+    : (entryArrayFromResponse(json)[0] ?? json);
+  const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
+  return entry?.id === args.entryId ? entry : null;
 }
 
 export async function listBuilderCmsModels(
@@ -709,7 +965,10 @@ export async function readBuilderCmsModelFields(args: {
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsModelFieldSummary[]> {
   const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
-  if (models.state !== "live") return [];
+  if (models.state === "unconfigured") return [];
+  if (models.state === "error") {
+    throw new Error(models.message ?? "Builder CMS model discovery failed.");
+  }
   const modelName = args.model.trim().toLowerCase();
   return (
     models.models.find((model) => {
@@ -724,7 +983,10 @@ export async function readBuilderCmsModelFields(args: {
 
 export async function readBuilderCmsContentEntries(args: {
   model: string;
+  fieldPaths?: readonly string[];
   limit?: number;
+  maxPages?: number;
+  offset?: number;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
@@ -734,7 +996,10 @@ export async function readBuilderCmsContentEntries(args: {
   if (publicKey) {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
+      fieldPaths: args.fieldPaths,
       limit: args.limit,
+      maxPages: args.maxPages,
+      offset: args.offset,
       fetchImpl,
       publicKey,
     });
@@ -748,7 +1013,10 @@ export async function readBuilderCmsContentEntries(args: {
     try {
       return await readBuilderCmsContentEntriesViaMcp({
         model: args.model,
+        fieldPaths: args.fieldPaths,
         limit: args.limit,
+        maxPages: args.maxPages,
+        offset: args.offset,
         fetchImpl,
         privateKey,
       });
@@ -761,6 +1029,16 @@ export async function readBuilderCmsContentEntries(args: {
           error instanceof Error
             ? error.message
             : "Builder CMS MCP read failed.",
+        progress: {
+          requestedLimit: readLimit(args.limit),
+          pageSize: BUILDER_CMS_PAGE_SIZE,
+          startOffset: 0,
+          nextOffset: 0,
+          fetchedEntryCount: 0,
+          hasMore: false,
+          partial: false,
+          readMode: "mcp",
+        },
       };
     }
   }
@@ -772,6 +1050,16 @@ export async function readBuilderCmsContentEntries(args: {
       fetchedAt,
       message:
         "Builder CMS read skipped because BUILDER_PUBLIC_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
     };
   }
 
@@ -780,5 +1068,15 @@ export async function readBuilderCmsContentEntries(args: {
     entries: [],
     fetchedAt,
     message: "Builder CMS read returned no entries.",
+    progress: {
+      requestedLimit: readLimit(args.limit),
+      pageSize: BUILDER_CMS_PAGE_SIZE,
+      startOffset: 0,
+      nextOffset: 0,
+      fetchedEntryCount: 0,
+      hasMore: false,
+      partial: false,
+      readMode: "none",
+    },
   };
 }

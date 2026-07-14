@@ -1,10 +1,11 @@
+import crypto from "node:crypto";
+
 import { defineAction } from "@agent-native/core";
 import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { and, eq } from "drizzle-orm";
-import { nanoid } from "nanoid";
+import { and, eq, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -76,6 +77,31 @@ function normalizeBridgeUrl(value: string): string {
   return parsed.toString().replace(/\/$/, "");
 }
 
+function stableConnectionId(
+  devServerUrl: string,
+  rootPath: string | undefined,
+  ownerEmail: string,
+  orgId: string | null,
+) {
+  const hash = crypto
+    .createHash("sha256")
+    .update(`${ownerEmail}\n${orgId ?? ""}\n${devServerUrl}\n${rootPath ?? ""}`)
+    .digest("base64url")
+    .slice(0, 16);
+  return `localhost_${hash}`;
+}
+
+const PREVIEW_TOKEN_DOMAIN = "agent-native-design-preview-v1\0";
+
+/** One-way compatibility derivation shared with the core design-connect CLI. */
+export function derivePreviewToken(bridgeToken: string): string {
+  return crypto
+    .createHash("sha256")
+    .update(PREVIEW_TOKEN_DOMAIN)
+    .update(bridgeToken)
+    .digest("hex");
+}
+
 export default defineAction({
   description:
     "Register or refresh a localhost Design source connection produced by `agent-native design connect`. Stores the dev server URL, bridge URL, route manifest, and operation capabilities so the UI can later list local-code artboards.",
@@ -118,6 +144,12 @@ export default defineAction({
       .describe(
         "The bridge's real auth token minted at bridge start. Stored on the connection so grant-localhost-write-consent can read it without minting its own.",
       ),
+    previewToken: z
+      .string()
+      .optional()
+      .describe(
+        "Distinct read-only token for browser preview, snapshots, and live-edit bridge registration. Omit when passing bridgeToken to derive the compatible token automatically.",
+      ),
     status: z
       .enum(["connected", "detected", "manual", "error"])
       .optional()
@@ -126,9 +158,9 @@ export default defineAction({
   run: async (args) => {
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("no authenticated user");
+    const orgId = getRequestOrgId() ?? null;
 
     const now = new Date().toISOString();
-    const id = args.id ?? nanoid();
     const db = getDb();
     const devServerUrl = normalizeUrl(args.devServerUrl, "devServerUrl");
     const bridgeUrl = args.bridgeUrl
@@ -152,29 +184,68 @@ export default defineAction({
       routes,
       generatedAt: args.routeManifest?.generatedAt ?? now,
     };
+    const id =
+      args.id ??
+      stableConnectionId(
+        devServerUrl,
+        routeManifest.rootPath,
+        ownerEmail,
+        orgId,
+      );
     const capabilities =
       args.capabilities ??
       DESIGN_BRIDGE_OPERATIONS.map((operation) => ({
         operation,
         status: "available" as const,
       }));
+    const ownerOrgScope = and(
+      eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+      orgId
+        ? eq(schema.designLocalhostConnections.orgId, orgId)
+        : isNull(schema.designLocalhostConnections.orgId),
+    );
 
+    // The id may already be taken by a DIFFERENT user (legacy ids were derived
+    // from devServerUrl + rootPath without user scoping, so two users on the
+    // same devcontainer image collide). Detect that up front and fail with a
+    // clear error instead of crashing on the primary-key insert below.
     const existing = await db
       .select({
-        id: schema.designLocalhostConnections.id,
+        ownerEmail: schema.designLocalhostConnections.ownerEmail,
+        orgId: schema.designLocalhostConnections.orgId,
+        previewToken: schema.designLocalhostConnections.previewToken,
         bridgeToken: schema.designLocalhostConnections.bridgeToken,
       })
       .from(schema.designLocalhostConnections)
-      .where(
-        and(
-          eq(schema.designLocalhostConnections.id, id),
-          eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
-        ),
-      )
+      .where(eq(schema.designLocalhostConnections.id, id))
       .limit(1);
 
-    const nextBridgeToken = args.bridgeToken?.trim() || undefined;
-    const values = {
+    if (
+      existing[0] &&
+      (existing[0].ownerEmail !== ownerEmail ||
+        (existing[0].orgId ?? null) !== orgId)
+    ) {
+      throw new Error(
+        `Connection id "${id}" already belongs to another user or organization. ` +
+          "Omit id so a per-user connection id is derived instead.",
+      );
+    }
+
+    // Token for a new row: explicit, else existing, else mint. The authenticated
+    // action owning the mint is what lets the CLI skip its own auth (the 401 gap).
+    const explicitToken = args.bridgeToken?.trim() || undefined;
+    const nextBridgeToken =
+      explicitToken ||
+      existing[0]?.bridgeToken ||
+      crypto.randomBytes(32).toString("hex");
+    const explicitPreviewToken =
+      args.previewToken?.trim() ||
+      (explicitToken ? derivePreviewToken(nextBridgeToken) : undefined);
+    const nextPreviewToken =
+      explicitPreviewToken ||
+      existing[0]?.previewToken ||
+      derivePreviewToken(nextBridgeToken);
+    const baseValues = {
       id,
       name: args.name ?? new URL(devServerUrl).host,
       sourceType: "localhost" as const,
@@ -183,30 +254,59 @@ export default defineAction({
       rootPath: routeManifest.rootPath ?? null,
       routeManifest: JSON.stringify(routeManifest),
       capabilities: JSON.stringify(capabilities),
-      bridgeToken: nextBridgeToken ?? existing[0]?.bridgeToken ?? null,
       status: args.status,
       lastSeenAt: now,
       ownerEmail,
-      orgId: getRequestOrgId() ?? null,
+      orgId,
       updatedAt: now,
     };
 
-    if (existing[0]) {
-      await db
-        .update(schema.designLocalhostConnections)
-        .set(values)
-        .where(eq(schema.designLocalhostConnections.id, id));
-    } else {
-      await db.insert(schema.designLocalhostConnections).values({
-        ...values,
+    // On conflict, an explicit token overwrites; a server-minted one uses
+    // coalesce(existing, minted) evaluated at write time — it fills a null token
+    // but never clobbers one, so concurrent first-time callers converge on the
+    // first writer (read->mint->write isn't atomic). setWhere keeps a cross-user
+    // conflict a no-op.
+    await db
+      .insert(schema.designLocalhostConnections)
+      .values({
+        ...baseValues,
+        previewToken: nextPreviewToken,
+        bridgeToken: nextBridgeToken,
         createdAt: now,
+      })
+      .onConflictDoUpdate({
+        target: schema.designLocalhostConnections.id,
+        set: {
+          ...baseValues,
+          bridgeToken: explicitToken
+            ? nextBridgeToken
+            : sql`coalesce(${schema.designLocalhostConnections.bridgeToken}, excluded.bridge_token)`,
+          previewToken: explicitPreviewToken
+            ? nextPreviewToken
+            : sql`coalesce(${schema.designLocalhostConnections.previewToken}, excluded.preview_token)`,
+        },
+        setWhere: ownerOrgScope,
       });
-    }
+
+    // Return the token the row actually holds (owner-scoped, so a cross-user
+    // no-op never leaks another user's token), not the one we minted — so
+    // concurrent callers converge on the winner (no 401 on a lost race).
+    const [stored] = await db
+      .select({
+        bridgeToken: schema.designLocalhostConnections.bridgeToken,
+        previewToken: schema.designLocalhostConnections.previewToken,
+      })
+      .from(schema.designLocalhostConnections)
+      .where(and(eq(schema.designLocalhostConnections.id, id), ownerOrgScope))
+      .limit(1);
+    const effectiveBridgeToken = stored?.bridgeToken ?? nextBridgeToken;
+    const effectivePreviewToken =
+      stored?.previewToken ?? derivePreviewToken(effectiveBridgeToken);
 
     return {
       id,
       sourceType: "localhost",
-      name: values.name,
+      name: baseValues.name,
       devServerUrl,
       bridgeUrl: bridgeUrl ?? null,
       rootPath: routeManifest.rootPath ?? null,
@@ -215,6 +315,11 @@ export default defineAction({
       capabilities,
       status: args.status,
       lastSeenAt: now,
+      // Safe for Design browser previews. It cannot authorize filesystem calls.
+      previewToken: effectivePreviewToken,
+      // Returned so the caller can start the bridge with
+      // `design connect --bridge-token <this>`, matching this row.
+      bridgeToken: effectiveBridgeToken,
     };
   },
 });

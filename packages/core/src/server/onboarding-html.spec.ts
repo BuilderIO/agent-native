@@ -21,6 +21,16 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain('id="upgrade-note"');
   });
 
+  it("redirects signed-in visitors without a cache-buster query loop", () => {
+    const html = getOnboardingHtml();
+
+    expect(html).toContain(
+      "window.location.replace(ret || __anGetSignedInReturnPath())",
+    );
+    expect(html).not.toContain("__anWithAuthCacheBypass");
+    expect(html).not.toContain("__an_auth_redirect");
+  });
+
   describe("federated SSO button (AGENT_NATIVE_IDENTITY_HUB_URL)", () => {
     it("env unset → login HTML is byte-for-byte identical (no SSO button, no residue)", () => {
       // Capture baseline with the env unequivocally absent.
@@ -392,6 +402,11 @@ describe("getOnboardingHtml", () => {
     expect(html).toContain("function __anSessionBridgeUrl(ret, sessionToken)");
     expect(html).toContain(
       "function __anFinishOAuthExchange(ret, flowId, sessionToken)",
+    );
+    expect(html).toContain("function __anMaybeRedirectSignedIn(ret)");
+    expect(html).toContain("__anMaybeRedirectSignedIn();");
+    expect(html).toContain(
+      "__anMaybeRedirectSignedIn(__anGetSignedInReturnPath()).then(function(redirected)",
     );
     expect(html).toContain(
       "window.location.replace(__anSessionBridgeUrl(ret, sessionToken))",

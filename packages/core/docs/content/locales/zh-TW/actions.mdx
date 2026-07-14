@@ -11,7 +11,7 @@ Actions 是您的應用所做的任何事情的唯一事實來源。使用 `defi
 - **型別安全 React 掛鉤** - 前端的 `useActionQuery("name")` 和 `useActionMutation("name")`，從架構推斷的型別。
 - **指令式用戶端呼叫** — 當鉤子不適合時 `callAction("name", params)`。
 - **框架傳輸** — 由這些鉤子後面的框架自動安裝，並可供外部 HTTP 用戶端使用。
-- **MCP 工具** - 暴露給 Claude、ChatGPT 自訂 MCP 應用、Claude 桌面/程式碼、游標、Codex 和任何其他 MCP 用戶端。
+- **MCP 工具** - 暴露給 Claude、ChatGPT 自訂 MCP 應用、Claude 桌面/程式碼、游標、Codex 和任何其他 MCP 主機。
 - **A2A 工具** — 由其他 Agent-Native 應用透過 A2A 呼叫。
 - **CLI 指令** - `pnpm action <name>` 用於指令碼和開發迴圈。
 
@@ -536,7 +536,7 @@ JSON 輸入是代理和複雜物件的首選形狀。標誌是
 
 ## 透過 MCP 公開它 {#mcp}
 
-啟用 MCP 後，您的 actions 將顯示在框架的 MCP 伺服器中，位置為 `/_agent-native/mcp`。預設情況下，每個呼叫者都會獲得一個緊湊的目錄 - 面向應用程式的內建程式以及範本聲明的應用程式 actions - 並且 `tool-search` 始終存在，因此任何其他工具都可以按需存取。完整的操作介面僅在明確選取加入（`--full-catalog` 代幣或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`）時提供，並且 `publicAgent.expose` 在公開介面上選取安全讀取/攝取工具。請參閱 [MCP Protocol](/docs/mcp-protocol) 了解目錄層、驗證和 `mcpApp` 資源詳細資訊。
+啟用 MCP 後，您的 actions 將顯示在框架的 MCP 伺服器中，位置為 `/mcp`。預設情況下，每個呼叫者都會獲得一個緊湊的目錄 - 面向應用程式的內建程式以及範本聲明的應用程式 actions - 並且 `tool-search` 始終存在，因此任何其他工具都可以按需存取。完整的操作介面僅在明確選取加入（`--full-catalog` 代幣或 `AGENT_NATIVE_MCP_FULL_CATALOG=1`）時提供，並且 `publicAgent.expose` 在公開介面上選取安全讀取/攝取工具。請參閱 [MCP Protocol](/docs/mcp-protocol) 了解目錄層、驗證和 `mcpApp` 資源詳細資訊。
 
 對於支援 UI 的 MCP 主機，操作可以透過 `mcpApp` 欄位（加上匹配的 `link`）聲明可選的 MCP Apps 資源，以便有能力的主機行內渲染結果。當 `link` 和 `mcpApp` 應指向同一路由時，`embedRoute()` 從一個純路徑建置器建置兩者：
 
@@ -558,7 +558,7 @@ export default defineAction({
 });
 ```
 
-保留 `link` 作為 CLI 和非 UI MCP 用戶端的後備；這也是嵌入的啟動目標。嵌入橋 - 已簽名的嵌入啟動工作階段、移植與受控幀渲染、`ui/*` 主橋、CSP 和高度限制 - 歸 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。
+保留 `link` 作為 CLI 和非 UI MCP 主機的後備；這也是嵌入的啟動目標。嵌入橋 - 已簽名的嵌入啟動工作階段、移植與受控幀渲染、`ui/*` 主橋、CSP 和高度限制 - 歸 [External Agents](/docs/external-agents#mcp-app-bridge) 所有。
 
 ## 標準actions {#standard-actions}
 

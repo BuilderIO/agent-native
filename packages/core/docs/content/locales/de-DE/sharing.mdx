@@ -1,13 +1,13 @@
 ---
 title: "Freigabe und Datenschutz"
-description: "Freigabe im Google-Docs-Stil, in das Framework integriert. Jede vom Benutzer erstellte Ressource – Dokumente, Dashboards, Designs, Decks, Clips, Aufzeichnungen, Formulare – erhält standardmäßig dasselbe private Modell mit einer einheitlichen Freigabe UI."
+description: "Vertrautes, einheitliches Teilen, direkt in das Framework integriert. Jede benutzererstellte Ressource – Dokumente, Dashboards, Designs, Decks, Clips, Aufzeichnungen und Formulare – erhält dasselbe standardmäßig private Modell mit einer einheitlichen Freigabeoberfläche."
 ---
 
 # Freigabe und Datenschutz
 
-Jede Ressource, die ein Benutzer in einer agentennativen App erstellt – ein Dokument, ein Dashboard, ein Design, eine Präsentation, eine Videobearbeitung, eine Bildschirmaufzeichnung, ein Besprechungsprotokoll, ein Formular, ein Buchungslink – ist **standardmäßig privat für den Ersteller**. Andere sehen es nur, wenn der Ersteller es ausdrücklich teilt oder seine Sichtbarkeit in `org` oder `public` ändert.
+Jede Ressource, die ein Benutzer in einer agentennativen App erstellt – ein Dokument, ein Dashboard, ein Design, eine Präsentation, eine Bildschirmaufzeichnung, ein Besprechungsprotokoll, ein Formular, ein Buchungslink – ist **standardmäßig privat für den Ersteller**. Andere sehen es nur, wenn der Ersteller es ausdrücklich teilt oder seine Sichtbarkeit in `org` oder `public` ändert.
 
-Es sieht aus und funktioniert wie Google Docs. Die gleiche Schaltfläche zum Teilen, derselbe Dialog, das gleiche dreistufige Sichtbarkeitsmodell, die gleichen Gewährungen pro Benutzer/pro Organisation – für jede Vorlage, ohne Neuerfindung pro App.
+Es gibt überall ein vertrautes Freigabemodell: dieselbe Freigabeschaltfläche, derselbe Dialog, dasselbe dreistufige Sichtbarkeitsmodell und dieselben Berechtigungen pro Benutzer und Organisation – in jeder Vorlage, ohne Neuerfindung pro App.
 
 ## Warum ein Modell {#why}
 
@@ -92,11 +92,11 @@ Jede Vorlage, die vom Benutzer erstellte Arbeiten speichert, verwendet dieses Mo
 - **Inhalt** – Dokumente
 - **Folien** – Decks
 - **Design** – Designs und Assets
-- **Video** – Kompositionen
-- **Clips** – Bildschirmaufnahmen (Loom-Stil)
+- **Clips** – Bildschirmaufnahmen
+- **Plan** — visual plans and PR recaps
 - **Formulare** – Formulardefinitionen
 - **Kalender** – Veranstaltungen und Buchungslinks
-- **Analytics** – Dashboards (Einführung – siehe `AGENTS.md` der Analytics-Vorlage)
+- **Analytics** – dashboards, saved analyses, and tokenized session replays
 - **Erweiterungen** – Sandbox-Mini-Apps (siehe [Extensions](/docs/extensions#sharing))
 
 Alle davon verwenden denselben `ownableColumns()`-Schema-Helfer, dieselbe `share-resource`-Aktion und denselben `<ShareButton>` UI. Wenn Sie von einer Vorlage zu einer anderen wechseln, sieht der Freigabedialog identisch aus.
@@ -115,7 +115,7 @@ Jede gemeinsam nutzbare Ressource erhält in ihrer Kopfzeile eine Schaltfläche 
 
 - Sichtbarkeitsauswahl (`Private` / `Organization` / `Public link`).
 - Autovervollständigung „Personen oder Teams hinzufügen“ – Benutzer in der Organisation suchen oder eine E-Mail einfügen.
-- Ein `Benachrichtigen people`-Kontrollkästchen im Google Docs-Stil für individuelle E-Mail-Genehmigungen.
+- Ein Kontrollkästchen `Personen benachrichtigen` für individuelle E-Mail-Berechtigungen.
 - Eine Liste aktueller Gewährungen mit Rollenauswahl und einer Entfernungskontrolle.
 - Eine Schaltfläche zum Kopieren von Links, die die aktuelle Sichtbarkeit berücksichtigt.
 
@@ -137,14 +137,21 @@ Fügen Sie bei Listen neben jeder Zeile ein `<VisibilityBadge visibility={row.vi
 
 Das Framework mountet diese actions automatisch in jeder Vorlage – der Agent nennt sie als Tools und der UI ruft sie über `useActionQuery` / `useActionMutation` auf:
 
-| Aktion                    | Was es tut                                                                                                                                   |
-| ------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`          | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen. |
-| `unshare-resource`        | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
-| `list-resource-shares`    | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
-| `set-resource-visibility` | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
+| Aktion                       | Was es tut                                                                                                                                   |
+| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Gewähren Sie einem Benutzer oder einer Organisation Zugriff für eine bestimmte Rolle. Optionales `notify` steuert E-Mail-Benachrichtigungen. |
+| `unshare-resource`           | Zugriff für einen Benutzer oder eine Organisation widerrufen.                                                                                |
+| `list-resource-shares`       | Aktuelle Sichtbarkeit sowie alle expliziten Gewährungen anzeigen.                                                                            |
+| `set-resource-visibility`    | Wechseln Sie zu `private`, `org` oder `public`.                                                                                              |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                      |
 
 Sagen Sie dem Agenten: „Teilen Sie dieses Design mit dem Marketingteam als Redakteuren“, und er ruft `share-resource` für denselben Endpunkt auf, den UI verwendet. Das Ergebnis wird beim nächsten Rendern im Freigabedialog angezeigt.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## In eine neue Vorlage einbauen {#building}
 
@@ -263,7 +270,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 Ein Registrierungsaufruf in `server/db/index.ts`:
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -308,9 +315,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 Die gemeinsame Nutzung erfolgt auf dem umfassenderen Datenscoping-Modell des Frameworks – der Listen-/Lese-/Schreibzugriff auf besitzbare Tabellen erfolgt über `accessFilter()` / `resolveAccess()` / `assertAccess()`, und mit `org_id` gekennzeichnete Ressourcen sind organisationsübergreifend unsichtbar. Siehe [Security → Data Scoping](/docs/security#data-scoping) für die vollständige Pipeline, den CI-Schutz und die Bedrohungsoberfläche.
 
-## Siehe auch {#see-also}
+## Wie geht es weiter? {#see-also}
 
-- [Security & Data Scoping](/docs/security) – das Zugriffsfilter- und Eigentumsmodell, auf dem das Teilen basiert.
-- [Authentication](/docs/authentication) – Sitzungen, Organisationen und wie Identität in den Anfragekontext fließt.
-- [Extensions](/docs/extensions#sharing) – Teilen in der Sandbox-Mini-App-Oberfläche.
-- [Creating Templates](/docs/creating-templates) – Verknüpfen von `ownableColumns` mit dem Schema einer neuen Vorlage.
+- [**Sicherheit – Datenscoping**](/docs/security#data-scoping) – das Zugriffsfilter- und Eigentumsmodell, auf dem das Teilen basiert
+- [**Authentifizierung**](/docs/authentication) – Sitzungen, Organisationen und wie Identität in den Anfragekontext fließt
+- [**Erweiterungen**](/docs/extensions#sharing) – Teilen in der Sandbox-Mini-App-Oberfläche
+- [**Vorlagen erstellen**](/docs/creating-templates) – `ownableColumns` mit dem Schema einer neuen Vorlage verbinden

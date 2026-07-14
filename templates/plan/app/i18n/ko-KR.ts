@@ -432,6 +432,16 @@ const messages = {
       title: "지역 계획을 찾을 수 없습니다.",
       message: '로컬 계획 폴더 "{{slug}}"을(를) 읽을 수 없습니다.',
     },
+    localPlanConnection: {
+      promptTitle: "이 로컬 계획에 연결",
+      promptMessage:
+        "이 계획은 컴퓨터에 그대로 보관됩니다. 로컬 브리지에서 읽으려면 Plan에 브라우저 권한이 필요합니다.",
+      deniedTitle: "로컬 네트워크 접근이 차단되었습니다",
+      deniedMessage:
+        "브라우저에서 Plan의 사이트 설정을 열고 로컬 네트워크 접근을 허용한 다음 다시 확인하세요.",
+      connect: "로컬 계획에 연결",
+      checkAgain: "다시 확인",
+    },
     overview: {
       title: "计划",
       documentCount_other: "{{count}} 个文档",
@@ -615,6 +625,10 @@ const messages = {
       signIn: "登录",
       haveAccount: "我已有账户",
       retry: "重试",
+      sendFeedback: "피드백 보내기",
+      feedbackPlaceholder:
+        "이 계획 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+      openGitHubIssue: "GitHub issue 열기",
       joinedOrg: "已加入 {{orgName}}。正在打开计划...",
       acceptingInvite: "正在接受邀请",
       joiningOrg: "正在加入组织",

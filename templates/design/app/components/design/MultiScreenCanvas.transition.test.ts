@@ -1,12 +1,15 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  getChromeBorderTransition,
-  getDraftPreviewGeometryForTool,
-  getPreviewDeviceFrameGeometry,
-  getSelectionBoxTransition,
   isDirectScreenHoverTarget,
-} from "./MultiScreenCanvas";
+  shouldShowFrameFullViewButton,
+} from "./multi-screen/canvas-tools";
+import {
+  getChromeBorderTransition,
+  getSelectionBoxTransition,
+} from "./multi-screen/chrome-transitions";
+import { getDraftPreviewGeometryForTool } from "./multi-screen/draft-primitives";
+import { getPreviewDeviceFrameGeometry } from "./multi-screen/frame-geometry";
 
 describe("MultiScreenCanvas selection chrome transitions", () => {
   it("does not animate selected-frame geometry during normal selection changes", () => {
@@ -34,6 +37,15 @@ describe("MultiScreenCanvas selection chrome transitions", () => {
 
     expect(isDirectScreenHoverTarget(frame, frame)).toBe(true);
     expect(isDirectScreenHoverTarget(screenContentChild, frame)).toBe(false);
+  });
+
+  it("keeps the Interact button visible for hovered child content", () => {
+    expect(
+      shouldShowFrameFullViewButton({
+        emphasized: false,
+        childHoverActive: true,
+      }),
+    ).toBe(true);
   });
 
   it("keeps rectangle creation preview collapsed before the drag threshold", () => {

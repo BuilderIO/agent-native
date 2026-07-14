@@ -10,15 +10,23 @@ import {
   useCommandMenuShortcut,
   useT,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
-import { Links, Meta, Outlet, Scripts, ScrollRestoration } from "react-router";
+import {
+  Links,
+  Meta,
+  Outlet,
+  Scripts,
+  ScrollRestoration,
+  useNavigate,
+} from "react-router";
 import type { LinksFunction } from "react-router";
 
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { TAB_ID } from "@/lib/tab-id";
 
 import changelog from "../CHANGELOG.md?raw";
@@ -144,6 +152,7 @@ function MacrosCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -154,6 +163,13 @@ function MacrosCommandMenu({
       <CommandMenu.Group heading={t("root.commandActions")}>
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.search")}
+        </CommandMenu.Item>
+        <CommandMenu.Item
+          onSelect={() => navigate("/agent")}
+          keywords={["agent", "context", "connections", "jobs", "access"]}
+        >
+          <IconBrain size={16} />
+          {t("settings.openAgentSettings")}
         </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.appearance")}>
@@ -168,9 +184,6 @@ export default function Root() {
     createAgentNativeQueryClient({
       defaultOptions: {
         queries: {
-          // Macros UI refetches on focus to pick up meals logged in other
-          // browser tabs or mobile, which don't always arrive via DB sync.
-          refetchOnWindowFocus: true,
           // Flat retry: macros data errors are usually transient network
           // issues, not auth failures, so a flat count is sufficient.
           retry: 1,
@@ -182,19 +195,21 @@ export default function Root() {
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
 
   return (
-    <AppProviders
-      queryClient={queryClient}
-      defaultTheme="dark"
-      tooltipDelayDuration={300}
-      toaster={<Toaster richColors position="bottom-left" />}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <DbSyncSetup />
-      <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
-      <AppLayout>
-        <Outlet />
-      </AppLayout>
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        defaultTheme="dark"
+        tooltipDelayDuration={300}
+        toaster={<Toaster richColors position="bottom-left" />}
+        i18n={{ catalog: i18nCatalog }}
+      >
+        <DbSyncSetup />
+        <MacrosCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

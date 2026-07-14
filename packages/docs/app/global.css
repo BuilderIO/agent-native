@@ -742,6 +742,46 @@ h4 {
   background: color-mix(in srgb, var(--fg-secondary) 8%, var(--code-bg));
 }
 
+/* Filename label bar for ```lang filename="path/to/file.ts" fences */
+.code-block-filename {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 38px;
+  padding: 8px 44px 8px 14px;
+  border: 1px solid var(--code-border);
+  border-bottom: 1px solid var(--code-border);
+  border-radius: 8px 8px 0 0;
+  background: var(--code-bg);
+  color: var(--fg-secondary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.code-block-filename svg {
+  flex-shrink: 0;
+  opacity: 0.75;
+}
+
+.code-block-filename span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.code-block[data-filename="true"] pre,
+.code-block[data-filename="true"] .shiki {
+  border-top: 0;
+  border-top-left-radius: 0;
+  border-top-right-radius: 0;
+}
+
+.code-block[data-filename="true"] .code-copy-btn {
+  top: 6px;
+}
+
 /* Copy button injected by MarkdownRenderer into .code-block wrappers */
 .code-copy-btn {
   position: absolute;
@@ -1276,10 +1316,35 @@ html.dark .shiki span {
 .docs-article .docs-block .border-plan-line {
   border-color: var(--code-border) !important;
 }
-.docs-article .docs-block .plan-diagram-frame {
+.docs-article .docs-block .plan-diagram-frame[data-frame="hide"] {
   --wf-paper: transparent;
   border: 0;
   background: transparent;
+}
+
+/* Wireframe containment: the block's artboard is authored at a fixed desktop
+ * pixel width (e.g. 840px) and only shrinks to fit via a JS-measured scale
+ * transform, which lags a layout resize (sidebar/TOC appearing, viewport
+ * changes near breakpoints). Give the doc's wrapper a hard clip + its own
+ * paint/layout containment so wide or unshrunk author HTML can never bleed
+ * into the docs prose column or the right-hand table of contents, no matter
+ * what happens inside the shared block library. On narrow viewports this
+ * degrades to a horizontal scroller within the block instead of squishing
+ * the whole page. */
+.docs-wireframe-frame {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  contain: layout paint;
+}
+
+/* Defense-in-depth: also clip at the block's own root section in case a
+ * wireframe ever renders outside the docs-specific wrapper above. */
+.docs-article .docs-block .an-wireframe {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  contain: layout paint;
 }
 
 /* Prev / Next navigation */
@@ -1356,6 +1421,22 @@ html.dark .shiki span {
     flex: 1;
     min-width: 0;
   }
+}
+
+/* "Edit this page on GitHub" link, below prev/next */
+.docs-edit-page-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 20px;
+  color: var(--fg-secondary);
+  font-size: 13px;
+  text-decoration: none;
+}
+
+.docs-edit-page-link:hover {
+  color: var(--fg);
+  text-decoration: underline;
 }
 
 /* Mobile docs content improvements */

@@ -74,6 +74,7 @@ import {
   formatShortcut,
 } from "@/lib/utils";
 
+import { buildEmailIframeDocument } from "./email-iframe-document";
 import {
   InlineReplyComposer,
   type InlineReplyHandle,
@@ -1532,7 +1533,7 @@ function ThreadLoadingState({
       <div className="flex-1 overflow-y-auto px-3 sm:px-5 pb-4">
         <div className="mx-auto max-w-3xl space-y-3 pt-1.5">
           {preview ? (
-            <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
+            <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-3 sm:px-4 py-3 sm:py-4">
               <div className="flex items-start gap-3">
                 <Skeleton className="h-9 w-9 rounded-full shrink-0" />
                 <div className="flex-1 min-w-0 space-y-3">
@@ -1583,7 +1584,7 @@ function ThreadMessageSkeleton({ compact = false }: { compact?: boolean }) {
   }
 
   return (
-    <div className="rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden px-4 py-4">
+    <div className="rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden px-4 py-4">
       <div className="flex items-start gap-3">
         <Skeleton className="h-9 w-9 rounded-full shrink-0" />
         <div className="flex-1 space-y-3">
@@ -1719,7 +1720,7 @@ const ExpandedMessageCard = forwardRef<
       ref={ref}
       onClick={onFocus}
       className={cn(
-        "rounded-lg bg-card dark:bg-[hsl(220,5%,10%)] overflow-hidden cursor-pointer",
+        "rounded-lg bg-card dark:bg-[var(--mail-message-surface)] overflow-hidden cursor-pointer",
         isFocused
           ? "ring-1 ring-primary/40"
           : "ring-1 ring-transparent hover:ring-border/30",
@@ -2204,8 +2205,9 @@ function PlainTextBody({
 
 // ─── HTML email body (iframe) ────────────────────────────────────────────────
 
-// Match the expanded card bg: hsl(220, 5%, 10%) ≈ #17181a
-const IFRAME_BG_DARK = "#17181a";
+// Let normalized dark-mode emails inherit the message card's themed surface.
+// The iframe and its document are transparent, so theme token changes stay in sync.
+const IFRAME_BG_DARK = "transparent";
 const IFRAME_BG_LIGHT = "#ffffff";
 
 // ─── Color utilities for dark-mode email processing ─────────────────────────
@@ -2557,6 +2559,7 @@ function HtmlEmailBody({
   const frameHostRef = useRef<HTMLDivElement>(null);
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [height, setHeight] = useState(200);
+  const [iframeLoadVersion, setIframeLoadVersion] = useState(0);
   const { resolvedTheme } = useTheme();
   const isDark = getResolvedTheme(resolvedTheme) === "dark";
   const sanitizedHtml = useMemo(() => sanitizeEmailHtml(html), [html]);
@@ -2602,6 +2605,14 @@ function HtmlEmailBody({
       blockedCount: headBlockedCount + bodyBlockedCount,
     };
   }, [sanitizedHtml.headHtml, sanitizedHtml.bodyHtml, effectivePolicy]);
+  const iframeDocument = useMemo(
+    () =>
+      buildEmailIframeDocument(
+        processedEmailHtml.headHtml,
+        processedEmailHtml.bodyHtml,
+      ),
+    [processedEmailHtml.bodyHtml, processedEmailHtml.headHtml],
+  );
 
   const handleAlwaysTrust = () => {
     if (!senderDomain) return;
@@ -2622,7 +2633,6 @@ function HtmlEmailBody({
     const doc = iframe.contentDocument;
     if (!doc) return;
 
-    doc.open();
     const iframeCss = useDarkIframeCss
       ? `
     html, body {
@@ -2693,16 +2703,10 @@ function HtmlEmailBody({
     .quote-toggle:hover, .sig-toggle:hover { color: rgba(0,0,0,0.7); }
 `;
 
-    doc.write(`<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  ${processedEmailHtml.headHtml}
-  <style>${iframeCss}  </style>
-</head>
-<body>${processedEmailHtml.bodyHtml}</body>
-</html>`);
-    doc.close();
+    const themeStyle = doc.createElement("style");
+    themeStyle.setAttribute("data-mail-theme", "");
+    themeStyle.textContent = iframeCss;
+    doc.head.appendChild(themeStyle);
 
     const resize = () => {
       if (doc.body) {
@@ -3041,6 +3045,7 @@ function HtmlEmailBody({
       } catch {}
     });
 
+    let handleRsvpClick: ((e: MouseEvent) => void) | null = null;
     if (calEventId && rsvpLinks.length > 0) {
       const eventId = calEventId;
       rsvpLinks.forEach((a) => {
@@ -3082,7 +3087,7 @@ function HtmlEmailBody({
       });
 
       // Handle RSVP clicks inline
-      const handleRsvpClick = async (e: MouseEvent) => {
+      handleRsvpClick = async (e: MouseEvent) => {
         const anchor = (e.target as Element)?.closest?.(
           'a[href*="calendar.google.com/calendar/event"]',
         ) as HTMLElement | null;
@@ -3188,10 +3193,12 @@ function HtmlEmailBody({
 
     return () => {
       doc.removeEventListener("click", handleLinkClick);
+      if (handleRsvpClick) doc.removeEventListener("click", handleRsvpClick);
       doc.removeEventListener("keydown", forwardKey);
       clearTimeout(timer);
       clearTimeout(timer2);
       images.forEach((img) => img.removeEventListener("load", resize));
+      themeStyle.remove();
     };
   }, [
     processedEmailHtml.bodyHtml,
@@ -3199,6 +3206,7 @@ function HtmlEmailBody({
     isDark,
     useDarkIframeCss,
     IFRAME_BG,
+    iframeLoadVersion,
   ]);
 
   // Inject / clear search highlights in the iframe whenever searchTerm or content changes
@@ -3265,7 +3273,7 @@ function HtmlEmailBody({
     // Small delay to ensure iframe DOM is ready after a processedHtml rewrite
     const timer = setTimeout(injectHighlights, 60);
     return () => clearTimeout(timer);
-  }, [searchTerm, processedEmailHtml.bodyHtml]);
+  }, [searchTerm, processedEmailHtml.bodyHtml, iframeLoadVersion]);
 
   // Update which mark is "active" and scroll it into view
   useEffect(() => {
@@ -3286,7 +3294,7 @@ function HtmlEmailBody({
       active.style.color = "#000";
       active.scrollIntoView({ behavior: "smooth", block: "nearest" });
     }
-  }, [activeLocalIdx, searchTerm]);
+  }, [activeLocalIdx, searchTerm, iframeLoadVersion]);
 
   const showBanner =
     effectivePolicy === "block-all" &&
@@ -3327,6 +3335,8 @@ function HtmlEmailBody({
       )}
       <iframe
         ref={iframeRef}
+        data-agent-native-session-replay=""
+        srcDoc={iframeDocument}
         sandbox="allow-same-origin allow-popups allow-popups-to-escape-sandbox"
         style={{
           width: "100%",
@@ -3337,6 +3347,7 @@ function HtmlEmailBody({
           borderRadius: hasDesignedBg && isDark ? "6px" : undefined,
         }}
         title={t("mail.thread.emailContent")}
+        onLoad={() => setIframeLoadVersion((version) => version + 1)}
       />
     </div>
   );

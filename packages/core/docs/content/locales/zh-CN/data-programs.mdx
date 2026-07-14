@@ -1,0 +1,329 @@
+---
+title: "数据程序"
+description: "由 agent 编写并存储的 JS 脚本，在服务器端获取、连接和聚合数据，缓存在 SQL 中，并由 dashboard 面板渲染——介于一次性 run-code 查询和硬编码 provider action 之间的实时数据折中方案。"
+search: "data program emit rows schema providerFetch dashboard panel program source refresh TTL viewer-scoped cache save-data-program run-data-program"
+---
+
+# 数据程序
+
+**数据程序（data program）**是一个具名的、存储的、由 agent 编写的 JS 脚本，用于获取、连接、过滤或聚合数据——通过 `providerFetch` / `providerFetchAll` / `providerSearchAll` 访问 provider API，通过 `appAction` 访问 app 数据，或访问基于 Resources 的 workspace 文件——并且恰好调用一次 `emit(rows, schema)` 来提交结果。结果会缓存在 SQL 中，任何图表/表格组件都可以渲染它，按照你选择的策略刷新，而不是每次页面访问都重新获取。
+
+只要 [`run-code`](/docs/actions) 可用，它就会自动可用——不需要按 app 挂载或配置任何东西。如果你的 app 已经启用了 run-code，那么 `save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program` 和 `delete-data-program` 就已经是已注册的 actions。
+
+<Diagram id="doc-block-dp-overview" title={"从临时查询到实时面板"} summary={"一段 run-code 脚本一旦调用 emit()，就变成了一个存储的程序；任何 dashboard 面板都可以绑定到它，之后由缓存/刷新策略接管。"}>
+
+```html
+<div class="dp-flow">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">run-code script</span
+    ><small class="diagram-muted">providerFetch, joins, aggregation</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">emit(rows, schema)</span
+    ><small class="diagram-muted"
+      >save-data-program dry-runs, then persists</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    data_program_runs<br /><small class="diagram-muted"
+      >cached per (program, params, viewer)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">仪表盘面板</span
+    ><small class="diagram-muted"><code>source: "program"</code></small>
+  </div>
+</div>
+```
+
+```css
+.dp-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dp-flow .diagram-card,
+.dp-flow .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.dp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 为什么需要它 {#why}
+
+如果没有存储的数据程序，"为 X 构建一个实时视图"通常会落入两个糟糕的境地之一：
+
+- **为每种 vendor/查询形态写一个硬编码 action。** 脆弱，而且无法预见每个客户的自定义属性、跨 provider 的连接，或你没想到要支持的任意过滤条件。
+- **每次页面访问都从头重新运行同样的获取/连接逻辑。** 缓慢，而且每次有人查看图表都会重新消耗同样的 provider API 配额。
+
+数据程序是折中方案：把获取/连接/聚合逻辑作为普通的 `run-code` 写一次，保存它，然后让缓存和刷新策略决定它实际需要多久重新运行一次。
+
+## 何时使用数据程序 {#when-to-use-one}
+
+| 场景                                                                                                       | 应使用                                                                   |
+| ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 标准汇总已有一流 action（预置的 `hubspot-deals` 过滤器、内置指标）                                         | 使用现有 action——不要把它包装成程序                                      |
+| 你以后再也不会看的一次性聊天问题                                                                           | 直接用普通 `run-code` 或 `provider-api-request` 回答，不要持久化任何东西 |
+| 扩展需要一个带有自己 UI 的小型、按用户交互的组件                                                           | [扩展（Extensions）](/docs/extensions)——数据程序没有自己的 UI            |
+| 群组需要任意属性过滤、对自定义值的 IN 搜索，或跨两个 provider 的连接，**并且**有人会想用最新数据再次查看它 | 数据程序                                                                 |
+| dashboard 面板需要展示这个连接/聚合结果，并按缓存策略刷新                                                  | 绑定到 `"program"` 面板的数据程序                                        |
+
+与其他 run-code 形态选项的对比：
+
+|                                 | 一次性 `run-code`  | 硬编码 provider action                     | 数据程序                               |
+| ------------------------------- | ------------------ | ------------------------------------------ | -------------------------------------- |
+| **调用之间是否持久**            | 否                 | 不适用（它是源代码）                       | 是——存储行 + 结果缓存                  |
+| **结果是否缓存/刷新**           | 否，每次都重新运行 | 没有内置缓存                               | 是——`refreshMode`/`refreshTtlMs`       |
+| **是否处理任意过滤/连接**       | 是，但用完即弃     | 否——受限于该 action 的 schema 所暴露的内容 | 是——它仍然是普通代码                   |
+| **是否可绑定到 dashboard 面板** | 否                 | 只有专门为此构建了面板源才行               | 是——通用的 `"program"` 源              |
+| **是否需要部署**                | 否                 | 是（新 action = 代码变更）                 | 否——由 agent 在运行时创建              |
+| **读取时使用的凭据**            | 调用者的           | 调用者的                                   | **查看者的**，按每次读取解析（见下文） |
+
+## 编写工作流 {#authoring-workflow}
+
+1. **先在聊天中做原型。** 将获取/连接/聚合逻辑写成普通的 `run-code` 脚本，并确认它返回你期望的行。
+2. **修改它，让它在最后恰好调用一次 `emit(rows, schema?)`**，而不是返回或打印结果。
+3. **用 `save-data-program` 保存它。** 这会在持久化之前**用 `defaultParams` 对代码进行一次 dry-run**，如果失败就以结构化错误拒绝保存，因此一个损坏的程序永远不会被存储。成功时返回 `{ programId, rowCount, columns, sampleRows }`——在告诉用户"已就绪"之前，把这作为程序确实产生了预期行的证明。
+4. **将 dashboard 面板绑定到它**，或者直接从你自己的读取路径调用 `run-data-program`。这个基础组件本身没有内置任何 dashboard 专属的接线——analytics 模板的 `"program"` 面板源（见下文）只是其中一种采用方式，并非必须遵循的模式。
+5. **无需保存即可迭代**，使用 `preview-data-program({ code, params? })`——同样的 dry-run 路径，不存储行。
+
+### 一个真实的示例
+
+假设某个 app 想要一个"最近的高价值支持工单"实时表格，数据来自某个支持类 provider，并按任何内置 action 都未暴露的阈值过滤：
+
+```ts
+// The program's stored `code` — ordinary run-code, with one emit() call.
+const minValue = Number(params.minValue || 5000);
+
+const tickets = await providerFetchAll("acme-support", "/v1/tickets", {
+  query: { status: "open" },
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "next_cursor",
+    maxPages: 10,
+  },
+});
+
+const rows = (tickets.items || [])
+  .filter((t) => Number(t.contract_value || 0) >= minValue)
+  .map((t) => ({
+    ticket_id: t.id,
+    subject: t.subject,
+    account: t.account_name,
+    contract_value: Number(t.contract_value || 0),
+    opened_at: t.created_at,
+  }));
+
+emit(rows, [
+  { name: "ticket_id", type: "string" },
+  { name: "subject", type: "string" },
+  { name: "account", type: "string" },
+  { name: "contract_value", type: "number" },
+  { name: "opened_at", type: "string" },
+]);
+```
+
+保存它：
+
+```ts
+await appAction("save-data-program", {
+  name: "high-value-open-tickets",
+  title: "High-Value Open Tickets",
+  description:
+    "Open support tickets above a configurable contract-value threshold.",
+  code: "/* the script above */",
+  defaultParams: { minValue: 5000 },
+  refreshMode: "ttl",
+  refreshTtlMs: 300_000,
+});
+```
+
+响应中带有 `{ programId, rowCount, columns, sampleRows }`——这是 dry-run 的完成证明。之后，`run-data-program({ programId, params: { minValue: 10000 } })` 会针对不同阈值重新运行它（或提供缓存），dashboard 面板也可以用同样的方式绑定到 `programId`。
+
+## 沙箱能力面 {#sandbox-surface}
+
+数据程序运行在与 `run-code` 完全相同的 `executeSandboxCode` 沙箱中——这个基础组件没有新增任何沙箱、凭据、SSRF 或配额相关的代码。它拥有相同的全局对象（`providerFetch`、`providerFetchAll`、`providerSearchAll`、`appAction`、`webFetch`、`workspace*` Resources 辅助函数），外加框架注入的一小段前导代码带来的两项补充：
+
+- **`params`** ——一个**冻结**的全局对象，保存本次运行的参数（`defaultParams` 与传给 `run-data-program` 或面板描述符的内容合并）。读取它没问题；修改它会抛出错误。
+- **`emit(rows, schema?)`** ——在末尾**恰好调用一次**。第二次调用会抛出错误。`rows` 必须是普通对象组成的数组。`schema`（如提供）为 `{ name: string, type: string }[]`；省略时会根据前 50 行推断（如果样本中各行在原始类型上不一致，该列就是 `"json"`，否则是 `"number"` / `"string"` / `"boolean"`）。`console.log` 仍然完全自由，可用于调试——运行器会捕获合并后的 stdout/stderr，在解析结果时只剥离 `emit()` 写入的哨兵行。
+
+每次运行都会强制执行的上限（不可按程序单独配置）：
+
+| 限制                                     | 数值                                                                                                  |
+| ---------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 最大提交行数                             | 10,000——超出的行会被丢弃，`truncated: true`                                                           |
+| 最大提交结果大小                         | 4 MiB——从末尾丢弃行以适配限制；单行超过上限则是硬性 `result_too_large` 失败，因为没有可安全截断的内容 |
+| 每个 app 的最大活跃（未归档）程序数      | 200——归档未使用的程序以腾出空间                                                                       |
+| 最小刷新 TTL                             | 60,000 毫秒                                                                                           |
+| 每个（程序、参数、查看者）保留的运行行数 | 最近 5 条——更早的记录会在每次写入时自动清理                                                           |
+
+截断始终是显式的（结果中的 `truncated: true`）——绝不会静默丢弃。
+
+## 参数与 dashboard 面板绑定 {#params-and-panel-binding}
+
+程序可声明一个可选的 `paramsSchema`（描述所接受参数的 JSON Schema）和 `defaultParams`。dashboard 采用 `"program"` 面板源的方式，是在面板的查询字段中放入一个小型 JSON 描述符，而不是查询字符串：
+
+```json
+{ "programId": "dp_a1b2c3d4e5f6", "params": { "minValue": 10000 } }
+```
+
+该面板通过与其他任何面板源完全相同的图表/表格组件渲染——它始终只接收 `{ rows, schema }`。将面板绑定到程序，仅仅是"绑定到哪个存储的程序、覆盖哪些参数"；不存在在别处重复实现的 dashboard 专属执行路径。
+
+## 刷新、TTL 与缓存语义 {#refresh-and-caching}
+
+每个 `(programId, paramsHash)` 组合在 `data_program_runs` 中都有自己的运行历史，而 `paramsHash` 不仅包含参数，还纳入了**查看者**（原因见安全部分）。每次读取时会发生：
+
+| 情况                                                                            | 行为                                                                                                                           |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+| 新鲜缓存（比 `refreshTtlMs` 更新，或 `refreshMode: "manual"` 且此前有成功记录） | 立即返回缓存的行，`cacheHit: true`                                                                                             |
+| 缓存比 TTL 更旧                                                                 | 同步重新执行——面板视图触发的读取预算为 25 秒，agent/手动调用为 120 秒——并在成功时替换缓存                                      |
+| `refreshMode: "manual"`                                                         | 永不自动刷新；只有显式的 `forceRefresh: true`（或 UI 上的手动刷新 action）才会重新运行                                         |
+| 尚无缓存                                                                        | 像普通的首次获取一样同步执行                                                                                                   |
+| `background: true` 的程序，无新鲜缓存                                           | 立即以 `stale: true` 提供最近一次成功结果，并排队一次持久的后台执行（10 分钟预算）；之后的调用会在执行完成后完成结果的最终确认 |
+| 后台程序仍在运行，且此前无成功记录                                              | `background_pending` 失败——应展示明确的"仍在计算中"状态，绝不返回空结果                                                        |
+| 执行失败（超时、沙箱错误、`emit()` 形状不合法）                                 | 结构化的 `{ code, message }` 失败；如果存在此前的成功结果，会作为 `lastGoodRun` 附加，以便面板可以提供陈旧数据，而不是显示空白 |
+| 程序已被归档（通过 `delete-data-program` 软删除）                               | 明确的 `archived` 失败——绝不是静默的空白面板                                                                                   |
+
+只对那些经常超出前台超时的程序使用 `background: true`——例如大型多 provider 连接、深度分页。其他所有情况都应保持前台执行：更易于推理，也能更快地提供新鲜数据。
+
+### 为什么缓存按查看者划分范围 {#per-viewer-cache}
+
+程序内部的 `providerFetch` 使用**调用查看者自己的请求上下文**来解析身份验证——绝不使用程序作者的。无论调用来自 agent、`run-data-program` 调用，还是团队成员正在查看的 dashboard 面板，都是如此。两个不同的查看者用相同参数运行同一个程序，完全可能合法地得到两个不同的结果：一个配置了 HubSpot 密钥而另一个没有，或者行级别的 provider 权限因人而异。
+
+正因如此，`hashDataProgramParams` 在缓存键中除了规范化的参数外，还纳入了调用者的身份。这对**共享 dashboard** 尤为重要：如果缓存仅按参数分键，第一个查看面板的人就会悄无声息地决定其他每个查看者所看到的内容，包括那些不具备产生该缓存结果所需凭据的查看者。按查看者划分范围，意味着缺少凭据的团队成员会在该面板上看到自己的身份验证错误，而不是别人的数据。
+
+## 安全模型 {#security}
+
+<Callout id="doc-block-dp-security" tone="success">
+
+**原始 provider 令牌永远不会到达模型或浏览器。** 离开沙箱的唯一内容，是 `emit()` 调用产生的 `{ rows, schema }`——与其他任何 run-code 执行、其他任何 dashboard 面板源相同的信任边界。
+
+</Callout>
+
+- **仅限服务器端。** 数据程序的代码只在服务器上的 `executeSandboxCode` 内部执行。无论是存储的源代码，还是它所触及的任何凭据，都不会发送到浏览器或模型——只有提交的行/schema 以及精简的运行元数据（行数、列、示例行）会被发送。
+- **凭据始终是调用查看者的，绝不是程序原作者的。** 参见上文的[刷新、TTL 与缓存语义](#per-viewer-cache)，了解这为何也决定了缓存键。
+- **`allowPublic: false` 是硬性不变量，而不是默认值。** 数据程序以与[扩展](/docs/extensions#security)相同的方式注册到共享注册表中，且禁用公开共享。公开的程序会让任何已认证用户以自己的令牌运行任意存储的代码——共享一个程序仅限于你的组织范围内，且始终只意味着"团队成员可以查看其缓存结果并触发重新运行"，绝不意味着"公众互联网可以执行它"。
+- **变更和执行类的 actions 无法从沙箱化的扩展/iframe 桥接中作为工具调用。** `save-data-program`、`preview-data-program`、`run-data-program` 和 `delete-data-program` 都是 `toolCallable: false`——只有 agent 或服务器端的读取路径可以调用它们，绝不能由打开者会话下的扩展 iframe 调用。`list-data-programs` 和 `get-data-program` 是只读的，并通过与其他任何 ownable 资源相同的共享辅助函数进行访问范围限定。
+- **程序的范围限定在创建它的那个 app 内。** 向查找传入 `appId`，意味着在共享数据库部署中，某个 app 创建的程序无法从另一个 app 的 agent 聊天中运行，即使调用者在行级别（所有者/组织/共享）原本对其拥有访问权限。
+- **只绑定或查看你信任的程序。** 由于执行始终使用查看者自己的凭据，查看一个共享程序的结果，就完全等同于打开别人的扩展——要信任的是代码本身，而不仅仅是访问授权。
+
+## Risk Meeting 实战示例 {#risk-meeting-example}
+
+analytics 模板附带了一个具体、可运行的案例研究：`ensure-risk-meeting-dashboard` action 会幂等地安装两个数据程序，外加一个双面板的"Risk Meeting" dashboard，展示了硬编码 action 无法为每个客户预见的三件事。
+
+<FileTree
+  id="doc-block-dp-risk-meeting-files"
+  title={"Risk Meeting 安装器"}
+  entries={[
+    {
+      path: "templates/analytics/actions/ensure-risk-meeting-dashboard.ts",
+      note: "幂等 action：按稳定名称更新两个程序，然后按 id 更新 dashboard",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-cohort.js",
+      note: "存储的程序负载——纯 JS 文本，不是构建源文件",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-pylon-early-warning.js",
+      note: "配套的早期预警程序",
+    },
+  ]}
+/>
+
+**`risk-meeting-cohort.js`** ——按任意的 `risk_status` 属性（一种预置 action 无法预见的、针对自定义值的 IN 搜索）搜索可配置的 CRM deal 群组，通过批量关联查询解析每个 deal 的公司，解析每个公司的域名，获取第二个不相关 provider 的账户情绪，并按域名将两者连接起来：
+
+```js
+// params: { riskStatuses?: string[], enterpriseOnly?: boolean }
+const riskStatuses = params.riskStatuses?.length
+  ? params.riskStatuses
+  : ["On the Radar", "Churn Risk", "Confirmed Churn", "No Save Attempted"];
+
+// 1. Arbitrary property IN-search — not expressible through a canned filter.
+const dealSearch = await providerFetchAll("crm-provider", "/deals/search", {
+  method: "POST",
+  body: {
+    filterGroups: [
+      {
+        filters: [
+          { propertyName: "risk_status", operator: "IN", values: riskStatuses },
+        ],
+      },
+    ],
+  },
+  itemsPath: "results",
+  pagination: {
+    cursorBodyPath: "after",
+    nextCursorPath: "paging.next.after",
+    maxPages: 20,
+  },
+});
+
+// 2-3. Batched deal -> company -> domain resolution (elided here; see the
+// real seed file for the full batching helper).
+
+// 4. A second, unrelated provider — zero bespoke glue action required.
+const accounts = await providerFetchAll("support-provider", "/accounts", {
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "pagination.cursor",
+    maxPages: 20,
+  },
+});
+
+// 5. Join + emit.
+const rows = dealSearch.items.map((deal) => ({
+  deal_id: deal.id,
+  risk_status: deal.properties.risk_status,
+  arr: Number(deal.properties.total_contract_value || 0),
+  // ...domain lookup + sentiment join...
+}));
+
+emit(rows, [
+  { name: "deal_id", type: "string" },
+  { name: "risk_status", type: "string" },
+  { name: "arr", type: "number" },
+]);
+```
+
+**`risk-meeting-pylon-early-warning.js`** ——配套视图：已经被支持情绪标记为风险、但**尚未**出现在上述 CRM 群组中的账户。这个差距——支持信号领先于 CRM 信号——需要把一个 provider 的群组从另一个 provider 的群组中排除，这正是单一 vendor 的 action 无法表达的跨 provider 集合逻辑。
+
+这两个程序都由 `ensure-risk-meeting-dashboard` 安装并保持更新，它会：
+
+- 按稳定的 `name` 更新每个程序，因此重新运行安装器会更新相同的行，而不是重复创建。
+- 安装时不需要 CRM/支持类凭据——provider 身份验证只有在面板真正被渲染或调用了 `run-data-program` 时才按查看者解析，与上文的按查看者缓存范围划分保持一致。
+- 构建一个双面板 dashboard，其面板使用 `source: "program"`，绑定到各自程序的 id。
+
+完整带注释的源码请参见 `data-programs` skill。
+
+## 其他 app 如何采用面板源 {#adopting-the-panel-source}
+
+`"program"` dashboard 面板源是该基础组件的一种采用方式，完全实现在宿主 app 自己的面板查询层中——`@agent-native/core/data-programs` 本身没有内置任何 dashboard 专属的东西。analytics 模板的实现是接入你自己系统的一个有用参考：
+
+- 面板的 `sql` 列携带一个小型 JSON 描述符——`{ programId, params? }`——而不是查询字符串。
+- 渲染面板会以 `triggeredBy: "panel_view"` 和当前查看者的身份调用 `runDataProgram`，因此按查看者的缓存和凭据解析会自动生效。
+- 成功时，面板获得 `{ rows, schema }`——与其他任何面板源返回的形状相同，因此可以不加修改地流经现有的图表/表格组件。
+- 失败时，只要存在 `lastGoodRun`，就会优先使用它而不是显示损坏的面板；只有在没有此前成功记录时，面板才会展示结构化错误（对 `access_denied`、`archived`、`background_pending` 等常见代码有更友好的文案）。
+
+任何 app 都可以为自己的 dashboard/表格实现同样的采用方式：从你自己的读取路径调用 `run-data-program`（如果在同一个服务器进程内，也可以直接调用 `runDataProgram`），并将返回的 `rows`/`schema` 交给你自己的渲染组件。
+
+## 相关文档 {#related}
+
+- [扩展（Extensions）](/docs/extensions) ——数据程序与之共享安全姿态和共享模型的沙箱化 mini-app 基础组件，但拥有自己的 UI。
+- [Actions](/docs/actions) ——数据程序所构建于其上的 `run-code` 约定和沙箱全局对象（`providerFetch`、`appAction` 等）。
+- [共享与隐私](/docs/sharing) ——数据程序所使用的、仅限组织内部、绝不公开的共享模型。
+- [安全](/docs/security) ——框架的凭据处理与访问范围限定不变量。

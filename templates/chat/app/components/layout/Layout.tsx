@@ -6,6 +6,7 @@ import {
   useAgentChatHomeHandoffLinks,
   useT,
 } from "@agent-native/core/client";
+import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -21,7 +22,6 @@ import { APP_TITLE } from "@/lib/app-config";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { Header } from "./Header";
-import { HeaderActionsProvider } from "./HeaderActions";
 import { Sidebar } from "./Sidebar";
 
 interface LayoutProps {
@@ -168,6 +168,7 @@ export function Layout({ children }: LayoutProps) {
             openOnChatRunning={chatHomeHandoffActive}
             onFullscreenRequest={openAskAgentFullscreen}
             emptyStateText={t("chat.inspectEmptyState")}
+            agentPageHref="/agent"
             suggestions={[
               t("chat.inspectSuggestionCapabilities"),
               t("chat.inspectSuggestionHello"),

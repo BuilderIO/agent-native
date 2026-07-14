@@ -1,8 +1,7 @@
 import { appBasePath, PromptComposer, useT } from "@agent-native/core/client";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
-
-import { toast } from "@/hooks/use-toast";
+import { toast } from "sonner";
 
 import { GoogleDocImportHint } from "./GoogleDocImportHint";
 
@@ -151,13 +150,11 @@ export default function PromptPopover({
         const uploaded = await uploadFiles(files);
         onSubmit(enrichedText, uploaded);
       } catch (error) {
-        toast({
-          title: t("raw.uploadFailed"),
+        toast.error(t("raw.uploadFailed"), {
           description:
             error instanceof Error
               ? error.message
               : t("raw.uploadAttachedFailed"),
-          variant: "destructive",
         });
       }
     },

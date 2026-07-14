@@ -7,6 +7,7 @@ import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
 import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
+import { assertPublishableForm } from "./lib/assert-publishable-form.js";
 
 function slugify(text: string): string {
   return text
@@ -17,7 +18,8 @@ function slugify(text: string): string {
 }
 
 export default defineAction({
-  description: "Update an existing form.",
+  description:
+    "Update an existing form, including settings.emailOnNewResponses to email the form owner when new responses arrive.",
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),
@@ -33,7 +35,9 @@ export default defineAction({
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
-      .describe("Form settings object (or JSON string of the same)"),
+      .describe(
+        "Form settings object (or JSON string of the same). Set emailOnNewResponses=true to email the form owner for each new response.",
+      ),
     status: z
       .enum(["draft", "published", "closed"])
       .optional()
@@ -118,42 +122,7 @@ export default defineAction({
         effectiveFields = [];
       }
 
-      const issues: string[] = [];
-      if (effectiveFields.length === 0) {
-        issues.push("form has no fields");
-      }
-      const optionTypes = new Set(["select", "multiselect", "radio"]);
-      for (const [idx, field] of effectiveFields.entries()) {
-        const label = String(field?.label ?? "").trim();
-        if (!label) {
-          issues.push(`field #${idx + 1} is missing a label`);
-        }
-        if (
-          optionTypes.has(field?.type) &&
-          (!Array.isArray(field?.options) || field.options.length === 0)
-        ) {
-          issues.push(`field "${label || `#${idx + 1}`}" has no options`);
-        }
-        // For required Number/Scale fields, conflicting min/max would
-        // render the field unsubmittable — block publish on that too.
-        if (
-          field?.required &&
-          (field?.type === "number" || field?.type === "scale") &&
-          field?.validation?.min !== undefined &&
-          field?.validation?.max !== undefined &&
-          Number(field.validation.min) > Number(field.validation.max)
-        ) {
-          issues.push(
-            `required field "${label || `#${idx + 1}`}" has min > max`,
-          );
-        }
-      }
-
-      if (issues.length > 0) {
-        throw new Error(
-          `Cannot publish: ${issues.join("; ")}. Fix these before publishing.`,
-        );
-      }
+      assertPublishableForm(effectiveFields);
     }
 
     await db

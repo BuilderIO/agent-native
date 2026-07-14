@@ -264,7 +264,7 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 | `google_drive` | 搜尋、匯入、檔案         | 大腦、內容、幻燈片       |
 | `hubspot`      | 搜尋、匯入、crm          | 分析、大腦、郵件         |
 | `granola`      | 搜尋、匯入、會議、檔案   | 大腦、行事曆、調度       |
-| `clips`        | 搜尋、匯入、會議         | 大腦、剪輯、影片         |
+| `clips`        | 搜尋、匯入、會議         | 大腦、剪輯               |
 | `generic`      | 搜尋、匯入、檔案         | 自訂 webhooks 和檔案投放 |
 
 憑證金鑰僅為名稱，例如 `SLACK_BOT_TOKEN` 或 `GITHUB_TOKEN`。提供者中繼資料絕不能包含實際的憑證值。
@@ -423,10 +423,9 @@ Brain's Sources 頁面是參考實現。它在 Brain 來源紀錄旁邊顯示可
 
 ### 調度控制平面設定
 
-Dispatch 公開了控制平面 actions，該控制平面編寫應用程式可以直接呼叫的相同共用儲存函式：
+Dispatch 提供控制平面 actions，它們使用應用程式可直接呼叫的相同共用儲存函式 — 其中 `upsert-workspace-connection` action 會根據提供者目錄驗證輸入，然後委派給本頁所示的同一個 `upsertWorkspaceConnection()`：
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -491,3 +490,11 @@ await upsertWorkspaceConnectionGrant({
 保持嚴格的邊界：提供者中繼資料可以安全地顯示；憑證值保留在保管庫中。
 
 </details>
+
+## 接下來 {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — 通常負責工作區連線設定和保管庫的應用程式
+- [**安全性**](/docs/security) — 連線所指向的憑證保管庫、機密範圍和存取模型
+- [**入門設定**](/docs/onboarding#checking-workspace-connections-in-onboarding) — 從範本設定清單檢查連線就緒狀態
+- [**MCP 用戶端**](/docs/mcp-clients) — 在工作區中共用 MCP 伺服器憑證的相關可重用設定模式
+- [**Brain**](/docs/template-brain) — 基於此模型建構提供者 Sources 頁面的參考實作

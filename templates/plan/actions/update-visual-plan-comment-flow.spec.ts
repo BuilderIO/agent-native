@@ -31,6 +31,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   inArray: (...args: unknown[]) => ({ op: "inArray", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
+  sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 
 vi.mock("@agent-native/core", async (importOriginal) => ({
@@ -667,7 +668,11 @@ describe("update-visual-plan comment path (integration)", () => {
       const txSelect = vi.fn(() => ({
         from: vi.fn(() => ({ where: vi.fn(async () => []) })),
       }));
+      const transactionMock = vi.fn(async (cb) =>
+        cb({ insert: txInsert, update: txUpdate, select: txSelect }),
+      );
       getDbMock.mockReturnValue({
+        transaction: transactionMock,
         insert: txInsert,
         update: txUpdate,
         select: vi.fn(() => ({
@@ -846,7 +851,11 @@ describe("update-visual-plan comment path (integration)", () => {
       const txSelect = vi.fn(() => ({
         from: vi.fn(() => ({ where: vi.fn(async () => []) })),
       }));
+      const transactionMock = vi.fn(async (cb) =>
+        cb({ insert: txInsert, update: txUpdate, select: txSelect }),
+      );
       getDbMock.mockReturnValue({
+        transaction: transactionMock,
         insert: txInsert,
         update: txUpdate,
         select: vi.fn(() => ({
@@ -930,7 +939,11 @@ describe("update-visual-plan comment path (integration)", () => {
       const txSelect2 = vi.fn(() => ({
         from: vi.fn(() => ({ where: vi.fn(async () => []) })),
       }));
+      const transactionMock2 = vi.fn(async (cb) =>
+        cb({ insert: txInsert2, update: txUpdate2, select: txSelect2 }),
+      );
       getDbMock.mockReturnValue({
+        transaction: transactionMock2,
         insert: txInsert2,
         update: txUpdate2,
         select: vi.fn(() => ({

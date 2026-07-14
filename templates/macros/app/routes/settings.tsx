@@ -2,13 +2,14 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
+import { useMemo } from "react";
 
-import { useSetPageTitle } from "@/components/layout/HeaderActions";
-import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
@@ -27,18 +28,33 @@ export function meta() {
 
 export default function SettingsRoute() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   useSetPageTitle(t("settings.title"));
+
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "macros-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+    ],
+    [t],
+  );
 
   return (
     <SettingsTabsPage
       teamLabel={t("team.title")}
+      extraTabs={agentSettingsTabs}
+      generalSearchEntries={generalSearchEntries}
       general={
-        <div className="mx-auto w-full max-w-3xl space-y-6">
+        <div className="mx-auto w-full max-w-2xl space-y-6">
           <p className="text-sm leading-6 text-muted-foreground">
             {t("settings.description")}
           </p>
 
-          <Card>
+          <Card id="language" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-base">
                 {t("settings.languageTitle")}
@@ -52,22 +68,6 @@ export default function SettingsRoute() {
               <LanguagePicker label={t("settings.languageLabel")} />
             </CardContent>
           </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-base">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
-            </CardContent>
-          </Card>
         </div>
       }
       team={
@@ -79,7 +79,7 @@ export default function SettingsRoute() {
         </div>
       }
       whatsNew={
-        <div className="mx-auto w-full max-w-3xl">
+        <div className="mx-auto w-full max-w-2xl">
           <ChangelogSettingsCard markdown={changelog} />
         </div>
       }

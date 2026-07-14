@@ -25,21 +25,22 @@ pub struct MeetingItem {
 
 pub const MEETING_ID_PREFIX: &str = "meeting:";
 
-/// Build the "Upcoming Meetings" submenu populated with up to 3 events. If
+/// Build the "Start Meeting Notes" submenu populated with up to 3 events. If
 /// the list is empty, returns a submenu containing a single disabled "No
-/// upcoming meetings" item — keeps the menu structure stable.
+/// meetings ready" item — keeps the menu structure stable. Selecting a real
+/// meeting starts live notes immediately.
 pub fn build_meetings_section(
     app: &AppHandle,
     upcoming: Vec<MeetingItem>,
 ) -> Result<Submenu<Wry>, Box<dyn std::error::Error>> {
     let mut builder: SubmenuBuilder<'_, Wry, AppHandle> =
-        SubmenuBuilder::new(app, "Upcoming Meetings");
+        SubmenuBuilder::new(app, "Start Meeting Notes");
 
     if upcoming.is_empty() {
         let placeholder = MenuItem::with_id(
             app,
             "meeting:none",
-            "No upcoming meetings",
+            "No meetings ready",
             false,
             None::<&str>,
         )?;

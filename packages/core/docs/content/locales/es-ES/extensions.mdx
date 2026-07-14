@@ -11,6 +11,16 @@ Si ha utilizado QuickBooks Online, habrá visto el modelo: QBO incluye un produc
 
 El marco importa: una extensión no es un entorno limitado genérico de "haz lo que quieras". Es una **miniaplicación que amplía una plantilla específica** (correo, análisis, calendario, clips, diseño) y utiliza el actions y los datos de esa plantilla. Una extensión de correo lee correos electrónicos. Una extensión de Analytics lee las métricas de un panel. Una extensión de Calendario actúa sobre el evento abierto. Se sienten parte del producto anfitrión porque _son_ parte del producto anfitrión.
 
+> **Las extensiones añaden interfaz; no reescriben la interfaz de la aplicación
+> anfitriona.** Una extensión se muestra en su propia página o dentro de una
+> [ranura](#slots) con nombre que expone la plantilla. No puede insertar
+> elementos en componentes nativos arbitrarios —por ejemplo, junto a cada
+> asistente en Calendario— a menos que la plantilla exponga una ranura allí.
+> Para una personalización más profunda, pide al agente que edite el código
+> fuente de la plantilla. La personalización completa del código es una
+> capacidad central de Agent Native; las extensiones son la capa rápida y sin
+> despliegues.
+
 Tres cosas hacen que las extensiones funcionen:
 
 - **Sin código, sin implementación.** El agente los escribe y están activos en segundos. Almacenado en la base de datos, no en el repositorio.
@@ -34,7 +44,7 @@ agente de aplicación intacto.
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -227,7 +237,7 @@ Dentro del entorno limitado de iframe, cada extensión tiene estos ayudantes en 
 | `appAction(name, params)`                        | Llame a cualquiera de los actions de la plantilla de host              | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Llamar a los puntos finales del marco permitidos en `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql, args)`                             | Leer desde SQL (con alcance automático para el usuario)                | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Escribir en SQL                                                        | `dbExec('INSERT INTO ...')`                               |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions                  | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | Accede a API externos a través de un proxy seguro con secretos         | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Persistir datos por extensión (alcance usuario/organización)           | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | Listar elementos persistentes                                          | `extensionData.list('notes', { scope: 'all' })`           |
@@ -397,7 +407,7 @@ Las extensiones locales tienen un modelo de permisos v1 más estricto:
 
 - `extensionData` está disponible para estados de tiempo de ejecución pequeños a menos que esté deshabilitado.
 - Las llamadas `appAction` deben aparecer explícitamente en `permissions.appActions`.
-- `dbQuery`, `dbExec` y `extensionFetch` están bloqueados por ahora.
+- `dbQuery` y `extensionFetch` están bloqueados por ahora.
 - La actualización, eliminación, uso compartido y el historial respaldados por SQL actions devuelven un mensaje que
   apunta al archivo de entrada local.
 
@@ -430,6 +440,8 @@ El marco permite al agente editar el código fuente de la aplicación directamen
 
 Regla general: **si es para un usuario o un equipo, es una extensión.** Si todos los usuarios de la plantilla deben obtenerla, envíela como una característica real.
 
+Para la obtención de datos personalizada que deba alimentar gráficos y tablas nativos en lugar de una UI de widget a medida, vea [Programas de datos](/docs/data-programs) — un script `run-code` almacenado y actualizable al que los paneles de dashboard se vinculan directamente, sin ningún iframe de extensión de por medio.
+
 ## Seguridad {#security}
 
 <Callout id="doc-block-frp4nq" tone="success">
@@ -444,7 +456,7 @@ Extensiones ejecutadas en un iframe de espacio aislado:
 - **Inyección de secretos del lado del servidor** a través de la plantilla `${keys.NAME}`: el valor de la clave real nunca llega al navegador.
 - **Secretos bloqueados por dominio**: cada clave está vinculada a una lista de permitidos URL; el proxy rechaza solicitudes a otros hosts.
 - **Protección de red privada**: las extensiones no pueden acceder a direcciones internas.
-- **Se requiere autenticación**: las extensiones solo se ejecutan para usuarios que han iniciado sesión y las llamadas `dbQuery`/`dbExec` tienen un alcance automático.
+- **Se requiere autenticación**: las extensiones solo se ejecutan para usuarios que han iniciado sesión y las llamadas `dbQuery` tienen un alcance automático.
 
 ## Algunas cosas que debes saber sobre los nombres {#naming-back-compat}
 

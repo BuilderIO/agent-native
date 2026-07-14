@@ -62,8 +62,10 @@ export const createRecordingSchema = z.object({
     .describe("Height of the recording in pixels (may be 0 until finalized)"),
   visibility: z
     .enum(["private", "org", "public"])
-    .optional()
-    .describe("Initial share visibility for the recording"),
+    .default("public")
+    .describe(
+      "Initial share visibility for the recording (defaults to public)",
+    ),
   mimeType: z
     .string()
     .optional()
@@ -74,6 +76,12 @@ export const createRecordingSchema = z.object({
     .boolean()
     .optional()
     .describe(
-      "Opt in to the resumable streaming upload path. Only send this when the caller can produce 256 KiB-aligned chunks (GCS requirement). Defaults to false — callers that omit this always get the buffered path.",
+      "Request the resumable streaming upload path. Hosted deployments use it automatically because SQL chunk buffering is unavailable; local deployments can opt in with CLIPS_ENABLE_STREAMING_UPLOAD.",
+    ),
+  streamingUploadClient: z
+    .enum(["desktop-native"])
+    .optional()
+    .describe(
+      "Optional client implementation marker for diagnostics and compatibility decisions.",
     ),
 });

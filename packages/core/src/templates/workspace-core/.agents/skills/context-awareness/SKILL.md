@@ -65,6 +65,10 @@ const navigation = await readAppState("navigation");
 
 Raw URL query params are already synced by the framework to `__url__` and shown to the built-in agent as `<current-url>`. Keep shareable filters in URL state, then use `view-screen` to summarize important query params as `activeFilters` when helpful.
 
+Keep `application_state` values small. Do not store pasted files, base64 images,
+recording chunks, screenshots, or other large blobs in navigation or app-state
+keys; upload them and store only a URL or storage handle.
+
 ### 2. Current URL (`__url__` key)
 
 `AgentPanel` automatically writes `__url__` with `{ pathname, search, hash, searchParams }`. The built-in agent sees it as a `<current-url>` block in every turn.

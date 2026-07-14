@@ -1,4 +1,5 @@
 import { isChangeOrigin } from "@tiptap/extension-collaboration";
+import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 import type { Transaction } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useRef, useState, type MutableRefObject } from "react";
@@ -7,9 +8,13 @@ import type { Doc as YDoc } from "yjs";
 
 import { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 import { isReconcileLeadClient } from "../../collab/client.js";
+import {
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
+  applyDocSurgically,
+  defaultParseValue,
+} from "./surgical-apply.js";
 
-export const RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION =
-  "an-rich-md-programmatic-transaction";
+export { RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION };
 
 /** Reads the current markdown out of the tiptap-markdown storage. */
 export function getEditorMarkdown(editor: Editor): string {
@@ -43,6 +48,8 @@ export interface UseCollabReconcileOptions {
   editor: Editor | null;
   /** Shared Y.Doc when collaborating; null disables all collab paths. */
   ydoc?: YDoc | null;
+  /** True after the collab provider has loaded the persisted initial Y.Doc state. */
+  collabSynced?: boolean;
   /** Shared awareness; null keeps the sole-client lead path. */
   awareness?: Awareness | null;
   /** Authoritative markdown value (SQL source of truth). */
@@ -71,6 +78,22 @@ export interface UseCollabReconcileOptions {
     value: string,
     options: { emitUpdate?: boolean; addToHistory?: boolean },
   ) => void;
+  /**
+   * Parses the authoritative `value` into a full ProseMirror document for the
+   * SURGICAL reconcile path: instead of a whole-document `setContent` (which
+   * under Collaboration rewrites the entire Y.XmlFragment and tears down every
+   * block NodeView), the reconcile diffs the parsed doc against the live doc
+   * and replaces only the changed top-level run. Return null to skip the
+   * surgical path for a given value (falls back to `setContent`).
+   *
+   * Defaults to a best-effort tiptap-markdown parse; apps with their own
+   * serializers (Content's NFM, Plan's blocks[] doc) should supply the exact
+   * doc their `setContent` would write. Pass `false` to disable surgical
+   * application entirely.
+   */
+  parseValue?:
+    | ((editor: Editor, value: string) => ProseMirrorNode | null)
+    | false;
   /**
    * Normalizes the authoritative `value` to the canonical markdown the editor
    * would emit, so the "already in sync / our own echo" equality checks match a
@@ -192,12 +215,14 @@ function defaultSetContent(
 export function useCollabReconcile({
   editor,
   ydoc = null,
+  collabSynced = true,
   awareness = null,
   value,
   contentUpdatedAt,
   editable,
   getMarkdown = getEditorMarkdown,
   setContent = defaultSetContent,
+  parseValue,
   normalizeValue = (v) => v,
   shouldSeed = defaultShouldSeed,
   initialAppliedUpdatedAt,
@@ -274,6 +299,7 @@ export function useCollabReconcile({
   useEffect(() => {
     if (!collab || !editor || editor.isDestroyed || !ydoc) return;
     if (seededRef.current) return;
+    if (!collabSynced) return;
     if (!isLeadClient) return;
     if (!value.trim()) return;
     const fragment = ydoc.getXmlFragment("default");
@@ -282,21 +308,38 @@ export function useCollabReconcile({
     // no nodes yet, or it holds no semantic markdown (an empty paragraph, or an
     // app's sentinel-empty filler via a custom `shouldSeed`).
     if (
-      shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
+      !shouldSeed({ value, currentMarkdown, fragmentLength: fragment.length })
     ) {
+      seededRef.current = true;
+      return;
+    }
+
+    let cancelled = false;
+    // Defer via a timer task (NOT a microtask — microtasks can still run
+    // inside React's commit and trigger flushSync-from-lifecycle warnings).
+    const seedTimer = setTimeout(() => {
+      if (cancelled || editor.isDestroyed) return;
       isSettingContentRef.current = true;
-      setContent(editor, value, {});
-      isSettingContentRef.current = false;
+      try {
+        setContent(editor, value, {});
+      } finally {
+        isSettingContentRef.current = false;
+      }
       const serialized = getMarkdown(editor);
       lastEmittedRef.current = serialized;
       pushEmittedRing(recentEmittedRef.current, serialized);
       lastAppliedValueRef.current = value;
       lastAppliedSerializedRef.current = serialized;
       if (contentUpdatedAt) lastAppliedUpdatedAtRef.current = contentUpdatedAt;
-    }
-    seededRef.current = true;
+      seededRef.current = true;
+    }, 0);
+    return () => {
+      cancelled = true;
+      clearTimeout(seedTimer);
+    };
   }, [
     collab,
+    collabSynced,
     editor,
     ydoc,
     value,
@@ -326,7 +369,7 @@ export function useCollabReconcile({
       if (cancelled || editor.isDestroyed) return;
       // In collab mode, defer all reconcile until the shared doc is seeded so we
       // never setContent over an unseeded fragment.
-      if (collab && !seededRef.current) {
+      if (collab && (!collabSynced || !seededRef.current)) {
         retry = setTimeout(() => apply(deferred), 300);
         return;
       }
@@ -342,6 +385,8 @@ export function useCollabReconcile({
       const editorUnchangedSinceApply =
         lastAppliedSerializedRef.current !== null &&
         currentMarkdown === lastAppliedSerializedRef.current;
+      const typingRecently =
+        editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
 
       // Doc-equivalence skip. Never re-apply content the editor already
       // represents — comparing by DOC EQUIVALENCE, not raw strings/timestamps:
@@ -364,11 +409,15 @@ export function useCollabReconcile({
       //      `<p>` → `&lt;p&gt;` → `&amp;lt;p&amp;gt;` escalation.
       if (
         currentMarkdown === normalizedValue ||
-        value === lastEmittedRef.current ||
-        // A stale-but-recent echo of our own (possibly partial) save — applying
-        // it would clobber the freshly-typed tail. External edits never match.
-        recentEmittedRef.current.includes(value) ||
-        recentEmittedRef.current.includes(normalizedValue) ||
+        (typingRecently &&
+          // A stale echo of our own (possibly partial) save while the user is
+          // actively typing would clobber the fresh tail. Outside active
+          // typing, the same bytes can be a deliberate newer external revert
+          // (history restore / provider conflict choice) and must be allowed
+          // through even if mount-time normalization emitted them.
+          (value === lastEmittedRef.current ||
+            recentEmittedRef.current.includes(value) ||
+            recentEmittedRef.current.includes(normalizedValue))) ||
         (editorUnchangedSinceApply &&
           (value === lastAppliedValueRef.current ||
             normalizedValue === lastAppliedSerializedRef.current))
@@ -399,8 +448,6 @@ export function useCollabReconcile({
       // for non-idempotent input, fight every keystroke. Newer external content
       // retries so it still lands once they pause; older-or-equal content is a
       // stale poll and is dropped outright while focused.
-      const typingRecently =
-        editor.isFocused && Date.now() - lastTypedAtRef.current < 1500;
       if (typingRecently) {
         if (externalNewer) {
           retry = setTimeout(() => apply(deferred), 700);
@@ -427,10 +474,10 @@ export function useCollabReconcile({
         return;
       }
 
-      queueMicrotask(() => {
+      const applyTimer = setTimeout(() => {
         if (cancelled || editor.isDestroyed) return;
         // Re-check doc-equivalence at apply time. Between the decision above and
-        // this microtask a peer/Yjs edit (or our own prior apply) may have made
+        // this task a peer/Yjs edit (or our own prior apply) may have made
         // the editor already represent this value — re-applying would be a
         // wasted setContent that, for non-idempotent input, re-triggers the
         // loop. Skip when the editor's current serialization already matches the
@@ -452,7 +499,23 @@ export function useCollabReconcile({
           return;
         }
         isSettingContentRef.current = true;
-        setContent(editor, value, { emitUpdate: false, addToHistory: false });
+        // Surgical path first: replace only the changed top-level run so
+        // unchanged block NodeViews are never torn down and (under
+        // Collaboration) Yjs sees a minimal edit instead of a full-fragment
+        // rewrite. Falls back to the classic whole-document setContent when no
+        // parser is available or the targeted transaction cannot be applied.
+        let appliedSurgically = false;
+        if (parseValue !== false) {
+          const parse = parseValue ?? defaultParseValue;
+          const parsedDoc = parse(editor, value);
+          if (parsedDoc) {
+            const result = applyDocSurgically(editor, parsedDoc);
+            appliedSurgically = result === "applied" || result === "noop";
+          }
+        }
+        if (!appliedSurgically) {
+          setContent(editor, value, { emitUpdate: false, addToHistory: false });
+        }
         isSettingContentRef.current = false;
         // Capture the SERIALIZED result, not the raw value. For non-idempotent
         // input these differ; recording the serialized output is what lets the
@@ -466,7 +529,8 @@ export function useCollabReconcile({
         if (contentUpdatedAt) {
           lastAppliedUpdatedAtRef.current = contentUpdatedAt;
         }
-      });
+      }, 0);
+      retry = applyTimer;
     };
 
     apply();
@@ -479,14 +543,23 @@ export function useCollabReconcile({
     editor,
     value,
     collab,
+    collabSynced,
     isLeadClient,
     getMarkdown,
     setContent,
+    parseValue,
     normalizeValue,
   ]);
 
   const shouldIgnoreUpdate = (transaction: Transaction): boolean => {
     if (!editable || isSettingContentRef.current) return true;
+    // Collaboration can emit schema/default-paragraph transactions while the
+    // persisted Y.Doc is still loading and before the authoritative value has
+    // seeded/reconciled. Never let those transient pre-seed updates reach an
+    // app's local mirror or autosave path (Content serializes an empty paragraph
+    // as `<empty-block/>`, which is non-empty text and bypasses the generic
+    // registerEmitted empty-string guard).
+    if (collab && !seededRef.current) return true;
     if (transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION)) {
       return true;
     }

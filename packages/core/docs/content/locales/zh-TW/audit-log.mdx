@@ -73,10 +73,11 @@ export default defineAction({
 
 ## 閱讀蹤跡 {#reading}
 
-每個應用程式中的代理**和**前端都可以使用兩個讀取的actions，呼叫者的範圍在 SQL 中 - 它們永遠不會返回其他租戶的行：
+每個應用程式中的代理**和**前端都可以使用三個讀取的actions，呼叫者的範圍在 SQL 中 - 它們永遠不會返回其他租戶的行：
 
 - **`list-audit-events`** — 按 `targetType` / `targetId`、`actorKind` (`agent` | `human` | `system`)、`status`、`threadId` / `turnId`、`action` 過濾， `sinceMs`、`limit`。
 - **`get-audit-event`** — 按 id 的一個事件，包括其經過編輯的輸入負載。
+- **`export-audit-events`** — 以 CSV 或 NDJSON 形式批量匯出稽核記錄，而不必手動翻頁 `list-audit-events`，用於離線合規性擷取。使用與 `list-audit-events` 相同的篩選條件（不含 `limit`），另加 `format`（`csv` | `ndjson`，預設 `csv`）和 `maxRows`（預設 5000，硬上限 10000），回傳 `{ content, rowCount, truncated, format }` —— `truncated: true` 表示符合的資料列超過 `maxRows` 允許的數量。它本身也是一次敏感讀取，透過 `audit: { onRead: true }` 進行稽核。
 
 透過使用 `useActionQuery` 從 UI 呼叫 `list-audit-events` 來建置活動來源或“誰更改了此”行 - 切勿手寫對審核表的擷取：
 

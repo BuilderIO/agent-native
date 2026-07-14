@@ -20,26 +20,30 @@
   "scripts": {
     "dev": "electron-vite dev",
     "build": "electron-vite build",
-    "build:mac": "electron-vite build && electron-builder --mac --config",
+    "build:native:mac": "bash native/build-macos-helper.sh",
+    "build:chrome-extension": "pnpm --dir ../agent-chrome-extension build",
+    "build:mac": "node ../../scripts/build-branding-assets.mjs && pnpm build:native:mac && pnpm build:chrome-extension && electron-vite build && electron-builder --mac --config",
     "preview": "electron-vite preview",
-    "typecheck": "tsgo --noEmit"
+    "test:computer-control": "vitest run src/main/computer-control src/main/browser-control src/main/app-store.privacy.test.ts src/main/privacy-regressions.test.ts",
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@agent-native/code-agents-ui": "workspace:*",
     "@agent-native/core": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
-    "@radix-ui/react-select": "2.2.6",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "@sentry/electron": "^7.14.0",
     "@tabler/icons-react": "^3.40.0",
+    "@tanstack/react-query": "5.101.2",
     "electron-updater": "^6.8.3",
-    "sonner": "^2.0.7"
+    "sonner": "^2.0.7",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.0",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@typescript/native-preview": "catalog:",
     "@vitejs/plugin-react-swc": "^4.0.0",
     "electron": "^41.2.2",
     "electron-builder": "^26.8.1",
@@ -47,8 +51,9 @@
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "tailwindcss": "^4.3.0",
-    "typescript": "^6.0.3",
-    "vite": "catalog:"
+    "typescript-7": "catalog:",
+    "vite": "catalog:",
+    "vitest": "^4.1.10"
   },
   "productName": "Agent Native"
 }

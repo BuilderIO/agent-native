@@ -2,10 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AvailabilityConfig } from "../../shared/api";
 import * as googleCalendar from "../lib/google-calendar.js";
-import { generateAvailableSlotsForDate, getConflictItems } from "./bookings";
+import {
+  generateAvailableSlotsForDate,
+  getConflictItems,
+  resolveBookingCalendarAccount,
+} from "./bookings";
 
 vi.mock("../lib/google-calendar.js", () => ({
   getFreeBusy: vi.fn(),
+  getDefaultAccountSelection: vi.fn(),
   isConnected: vi.fn(),
   listEvents: vi.fn(),
 }));
@@ -127,10 +132,26 @@ describe("booking availability", () => {
     expect(googleCalendar.getFreeBusy).not.toHaveBeenCalled();
   });
 
-  it("marks owner availability unavailable when Google free/busy reports errors", async () => {
+  it("marks owner availability unavailable when Google free/busy reports errors, ignoring any listEvents data", async () => {
     vi.mocked(googleCalendar.getFreeBusy).mockResolvedValue({
       calendars: {},
       errors: [{ email: "host@example.com", error: "invalid_grant" }],
+    });
+    // getConflictItems fetches freeBusy and listEvents in parallel for
+    // performance, but the freeBusy-error path must still take priority and
+    // discard any listEvents data — even when listEvents "succeeds" with
+    // events that would otherwise produce conflict items.
+    vi.mocked(googleCalendar.listEvents).mockResolvedValue({
+      events: [
+        {
+          id: "evt-1",
+          title: "Should be ignored",
+          start: "2026-07-20T15:00:00.000Z",
+          end: "2026-07-20T16:00:00.000Z",
+          allDay: false,
+        } as any,
+      ],
+      errors: [],
     });
 
     const result = await getConflictItems({
@@ -148,7 +169,6 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
-    expect(googleCalendar.listEvents).not.toHaveBeenCalled();
   });
 
   it("marks owner availability unavailable when Google event listing reports errors", async () => {
@@ -172,5 +192,70 @@ describe("booking availability", () => {
       unavailableReason:
         "Calendar availability unavailable for host@example.com",
     });
+  });
+});
+
+describe("booking calendar account provenance", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("uses the account stored with the booking event", async () => {
+    const account = await resolveBookingCalendarAccount({
+      booking: {
+        slug: "alice-meeting",
+        ownerEmail: "alice@example.com",
+        calendarAccountId: "secondary@example.com",
+      },
+    });
+
+    expect(account).toEqual({
+      ownerEmail: "alice@example.com",
+      accountEmail: "secondary@example.com",
+    });
+    expect(googleCalendar.getDefaultAccountSelection).not.toHaveBeenCalled();
+  });
+
+  it("falls back to the current default for legacy booking rows", async () => {
+    vi.mocked(googleCalendar.getDefaultAccountSelection).mockResolvedValue({
+      ownerEmail: "alice@example.com",
+      accountEmail: "primary@example.com",
+    });
+
+    const account = await resolveBookingCalendarAccount({
+      booking: {
+        slug: "alice-meeting",
+        ownerEmail: "alice@example.com",
+        calendarAccountId: null,
+      },
+    });
+
+    expect(account).toEqual({
+      ownerEmail: "alice@example.com",
+      accountEmail: "primary@example.com",
+    });
+    expect(googleCalendar.getDefaultAccountSelection).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
+  });
+
+  it("prefers a resolved booking-link host over a legacy owner placeholder", async () => {
+    vi.mocked(googleCalendar.getDefaultAccountSelection).mockResolvedValue({
+      ownerEmail: "alice@example.com",
+      accountEmail: "primary@example.com",
+    });
+
+    await resolveBookingCalendarAccount({
+      booking: {
+        slug: "alice-meeting",
+        ownerEmail: "local@localhost",
+        calendarAccountId: null,
+      },
+      hostEmail: "alice@example.com",
+    });
+
+    expect(googleCalendar.getDefaultAccountSelection).toHaveBeenCalledWith(
+      "alice@example.com",
+    );
   });
 });

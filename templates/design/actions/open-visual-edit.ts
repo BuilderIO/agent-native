@@ -1,5 +1,3 @@
-import crypto from "node:crypto";
-
 import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -36,6 +34,9 @@ const screenRouteSchema = z.object({
   url: z.string().optional(),
   title: z.string().optional(),
   sourceFile: z.string().optional(),
+  sourceKind: z.enum(["react-router", "html", "manual"]).optional(),
+  screenshotUrl: z.string().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
   width: z.number().positive().optional(),
   height: z.number().positive().optional(),
   x: z.number().optional(),
@@ -88,15 +89,6 @@ function isLoopbackUrl(value: string): boolean {
   );
 }
 
-function stableConnectionId(devServerUrl: string, rootPath?: string) {
-  const hash = crypto
-    .createHash("sha256")
-    .update(`${devServerUrl}\n${rootPath ?? ""}`)
-    .digest("base64url")
-    .slice(0, 16);
-  return `localhost_${hash}`;
-}
-
 function designOverviewDeepLink(designId: string): string {
   return buildDeepLink({
     app: "design",
@@ -118,6 +110,11 @@ function routeManifestFromScreens(args: {
   if (screenInputs.length === 0) return undefined;
 
   return screenInputs.map((input) => {
+    if (!input.path && !input.url) {
+      throw new Error(
+        `Route "${input.routeId ?? "(unknown)"}" needs path or url when no routeManifest is provided.`,
+      );
+    }
     const url = routeUrl(args.devServerUrl, {
       path: input.path,
       url: input.url,
@@ -128,7 +125,9 @@ function routeManifestFromScreens(args: {
       path,
       title: input.title ?? titleFromRoutePath(path),
       sourceFile: input.sourceFile,
-      sourceKind: "manual" as const,
+      sourceKind: input.sourceKind ?? ("manual" as const),
+      screenshotUrl: input.screenshotUrl,
+      metadata: input.metadata,
     };
   });
 }
@@ -147,7 +146,7 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Existing localhost connection. Omit to reuse a stable connection for devServerUrl + rootPath.",
+        "Existing localhost connection. Omit to reuse a stable per-user connection for devServerUrl + rootPath.",
       ),
     title: z
       .string()
@@ -173,7 +172,16 @@ export default defineAction({
       .string()
       .optional()
       .describe(
-        "Real bridge token from the running bridge. Stored server-side only; never returned.",
+        "Optional bridge token to store on the connection (e.g. one a CLI " +
+          "self-registered). Omit it and the server mints one, stores it, and " +
+          "returns it as `bridgeToken` so the caller can start the local bridge " +
+          "with `design connect --bridge-token <token>`.",
+      ),
+    previewToken: z
+      .string()
+      .optional()
+      .describe(
+        "Optional paired read-only preview token from a self-registering CLI. Omit it with bridgeToken to derive the compatible token automatically.",
       ),
     routes: jsonArray(z.array(screenRouteSchema))
       .optional()
@@ -240,11 +248,11 @@ export default defineAction({
             }) ?? [],
           generatedAt: new Date().toISOString(),
         };
-    const connectionId =
-      args.connectionId ?? stableConnectionId(devServerUrl, args.rootPath);
-
     const connection = await connectLocalhostAction.run({
-      id: connectionId,
+      // Let connect-localhost be the single source of truth for stable
+      // per-user/per-org id derivation. Duplicating it here can create a second
+      // tokenless row after the CLI self-registers the bridge token.
+      id: args.connectionId,
       name: args.name,
       devServerUrl,
       bridgeUrl: args.bridgeUrl,
@@ -252,6 +260,7 @@ export default defineAction({
       routeManifest,
       capabilities: args.capabilities,
       bridgeToken: args.bridgeToken,
+      previewToken: args.previewToken,
       status: "connected",
     });
 
@@ -326,6 +335,10 @@ export default defineAction({
       overview: true,
       urlPath,
       openUrl: designOverviewDeepLink(designId),
+      // Minted/stored by connect-localhost; the skill starts the bridge with
+      // `design connect --bridge-token <this>` so bridge and row agree.
+      bridgeToken: connection.bridgeToken,
+      previewToken: connection.previewToken,
     };
   },
   link: ({ result }) => {

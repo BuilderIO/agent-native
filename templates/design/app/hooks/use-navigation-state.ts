@@ -3,17 +3,26 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client";
-import { useParams } from "react-router";
+import { useEffect } from "react";
+import { useLocation, useParams } from "react-router";
 
 export interface NavigationState {
   view: string;
   designId?: string;
   designSystemId?: string;
+  templateId?: string;
   editorView?: "single" | "overview";
-  inspectorTab?: "design" | "tweaks" | "extensions";
-  inspector?: "design" | "tweaks" | "extensions";
-  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  inspectorTab?: "design" | "comments" | "tweaks" | "extensions";
+  inspector?: "design" | "comments" | "tweaks" | "extensions";
+  leftPanel?:
+    | "file"
+    | "agent"
+    | "assets"
+    | "tools"
+    | "tokens"
+    | "import"
+    | "code";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import" | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -45,10 +54,17 @@ export interface DesignEditorCommand {
   designId: string;
   editorView?: "single" | "overview";
   viewMode?: "single" | "overview";
-  inspectorTab?: "design" | "tweaks" | "extensions";
-  inspector?: "design" | "tweaks" | "extensions";
-  leftPanel?: "file" | "agent" | "assets" | "tools" | "tokens";
-  panel?: "file" | "agent" | "assets" | "tools" | "tokens";
+  inspectorTab?: "design" | "comments" | "tweaks" | "extensions";
+  inspector?: "design" | "comments" | "tweaks" | "extensions";
+  leftPanel?:
+    | "file"
+    | "agent"
+    | "assets"
+    | "tools"
+    | "tokens"
+    | "import"
+    | "code";
+  panel?: "file" | "agent" | "assets" | "tools" | "tokens" | "import" | "code";
   fileId?: string;
   screenId?: string;
   filename?: string;
@@ -72,6 +88,28 @@ export function designEditorCommandKeysForTab(browserTabId?: string): string[] {
   return [designEditorCommandKey(browserTabId)];
 }
 
+export function designSelectionStateKeysForTab(
+  browserTabId?: string,
+): string[] {
+  return browserTabId
+    ? [`design-selection:${browserTabId}`, "design-selection"]
+    : ["design-selection"];
+}
+
+/**
+ * Route-level cleanup only owns this tab's scoped selection. The editor's
+ * owner-aware unmount cleanup is responsible for the global compatibility
+ * mirror; clearing that mirror here would let any tab that leaves /design
+ * erase another still-open editor tab's current agent context.
+ */
+export function designSelectionCleanupKeysForTab(
+  browserTabId?: string,
+): string[] {
+  return [
+    browserTabId ? `design-selection:${browserTabId}` : "design-selection",
+  ];
+}
+
 function normalizeEditorView(
   value: unknown,
 ): "single" | "overview" | undefined {
@@ -80,21 +118,34 @@ function normalizeEditorView(
 
 function normalizeInspectorTab(
   value: unknown,
-): "design" | "tweaks" | "extensions" | undefined {
-  return value === "design" || value === "tweaks" || value === "extensions"
+): "design" | "comments" | "tweaks" | "extensions" | undefined {
+  return value === "design" ||
+    value === "comments" ||
+    value === "tweaks" ||
+    value === "extensions"
     ? value
     : undefined;
 }
 
 function normalizeLeftPanel(
   value: unknown,
-): "file" | "agent" | "assets" | "tools" | "tokens" | undefined {
+):
+  | "file"
+  | "agent"
+  | "assets"
+  | "tools"
+  | "tokens"
+  | "import"
+  | "code"
+  | undefined {
   if (value === "extensions") return "tools";
   return value === "file" ||
     value === "agent" ||
     value === "assets" ||
     value === "tools" ||
-    value === "tokens"
+    value === "tokens" ||
+    value === "import" ||
+    value === "code"
     ? value
     : undefined;
 }
@@ -167,7 +218,16 @@ export function editorCommandFromNavigate(
 
 export function useNavigationState(enabled = true) {
   const params = useParams();
+  const location = useLocation();
   const browserTabId = getBrowserTabId();
+
+  useEffect(() => {
+    if (!enabled) return;
+    if (location.pathname.startsWith("/design/")) return;
+    for (const key of designSelectionCleanupKeysForTab(browserTabId)) {
+      setClientAppState(key, null).catch(() => {});
+    }
+  }, [browserTabId, enabled, location.pathname]);
 
   useAgentRouteState<NavigationState>({
     browserTabId,
@@ -184,6 +244,8 @@ export function useNavigationState(enabled = true) {
           searchParams.get("inspector"),
         );
         if (inspectorTab) state.inspectorTab = inspectorTab;
+        const leftPanel = normalizeLeftPanel(searchParams.get("panel"));
+        if (leftPanel) state.leftPanel = leftPanel;
         const screen = searchParams.get("screen");
         if (screen) state.screen = screen;
         const fileId = searchParams.get("fileId");
@@ -203,6 +265,10 @@ export function useNavigationState(enabled = true) {
         state.view = "design-systems";
         const designSystemId = searchParams.get("designSystemId");
         if (designSystemId) state.designSystemId = designSystemId;
+      } else if (pathname.startsWith("/templates")) {
+        state.view = "templates";
+        const templateId = searchParams.get("templateId");
+        if (templateId) state.templateId = templateId;
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
@@ -219,6 +285,11 @@ export function useNavigationState(enabled = true) {
         return cmd.designSystemId
           ? `/design-systems?designSystemId=${encodeURIComponent(cmd.designSystemId)}`
           : "/design-systems";
+      }
+      if (cmd.view === "templates") {
+        return cmd.templateId
+          ? `/templates?templateId=${encodeURIComponent(cmd.templateId)}`
+          : "/templates";
       }
       if (cmd.view === "present" && cmd.designId)
         return `/present/${cmd.designId}`;

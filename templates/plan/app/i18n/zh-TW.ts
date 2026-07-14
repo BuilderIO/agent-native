@@ -445,6 +445,9 @@ const messages = {
       requestAccessTitle: "請求存取此計畫",
       requestSent: "請求已傳送",
       retry: "重試",
+      sendFeedback: "傳送意見回饋",
+      feedbackPlaceholder: "描述此計畫錯誤出現前發生了什麼。",
+      openGitHubIssue: "開啟 GitHub issue",
       retryHelp: "重試載入，或者如果這是私人計畫連結，則使用其他帳戶登入。",
       signIn: "登入",
       signInTitle: "登入檢視此計畫",
@@ -464,6 +467,16 @@ const messages = {
     localPlanLoadError: {
       message: "無法讀取本機計畫資料夾“{{slug}}”。",
       title: "未找到本機計畫",
+    },
+    localPlanConnection: {
+      promptTitle: "連線至此本機計畫",
+      promptMessage:
+        "此計畫會保留在你的電腦上。Plan 需要瀏覽器權限，才能透過本機橋接讀取它。",
+      deniedTitle: "本機網路存取已遭封鎖",
+      deniedMessage:
+        "開啟瀏覽器中 Plan 的網站設定，允許存取本機網路，然後再次檢查。",
+      connect: "連線至本機計畫",
+      checkAgain: "再次檢查",
     },
     loggedOut: {
       copied: "已複製",

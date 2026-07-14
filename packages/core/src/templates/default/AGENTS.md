@@ -6,7 +6,7 @@ This is an **@agent-native/core** application -- the AI agent and UI share state
 
 ### Core Principles
 
-1. **Shared SQL database** -- All app state lives in SQL. Local SQLite at `data/app.db` is the zero-setup dev fallback; local PGlite is available as a Postgres-dialect opt-in with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
+1. **Shared SQL database** -- All app state lives in SQL. SQL stores structured records, metadata, references, and searchable text; large files/blob payloads must use file/blob storage and persist only URLs, ids, or handles. Never store large base64, `data:` URLs, images, videos, audio, PDFs, ZIPs, screenshots, thumbnails, or session replay chunks in SQL, `application_state`, `settings`, or `resources`. Local SQLite at `data/app.db` is the zero-setup dev fallback; local PGlite is available as a Postgres-dialect opt-in with `DATABASE_URL=pglite:./data/pglite` after installing `@electric-sql/pglite`. Deployed apps need a persistent `DATABASE_URL` so data survives container/serverless restarts. Turso is optional, not required: Neon, Supabase, Turso/libSQL, plain Postgres, durable SQLite, D1 bindings, and Builder.io-managed environments are all valid when supported by the deploy. Core stores: `application_state`, `settings`, `oauth_tokens`, `sessions`, `resources`.
 2. **AI through the right framework surface** -- Product workflows delegate to the agent via `sendToAgentChat()` / `agentChat.submit()`. Use `sendToAgentChat({ message, context, submit })` for simple UI handoffs and prefill/review flows; add `newTab: true, background: true, openSidebar: false` when the agent should work silently without focusing the sidebar. Only use the agent-chat context state helpers (`useAgentChatContext`, `setAgentChatContextItem`, `listAgentChatContext`, `removeAgentChatContextItem`, `clearAgentChatContext`) when the UI needs two-way sync with staged context chips. For rare server-side text transforms that intentionally need no tools, chat history, or run state, use `completeText()` from `@agent-native/core/server` inside an action instead of importing provider SDKs directly.
 3. **Actions for app operations** -- `pnpm action <name>` dispatches to callable action files in `actions/`; `defineAction` also auto-exposes those operations at `/_agent-native/actions/:name` for the UI. Do not create custom REST routes that re-export actions.
 4. **Live sync keeps the UI current** -- Database writes stream over `/_agent-native/events` first, with `/_agent-native/poll` as the fallback. **When you (the agent) write data, the UI must reflect the change without a manual refresh.** This is non-negotiable. Use `useActionQuery` / `useActionMutation` for action-backed data (preferred). If you use raw `useQuery`, fold `useChangeVersions([<source>, "action"])` into the key for targeted refreshes. See the `real-time-sync` and `adding-a-feature` skills.
@@ -38,9 +38,15 @@ Read these local package docs before implementing advanced Agent Native
 features. Prefer this app's own `AGENTS.md` and `.agents/skills/` for
 app-specific rules, then use the corpus for reusable framework/template
 patterns.
-After updating `@agent-native/core`, run `pnpm skills:update` or
-`npx @agent-native/core@latest skills update scaffold --project` from the app
-root to refresh framework-provided `.agents/skills` and repair `CLAUDE.md` /
+To bring an older app current, run `pnpm upgrade:agent-native` or
+`npx @agent-native/core@latest upgrade` from the app root. That bumps
+`@agent-native/*` deps, installs, refreshes scaffold skills, and typechecks.
+Do **not** add `pnpm.overrides` / patches against `@agent-native/*` or edit
+`node_modules/@agent-native/*` when an upgrade fails — fix app code or ask.
+See the `upgrade-agent-native` and `self-modifying-code` skills.
+After a manual core bump only, `pnpm skills:update` (or
+`npx @agent-native/core@latest skills update scaffold --project`) still
+refreshes framework-provided `.agents/skills` and repairs `CLAUDE.md` /
 `.claude/skills` compatibility links.
 
 ### Database Code
@@ -61,16 +67,22 @@ Use `getSession(event)` server-side and `useSession()` client-side. When there i
 
 ## Resources
 
-Resources are SQL-backed persistent files for notes, learnings, and context.
+Resources are persistent files for notes, learnings, and context. Text resources
+live in SQL; binary resource uploads require configured file storage and store
+only the hosted URL/reference in SQL.
 
 **At the start of every conversation, read these resources (workspace, shared, and personal scopes as relevant):**
 
 1. **`AGENTS.md`** -- inherited workspace defaults, app/team instructions, and user-specific context.
 2. **`LEARNINGS.md`** -- user preferences, corrections, and patterns. Read personal and shared scopes.
 
-**Update `LEARNINGS.md` when you learn something important.** Built-in app
-chat agents use the `resources` tool with the `action` argument. External CLI
-agents can use the equivalent `pnpm action resource-*` commands.
+**Update the shared `LEARNINGS.md` when you learn something important for the
+team.** Canonical destinations, request fields, metric definitions, routing
+conventions, and corrections learned in Slack belong there with concise source
+links. Shared scope resolves to the active organization. Personal preferences
+and user-specific context go through `save-memory` into `memory/MEMORY.md`.
+Built-in app chat agents use the `resources` tool with the `action` argument.
+External CLI agents can use the equivalent `pnpm action resource-*` commands.
 
 | Built-in agent tool call                                                | CLI equivalent                                                                         | Purpose                 |
 | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | ----------------------- |
@@ -121,22 +133,19 @@ capability is missing, add or extend a `defineAction` so both the agent and UI
 share the same operation. Do not create `/api/*` routes that only call,
 repackage, or proxy an action.
 
-| Action        | Args                                                                           | Purpose                                                                                 |
-| ------------- | ------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------- |
-| `view-screen` |                                                                                | See current UI state                                                                    |
-| `navigate`    | `--view <name>` or `--path <url>`                                              | Navigate the UI                                                                         |
-| `hello`       | `[--name <name>]`                                                              | Example script                                                                          |
-| `db-schema`   |                                                                                | Show all tables, columns, types                                                         |
-| `db-query`    | `--sql "SELECT ..."`                                                           | Run a SELECT query                                                                      |
-| `db-exec`     | `--sql "UPDATE ..."`                                                           | Last-resort ad-hoc maintenance; prefer domain actions and Drizzle code for product work |
-| `db-patch`    | `--table <t> --column <c> --where "<clause>" --find "<old>" --replace "<new>"` | Surgical search/replace on a large text column — sends a diff instead of the full value |
+| Action        | Args                              | Purpose                         |
+| ------------- | --------------------------------- | ------------------------------- |
+| `view-screen` |                                   | See current UI state            |
+| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
+| `hello`       | `[--name <name>]`                 | Example script                  |
+| `db-schema`   |                                   | Show all tables, columns, types |
+| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
 
-**For one-off maintenance, pick the right SQL tool:**
+**For data changes, pick the right surface:**
 
 - Use domain actions first. They validate input, enforce access, and refresh the UI.
-- Use `db-exec UPDATE` only when no domain action exists and you need a small ad-hoc change.
-- Use `db-patch` when you only need to tweak a small slice of a **large** text/JSON column (documents, slide HTML, dashboard/form JSON). It saves tokens by sending `{find, replace}` instead of re-transmitting the whole column. Targets exactly one row per call — narrow `--where` by primary key. Supports `--edits '[{find,replace},...]'` for batch edits and `--all` for replace-every-occurrence.
-- If a template-specific action exists (e.g. `edit-document`, `update-slide`), prefer it — those also push live updates to any open collaborative editor.
+- Use `db-query` / `db-schema` for read-only inspection.
+- Raw write SQL (`db-exec` / `db-patch`) is not part of the default agent surface. If this app explicitly opts into `databaseTools: "write"`, use those tools only for deliberate maintenance when no domain action exists.
 - **Database admin (dev only):** in development, `db-admin-query` / `db-admin-mutate` / `db-admin-rows` / `db-admin-tables` / `db-admin-schema` give **unscoped, full-database** access to ANY table — including framework tables and tables without `owner_email`/`org_id`. Prefer these over `db-exec`/`db-query` for database-admin work and for any non-owner-scoped table: `db-exec`/`db-query` auto-scope to the current user and return **0 rows** on unscoped tables. These mirror the in-app Database admin UI, so prompts and the UI do the same thing.
 
 ## Skills
@@ -153,6 +162,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | `delegate-to-agent`    | Before adding LLM calls or AI delegation                                          |
 | `actions`              | Before creating or modifying actions                                              |
 | `self-modifying-code`  | Before editing source, components, or styles                                      |
+| `upgrade-agent-native` | Before updating an older app/branch or when tempted to patch `@agent-native/*`    |
 | `capture-learnings`    | Before recording user preferences or corrections                                  |
 | `frontend-design`      | Before building or restyling any UI component, page, or layout                    |
 | `shadcn-ui`            | Before adding, updating, or debugging shadcn/ui components                        |

@@ -386,6 +386,48 @@ App-Umgebung und übergeben Sie die Anruferidentität (`userEmail`), sodass ausg
 signiert als JWT-Inhaber-Token. Verwenden Sie `apiKeyEnv` nur für ältere externe Peers, die
 erwarten Sie ein statisches Inhabertoken. Verwenden Sie lokales actions, anstatt sich selbst aufzurufen.
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke` ist ein schlanker CLI-Wrapper über dieselbe Resolve-and-Call-Primitive wie `agentNative.invoke()`. Verwenden Sie es, um den Agenten einer App aus einem Shell-Skript, einem CI-Job, einem Cron-Eintrag oder einem beliebigen externen System auszulösen, das Befehle ausführen kann — das CLI-Äquivalent zum manuellen Posten an `/_agent-native/a2a`.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# "analytics" in der Workspace-Registry auflösen und auf die Antwort warten
+agent-native invoke analytics "Summarize signups by source this month"
+
+# Eine bereitgestellte App direkt per URL aufrufen und das Bearer-Token aus der Umgebung lesen
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# Eine einzelne blockierende message/send-Anfrage erzwingen statt des standardmäßigen Async+Poll
+agent-native invoke analytics "Quick lookup" --sync
+
+# Maschinenlesbare Ausgabe für Skripting
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                    | Beschreibung                                                                         |
+| ------------------------- | ------------------------------------------------------------------------------------ |
+| `--agent <id\|name\|url>` | Ziel-Agent (Alias für das positionelle `<app-or-url>`)                               |
+| `--message <text>`        | Prompt (Alias für das positionelle `"prompt"`)                                       |
+| `--api-key-env <name>`    | Liest das Bearer-Token aus einer Umgebungsvariable                                   |
+| `--api-key <token>`       | Bearer-Token-Wert, inline übergeben                                                  |
+| `--context-id <id>`       | A2A-`contextId`, um die Konversation einer bestehenden Aufgabe fortzusetzen          |
+| `--self-app-id <id>`      | Aktuelle App-ID, verwendet zur Selbstaufruf-Vermeidung                               |
+| `--self-url <url>`        | Aktuelle App-URL, verwendet zur Selbstaufruf-Vermeidung                              |
+| `--timeout-ms <n>`        | Timeout für Async-Polling                                                            |
+| `--poll-interval-ms <n>`  | Intervall für Async-Polling                                                          |
+| `--sync`                  | Eine blockierende `message/send`-Anfrage anstelle des Async+Poll-Standards verwenden |
+| `--no-hint`               | Den Prompt unverändert senden, ohne den App-übergreifenden Aufruf-Hinweis            |
+| `--json`                  | Zielmetadaten und Antworttext als JSON ausgeben                                      |
+
+Wie `callAgent()` verwendet die CLI standardmäßig Async + Poll (`invokeAgent` → `callAgent` unter der Haube), was die sichere Wahl gegenüber gehosteten/serverlosen Zielen ist — siehe [Serverless-Webhook- und Gateway-Timeouts](#json-rpc-methods) oben. Übergeben Sie `--sync` nur, wenn Sie wissen, dass sich das Ziel nicht hinter einem Gateway mit kurzem Ausführungslimit befindet.
+
+Das Ziel wird auf die gleiche Weise aufgelöst wie bei `agentNative.invoke()`: über die Workspace-App-ID, den App-Namen oder eine vollständige URL — sodass derselbe Befehl sowohl gegen eine Geschwister-App in einem Multi-App-Workspace als auch gegen einen beliebigen A2A-Peer anderswo funktioniert.
+
 ## Aufgabenlebenszyklus {#task-lifecycle}
 
 Jede Nachricht erstellt eine Aufgabe, die diese Zustände durchläuft:
@@ -437,6 +479,18 @@ Die Produktionsrichtlinie ist streng: In jeder Produktionslaufzeit verweigert di
 Diese Grenze ist wichtig, da die Agentenschleife Freiformeingaben von einem Remote-Anrufer akzeptiert. Wenn Sie die Bearer-Prüfung in die Schleife einfügen oder sich auf ein Tool verlassen, um sie durchzusetzen, können Prompt-Injection oder ein fehlerhafter Handler die Authentifizierung umgehen. Wenn es an der HTTP-Grenze bleibt, führt ein Token-Fehler zu einem Kurzschluss vor jedem LLM-Aufruf.
 
 Die JWT-Verifizierung (`verifyA2AToken` in `server.ts`) akzeptiert Token, die entweder mit dem globalen `A2A_SECRET` oder einem organisationsweiten Geheimnis signiert sind, das von SQL über den `org_domain`-Anspruch des Tokens gesucht wird, und erzwingt die eigenen `aud`/`iss`-Ansprüche des Tokens, sofern vorhanden.
+
+### Synchronisierung des Organisationsgeheimnisses {#organization-secret-sync}
+
+Die Einstellung **Organisation → App-übergreifende Authentifizierung** verwaltet das organisationsweite Geheimnis, das die Delegation zwischen getrennt bereitgestellten Apps derselben Organisation authentifiziert. Sie ist keine Einstellung für die Benutzeranmeldung oder Cross-App SSO. Das Geheimnis ergänzt das `A2A_SECRET` der Bereitstellung: Ein A2A-JWT mit einem `org_domain`-Claim kann mit dem Geheimnis der passenden Organisation überprüft werden.
+
+Der Organisationsinhaber sollte jeder teilnehmenden App dieselbe zulässige E-Mail-Domain und dasselbe organisationsweite Geheimnis geben:
+
+1. Generieren oder zeigen Sie in der ersten App das Geheimnis unter **Organisation → App-übergreifende Authentifizierung** an.
+2. Wählen Sie in jeder weiteren App **Geheimnis aus einer anderen App einfügen** und fügen Sie diesen Wert ein. Dieser manuelle Schritt ist für die erste Verbindung erforderlich: Eine App, die das Geheimnis noch nicht besitzt, kann eine entfernte Synchronisierungsanfrage nicht überprüfen.
+3. Sobald die Apps das Geheimnis teilen, verwenden Sie **Mit Apps synchronisieren**, um künftige Aktualisierungen an verbundene, erkannte Apps zu senden. Das Ergebnis nennt jede App, die nicht aktualisiert werden konnte.
+
+Wenn Sie das Geheimnis **neu generieren**, synchronisiert die Einstellungsoberfläche es sofort und signiert die Aktualisierung mit dem vorherigen Geheimnis, damit bereits verbundene Apps die Änderung überprüfen können. Falls eine App diese Synchronisierung verpasst, fügen Sie dort das neue Geheimnis manuell ein und synchronisieren Sie erneut. Behandeln Sie dieses Geheimnis wie jede andere Anmeldeinformation: Verwenden Sie es nicht in Client-Code, Protokollen oder einer Client-Konfiguration eines Drittanbieters.
 
 ## Fortsetzungen {#continuations}
 

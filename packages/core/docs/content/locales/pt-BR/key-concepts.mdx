@@ -11,11 +11,9 @@ Como os aplicativos nativos do agente funcionam nos bastidores — os princípio
 
 Cada aplicativo nativo do agente consiste em três coisas trabalhando juntas:
 
-> **Agente** — IA autônoma que lê dados, grava dados, executa actions e modifica código. Personalizável com skills e instruções.
->
-> **Aplicação** — A superfície do produto ao redor do agente. Inicialmente, isso pode ser apenas ação, bate-papo avançado, um pequeno plano de controle ou um UI React completo com painéis, fluxos e visualizações.
->
-> **Computador** — Banco de dados, navegador, execução de código. Os agentes trabalham diretamente com SQL e ferramentas integradas; Os servidores MCP são complementos opcionais, não a base.
+- **Agente** — IA autônoma que lê dados, grava dados, executa actions e modifica código. Personalizável com skills e instruções.
+- **Aplicação** — A superfície do produto ao redor do agente. Inicialmente, isso pode ser apenas ação, bate-papo avançado, um pequeno plano de controle ou um UI React completo com painéis, fluxos e visualizações.
+- **Computador** — Banco de dados, navegador, execução de código. Os agentes trabalham diretamente com SQL e ferramentas integradas; Os servidores MCP são complementos opcionais, não a base.
 
 <Diagram id="doc-block-12lr99b" title="Agente, aplicativo e computador" summary={"Três camadas trabalhando juntas em um armazenamento SQL compartilhado. O agente e o aplicativo leem e gravam os mesmos dados."}>
 
@@ -239,21 +237,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Ações principais para inspeção rápida do banco de dados e manutenção pontual
+# Ações principais para inspeção rápida do banco de dados
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Cirúrgico find/replace em uma coluna de texto grande — envia uma comparação, não o valor inteiro
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-O plug-in de bate-papo do agente de produção permite gravações de banco de dados brutos por padrão
-(`databaseTools: "write"`) para que os agentes possam corrigir dados de propriedade do aplicativo sem esperar por um
-nova ação digitada. Essas gravações têm como escopo o usuário/organização autenticado. Definir
-`databaseTools: "read"` para manter apenas a inspeção `db-schema` / `db-query` ou
-`databaseTools: "off"` / `false` para exigir o aplicativo digitado actions para todos os dados
-acesso.
+O plug-in de bate-papo do agente de produção deixa as ferramentas SQL brutas em modo somente leitura por padrão
+(`databaseTools: "read"`). Os agentes inspecionam dados do app com `db-schema` /
+`db-query` e escrevem por meio de actions tipadas do app. Defina
+`databaseTools: "write"` (ou `true`) apenas para superfícies de manutenção
+intencionais que também devam expor `db-exec` / `db-patch` com escopo; use
+`databaseTools: "off"` / `false` para exigir actions tipadas para todo acesso a dados.
 
 ## Ponte de bate-papo do agente {#agent-chat-bridge}
 
@@ -281,8 +275,7 @@ Por que não chamar um LLM inline?
 
 Quando o agente precisa fazer algo complexo — chamar um API, processar dados, consultar o banco de dados — ele executa uma **ação**. Actions são arquivos TypeScript em `actions/` que exportam um `defineAction()` padrão:
 
-```ts
-// actions/fetch-data.ts
+```ts filename="actions/fetch-data.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -384,9 +377,8 @@ Um _frame_ é o ambiente que hospeda o agente próximo ao seu aplicativo – loc
 
 Os aplicativos nativos do agente incluem um painel de agente incorporado que fornece o agente de IA junto com o aplicativo UI. É isso que faz a arquitetura funcionar: o agente precisa de um computador (banco de dados, navegador, execução de código) e o aplicativo precisa do agente para o trabalho de IA.
 
-> **Painel de agente incorporado** — Bate-papo e terminal CLI opcional integrado em cada aplicativo. Suporta código Claude, Codex, Gemini, OpenCode e Builder.io. Executa localmente. Gratuito e de código aberto.
->
-> **Nuvem** — Implante em qualquer nuvem com colaboração em tempo real, edição visual, funções e permissões. Melhor para equipes.
+- **Painel de agente incorporado** — Bate-papo e terminal CLI opcional integrado em cada aplicativo. Suporta código Claude, Codex, Gemini, OpenCode e Builder.io. Executa localmente. Gratuito e de código aberto.
+- **Nuvem** — Implante em qualquer nuvem com colaboração em tempo real, edição visual, funções e permissões. Melhor para equipes.
 
 ## Consciência do contexto {#context-awareness}
 
@@ -437,6 +429,7 @@ Eles estão no mesmo contrato e têm seus próprios aprofundamentos:
 
 - **[Dispatch](/docs/dispatch)** — o plano de controle do espaço de trabalho: caixa de entrada compartilhada, cofre de segredos, trabalhos agendados e um orquestrador que delega A2A a aplicativos especializados.
 - **[Extensions](/docs/extensions)** — miniaplicativos Alpine.js em sandbox que o agente cria em tempo de execução, sem alterações de origem ou migrações.
+- **[Programas de dados](/docs/data-programs)** — scripts `run-code` armazenados e escritos pelo agente que fornecem aos painéis de dashboard um resultado em cache e atualizável, em vez de uma action de provedor codificada.
 - **[A2A Protocol](/docs/a2a-protocol)** — como aplicativos no mesmo espaço de trabalho descobrem e chamam uns aos outros por meio de JSON-RPC.
 
 ## O que você ganha de graça {#what-you-get-for-free}
@@ -457,14 +450,11 @@ Adotar o framework é valioso principalmente por causa do que você deixa de ter
 
 Esse é o "e tudo mais" que você mesmo estaria colando.
 
-## Aprofundamentos {#deep-dives}
+## Próximos passos {#deep-dives}
 
-Para orientação detalhada sobre padrões específicos:
-
-- [What Is Agent-Native?](/docs/what-is-agent-native) — a visão e a filosofia
-- [Context Awareness](/docs/context-awareness) — estado de navegação, tela de visualização, comandos de navegação
-- [Skills Guide](/docs/skills-guide) — estrutura skills, domínio skills, criação de skills personalizado
-- [Native Interface de chat](/docs/native-chat-ui) — tabelas declaradas por ação, gráficos e postura de tempo de execução BYO
-- [Agent Surfaces](/docs/agent-surfaces) — bate-papo avançado e sem interface, sidecar incorporado e caminhos de aplicativos completos
-- [A2A Protocol](/docs/a2a-protocol) — comunicação entre agentes
-- [Multi-App Workspace](/docs/multi-app-workspace) — hospede vários aplicativos em um monorepo com autenticação compartilhada, skills, componentes e credenciais
+- [**What Is Agent-Native?**](/docs/what-is-agent-native) — a visão e a filosofia por trás destas regras
+- [**Context Awareness**](/docs/context-awareness) — estado de navegação e comandos view-screen e navigate em detalhes
+- [**Skills Guide**](/docs/skills-guide) — skills do framework, skills de domínio e criação de skills personalizadas
+- [**Native Chat UI**](/docs/native-chat-ui) — tabelas e gráficos declarados por actions e suporte a tempos de execução próprios
+- [**Agent Surfaces**](/docs/agent-surfaces) — chat, UI nativa integrada, páginas completas de aplicativo, sidecar incorporado, automação e caminhos de agentes externos
+- [**A2A Protocol**](/docs/a2a-protocol) — comunicação entre agentes

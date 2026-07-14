@@ -2,16 +2,91 @@ import { defineAction, embedApp } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
-import "../server/db/index.js";
-import { assignRegions } from "../shared/canvas-math.js";
+import { getDb, schema } from "../server/db/index.js";
+import {
+  type AssignedCanvasRegion,
+  DEFAULT_ASSIGNED_REGION_GAP,
+  DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
+} from "../shared/canvas-math.js";
 import {
   designGenerationSessionKey,
   type DesignGenerationFrame,
   type DesignGenerationSession,
 } from "../shared/generation-session.js";
+
+// Mirrors the mobile/tablet/desktop viewport vocabulary already used by
+// present-design-variants.ts's inferVariantSize, so a screen's canvas region
+// matches its intended device instead of every screen defaulting to the same
+// fixed desktop-shaped region regardless of content (B5-10: AI-generated
+// desktop designs were being placed in mobile-width screens because neither
+// this schema nor assignRegions had any per-screen size signal).
+const DEVICE_REGION_SIZE: Record<
+  "mobile" | "tablet" | "desktop",
+  { width: number; height: number }
+> = {
+  mobile: { width: 390, height: 844 },
+  tablet: { width: 768, height: 1024 },
+  desktop: { width: 1440, height: 1024 },
+};
+
+function regionSizeForScreen(screen: {
+  deviceType?: "mobile" | "tablet" | "desktop";
+  width?: number;
+  height?: number;
+}): { width: number; height: number } {
+  const base = DEVICE_REGION_SIZE[screen.deviceType ?? "desktop"];
+  return {
+    width: screen.width && screen.width > 0 ? screen.width : base.width,
+    height: screen.height && screen.height > 0 ? screen.height : base.height,
+  };
+}
+
+/**
+ * Pack per-screen-sized regions into rows/columns, matching assignRegions'
+ * layout shape (row/column-major, one gap between cells) but sizing each
+ * region individually instead of assuming every region is the same fixed
+ * size. Row height is the tallest region in that row, mirroring how
+ * assignRegions would behave if every item in a row shared one size.
+ */
+function assignRegionsForSizes(
+  sizes: Array<{ width: number; height: number }>,
+  {
+    columns,
+    gap = DEFAULT_ASSIGNED_REGION_GAP,
+  }: { columns: number; gap?: number },
+): AssignedCanvasRegion[] {
+  const regions: AssignedCanvasRegion[] = [];
+  let rowY = 0;
+
+  for (let rowStart = 0; rowStart < sizes.length; rowStart += columns) {
+    const row = sizes.slice(rowStart, rowStart + columns);
+    let x = 0;
+    let rowHeight = 0;
+
+    row.forEach((size, offset) => {
+      const index = rowStart + offset;
+      regions.push({
+        index,
+        row: Math.floor(index / columns),
+        column: index % columns,
+        x,
+        y: rowY,
+        width: size.width,
+        height: size.height,
+      });
+      x += size.width + gap;
+      rowHeight = Math.max(rowHeight, size.height);
+    });
+
+    rowY += rowHeight + gap;
+  }
+
+  return regions;
+}
 
 const AGENT_NAMES = [
   "Atlas",
@@ -52,6 +127,29 @@ const requestedScreenSchema = z
       .describe("Target filename for this screen, such as onboarding.html"),
     role: z.enum(["screen", "variant"]).optional().default("screen"),
     variantOf: z.string().trim().min(1).optional(),
+    deviceType: z
+      .enum(["mobile", "tablet", "desktop"])
+      .optional()
+      .describe(
+        "Intended viewport for this screen. Defaults to desktop-sized when " +
+          "omitted — pass 'mobile' for phone screens and 'tablet' for iPad-" +
+          "width screens so the canvas region matches the content instead of " +
+          "always sizing every screen as desktop.",
+      ),
+    width: z
+      .number()
+      .positive()
+      .optional()
+      .describe(
+        "Optional explicit canvas region width in px, overriding deviceType.",
+      ),
+    height: z
+      .number()
+      .positive()
+      .optional()
+      .describe(
+        "Optional explicit canvas region height in px, overriding deviceType.",
+      ),
   })
   .superRefine((screen, ctx) => {
     if (screen.role === "variant" && !screen.variantOf) {
@@ -71,6 +169,10 @@ export default defineAction({
     "assigns non-overlapping canvas regions and returns per-frame generation " +
     "instructions including canvasFrame placements. The session state is " +
     "agent-facing planning state consumed by generate-design and view-screen. " +
+    "Pass each screen's deviceType ('mobile', 'tablet', or 'desktop') so its " +
+    "canvas region matches the content — a desktop dashboard should not be " +
+    "boxed into a 390px mobile-width frame. Defaults to desktop when omitted; " +
+    "pass explicit width/height instead for a non-standard viewport. " +
     "After this action, fan out calls to generate-design for each returned " +
     "frame, passing the returned canvasFrame values to generate-design so " +
     "screens appear in the infinite overview canvas.",
@@ -85,6 +187,28 @@ export default defineAction({
           .min(1)
           .max(8)
           .superRefine((screens, ctx) => {
+            // Two screens sharing an explicit frameId would produce two
+            // DesignGenerationFrame entries with the same frameId (and thus
+            // the same derived agentId `agent-${frameId}`) once frames get
+            // built below, colliding agent presence/status tracking for both
+            // screens on the overview canvas.
+            const frameIdsSeen = new Map<string, number>();
+            screens.forEach((screen, index) => {
+              if (!screen.frameId) return;
+              const firstIndex = frameIdsSeen.get(screen.frameId);
+              if (firstIndex !== undefined) {
+                ctx.addIssue({
+                  code: z.ZodIssueCode.custom,
+                  path: [index, "frameId"],
+                  message:
+                    `duplicate frameId "${screen.frameId}" (already used at index ${firstIndex}); ` +
+                    "each screen needs a distinct frameId",
+                });
+                return;
+              }
+              frameIdsSeen.set(screen.frameId, index);
+            });
+
             const requestAnchors = new Map<
               string,
               { index: number; role: DesignGenerationFrame["role"] }
@@ -150,26 +274,51 @@ export default defineAction({
       await assertAccess("design-system", designSystemId, "viewer");
     }
 
-    const regions = assignRegions(screens.length, {
-      origin: { x: 0, y: 0 },
-      columns: screens.length <= 3 ? screens.length : 3,
+    const regionSizes = screens.map(regionSizeForScreen);
+    const regions = assignRegionsForSizes(regionSizes, {
+      columns:
+        screens.length <= 3
+          ? screens.length
+          : DEFAULT_ASSIGNED_REGION_MAX_COLUMNS,
     });
 
-    const seenFilenames = new Map<string, number>();
-    // Dedupe any filename (explicit or auto-generated) so two screens can never
-    // resolve to the same target file — otherwise generate-design silently
-    // overwrites the first screen's output with the second's.
+    // Seed the used-filename set with the design's EXISTING files, not just
+    // names requested in this call. Without this, a requested/auto-slugged
+    // target (e.g. a screen titled "Onboarding" slugging to "onboarding.html")
+    // can silently collide with an already-saved screen: generate-design's
+    // existing-file lookup is keyed by filename, so the later generate-design
+    // call for that "new" target would UPDATE (overwrite) the pre-existing
+    // file instead of creating the new screen the agent intended.
+    const db = getDb();
+    const existingFiles = await db
+      .select({ filename: schema.designFiles.filename })
+      .from(schema.designFiles)
+      .where(eq(schema.designFiles.designId, designId));
+    const usedFilenames = new Set(
+      existingFiles
+        .map((file) => file.filename)
+        .filter((filename): filename is string => Boolean(filename)),
+    );
+    // Dedupe any filename (explicit or auto-generated) so two screens can
+    // never resolve to the same target file, and so no target collides with
+    // an existing screen — otherwise generate-design silently overwrites the
+    // other screen's content.
     const dedupeFilename = (base: string): string => {
-      if (!seenFilenames.has(base)) {
-        seenFilenames.set(base, 1);
+      if (!usedFilenames.has(base)) {
+        usedFilenames.add(base);
         return base;
       }
-      const count = seenFilenames.get(base)! + 1;
-      seenFilenames.set(base, count);
       const dot = base.lastIndexOf(".");
-      return dot > 0
-        ? `${base.slice(0, dot)}-${count}${base.slice(dot)}`
-        : `${base}-${count}`;
+      const stem = dot > 0 ? base.slice(0, dot) : base;
+      const ext = dot > 0 ? base.slice(dot) : "";
+      let count = 2;
+      let candidate = `${stem}-${count}${ext}`;
+      while (usedFilenames.has(candidate)) {
+        count += 1;
+        candidate = `${stem}-${count}${ext}`;
+      }
+      usedFilenames.add(candidate);
+      return candidate;
     };
     const requestedTargets = screens.map((screen, index) => {
       if (screen.filename) return dedupeFilename(screen.filename);

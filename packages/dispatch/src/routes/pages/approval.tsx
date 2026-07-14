@@ -16,13 +16,14 @@ import {
 import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { ActionQueryError } from "../../components/action-query-error";
 import {
   ApprovalValueBlock,
   parseApprovalValue,
-} from "@/components/approval-value-block";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+} from "../../components/approval-value-block";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 
 export function meta() {
   return [{ title: "Approval — Dispatch" }];
@@ -66,10 +67,8 @@ export default function ApprovalPreviewRoute() {
   const [searchParams] = useSearchParams();
   const id = searchParams.get("id") ?? "";
 
-  const { data: approvals, isLoading } = useActionQuery(
-    "list-dispatch-approvals",
-    {},
-  );
+  const approvalsQuery = useActionQuery("list-dispatch-approvals", {});
+  const { data: approvals, isLoading } = approvalsQuery;
 
   const approve = useActionMutation("approve-dispatch-change", {
     onSuccess: () => toast.success("Change approved"),
@@ -136,6 +135,19 @@ export default function ApprovalPreviewRoute() {
               <Skeleton className="h-8 flex-1 rounded-md" />
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (approvalsQuery.isError) {
+    return (
+      <div className="flex min-h-screen items-start justify-center bg-background p-6">
+        <div className="w-full max-w-md">
+          <ActionQueryError
+            error={approvalsQuery.error}
+            onRetry={() => void approvalsQuery.refetch()}
+          />
         </div>
       </div>
     );

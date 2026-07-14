@@ -1,59 +1,33 @@
 import { defineAction } from "@agent-native/core";
 import { emit } from "@agent-native/core/event-bus";
-import {
-  buildDeepLink,
-  getRequestOrgId,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
+import { buildDeepLink, getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { prepareZoomMeetingPatch } from "../server/lib/event-video-conferencing.js";
+import {
+  prepareZoomMeetingPatch,
+  shouldAutoAddGoogleMeet,
+} from "../server/lib/event-video-conferencing.js";
 import * as googleCalendar from "../server/lib/google-calendar.js";
 import type { CalendarEvent } from "../shared/api.js";
 import {
   availabilityInput,
   attachmentsInput,
+  attendeesInput,
   buildReminderOverrides,
   buildStatusEventFields,
   cliBoolean,
   eventTypeInput,
   googleColorIdInput,
+  ensureOrganizerInAttendees,
+  normalizeAttendees,
+  resolveOwnedAccountEmail,
   reminderMethodInput,
   reminderMinutesInput,
   remindersInput,
+  validateStatusEventTiming,
   visibilityInput,
   workingLocationTypeInput,
 } from "./event-action-helpers.js";
-
-// Accept attendees as either an array of {email, displayName?} objects (when
-// invoked via JSON) or a comma/whitespace-separated string of emails (when
-// invoked from the CLI as `--attendees alice@x.com,bob@y.com`).
-const attendeesInput = z
-  .union([
-    z.array(
-      z.object({
-        email: z.string(),
-        displayName: z.string().optional(),
-      }),
-    ),
-    z.string(),
-  ])
-  .optional();
-
-function normalizeAttendees(
-  input: z.infer<typeof attendeesInput>,
-): Array<{ email: string; displayName?: string }> | undefined {
-  if (!input) return undefined;
-  if (typeof input === "string") {
-    const emails = input
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.includes("@"));
-    if (emails.length === 0) return undefined;
-    return emails.map((email) => ({ email }));
-  }
-  return input.filter((a) => a.email && a.email.includes("@"));
-}
 
 export default defineAction({
   description: "Create a calendar event on Google Calendar",
@@ -118,9 +92,11 @@ export default defineAction({
       .describe(
         "Create and attach a Zoom meeting link to the event. Requires Zoom to be connected in Settings.",
       ),
-    attendees: attendeesInput.describe(
-      "Invitees — either an array of {email, displayName?} or a comma-separated string of emails",
-    ),
+    attendees: attendeesInput
+      .optional()
+      .describe(
+        "Invitees — either an array of {email, displayName?, optional?} or a comma-separated string of emails. Set optional:true to mark a guest optional.",
+      ),
     sendUpdates: z
       .enum(["all", "externalOnly", "none"])
       .optional()
@@ -130,7 +106,9 @@ export default defineAction({
     accountEmail: z
       .string()
       .optional()
-      .describe("Account email to create the event on"),
+      .describe(
+        "Connected Google account email whose primary calendar receives the event. Required when multiple accounts are connected.",
+      ),
   }),
   run: async (args) => {
     const email = getRequestUserEmail();
@@ -139,12 +117,12 @@ export default defineAction({
     if (args.addGoogleMeet && args.addZoom) {
       throw new Error("Choose either Google Meet or Zoom, not both.");
     }
-    if (
-      (args.eventType === "outOfOffice" || args.eventType === "focusTime") &&
-      args.allDay === true
-    ) {
-      throw new Error("Out of office and focus time events must be timed.");
-    }
+    validateStatusEventTiming({
+      eventType: args.eventType,
+      allDay: args.allDay,
+      start: args.start,
+      end: args.end,
+    });
 
     if (!(await googleCalendar.isConnected(email))) {
       throw new Error(
@@ -152,21 +130,12 @@ export default defineAction({
       );
     }
 
-    // Resolve account email
-    let acctEmail = email;
-    if (args.accountEmail && args.accountEmail !== email) {
-      const status = await googleCalendar.getAuthStatus(
-        email,
-        getRequestOrgId(),
-      );
-      const isOwned = status.accounts.some(
-        (a) => a.email === args.accountEmail,
-      );
-      if (!isOwned) throw new Error("Account not owned by current user");
-      acctEmail = args.accountEmail;
-    }
+    const acctEmail = await resolveOwnedAccountEmail(args.accountEmail, email);
 
-    const attendees = normalizeAttendees(args.attendees);
+    const attendees = ensureOrganizerInAttendees(
+      normalizeAttendees(args.attendees),
+      acctEmail,
+    );
     const reminderFields = buildReminderOverrides({
       reminders: args.reminders,
       reminderMinutes: args.reminderMinutes,
@@ -213,8 +182,12 @@ export default defineAction({
     }
 
     const result = await googleCalendar.createEvent(calEvent, {
-      addGoogleMeet: args.addGoogleMeet,
-      sendUpdates: args.sendUpdates ?? (attendees ? "all" : undefined),
+      account: { ownerEmail: email, accountEmail: acctEmail },
+      addGoogleMeet: shouldAutoAddGoogleMeet(calEvent, {
+        addGoogleMeet: args.addGoogleMeet,
+        addZoom: args.addZoom,
+      }),
+      sendUpdates: args.sendUpdates ?? (attendees?.length ? "all" : undefined),
     });
     if (result.id) {
       calEvent.id = `google-${result.id}`;

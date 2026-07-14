@@ -51,6 +51,31 @@ and Alpine.js runtime.
 - Action files in `actions/`
 - Routes
 
+## When the Request Needs Code Instead
+
+Route by the user's exact outcome, not by whether they called it an
+"extension." Extensions render only on their own page or inside an existing
+named `ExtensionSlot`; they cannot inject UI into arbitrary native components,
+replace built-in views, or appear at a location where the host app has no slot.
+
+If the requested placement or behavior requires changing native components,
+host layout/styles/routes/business logic, or adding a new slot:
+
+1. Briefly explain the extension boundary.
+2. Do **not** stop at "an extension cannot do that," and do not silently move the
+   UI to a less useful slot.
+3. Continue through the normal source-code customization flow:
+   - In hosted/app-rendered chat, call `connect-builder`. When its
+     `builderEnabled` result is true, offer the Builder.io Cloud Agent handoff;
+     when false, say the change can be made with local code editing, Agent
+     Native Desktop, or Builder.io cloud editing.
+   - In a local development or outer code-editing surface, follow the
+     `self-modifying-code` skill and edit the app source directly.
+
+Full source-code customization is a core Agent Native capability. Extensions
+are the fast, sandboxed, no-deploy layer—not the limit of what the app can
+become.
+
 **When a user asks to "make an extension", "create an extension", or "build
 a ... extension" (or the older phrasings "make a tool" / "create a tool"):**
 
@@ -390,6 +415,12 @@ Builder/internal data, customer data, or credential-looking literal into
 extension HTML, inline scripts, docs, examples, or extension seed content.
 Extensions are stored in SQL and rendered in the browser; anything written into
 the extension body should be treated as visible.
+
+Extension HTML belongs in SQL, but large media does not. Do not embed pasted
+files, base64 assets, screenshots, or binary blobs in `content` or
+`extensionData`; upload media to file/blob storage and reference hosted URLs or
+opaque handles. For large pasted text bodies, use the documented
+`contentFromAttachment` flow instead of a megabyte inline string.
 
 For external API calls, use `extensionFetch()` with `${keys.NAME}` placeholders
 inside single-quoted strings, for example

@@ -384,24 +384,23 @@ openssl rand -hex 32
 ## उत्पादन एजेंट उपकरण {#production-agent-tools}
 
 प्रोडक्शन एजेंटों को ऐप के पंजीकृत actions प्लस फ्रेमवर्क टूल मिलते हैं
-एजेंट चैट प्लगइन. कच्चे DB
-टूल्स का दायरा प्रमाणित उपयोगकर्ता/संगठन तक होता है, लेकिन ऐप मालिक इसे सीमित कर सकते हैं
-सतह जब तैनाती अधिक विचारशील होनी चाहिए:
+एजेंट चैट प्लगइन. SQL निरीक्षण डिफ़ॉल्ट रूप से सक्षम है; डेटाबेस writes
+typed app actions से गुजरते हैं, जब तक ऐप स्पष्ट रूप से raw write tools सक्षम न करे:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` - डिफ़ॉल्ट। रजिस्टर `db-schema`, `db-query`,
-  `db-exec`, और `db-patch`। लेखन का दायरा मौजूदा उपयोगकर्ता/संगठन और
-  स्कीमा परिवर्तन अवरुद्ध हैं।
-- `databaseTools: "read"` - केवल `db-schema` और `db-query` पंजीकृत करता है; एजेंट
-  SQL के साथ डेटा का निरीक्षण करें लेकिन लिखने के लिए टाइप किए गए ऐप actions का उपयोग करना होगा।
+- `databaseTools: "read"` - डिफ़ॉल्ट। केवल `db-schema` और `db-query` पंजीकृत करता है;
+  एजेंट SQL से डेटा देखते हैं लेकिन writes के लिए typed app actions का उपयोग करते हैं।
+- `databaseTools: "write"` या `true` - deliberate raw SQL maintenance के लिए
+  `db-exec` और `db-patch` भी पंजीकृत करता है। writes मौजूदा उपयोगकर्ता/संगठन
+  तक scoped रहते हैं और schema changes blocked रहते हैं।
 - `databaseTools: "off"` या `false` - कच्चे डेटाबेस टूल को हटा देता है
   एजेंट सतह इसलिए ऐप का actions ही एकमात्र डेटा एक्सेस पथ है।
 - `extensionTools: false` - फ्रेमवर्क एक्सटेंशन-प्रबंधन actions को हटा देता है और
@@ -453,3 +452,11 @@ export default createAgentChatPlugin({
 ## मल्टी-इंस्टेंस परिनियोजन {#multi-instance}
 
 एजेंट-नेटिव ऐप्स सभी स्थिति को Drizzle के माध्यम से SQL में संग्रहीत करते हैं और UI को [polling](/docs/key-concepts#polling-sync) के माध्यम से डेटाबेस के विरुद्ध सिंक करते हैं - कोई फ़ाइल-सिस्टम स्थिति नहीं, कोई चिपचिपा सत्र नहीं, कोई इन-मेमोरी कैश नहीं। इसका मतलब है कि मल्टी-इंस्टेंस और सर्वर रहित परिनियोजन बॉक्स से बाहर काम करते हैं: प्रत्येक इंस्टेंस को एक ही `DATABASE_URL` पर इंगित करें और वे स्वचालित रूप से परिवर्तित हो जाते हैं। [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) और [Portability](/docs/key-concepts#hosting-agnostic) देखें।
+
+## आगे क्या है
+
+- [**Database**](/docs/database#production) — पहले production deploy से पहले persistent SQL backend चुनें
+- [**Security**](/docs/security) — इस पेज पर बताए गए production checklist और opt-in flags
+- [**Authentication**](/docs/authentication) — चुने गए auth mode के OAuth credentials और environment variables
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` के single-origin build के पीछे का workspace model
+- [**Frames**](/docs/frames) — production UI बदलावों के लिए embedded agent panel और Builder.io cloud frame की तुलना

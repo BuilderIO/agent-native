@@ -96,8 +96,7 @@ server/routes/
 
 يقوم كل مسار بتصدير `defineEventHandler`:
 
-```ts
-// server/routes/api/health.get.ts
+```ts filename="server/routes/api/health.get.ts"
 import { defineEventHandler } from "h3";
 
 export default defineEventHandler(() => ({
@@ -129,6 +128,40 @@ export default defineEventHandler(() => ({
 
 استخدم مسارات `/api/*` المخصصة فقط عندما تحتاج إلى بروتوكول على شكل مسار أو سلوك ثنائي/دفق. انظر [Actions](/docs/actions).
 
+### تطبيقات API فقط {#api-only-apps}
+
+لا تحتاج إلى خادم Express لمجرد أن التطبيق مخصص للـ API فقط. يتضمن تطبيق Agent Native بالفعل خادم Nitro/H3، و`defineAction()` هو سطح API الافتراضي. عرّف العمليات في `actions/`؛ يقوم إطار العمل بتركيب كل action على `/_agent-native/actions/<name>` مع التحقق من schema وسياق الطلب.
+
+استخدم خيار `http` في action لتشكيل الوصول المباشر عبر HTTP: تكون actions افتراضيًا `POST`، ويغيّر `http: { method: "GET" | "PUT" | "DELETE" }` الفعل، ويجعل `http: false` الـ action غير متاحة عبر HTTP. استخدم `server/routes/api/*` فقط للمخاوف التي لها شكل مسار أو بروتوكول: تحميل الملفات، streaming/SSE، webhooks، استدعاءات OAuth، الصفحات العامة، أو شكل REST خارجي لا يمكن تمثيله بوضوح كـ action. لا تنشئ مسارات `/api/*` تقوم غالبًا بتغليف actions أو إعادة تصديرها.
+
+لإنشاء endpoint حالة للقراءة فقط، اجعله action:
+
+```ts filename="actions/get-status.ts"
+import { defineAction } from "@agent-native/core/action";
+import { z } from "zod";
+
+export default defineAction({
+  description: "Return API service status",
+  schema: z.object({
+    service: z.string().optional(),
+  }),
+  http: { method: "GET" },
+  run: async ({ service }) => ({
+    ok: true,
+    service: service ?? "api",
+    checkedAt: new Date().toISOString(),
+  }),
+});
+```
+
+استدعِه مباشرة عبر HTTP:
+
+```http
+GET /_agent-native/actions/get-status?service=billing
+```
+
+بالنسبة إلى `POST` وactions الكتابة الأخرى، أرسل جسم JSON إلى مسار action نفسه.
+
 ## إكمال النص بلقطة واحدة {#complete-text}
 
 يجب أن تتم معظم أعمال الذكاء الاصطناعي من خلال دردشة الوكيل حتى يتمكن المستخدمون من الرؤية والتوجيه والتدقيق
@@ -136,8 +169,7 @@ export default defineEventHandler(() => ({
 الأدوات أو سجل الدردشة أو حالة التشغيل، استخدم `completeText()` كهروب صريح
 يفقس.
 
-```ts
-// actions/classify-message.ts
+```ts filename="actions/classify-message.ts"
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
 import { z } from "zod";
@@ -202,8 +234,7 @@ export default defineAction({
 
 المكونات الإضافية موجودة في `server/plugins/` ويتم تشغيلها عند بدء التشغيل. استخدمها لعمليات الترحيل وإعداد الموفر والمهام المتكررة ومحولات التكامل وتكوين المكونات الإضافية لإطار العمل.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -238,7 +269,7 @@ export default runMigrations(
 | `/_agent-native/extensions/*`    | امتدادات وقت التشغيل ووكيل الامتداد (الاسم المستعار القديم: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | عمليات تكامل المراسلة/الخطاف التلقائي على الويب                                       |
 | `/_agent-native/a2a`             | من وكيل إلى وكيل JSON-RPC                                                             |
-| `/_agent-native/mcp`             | نقطة نهاية MCP                                                                        |
+| `/mcp`                           | نقطة نهاية MCP                                                                        |
 | `/_agent-native/onboarding/*`    | قائمة التحقق من الإعداد                                                               |
 | `/_agent-native/observability/*` | التتبعات والملاحظات والتقييمات والتجارب                                               |
 | `/_agent-native/file-upload`     | نقطة نهاية موفر تحميل الملفات                                                         |
@@ -381,8 +412,11 @@ export default runMigrations(
 
 </Diagram>
 
-> [!WARNING]
-> لا تعتمد على الوعود غير المنتظرة بعد إرجاع الرد - حيث يقوم المضيفون بدون خادم بتجميد التنفيذ. راجع [Messaging](/docs/messaging) للتعرف على قائمة انتظار التكامل الأساسية.
+<Callout tone="warning">
+  لا تعتمد على الوعود غير المنتظرة بعد إرجاع الرد - حيث يقوم المضيفون بدون خادم
+  بتجميد التنفيذ. راجع [Messaging](/docs/messaging) للتعرف على قائمة انتظار
+  التكامل الأساسية.
+</Callout>
 
 ## متقدم: فتحات الهروب {#advanced-escape-hatches}
 
@@ -424,3 +458,11 @@ const handler = createProductionAgentHandler({
   systemPrompt: "You are the app agent...",
 });
 ```
+
+## الخطوة التالية
+
+- [**الإجراءات**](/docs/actions) — سطح العمليات الافتراضي؛ استخدم مسارًا مخصصًا فقط عندما لا يناسبه
+- [**قاعدة البيانات**](/docs/database) — نمط `getDb()`/`schema` الذي تستورده المسارات المخصصة والإجراءات
+- [**الأمان**](/docs/security#access-guards) — `accessFilter`/`assertAccess` ونموذج تحديد نطاق البيانات الكامل
+- [**المراسلة**](/docs/messaging) — نمط قائمة انتظار التكامل القياسي للـ webhooks الواردة
+- [**بروتوكول MCP**](/docs/mcp-protocol) — نقطة النهاية `/mcp` التي يثبّتها هذا الخادم تلقائيًا

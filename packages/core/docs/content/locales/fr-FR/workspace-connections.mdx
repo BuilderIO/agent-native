@@ -264,7 +264,7 @@ Les identifiants de fournisseur initiaux sont :
 | `google_drive` | recherche, importation, documents           | cerveau, contenu, diapositives                   |
 | `hubspot`      | recherche, importation, CRM                 | analyse, cerveau, courrier                       |
 | `granola`      | recherche, importation, réunions, documents | cerveau, calendrier, répartition                 |
-| `clips`        | recherche, importation, réunions            | cerveau, clips, vidéos                           |
+| `clips`        | recherche, importation, réunions            | cerveau, clips                                   |
 | `generic`      | recherche, importation, documents           | webhooks personnalisé et suppression de fichiers |
 
 Les clés d'identification sont uniquement des noms, tels que `SLACK_BOT_TOKEN` ou `GITHUB_TOKEN`. Les métadonnées du fournisseur ne doivent jamais inclure les valeurs réelles des informations d'identification.
@@ -425,10 +425,9 @@ Ne dupliquez pas le stockage OAuth/jeton dans chaque application. L'enregistreme
 
 ### Configuration du plan de contrôle de répartition
 
-Dispatch expose le plan de contrôle actions qui écrit les mêmes fonctions de magasin partagé qu'une application pourrait appeler directement :
+Dispatch expose des actions de plan de contrôle qui utilisent les mêmes fonctions de stockage partagé qu’une application pourrait appeler directement : son action `upsert-workspace-connection` valide l’entrée par rapport au catalogue des fournisseurs, puis délègue à la même fonction `upsertWorkspaceConnection()` présentée dans cette page :
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -493,3 +492,11 @@ Le catalogue des fournisseurs et le magasin de subventions constituent la base d
 Gardez les limites strictes : les métadonnées du fournisseur peuvent être affichées en toute sécurité ; les valeurs des informations d'identification restent dans le coffre-fort.
 
 </details>
+
+## Et ensuite {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — l’application qui gère généralement la configuration des connexions de l’espace de travail et le coffre-fort
+- [**Sécurité**](/docs/security) — le coffre-fort d’identifiants, la portée des secrets et le modèle d’accès vers lesquels pointent les connexions
+- [**Intégration**](/docs/onboarding#checking-workspace-connections-in-onboarding) — vérifier l’état de préparation des connexions depuis la liste de configuration d’un modèle
+- [**Clients MCP**](/docs/mcp-clients) — partager les identifiants des serveurs MCP dans l’espace de travail, un modèle voisin de configuration réutilisable
+- [**Brain**](/docs/template-brain) — l’implémentation de référence d’une page Sources de fournisseurs basée sur ce modèle

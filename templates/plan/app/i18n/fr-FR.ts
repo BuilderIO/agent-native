@@ -476,6 +476,10 @@ const messages = {
       requestAccessTitle: "Demander l'accès à ce plan",
       requestSent: "Demande envoyée",
       retry: "Réessayer",
+      sendFeedback: "Envoyer un retour",
+      feedbackPlaceholder:
+        "Décrivez ce qui s'est passé avant cette erreur de plan.",
+      openGitHubIssue: "Ouvrir une issue GitHub",
       retryHelp:
         "Réessayez le chargement ou connectez-vous avec un autre compte s'il s'agit d'un lien vers un forfait privé.",
       signIn: "Se connecter",
@@ -497,6 +501,16 @@ const messages = {
     localPlanLoadError: {
       message: 'Le dossier du plan local "{{slug}}" n\'a pas pu être lu.',
       title: "Plan local introuvable",
+    },
+    localPlanConnection: {
+      promptTitle: "Se connecter à ce plan local",
+      promptMessage:
+        "Ce plan reste sur votre ordinateur. Plan a besoin de l’autorisation du navigateur pour le lire depuis le pont local.",
+      deniedTitle: "L’accès au réseau local est bloqué",
+      deniedMessage:
+        "Ouvrez les paramètres du site de Plan dans votre navigateur, autorisez l’accès au réseau local, puis vérifiez à nouveau.",
+      connect: "Se connecter au plan local",
+      checkAgain: "Vérifier à nouveau",
     },
     loggedOut: {
       copied: "Copié",

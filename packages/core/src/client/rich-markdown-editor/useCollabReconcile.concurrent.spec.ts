@@ -46,10 +46,16 @@ interface HarnessProps {
   contentUpdatedAt: string;
 }
 
+interface CollabSeedHarnessProps {
+  collabSynced: boolean;
+  fragmentLength: number;
+}
+
 interface Captured {
   editor: Editor | null;
   emitted: string[];
   setContentCalls: number;
+  registerEmitted?: (markdown: string) => boolean;
 }
 
 function makeHarness() {
@@ -95,6 +101,58 @@ function makeHarness() {
       },
     });
     guardsRef.current = guards;
+    captured.registerEmitted = guards.registerEmitted;
+
+    return React.createElement("div", null);
+  }
+
+  return { captured, Harness };
+}
+
+function makeCollabSeedHarness(initialContent = "") {
+  const captured: Captured = { editor: null, emitted: [], setContentCalls: 0 };
+
+  function Harness({ collabSynced, fragmentLength }: CollabSeedHarnessProps) {
+    const guardsRef = React.useRef<ReturnType<
+      typeof useCollabReconcile
+    > | null>(null);
+    const fragmentLengthRef = React.useRef(fragmentLength);
+    fragmentLengthRef.current = fragmentLength;
+    const fakeYdoc = React.useMemo(
+      () => ({
+        clientID: 1,
+        getXmlFragment: () => ({ length: fragmentLengthRef.current }),
+      }),
+      [],
+    );
+
+    const editor = useEditor({
+      extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+      content: initialContent,
+      onUpdate: ({ editor, transaction }) => {
+        const guards = guardsRef.current;
+        if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
+        const markdown = getEditorMarkdown(editor);
+        if (!guards.registerEmitted(markdown)) return;
+        captured.emitted.push(markdown);
+      },
+    });
+    captured.editor = editor;
+
+    const guards = useCollabReconcile({
+      editor,
+      ydoc: fakeYdoc as never,
+      collabSynced,
+      value: "seeded content",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+      editable: true,
+      getMarkdown: getEditorMarkdown,
+      setContent: (ed, v) => {
+        captured.setContentCalls += 1;
+        ed.commands.setContent(v);
+      },
+    });
+    guardsRef.current = guards;
 
     return React.createElement("div", null);
   }
@@ -105,6 +163,7 @@ function makeHarness() {
 async function flush() {
   await act(async () => {
     await Promise.resolve();
+    await new Promise((resolve) => setTimeout(resolve, 0));
     await Promise.resolve();
   });
 }
@@ -120,6 +179,62 @@ function render(
 }
 
 describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
+  it("does not seed until initial collab sync has completed", async () => {
+    const { captured, Harness } = makeCollabSeedHarness();
+
+    act(() => {
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: false,
+          fragmentLength: 0,
+        }),
+      );
+    });
+    await flush();
+
+    expect(captured.setContentCalls).toBe(0);
+
+    act(() => {
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 0,
+        }),
+      );
+    });
+    await flush();
+
+    expect(captured.setContentCalls).toBe(1);
+    expect(getEditorMarkdown(captured.editor!)).toBe("seeded content");
+  });
+
+  it("does not seed after initial collab sync reveals existing canonical content", async () => {
+    const { captured, Harness } = makeCollabSeedHarness("seeded content");
+
+    act(() => {
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: false,
+          fragmentLength: 0,
+        }),
+      );
+    });
+    await flush();
+
+    act(() => {
+      root.render(
+        React.createElement(Harness, {
+          collabSynced: true,
+          fragmentLength: 1,
+        }),
+      );
+    });
+    await flush();
+
+    expect(captured.setContentCalls).toBe(0);
+    expect(getEditorMarkdown(captured.editor!)).toBe("seeded content");
+  });
+
   it("applies a deliberate REVERT to a previously-applied value after a local edit (not swallowed as echo)", async () => {
     // Regression for the revert-safety carve-out: the doc-equivalence echo
     // guards (value === lastAppliedValueRef) only fire when the editor is
@@ -157,6 +272,64 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
     expect(getEditorMarkdown(captured.editor!)).toBe("# V1 content");
   });
 
+  it("applies a newer authoritative revert that matches a prior mount-time emission", async () => {
+    const { captured, Harness } = makeHarness();
+
+    render(root, Harness, {
+      value: "# V1 content",
+      contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+    });
+    await flush();
+    render(root, Harness, {
+      value: "# V2 content",
+      contentUpdatedAt: "2024-01-01T00:00:02.000Z",
+    });
+    await flush();
+    expect(getEditorMarkdown(captured.editor!)).toBe("# V2 content");
+
+    // A collab mount/schema-normalization transaction can emit the old V1
+    // bytes even though the authoritative apply has already moved the editor
+    // to V2. Record that echo without focusing/typing in the editor.
+    expect(captured.registerEmitted?.("# V1 content")).toBe(true);
+
+    render(root, Harness, {
+      value: "# V1 content",
+      contentUpdatedAt: "2024-01-01T00:00:03.000Z",
+    });
+    await flush();
+
+    expect(getEditorMarkdown(captured.editor!)).toBe("# V1 content");
+  });
+
+  it("ignores local-looking editor updates until collaborative seeding completes", async () => {
+    const results: boolean[] = [];
+
+    function Probe() {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+        content: "",
+      });
+      const fakeYdoc = { clientID: 1, getXmlFragment: () => ({ length: 0 }) };
+      const guards = useCollabReconcile({
+        editor,
+        ydoc: fakeYdoc as never,
+        collabSynced: false,
+        value: "authoritative content",
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+      });
+      if (editor && results.length === 0) {
+        results.push(guards.shouldIgnoreUpdate(editor.state.tr));
+      }
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe)));
+    await flush();
+
+    expect(results).toEqual([true]);
+  });
+
   it("refuses to persist an empty doc in collab mode (registerEmitted guard)", async () => {
     // Directly exercise the guard contract: in collab mode an empty markdown
     // string must not be registered/persisted (would clobber stored content
@@ -188,6 +361,42 @@ describe("useCollabReconcile — concurrent edit / lost-update guards", () => {
 
     expect(results[0]).toBe(false); // empty in collab mode → refused
     expect(results[1]).toBe(true); // real content → accepted
+  });
+
+  it("defers collab seed setContent to a cancellable timer task", async () => {
+    const setContentValues: string[] = [];
+
+    function Probe({ value }: { value: string }) {
+      const editor = useEditor({
+        extensions: createRichMarkdownExtensions({ dialect: "gfm" }),
+        content: "",
+      });
+      const fakeYdoc = { clientID: 1, getXmlFragment: () => ({ length: 0 }) };
+      useCollabReconcile({
+        editor,
+        ydoc: fakeYdoc as never,
+        value,
+        contentUpdatedAt: "2024-01-01T00:00:01.000Z",
+        editable: true,
+        setContent: (ed, v) => {
+          setContentValues.push(v);
+          ed.commands.setContent(v);
+        },
+      });
+      return React.createElement("div", null);
+    }
+
+    act(() => root.render(React.createElement(Probe, { value: "first seed" })));
+    expect(setContentValues).toEqual([]);
+
+    act(() =>
+      root.render(React.createElement(Probe, { value: "second seed" })),
+    );
+    expect(setContentValues).toEqual([]);
+
+    await flush();
+
+    expect(setContentValues).toEqual(["second seed"]);
   });
 
   it("applies a genuinely newer external value once the user is no longer focused", async () => {

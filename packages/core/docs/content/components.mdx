@@ -25,6 +25,28 @@ Avoid importing UI components from the bare `@agent-native/core` package. Use
 `@agent-native/core/client` or a focused `@agent-native/core/client/*` subpath
 so bundlers choose the browser-safe entry.
 
+Use `@agent-native/toolkit` for reusable app-building pieces that are not part
+of the foundational runtime contract: shadcn-style UI primitives, shared hooks,
+simple app shell helpers, and other template composition modules. Core keeps
+compatibility re-exports for migrated internals during the transition.
+
+Reusable packages can import Toolkit modules directly:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Inside template apps, prefer app-local adapters so teams can replace primitives
+once and have every reused Toolkit surface pick up the local implementation:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-u3yfqy" title="Drop down a layer, not out of the framework" summary={"Each layer keeps the same runtime — actions, thread state, and SQL-backed sync — while giving you more control over the chrome."}>
 
 ```html
@@ -207,24 +229,32 @@ tool-call display.
 ## Native Tool Widgets {#native-tool-widgets}
 
 Use native tool widgets when an action result should render as app-quality UI
-inside chat instead of plain JSON. Built-in reusable outputs include
-`DataTableWidget`, `DataChartWidget`, and `DataWidgetResult`; they are exported
-from `@agent-native/core/client/chat` and the root client entry. See
-[Native Chat UI](/docs/native-chat-ui) for the action result contract.
+inside chat instead of plain JSON. You don't import or mount a widget
+component yourself — an action builds its result with a server-safe helper
+(`createDataTableWidgetResult()`, `createDataChartWidgetResult()`) from
+`@agent-native/core/data-widgets`, and the runtime picks the matching built-in
+React renderer automatically. `DataTableWidget`, `DataChartWidget`, and
+`DataWidgetResult` are the **result-shape types** — exported from
+`@agent-native/core/client/chat` and the root client entry for typing action
+results, not renderable components. See
+[Native Chat UI](/docs/native-chat-ui#action-declared-widgets) for the full action result
+contract and a worked example.
 
-| API                              | Use when                                                                                |
-| -------------------------------- | --------------------------------------------------------------------------------------- |
-| `DataTableWidget`                | You want an action result to render rows and columns in native chat.                    |
-| `DataChartWidget`                | You want compact bar, line, or area chart output in native chat.                        |
-| `DataWidgetResult`               | You want a typed result shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
-| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.               |
-| `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                 |
-| `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.           |
+| API                              | Use when                                                                                 |
+| -------------------------------- | ---------------------------------------------------------------------------------------- |
+| `createDataTableWidgetResult()`  | Your action returns rows and columns that should render as a native table in chat.       |
+| `createDataChartWidgetResult()`  | Your action returns series data that should render as a native bar, line, or area chart. |
+| `DataWidgetResult`               | You need the typed union shape for `"data-table"`, `"data-chart"`, or `"data-insights"`. |
+| `registerActionChatRenderer()`   | You need an action-declared renderer selected by exact `chatUI.renderer`.                |
+| `registerToolRenderer()`         | You need a product-specific native renderer for a non-core tool result.                  |
+| `registerReservedToolRenderer()` | Framework code needs a reserved renderer that wins before template renderers.            |
 
 ## Realtime Collab And Presence {#collab-presence}
 
 Use `@agent-native/core/client/collab` for Liveblocks-style presence and
-collaborative document hooks.
+collaborative document hooks. Use `@agent-native/toolkit/collab-ui` for the
+presentational overlays and avatar chrome; core keeps compatibility re-exports
+for existing apps.
 
 | API                                                 | Use when                                                                                    |
 | --------------------------------------------------- | ------------------------------------------------------------------------------------------- |
@@ -434,7 +464,8 @@ function WorkspaceResources() {
 
 | Area          | APIs                                                   | Import path                               |
 | ------------- | ------------------------------------------------------ | ----------------------------------------- |
-| Sharing       | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
+| Sharing       | `<ShareButton>`, `<ShareDialog>`                       | `@agent-native/core/client/sharing`       |
+| Sharing UI    | `<VisibilityBadge>`                                    | `@agent-native/toolkit/sharing`           |
 | Notifications | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
 | Progress      | `<RunsTray>`, progress hooks and types                 | `@agent-native/core/client/progress`      |
 | Onboarding    | `useOnboarding()`, onboarding panel hooks              | `@agent-native/core/client/onboarding`    |
@@ -457,10 +488,12 @@ action so the UI and agent share the same capability.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -475,3 +508,11 @@ export default defineAction({
 Use `sendToAgentChat({ background: true, openSidebar: false })` instead when
 the work needs tools, state, auditability, user steering, or multi-step
 reasoning.
+
+## What's next {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — mount `<AgentSidebar>` and `<AgentPanel>` with a tutorial-first walkthrough
+- [**Native Chat UI**](/docs/native-chat-ui) — the action result contract behind data widgets and custom renderers
+- [**Actions**](/docs/actions) — `defineAction()`, schemas, and the action surface these components call
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — the collab hooks and presence components in depth
+- [**Sharing**](/docs/sharing) — `<ShareButton>` and `<ShareDialog>` wiring for ownable resources

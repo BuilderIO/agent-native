@@ -1,0 +1,329 @@
+---
+title: "資料程式"
+description: "由 agent 撰寫並儲存的 JS 腳本，在伺服器端擷取、連接與彙整資料，快取於 SQL 中，並由 dashboard 面板渲染——介於一次性 run-code 查詢與硬編碼 provider action 之間的即時資料折衷方案。"
+search: "data program emit rows schema providerFetch dashboard panel program source refresh TTL viewer-scoped cache save-data-program run-data-program"
+---
+
+# 資料程式
+
+**資料程式（data program）**是一個具名、儲存、由 agent 撰寫的 JS 腳本，用來擷取、連接、篩選或彙整資料——透過 `providerFetch` / `providerFetchAll` / `providerSearchAll` 存取 provider API，透過 `appAction` 存取 app 資料，或存取以 Resources 為基礎的 workspace 檔案——並且恰好呼叫一次 `emit(rows, schema)` 來提交結果。結果會快取在 SQL 中，任何圖表/表格元件都能渲染它，依你選擇的策略更新，而不是每次頁面瀏覽都重新擷取。
+
+只要 [`run-code`](/docs/actions) 可用，它就會自動可用——不需要依 app 掛載或設定任何東西。如果你的 app 已啟用 run-code，`save-data-program`、`preview-data-program`、`run-data-program`、`list-data-programs`、`get-data-program` 與 `delete-data-program` 就已經是已註冊的 actions。
+
+<Diagram id="doc-block-dp-overview" title={"從臨時查詢到即時面板"} summary={"一段 run-code 腳本一旦呼叫 emit()，就會變成一個儲存的程式；任何 dashboard 面板都能綁定到它，之後由快取／更新策略接手。"}>
+
+```html
+<div class="dp-flow">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">run-code script</span
+    ><small class="diagram-muted">providerFetch, joins, aggregation</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">emit(rows, schema)</span
+    ><small class="diagram-muted"
+      >save-data-program dry-runs, then persists</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    data_program_runs<br /><small class="diagram-muted"
+      >cached per (program, params, viewer)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">儀表板面板</span
+    ><small class="diagram-muted"><code>source: "program"</code></small>
+  </div>
+</div>
+```
+
+```css
+.dp-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dp-flow .diagram-card,
+.dp-flow .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.dp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## 為什麼需要它 {#why}
+
+若沒有儲存的資料程式，「為 X 建立即時檢視」通常會落入兩個糟糕情況之一：
+
+- **為每種 vendor／查詢形態撰寫硬編碼 action。** 脆弱，且無法預見每位客戶的自訂屬性、跨 provider 的連接，或你沒想到要支援的任意篩選條件。
+- **每次頁面瀏覽都從頭重新執行相同的擷取／連接邏輯。** 緩慢，且每次有人查看圖表都會重新消耗相同的 provider API 配額。
+
+資料程式是折衷方案：將擷取／連接／彙整邏輯以普通 `run-code` 撰寫一次，儲存它，然後讓快取與更新策略決定它實際需要多久重新執行一次。
+
+## 何時該使用它 {#when-to-use-one}
+
+| 情境                                                                                                     | 應使用                                                                   |
+| -------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| 標準彙總已有一流 action（預先建置的 `hubspot-deals` 篩選器、內建指標）                                   | 使用現有 action——不要把它包裝成程式                                      |
+| 你之後不會再看的一次性聊天問題                                                                           | 直接使用普通 `run-code` 或 `provider-api-request` 回答，不要保存任何東西 |
+| 擴充功能需要一個帶有自身 UI 的小型、按使用者互動的元件                                                   | [擴充功能](/docs/extensions)——資料程式沒有自己的 UI                      |
+| 群組需要任意屬性篩選、對自訂值的 IN 搜尋，或跨兩個 provider 的連接，**而且**有人會想用最新資料再次查看它 | 資料程式                                                                 |
+| dashboard 面板需要顯示這個連接／彙整結果，並依快取策略更新                                               | 綁定到 `"program"` 面板的資料程式                                        |
+
+與其他 run-code 形態選項的比較：
+
+|                                 | 一次性 `run-code`  | 硬編碼 provider action                     | 資料程式                               |
+| ------------------------------- | ------------------ | ------------------------------------------ | -------------------------------------- |
+| **呼叫之間是否持久**            | 否                 | 不適用（它是原始碼）                       | 是——儲存的資料列＋結果快取             |
+| **結果是否快取／更新**          | 否，每次都重新執行 | 沒有內建快取                               | 是——`refreshMode`/`refreshTtlMs`       |
+| **是否處理任意篩選／連接**      | 是，但用完即丟     | 否——受限於該 action 的 schema 所揭露的內容 | 是——它仍是一般程式碼                   |
+| **是否可綁定到 dashboard 面板** | 否                 | 只有專門為此建置了面板來源才行             | 是——通用的 `"program"` 來源            |
+| **是否需要部署**                | 否                 | 是（新 action = 程式碼變更）               | 否——由 agent 在執行期建立              |
+| **讀取時使用的憑證**            | 呼叫者的           | 呼叫者的                                   | **檢視者的**，依每次讀取解析（見下文） |
+
+## 撰寫工作流程 {#authoring-workflow}
+
+1. **先在聊天中製作原型。** 將擷取／連接／彙整邏輯寫成普通的 `run-code` 腳本，並確認它會回傳你期望的資料列。
+2. **修改它，使其在最後恰好呼叫一次 `emit(rows, schema?)`**，而不是回傳或印出結果。
+3. **使用 `save-data-program` 儲存它。** 這會在持久化之前**以 `defaultParams` 對程式碼進行一次 dry-run**，若失敗則以結構化錯誤拒絕儲存，因此損壞的程式永遠不會被儲存。成功時會回傳 `{ programId, rowCount, columns, sampleRows }`——在告訴使用者「已就緒」之前，將此視為程式確實產生預期資料列的證明。
+4. **將 dashboard 面板綁定到它**，或直接從你自己的讀取路徑呼叫 `run-data-program`。這個基礎元件本身並未內建任何 dashboard 專屬的接線——analytics 範本的 `"program"` 面板來源（見下文）只是其中一種採用方式，並非必要模式。
+5. **不需儲存即可疊代**，使用 `preview-data-program({ code, params? })`——相同的 dry-run 路徑，不儲存資料列。
+
+### 一個實際的範例
+
+假設某個 app 想要一個「近期高價值支援工單」的即時表格，資料來自某個支援類 provider，並依任何內建 action 都未揭露的門檻篩選：
+
+```ts
+// The program's stored `code` — ordinary run-code, with one emit() call.
+const minValue = Number(params.minValue || 5000);
+
+const tickets = await providerFetchAll("acme-support", "/v1/tickets", {
+  query: { status: "open" },
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "next_cursor",
+    maxPages: 10,
+  },
+});
+
+const rows = (tickets.items || [])
+  .filter((t) => Number(t.contract_value || 0) >= minValue)
+  .map((t) => ({
+    ticket_id: t.id,
+    subject: t.subject,
+    account: t.account_name,
+    contract_value: Number(t.contract_value || 0),
+    opened_at: t.created_at,
+  }));
+
+emit(rows, [
+  { name: "ticket_id", type: "string" },
+  { name: "subject", type: "string" },
+  { name: "account", type: "string" },
+  { name: "contract_value", type: "number" },
+  { name: "opened_at", type: "string" },
+]);
+```
+
+儲存它：
+
+```ts
+await appAction("save-data-program", {
+  name: "high-value-open-tickets",
+  title: "High-Value Open Tickets",
+  description:
+    "Open support tickets above a configurable contract-value threshold.",
+  code: "/* the script above */",
+  defaultParams: { minValue: 5000 },
+  refreshMode: "ttl",
+  refreshTtlMs: 300_000,
+});
+```
+
+回應中會帶有 `{ programId, rowCount, columns, sampleRows }`——這是 dry-run 的完成證明。之後，`run-data-program({ programId, params: { minValue: 10000 } })` 會針對不同門檻重新執行它（或提供快取），dashboard 面板也能用同樣的方式綁定到 `programId`。
+
+## 沙箱能力介面 {#sandbox-surface}
+
+資料程式運行在與 `run-code` 完全相同的 `executeSandboxCode` 沙箱中——這個基礎元件並未新增任何沙箱、憑證、SSRF 或配額相關的程式碼。它擁有相同的全域物件（`providerFetch`、`providerFetchAll`、`providerSearchAll`、`appAction`、`webFetch`、`workspace*` Resources 輔助函式），外加框架注入的一小段前導程式碼帶來的兩項補充：
+
+- **`params`** ——一個**凍結**的全域物件，保存本次執行的參數（`defaultParams` 與傳給 `run-data-program` 或面板描述符的內容合併）。讀取它沒問題；修改它會擲出錯誤。
+- **`emit(rows, schema?)`** ——在結尾**恰好呼叫一次**。第二次呼叫會擲出錯誤。`rows` 必須是純物件組成的陣列。`schema`（如有提供）為 `{ name: string, type: string }[]`；省略時會依前 50 列推斷（若樣本中各列在原始型別上不一致，該欄就是 `"json"`，否則為 `"number"` / `"string"` / `"boolean"`）。`console.log` 仍完全自由，可用於除錯——執行器會擷取合併後的 stdout/stderr，並在解析結果時僅移除 `emit()` 寫入的哨兵行。
+
+每次執行都會強制套用的上限（無法依程式個別設定）：
+
+| 限制                                       | 數值                                                                                                        |
+| ------------------------------------------ | ----------------------------------------------------------------------------------------------------------- |
+| 最大提交列數                               | 10,000——超出的列會被捨棄，`truncated: true`                                                                 |
+| 最大提交結果大小                           | 4 MiB——從結尾捨棄資料列以符合限制；單一列超過上限則屬硬性 `result_too_large` 失敗，因為沒有可安全截斷的內容 |
+| 每個 app 的最大使用中（未封存）程式數      | 200——封存未使用的程式以釋放空間                                                                             |
+| 最小更新 TTL                               | 60,000 毫秒                                                                                                 |
+| 每個（程式、params、檢視者）保留的執行列數 | 最近 5 筆——較舊的紀錄會在每次寫入時自動清除                                                                 |
+
+截斷永遠是明確的（結果中的 `truncated: true`）——絕不會靜默捨棄。
+
+## Params 與 dashboard 面板綁定 {#params-and-panel-binding}
+
+程式可宣告一個選用的 `paramsSchema`（描述所接受 params 的 JSON Schema）以及 `defaultParams`。dashboard 採用 `"program"` 面板來源的方式，是在面板的查詢欄位中放入一個小型 JSON 描述符，而非查詢字串：
+
+```json
+{ "programId": "dp_a1b2c3d4e5f6", "params": { "minValue": 10000 } }
+```
+
+該面板透過與其他任何面板來源完全相同的圖表／表格元件渲染——它永遠只會收到 `{ rows, schema }`。將面板綁定到程式，僅僅是「綁定到哪個儲存的程式、覆寫哪些 params」；不存在在別處重複實作的 dashboard 專屬執行路徑。
+
+## 更新、TTL 與快取語意 {#refresh-and-caching}
+
+每個 `(programId, paramsHash)` 組合在 `data_program_runs` 中都有自己的執行歷史，而 `paramsHash` 除了 params 之外還納入了**檢視者**（原因見安全章節）。每次讀取時會發生：
+
+| 情況                                                                            | 行為                                                                                                                                 |
+| ------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| 新鮮快取（比 `refreshTtlMs` 更新，或 `refreshMode: "manual"` 且先前有成功紀錄） | 立即回傳快取的資料列，`cacheHit: true`                                                                                               |
+| 快取比 TTL 更舊                                                                 | 同步重新執行——面板檢視觸發的讀取預算為 25 秒，agent／手動呼叫為 120 秒——並在成功時取代快取                                           |
+| `refreshMode: "manual"`                                                         | 永不自動更新；只有明確的 `forceRefresh: true`（或 UI 上的手動更新 action）才會重新執行                                               |
+| 尚無快取                                                                        | 像一般的首次擷取一樣同步執行                                                                                                         |
+| `background: true` 的程式，無新鮮快取                                           | 立即以 `stale: true` 提供最近一次成功結果，並將一次持久的背景執行加入佇列（10 分鐘預算）；之後的呼叫會在執行完成後完成結果的最終確認 |
+| 背景程式仍在執行，且先前無成功紀錄                                              | `background_pending` 失敗——應顯示明確的「仍在計算中」狀態，絕不回傳空白結果                                                          |
+| 執行失敗（逾時、沙箱錯誤、`emit()` 形狀不合法）                                 | 結構化的 `{ code, message }` 失敗；若存在先前的成功結果，會作為 `lastGoodRun` 附加，以便面板可提供過時資料，而非顯示空白             |
+| 程式已被封存（透過 `delete-data-program` 軟刪除）                               | 明確的 `archived` 失敗——絕不是靜默的空白面板                                                                                         |
+
+只對那些經常超出前景逾時的程式使用 `background: true`——例如大型多 provider 連接、深度分頁。其餘情況都應保持前景執行：更容易推理，也能更快提供新鮮資料。
+
+### 為什麼快取依檢視者劃分範圍 {#per-viewer-cache}
+
+程式內部的 `providerFetch` 使用**呼叫檢視者自己的請求脈絡**來解析身分驗證——絕不使用程式作者的。無論呼叫來自 agent、`run-data-program` 呼叫，或是團隊成員正在查看的 dashboard 面板，皆是如此。兩位不同的檢視者以相同 params 執行同一個程式，完全可能合理地得到兩個不同的結果：一位設定了 HubSpot 金鑰而另一位沒有，或是列層級的 provider 權限因人而異。
+
+正因如此，`hashDataProgramParams` 在快取金鑰中除了正規化的 params 之外，也納入了呼叫者的身分。這對**共用 dashboard** 尤其重要：若快取僅依 params 分鍵，第一位查看面板的人就會悄悄決定其他每位檢視者所看到的內容，包括那些不具備產生該快取結果所需憑證的檢視者。依檢視者劃分範圍，代表缺少憑證的團隊成員會在該面板上看到自己的身分驗證錯誤，而非他人的資料。
+
+## 安全模型 {#security}
+
+<Callout id="doc-block-dp-security" tone="success">
+
+**原始 provider 權杖永遠不會抵達模型或瀏覽器。** 離開沙箱的唯一內容，是 `emit()` 呼叫所產生的 `{ rows, schema }`——與其他任何 run-code 執行、其他任何 dashboard 面板來源相同的信任邊界。
+
+</Callout>
+
+- **僅限伺服器端。** 資料程式的程式碼只在伺服器上的 `executeSandboxCode` 內部執行。無論是儲存的原始碼，還是它所觸及的任何憑證，都不會傳送到瀏覽器或模型——只有提交的資料列／schema，以及精簡的執行中繼資料（列數、欄位、範例列）會被傳送。
+- **憑證永遠是呼叫檢視者的，絕非程式原作者的。** 參見上文的[更新、TTL 與快取語意](#per-viewer-cache)，了解這為何也決定了快取金鑰。
+- **`allowPublic: false` 是硬性不變量，而非預設值。** 資料程式以與[擴充功能](/docs/extensions#security)相同的方式向共用註冊表註冊，且停用公開共用。公開的程式會讓任何已驗證使用者以自己的權杖執行任意儲存的程式碼——共用一個程式僅限於你的組織範圍內，且永遠只代表「團隊成員可查看其快取結果並觸發重新執行」，絕不代表「公眾網際網路可執行它」。
+- **變更與執行類的 actions 無法從沙箱化的擴充功能／iframe 橋接以工具形式呼叫。** `save-data-program`、`preview-data-program`、`run-data-program` 與 `delete-data-program` 皆為 `toolCallable: false`——只有 agent 或伺服器端的讀取路徑能呼叫它們，絕不能由開啟者工作階段下的擴充功能 iframe 呼叫。`list-data-programs` 與 `get-data-program` 為唯讀，並透過與其他任何 ownable 資源相同的共用輔助函式進行存取範圍限定。
+- **程式的範圍限定於建立它的那個 app 內。** 向查詢傳入 `appId`，代表在共用資料庫部署中，某個 app 建立的程式無法從另一個 app 的 agent 聊天中執行，即使呼叫者在列層級（擁有者／組織／共用）原本對其擁有存取權。
+- **只綁定或查看你信任的程式。** 由於執行永遠使用檢視者自己的憑證，查看一個共用程式的結果，就完全等同於開啟他人的擴充功能——要信任的是程式碼本身，而不只是存取授權。
+
+## Risk Meeting 實作範例 {#risk-meeting-example}
+
+analytics 範本附帶了一個具體、可執行的案例研究：`ensure-risk-meeting-dashboard` action 會冪等地安裝兩個資料程式，外加一個雙面板的「Risk Meeting」dashboard，展示了硬編碼 action 無法為每位客戶預見的三件事。
+
+<FileTree
+  id="doc-block-dp-risk-meeting-files"
+  title={"Risk Meeting 安裝器"}
+  entries={[
+    {
+      path: "templates/analytics/actions/ensure-risk-meeting-dashboard.ts",
+      note: "冪等 action：依穩定名稱更新兩個程式，再依 id 更新 dashboard",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-cohort.js",
+      note: "儲存的程式負載——純 JS 文字，不是建置原始檔",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-pylon-early-warning.js",
+      note: "配套的早期預警程式",
+    },
+  ]}
+/>
+
+**`risk-meeting-cohort.js`** ——依任意的 `risk_status` 屬性（一種預先建置的 action 無法預見的、針對自訂值的 IN 搜尋）搜尋可設定的 CRM deal 群組，透過批次關聯查詢解析每個 deal 的公司，解析每間公司的網域，取得第二個不相關 provider 的帳戶情緒，並依網域將兩者連接：
+
+```js
+// params: { riskStatuses?: string[], enterpriseOnly?: boolean }
+const riskStatuses = params.riskStatuses?.length
+  ? params.riskStatuses
+  : ["On the Radar", "Churn Risk", "Confirmed Churn", "No Save Attempted"];
+
+// 1. Arbitrary property IN-search — not expressible through a canned filter.
+const dealSearch = await providerFetchAll("crm-provider", "/deals/search", {
+  method: "POST",
+  body: {
+    filterGroups: [
+      {
+        filters: [
+          { propertyName: "risk_status", operator: "IN", values: riskStatuses },
+        ],
+      },
+    ],
+  },
+  itemsPath: "results",
+  pagination: {
+    cursorBodyPath: "after",
+    nextCursorPath: "paging.next.after",
+    maxPages: 20,
+  },
+});
+
+// 2-3. Batched deal -> company -> domain resolution (elided here; see the
+// real seed file for the full batching helper).
+
+// 4. A second, unrelated provider — zero bespoke glue action required.
+const accounts = await providerFetchAll("support-provider", "/accounts", {
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "pagination.cursor",
+    maxPages: 20,
+  },
+});
+
+// 5. Join + emit.
+const rows = dealSearch.items.map((deal) => ({
+  deal_id: deal.id,
+  risk_status: deal.properties.risk_status,
+  arr: Number(deal.properties.total_contract_value || 0),
+  // ...domain lookup + sentiment join...
+}));
+
+emit(rows, [
+  { name: "deal_id", type: "string" },
+  { name: "risk_status", type: "string" },
+  { name: "arr", type: "number" },
+]);
+```
+
+**`risk-meeting-pylon-early-warning.js`** ——配套檢視：已被支援情緒標記為風險、但**尚未**出現在上述 CRM 群組中的帳戶。這個落差——支援訊號領先於 CRM 訊號——需要將一個 provider 的群組從另一個 provider 的群組中排除，這正是單一 vendor 的 action 無法表達的跨 provider 集合邏輯。
+
+這兩個程式都由 `ensure-risk-meeting-dashboard` 安裝並保持最新，它會：
+
+- 依穩定的 `name` 更新每個程式，因此重新執行安裝器會更新相同的資料列，而非重複建立。
+- 安裝時不需要 CRM／支援類憑證——provider 身分驗證只有在面板真正被渲染或呼叫了 `run-data-program` 時，才會依檢視者解析，與上文依檢視者的快取範圍劃分一致。
+- 建置一個雙面板 dashboard，其面板使用 `source: "program"`，綁定到各自程式的 id。
+
+完整附註解的原始碼請參見 `data-programs` skill。
+
+## 其他 app 如何採用面板來源 {#adopting-the-panel-source}
+
+`"program"` dashboard 面板來源是這個基礎元件的一種採用方式，完全實作在主機 app 自己的面板查詢層中——`@agent-native/core/data-programs` 本身並未內建任何 dashboard 專屬的東西。analytics 範本的實作是接上你自己系統時的實用參考：
+
+- 面板的 `sql` 欄位帶有一個小型 JSON 描述符——`{ programId, params? }`——而非查詢字串。
+- 渲染面板會以 `triggeredBy: "panel_view"` 及目前檢視者的身分呼叫 `runDataProgram`，因此依檢視者的快取與憑證解析會自動生效。
+- 成功時，面板取得 `{ rows, schema }`——與其他任何面板來源回傳的形狀相同，因此可不經修改流經現有的圖表／表格元件。
+- 失敗時，只要存在 `lastGoodRun`，就會優先使用它而非顯示損壞的面板；只有在沒有先前成功紀錄時，面板才會顯示結構化錯誤（針對 `access_denied`、`archived`、`background_pending` 等常見代碼有更友善的文案）。
+
+任何 app 都可以為自己的 dashboard／表格實作相同的採用方式：從你自己的讀取路徑呼叫 `run-data-program`（若在同一個伺服器程序內，也可直接呼叫 `runDataProgram`），並將回傳的 `rows`/`schema` 交給你自己的渲染元件。
+
+## 相關文件 {#related}
+
+- [擴充功能](/docs/extensions) ——資料程式與之共享安全姿態與共用模型的沙箱化 mini-app 基礎元件，但擁有自己的 UI。
+- [Actions](/docs/actions) ——資料程式所建構於其上的 `run-code` 慣例與沙箱全域物件（`providerFetch`、`appAction` 等）。
+- [共用與隱私](/docs/sharing) ——資料程式所使用的、僅限組織內部、絕不公開的共用模型。
+- [安全性](/docs/security) ——框架的憑證處理與存取範圍限定不變量。

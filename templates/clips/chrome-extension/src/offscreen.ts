@@ -16,7 +16,18 @@
 // MIME selection and the chunk-upload URL/param protocol are shared with the web
 // app recorder via @shared/recording-core so the server contract can't drift.
 
+import {
+  chooseFallbackAudioInput,
+  enumerateAudioInputDevices,
+  isLikelyPhoneMicLabel,
+  type AudioInputFallback,
+} from "@shared/media-device-selection";
 import { scheduleReadyChime } from "@shared/recording-audio";
+import {
+  SCREEN_CAPTURE_FRAME_RATE,
+  screenCaptureVideoConstraints,
+  type ScreenCaptureSurface,
+} from "@shared/recording-capture";
 import {
   chunkUploadUrl,
   pickMimeType,
@@ -25,6 +36,13 @@ import {
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
+import {
+  createRecordingDurationState,
+  pauseRecordingDuration,
+  resumeRecordingDuration,
+  startRecordingDuration,
+  type RecordingDurationState,
+} from "./recording-duration";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("offscreen");
@@ -54,6 +72,34 @@ function waitForRetry(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+async function copyTextToClipboard(
+  message: CopyTextMessage,
+): Promise<{ ok: boolean }> {
+  const text = message.text.trim();
+  if (!text) throw new Error("Missing text to copy.");
+
+  if (navigator.clipboard?.writeText) {
+    await navigator.clipboard.writeText(text);
+    return { ok: true };
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+  try {
+    if (!document.execCommand("copy")) {
+      throw new Error("Clipboard copy was rejected.");
+    }
+    return { ok: true };
+  } finally {
+    textarea.remove();
+  }
+}
+
 function isFinalUploadRecoveryCandidate(error: Error): boolean {
   const tagged = error as {
     finalUploadRecoveryAttempted?: boolean;
@@ -78,6 +124,8 @@ type AcquireMessage = {
   // Screen+camera: capture the camera here and composite it into the recording
   // (the on-page bubble can be blocked by the page's Permissions-Policy).
   includeCamera: boolean;
+  videoDeviceId?: string;
+  audioDeviceId?: string;
 };
 
 type BeginMessage = {
@@ -104,6 +152,11 @@ type SimpleMessage = {
     | "CLIPS_OFFSCREEN_RESTART"
     | "CLIPS_OFFSCREEN_START_NOW";
   sessionId: string;
+};
+
+type CopyTextMessage = {
+  type: "CLIPS_OFFSCREEN_COPY_TEXT";
+  text: string;
 };
 
 type StatusName = "recording" | "paused" | "uploading" | "complete" | "error";
@@ -141,6 +194,7 @@ type ActiveRecording = {
   authToken: string | null;
   mode: CaptureMode;
   startedAtMs: number;
+  duration: RecordingDurationState;
   mimeType: string;
   recorder: MediaRecorder;
   outputStream: MediaStream;
@@ -259,19 +313,10 @@ async function streamDimensions(
 }
 
 function displayConstraints(
-  surface: "browser" | "window" | "monitor",
+  surface: ScreenCaptureSurface,
 ): MediaStreamConstraints {
-  const displaySurface =
-    surface === "browser"
-      ? "browser"
-      : surface === "window"
-        ? "window"
-        : "monitor";
   return {
-    video: {
-      frameRate: { ideal: 30, max: 30 },
-      ...({ displaySurface } as object),
-    },
+    video: screenCaptureVideoConstraints(surface),
     audio: {
       echoCancellation: false,
       noiseSuppression: false,
@@ -281,15 +326,50 @@ function displayConstraints(
 }
 
 // The user's chosen camera/mic devices (set in the popup, saved to storage).
-async function readDeviceIds(): Promise<{ video: string; audio: string }> {
+async function readDeviceIds(overrides?: {
+  video?: string;
+  audio?: string;
+}): Promise<{ video: string; audio: string }> {
   try {
     const v = await chrome.storage.sync.get(["videoDeviceId", "audioDeviceId"]);
     return {
-      video: typeof v.videoDeviceId === "string" ? v.videoDeviceId : "",
-      audio: typeof v.audioDeviceId === "string" ? v.audioDeviceId : "",
+      video:
+        typeof overrides?.video === "string"
+          ? overrides.video
+          : typeof v.videoDeviceId === "string"
+            ? v.videoDeviceId
+            : "",
+      audio:
+        typeof overrides?.audio === "string"
+          ? overrides.audio
+          : typeof v.audioDeviceId === "string"
+            ? v.audioDeviceId
+            : "",
     };
   } catch {
-    return { video: "", audio: "" };
+    return {
+      video: typeof overrides?.video === "string" ? overrides.video : "",
+      audio: typeof overrides?.audio === "string" ? overrides.audio : "",
+    };
+  }
+}
+
+// Best-effort label lookup for the requested mic id, used only to soften audio
+// processing constraints for phone/Continuity-style mics (see
+// isLikelyPhoneMic). Device labels are only populated once permission has
+// already been granted, which is always true by the time acquire() runs.
+async function lookupAudioDeviceLabel(deviceId: string): Promise<string> {
+  if (!deviceId) return "";
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    return (
+      devices.find(
+        (device) =>
+          device.kind === "audioinput" && device.deviceId === deviceId,
+      )?.label ?? ""
+    );
+  } catch {
+    return "";
   }
 }
 
@@ -297,25 +377,302 @@ function cameraConstraints(deviceId: string): MediaTrackConstraints {
   const base: MediaTrackConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
   };
   if (deviceId) base.deviceId = { exact: deviceId };
   else base.facingMode = "user";
   return base;
 }
 
-async function getMicStream(deviceId: string): Promise<MediaStream | null> {
-  const audio: MediaTrackConstraints = {
-    echoCancellation: true,
-    noiseSuppression: true,
-    autoGainControl: true,
-    channelCount: 1,
-  };
-  if (deviceId) audio.deviceId = { exact: deviceId };
+async function getCameraStream(deviceId: string): Promise<MediaStream> {
   try {
-    return await navigator.mediaDevices.getUserMedia({ audio, video: false });
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: cameraConstraints(deviceId),
+      audio: false,
+    });
+    warnIfTrackDeviceMismatch("camera", deviceId, stream.getVideoTracks()[0]);
+    return stream;
+  } catch (error) {
+    if (!deviceId || !isDeviceUnavailableError(error)) throw error;
+
+    captureExtensionError(
+      new Error("Selected Clips camera was unavailable; using default camera."),
+      {
+        tags: { surface: "offscreen", mechanism: "camera-device-fallback" },
+        extra: {
+          requestedDeviceId: deviceId,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+
+    return navigator.mediaDevices.getUserMedia({
+      video: cameraConstraints(""),
+      audio: false,
+    });
+  }
+}
+
+// Phones/Continuity-style mics already apply their own echo cancellation,
+// noise suppression, and gain control before the audio ever reaches Chrome.
+// Stacking Chrome's versions of the same processing on top double-processes
+// the signal and audibly degrades it. We can't detect "is this device doing
+// its own processing" directly, so we use the device label as a heuristic and
+// ask the browser to SKIP its own noise suppression / AGC for those devices
+// (`{ ideal: false }` — a best-effort request, not a hard requirement). Echo
+// cancellation stays on for everything.
+async function chooseFallbackMicDevice(
+  requestedLabel: string,
+  avoidDeviceIds: string[] = [],
+): Promise<AudioInputFallback | null> {
+  try {
+    return chooseFallbackAudioInput(await enumerateAudioInputDevices(), {
+      savedLabel: requestedLabel,
+      avoidDeviceIds,
+    });
   } catch {
     return null;
   }
+}
+
+function voiceFocusedAudioConstraints(
+  deviceId: string,
+  deviceLabel = "",
+): MediaTrackConstraints {
+  const skipRedundantProcessing = isLikelyPhoneMicLabel(deviceLabel);
+  const audio: MediaTrackConstraints = {
+    echoCancellation: true,
+    noiseSuppression: skipRedundantProcessing ? { ideal: false } : true,
+    autoGainControl: skipRedundantProcessing ? { ideal: false } : true,
+    channelCount: 1,
+  };
+  if (deviceId) audio.deviceId = { exact: deviceId };
+  return audio;
+}
+
+function isDeviceUnavailableError(error: unknown): boolean {
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name)
+      : "";
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
+}
+
+function micLabelDiagnostic(label: string | null | undefined): string {
+  const value = label?.trim();
+  if (!value) return "empty";
+  if (isLikelyPhoneMicLabel(value)) return "phone-like";
+  if (/\b(?:macbook|built[- ]?in|internal microphone)\b/i.test(value)) {
+    return "built-in";
+  }
+  return "redacted";
+}
+
+async function getMicStream(
+  deviceId: string,
+  deviceLabel = "",
+): Promise<MediaStream> {
+  const requestedDeviceId = deviceId;
+  const requestedDeviceLabel = deviceLabel;
+  const audio = voiceFocusedAudioConstraints(
+    requestedDeviceId,
+    requestedDeviceLabel,
+  );
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio,
+      video: false,
+    });
+    return await correctMicStreamIfNeeded(
+      stream,
+      requestedDeviceId,
+      requestedDeviceLabel,
+    );
+  } catch (error) {
+    if (!requestedDeviceId || !isDeviceUnavailableError(error)) throw error;
+
+    captureExtensionError(
+      new Error(
+        "Selected Clips microphone was unavailable; retrying an explicit fallback mic.",
+      ),
+      {
+        tags: { surface: "offscreen", mechanism: "mic-device-fallback" },
+        extra: {
+          requestedDeviceId,
+          requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+
+    const fallback = await chooseFallbackMicDevice(requestedDeviceLabel, [
+      requestedDeviceId,
+    ]);
+    if (fallback) {
+      try {
+        const stream = await navigator.mediaDevices.getUserMedia({
+          audio: voiceFocusedAudioConstraints(
+            fallback.deviceId,
+            fallback.label,
+          ),
+          video: false,
+        });
+        return correctMicStreamIfNeeded(
+          stream,
+          fallback.deviceId,
+          fallback.label,
+        );
+      } catch (fallbackError) {
+        if (!isDeviceUnavailableError(fallbackError)) throw fallbackError;
+        captureExtensionError(
+          new Error("Explicit Clips microphone fallback was unavailable."),
+          {
+            tags: { surface: "offscreen", mechanism: "mic-device-fallback" },
+            extra: {
+              requestedDeviceId,
+              requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+              fallbackDeviceId: fallback.deviceId,
+              fallbackDeviceLabel: micLabelDiagnostic(fallback.label),
+              fallbackReason: fallback.reason,
+              originalError:
+                fallbackError instanceof Error
+                  ? {
+                      name: fallbackError.name,
+                      message: fallbackError.message,
+                    }
+                  : String(fallbackError),
+            },
+          },
+        );
+      }
+    }
+
+    const stream = await navigator.mediaDevices.getUserMedia({
+      audio: voiceFocusedAudioConstraints("", ""),
+      video: false,
+    });
+    return correctMicStreamIfNeeded(stream, "", "");
+  }
+}
+
+async function correctMicStreamIfNeeded(
+  stream: MediaStream,
+  requestedDeviceId: string,
+  requestedDeviceLabel: string,
+): Promise<MediaStream> {
+  const track = stream.getAudioTracks()[0];
+  if (!track) return stream;
+  const settings = track.getSettings?.();
+  const actualDeviceId = settings?.deviceId ?? "";
+  const mismatched =
+    !!requestedDeviceId &&
+    !!actualDeviceId &&
+    actualDeviceId !== requestedDeviceId;
+  const phoneLike = isLikelyPhoneMicLabel(track.label);
+  if (!mismatched && !phoneLike) return stream;
+
+  warnIfTrackDeviceMismatch("mic", requestedDeviceId, track);
+  if (phoneLike) {
+    captureExtensionError(
+      new Error(
+        "Captured microphone looked phone-like; retrying fallback mic.",
+      ),
+      {
+        tags: {
+          surface: "offscreen",
+          mechanism: "mic-phone-capture-correction",
+        },
+        extra: {
+          requestedDeviceId,
+          requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+          actualDeviceId,
+          trackLabel: micLabelDiagnostic(track.label),
+        },
+      },
+    );
+  }
+  const fallback = await chooseFallbackMicDevice(requestedDeviceLabel, [
+    requestedDeviceId,
+    actualDeviceId,
+  ]);
+  if (!fallback) return stream;
+
+  try {
+    const replacement = await navigator.mediaDevices.getUserMedia({
+      audio: voiceFocusedAudioConstraints(fallback.deviceId, fallback.label),
+      video: false,
+    });
+    stream.getTracks().forEach((oldTrack) => oldTrack.stop());
+    return replacement;
+  } catch (error) {
+    captureExtensionError(
+      new Error("Corrective microphone fallback failed; keeping original mic."),
+      {
+        tags: { surface: "offscreen", mechanism: "mic-correction-failed" },
+        extra: {
+          requestedDeviceId,
+          requestedDeviceLabel: micLabelDiagnostic(requestedDeviceLabel),
+          fallbackDeviceId: fallback.deviceId,
+          fallbackDeviceLabel: micLabelDiagnostic(fallback.label),
+          fallbackReason: fallback.reason,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+    return stream;
+  }
+}
+
+// Defense in depth against the popup/storage layer ever saving a "default" or
+// stale device id again (see popup.ts device-menu filtering): after acquiring
+// a stream, compare what was actually granted against what was requested, and
+// surface a loud warning + Sentry breadcrumb if they don't match. Chrome
+// resolves `deviceId: { exact: "<id>" }` against the device active AT CAPTURE
+// TIME, so a mismatch here means the OS silently switched inputs (e.g. macOS
+// Continuity promoting a nearby iPhone to system default).
+function warnIfTrackDeviceMismatch(
+  kind: "mic" | "camera",
+  requestedDeviceId: string,
+  track: MediaStreamTrack | undefined,
+): void {
+  if (!requestedDeviceId || !track) return;
+  const settings = track.getSettings?.();
+  const actualDeviceId = settings?.deviceId ?? "";
+  if (actualDeviceId && actualDeviceId === requestedDeviceId) return;
+  console.warn(
+    `[clips-offscreen] ${kind} device mismatch: requested`,
+    requestedDeviceId,
+    "but captured",
+    actualDeviceId || "(unknown)",
+    `label="${track.label}"`,
+  );
+  captureExtensionError(
+    new Error(`Captured ${kind} device did not match the requested device.`),
+    {
+      tags: { surface: "offscreen", mechanism: `${kind}-device-mismatch` },
+      extra: {
+        requestedDeviceId,
+        actualDeviceId,
+        trackLabel: micLabelDiagnostic(track.label),
+      },
+    },
+  );
 }
 
 /* ----------------------------------------------------- camera compositing --- */
@@ -401,7 +758,7 @@ async function buildCompositor(
   };
   raf = requestAnimationFrame(draw);
 
-  const canvasStream = canvas.captureStream(30);
+  const canvasStream = canvas.captureStream(SCREEN_CAPTURE_FRAME_RATE);
   return {
     videoTrack: canvasStream.getVideoTracks()[0],
     canvasStream,
@@ -417,19 +774,34 @@ async function buildCompositor(
 async function createMixedAudio(
   streams: MediaStream[],
 ): Promise<{ audioContext: AudioContext | null; tracks: MediaStreamTrack[] }> {
-  const streamsWithAudio = streams.filter(
-    (stream) => stream.getAudioTracks().length,
-  );
-  if (!streamsWithAudio.length) return { audioContext: null, tracks: [] };
-  if (streamsWithAudio.length === 1) {
-    return { audioContext: null, tracks: streamsWithAudio[0].getAudioTracks() };
+  const audioTracks = streams.flatMap((stream) => stream.getAudioTracks());
+  if (!audioTracks.length) return { audioContext: null, tracks: [] };
+  if (audioTracks.length === 1) {
+    return { audioContext: null, tracks: audioTracks };
   }
 
   const audioContext = new AudioContext();
   await audioContext.resume().catch(() => undefined);
   const destination = audioContext.createMediaStreamDestination();
-  for (const stream of streamsWithAudio) {
-    audioContext.createMediaStreamSource(stream).connect(destination);
+  for (const track of audioTracks) {
+    // One source per track (not per stream) so each input is isolated in the
+    // mix graph and can be detached independently.
+    const source = audioContext.createMediaStreamSource(
+      new MediaStream([track]),
+    );
+    source.connect(destination);
+    // A mixed input track can end mid-recording — most commonly the shared
+    // tab's audio track when the user refreshes the captured tab. Disconnect
+    // just that dead source so the mixed output keeps carrying the surviving
+    // inputs (the microphone). Without this the whole mixed destination can go
+    // silent, dropping both the tab audio and the mic for the rest of the clip.
+    track.addEventListener("ended", () => {
+      try {
+        source.disconnect();
+      } catch {
+        /* already disconnected */
+      }
+    });
   }
   return { audioContext, tracks: destination.stream.getAudioTracks() };
 }
@@ -711,58 +1083,66 @@ async function acquire(message: AcquireMessage): Promise<{
   let displayStream: MediaStream | null = null;
   let micStream: MediaStream | null = null;
   let cameraStream: MediaStream | null = null;
-  const devices = await readDeviceIds();
+  const devices = await readDeviceIds({
+    video: message.videoDeviceId,
+    audio: message.audioDeviceId,
+  });
 
-  if (message.mode === "camera") {
-    cameraStream = await navigator.mediaDevices.getUserMedia({
-      video: cameraConstraints(devices.video),
-      audio: message.includeMicrophone
-        ? devices.audio
-          ? { deviceId: { exact: devices.audio } }
-          : true
-        : false,
-    });
-  } else {
-    // Native "Choose what to share" picker. This is the screenshot Steve showed.
-    displayStream = await navigator.mediaDevices.getDisplayMedia(
-      displayConstraints(message.surface),
-    );
-    if (message.includeMicrophone)
-      micStream = await getMicStream(devices.audio);
-    // The screen+camera face comes from the on-page bubble (captured in the
-    // display pixels), NOT composited here: canvas/requestAnimationFrame does
-    // not run in a hidden offscreen document, so compositing produced an empty
-    // recording ("No chunks found"). We record the display stream directly.
-    void message.includeCamera;
-  }
+  try {
+    if (message.mode === "camera") {
+      cameraStream = await getCameraStream(devices.video);
+      if (message.includeMicrophone) {
+        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+        micStream = await getMicStream(devices.audio, audioLabel);
+      }
+    } else {
+      // Native "Choose what to share" picker. This is the screenshot Steve showed.
+      displayStream = await navigator.mediaDevices.getDisplayMedia(
+        displayConstraints(message.surface),
+      );
+      if (message.includeMicrophone) {
+        const audioLabel = await lookupAudioDeviceLabel(devices.audio);
+        micStream = await getMicStream(devices.audio, audioLabel);
+      }
+      // The screen+camera face comes from the on-page bubble (captured in the
+      // display pixels), NOT composited here: canvas/requestAnimationFrame does
+      // not run in a hidden offscreen document, so compositing produced an empty
+      // recording ("No chunks found"). We record the display stream directly.
+      void message.includeCamera;
+    }
 
-  const videoStream = displayStream ?? cameraStream;
-  if (!videoStream) throw new Error("No media stream was available to record.");
-  const { width, height } = await streamDimensions(videoStream);
+    const videoStream = displayStream ?? cameraStream;
+    if (!videoStream)
+      throw new Error("No media stream was available to record.");
+    const { width, height } = await streamDimensions(videoStream);
 
-  // If the user stops sharing via Chrome's native control, tell the worker so it
-  // can run the normal stop/finalize flow.
-  const endedTrack = videoStream.getVideoTracks()[0] ?? null;
-  const endedListener = () => {
-    chrome.runtime.sendMessage({
-      type: "CLIPS_NATIVE_ENDED",
+    // If the user stops sharing via Chrome's native control, tell the worker so it
+    // can run the normal stop/finalize flow.
+    const endedTrack = videoStream.getVideoTracks()[0] ?? null;
+    const endedListener = () => {
+      chrome.runtime.sendMessage({
+        type: "CLIPS_NATIVE_ENDED",
+        sessionId: message.sessionId,
+      });
+    };
+    endedTrack?.addEventListener("ended", endedListener);
+
+    prepared = {
       sessionId: message.sessionId,
-    });
-  };
-  endedTrack?.addEventListener("ended", endedListener);
-
-  prepared = {
-    sessionId: message.sessionId,
-    mode: message.mode,
-    displayStream,
-    micStream,
-    cameraStream,
-    width,
-    height,
-    endedListener,
-    endedTrack,
-  };
-  return { ok: true, width, height };
+      mode: message.mode,
+      displayStream,
+      micStream,
+      cameraStream,
+      width,
+      height,
+      endedListener,
+      endedTrack,
+    };
+    return { ok: true, width, height };
+  } catch (error) {
+    stopStreams([displayStream, micStream, cameraStream]);
+    throw error;
+  }
 }
 
 function stopPreparedStreams(): void {
@@ -822,8 +1202,11 @@ async function begin(message: BeginMessage): Promise<{
   const mimeType = pickMimeType() || "video/webm";
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
-    // Crisp 1080p capture — matches the web/desktop recorders. Files upload
-    // directly (no client-side shrink), so we favor sharpness over a budget.
+    // Crisp 1080p capture — matches the web/desktop recorders. displayConstraints()
+    // (see screenCaptureVideoConstraints in @shared/recording-capture) caps retina/5K
+    // surfaces down to 1920x1080 before this point, so the software VP8 encoder is
+    // never fed native-resolution frames. Files upload directly (no client-side
+    // shrink), so within that cap we favor sharpness over a bitrate budget.
     videoBitsPerSecond: 8_000_000,
     audioBitsPerSecond: 128_000,
   });
@@ -843,6 +1226,7 @@ async function begin(message: BeginMessage): Promise<{
     authToken: message.authToken ?? null,
     mode: ready.mode,
     startedAtMs: 0,
+    duration: createRecordingDurationState(),
     mimeType,
     recorder,
     outputStream,
@@ -975,6 +1359,7 @@ function startRecorderNow(recording: ActiveRecording): void {
     playStartChime();
     recording.recorder.start(2000);
     recording.startedAtMs = Date.now();
+    recording.duration = startRecordingDuration(recording.startedAtMs);
     console.log("[clips-offscreen] recorder.start ok");
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
@@ -1071,6 +1456,11 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     recording.resolveStopped({ ok: true, status: "cancelled" });
     return;
   }
+  // Freeze the media duration as soon as MediaRecorder stops. Waiting for
+  // outstanding uploads below must not make the clip appear longer, and time
+  // spent paused is excluded by pauseRecordingDuration().
+  recording.duration = pauseRecordingDuration(recording.duration, Date.now());
+  const durationMs = recording.duration.elapsedMs;
   reportStatus(recording.sessionId, "uploading", {
     recordingId: recording.recordingId,
   });
@@ -1085,7 +1475,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         ? rejected.reason
         : new Error(String(rejected.reason));
     }
-    const durationMs = Math.max(0, Date.now() - recording.startedAtMs);
     // Surface WHY a finalize might fail before the server's cryptic "No chunks
     // found": 0 chunks means the recorder emitted no non-empty data (empty
     // capture / never started), which is a different problem than an auth 401.
@@ -1174,7 +1563,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         recordingId: recording.recordingId,
         chunkCount: recording.chunkIndex,
         mimeType: recording.mimeType,
-        durationMs: Math.max(0, Date.now() - recording.startedAtMs),
+        durationMs,
       },
     });
     // The upload failed — save the buffered recording to disk so it isn't lost.
@@ -1199,7 +1588,13 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
 function pause(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
-    if (recording.recorder.state === "recording") recording.recorder.pause();
+    if (recording.recorder.state === "recording") {
+      recording.recorder.pause();
+      recording.duration = pauseRecordingDuration(
+        recording.duration,
+        Date.now(),
+      );
+    }
     reportStatus(recording.sessionId, "paused", {
       recordingId: recording.recordingId,
     });
@@ -1210,7 +1605,13 @@ function pause(message: SimpleMessage): { ok: boolean } {
 function resume(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
-    if (recording.recorder.state === "paused") recording.recorder.resume();
+    if (recording.recorder.state === "paused") {
+      recording.recorder.resume();
+      recording.duration = resumeRecordingDuration(
+        recording.duration,
+        Date.now(),
+      );
+    }
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
     });
@@ -1339,6 +1740,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
       break;
     case "CLIPS_OFFSCREEN_START_NOW":
       task = Promise.resolve(startNow(message as SimpleMessage));
+      break;
+    case "CLIPS_OFFSCREEN_COPY_TEXT":
+      task = copyTextToClipboard(message as CopyTextMessage);
       break;
     default:
       return false;

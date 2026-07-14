@@ -12,13 +12,40 @@ import {
   readAppState,
   readAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
+import {
+  getReviewStatus,
+  queryReviewComments,
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  shouldRedactReviewIdentity,
+  type ReviewComment,
+  type ReviewResourceContext,
+} from "@agent-native/core/review";
+import * as reviewRuntime from "@agent-native/core/review";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
+import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
+
+interface ReviewThreadSummary {
+  openCount: number;
+  agentQueueCount: number;
+}
+
+const getReviewThreadSummary = (
+  reviewRuntime as unknown as {
+    getReviewThreadSummary?: (input: {
+      resourceType: string;
+      resourceId: string;
+      scope: { userEmail?: string | null; orgId?: string | null };
+      bypassScope?: boolean;
+    }) => Promise<ReviewThreadSummary>;
+  }
+).getReviewThreadSummary;
 
 function stringProp(value: unknown, key: string): string | undefined {
   if (!value || typeof value !== "object") return undefined;
@@ -32,6 +59,20 @@ function stringArrayProp(value: unknown, key: string): string[] {
   return Array.isArray(candidate)
     ? candidate.filter((item): item is string => typeof item === "string")
     : [];
+}
+
+function boolProp(value: unknown, key: string): boolean | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const candidate = (value as Record<string, unknown>)[key];
+  return typeof candidate === "boolean" ? candidate : undefined;
+}
+
+function objectProp(value: unknown, key: string): Record<string, unknown> {
+  if (!value || typeof value !== "object") return {};
+  const candidate = (value as Record<string, unknown>)[key];
+  return candidate && typeof candidate === "object" && !Array.isArray(candidate)
+    ? (candidate as Record<string, unknown>)
+    : {};
 }
 
 function resolveActiveScreen(
@@ -93,12 +134,84 @@ function resolveActiveScreen(
   return null;
 }
 
+function resolveActiveCodeFile(
+  files: Array<{
+    id: string;
+    filename: string;
+    fileType: string | null;
+    updatedAt: string | null;
+  }>,
+  designSelection: unknown,
+) {
+  const codeWorkspace = objectProp(designSelection, "codeWorkspace");
+  if (Object.keys(codeWorkspace).length === 0) return null;
+  const fileId = stringProp(codeWorkspace, "activeFileId");
+  const path = stringProp(codeWorkspace, "activePath");
+  const file = files.find(
+    (candidate) => candidate.id === fileId || candidate.filename === path,
+  );
+  return {
+    open: boolProp(codeWorkspace, "open") ?? false,
+    backendKind: stringProp(codeWorkspace, "backendKind") ?? "virtual-inline",
+    path: path ?? file?.filename ?? null,
+    fileId: fileId ?? file?.id ?? null,
+    dirty: boolProp(codeWorkspace, "dirty") ?? false,
+    versionHash: stringProp(codeWorkspace, "versionHash") ?? null,
+    file: file ?? null,
+  };
+}
+
+function reviewAnchorNodeId(anchor: unknown): string | null {
+  if (!anchor || typeof anchor !== "object") return null;
+  const nodeId = (anchor as Record<string, unknown>).nodeId;
+  return typeof nodeId === "string" && nodeId.trim() ? nodeId : null;
+}
+
+function buildReviewSummary(
+  comments: ReviewComment[],
+  status: Awaited<ReturnType<typeof getReviewStatus>>,
+  activeScreenId: string | undefined,
+  summary?: ReviewThreadSummary,
+) {
+  const openRoots = new Map<string, ReviewComment>();
+  for (const comment of comments) {
+    if (comment.status !== "open") continue;
+    if (!comment.parentCommentId && !openRoots.has(comment.threadId)) {
+      openRoots.set(comment.threadId, comment);
+    }
+  }
+  const agentQueueThreads = new Set(
+    Array.from(openRoots.values())
+      .filter(
+        (comment) =>
+          comment.resolutionTarget !== "human" && !comment.consumedAt,
+      )
+      .map((comment) => comment.threadId),
+  );
+  const activeScreenThreads = Array.from(openRoots.values())
+    .filter((comment) => comment.targetId === activeScreenId)
+    .map((comment) => ({
+      id: comment.id,
+      threadId: comment.threadId,
+      body: comment.body.slice(0, 180),
+      nodeId: reviewAnchorNodeId(comment.anchor),
+      author: comment.authorName ?? comment.authorEmail ?? comment.createdBy,
+    }));
+
+  return {
+    status: status?.status ?? "draft",
+    openCount: summary?.openCount ?? openRoots.size,
+    agentQueueCount: summary?.agentQueueCount ?? agentQueueThreads.size,
+    activeScreenThreads,
+  };
+}
+
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state including which design is open, which view they are on (list, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design or tweaks), active left rail panel (file, agent, assets, tools, or tokens), overview canvas state, plus any pending question overlay. Always call this first before taking any action.",
+    "See what the user is currently looking at on screen. Returns the current navigation state including which design or template is open, which view they are on (list, templates, editor, design-systems, present, settings), active/focused design screen, selected element, active inspector tab (design, comments, or tweaks), active left rail panel (file, agent, assets, import, tools, tokens, or code), active code file metadata, overview canvas state, review status and feedback queue summary, plus any pending question overlay. Always call this first before taking any action.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_, ctx) => {
     const [navigation, designSelection] = await Promise.all([
       readAppStateForCurrentTab("navigation"),
       readAppStateForCurrentTab("design-selection"),
@@ -120,6 +233,40 @@ export default defineAction({
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (designSelection) screen.designSelection = designSelection;
+    const templateId = stringProp(navigation, "templateId");
+    if (templateId) {
+      const preset = getDesignTemplatePreset(templateId);
+      if (preset) {
+        screen.template = {
+          id: preset.id,
+          title: preset.title,
+          category: preset.category,
+          width: preset.width,
+          height: preset.height,
+          lockedLayerCount: 2,
+          source: "starter",
+        };
+      } else {
+        const templateAccess = await resolveAccess(
+          "design-template",
+          templateId,
+        ).catch(() => null);
+        if (templateAccess) {
+          const template = templateAccess.resource;
+          screen.template = {
+            id: templateId,
+            title: template.title ?? null,
+            description: template.description ?? null,
+            category: template.category ?? "other",
+            width: template.width ?? null,
+            height: template.height ?? null,
+            lockedLayerCount: template.lockedLayerCount ?? 0,
+            visibility: template.visibility ?? "private",
+            source: "saved",
+          };
+        }
+      }
+    }
     if (designId) {
       const access = await resolveAccess("design", designId).catch(() => null);
       if (access) {
@@ -154,8 +301,52 @@ export default defineAction({
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
           activeScreen: resolveActiveScreen(files, navigation, designSelection),
+          activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
+        const reviewContext = ctx as ReviewResourceContext | undefined;
+        const reviewScope = {
+          userEmail: reviewContext?.userEmail ?? null,
+          orgId: reviewContext?.orgId ?? null,
+        };
+        const [reviewComments, reviewStatus, reviewSummary] = await Promise.all(
+          [
+            queryReviewComments({
+              resourceType: "design",
+              resourceId: designId,
+              scope: reviewScope,
+              bypassScope: true,
+              includeResolved: false,
+              includeDeleted: false,
+              limit: 500,
+            }),
+            getReviewStatus("design", designId, reviewScope, {
+              bypassScope: true,
+            }),
+            getReviewThreadSummary
+              ? getReviewThreadSummary({
+                  resourceType: "design",
+                  resourceId: designId,
+                  scope: reviewScope,
+                  bypassScope: true,
+                })
+              : Promise.resolve(undefined),
+          ],
+        );
+        const redactReviewIdentity = shouldRedactReviewIdentity(reviewContext, {
+          role: access.role,
+          visibility: access.resource.visibility,
+        });
+        (screen.design as Record<string, unknown>).review = buildReviewSummary(
+          redactReviewIdentity
+            ? reviewComments.map(redactPublicReviewCommentIdentity)
+            : reviewComments,
+          redactReviewIdentity
+            ? redactPublicReviewStatusIdentity(reviewStatus)
+            : reviewStatus,
+          resolveActiveScreen(files, navigation, designSelection)?.id,
+          reviewSummary,
+        );
       }
     }
     if (showQuestions) {

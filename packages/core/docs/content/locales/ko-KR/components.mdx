@@ -25,6 +25,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` 또는 집중된 `@agent-native/core/client/*` 하위 경로
 따라서 번들러는 브라우저 안전 항목을 선택합니다.
 
+`@agent-native/toolkit`은 기본 런타임 계약에 속하지 않는 재사용 가능한 앱 구축 요소에 사용하세요: shadcn 스타일 UI primitives, 공유 hooks, 단순 app shell helpers, 기타 template composition modules입니다. 전환 기간 동안 Core는 호환성 re-export를 유지합니다.
+
+재사용 가능한 패키지는 Toolkit 모듈을 직접 가져올 수 있습니다:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+템플릿 앱 안에서는 앱 로컬 어댑터를 선호하세요. 그러면 팀이 primitive를 한 번 교체해도 재사용되는 모든 Toolkit surface가 로컬 구현을 사용합니다:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-wyryue" title={"프레임워크 외부가 아닌 레이어를 드롭다운하세요."} summary={"각 레이어는 동일한 런타임(작업, 스레드 상태, SQL-backed 동기화)을 유지하면서 크롬에 대한 더 많은 제어권을 제공합니다."}>
 
 ```html
@@ -426,15 +444,16 @@ function WorkspaceResources() {
 
 ## 기타 공개 UI {#other-ui}
 
-| 지역        | APIs                                                  | 가져오기 경로                             |
-| ----------- | ----------------------------------------------------- | ----------------------------------------- |
-| 공유        | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
-| 알림        | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
-| 진행상황    | `<RunsTray>`, 진행 후크 및 유형                       | `@agent-native/core/client/progress`      |
-| 온보딩      | `useOnboarding()`, 온보딩 패널 후크                   | `@agent-native/core/client/onboarding`    |
-| 관측성      | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
-| 자원        | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크     | `@agent-native/core/client/resources`     |
-| 리치 에디터 | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크     | `@agent-native/core/client/editor`        |
+| 지역        | APIs                                              | 가져오기 경로                             |
+| ----------- | ------------------------------------------------- | ----------------------------------------- |
+| 공유        | `<ShareButton>`, `<ShareDialog>`                  | `@agent-native/core/client/sharing`       |
+| Sharing UI  | `<VisibilityBadge>`                               | `@agent-native/toolkit/sharing`           |
+| 알림        | `<NotificationsBell>`                             | `@agent-native/core/client/notifications` |
+| 진행상황    | `<RunsTray>`, 진행 후크 및 유형                   | `@agent-native/core/client/progress`      |
+| 온보딩      | `useOnboarding()`, 온보딩 패널 후크               | `@agent-native/core/client/onboarding`    |
+| 관측성      | `<ObservabilityDashboard>`, `<ThumbsFeedback>`    | `@agent-native/core/client/observability` |
+| 자원        | `<ResourcesPanel>`, `<ResourceTree>`, 리소스 후크 | `@agent-native/core/client/resources`     |
+| 리치 에디터 | `<SharedRichEditor>`, 슬래시 명령, 블록 노드 후크 | `@agent-native/core/client/editor`        |
 
 ## 일회성 텍스트 완성 {#one-off-text-completion}
 
@@ -451,10 +470,12 @@ UI와 에이전트가 동일한 기능을 공유하도록 조치를 취하세요
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -469,3 +490,11 @@ export default defineAction({
 대신 `sendToAgentChat({ background: true, openSidebar: false })`를 사용하세요
 작업에 도구, 상태, 감사 가능성, 사용자 조정 또는 다단계가 필요함
 추론.
+
+## 다음 단계 {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — 튜토리얼 중심 안내로 `<AgentSidebar>`와 `<AgentPanel>`을 마운트
+- [**Native Chat UI**](/docs/native-chat-ui) — 데이터 위젯과 사용자 지정 렌더러를 지원하는 액션 결과 계약
+- [**Actions**](/docs/actions) — `defineAction()`, 스키마 및 이러한 컴포넌트가 호출하는 액션 표면
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — 협업 훅과 현재 상태 컴포넌트 상세 설명
+- [**Sharing**](/docs/sharing) — 소유 가능한 리소스를 위한 `<ShareButton>` 및 `<ShareDialog>` 연결

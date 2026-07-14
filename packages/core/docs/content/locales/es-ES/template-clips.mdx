@@ -17,7 +17,7 @@ Una aplicación que lo captura todo: grabaciones de pantalla, notas de reuniones
   />
 </WireframeBlock>
 
-Piense en la línea de Loom + Granola + Wispr Flow en una sola aplicación, pero el agente es un editor de primera clase en todas las superficies, y las grabaciones, reuniones y dictados son suyos, no de un proveedor de SaaS. Clips también hace que las grabaciones compartidas sean legibles para el agente: pegue un enlace normal para compartir de Clips en un agente y este podrá "escuchar" la transcripción como texto y "ver" marcos de pantalla con marca de tiempo como imágenes; no se necesita video sin formato. La visualización de cuadros funciona en cualquier agente con capacidad de imagen (ChatGPT, Código Claude, Cursor, Codex); Los chats web de solo texto aún obtienen la transcripción completa y pueden tomar un fotograma que usted cargue.
+Grabaciones de pantalla asíncronas, notas de reuniones sincronizadas con el calendario y dictado por pulsación para hablar, todo en una sola aplicación: el agente es un editor de primera clase en cada superficie y las grabaciones, reuniones y dictados son suyos, no de un proveedor de SaaS. Clips también hace que las grabaciones compartidas sean legibles para los agentes: pegue un enlace público de Clips o un enlace temporal **Copiar para el agente** en un agente y podrá «oír» la transcripción como texto y «ver» como imágenes los fotogramas de pantalla con marca de tiempo, sin necesidad del vídeo original. La visualización de fotogramas funciona en cualquier agente con capacidad de imagen (ChatGPT, Claude Code, Cursor, Codex); los chats web de solo texto siguen recibiendo la transcripción completa y pueden usar un fotograma que usted cargue.
 
 <Diagram id="doc-block-cw43i6" title="Capturar, transcribir, reutilizar" summary={"Tres tipos de captura aterrizan en una biblioteca; el agente transcribe, titula y resume, luego cada transcripción se puede buscar y compartir."}>
 
@@ -77,12 +77,13 @@ Piense en la línea de Loom + Granola + Wispr Flow en una sola aplicación, pero
 ## Qué puedes hacer con él
 
 - **Graba tu pantalla** con una grabadora integrada, superposición de cámara web, captura de audio y pausa/recorte.
+- **Importa vídeos públicos de Loom.** En la web, selecciona **Grabar → Importar Loom** y pega una URL para compartir o incrustar de Loom. Clips guarda una copia en tu biblioteca e importa la transcripción pública cuando está disponible.
 - **Capture reuniones de su calendario.** Conecte Google Calendar, vea las próximas reuniones en la barra lateral y presione grabar en cualquiera. Obtienes una transcripción en vivo más un resumen de IA, notas con viñetas y elementos de acción en el momento en que finaliza.
 - **Dictado pulsar para hablar.** Mantenga presionada la tecla Fn en su máquina, hable y el texto limpio aparecerá en cualquier aplicación que esté usando. Cada dictado se mantiene en un historial con capacidad de búsqueda con originales y versiones limpiadas por IA, una al lado de la otra.
 - **Obtenga un título, un resumen y marcadores de capítulo generados automáticamente** para cada grabación: el agente los completa y los mantiene actualizados.
 - **Busca en todas las transcripciones**: grabaciones de pantalla, reuniones y dictados, todo en una sola biblioteca. "Busque el clip donde analizamos el plan de implementación".
 - **Compartir clips** con permisos por clip (público, de equipo, privado). El seguimiento de enlaces y los comentarios encadenados también funcionan.
-- **Vista previa de clips públicos en Slack** con un despliegue reproducible estilo Loom después del
+- **Vista previa de clips públicos en Slack** con un despliegue de vídeo reproducible después de que el
   workspace instala tu aplicación Clips Slack.
 - **Capture registros del navegador con la extensión de Chrome.** Las grabaciones del navegador pueden
   adjunte registros de consola redactados y obtenga metadatos/XHR, lo cual es útil para
@@ -130,6 +131,15 @@ agente.
 | `/api/agent-context.json?id=<recordingId>`        | Metadatos del clip, estado de la transcripción, capítulos, CTA, marcos recomendados y enlaces a la transcripción/marco API               |
 | `/api/agent-transcript.json?id=<recordingId>`     | Segmentos de transcripción con marca de tiempo con `startMs`, `endMs`, marcas de tiempo legibles, texto y etiquetas de origen opcionales |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Un fotograma JPEG extraído del vídeo en una marca de tiempo del vídeo original                                                           |
+
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
 
 Los puntos finales siguen las mismas reglas de público/contraseña/caducidad que la página para compartir.
 Los clips protegidos con contraseña requieren la contraseña una vez; regresan respuestas exitosas
@@ -498,7 +508,7 @@ Las rutas en UI se encuentran en `templates/clips/app/routes/`: la aplicación a
 
 ### Clave actions
 
-Cada operación invocable por el agente es un archivo TypeScript en `templates/clips/actions/`, montado automáticamente en `POST /_agent-native/actions/:name` y ejecutable desde CLI como `pnpm action <name>`. Hay ~80 actions; las agrupaciones útiles:
+Cada operación invocable por el agente es un archivo TypeScript en `templates/clips/actions/`, montado automáticamente en `POST /_agent-native/actions/:name` y ejecutable desde CLI como `pnpm action <name>`. Hay unas 100 acciones; las agrupaciones útiles:
 
 - **Ciclo de vida de grabación**: `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Transcripción e IA** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` y `finalize-meeting` son llamadas de canalización de medios del lado del servidor; la mayoría de las otras funciones de IA se delegan en el chat del agente).

@@ -21,7 +21,6 @@ export interface TimelineProps {
   chapters?: TimelineChapter[];
   excludedRanges?: Array<{ startMs: number; endMs: number }>;
   splitPoints?: number[];
-  scrollLeft?: number;
   onSeek?: (originalMs: number) => void;
   onClickChapter?: (chapter: TimelineChapter) => void;
   className?: string;
@@ -45,7 +44,6 @@ export function Timeline({
   chapters = [],
   excludedRanges = [],
   splitPoints = [],
-  scrollLeft = 0,
   onSeek,
   onClickChapter,
   className,
@@ -72,7 +70,7 @@ export function Timeline({
   const handleSeek = (e: React.MouseEvent<HTMLDivElement>) => {
     if (!onSeek) return;
     const rect = e.currentTarget.getBoundingClientRect();
-    const x = e.clientX - rect.left + scrollLeft;
+    const x = e.clientX - rect.left;
     const ms = Math.max(0, Math.min(durationMs, (x / width) * durationMs));
     onSeek(ms);
   };

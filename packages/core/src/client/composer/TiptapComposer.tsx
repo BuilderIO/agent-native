@@ -27,8 +27,10 @@ import React, {
 } from "react";
 
 import {
+  DEFAULT_REASONING_EFFORT,
   getReasoningEffortOptionsForModel,
   reasoningEffortLabel,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../../shared/reasoning-effort.js";
 import type { VoiceContextPack } from "../../voice/index.js";
@@ -77,6 +79,7 @@ import type {
 } from "./types.js";
 import { useMentionSearch } from "./use-mention-search.js";
 import { useSkills } from "./use-skills.js";
+import { RealtimeVoiceModeBoundary } from "./useRealtimeVoiceMode.js";
 import { useVoiceDictation } from "./useVoiceDictation.js";
 import { VoiceButton, VoiceRecordingOverlay } from "./VoiceButton.js";
 export interface TiptapComposerHandle {
@@ -102,6 +105,38 @@ export function canSubmitComposerContent(options: {
     !options.disabled &&
     (options.hasEditorContent || options.attachmentCount > 0)
   );
+}
+
+export function resolveComposerPrimaryAction(options: {
+  canSubmit: boolean;
+  hasStopButton: boolean;
+}): "send" | "stop" {
+  return !options.canSubmit && options.hasStopButton ? "stop" : "send";
+}
+
+export type ContextChipBackspaceAction =
+  | { type: "select"; key: string }
+  | { type: "remove"; key: string }
+  | null;
+
+export function resolveContextChipBackspaceAction(options: {
+  contextItemKeys: string[];
+  selectedKey: string | null;
+  cursorAtStart: boolean;
+}): ContextChipBackspaceAction {
+  if (!options.cursorAtStart || options.contextItemKeys.length === 0) {
+    return null;
+  }
+  if (
+    options.selectedKey &&
+    options.contextItemKeys.includes(options.selectedKey)
+  ) {
+    return { type: "remove", key: options.selectedKey };
+  }
+  return {
+    type: "select",
+    key: options.contextItemKeys[options.contextItemKeys.length - 1],
+  };
 }
 
 const MAX_DOCUMENT_ATTACHMENT_BYTES = 4 * 1024 * 1024;
@@ -281,6 +316,21 @@ export function insertComposerHardBreakAndScrollIntoView(
   return true;
 }
 
+export function getComposerPopoverPosition(
+  view: Pick<EditorView, "coordsAtPos">,
+  pos: number,
+): { top: number; left: number } | null {
+  try {
+    const coords = view.coordsAtPos(pos);
+    if (!Number.isFinite(coords.top) || !Number.isFinite(coords.left)) {
+      return null;
+    }
+    return { top: coords.top, left: coords.left };
+  } catch {
+    return null;
+  }
+}
+
 export function displayableComposerModeMessage(options: {
   messagePrefix: string;
   trimmedText: string;
@@ -455,9 +505,9 @@ Use the create-extension action with Alpine.js HTML content. The extension runs 
 
 After creating the extension, navigate the user to it with the path returned by create-extension; extension URLs may include a friendly "/extensions/<id>/<slug>" suffix.
 
-Make the extension functional and visually polished. Extensions can use extensionFetch() for external API calls, appAction()/appFetch() for app operations, extensionData for per-extension persistence, and dbQuery()/dbExec() only for existing app tables.
+Make the extension functional and visually polished. Extensions can use extensionFetch() for external API calls, appAction()/appFetch() for app operations and app data writes, extensionData for per-extension persistence, and dbQuery() only for read-only inspection of existing app tables.
 
-Prefer appAction()/appFetch() for app data. Some actions return JSON strings for CLI compatibility, so parse string results before counting rows or reading arrays. Do not guess raw SQL table names or columns for app data; use dbQuery()/dbExec() only when the table is known to exist in the current schema.`,
+Prefer appAction()/appFetch() for app data. Some actions return JSON strings for CLI compatibility, so parse string results before counting rows or reading arrays. Do not guess raw SQL table names or columns for app data; use dbQuery() only when the table is known to exist in the current schema.`,
   },
 };
 
@@ -517,8 +567,13 @@ export interface TiptapComposerProps {
   onTextChange?: (text: string) => void;
   /** Custom action button (e.g. stop button) to render instead of the default send button. */
   actionButton?: React.ReactNode;
-  /** Extra button to render alongside the default send button (e.g. stop while running). */
+  /** Extra button to render alongside the primary action. */
   extraActionButton?: React.ReactNode;
+  /**
+   * Stop control shown instead of the disabled send button while the composer
+   * has no sendable content. Typing or attaching content restores send.
+   */
+  stopButton?: React.ReactNode;
   /** Custom attachment button to render instead of ComposerPrimitive.AddAttachment. */
   attachButton?: React.ReactNode;
   /** Custom host-owned control rendered next to the attachment affordance. */
@@ -573,6 +628,8 @@ export interface TiptapComposerProps {
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: (engine: string) => void;
   /**
    * Optional secondary model menu (e.g. an image-generation model) rendered as
    * an extra section inside the model picker. Opt-in; omit for chat-only apps.
@@ -618,6 +675,13 @@ function plainTextToDoc(text: string) {
       content: line ? [{ type: "text", text: line }] : [],
     })),
   };
+}
+
+/** Tiptap keeps the Editor object truthy after destroy but clears commandManager. */
+export function isComposerEditorUsable<T extends { isDestroyed?: boolean }>(
+  editor: T | null | undefined,
+): editor is T {
+  return Boolean(editor && editor.isDestroyed !== true);
 }
 
 export function createTiptapComposerExtensions(
@@ -745,9 +809,8 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
+  "codex-cli": "ChatGPT subscription",
   "claude-fable-5": "Fable 5",
-  "grok-code-fast": "Grok Code Fast",
-  "qwen3-coder": "Qwen3 Coder",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
   "z-ai/glm-5.2": "GLM 5.2",
@@ -808,6 +871,25 @@ function friendlyModelName(model: string): string {
   return model;
 }
 
+export function compactComposerModelName(model: string): string {
+  const gpt56Variant = model.match(
+    /^(?:openai\/)?gpt-5[.-]6[.-](sol|terra|luna)$/i,
+  )?.[1];
+  if (gpt56Variant) {
+    return gpt56Variant[0].toUpperCase() + gpt56Variant.slice(1).toLowerCase();
+  }
+  return friendlyModelName(model);
+}
+
+export function compactComposerReasoningEffortLabel(
+  effort: ReasoningEffort,
+): string {
+  if (effort === "medium" || effort === "auto") return "Med";
+  if (effort === "minimal") return "Min";
+  if (effort === "xhigh") return "XHigh";
+  return reasoningEffortLabel(effort);
+}
+
 /**
  * Deduplicate models to only the latest version per family.
  * e.g. [opus-4-7, opus-4-6, opus-4-5] → [opus-4-7]
@@ -822,7 +904,7 @@ function latestModelsOnly(models: string[]): string[] {
       seen.add(claude[1]);
       return true;
     }
-    // GPT: family = gpt-{major} (e.g. gpt-5.4 and gpt-5.4-mini are different)
+    // GPT: family = gpt-{major} (e.g. gpt-5.6-sol and gpt-5.6-luna are different)
     // OpenAI reasoning: each is its own family
     // Gemini: family = gemini-{major} + variant
     const gemini = m.match(/^gemini-(\d+(?:\.\d+)?)-(.+?)(?:-preview)?$/);
@@ -854,14 +936,23 @@ export interface ComposerImageModelMenu {
   label?: string;
 }
 
+export function getComposerReasoningEffortOptions(
+  model: string,
+): ReasoningEffort[] {
+  return model === "auto"
+    ? ["low", "medium", "high", "xhigh", "max"]
+    : getReasoningEffortOptionsForModel(model);
+}
+
 function ModelSelector({
   model,
-  effort = "auto",
+  effort = DEFAULT_REASONING_EFFORT,
   engines,
   onChange,
   onEffortChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
+  onConnectLocalRuntime,
   imageModel,
 }: {
   model: string;
@@ -876,6 +967,7 @@ function ModelSelector({
   onEffortChange?: (effort: ReasoningEffort) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
   imageModel?: ComposerImageModelMenu;
 }) {
   const [open, setOpen] = useState(false);
@@ -890,17 +982,8 @@ function ModelSelector({
         .filter((group) => group.models.length > 0),
     [engines],
   );
-  const effortOptions =
-    model === "auto"
-      ? ([
-          "auto",
-          "low",
-          "medium",
-          "high",
-          "xhigh",
-          "max",
-        ] satisfies ReasoningEffort[])
-      : getReasoningEffortOptionsForModel(model);
+  const effortOptions = getComposerReasoningEffortOptions(model);
+  const selectedEffort = resolveReasoningEffortSelection(model, effort);
 
   // Collapse non-selected families by default. The family containing the
   // currently-selected model stays expanded so the user sees their pick at
@@ -972,6 +1055,13 @@ function ModelSelector({
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
     setOpen(false);
   }, []);
+  const connectLocalRuntime = useCallback(
+    (engine: string) => {
+      onConnectLocalRuntime?.(engine);
+      setOpen(false);
+    },
+    [onConnectLocalRuntime],
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -979,12 +1069,19 @@ function ModelSelector({
         <button
           type="button"
           data-agent-composer-slot="model-button"
+          aria-label={`Model: ${friendlyModelName(model)}${
+            effortOptions.length > 0
+              ? `. Reasoning: ${reasoningEffortLabel(selectedEffort)}`
+              : ""
+          }`}
           className="agent-composer-model-button flex min-w-0 max-w-[10.5rem] shrink items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
         >
-          <span className="min-w-0 truncate">{friendlyModelName(model)}</span>
+          <span className="min-w-0 truncate">
+            {compactComposerModelName(model)}
+          </span>
           {effortOptions.length > 0 && (
             <span className="agent-composer-model-effort min-w-0 shrink truncate text-muted-foreground/70">
-              · {reasoningEffortLabel(effort)}
+              · {compactComposerReasoningEffortLabel(selectedEffort)}
             </span>
           )}
           <IconChevronDown className="h-3 w-3 shrink-0 opacity-60" />
@@ -1122,9 +1219,15 @@ function ModelSelector({
                   <button
                     type="button"
                     className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
-                    onClick={openLlmSettings}
+                    onClick={() =>
+                      group.engine === "codex-cli" && onConnectLocalRuntime
+                        ? connectLocalRuntime(group.engine)
+                        : openLlmSettings()
+                    }
                   >
-                    needs API key
+                    {group.engine === "codex-cli" && onConnectLocalRuntime
+                      ? "sign in"
+                      : "needs API key"}
                   </button>
                 )}
               </div>
@@ -1135,17 +1238,23 @@ function ModelSelector({
                     type="button"
                     onClick={() => {
                       if (!group.configured) {
-                        openLlmSettings();
+                        if (
+                          group.engine === "codex-cli" &&
+                          onConnectLocalRuntime
+                        ) {
+                          connectLocalRuntime(group.engine);
+                        } else {
+                          openLlmSettings();
+                        }
                         return;
                       }
                       onChange(m, group.engine);
                       const nextOptions = getReasoningEffortOptionsForModel(m);
                       if (
-                        effort !== "auto" &&
                         nextOptions.length > 0 &&
-                        !nextOptions.includes(effort)
+                        !nextOptions.includes(selectedEffort)
                       ) {
-                        onEffortChange?.("auto");
+                        onEffortChange?.(DEFAULT_REASONING_EFFORT);
                       }
                       setOpen(false);
                     }}
@@ -1186,7 +1295,7 @@ function ModelSelector({
                 </span>
                 {!reasoningExpanded && (
                   <span className="text-[11px] text-muted-foreground/80 truncate">
-                    {reasoningEffortLabel(effort)}
+                    {reasoningEffortLabel(selectedEffort)}
                   </span>
                 )}
               </button>
@@ -1202,7 +1311,7 @@ function ModelSelector({
                   <span className="flex-1 min-w-0 text-[13px] text-foreground truncate">
                     {reasoningEffortLabel(option)}
                   </span>
-                  {option === effort && (
+                  {option === selectedEffort && (
                     <IconCheck className="h-3.5 w-3.5 shrink-0 text-blue-500" />
                   )}
                 </button>
@@ -1233,6 +1342,7 @@ export function TiptapComposer({
   onTextChange,
   actionButton,
   extraActionButton,
+  stopButton,
   attachButton,
   modeControl,
   toolbarSlot,
@@ -1254,6 +1364,7 @@ export function TiptapComposer({
   onEffortChange,
   providerConnectStatusEnabled,
   onConnectProvider,
+  onConnectLocalRuntime,
   imageModelMenu,
   draftScope,
   contextItems = [],
@@ -1265,17 +1376,28 @@ export function TiptapComposer({
   const [popover, setPopover] = useState<PopoverState>(null);
   const popoverRef = useRef<MentionPopoverRef>(null);
   const composerRuntime = useComposerRuntime();
+  const lastComposerRuntimeSyncRef = useRef<{
+    text: string;
+    runConfigSignature: string;
+  } | null>(null);
   const submitInFlightRef = useRef(false);
   const [editorHasText, setEditorHasText] = useState(false);
   const [slotReferences, setSlotReferences] = useState<
     AgentComposerReference[]
   >([]);
+  const [selectedContextItemKey, setSelectedContextItemKey] = useState<
+    string | null
+  >(null);
   const composerText = useComposer((state) => state.text);
   const composerAttachments = useComposer((state) => state.attachments);
   const canSend = canSubmitComposerContent({
     hasEditorContent: editorHasText || slotReferences.length > 0,
     attachmentCount: composerAttachments.length,
     disabled,
+  });
+  const primaryAction = resolveComposerPrimaryAction({
+    canSubmit: canSend,
+    hasStopButton: Boolean(stopButton),
   });
   const hasContextRows = contextItems.length > 0 || slotReferences.length > 0;
   const [composerMode, setComposerMode] = useState<ComposerMode | null>(null);
@@ -1361,8 +1483,24 @@ export function TiptapComposer({
   onSlashCommandRef.current = onSlashCommand;
   const onTextChangeRef = useRef(onTextChange);
   onTextChangeRef.current = onTextChange;
+  const contextItemsRef = useRef(contextItems);
+  contextItemsRef.current = contextItems;
+  const onRemoveContextItemRef = useRef(onRemoveContextItem);
+  onRemoveContextItemRef.current = onRemoveContextItem;
+  const selectedContextItemKeyRef = useRef<string | null>(null);
+  selectedContextItemKeyRef.current = selectedContextItemKey;
   const initialTextKeyRef = useRef<string | number | undefined>(undefined);
   const seenReferenceInsertIdsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (
+      selectedContextItemKey &&
+      !contextItems.some((item) => item.key === selectedContextItemKey)
+    ) {
+      selectedContextItemKeyRef.current = null;
+      setSelectedContextItemKey(null);
+    }
+  }, [contextItems, selectedContextItemKey]);
 
   const closePopover = useCallback(() => {
     setPopover(null);
@@ -1377,6 +1515,9 @@ export function TiptapComposer({
       clearTimeout(draftTimerRef.current);
     };
   }, []);
+  useEffect(() => {
+    lastComposerRuntimeSyncRef.current = null;
+  }, [composerRuntime]);
   // Tiptap reads extension config once at init; ref keeps runtime prop
   // changes visible to Placeholder's function form.
   const placeholderRef = useRef(placeholder);
@@ -1427,6 +1568,13 @@ export function TiptapComposer({
           }
         } catch {}
       }, 300);
+    },
+    onSelectionUpdate: ({ editor: ed }) => {
+      const { from, to } = ed.state.selection;
+      if (selectedContextItemKeyRef.current && (from !== to || from > 1)) {
+        selectedContextItemKeyRef.current = null;
+        setSelectedContextItemKey(null);
+      }
     },
     editorProps: {
       attributes: {
@@ -1560,9 +1708,37 @@ export function TiptapComposer({
           }
         }
 
+        const { from, to } = view.state.selection;
+        const cursorAtStart = from === to && from <= 1;
+        if (event.key === "Backspace" && onRemoveContextItemRef.current) {
+          const chipAction = resolveContextChipBackspaceAction({
+            contextItemKeys: contextItemsRef.current.map((item) => item.key),
+            selectedKey: selectedContextItemKeyRef.current,
+            cursorAtStart,
+          });
+          if (chipAction) {
+            event.preventDefault();
+            if (chipAction.type === "select") {
+              selectedContextItemKeyRef.current = chipAction.key;
+              setSelectedContextItemKey(chipAction.key);
+            } else {
+              selectedContextItemKeyRef.current = null;
+              setSelectedContextItemKey(null);
+              contextItemsRef.current = contextItemsRef.current.filter(
+                (item) => item.key !== chipAction.key,
+              );
+              onRemoveContextItemRef.current?.(chipAction.key);
+            }
+            return true;
+          }
+        }
+        if (selectedContextItemKeyRef.current) {
+          selectedContextItemKeyRef.current = null;
+          setSelectedContextItemKey(null);
+        }
+
         // Backspace removes composer mode chip when editor is empty
         if (event.key === "Backspace" && composerModeRef.current) {
-          const { from, to } = view.state.selection;
           if (
             view.state.doc.textContent.trim() === "" &&
             from === to &&
@@ -1612,11 +1788,12 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const coords = view.coordsAtPos(from);
+            const position = getComposerPopoverPosition(view, from);
+            if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
                 type: "@",
-                position: { top: coords.top, left: coords.left },
+                position,
                 startPos: view.state.selection.from,
                 query: "",
               };
@@ -1635,11 +1812,12 @@ export function TiptapComposer({
             from,
           );
           if (from === 1 || textBefore === "" || /\s/.test(textBefore)) {
-            const coords = view.coordsAtPos(from);
+            const position = getComposerPopoverPosition(view, from);
+            if (!position) return false;
             setTimeout(() => {
               const state: PopoverState = {
                 type: "/",
-                position: { top: coords.top, left: coords.left },
+                position,
                 startPos: view.state.selection.from,
                 query: "",
               };
@@ -1655,11 +1833,19 @@ export function TiptapComposer({
     },
   });
 
+  // A tab can stay mounted while becoming the active composer later. Publish
+  // its existing draft when the host starts observing it so contextual UI is
+  // correct immediately after a tab switch, not only after the next keystroke.
+  useEffect(() => {
+    if (!isComposerEditorUsable(editor) || !onTextChange) return;
+    onTextChange(editor.state.doc.textContent.trim());
+  }, [editor, onTextChange]);
+
   const insertReference = useCallback(
     (ref: AgentComposerReference) => {
       const normalized = normalizeAgentComposerReference(ref);
       const ed = editor;
-      if (!normalized || !ed) return;
+      if (!normalized || !isComposerEditorUsable(ed)) return;
       if (normalized.slotKey) {
         setSlotReferences((current) =>
           applySlotReferenceChanges(current, [normalized]),
@@ -1699,7 +1885,8 @@ export function TiptapComposer({
         seenReferenceInsertIdsRef.current.add(insertMessageId);
       }
       const ed = editor;
-      if (!ed || disabled || composerModeRef.current) return;
+      if (!isComposerEditorUsable(ed) || disabled || composerModeRef.current)
+        return;
       const normalized = normalizeAgentComposerReference(payload);
       if (normalized?.slotKey) {
         insertReference(normalized);
@@ -1757,10 +1944,10 @@ export function TiptapComposer({
 
   useImperativeHandle(focusRef, () => ({
     focus() {
-      editor?.commands.focus("end");
+      if (isComposerEditorUsable(editor)) editor.commands.focus("end");
     },
     setText(text: string) {
-      if (!editor) return;
+      if (!isComposerEditorUsable(editor)) return;
       editor.commands.setContent(plainTextToDoc(text));
       editor.commands.focus("end");
       const trimmed = editor.state.doc.textContent.trim();
@@ -1783,7 +1970,9 @@ export function TiptapComposer({
     (mode: ComposerMode) => {
       setComposerMode(mode);
       composerModeRef.current = mode;
-      setTimeout(() => editor?.commands.focus("end"), 50);
+      setTimeout(() => {
+        if (isComposerEditorUsable(editor)) editor.commands.focus("end");
+      }, 50);
     },
     [editor],
   );
@@ -1795,7 +1984,7 @@ export function TiptapComposer({
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
-      if (!ed) return;
+      if (!isComposerEditorUsable(ed)) return;
 
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
@@ -1827,7 +2016,7 @@ export function TiptapComposer({
   const insertTranscript = useCallback(
     (text: string) => {
       const ed = editor;
-      if (!ed) return;
+      if (!isComposerEditorUsable(ed)) return;
 
       const anchor = voiceAnchorRef.current;
       if (anchor != null) {
@@ -1883,7 +2072,7 @@ export function TiptapComposer({
       });
     }
 
-    const draft = editor
+    const draft = isComposerEditorUsable(editor)
       ? trimVoiceContextValue(editor.state.doc.textContent, 1200)
       : null;
     if (draft) snippets.push({ label: "Current draft", value: draft });
@@ -1917,7 +2106,7 @@ export function TiptapComposer({
     if (voice.state === "idle" && voiceAnchorRef.current != null) {
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
-      if (editor && prevLen > 0) {
+      if (isComposerEditorUsable(editor) && prevLen > 0) {
         editor
           .chain()
           .deleteRange({ from: anchor, to: anchor + prevLen })
@@ -1964,7 +2153,7 @@ export function TiptapComposer({
 
   const extractComposerPayload = useCallback(() => {
     const ed = editor;
-    if (!ed) {
+    if (!isComposerEditorUsable(ed)) {
       return {
         text: slotReferences.map((ref) => slotReferenceTitle(ref)).join(", "),
         references: slotReferences.map(referenceFromComposerReference),
@@ -2045,31 +2234,70 @@ export function TiptapComposer({
     return { text, references };
   }, [editor, slotReferences]);
 
+  const syncComposerRuntimeState = useCallback(
+    (text: string, references: Reference[]) => {
+      const requestMode =
+        execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
+      const custom: {
+        references?: Reference[];
+        requestMode?: "act" | "plan";
+      } = {};
+      if (references.length > 0) {
+        custom.references = references;
+      }
+      if (requestMode) {
+        custom.requestMode = requestMode;
+      }
+      const runConfig = Object.keys(custom).length > 0 ? { custom } : {};
+      const runConfigSignature = JSON.stringify(runConfig);
+      const last = lastComposerRuntimeSyncRef.current;
+      if (
+        last?.text === text &&
+        last.runConfigSignature === runConfigSignature
+      ) {
+        return;
+      }
+      composerRuntime.setText(text);
+      composerRuntime.setRunConfig(runConfig);
+      lastComposerRuntimeSyncRef.current = { text, runConfigSignature };
+    },
+    [composerRuntime, execMode],
+  );
+
+  const resetComposerRuntimeState = useCallback(() => {
+    const runConfigSignature = "{}";
+    const last = lastComposerRuntimeSyncRef.current;
+    if (last?.text === "" && last.runConfigSignature === runConfigSignature) {
+      return;
+    }
+    composerRuntime.setText("");
+    composerRuntime.setRunConfig({});
+    lastComposerRuntimeSyncRef.current = { text: "", runConfigSignature };
+  }, [composerRuntime]);
+
   const syncComposerState = useCallback(() => {
     const { text, references } = extractComposerPayload();
-    const requestMode =
-      execMode === "plan" ? "plan" : execMode === "build" ? "act" : undefined;
-    const custom: {
-      references?: Reference[];
-      requestMode?: "act" | "plan";
-    } = {};
-    if (references.length > 0) {
-      custom.references = references;
-    }
-    if (requestMode) {
-      custom.requestMode = requestMode;
-    }
-    composerRuntime.setText(text);
-    composerRuntime.setRunConfig(
-      Object.keys(custom).length > 0 ? { custom } : {},
-    );
+    syncComposerRuntimeState(text, references);
     return { text, references };
-  }, [composerRuntime, execMode, extractComposerPayload]);
+  }, [extractComposerPayload, syncComposerRuntimeState]);
+
+  const clearEditorAfterSubmit = useCallback(() => {
+    const ed = editor;
+    if (!isComposerEditorUsable(ed)) return;
+    ed.commands.clearContent();
+    setEditorHasText(false);
+    setSlotReferences([]);
+    resetComposerRuntimeState();
+    try {
+      localStorage.removeItem(draftKey);
+    } catch {}
+    closePopover();
+  }, [closePopover, draftKey, editor, resetComposerRuntimeState]);
 
   const submitComposer = useCallback(
     async (intent: ComposerSubmitIntent = "immediate") => {
       const ed = editor;
-      if (!ed) return;
+      if (!isComposerEditorUsable(ed)) return;
       if (submitInFlightRef.current) return;
 
       const { text, references } = syncComposerState();
@@ -2098,11 +2326,7 @@ export function TiptapComposer({
         const cmdName = normalizeSlashCommandName(trimmed);
         const matched = allSlashCommands.find((c) => c.name === cmdName);
         if (matched) {
-          ed.commands.clearContent();
-          try {
-            localStorage.removeItem(draftKey);
-          } catch {}
-          closePopover();
+          clearEditorAfterSubmit();
           onSlashCommandRef.current?.(matched.name);
           return;
         }
@@ -2120,13 +2344,7 @@ export function TiptapComposer({
         tryDelegateBuildRequestToBuilder(trimmed)
       ) {
         cancelActiveVoice();
-        ed.commands.clearContent();
-        setEditorHasText(false);
-        setSlotReferences([]);
-        try {
-          localStorage.removeItem(draftKey);
-        } catch {}
-        closePopover();
+        clearEditorAfterSubmit();
         return;
       }
 
@@ -2139,6 +2357,7 @@ export function TiptapComposer({
           submitInFlightRef.current = false;
         }
       }
+      if (!isComposerEditorUsable(ed)) return;
 
       // Composer mode: send with context via agent chat bridge
       if (composerMode) {
@@ -2171,7 +2390,7 @@ export function TiptapComposer({
           });
         }
         cancelActiveVoice();
-        ed.commands.clearContent();
+        if (isComposerEditorUsable(ed)) ed.commands.clearContent();
         setEditorHasText(false);
         setSlotReferences([]);
         setComposerMode(null);
@@ -2191,11 +2410,14 @@ export function TiptapComposer({
           closePopover();
           return;
         }
+        cancelActiveVoice();
+        clearEditorAfterSubmit();
+        return;
       } else {
         composerRuntime.send();
       }
       cancelActiveVoice();
-      ed.commands.clearContent();
+      if (isComposerEditorUsable(ed)) ed.commands.clearContent();
       setEditorHasText(false);
       setSlotReferences([]);
       try {
@@ -2205,6 +2427,7 @@ export function TiptapComposer({
     },
     [
       closePopover,
+      clearEditorAfterSubmit,
       composerMode,
       composerRuntime,
       draftKey,
@@ -2227,7 +2450,7 @@ export function TiptapComposer({
     item: MentionItem,
   ) {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
     // startPos is after the trigger char, so -1 to include the @ or /
     const deleteFrom = Math.max(0, pop.startPos - 1);
@@ -2243,7 +2466,7 @@ export function TiptapComposer({
     command: SlashCommand,
   ) {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
     const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain().focus().deleteRange({ from: deleteFrom, to: currentPos }).run();
@@ -2258,7 +2481,7 @@ export function TiptapComposer({
     skill: SkillResult,
   ) {
     const ed = editor;
-    if (!ed) return;
+    if (!isComposerEditorUsable(ed)) return;
     const currentPos = ed.state.selection.from;
     const deleteFrom = Math.max(0, pop.startPos - 1);
     ed.chain()
@@ -2277,7 +2500,7 @@ export function TiptapComposer({
   // Popover select handlers for click-based selection (from MentionPopover)
   const handleSelectMention = useCallback(
     (item: MentionItem) => {
-      if (!editor || !popover) return;
+      if (!isComposerEditorUsable(editor) || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
@@ -2293,7 +2516,7 @@ export function TiptapComposer({
 
   const handleSelectCommand = useCallback(
     (command: SlashCommand) => {
-      if (!editor || !popover) return;
+      if (!isComposerEditorUsable(editor) || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
@@ -2309,7 +2532,7 @@ export function TiptapComposer({
 
   const handleSelectSkill = useCallback(
     (skill: SkillResult) => {
-      if (!editor || !popover) return;
+      if (!isComposerEditorUsable(editor) || !popover) return;
       const currentPos = editor.state.selection.from;
       const deleteFrom = Math.max(0, popover.startPos - 1);
       editor
@@ -2329,11 +2552,9 @@ export function TiptapComposer({
 
   // Track query text as user types after trigger
   useEffect(() => {
-    if (!editor || !popover) return;
+    if (!isComposerEditorUsable(editor) || !popover) return;
 
     const updateHandler = () => {
-      syncComposerState();
-
       const pop = popoverStateRef.current;
       if (!pop) return;
       const { from } = editor.state.selection;
@@ -2361,6 +2582,7 @@ export function TiptapComposer({
         }
       }
 
+      if (pop.query === text) return;
       const updated = { ...pop, query: text };
       popoverStateRef.current = updated;
       setPopover(updated);
@@ -2369,20 +2591,22 @@ export function TiptapComposer({
     editor.on("update", updateHandler);
     editor.on("selectionUpdate", updateHandler);
     return () => {
-      editor.off("update", updateHandler);
-      editor.off("selectionUpdate", updateHandler);
+      if (isComposerEditorUsable(editor)) {
+        editor.off("update", updateHandler);
+        editor.off("selectionUpdate", updateHandler);
+      }
     };
-  }, [editor, popover, closePopover, syncComposerState]);
+  }, [editor, popover, closePopover]);
 
   useEffect(() => {
-    if (!editor) return;
+    if (!isComposerEditorUsable(editor)) return;
     if (composerText !== "") return;
     if (editor.isEmpty) return;
     editor.commands.clearContent();
   }, [composerText, editor]);
 
   useEffect(() => {
-    if (!editor || initialText === undefined) return;
+    if (!isComposerEditorUsable(editor) || initialText === undefined) return;
     const key = initialTextKey ?? initialText;
     if (initialTextKeyRef.current === key) return;
     initialTextKeyRef.current = key;
@@ -2403,13 +2627,13 @@ export function TiptapComposer({
 
   // Tiptap only reads `editable` at init; prop changes need setEditable.
   useEffect(() => {
-    if (!editor) return;
+    if (!isComposerEditorUsable(editor)) return;
     editor.setEditable(!disabled);
     if (disabled) editor.commands.blur();
   }, [editor, disabled]);
 
   return (
-    <>
+    <RealtimeVoiceModeBoundary>
       <style>{`
         .aui-composer .ProseMirror p.is-editor-empty:first-child::before {
           content: attr(data-placeholder);
@@ -2431,7 +2655,9 @@ export function TiptapComposer({
             onRemove={() => {
               setComposerMode(null);
               composerModeRef.current = null;
-              editor?.commands.focus("end");
+              if (isComposerEditorUsable(editor)) {
+                editor.commands.focus("end");
+              }
             }}
           />
         </div>
@@ -2460,7 +2686,9 @@ export function TiptapComposer({
                   setSlotReferences((current) =>
                     removeSlotReference(current, ref),
                   );
-                  editor?.commands.focus("end");
+                  if (isComposerEditorUsable(editor)) {
+                    editor.commands.focus("end");
+                  }
                 }}
                 aria-label={`Remove ${slotReferenceTitle(ref)} reference`}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -2472,13 +2700,24 @@ export function TiptapComposer({
           {contextItems.map((item) => (
             <span
               key={item.key}
-              className="inline-flex max-w-full items-center gap-1.5 rounded-md border border-border bg-muted/50 px-2 py-1 text-[11px] font-medium text-foreground"
+              data-state={
+                selectedContextItemKey === item.key ? "selected" : undefined
+              }
+              className={`inline-flex max-w-full items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium text-foreground ${
+                selectedContextItemKey === item.key
+                  ? "border-ring bg-accent ring-2 ring-ring/40"
+                  : "border-border bg-muted/50"
+              }`}
             >
               <IconClipboardList className="h-3 w-3 shrink-0 text-muted-foreground" />
               <span className="min-w-0 truncate">{item.title}</span>
               <button
                 type="button"
-                onClick={() => onRemoveContextItem?.(item.key)}
+                onClick={() => {
+                  selectedContextItemKeyRef.current = null;
+                  setSelectedContextItemKey(null);
+                  onRemoveContextItem?.(item.key);
+                }}
                 aria-label={`Remove ${item.title} context`}
                 className="ms-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent hover:text-foreground"
               >
@@ -2527,6 +2766,7 @@ export function TiptapComposer({
             onEffortChange={onEffortChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
+            onConnectLocalRuntime={onConnectLocalRuntime}
             imageModel={imageModelMenu}
           />
         )}
@@ -2544,20 +2784,24 @@ export function TiptapComposer({
             {voiceEnabled && (
               <VoiceButton voice={voice} isMac={isMac} disabled={disabled} />
             )}
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  onClick={() => void submitComposer("immediate")}
-                  disabled={!canSend}
-                  data-agent-composer-slot="send-button"
-                  className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 disabled:opacity-30 disabled:cursor-not-allowed"
-                >
-                  <IconArrowUp className="h-3.5 w-3.5" />
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>Send message</TooltipContent>
-            </Tooltip>
+            {primaryAction === "stop" ? (
+              stopButton
+            ) : (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => void submitComposer("immediate")}
+                    disabled={!canSend}
+                    data-agent-composer-slot="send-button"
+                    className="agent-composer-send-button shrink-0 flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
+                  >
+                    <IconArrowUp className="h-3.5 w-3.5" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>Send message</TooltipContent>
+              </Tooltip>
+            )}
           </>
         )}
       </div>
@@ -2576,6 +2820,6 @@ export function TiptapComposer({
         onSelectCommand={handleSelectCommand}
         onClose={closePopover}
       />
-    </>
+    </RealtimeVoiceModeBoundary>
   );
 }

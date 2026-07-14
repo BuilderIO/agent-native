@@ -59,6 +59,8 @@ const messages = {
     optional: "선택 사항",
     saveChanges: "변경 사항 저장",
     saving: "저장 중...",
+    loadFailed: "이 데이터를 불러올 수 없습니다",
+    retry: "다시 시도",
   },
   seo: {
     homeTitle: "Agent-Native Macros - 오픈 소스 AI 칼로리 및 매크로 추적기",

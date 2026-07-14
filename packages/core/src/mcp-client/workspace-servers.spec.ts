@@ -156,6 +156,7 @@ describe("loadWorkspaceMcpServers", () => {
     expect(mocks.execute).toHaveBeenNthCalledWith(
       1,
       expect.objectContaining({
+        sql: expect.stringContaining("CAST(? AS TEXT) IS NOT NULL"),
         args: [
           "mcp-server",
           "all",

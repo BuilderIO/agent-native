@@ -69,14 +69,6 @@ function listDocSlugs(docsDir: string): string[] {
 }
 
 describe("template routes", () => {
-  it("redirects the registry video folder slug to the public video page", () => {
-    expect(() =>
-      loader({
-        params: { slug: "videos" },
-      } as unknown as Parameters<typeof loader>[0]),
-    ).toThrow(expect.objectContaining({ status: 301 }));
-  });
-
   it("accepts every template catalog slug on the generic template route", () => {
     for (const template of templates) {
       expect(() =>
@@ -214,8 +206,6 @@ describe("template routes", () => {
   it("maps every template catalog item to a real docs page", () => {
     const docsDir = path.resolve(docsRoot, "../core/docs/content");
 
-    expect(getTemplateDocsPath("video")).toBe("/docs/template-videos");
-
     for (const template of templates) {
       const docsPath = getTemplateDocsPath(template);
       expect(docsPath).toMatch(/^\/docs\/template-[a-z0-9-]+$/);
@@ -235,6 +225,7 @@ describe("template routes", () => {
 
     expect(paths).toContain("/");
     expect(paths).toContain("/apps");
+    expect(paths).toContain("/brand");
     expect(paths).toContain("/download");
     expect(paths).toContain("/privacy");
     expect(paths).toContain("/terms");
@@ -253,6 +244,5 @@ describe("template routes", () => {
 
     expect(paths).not.toContain("/docs/resources");
     expect(paths).not.toContain("/apps/starter");
-    expect(paths).not.toContain("/apps/videos");
   }, 60000);
 });

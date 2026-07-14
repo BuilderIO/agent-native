@@ -4,7 +4,8 @@ export type DataSourceType =
   | "amplitude"
   | "first-party"
   | "demo"
-  | "prometheus";
+  | "prometheus"
+  | "program";
 
 export type ChartType =
   | "line"
@@ -62,7 +63,21 @@ export interface PivotConfig {
   valueKey: string;
 }
 
+/**
+ * Declares how a query's time coverage relates to the dashboard filter.
+ * `dashboard` is the default for ordinary event metrics; the other values are
+ * explicit exceptions that make intentional history scans visible to agents
+ * and reviewers.
+ */
+export type DashboardTimeScope =
+  | "dashboard"
+  | "fixed-window"
+  | "cohort-history"
+  | "all-time";
+
 export interface SqlPanelConfig {
+  /** Time coverage contract for first-party SQL panels. */
+  timeScope?: DashboardTimeScope;
   xKey?: string;
   yKey?: string;
   yKeys?: string[];

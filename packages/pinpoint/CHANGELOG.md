@@ -1,5 +1,23 @@
 # @agent-native/pinpoint
 
+## 0.1.13
+
+### Patch Changes
+
+- 38ca6fa: Make annotation badges appear from a natural scale and respect reduced-motion preferences.
+
+## 0.1.12
+
+### Patch Changes
+
+- f43d34c: Stage atomic writes inside the data directory so saves work when /tmp is a different filesystem.
+
+## 0.1.11
+
+### Patch Changes
+
+- 823d635: Upgrade the workspace toolchain to TypeScript 7 (`tsc`) with a side-by-side TypeScript 6 API package for tools that still need programmatic access. Replace `@typescript/native-preview` / `tsgo` with the stable `typescript` 7 release.
+
 ## 0.1.10
 
 ### Patch Changes

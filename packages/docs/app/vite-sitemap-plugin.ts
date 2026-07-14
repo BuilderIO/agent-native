@@ -145,9 +145,7 @@ export function buildAgentWebPages(rootDir: string): AgentWebPage[] {
         `- Replaces or augments: ${copy.replaces}`,
         `- CLI: \`${template.cliCommand}\``,
         template.demoUrl ? `- Demo: ${template.demoUrl}` : undefined,
-        `- Source: https://github.com/BuilderIO/agent-native/tree/main/templates/${
-          template.slug === "video" ? "videos" : template.slug
-        }`,
+        `- Source: https://github.com/BuilderIO/agent-native/tree/main/templates/${template.slug}`,
         "",
       ]
         .filter((line): line is string => typeof line === "string")
@@ -175,6 +173,15 @@ Agent-Native is an open source framework for building apps where AI agents and U
       markdown:
         "# Download Agent Native\n\nDownload the Agent Native desktop app.\n",
       lastmod: gitLastmod(path.resolve(rootDir, "app/routes/download.tsx")),
+    },
+    {
+      path: "/brand",
+      title: "Agent-Native Brand Assets",
+      description:
+        "Download official Agent-Native logos and symbols for articles, presentations, and community projects.",
+      markdown:
+        "# Agent-Native Brand Assets\n\nDownload official Agent-Native horizontal logos and symbols as SVG files for light and dark backgrounds.\n",
+      lastmod: gitLastmod(path.resolve(rootDir, "app/routes/brand.tsx")),
     },
     {
       path: "/privacy",

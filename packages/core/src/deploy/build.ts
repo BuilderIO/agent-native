@@ -22,6 +22,10 @@ import { fileURLToPath } from "url";
 
 import {
   AGENT_BACKGROUND_FUNCTION_NAME,
+  AGENT_BACKGROUND_PROCESSOR_A2A,
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
   AGENT_CHAT_PROCESS_RUN_PATH,
 } from "../agent/durable-background.js";
 import { normalizeAppBasePath } from "../server/app-base-path.js";
@@ -234,6 +238,38 @@ export const CLOUDFLARE_WORKER_NODE_BUILTIN_STUB_MODULES: Record<
     "worker",
     "workers",
   ]),
+  console: [
+    "const globalConsole = globalThis.console;",
+    "const bind = (name) => typeof globalConsole?.[name] === 'function' ? globalConsole[name].bind(globalConsole) : () => undefined;",
+    "export class Console {",
+    "  constructor() { return globalConsole; }",
+    "}",
+    "export const assert = bind('assert');",
+    "export const clear = bind('clear');",
+    "export const count = bind('count');",
+    "export const countReset = bind('countReset');",
+    "export const debug = bind('debug');",
+    "export const dir = bind('dir');",
+    "export const dirxml = bind('dirxml');",
+    "export const error = bind('error');",
+    "export const group = bind('group');",
+    "export const groupCollapsed = bind('groupCollapsed');",
+    "export const groupEnd = bind('groupEnd');",
+    "export const info = bind('info');",
+    "export const log = bind('log');",
+    "export const profile = bind('profile');",
+    "export const profileEnd = bind('profileEnd');",
+    "export const table = bind('table');",
+    "export const time = bind('time');",
+    "export const timeEnd = bind('timeEnd');",
+    "export const timeLog = bind('timeLog');",
+    "export const timeStamp = bind('timeStamp');",
+    "export const trace = bind('trace');",
+    "export const warn = bind('warn');",
+    "export { globalConsole as console };",
+    "export default globalConsole;",
+    "",
+  ].join("\n"),
   dgram: cloudflareNodeBuiltinStubSource("dgram", ["createSocket"]),
   dns: cloudflareNodeBuiltinStubSource("dns", [
     "lookup",
@@ -727,6 +763,7 @@ export function generateWorkerEntry(
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
+${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
@@ -948,17 +985,26 @@ function isSsrHtmlOrDataResponse(headers, status, pathname) {
 /**
  * Apply the SSR cache policy to the response headers.
  *
- * SSR IS A PUBLIC, HARD-CDN-CACHED SHELL — SERVED IDENTICALLY TO EVERYONE.
- * Every SSR HTML / React Router .data response gets the same public
- * stale-while-revalidate policy for ALL visitors, authenticated or not. The SSR
- * output is impersonal (the handler never reads the request's session/cookies),
- * so it is safe to hard-cache one shared copy at the edge. Do NOT reintroduce
- * per-user / cookie-based cache variation here (no private, no no-store, no
- * "authenticated then don't cache" branch) — that makes every logged-in
- * visitor's pages uncacheable. Per-user state is resolved client-side instead.
+ * SSR HTML and React Router .data responses are one impersonal public shell.
+ * Always overwrite route cache hints so generated edge workers cannot drift
+ * from the canonical Nitro/Netlify handler or send normal pages to origin.
  */
 function applyDefaultSsrCacheHeader(headers, status, pathname) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
+
+  headers.delete("set-cookie");
+  const vary = headers.get("vary");
+  if (vary) {
+    const publicVary = vary
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => {
+        const normalized = value.toLowerCase();
+        return normalized && normalized !== "*" && normalized !== "cookie" && normalized !== "authorization";
+      });
+    if (publicVary.length > 0) headers.set("vary", publicVary.join(", "));
+    else headers.delete("vary");
+  }
 
   headers.set("cache-control", DEFAULT_SSR_CACHE_CONTROL);
   headers.set("cdn-cache-control", DEFAULT_SSR_CDN_CACHE_CONTROL);
@@ -1054,6 +1100,13 @@ function requestWithPathname(request, pathname) {
   if (url.pathname === pathname) return request;
   url.pathname = pathname;
   return new Request(url, request);
+}
+
+function requestForAnonymousSsr(request) {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  return new Request(request, { headers });
 }
 
 function isStaticAppShellRequest(request) {
@@ -1174,10 +1227,14 @@ ${
     ) {
       return new Response(null, { status: 404 });
     }
-    const request = requestWithPathname(event.req, p);
+    const request = requestForAnonymousSsr(requestWithPathname(event.req, p));
+    const anonymousContext = { userEmail: undefined, orgId: undefined };
     if (event.req.method === "HEAD") {
       const getRequest = requestWithMethod(request, "GET");
-      const response = await rrHandler(getRequest);
+      const response = await runWithRequestContext(
+        anonymousContext,
+        () => rrHandler(getRequest)
+      );
       return rewriteMountedResponse(
         new Response(null, {
           status: response.status,
@@ -1189,7 +1246,12 @@ ${
         getRequest
       );
     }
-    return rewriteMountedResponse(await rrHandler(request), basePath, p, request);
+    return rewriteMountedResponse(
+      await runWithRequestContext(anonymousContext, () => rrHandler(request)),
+      basePath,
+      p,
+      request
+    );
   }));`
     : ""
 }
@@ -2312,6 +2374,17 @@ export function emitSingleTemplateNetlifyBackgroundFunction(
   fs.rmSync(path.join(dest, "server.mjs"), { force: true });
 
   const processRunPath = JSON.stringify(AGENT_CHAT_PROCESS_RUN_PATH);
+  const a2aProcessTaskPath = JSON.stringify("/_agent-native/a2a/_process-task");
+  const backgroundProcessorField = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_FIELD,
+  );
+  const backgroundProcessorA2A = JSON.stringify(AGENT_BACKGROUND_PROCESSOR_A2A);
+  const backgroundProcessorRoute = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  );
+  const backgroundProcessorRouteField = JSON.stringify(
+    AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  );
   const entry = `// Mark this isolate as the durable background runtime BEFORE the handler
 // bundle is imported, so isInBackgroundFunctionRuntime() reliably returns true
 // in this function. The deployed Lambda name is NOT guaranteed to end in
@@ -2323,6 +2396,35 @@ globalThis.__AGENT_NATIVE_BACKGROUND_RUNTIME__ = true;
 
 // The framework route the Nitro router dispatches to (the _process-run plugin).
 const PROCESS_RUN_PATH = ${processRunPath};
+const A2A_PROCESS_TASK_PATH = ${a2aProcessTaskPath};
+const BACKGROUND_PROCESSOR_FIELD = ${backgroundProcessorField};
+const BACKGROUND_PROCESSOR_A2A = ${backgroundProcessorA2A};
+const BACKGROUND_PROCESSOR_ROUTE = ${backgroundProcessorRoute};
+const BACKGROUND_PROCESSOR_ROUTE_FIELD = ${backgroundProcessorRouteField};
+
+function processorPathFromBody(body) {
+  if (!body) return null;
+  try {
+    const parsed = JSON.parse(body);
+    if (parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_A2A) {
+      return A2A_PROCESS_TASK_PATH;
+    }
+    const route = parsed?.[BACKGROUND_PROCESSOR_ROUTE_FIELD];
+    if (
+      parsed?.[BACKGROUND_PROCESSOR_FIELD] === BACKGROUND_PROCESSOR_ROUTE &&
+      typeof route === "string" &&
+      route.startsWith("/") &&
+      route.includes("/api/_agent-native-background/") &&
+      !route.includes("?") &&
+      !route.includes("#")
+    ) {
+      return route;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 let cachedHandler;
 
@@ -2338,11 +2440,11 @@ export default async function handler(request, context) {
   try {
     cachedHandler ??= (await import("./main.mjs")).default;
     const url = new URL(request.url);
-    url.pathname = PROCESS_RUN_PATH;
     // Read the body once and pass it through. GET/HEAD have no body.
     const method = request.method || "POST";
     const hasBody = method !== "GET" && method !== "HEAD";
     const body = hasBody ? await request.text() : undefined;
+    url.pathname = processorPathFromBody(body) || PROCESS_RUN_PATH;
     const rewritten = new Request(url.toString(), {
       method,
       headers: request.headers,
@@ -2392,6 +2494,339 @@ export const config = {
       `catch-all already excludes /.netlify/*). REQUIRES real-deploy ` +
       `verification of Netlify async (202) invocation — see ` +
       `docs/design/durable-agent-runs.md.`,
+  );
+}
+
+/**
+ * Nitro's Netlify preset can emit a harmful fallback rewrite to
+ * `/.netlify/functions/server`. With `config.path: "/*"`, that default URL is
+ * removed, so the rewrite publishes platform 404s. Single-template deploys keep
+ * Nitro's `preferStatic: true` so hashed `/assets/*` files in dist win before
+ * the SSR catch-all runs.
+ */
+const NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT =
+  "/* /.netlify/functions/server 200";
+
+function hasBareYjsRuntimeImport(source: string): boolean {
+  return /\b(?:from\s*|import\s*\(\s*|import\s*)["']yjs(?:\/[^"']*)?["']/.test(
+    source,
+  );
+}
+
+function hasUnsupportedYjsSubpathImport(source: string): boolean {
+  return /\b(?:from\s*|import\s*\(\s*|import\s*)["']yjs\/[^"']*["']/.test(
+    source,
+  );
+}
+
+function walkServerJavaScriptFiles(
+  dir: string,
+  onFile: (filePath: string) => void,
+): void {
+  if (!fs.existsSync(dir)) return;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    const entryPath = path.join(dir, entry.name);
+    if (entry.isDirectory()) {
+      walkServerJavaScriptFiles(entryPath, onFile);
+      continue;
+    }
+    if (/\.(?:[cm]?js)$/.test(entry.name)) onFile(entryPath);
+  }
+}
+
+/**
+ * Nitro receives the React Router SSR build as prebuilt chunks, so its normal
+ * dependency resolver cannot reliably fold the preserved bare `yjs` imports
+ * into the same module instance used by core's server collaboration code.
+ * Keep Yjs external through Nitro, bundle its complete public ESM surface once,
+ * then point every emitted server chunk at that one portable runtime module.
+ */
+export function bundleYjsRuntimeForServerlessOutput(
+  serverDir: string,
+  projectCwd: string,
+): string[] {
+  const bareImports: string[] = [];
+  const unsupportedSubpathImports: string[] = [];
+
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    const source = fs.readFileSync(filePath, "utf-8");
+    if (!hasBareYjsRuntimeImport(source)) return;
+    if (hasUnsupportedYjsSubpathImport(source)) {
+      unsupportedSubpathImports.push(filePath);
+      return;
+    }
+    bareImports.push(filePath);
+  });
+
+  if (unsupportedSubpathImports.length > 0) {
+    throw new Error(
+      `[deploy] Serverless output left unsupported yjs subpath imports in ${unsupportedSubpathImports.join(", ")}`,
+    );
+  }
+  if (bareImports.length === 0) return [];
+
+  const bundledYjsPath = path.join(serverDir, "_libs", "yjs-runtime.mjs");
+  fs.mkdirSync(path.dirname(bundledYjsPath), { recursive: true });
+  execFileSync(
+    findEsbuild(),
+    [
+      resolveNitroBundledYjsEntry(),
+      "--bundle",
+      "--format=esm",
+      "--platform=node",
+      "--target=node22",
+      "--minify",
+      `--outfile=${bundledYjsPath}`,
+    ],
+    { cwd: projectCwd, stdio: "pipe" },
+  );
+
+  for (const filePath of bareImports) {
+    const bundledImport = path
+      .relative(path.dirname(filePath), bundledYjsPath)
+      .split(path.sep)
+      .join("/");
+    const relativeBundledImport = bundledImport.startsWith(".")
+      ? bundledImport
+      : `./${bundledImport}`;
+    const source = fs.readFileSync(filePath, "utf-8");
+    fs.writeFileSync(
+      filePath,
+      source.replace(
+        /(\b(?:from\s*|import\s*\(\s*|import\s*))(["'])yjs\2/g,
+        (_match, importPrefix: string, quote: string) =>
+          `${importPrefix}${quote}${relativeBundledImport}${quote}`,
+      ),
+    );
+  }
+
+  return bareImports;
+}
+
+export function assertSingleTemplateNetlifyBuildOutput(
+  projectCwd: string,
+): void {
+  const failures: string[] = [];
+  const publishDir = path.join(projectCwd, "dist");
+  const workspaceAppBasePath =
+    process.env.AGENT_NATIVE_WORKSPACE === "1" ||
+    process.env.VITE_AGENT_NATIVE_WORKSPACE === "1"
+      ? normalizeConfiguredAppBasePath()
+      : "";
+  const assetsRelativeDir = workspaceAppBasePath
+    ? path.join(workspaceAppBasePath.slice(1), "assets")
+    : "assets";
+  const assetsDisplayPath = path
+    .join("dist", assetsRelativeDir)
+    .split(path.sep)
+    .join("/");
+  const redirectsPath = path.join(publishDir, "_redirects");
+  const internalDir = path.join(projectCwd, ".netlify", "functions-internal");
+  const serverDir = path.join(internalDir, "server");
+  const serverEntryPath = path.join(serverDir, "server.mjs");
+  const serverMainPath = path.join(serverDir, "main.mjs");
+
+  if (!fs.existsSync(publishDir)) {
+    failures.push("missing publish directory: dist");
+  } else {
+    const assetsDir = path.join(publishDir, assetsRelativeDir);
+    if (
+      !fs.existsSync(assetsDir) ||
+      fs.readdirSync(assetsDir).every((name) => name.startsWith("."))
+    ) {
+      failures.push(
+        `${assetsDisplayPath} is missing hashed client assets — the publish dir would load an infinite spinner`,
+      );
+    }
+  }
+
+  if (fs.existsSync(publishDir) && fs.existsSync(redirectsPath)) {
+    const redirects = fs.readFileSync(redirectsPath, "utf-8");
+    if (
+      redirects
+        .split(/\r?\n/)
+        .some(
+          (line) =>
+            line.trim().replace(/\s+/g, " ") ===
+            NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT,
+        )
+    ) {
+      failures.push(
+        'dist/_redirects must not contain "/* /.netlify/functions/server 200" — Nitro\'s custom config.path: "/*" removes that default function URL',
+      );
+    }
+  }
+
+  if (!fs.existsSync(serverDir)) {
+    failures.push(
+      "missing scanned Netlify server function: .netlify/functions-internal/server",
+    );
+  }
+
+  if (!fs.existsSync(serverMainPath)) {
+    failures.push(
+      "missing Netlify server bundle: .netlify/functions-internal/server/main.mjs",
+    );
+  }
+
+  if (!fs.existsSync(serverEntryPath)) {
+    failures.push(
+      "missing Netlify server entry: .netlify/functions-internal/server/server.mjs",
+    );
+  } else {
+    const serverEntry = fs.readFileSync(serverEntryPath, "utf-8");
+    if (!/\bpath\s*:\s*["']\/\*["']/.test(serverEntry)) {
+      failures.push(
+        'Netlify server entry is missing the "/*" catch-all function path',
+      );
+    }
+    if (!serverEntry.includes('"/.netlify/*"')) {
+      failures.push(
+        'Netlify server catch-all is missing the "/.netlify/*" exclusion',
+      );
+    }
+    if (!serverEntry.includes("./main.mjs")) {
+      failures.push(
+        "Netlify server entry does not reference the generated main.mjs bundle",
+      );
+    }
+    if (!/\bpreferStatic:\s*true\b/.test(serverEntry)) {
+      failures.push(
+        "Netlify server entry must keep preferStatic: true so /assets/* is served from dist before the SSR catch-all",
+      );
+    }
+  }
+
+  // Netlify's function packager does not install arbitrary runtime package
+  // imports left in Nitro chunks. A bare Yjs import here would deploy
+  // successfully but fail on the first SSR request with ERR_MODULE_NOT_FOUND.
+  // Keep this check adjacent to the output guard so both local builds and CI
+  // reject that artifact before it reaches Netlify.
+  const bareYjsImports: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    if (hasBareYjsRuntimeImport(fs.readFileSync(filePath, "utf-8"))) {
+      bareYjsImports.push(path.relative(projectCwd, filePath));
+    }
+  });
+  if (bareYjsImports.length > 0) {
+    failures.push(
+      `Netlify server bundle leaves yjs as a runtime import: ${bareYjsImports.join(", ")}`,
+    );
+  }
+
+  // Nitro's `_libs/yjs.mjs` is a private tree-shaken chunk, not a package
+  // facade. Repointing a prebuilt SSR chunk at it can request public exports
+  // (notably `Text`) that the private chunk did not retain. The controlled
+  // serverless pass must instead target the complete `yjs-runtime.mjs` bundle.
+  const privateYjsImports: string[] = [];
+  walkServerJavaScriptFiles(serverDir, (filePath) => {
+    if (
+      /\b(?:from\s*|import\s*\(\s*|import\s*)(["'])[^"']*_libs\/yjs\.mjs\1/.test(
+        fs.readFileSync(filePath, "utf-8"),
+      )
+    ) {
+      privateYjsImports.push(path.relative(projectCwd, filePath));
+    }
+  });
+  if (privateYjsImports.length > 0) {
+    failures.push(
+      `Netlify server bundle imports Nitro's internal tree-shaken _libs/yjs.mjs: ${privateYjsImports.join(", ")}`,
+    );
+  }
+
+  if (isDurableBackgroundDeployEnabled()) {
+    const backgroundDir = path.join(
+      internalDir,
+      AGENT_BACKGROUND_FUNCTION_NAME,
+    );
+    const backgroundEntryPath = path.join(
+      backgroundDir,
+      `${AGENT_BACKGROUND_FUNCTION_NAME}.mjs`,
+    );
+    if (!fs.existsSync(backgroundEntryPath)) {
+      failures.push(
+        `durable background is enabled but ${path.relative(
+          projectCwd,
+          backgroundEntryPath,
+        )} was not emitted`,
+      );
+    } else {
+      const backgroundEntry = fs.readFileSync(backgroundEntryPath, "utf-8");
+      if (!/\bbackground\s*:\s*true\b/.test(backgroundEntry)) {
+        failures.push(
+          `durable background entry ${path.relative(
+            projectCwd,
+            backgroundEntryPath,
+          )} is missing background: true`,
+        );
+      }
+      if (/^\s*path\s*:/m.test(backgroundEntry)) {
+        failures.push(
+          `durable background entry ${path.relative(
+            projectCwd,
+            backgroundEntryPath,
+          )} must not declare a custom path`,
+        );
+      }
+    }
+  }
+
+  if (failures.length > 0) {
+    throw new Error(
+      "[deploy] Netlify deploy guard failed; refusing to publish an output " +
+        "that would likely serve Netlify 404s:\n" +
+        failures.map((failure) => `- ${failure}`).join("\n"),
+    );
+  }
+
+  console.log(
+    "[deploy] Netlify deploy guard passed: publish dir and catch-all server function are present.",
+  );
+}
+
+/**
+ * Strip the harmful single-template catch-all rewrite that points at
+ * `/.netlify/functions/server`. Nitro declares `config.path: "/*"`, which
+ * removes the default function URL, so rewriting to that URL publishes
+ * Netlify platform 404s. Preserve any real redirects from `public/_redirects`.
+ */
+export function writeSingleTemplateNetlifyRedirects(projectCwd: string): void {
+  const publishDir = path.join(projectCwd, "dist");
+  const redirectsPath = path.join(publishDir, "_redirects");
+  if (!fs.existsSync(redirectsPath)) return;
+
+  const existing = fs.readFileSync(redirectsPath, "utf-8");
+  const kept: string[] = [];
+  let removed = 0;
+
+  for (const line of existing.split(/\r?\n/)) {
+    const normalized = line.trim().replace(/\s+/g, " ");
+    if (
+      normalized === NETLIFY_DEFAULT_FUNCTION_URL_REDIRECT ||
+      normalized ===
+        "# Generated by agent-native build for Netlify single-template deploys" ||
+      normalized ===
+        "# Static files are served first; dynamic routes fall through to the server function."
+    ) {
+      removed += 1;
+      continue;
+    }
+    kept.push(line);
+  }
+
+  while (kept.length > 0 && kept[kept.length - 1].trim() === "") {
+    kept.pop();
+  }
+
+  if (removed === 0) return;
+
+  if (kept.every((line) => line.trim() === "")) {
+    fs.rmSync(redirectsPath, { force: true });
+  } else {
+    fs.writeFileSync(redirectsPath, kept.join("\n").trimEnd() + "\n");
+  }
+  console.log(
+    '[deploy] Removed Netlify fallback rewrite to /.netlify/functions/server (incompatible with Nitro config.path: "/*").',
   );
 }
 
@@ -2750,6 +3185,45 @@ const BROWSER_ONLY_SERVER_LIBS = [
 ];
 
 /**
+ * Dependencies Nitro itself must bundle outside the controlled serverless
+ * output pass. Netlify, Vercel, and Lambda keep Yjs external through Nitro;
+ * `bundleYjsRuntimeForServerlessOutput` then creates their one portable copy.
+ */
+export const NITRO_SERVER_RUNTIME_BUNDLED_DEPS = ["yjs"] as const;
+
+/**
+ * Locate the core-owned ESM entry used by the controlled serverless bundling
+ * pass. Resolving from this module keeps the build independent of whether a
+ * template exposes core's transitive Yjs dependency at its own package root.
+ */
+export function resolveNitroBundledYjsEntry(): string {
+  const requireFromCore = createRequire(import.meta.url);
+  const packageDir = path.dirname(requireFromCore.resolve("yjs/package.json"));
+  const entry = path.join(packageDir, "dist", "yjs.mjs");
+  if (!fs.existsSync(entry)) {
+    throw new Error(`[build] Could not resolve the Yjs ESM entry at ${entry}`);
+  }
+  return entry;
+}
+
+/**
+ * Edge runtimes have no node_modules, while Node/serverless outputs only need
+ * the small set above bundled to keep their package manifests traceable.
+ */
+export function nitroNoExternalsForPreset(
+  targetPreset: string,
+): true | readonly string[] {
+  return targetPreset.startsWith("cloudflare") ||
+    targetPreset.startsWith("deno")
+    ? true
+    : targetPreset === "netlify" ||
+        targetPreset === "vercel" ||
+        targetPreset === "aws-lambda"
+      ? []
+      : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
+}
+
+/**
  * Rolldown plugin for the Nitro server bundle that replaces the browser-only
  * renderers above with an inert proxy module.
  *
@@ -2886,6 +3360,11 @@ export default bundle;
     virtual: {
       "virtual:agents-bundle": agentsBundleModuleSource,
     },
+    replace: {
+      "process.env.AGENT_NATIVE_BUILD_GA_MEASUREMENT_ID": JSON.stringify(
+        process.env.GA_MEASUREMENT_ID?.trim() || "",
+      ),
+    },
     // Replace browser-only renderers (Excalidraw/Mermaid) with an inert proxy in
     // the server bundle. Without this, Nitro's Rolldown build pulls the real
     // Excalidraw into a shared vendor chunk imported statically by the SSR render
@@ -2893,17 +3372,25 @@ export default bundle;
     // (ReferenceError: window is not defined → every request 502s). Mirrors the
     // Vite `ssrStubPlugin`, which only covers the `build/server` step.
     rollupConfig: {
+      // Nitro treats the intermediate React Router SSR files as prebuilt
+      // chunks, while core's server collaboration files participate in the
+      // final Rolldown graph. Externalize Yjs consistently on serverless so
+      // both graphs retain their public import shapes; the controlled
+      // post-build pass below bundles and rewrites them to one module.
+      ...(preset === "netlify" || preset === "vercel" || preset === "aws-lambda"
+        ? { external: ["yjs"] }
+        : {}),
       plugins: [createBrowserOnlyServerStubPlugin()],
     },
     ...(providedPluginsNitroPlugin
       ? { plugins: [providedPluginsNitroPlugin] }
       : {}),
     routeRules: mcpEmbedStaticAssetRouteRules(appBasePath),
-    // For edge presets (cloudflare, deno), bundle all deps — node_modules
-    // aren't available at runtime. Netlify/Vercel/Node have node_modules.
-    ...(preset.startsWith("cloudflare") || preset.startsWith("deno")
-      ? { noExternals: true }
-      : {}),
+    // Edge presets (cloudflare, deno) bundle all deps because node_modules are
+    // unavailable at runtime. Ordinary Node presets bundle Yjs through Nitro.
+    // Controlled serverless presets externalize it above, then emit one full
+    // runtime module after Nitro has preserved every consumer's public imports.
+    noExternals: nitroNoExternalsForPreset(preset),
   } as any);
 
   await runNitroBuildPipeline({
@@ -2920,6 +3407,7 @@ export default bundle;
     copyInstalledResvgPackages(nitro.options.output.serverDir);
     copyInstalledFfmpegStaticPackage(nitro.options.output.serverDir);
     sanitizeServerlessFunctionPackageManifest(nitro.options.output.serverDir);
+    bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 
   // Durable background agent runs (default-OFF / opt-in; enable with a truthy
@@ -2937,6 +3425,11 @@ export default bundle;
         err instanceof Error ? err.message : err,
       );
     }
+  }
+
+  if (preset === "netlify") {
+    writeSingleTemplateNetlifyRedirects(cwd);
+    assertSingleTemplateNetlifyBuildOutput(cwd);
   }
 
   // Resolve remaining bare npm imports by bundling them into _libs/.
@@ -2986,6 +3479,7 @@ export default bundle;
             "util",
             "events",
             "buffer",
+            "console",
             "net",
             "tls",
             "assert",
@@ -3168,6 +3662,7 @@ export default bundle;
           "util",
           "events",
           "buffer",
+          "console",
           "querystring",
           "zlib",
           "net",

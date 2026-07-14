@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 
 import {
   canUseDeployCredentialFallbackForRequest,
+  getProviderCredentialAuthFailure,
   readDeployCredentialEnv,
   resolveBuilderCredentials,
   resolveSecret,
@@ -120,20 +121,86 @@ export function isAgentEnginePackageInstalled(
   return packageNames.every(canResolvePackage);
 }
 
+interface ParsedVersionedModelId {
+  family: string;
+  version: number[];
+  suffix: string;
+}
+
+function parseVersionedModelId(model: string): ParsedVersionedModelId | null {
+  const match =
+    /^(?<family>.+?)[-.](?<version>\d+(?:[-.]\d+)*)(?<suffix>(?:[-.][a-z][a-z0-9]*)*)$/i.exec(
+      model.trim().toLowerCase(),
+    );
+  const groups = match?.groups;
+  if (!groups?.family || !groups.version) return null;
+
+  const version = groups.version.split(/[-.]/).map((part) => Number(part));
+  if (version.some((part) => !Number.isSafeInteger(part))) return null;
+
+  return {
+    family: groups.family,
+    version,
+    suffix: groups.suffix ?? "",
+  };
+}
+
+function compareModelVersions(left: number[], right: number[]): number {
+  const length = Math.max(left.length, right.length);
+  for (let index = 0; index < length; index += 1) {
+    const delta = (left[index] ?? 0) - (right[index] ?? 0);
+    if (delta !== 0) return delta;
+  }
+  return 0;
+}
+
+function findLatestSupportedVersionMatch(
+  candidate: string,
+  supportedModels: readonly string[],
+): string | undefined {
+  const parsedCandidate = parseVersionedModelId(candidate);
+  if (!parsedCandidate) return undefined;
+
+  let best: { model: string; version: number[] } | undefined;
+  for (const supportedModel of supportedModels) {
+    const parsedSupported = parseVersionedModelId(supportedModel);
+    if (!parsedSupported) continue;
+    if (parsedSupported.family !== parsedCandidate.family) continue;
+    if (parsedSupported.suffix !== parsedCandidate.suffix) continue;
+    if (
+      best &&
+      compareModelVersions(parsedSupported.version, best.version) <= 0
+    ) {
+      continue;
+    }
+    best = { model: supportedModel, version: parsedSupported.version };
+  }
+
+  return best?.model;
+}
+
 export function normalizeModelForEngine(
-  engine: Pick<AgentEngine, "name" | "defaultModel" | "supportedModels">,
+  engine: Pick<
+    AgentEngine,
+    "name" | "defaultModel" | "supportedModels" | "preserveCustomModels"
+  >,
   model: string | null | undefined,
 ): string {
   const candidate = typeof model === "string" ? model.trim() : "";
   if (!candidate) return engine.defaultModel;
 
-  if (engine.name !== "builder") return candidate;
+  if (engine.preserveCustomModels) return candidate;
+
+  if (engine.supportedModels.length === 0) return candidate;
 
   if (candidate === "auto" || engine.supportedModels.includes(candidate)) {
     return candidate;
   }
 
-  return engine.supportedModels.includes("auto") ? "auto" : engine.defaultModel;
+  return (
+    findLatestSupportedVersionMatch(candidate, engine.supportedModels) ??
+    engine.defaultModel
+  );
 }
 
 function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
@@ -155,6 +222,10 @@ function assertAgentEnginePackageInstalled(entry: AgentEngineEntry): void {
  * on the first pass, so an explicit provider key (ANTHROPIC_API_KEY etc.)
  * is picked instead. Builder is still used as the fallback when no other
  * provider key is set.
+ *
+ * This sync helper is for CLI/status callers that cannot await settings. Prefer
+ * {@link detectEngineFromEnvForRequest} at request time so sticky auth-failure
+ * markers can skip rejected deploy keys.
  */
 export function detectEngineFromEnv(): AgentEngineEntry | null {
   const preferByo = /^(1|true)$/i.test(
@@ -166,7 +237,13 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
       if (entry.name === "builder") continue;
       if (entry.requiredEnvVars.length === 0) continue;
       if (!isAgentEnginePackageInstalled(entry)) continue;
-      if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
+      if (
+        entry.requiredEnvVars.every(
+          (v) =>
+            canUseDeployCredentialFallbackForRequest(v) &&
+            !!readDeployCredentialEnv(v),
+        )
+      ) {
         return entry;
       }
     }
@@ -176,9 +253,68 @@ export function detectEngineFromEnv(): AgentEngineEntry | null {
   for (const entry of _registry.values()) {
     if (entry.requiredEnvVars.length === 0) continue;
     if (!isAgentEnginePackageInstalled(entry)) continue;
-    if (entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v))) {
+    if (
+      entry.requiredEnvVars.every(
+        (v) =>
+          canUseDeployCredentialFallbackForRequest(v) &&
+          !!readDeployCredentialEnv(v),
+      )
+    ) {
       return entry;
     }
+  }
+  return null;
+}
+
+async function envKeyUsableForEntry(
+  entry: AgentEngineEntry,
+  key: string,
+): Promise<boolean> {
+  if (
+    !(
+      canUseDeployCredentialFallbackForRequest(key) &&
+      !!readDeployCredentialEnv(key)
+    )
+  ) {
+    return false;
+  }
+  if (entry.name === "builder") {
+    return true;
+  }
+  const value = readDeployCredentialEnv(key);
+  if (!value) return false;
+  return !(await getProviderCredentialAuthFailure({ key, value }));
+}
+
+async function hasUsableEnvKeys(entry: AgentEngineEntry): Promise<boolean> {
+  if (!isAgentEnginePackageInstalled(entry)) return false;
+  if (entry.requiredEnvVars.length === 0) return false;
+  for (const key of entry.requiredEnvVars) {
+    if (!(await envKeyUsableForEntry(entry, key))) return false;
+  }
+  return true;
+}
+
+/**
+ * Request-aware env auto-detect. Same priority as {@link detectEngineFromEnv},
+ * but skips provider keys that currently have an auth-failure marker so a
+ * rejected deploy key does not permanently win selection and leave chat stuck
+ * on `missing_credentials`.
+ */
+export async function detectEngineFromEnvForRequest(): Promise<AgentEngineEntry | null> {
+  const preferByo = /^(1|true)$/i.test(
+    process.env.AGENT_ENGINE_PREFER_BYO_KEY ?? "",
+  );
+
+  if (preferByo) {
+    for (const entry of _registry.values()) {
+      if (entry.name === "builder") continue;
+      if (await hasUsableEnvKeys(entry)) return entry;
+    }
+  }
+
+  for (const entry of _registry.values()) {
+    if (await hasUsableEnvKeys(entry)) return entry;
   }
   return null;
 }
@@ -248,7 +384,7 @@ export async function detectEngineFromUserSecrets(): Promise<AgentEngineEntry | 
     }
     for (const key of entry.requiredEnvVars) {
       try {
-        if (!(await resolveSecret(key))) return false;
+        if (!(await resolveUsableProviderSecret(key))) return false;
       } catch {
         return false;
       }
@@ -317,13 +453,21 @@ function stripInlineApiKeyConfig(
   return safeConfig;
 }
 
+function canUseDeployEnvForEntry(entry: AgentEngineEntry): boolean {
+  if (entry.requiredEnvVars.length === 0) return true;
+  return entry.requiredEnvVars.every((key) =>
+    canUseDeployCredentialFallbackForRequest(key),
+  );
+}
+
 function engineCreateConfig(
+  entry: AgentEngineEntry,
   apiKey: string | undefined,
   extra?: Record<string, unknown>,
 ): Record<string, unknown> {
   return {
     apiKey,
-    allowEnvFallback: canUseDeployCredentialFallbackForRequest(),
+    allowEnvFallback: canUseDeployEnvForEntry(entry),
     ...(extra ?? {}),
   };
 }
@@ -336,11 +480,23 @@ async function resolveOpenAiBaseUrl(): Promise<string | undefined> {
     raw = null;
   }
 
-  if (!raw && canUseDeployCredentialFallbackForRequest()) {
+  if (
+    !raw &&
+    canUseDeployCredentialFallbackForRequest(OPENAI_BASE_URL_ENV_VAR)
+  ) {
     raw = readDeployCredentialEnv(OPENAI_BASE_URL_ENV_VAR);
   }
 
   return raw ? normalizeOpenAiBaseUrl(raw) : undefined;
+}
+
+async function resolveUsableProviderSecret(
+  key: string,
+): Promise<string | null> {
+  const value = await resolveSecret(key);
+  if (!value) return null;
+  const authFailure = await getProviderCredentialAuthFailure({ key, value });
+  return authFailure ? null : value;
 }
 
 async function engineCreateConfigForEntry(
@@ -358,7 +514,7 @@ async function engineCreateConfigForEntry(
       if (baseUrl) safeExtra.baseUrl = baseUrl;
     }
   }
-  return engineCreateConfig(apiKey, safeExtra);
+  return engineCreateConfig(entry, apiKey, safeExtra);
 }
 
 /**
@@ -366,6 +522,9 @@ async function engineCreateConfigForEntry(
  * AND an API key for it is reachable via the engine's required env vars.
  * Inline keys on the global settings row are ignored; see
  * `isAgentEngineSettingConfigured`.
+ *
+ * Sync helper for CLI/status. Prefer {@link isStoredEngineUsableForRequest}
+ * so sticky auth-failure markers are respected.
  */
 export function isStoredEngineUsable(
   stored: unknown,
@@ -374,7 +533,11 @@ export function isStoredEngineUsable(
   if (!isAgentEnginePackageInstalled(entry)) return false;
   if (isAgentEngineSettingConfigured(stored)) return true;
   if (entry.requiredEnvVars.length === 0) return true;
-  return entry.requiredEnvVars.every((v) => !!readDeployCredentialEnv(v));
+  return entry.requiredEnvVars.every(
+    (v) =>
+      canUseDeployCredentialFallbackForRequest(v) &&
+      !!readDeployCredentialEnv(v),
+  );
 }
 
 /**
@@ -398,16 +561,11 @@ export async function isStoredEngineUsableForRequest(
   }
   for (const key of entry.requiredEnvVars) {
     try {
-      if (await resolveSecret(key)) continue;
+      if (await resolveUsableProviderSecret(key)) continue;
     } catch {
-      // Fall through to the deployment-level check below.
-    }
-    if (
-      !canUseDeployCredentialFallbackForRequest() ||
-      !readDeployCredentialEnv(key)
-    ) {
       return false;
     }
+    return false;
   }
   return true;
 }
@@ -434,20 +592,22 @@ export async function isResolvedEngineUsableForRequest(
     return Boolean(creds.privateKey && creds.publicKey);
   }
 
-  if (options.apiKey?.trim()) return true;
+  if (options.apiKey?.trim()) {
+    const key = entry.requiredEnvVars[0];
+    if (!key) return true;
+    return !(await getProviderCredentialAuthFailure({
+      key,
+      value: options.apiKey,
+    }));
+  }
 
   for (const key of entry.requiredEnvVars) {
     try {
-      if (await resolveSecret(key)) continue;
+      if (await resolveUsableProviderSecret(key)) continue;
     } catch {
-      // Fall through to deployment-level fallback when allowed.
-    }
-    if (
-      !canUseDeployCredentialFallbackForRequest() ||
-      !readDeployCredentialEnv(key)
-    ) {
       return false;
     }
+    return false;
   }
   return true;
 }
@@ -467,15 +627,55 @@ export interface ResolveEngineConfig {
 }
 
 /**
+ * Return the usable engine explicitly selected by the current user/org.
+ *
+ * This is intentionally narrower than {@link resolveEngine}: it only inspects
+ * persisted app/global selections and does not auto-detect credentials or fall
+ * back to deployment defaults. Callers that have their own configured fallback
+ * (notably messaging integrations) can therefore honor the live request's
+ * Agent settings before applying that fallback, while still resolving the API
+ * key for the provider that was actually selected.
+ */
+export async function getConfiguredEngineNameForRequest(
+  options: { appId?: string } = {},
+): Promise<string | undefined> {
+  const appDefault = await getAgentAppModelDefaultForCurrentRequest(
+    options.appId,
+  ).catch(() => null);
+  if (appDefault?.engine) {
+    const entry = _registry.get(appDefault.engine);
+    if (entry && (await isStoredEngineUsableForRequest(appDefault, entry))) {
+      return entry.name;
+    }
+  }
+
+  let stored: { engine?: unknown; config?: unknown } | null = null;
+  try {
+    stored = (await getSetting("agent-engine")) as {
+      engine?: unknown;
+      config?: unknown;
+    } | null;
+  } catch {
+    return undefined;
+  }
+  if (typeof stored?.engine !== "string") return undefined;
+  const entry = _registry.get(stored.engine);
+  if (!entry || !(await isStoredEngineUsableForRequest(stored, entry))) {
+    return undefined;
+  }
+  return entry.name;
+}
+
+/**
  * Resolve an AgentEngine from options → explicit env → app default →
- * request credentials → settings → env → default.
+ * settings → request credentials → env → default.
  *
  * Resolution order:
  * 1. Explicit `engineOption` from plugin options (string name, instance, or {name, config})
  * 2. Env var AGENT_ENGINE
  * 3. Org/user app-template default, when usable
- * 4. Current request's app_secrets; Builder wins by default when connected
- * 5. Settings store key "agent-engine" → { engine: string }, when usable
+ * 4. Settings store key "agent-engine" → { engine: string }, when usable
+ * 5. Current request's app_secrets; Builder wins by default when connected
  * 6. Auto-detect deployment env credentials
  * 7. Default "anthropic" (requires ANTHROPIC_API_KEY)
  */
@@ -550,21 +750,15 @@ export async function resolveEngine(
     // Settings not available — fall through
   }
 
-  // 5. Auto-detect from the current user's per-user `app_secrets` rows
-  // (Builder OAuth callback + "paste your own key" settings flow write
-  // here, not env). Comes before env-detection so a user-specific
-  // Builder connection wins over a stale deploy-level/provider key.
+  // Auto-detect from the current user's per-user `app_secrets` rows
+  // (Builder OAuth callback + "paste your own key" settings flow write here,
+  // not env). Stored/app defaults are checked first so an explicit provider
+  // selection can override a connected Builder account.
   const detectedFromUser = await detectEngineFromUserSecrets();
-  if (detectedFromUser?.name === "builder") {
-    return detectedFromUser.create(
-      await engineCreateConfigForEntry(detectedFromUser, apiKey),
-    );
-  }
 
   // 6. Settings store — only when the stored row's API key is reachable.
-  // This remains below Builder detection so "Builder.io connected" and the
-  // runtime agree on the default managed gateway path. Non-Builder user keys
-  // still honor the stored provider/model when Builder is not connected.
+  // This explicit selection beats automatic Builder detection so users can
+  // switch away from Builder credits by saving/applying their own provider key.
   const storedRaw = stored as { engine?: unknown; config?: unknown } | null;
   const storedEngine = storedRaw?.engine;
   const storedConfig = storedRaw?.config;
@@ -590,10 +784,9 @@ export async function resolveEngine(
   }
 
   // 8. Auto-detect from any provider env var — so just dropping a key in
-  // .env works without also setting AGENT_ENGINE.
-  const detected = canUseDeployCredentialFallbackForRequest()
-    ? detectEngineFromEnv()
-    : null;
+  // .env works without also setting AGENT_ENGINE. Skip keys with active
+  // auth-failure markers so a rejected deploy key cannot permanently win.
+  const detected = await detectEngineFromEnvForRequest();
   if (detected) {
     return detected.create(await engineCreateConfigForEntry(detected, apiKey));
   }

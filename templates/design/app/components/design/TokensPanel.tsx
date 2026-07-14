@@ -24,7 +24,6 @@ import {
   IconChevronDown,
   IconChevronRight,
   IconCircle,
-  IconCode,
   IconFileText,
   IconFolder,
   IconLetterCase,
@@ -109,15 +108,31 @@ export interface TokensPanelProps {
 // ---------------------------------------------------------------------------
 
 /** True when the value looks like an opaque colour we can render as a swatch. */
-function isColorValue(value: string): boolean {
+export function isColorValue(value: string): boolean {
   const v = value.trim();
   return (
-    /^#[0-9a-fA-F]{3,8}$/.test(v) ||
+    // Valid CSS hex-color lengths are exactly 3, 4, 6, or 8 digits (#rgb,
+    // #rgba, #rrggbb, #rrggbbaa) — a bare `{3,8}` range also matched
+    // malformed 5- and 7-digit strings, which render as a blank swatch
+    // instead of falling back to the neutral type icon.
+    /^#([0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(v) ||
     /^rgba?\(/.test(v) ||
     /^hsla?\(/.test(v) ||
     /^oklch\(/.test(v) ||
     /^color\(/.test(v)
   );
+}
+
+/**
+ * Normalizes user-typed CSS custom-property input for the manual "Add one
+ * token" flow: trims surrounding whitespace first, then ensures a `--`
+ * prefix. Trimming before the prefix check matters — a leading space (e.g.
+ * pasted input) would otherwise fail `startsWith("--")` and produce a
+ * doubled-up, server-rejected name like `-- --foo`.
+ */
+export function normalizeCssVarName(raw: string): string {
+  const trimmed = raw.trim();
+  return trimmed.startsWith("--") ? trimmed : `--${trimmed}`;
 }
 
 /** Type label + icon for a section header. */
@@ -147,7 +162,6 @@ function typeLabel(type: DesignToken["type"]): {
 
 interface TokenRowProps {
   token: DesignToken;
-  onEdit: (cssVar: string, value: string) => void;
   editing: boolean;
   editDraft: string;
   onDraftChange: (v: string) => void;
@@ -273,7 +287,6 @@ interface TokenGroupSectionProps {
   onDraftChange: (v: string) => void;
   onCommit: () => void;
   onCancelEdit: () => void;
-  onEdit: (cssVar: string, value: string) => void;
 }
 
 function TokenGroupSection({
@@ -284,7 +297,6 @@ function TokenGroupSection({
   onDraftChange,
   onCommit,
   onCancelEdit,
-  onEdit,
 }: TokenGroupSectionProps) {
   const [collapsed, setCollapsed] = useState(false);
   const { label, Icon } = typeLabel(group.type);
@@ -322,7 +334,6 @@ function TokenGroupSection({
               onCommit={onCommit}
               onStartEdit={() => onStartEdit(token.cssVar, token.value)}
               onCancelEdit={onCancelEdit}
-              onEdit={onEdit}
             />
           ))}
         </div>
@@ -335,26 +346,86 @@ function TokenGroupSection({
 // New Token popover
 // ---------------------------------------------------------------------------
 
+type TokenCreateMode = "menu" | "add" | "text";
+
 interface NewTokenPopoverProps {
   onAdd: (cssVar: string, value: string) => void;
+  onImportFiles: (
+    files: TokenImportFile[],
+  ) => Promise<ImportDesignTokensResult>;
+  onImportText: (text: string) => Promise<ImportDesignTokensResult>;
+  onImportCurrentDesign: () => Promise<ImportDesignTokensResult>;
+  isPending: boolean;
 }
 
-function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
+function NewTokenPopover({
+  onAdd,
+  onImportFiles,
+  onImportText,
+  onImportCurrentDesign,
+  isPending,
+}: NewTokenPopoverProps) {
   const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState<TokenCreateMode>("menu");
   const [cssVar, setCssVar] = useState("--my-token");
   const [value, setValue] = useState("#000000");
+  const [text, setText] = useState("");
+  const [status, setStatus] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const folderInputRef = useRef<HTMLInputElement>(null);
   const t = useT();
 
   const handleAdd = () => {
-    const cleanVar = cssVar.startsWith("--") ? cssVar : `--${cssVar}`;
-    onAdd(cleanVar, value);
+    onAdd(normalizeCssVarName(cssVar), value.trim());
     setOpen(false);
+    setMode("menu");
     setCssVar("--my-token");
     setValue("#000000");
+    setText("");
+  };
+
+  const runImport = async (
+    importer: () => Promise<ImportDesignTokensResult>,
+  ) => {
+    setStatus(null);
+    try {
+      const result = await importer();
+      setStatus(
+        t("designEditor.tokens.importedCount", {
+          count: result.importedCount,
+        }),
+      );
+      if (result.importedCount > 0) {
+        setText("");
+      }
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : String(error));
+    }
+  };
+
+  const closeOrReset = (nextOpen: boolean) => {
+    setOpen(nextOpen);
+    if (!nextOpen) {
+      // Reset every draft field, not just mode/status, so reopening the
+      // popover after a dismissed (uncommitted) edit always starts fresh
+      // instead of silently resurrecting a stale cssVar/value/text draft.
+      setMode("menu");
+      setStatus(null);
+      setCssVar("--my-token");
+      setValue("#000000");
+      setText("");
+    }
+  };
+
+  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = event.currentTarget.files;
+    event.currentTarget.value = "";
+    if (!files?.length) return;
+    void runImport(async () => onImportFiles(await readImportFiles(files)));
   };
 
   return (
-    <Popover open={open} onOpenChange={setOpen}>
+    <Popover open={open} onOpenChange={closeOrReset}>
       <PopoverTrigger asChild>
         <Button
           type="button"
@@ -366,46 +437,183 @@ function NewTokenPopover({ onAdd }: NewTokenPopoverProps) {
           {t("designEditor.tokens.newToken")}
         </Button>
       </PopoverTrigger>
-      <PopoverContent align="end" className="w-56 p-3 text-[12px]">
-        <div className="space-y-2">
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
-              {t("designEditor.tokens.cssVar")}
-            </label>
-            <Input
-              value={cssVar}
-              onChange={(e) => setCssVar(e.target.value)}
-              className="h-6 font-mono !text-[11px] md:!text-[11px]"
-              placeholder="--my-token"
+      <PopoverContent align="end" className="w-72 p-2 text-[12px]">
+        {mode === "menu" ? (
+          <div className="space-y-0.5">
+            <TokenCreateOption
+              icon={<IconPlus className="size-3.5" />}
+              title="Add one token"
+              description="Create a single CSS variable by hand."
+              onClick={() => setMode("add")}
+              disabled={isPending}
+            />
+            <TokenCreateOption
+              icon={<IconUpload className="size-3.5" />}
+              title="Import a set from text"
+              description="Paste CSS variables, theme notes, or token JSON."
+              onClick={() => setMode("text")}
+              disabled={isPending}
+            />
+            <TokenCreateOption
+              icon={<IconFileText className="size-3.5" />}
+              title="Import from a file"
+              description="Read colors, spacing, and type from selected files."
+              onClick={() => fileInputRef.current?.click()}
+              disabled={isPending}
+            />
+            <TokenCreateOption
+              icon={<IconFolder className="size-3.5" />}
+              title="Import from a folder"
+              description="Scan a small source folder for token definitions."
+              onClick={() => folderInputRef.current?.click()}
+              disabled={isPending}
+            />
+            <TokenCreateOption
+              icon={<IconPalette className="size-3.5" />}
+              title="Import from current design"
+              description="Extract reusable tokens already used on the canvas."
+              onClick={() => void runImport(onImportCurrentDesign)}
+              disabled={isPending}
             />
           </div>
-          <div className="space-y-1">
-            <label className="text-[10px] font-medium text-muted-foreground">
-              {t("designEditor.tokens.value")}
-            </label>
-            <Input
-              value={value}
-              onChange={(e) => setValue(e.target.value)}
-              className="h-6 font-mono !text-[11px] md:!text-[11px]"
-              placeholder="#3B82F6"
-            />
+        ) : mode === "add" ? (
+          <div className="space-y-2 p-1">
+            <TokenCreateBackButton onClick={() => setMode("menu")} />
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground">
+                {t("designEditor.tokens.cssVar")}
+              </label>
+              <Input
+                value={cssVar}
+                onChange={(e) => setCssVar(e.target.value)}
+                className="h-6 font-mono !text-[11px] md:!text-[11px]"
+                placeholder="--my-token"
+              />
+            </div>
+            <div className="space-y-1">
+              <label className="text-[10px] font-medium text-muted-foreground">
+                {t("designEditor.tokens.value")}
+              </label>
+              <Input
+                value={value}
+                onChange={(e) => setValue(e.target.value)}
+                className="h-6 font-mono !text-[11px] md:!text-[11px]"
+                placeholder="#3B82F6"
+              />
+            </div>
+            <Button
+              type="button"
+              className="h-7 w-full cursor-pointer !text-[11px]"
+              onClick={handleAdd}
+              disabled={!cssVar.trim() || !value.trim()}
+            >
+              {t("designEditor.tokens.add")}
+            </Button>
           </div>
-          <Button
-            type="button"
-            className="h-7 w-full cursor-pointer !text-[11px]"
-            onClick={handleAdd}
-            disabled={!cssVar || !value}
-          >
-            {t("designEditor.tokens.add")}
-          </Button>
-        </div>
+        ) : (
+          <div className="space-y-2 p-1">
+            <TokenCreateBackButton onClick={() => setMode("menu")} />
+            <p className="text-[10px] leading-snug text-muted-foreground">
+              Paste a token set from CSS, JSON, Tailwind config, or design
+              notes.
+            </p>
+            <Textarea
+              value={text}
+              onChange={(event) => setText(event.target.value)}
+              placeholder={t("designEditor.tokens.pastePlaceholder")}
+              className="min-h-24 resize-none font-mono !text-[11px]"
+            />
+            <Button
+              type="button"
+              className="h-7 w-full cursor-pointer !text-[11px]"
+              disabled={isPending || !text.trim()}
+              onClick={() => void runImport(() => onImportText(text))}
+            >
+              {t("designEditor.tokens.importPasted")}
+            </Button>
+          </div>
+        )}
+
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept={TOKEN_IMPORT_ACCEPT}
+          className="hidden"
+          onChange={handleFileChange}
+        />
+        <input
+          ref={folderInputRef}
+          type="file"
+          multiple
+          accept={TOKEN_IMPORT_ACCEPT}
+          className="hidden"
+          onChange={handleFileChange}
+          {...({ directory: "", webkitdirectory: "" } as Record<
+            string,
+            string
+          >)}
+        />
+
+        {status && (
+          <p className="mt-2 px-1 text-[10px] leading-snug text-muted-foreground">
+            {status}
+          </p>
+        )}
       </PopoverContent>
     </Popover>
   );
 }
 
+function TokenCreateBackButton({ onClick }: { onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="mb-1 text-[10px] font-medium text-muted-foreground hover:text-foreground"
+    >
+      Back
+    </button>
+  );
+}
+
+function TokenCreateOption({
+  icon,
+  title,
+  description,
+  onClick,
+  disabled,
+}: {
+  icon: React.ReactNode;
+  title: string;
+  description: string;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className="group flex w-full cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 text-left transition-colors hover:bg-accent/60 disabled:cursor-not-allowed disabled:opacity-50"
+    >
+      <span className="flex size-8 shrink-0 items-center justify-center rounded-md border border-border/70 bg-muted/70 text-muted-foreground transition-colors group-hover:border-border group-hover:bg-muted">
+        {icon}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[13px] font-medium leading-tight text-foreground">
+          {title}
+        </span>
+        <span className="mt-0.5 line-clamp-1 text-[11px] leading-snug text-muted-foreground">
+          {description}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 // ---------------------------------------------------------------------------
-// Import popover
+// Import helpers
 // ---------------------------------------------------------------------------
 
 const TOKEN_IMPORT_ACCEPT = [
@@ -437,167 +645,6 @@ async function readImportFiles(fileList: FileList): Promise<TokenImportFile[]> {
   return files.filter((file) => file.content.trim().length > 0);
 }
 
-interface ImportTokensPopoverProps {
-  onImportFiles: (
-    files: TokenImportFile[],
-  ) => Promise<ImportDesignTokensResult>;
-  onImportText: (text: string) => Promise<ImportDesignTokensResult>;
-  onImportCurrentDesign: () => Promise<ImportDesignTokensResult>;
-  isPending: boolean;
-}
-
-function ImportTokensPopover({
-  onImportFiles,
-  onImportText,
-  onImportCurrentDesign,
-  isPending,
-}: ImportTokensPopoverProps) {
-  const t = useT();
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const folderInputRef = useRef<HTMLInputElement>(null);
-  const [open, setOpen] = useState(false);
-  const [text, setText] = useState("");
-  const [status, setStatus] = useState<string | null>(null);
-
-  const runImport = async (
-    importer: () => Promise<ImportDesignTokensResult>,
-  ) => {
-    setStatus(null);
-    try {
-      const result = await importer();
-      setStatus(
-        t("designEditor.tokens.importedCount", {
-          count: result.importedCount,
-        }),
-      );
-      if (result.importedCount > 0) {
-        setText("");
-      }
-    } catch (error) {
-      setStatus(error instanceof Error ? error.message : String(error));
-    }
-  };
-
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const files = event.currentTarget.files;
-    event.currentTarget.value = "";
-    if (!files?.length) return;
-    void runImport(async () => onImportFiles(await readImportFiles(files)));
-  };
-
-  return (
-    <Popover open={open} onOpenChange={setOpen}>
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <PopoverTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              className="size-6 cursor-pointer text-muted-foreground/60 hover:text-foreground"
-              aria-label={t("designEditor.tokens.import")}
-            >
-              <IconUpload className="size-3" />
-            </Button>
-          </PopoverTrigger>
-        </TooltipTrigger>
-        <TooltipContent>{t("designEditor.tokens.import")}</TooltipContent>
-      </Tooltip>
-      <PopoverContent align="end" className="w-72 p-3 text-[12px]">
-        <div className="space-y-3">
-          <div className="space-y-1">
-            <p className="!text-[11px] font-medium text-foreground">
-              {t("designEditor.tokens.importTitle")}
-            </p>
-            <p className="text-[10px] leading-snug text-muted-foreground">
-              {t("designEditor.tokens.importHint")}
-            </p>
-          </div>
-
-          <div className="grid grid-cols-3 gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 cursor-pointer gap-1 px-2 text-[10px]"
-              disabled={isPending}
-              onClick={() => fileInputRef.current?.click()}
-            >
-              <IconFileText className="size-3" />
-              {t("designEditor.tokens.files")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 cursor-pointer gap-1 px-2 text-[10px]"
-              disabled={isPending}
-              onClick={() => folderInputRef.current?.click()}
-            >
-              <IconFolder className="size-3" />
-              {t("designEditor.tokens.folder")}
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-7 cursor-pointer px-2 text-[10px]"
-              disabled={isPending}
-              onClick={() => void runImport(onImportCurrentDesign)}
-            >
-              {t("designEditor.tokens.current")}
-            </Button>
-          </div>
-
-          <input
-            ref={fileInputRef}
-            type="file"
-            multiple
-            accept={TOKEN_IMPORT_ACCEPT}
-            className="hidden"
-            onChange={handleFileChange}
-          />
-          <input
-            ref={folderInputRef}
-            type="file"
-            multiple
-            accept={TOKEN_IMPORT_ACCEPT}
-            className="hidden"
-            onChange={handleFileChange}
-            {...({ directory: "", webkitdirectory: "" } as Record<
-              string,
-              string
-            >)}
-          />
-
-          <div className="space-y-1.5">
-            <Textarea
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              placeholder={t("designEditor.tokens.pastePlaceholder")}
-              className="min-h-24 resize-none font-mono !text-[11px]"
-            />
-            <Button
-              type="button"
-              className="h-7 w-full cursor-pointer !text-[11px]"
-              disabled={isPending || !text.trim()}
-              onClick={() => void runImport(() => onImportText(text))}
-            >
-              {t("designEditor.tokens.importPasted")}
-            </Button>
-          </div>
-
-          {status && (
-            <p className="text-[10px] leading-snug text-muted-foreground">
-              {status}
-            </p>
-          )}
-        </div>
-      </PopoverContent>
-    </Popover>
-  );
-}
-
 // ---------------------------------------------------------------------------
 // Main panel
 // ---------------------------------------------------------------------------
@@ -621,6 +668,15 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   const applyMutation = useActionMutation("apply-design-token-edit");
   const importMutation = useActionMutation("import-design-tokens");
 
+  // This panel is reused across designs (the editor route swaps `designId`
+  // in place rather than remounting), so an apply/import mutation kicked off
+  // for one design can resolve after the user has already switched to
+  // another. Track the latest `designId` in a ref so a stale response can
+  // detect that and skip pushing its (now wrong-design) resolved CSS vars
+  // into the currently active design via `onTokensApplied`.
+  const designIdRef = useRef(designId);
+  designIdRef.current = designId;
+
   // ------------------------------------------------------------------
   // Local edit state
   // ------------------------------------------------------------------
@@ -637,6 +693,24 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     setEditDraft("");
   };
 
+  /** Shared apply path for both inline row edits and "Add one token". */
+  const applyTokenEdit = (cssVar: string, value: string) => {
+    const requestDesignId = designId;
+    applyMutation.mutate(
+      { designId, edits: [{ cssVar, value }] },
+      {
+        onSuccess: (result) => {
+          if (designIdRef.current !== requestDesignId) return;
+          void refetch();
+          const r = result as { resolvedCssVars?: Record<string, string> };
+          if (r?.resolvedCssVars && onTokensApplied) {
+            onTokensApplied(r.resolvedCssVars);
+          }
+        },
+      },
+    );
+  };
+
   const commitEdit = () => {
     if (!editingKey || !editDraft.trim()) {
       cancelEdit();
@@ -645,36 +719,18 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
     const cssVar = editingKey;
     const value = editDraft.trim();
     cancelEdit();
-    applyMutation.mutate(
-      { designId, edits: [{ cssVar, value }] },
-      {
-        onSuccess: (result) => {
-          void refetch();
-          const r = result as { resolvedCssVars?: Record<string, string> };
-          if (r?.resolvedCssVars && onTokensApplied) {
-            onTokensApplied(r.resolvedCssVars);
-          }
-        },
-      },
-    );
+    applyTokenEdit(cssVar, value);
   };
 
   const handleNewToken = (cssVar: string, value: string) => {
-    applyMutation.mutate(
-      { designId, edits: [{ cssVar, value }] },
-      {
-        onSuccess: (result) => {
-          void refetch();
-          const r = result as { resolvedCssVars?: Record<string, string> };
-          if (r?.resolvedCssVars && onTokensApplied) {
-            onTokensApplied(r.resolvedCssVars);
-          }
-        },
-      },
-    );
+    applyTokenEdit(cssVar, value);
   };
 
-  const handleImportSuccess = (result: ImportDesignTokensResult) => {
+  const handleImportSuccess = (
+    result: ImportDesignTokensResult,
+    requestDesignId: string,
+  ) => {
+    if (designIdRef.current !== requestDesignId) return result;
     void refetch();
     if (result.resolvedCssVars && onTokensApplied) {
       onTokensApplied(result.resolvedCssVars);
@@ -683,29 +739,32 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
   };
 
   const importFiles = async (files: TokenImportFile[]) => {
+    const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "files",
       files,
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result);
+    return handleImportSuccess(result, requestDesignId);
   };
 
   const importText = async (text: string) => {
+    const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "paste",
       text,
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result);
+    return handleImportSuccess(result, requestDesignId);
   };
 
   const importCurrentDesign = async () => {
+    const requestDesignId = designId;
     const result = (await importMutation.mutateAsync({
       designId,
       source: "current-design",
     })) as ImportDesignTokensResult;
-    return handleImportSuccess(result);
+    return handleImportSuccess(result, requestDesignId);
   };
 
   // ------------------------------------------------------------------
@@ -719,7 +778,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
       {/* Header */}
       <div className="flex items-center justify-between border-b border-border/60 px-3 py-2">
         <div className="flex items-center gap-1.5">
-          <IconCode className="size-3.5 text-muted-foreground/60" />
           <span className="!text-[11px] font-semibold text-foreground">
             {t("designEditor.tokens.title")}
           </span>
@@ -745,13 +803,13 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
             </TooltipTrigger>
             <TooltipContent>{t("designEditor.tokens.refresh")}</TooltipContent>
           </Tooltip>
-          <ImportTokensPopover
+          <NewTokenPopover
+            onAdd={handleNewToken}
             onImportFiles={importFiles}
             onImportText={importText}
             onImportCurrentDesign={importCurrentDesign}
             isPending={importMutation.isPending}
           />
-          <NewTokenPopover onAdd={handleNewToken} />
         </div>
       </div>
 
@@ -793,22 +851,6 @@ export function TokensPanel({ designId, onTokensApplied }: TokensPanelProps) {
                 onDraftChange={setEditDraft}
                 onCommit={commitEdit}
                 onCancelEdit={cancelEdit}
-                onEdit={(cssVar, value) =>
-                  applyMutation.mutate(
-                    { designId, edits: [{ cssVar, value }] },
-                    {
-                      onSuccess: (result) => {
-                        void refetch();
-                        const r = result as {
-                          resolvedCssVars?: Record<string, string>;
-                        };
-                        if (r?.resolvedCssVars && onTokensApplied) {
-                          onTokensApplied(r.resolvedCssVars);
-                        }
-                      },
-                    },
-                  )
-                }
               />
             ))}
           </div>

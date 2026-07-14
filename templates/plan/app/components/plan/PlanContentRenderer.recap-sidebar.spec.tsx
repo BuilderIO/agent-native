@@ -349,6 +349,16 @@ describe("PlanContentRenderer recap changed files", () => {
     expect(toc?.textContent).toContain("Section B");
   });
 
+  it("highlights the active recap anchor with color instead of weight", () => {
+    const css = readFileSync(join(process.cwd(), "app/global.css"), "utf8");
+    const activeRule =
+      css.match(/\.plan-document-toc__link\.is-active\s*\{([^}]*)\}/)?.[1] ??
+      "";
+
+    expect(activeRule).toContain("color: var(--plan-text);");
+    expect(activeRule).not.toContain("font-weight");
+  });
+
   it("defaults to wide layout and moves blocks from the first wide component into a breakout zone", () => {
     const scrollIntoView = vi.fn();
     Object.defineProperty(window.HTMLElement.prototype, "scrollIntoView", {

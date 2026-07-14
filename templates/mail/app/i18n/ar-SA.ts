@@ -42,6 +42,8 @@ const messages = {
       placeholder: "بحث...",
       clear: "Clear search (Esc)",
       noMatches: "لا توجد نتائج",
+      localResults: "في هذا البريد الوارد",
+      searchingGmail: "جارٍ البحث في Gmail...",
     },
     tabSettings: {
       views: "وجهات النظر",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "الكتل",
       media: "الوسائط",
       ai: "الذكاء الاصطناعي",
+      snippets: "المقتطفات",
     },
     mobileActions: {
       archive: "أرشفة",
@@ -269,6 +272,7 @@ const messages = {
       scheduledCancelled: "تم إلغاء البريد المجدول.",
       scheduledCancelFailed: "فشل إلغاء البريد المجدول",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "فشل تحميل الصورة",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -511,10 +515,10 @@ const messages = {
     slackUpdateFailed: "فشل تحديث استقبال Slack",
     slackConfigured: "تم تكوين بيانات اعتماد Slack.",
     slackNeedsCredentials:
-      "أضف SLACK_BOT_TOKEN و SLACK_SIGNING_SECRET لتفعيل استقبال Slack.",
-    slackIntake: "استقبال Slack",
+      "يتطلب الاستقبال المخصص القديم SLACK_BOT_TOKEN وSLACK_SIGNING_SECRET. لأتمتة مراسلة Slack الجديدة، اربط مساحة عمل في الإعدادات > المراسلة.",
+    slackIntake: "استقبال Slack (قديم)",
     slackDescription:
-      "اسمح لأعضاء المؤسسة بوضع مسودات البريد في قائمة الانتظار من Slack.",
+      "تكامل مخصص قديم يتيح لأعضاء المؤسسة وضع مسودات البريد في قائمة الانتظار من Slack.",
     enabled: "ممكّن",
     disable: "تعطيل",
     enable: "تمكين",
@@ -533,6 +537,19 @@ const messages = {
     whatsNewDescription:
       "التغييرات الأخيرة الموجهة للمستخدمين في Agent-Native Mail.",
     drafting: "الكتابة",
+    snippets: "المقتطفات",
+    snippetsDescription:
+      "ردود محفوظة يمكنك إدراجها في مسودة الرسالة بكتابة / واسم المقتطف.",
+    newSnippet: "مقتطف جديد",
+    noSnippets: "لا توجد مقتطفات بعد. أنشئ واحدًا للبدء.",
+    snippetName: "اسم المقتطف",
+    snippetNamePlaceholder: "مثال: متابعة التسعير",
+    snippetBody: "نص المقتطف",
+    snippetBodyPlaceholder: "النص الذي يتم إدراجه عند استخدام هذا المقتطف...",
+    editSnippet: "تعديل المقتطف",
+    deleteSnippet: "حذف المقتطف",
+    deleteSnippetDescription:
+      'هل تريد حذف المقتطف "{{name}}"؟ لا يمكن التراجع عن هذا الإجراء.',
     automations: "الأتمتة",
     gmailFilters: "فلاتر Gmail",
     aliases: "الأسماء المستعارة",

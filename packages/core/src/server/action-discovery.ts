@@ -186,6 +186,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
     out.requiresAuth = entry.requiresAuth;
   }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
+  if (typeof entry.allowInPlanMode === "boolean") {
+    out.allowInPlanMode = entry.allowInPlanMode;
+  }
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
@@ -559,10 +562,37 @@ export async function mergeCoreSharingActions(
       "set-resource-visibility",
       () => import("../sharing/actions/set-resource-visibility.js"),
     ],
+    [
+      "create-agent-resource-link",
+      () => import("../sharing/actions/create-agent-resource-link.js"),
+    ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
+    // recurring jobs and personal automations. The agent-facing native tools
+    // remain the canonical conversational surface.
+    [
+      "list-recurring-jobs",
+      () => import("../jobs/actions/list-recurring-jobs.js"),
+    ],
+    [
+      "manage-recurring-job",
+      () => import("../jobs/actions/manage-recurring-job.js"),
+    ],
+    [
+      "list-automations",
+      () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "manage-automation",
+      () => import("../triggers/actions/manage-automation.js"),
+    ],
     [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
+    ],
+    [
+      "context-preview-get",
+      () => import("../agent/context-xray/actions/context-preview-get.js"),
     ],
     [
       "context-pin",
@@ -592,13 +622,74 @@ export async function mergeCoreSharingActions(
       "change-appearance",
       () => import("../appearance/actions/change-appearance.js"),
     ],
-    ["toggle-demo-mode", () => import("../demo/actions/toggle-demo-mode.js")],
     // Audit log — read surface (who changed what, when, agent vs human).
     [
       "list-audit-events",
       () => import("../audit/actions/list-audit-events.js"),
     ],
     ["get-audit-event", () => import("../audit/actions/get-audit-event.js")],
+    [
+      "export-audit-events",
+      () => import("../audit/actions/export-audit-events.js"),
+    ],
+    // History kit — reusable version snapshots and restore surface.
+    [
+      "create-resource-version",
+      () => import("../history/actions/create-resource-version.js"),
+    ],
+    [
+      "list-resource-versions",
+      () => import("../history/actions/list-resource-versions.js"),
+    ],
+    [
+      "get-resource-version",
+      () => import("../history/actions/get-resource-version.js"),
+    ],
+    [
+      "restore-resource-version",
+      () => import("../history/actions/restore-resource-version.js"),
+    ],
+    [
+      "list-resource-history",
+      () => import("../history/actions/list-resource-history.js"),
+    ],
+    // Comments/review kit — reusable inline comments, feedback, and review status.
+    [
+      "list-review-comments",
+      () => import("../review/actions/list-review-comments.js"),
+    ],
+    [
+      "create-review-comment",
+      () => import("../review/actions/create-review-comment.js"),
+    ],
+    [
+      "reply-review-comment",
+      () => import("../review/actions/reply-review-comment.js"),
+    ],
+    [
+      "resolve-review-thread",
+      () => import("../review/actions/resolve-review-thread.js"),
+    ],
+    [
+      "delete-review-comment",
+      () => import("../review/actions/delete-review-comment.js"),
+    ],
+    [
+      "consume-review-feedback",
+      () => import("../review/actions/consume-review-feedback.js"),
+    ],
+    [
+      "get-review-feedback",
+      () => import("../review/actions/get-review-feedback.js"),
+    ],
+    [
+      "set-review-status",
+      () => import("../review/actions/set-review-status.js"),
+    ],
+    [
+      "send-review-thread-to-agent",
+      () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [

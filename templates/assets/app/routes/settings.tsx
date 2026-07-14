@@ -3,11 +3,12 @@ import {
   LanguagePicker,
   SettingsTabsPage,
   agentNativePath,
-  openAgentSettings,
   useActionQuery,
+  useAgentSettingsTabs,
   useBuilderConnectFlow,
   useBuilderStatus,
   useT,
+  type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import {
   useOnboarding,
@@ -75,9 +76,29 @@ type FormOnboardingMethod = Extract<OnboardingMethod, { kind: "form" }>;
 
 export default function SettingsPage() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data } = useActionQuery("list-libraries", { compact: true }) as {
     data?: { count?: number };
   };
+
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "assets-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "assets-generation-setup",
+        label: t("settings.setupTitle"),
+        keywords:
+          "builder generation storage object storage api key gemini openai brand kit setup connect",
+        hash: "asset-generation-setup",
+      },
+    ],
+    [t],
+  );
 
   return (
     <PageShell
@@ -87,6 +108,8 @@ export default function SettingsPage() {
     >
       <SettingsTabsPage
         teamLabel={t("team.title")}
+        extraTabs={agentSettingsTabs}
+        generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
             <div>
@@ -98,7 +121,7 @@ export default function SettingsPage() {
               </p>
             </div>
 
-            <Card>
+            <Card id="language" className="scroll-mt-4">
               <CardHeader>
                 <CardTitle className="text-base">
                   {t("settings.languageTitle")}
@@ -113,29 +136,13 @@ export default function SettingsPage() {
               </CardContent>
             </Card>
 
-            <Card>
-              <CardHeader>
-                <CardTitle className="text-base">
-                  {t("settings.agentTitle")}
-                </CardTitle>
-                <CardDescription>
-                  {t("settings.agentDescription")}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <Button variant="outline" onClick={() => openAgentSettings()}>
-                  {t("settings.openAgentSettings")}
-                </Button>
-              </CardContent>
-            </Card>
-
             <section id="asset-generation-setup" className="scroll-mt-4">
               <AssetsSetupCard libraryCount={data?.count ?? 0} />
             </section>
           </div>
         }
         team={
-          <div className="mx-auto w-full max-w-2xl">
+          <div className="mx-auto w-full max-w-3xl">
             <TeamPage
               showTitle={false}
               createOrgDescription={t("team.createOrgDescription")}

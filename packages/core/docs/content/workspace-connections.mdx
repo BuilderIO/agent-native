@@ -264,7 +264,7 @@ The initial provider ids are:
 | `google_drive` | search, import, docs           | brain, content, slides         |
 | `hubspot`      | search, import, crm            | analytics, brain, mail         |
 | `granola`      | search, import, meetings, docs | brain, calendar, dispatch      |
-| `clips`        | search, import, meetings       | brain, clips, videos           |
+| `clips`        | search, import, meetings       | brain, clips                   |
 | `generic`      | search, import, docs           | custom webhooks and file drops |
 
 Credential keys are names only, such as `SLACK_BOT_TOKEN` or `GITHUB_TOKEN`. Provider metadata must never include actual credential values.
@@ -387,14 +387,7 @@ Workspace connection provider metadata answers: "Which provider is this, what ca
 
 </Diagram>
 
-Use both together:
-
-1. Dispatch (or another workspace setup flow) creates the underlying vault secret or OAuth credential reference.
-2. The workspace connection store records the provider account, safe metadata, credential refs, and app grants.
-3. Each app reads provider metadata from the catalog and connection/grant summaries from the shared store.
-4. The app UI shows readiness: connected, granted but unhealthy, needs grant, missing credentials, or metadata-only.
-5. App-specific SQL stores only app-specific source ids, cursors, filters, sync windows, metric definitions, review rules, and user choices.
-6. App actions resolve credentials at execution time through granted connection refs and the vault, and never return secret values.
+In practice, the vault secret gets created first (by Dispatch or another workspace setup flow), then the connection row and its grants point at it — the [four concepts](#the-four-concepts) above cover the rest of the lifecycle. The one thing worth calling out here: app-specific SQL (source ids, cursors, filters, sync windows, metric definitions, review rules, user choices) never moves into the connection store — that stays app-local even after a provider is shared. See [Credential resolution](#credential-resolution) below for exactly how an action turns a granted ref into a usable secret at execution time.
 
 ### Provider reader runtime
 
@@ -415,20 +408,13 @@ Brain's Sources page is the reference implementation. It shows reusable workspac
 
 ### Building a reusable connector
 
-When a new provider should work across multiple templates:
-
-1. **Provider metadata:** add or reuse a provider in `@agent-native/core/connections`. This is the stable id, display label, capability list, recommended template uses, and credential key names.
-2. **Workspace connection:** Dispatch or another workspace setup surface stores the connected account's safe metadata, status, scopes, `credentialRefs`, and app grants through `@agent-native/core/workspace-connections`.
-3. **App-local source:** Brain, Analytics, Mail, or another app stores only the app-specific choices it owns, such as Slack channels, GitHub repositories, HubSpot object filters, sync cursors, or polling cadence.
-
-Do not duplicate OAuth/token storage in each app. The connection record says "this is Acme Slack and its token lives at `SLACK_BOT_TOKEN`"; the app-local source says "Brain may ingest `#product` and `#dev-fusion` from that Slack connection."
+When a new provider should work across multiple templates, add it at each of the three layers once: register the id/label/capabilities in `@agent-native/core/connections` (**Provider metadata**), store the connected account through `upsertWorkspaceConnection()` (the **Connection**), and let each consuming app keep only its own app-local source config (Slack channels, GitHub repositories, HubSpot object filters, sync cursors, polling cadence) — never a second copy of the OAuth/token storage. The connection record says "this is Acme Slack and its token lives at `SLACK_BOT_TOKEN`"; the app-local source says "Brain may ingest `#product` and `#dev-fusion` from that Slack connection."
 
 ### Dispatch control-plane setup
 
-Dispatch exposes control-plane actions that write the same shared store functions an app could call directly:
+Dispatch exposes control-plane actions that write the same shared store functions an app could call directly — its `upsert-workspace-connection` action validates input against the provider catalog, then delegates to the same `upsertWorkspaceConnection()` shown throughout this page:
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -472,24 +458,31 @@ App execution code resolves credential values from granted `credentialRefs` thro
 
 ### App-local boundary
 
-The boundary between shared connections and app-local sources is intentional. What is reusable today is provider identity, credential-reference resolution, per-app grants, provider readiness, safe account metadata, and the normalized provider-reader contract. What is not yet generic is most live provider API reading, OAuth flow ownership, ingestion cursors, source filters, sync cadence, and domain interpretation. Those stay in the app that owns the workflow unless a reader implementation is explicitly promoted to shared.
+Two rules follow from the [reusable-vs-app-local boundary](#building-a-reusable-connector) above:
 
-App source connectors should not read deploy-level environment variables as a fallback for user/org source credentials. Env vars are global to the deployment and do not express workspace grants.
-
-Agents should follow a simple rule: if a user asks to connect Slack, GitHub, HubSpot, Gmail, Google Drive, Granola, or another shared provider, inspect the workspace connection catalog first. If the provider is `connected`, use it. If it is `needs_grant`, ask for or perform the app grant. If it is `needs_credentials`, ask for the missing vault key. Only ask for a new raw key when no reusable connection exists.
+- **Never fall back to deploy-level environment variables** for user/org source credentials in an app connector — env vars are global to the deployment and do not express workspace grants.
+- **Agents check the catalog before asking for a new key.** If a user asks to connect Slack, GitHub, HubSpot, Gmail, Google Drive, Granola, or another shared provider, inspect the workspace connection catalog first: use it if `connected`, ask for or perform the app grant if `needs_grant`, ask for the missing vault key if `needs_credentials`. Only ask for a brand-new raw key when no reusable connection exists.
 
 ### Path to "connect once, use everywhere"
 
 The provider catalog and grant store are the foundation for a broader workspace layer:
 
 - Shared provider ids and capability names keep templates aligned.
-- Workspace-level inventory can show which providers are configured across Brain, Mail, Analytics, Dispatch, and future apps.
+- Workspace-level inventory can show which providers are configured across [Brain](/docs/template-brain), Mail, Analytics, [Dispatch](/docs/dispatch), and future apps.
 - Connection rows record account labels, status, allowed apps, credential refs, and health checks without changing template-facing provider ids.
 - Grant rows let a workspace owner connect once, then enable individual apps as the workspace adopts them.
 - Agents can route work across apps knowing which providers are already connected and which apps have grants.
 - Federated search can ask for providers with `search`, `docs`, `messages`, `meetings`, `crm`, or `code` capabilities instead of hardcoding every app's connector list.
 - Provider-specific readers, OAuth refresh flows, ingestion checkpoints, and app-owned data models can become shared later, but they are not implied by a workspace connection today.
 
-Keep the boundary strict: provider metadata is safe to show; credential values stay in the vault.
+Keep the boundary strict: provider metadata is safe to show; credential values stay in the [vault](/docs/security).
 
 </details>
+
+## What's next {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — the app that typically owns workspace connection setup and the vault
+- [**Security**](/docs/security) — the credential vault, secret scoping, and access model connections point at
+- [**Onboarding**](/docs/onboarding#checking-workspace-connections-in-onboarding) — checking connection readiness from a template's setup checklist
+- [**MCP Clients**](/docs/mcp-clients) — sharing MCP server credentials across a workspace, a sibling reusable-config pattern
+- [**Brain**](/docs/template-brain) — the reference implementation of a provider Sources page built on this model

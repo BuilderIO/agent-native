@@ -90,6 +90,12 @@ beforeEach(() => {
       created_by TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
+    CREATE TABLE organizations (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      created_by TEXT NOT NULL,
+      created_at INTEGER NOT NULL
+    );
   `);
   db = drizzle(sqlite);
   registerShareableResource({
@@ -143,6 +149,42 @@ describe("shareable resource access helpers", () => {
         "https://slides.example.com",
       ),
     ).toBe("https://slides.example.com");
+  });
+
+  it("resolves organization share display names", async () => {
+    await insertDoc({ id: "doc-org-share" });
+    sqlite
+      .prepare(
+        `INSERT INTO organizations (id, name, created_by, created_at)
+         VALUES (?, ?, ?, ?)`,
+      )
+      .run(otherOrgId, "Builder.io", ownerEmail, Date.now());
+    await db.insert(docShares).values({
+      id: "share-org",
+      resourceId: "doc-org-share",
+      principalType: "org",
+      principalId: otherOrgId,
+      role: "editor",
+      createdBy: ownerEmail,
+      createdAt: new Date().toISOString(),
+    });
+
+    const result = await runWithRequestContext(
+      { userEmail: ownerEmail, orgId },
+      () =>
+        listResourceShares.run({
+          resourceType,
+          resourceId: "doc-org-share",
+        }),
+    );
+
+    expect(result.shares).toEqual([
+      expect.objectContaining({
+        principalType: "org",
+        principalId: otherOrgId,
+        displayName: "Builder.io",
+      }),
+    ]);
   });
 
   it("filters list access across owner, private, org, public, user share, org share, and anonymous contexts", async () => {
@@ -351,6 +393,124 @@ describe("shareable resource access helpers", () => {
     });
   });
 
+  it("resolves access when the Drizzle table has additive columns missing from the database", async () => {
+    const driftDocs = table("qa_drift_docs", {
+      id: text("id").primaryKey(),
+      title: text("title").notNull(),
+      data: text("data").notNull(),
+      futureColumn: text("future_column"),
+      ...ownableColumns(),
+    });
+    const driftShares = createSharesTable("qa_drift_doc_shares");
+    const driftType = "qa-doc-schema-drift";
+
+    sqlite.exec(`
+      CREATE TABLE qa_drift_docs (
+        id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        data TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      CREATE TABLE qa_drift_doc_shares (
+        id TEXT PRIMARY KEY,
+        resource_id TEXT NOT NULL,
+        principal_type TEXT NOT NULL,
+        principal_id TEXT NOT NULL,
+        role TEXT NOT NULL DEFAULT 'viewer',
+        created_by TEXT NOT NULL,
+        created_at TEXT NOT NULL
+      );
+    `);
+    registerShareableResource({
+      type: driftType,
+      resourceTable: driftDocs,
+      sharesTable: driftShares,
+      displayName: "Schema Drift Doc",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource) =>
+        resource.data === '{"publicEdit":true}' ? "editor" : "viewer",
+    });
+
+    sqlite
+      .prepare(
+        `INSERT INTO qa_drift_docs (id, title, data, owner_email, org_id, visibility)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+      .run(
+        "drift-public",
+        "Drift Public",
+        '{"publicEdit":true}',
+        outsiderEmail,
+        orgId,
+        "public",
+      );
+
+    await runWithRequestContext({}, async () => {
+      await expect(
+        resolveAccess(driftType, "drift-public"),
+      ).resolves.toMatchObject({
+        role: "editor",
+        resource: {
+          id: "drift-public",
+          title: "Drift Public",
+          data: '{"publicEdit":true}',
+          ownerEmail: outsiderEmail,
+          visibility: "public",
+        },
+      });
+    });
+  });
+
+  it("rejects visibility changes from org and public viewer access", async () => {
+    await insertDoc({
+      id: "doc-org-viewer-policy",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+    await insertDoc({
+      id: "doc-public-viewer-policy",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-org-viewer-policy",
+          visibility: "private",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-public-viewer-policy",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+
+    const rows = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.ownerEmail, outsiderEmail));
+    expect(rows).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          id: "doc-org-viewer-policy",
+          visibility: "org",
+        }),
+        expect.objectContaining({
+          id: "doc-public-viewer-policy",
+          visibility: "public",
+        }),
+      ]),
+    );
+  });
+
   it("matches owner and user-share emails case-insensitively", async () => {
     await insertDoc({
       id: "doc-owned-case",
@@ -452,6 +612,13 @@ describe("shareable resource access helpers", () => {
           visibility: "org",
         }),
       ).rejects.toBeInstanceOf(ForbiddenError);
+      await expect(
+        setResourceVisibility.run({
+          resourceType,
+          resourceId: "doc-actions",
+          visibility: "private",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
     });
 
     await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
@@ -503,6 +670,11 @@ describe("shareable resource access helpers", () => {
       principalId: viewerEmail,
       role: "admin",
     });
+    const [doc] = await db
+      .select()
+      .from(docs)
+      .where(eq(docs.id, "doc-actions"));
+    expect(doc).toMatchObject({ visibility: "org" });
   });
 
   it("upserts and revokes user shares case-insensitively", async () => {
@@ -556,6 +728,28 @@ describe("shareable resource access helpers", () => {
       .select()
       .from(docShares)
       .where(eq(docShares.resourceId, "doc-user-case-actions"));
+    expect(shares).toHaveLength(0);
+  });
+
+  it("rejects non-email user share principals", async () => {
+    await insertDoc({ id: "doc-user-principal-validation" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      await expect(
+        shareResource.run({
+          resourceType,
+          resourceId: "doc-user-principal-validation",
+          principalType: "user",
+          principalId: "opaque-user-id",
+          role: "viewer",
+        }),
+      ).rejects.toThrow(/email address/);
+    });
+
+    const shares = await db
+      .select()
+      .from(docShares)
+      .where(eq(docShares.resourceId, "doc-user-principal-validation"));
     expect(shares).toHaveLength(0);
   });
 
@@ -638,5 +832,161 @@ describe("shareable resource access helpers", () => {
       .from(docs)
       .where(eq(docs.id, "doc-no-active-org"));
     expect(row).toMatchObject({ orgId: null, visibility: "private" });
+  });
+});
+
+describe("resolveAccess / assertAccess opt-in projected load", () => {
+  const projectedKeys = ["id", "ownerEmail", "orgId", "visibility"].sort();
+
+  it("defaults to loading the full resource row (regression)", async () => {
+    await insertDoc({ id: "proj-default-full" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const access = await resolveAccess(resourceType, "proj-default-full");
+      expect(access).toMatchObject({
+        role: "owner",
+        resource: {
+          id: "proj-default-full",
+          title: "proj-default-full",
+          ownerEmail,
+          orgId,
+          visibility: "private",
+        },
+      });
+      // The full row includes non-access-decision columns like "title".
+      expect(Object.keys(access!.resource)).toEqual(
+        expect.arrayContaining(["title"]),
+      );
+    });
+  });
+
+  it("returns only the access-decision columns and identical decisions across owner/org/shared/public cases when opted in", async () => {
+    await insertDoc({ id: "proj-owner" });
+    await insertDoc({
+      id: "proj-org",
+      ownerEmail: outsiderEmail,
+      visibility: "org",
+    });
+    await insertDoc({ id: "proj-shared-user", ownerEmail: outsiderEmail });
+    await insertDoc({ id: "proj-shared-org", ownerEmail: outsiderEmail });
+    await insertDoc({
+      id: "proj-public",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+    await db.insert(docShares).values([
+      {
+        id: "proj-share-user",
+        resourceId: "proj-shared-user",
+        principalType: "user",
+        principalId: viewerEmail,
+        role: "viewer",
+        createdBy: ownerEmail,
+        createdAt: "2026-04-30T00:00:00.000Z",
+      },
+      {
+        id: "proj-share-org",
+        resourceId: "proj-shared-org",
+        principalType: "org",
+        principalId: orgId,
+        role: "editor",
+        createdBy: ownerEmail,
+        createdAt: "2026-04-30T00:00:00.000Z",
+      },
+    ]);
+
+    const cases: Array<{
+      ctx: { userEmail?: string; orgId?: string };
+      id: string;
+    }> = [
+      { ctx: { userEmail: ownerEmail, orgId }, id: "proj-owner" },
+      { ctx: { userEmail: viewerEmail, orgId }, id: "proj-org" },
+      { ctx: { userEmail: viewerEmail, orgId }, id: "proj-shared-user" },
+      { ctx: { userEmail: viewerEmail, orgId }, id: "proj-shared-org" },
+      { ctx: { userEmail: viewerEmail, orgId }, id: "proj-public" },
+    ];
+
+    for (const { ctx, id } of cases) {
+      await runWithRequestContext(ctx, async () => {
+        const full = await resolveAccess(resourceType, id);
+        const projected = await resolveAccess(resourceType, id, undefined, {
+          skipResourceBody: true,
+        });
+
+        expect(full).not.toBeNull();
+        expect(projected).not.toBeNull();
+        expect(projected!.role).toBe(full!.role);
+        expect(Object.keys(projected!.resource).sort()).toEqual(projectedKeys);
+        expect(projected!.resource).toEqual({
+          id: full!.resource.id,
+          ownerEmail: full!.resource.ownerEmail,
+          orgId: full!.resource.orgId,
+          visibility: full!.resource.visibility,
+        });
+      });
+    }
+  });
+
+  it("assertAccess also supports the opt-in projected load and still enforces role checks", async () => {
+    await insertDoc({ id: "proj-assert" });
+
+    await runWithRequestContext({ userEmail: ownerEmail, orgId }, async () => {
+      const access = await assertAccess(
+        resourceType,
+        "proj-assert",
+        "owner",
+        undefined,
+        { skipResourceBody: true },
+      );
+      expect(access.role).toBe("owner");
+      expect(Object.keys(access.resource).sort()).toEqual(projectedKeys);
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        assertAccess(resourceType, "proj-assert", "owner", undefined, {
+          skipResourceBody: true,
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
+  it("ignores the projection and loads the full row for a registration with a dynamic publicAccessRole resolver", async () => {
+    const dynamicResolverType = "qa-doc-dynamic-resolver";
+    registerShareableResource({
+      type: dynamicResolverType,
+      resourceTable: docs,
+      sharesTable: docShares,
+      displayName: "QA Doc Dynamic Resolver",
+      titleColumn: "title",
+      getDb: () => db,
+      publicAccessRole: (resource) =>
+        resource.title === "proj-dynamic-edit" ? "editor" : "viewer",
+    });
+
+    await insertDoc({
+      id: "proj-dynamic-edit",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({}, async () => {
+      const access = await resolveAccess(
+        dynamicResolverType,
+        "proj-dynamic-edit",
+        undefined,
+        { skipResourceBody: true },
+      );
+      // The resolver reads `resource.title`, which only exists on a full
+      // row — this proves the opt-in projection was ignored for a
+      // registration with a dynamic `publicAccessRole` resolver.
+      expect(access).toMatchObject({
+        role: "editor",
+        resource: { title: "proj-dynamic-edit" },
+      });
+      expect(Object.keys(access!.resource)).toEqual(
+        expect.arrayContaining(["title"]),
+      );
+    });
   });
 });

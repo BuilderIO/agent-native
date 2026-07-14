@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
+  extractMcpToolResultImages,
+  classifyMcpToolCall,
+  evaluateMcpToolCallPolicy,
   isMcpActionResult,
   mcpToolsToActionEntries,
   syncMcpActionEntries,
@@ -301,5 +304,211 @@ describe("mcpToolsToActionEntries", () => {
         },
       ],
     });
+  });
+
+  it("blocks mutating combined computer actions in read-only mode", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "ok" }],
+    }));
+    serverFixtures["computer-bin"] = {
+      tools: [{ name: "computer" }],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { "computer-use-mcp": { command: "computer-bin" } },
+    });
+    await mgr.start();
+    const entry = mcpToolsToActionEntries(mgr, {
+      invocationPolicy: { mode: "read-only" },
+    })["mcp__computer-use-mcp__computer"];
+
+    const screenshot = await entry.run({ action: "screenshot" });
+    const click = await entry.run({ action: "left_click", x: 10, y: 20 });
+    const ambiguous = await entry.run({ action: "custom_gesture" });
+
+    expect(callImpl).toHaveBeenCalledTimes(1);
+    expect(callImpl).toHaveBeenCalledWith("computer", {
+      action: "screenshot",
+    });
+    expect(isMcpActionResult(click) && click.text).toContain(
+      "unavailable in read-only mode",
+    );
+    expect(isMcpActionResult(ambiguous) && ambiguous.text).toContain(
+      "not a recognized safe observation operation",
+    );
+    expect(isMcpActionResult(screenshot) && screenshot.text).toBe("ok");
+  });
+
+  it("blocks browser interaction tools but permits observation tools", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "ok" }],
+    }));
+    serverFixtures["browser-bin"] = {
+      tools: [
+        { name: "browser_click" },
+        { name: "browser_type" },
+        { name: "browser_navigate" },
+        { name: "browser_observe" },
+        { name: "browser_read" },
+        { name: "browser_screenshot" },
+      ],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { browser: { command: "browser-bin" } },
+    });
+    await mgr.start();
+    const entries = mcpToolsToActionEntries(mgr, {
+      invocationPolicy: { mode: "read-only" },
+    });
+
+    for (const operation of ["click", "type", "navigate"]) {
+      const result = await entries[`mcp__browser__browser_${operation}`].run(
+        {},
+      );
+      expect(isMcpActionResult(result) && result.text).toContain(
+        "unavailable in read-only mode",
+      );
+    }
+    for (const operation of ["observe", "read", "screenshot"]) {
+      const result = await entries[`mcp__browser__browser_${operation}`].run(
+        {},
+      );
+      expect(isMcpActionResult(result) && result.text).toBe("ok");
+    }
+    expect(callImpl).toHaveBeenCalledTimes(3);
+  });
+
+  it("keeps ordinary MCP tools usable while honoring explicit mutation hints", async () => {
+    const callImpl = vi.fn(() => ({
+      content: [{ type: "text", text: "ok" }],
+    }));
+    serverFixtures["data-bin"] = {
+      tools: [
+        { name: "lookup" },
+        { name: "inspect", annotations: { readOnlyHint: true } },
+        { name: "update", annotations: { readOnlyHint: false } },
+      ],
+      callImpl,
+    };
+    const mgr = new McpClientManager({
+      servers: { data: { command: "data-bin" } },
+    });
+    await mgr.start();
+    const entries = mcpToolsToActionEntries(mgr, {
+      invocationPolicy: { mode: "read-only" },
+    });
+
+    expect(isMcpActionResult(await entries.mcp__data__lookup.run({}))).toBe(
+      true,
+    );
+    expect(isMcpActionResult(await entries.mcp__data__inspect.run({}))).toBe(
+      true,
+    );
+    const update = await entries.mcp__data__update.run({});
+    expect(isMcpActionResult(update) && update.text).toContain(
+      "unavailable in read-only mode",
+    );
+    expect(callImpl).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("MCP tool call policy", () => {
+  const tool = (source: string, originalName: string, annotations?: any) =>
+    ({ source, originalName, annotations }) as any;
+
+  it("classifies runtime computer actions ahead of incomplete annotations", () => {
+    expect(
+      classifyMcpToolCall(tool("computer-use-mcp", "computer"), {
+        action: "screenshot",
+      }),
+    ).toMatchObject({ family: "computer", effect: "read" });
+    expect(
+      classifyMcpToolCall(tool("computer-use-mcp", "computer"), {
+        action: "left_click",
+      }),
+    ).toMatchObject({ family: "computer", effect: "write" });
+  });
+
+  it("fails closed for unknown browser operations in read-only policy", () => {
+    expect(
+      evaluateMcpToolCallPolicy(
+        { mode: "read-only" },
+        tool("browser", "browser_magic"),
+        {},
+      ),
+    ).toMatchObject({ family: "browser", effect: "unknown", allowed: false });
+  });
+
+  it("fails closed for deceptively neutral unannotated MCP tools", () => {
+    expect(
+      evaluateMcpToolCallPolicy(
+        { mode: "read-only" },
+        tool("neutral-service", "interact"),
+        {},
+      ),
+    ).toMatchObject({ family: "other", effect: "unknown", allowed: false });
+    expect(
+      evaluateMcpToolCallPolicy(
+        { mode: "read-only" },
+        tool("neutral-service", "lookup_records"),
+        {},
+      ),
+    ).toMatchObject({ family: "other", effect: "read", allowed: true });
+  });
+});
+
+describe("extractMcpToolResultImages", () => {
+  it("converts MCP image content parts into engine image parts", () => {
+    const images = extractMcpToolResultImages({
+      content: [
+        { type: "text", text: "Here is the screenshot" },
+        { type: "image", data: "aGVsbG8=", mimeType: "image/png" },
+        { type: "image", data: "d29ybGQ=", mimeType: "image/jpeg" },
+      ],
+    });
+    expect(images).toEqual([
+      { data: "aGVsbG8=", mediaType: "image/png" },
+      { data: "d29ybGQ=", mediaType: "image/jpeg" },
+    ]);
+  });
+
+  it("applies the shared caps (count and base64 size)", () => {
+    const oversize = "A".repeat(2_000_001);
+    const many = Array.from({ length: 6 }, () => ({
+      type: "image",
+      data: "aGVsbG8=",
+      mimeType: "image/png",
+    }));
+    expect(
+      extractMcpToolResultImages({
+        content: [{ type: "image", data: oversize, mimeType: "image/png" }],
+      }),
+    ).toEqual([]);
+    expect(extractMcpToolResultImages({ content: many })).toHaveLength(4);
+  });
+
+  it("skips unsupported mime types and malformed parts", () => {
+    expect(
+      extractMcpToolResultImages({
+        content: [
+          { type: "image", data: "aGVsbG8=", mimeType: "image/tiff" },
+          { type: "image" },
+          { type: "text", text: "no image" },
+        ],
+      }),
+    ).toEqual([]);
+  });
+
+  it("returns nothing for error results and non-result values", () => {
+    expect(
+      extractMcpToolResultImages({
+        isError: true,
+        content: [{ type: "image", data: "aGVsbG8=", mimeType: "image/png" }],
+      }),
+    ).toEqual([]);
+    expect(extractMcpToolResultImages("text")).toEqual([]);
+    expect(extractMcpToolResultImages(null)).toEqual([]);
+    expect(extractMcpToolResultImages({})).toEqual([]);
   });
 });

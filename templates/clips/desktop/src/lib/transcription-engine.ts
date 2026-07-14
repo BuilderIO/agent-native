@@ -30,6 +30,9 @@ export interface SourcedTranscriptSegment extends TranscriptSegment {
   source: TranscriptSource;
 }
 
+const DUPLICATE_TOKEN_OVERLAP = 0.72;
+const DUPLICATE_TIME_OVERLAP = 0.35;
+
 export interface FinalTranscriptEvent {
   /** Raw text (not trimmed); callers decide whether to skip empties. */
   text: string;
@@ -70,6 +73,97 @@ export function speakerFor(
   return source === "system" ? "Them" : "Me";
 }
 
+function normalizedTranscriptText(text: string): string {
+  return text
+    .normalize("NFKC")
+    .toLocaleLowerCase()
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+function transcriptWords(text: string): string[] {
+  const normalized = normalizedTranscriptText(text);
+  return normalized ? normalized.split(/\s+/) : [];
+}
+
+function tokenOverlap(left: string[], right: string[]): number {
+  if (left.length === 0 || right.length === 0) return 0;
+
+  const rightWords = new Set(right);
+  const sharedWords = new Set(left.filter((word) => rightWords.has(word)));
+  return sharedWords.size / Math.min(new Set(left).size, new Set(right).size);
+}
+
+function timeOverlapRatio(
+  left: SourcedTranscriptSegment,
+  right: SourcedTranscriptSegment,
+): number {
+  const overlapStart = Math.max(left.startMs, right.startMs);
+  const overlapEnd = Math.min(left.endMs, right.endMs);
+  const overlapMs = Math.max(0, overlapEnd - overlapStart);
+  const shorterDuration = Math.max(
+    1,
+    Math.min(left.endMs - left.startMs, right.endMs - right.startMs),
+  );
+
+  return overlapMs / shorterDuration;
+}
+
+function isDuplicateTranscriptSegment(
+  existing: SourcedTranscriptSegment,
+  incoming: SourcedTranscriptSegment,
+): boolean {
+  if (existing.source === incoming.source) return false;
+
+  const existingText = normalizedTranscriptText(existing.text);
+  const incomingText = normalizedTranscriptText(incoming.text);
+  const existingWords = transcriptWords(existing.text);
+  const incomingWords = transcriptWords(incoming.text);
+
+  if (
+    !existingText ||
+    !incomingText ||
+    existingWords.length < 3 ||
+    incomingWords.length < 3
+  ) {
+    return false;
+  }
+
+  if (timeOverlapRatio(existing, incoming) < DUPLICATE_TIME_OVERLAP) {
+    return false;
+  }
+
+  return (
+    existingText === incomingText ||
+    tokenOverlap(existingWords, incomingWords) >= DUPLICATE_TOKEN_OVERLAP
+  );
+}
+
+function isDuplicateTranscriptLine(
+  lines: string[],
+  source: TranscriptSource,
+  text: string,
+): boolean {
+  const words = transcriptWords(text);
+  if (words.length < 4) return false;
+
+  const speaker = speakerFor(source);
+  return lines.some((line) => {
+    const separatorIndex = line.indexOf(":");
+    if (separatorIndex === -1 || line.slice(0, separatorIndex) === speaker) {
+      return false;
+    }
+
+    const existingText = line.slice(separatorIndex + 1);
+    const existingWords = transcriptWords(existingText);
+    return (
+      normalizedTranscriptText(existingText) ===
+        normalizedTranscriptText(text) ||
+      tokenOverlap(existingWords, words) >= DUPLICATE_TOKEN_OVERLAP
+    );
+  });
+}
+
 /**
  * Fold a final-transcript event into a running transcript: appends a
  * speaker-labelled line and the event's (non-empty) segments tagged with the
@@ -83,14 +177,39 @@ export function appendFinalTranscript(
 ): boolean {
   const text = event.text.trim();
   if (!text) return false;
-  lines.push(`${speakerFor(event.source)}: ${text}`);
-  for (const seg of event.segments) {
-    const segText = seg.text?.trim();
-    if (!segText) continue;
+
+  if (event.segments.length === 0) {
+    if (isDuplicateTranscriptLine(lines, event.source, text)) return false;
+
+    lines.push(`${speakerFor(event.source)}: ${text}`);
+    return true;
+  }
+
+  const uniqueSegments = event.segments.filter((segment) => {
+    const segText = segment.text?.trim();
+    if (!segText) return false;
+
+    return !segments.some((existing) =>
+      isDuplicateTranscriptSegment(existing, {
+        ...segment,
+        text: segText,
+        source: event.source,
+      }),
+    );
+  });
+
+  if (uniqueSegments.length === 0) return false;
+
+  lines.push(
+    `${speakerFor(event.source)}: ${uniqueSegments
+      .map((segment) => segment.text.trim())
+      .join(" ")}`,
+  );
+  for (const seg of uniqueSegments) {
     segments.push({
       startMs: seg.startMs,
       endMs: seg.endMs,
-      text: segText,
+      text: seg.text.trim(),
       source: event.source,
     });
   }
@@ -119,6 +238,8 @@ export async function restartTranscriptionEngine(
   engine: TranscriptionEngine,
   mic?: MicSelection,
   captureSystem: boolean = true,
+  voiceProcessing: boolean = false,
+  emitPartials: boolean = true,
 ): Promise<void> {
   if (engine === "whisper") {
     await invoke("audio_transcription_start", {
@@ -127,12 +248,21 @@ export async function restartTranscriptionEngine(
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
       captureSystem,
+      voiceProcessing,
+      emitPartials,
+      owner: "meeting",
     });
   } else {
+    // This module is meetings-only (see file header) — always pass
+    // owner: "meeting" so a Fn/dictation press can't silently evict a
+    // meeting's native-speech fallback session (Rust-side priority rule
+    // in native_speech.rs). Dictation's own caller (voice-dictation.ts)
+    // omits `owner` and gets the "dictation" default.
     await invoke("native_speech_start", {
       locale: browserLocale(),
       micDeviceId: mic?.deviceId || null,
       micDeviceLabel: mic?.label || null,
+      owner: "meeting",
     });
   }
 }
@@ -141,10 +271,31 @@ export async function startTranscriptionEngine(opts: {
   mic?: MicSelection;
   /** Capture + transcribe system audio (whisper). Default true. */
   captureSystem?: boolean;
+  /**
+   * Enable Apple's voice-processing input mode for the Whisper mic tap.
+   * Meeting and recording capture leave this off at the renderer boundary.
+   * The native meeting runtime may allocate VoiceProcessingIO in bypass mode
+   * only when combined ScreenCaptureKit capture is unavailable or fails.
+   */
+  voiceProcessing?: boolean;
+  /**
+   * Emit recurring live partial transcripts while speech is in progress.
+   * Meetings render these updates; recordings only persist final segments and
+   * disable them to avoid repeatedly transcribing the same growing buffer.
+   */
+  emitPartials?: boolean;
 }): Promise<TranscriptionEngine> {
   const captureSystem = opts.captureSystem ?? true;
+  const voiceProcessing = opts.voiceProcessing ?? false;
+  const emitPartials = opts.emitPartials ?? true;
   try {
-    await restartTranscriptionEngine("whisper", opts.mic, captureSystem);
+    await restartTranscriptionEngine(
+      "whisper",
+      opts.mic,
+      captureSystem,
+      voiceProcessing,
+      emitPartials,
+    );
     return "whisper";
   } catch (err) {
     console.warn(
@@ -163,6 +314,13 @@ export async function stopTranscriptionEngine(
   await invoke(
     engine === "whisper" ? "audio_transcription_stop" : "native_speech_stop",
   );
+}
+
+export async function resetTranscriptionTimeline(
+  engine: TranscriptionEngine,
+): Promise<void> {
+  if (engine !== "whisper") return;
+  await invoke("audio_transcription_reset_timeline");
 }
 
 // ---------------------------------------------------------------------------

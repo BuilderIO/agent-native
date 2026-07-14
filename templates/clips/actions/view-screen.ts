@@ -3,7 +3,7 @@
  *
  * Reads `navigation` application state and fetches the relevant context
  * (recording + transcript + comments if viewing a recording, folder contents
- * if on library, space list if on spaces, etc.). Returns a single JSON
+ * if on library/shared-with-me, space list if on spaces, etc.). Returns a single JSON
  * snapshot the agent can reason over.
  *
  * Usage:
@@ -17,7 +17,18 @@ import {
 } from "@agent-native/core/application-state";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, gte, isNotNull, isNull, lte } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  isNotNull,
+  isNull,
+  lte,
+  not,
+  notInArray,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -27,6 +38,7 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
   view?: string;
@@ -158,13 +170,40 @@ async function fetchBugReportSummary(recordingId: string) {
   };
 }
 
-async function fetchLibrary(folderId?: string) {
+async function fetchLibrary({
+  folderId,
+  shared = false,
+  organizationId,
+}: {
+  folderId?: string;
+  shared?: boolean;
+  organizationId?: string | null;
+}) {
   const db = getDb();
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return [];
   const conditions = [
     accessFilter(schema.recordings, schema.recordingShares),
     isNull(schema.recordings.archivedAt),
     isNull(schema.recordings.trashedAt),
   ];
+  if (shared) {
+    conditions.push(
+      not(ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail)),
+    );
+  } else {
+    conditions.push(
+      ownerEmailMatches(schema.recordings.ownerEmail, ownerEmail),
+    );
+    if (organizationId) {
+      conditions.push(eq(schema.recordings.organizationId, organizationId));
+    }
+  }
+  const meetingRecordingIds = db
+    .select({ id: schema.meetings.recordingId })
+    .from(schema.meetings)
+    .where(isNotNull(schema.meetings.recordingId));
+  conditions.push(notInArray(schema.recordings.id, meetingRecordingIds));
   if (folderId) {
     conditions.push(eq(schema.recordings.folderId, folderId));
   }
@@ -451,7 +490,7 @@ async function fetchShare(shareId: string) {
 
 export default defineAction({
   description:
-    "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, folder contents on library, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
+    "See what the user is currently looking at on screen. Returns the current navigation state plus relevant context (recording + transcript + comments on a recording page, visible clips on library/shared-with-me, space list on spaces, etc.). Prefer reading the auto-included <current-screen> block — call this only when you need a refreshed snapshot.",
   schema: z.object({}),
   http: false,
   run: async () => {
@@ -502,18 +541,13 @@ export default defineAction({
               // and is injected into <current-screen> on EVERY message, which
               // can blow the model's context window. The agent calls
               // get-recording-player-data for the complete transcript/segments.
-              const segmentCount = Array.isArray(transcript.segments)
-                ? transcript.segments.length
-                : 0;
-              screen.transcript = {
+              screen.transcript = buildTranscriptPreview({
                 recordingId: transcript.recordingId,
                 language: transcript.language,
                 status: transcript.status,
-                fullTextSnippet: (transcript.fullText ?? "").slice(0, 2000),
-                fullTextLength: (transcript.fullText ?? "").length,
-                segmentCount,
-                note: "Snippet only. Call get-recording-player-data for the full transcript and segments.",
-              };
+                fullText: transcript.fullText,
+                segments: transcript.segments,
+              });
             }
             screen.comments = comments.slice(0, 50);
             if (browserDiagnosticsSummary) {
@@ -531,7 +565,10 @@ export default defineAction({
       }
       case "library": {
         const [recordings, folders] = await Promise.all([
-          fetchLibrary(nav.folderId),
+          fetchLibrary({
+            folderId: nav.folderId,
+            organizationId,
+          }),
           fetchFoldersForSpace(null),
         ]);
         screen.library = {
@@ -540,6 +577,17 @@ export default defineAction({
           count: recordings.length,
           recordings,
           folders,
+        };
+        break;
+      }
+      case "shared": {
+        const recordings = await fetchLibrary({
+          shared: true,
+          organizationId,
+        });
+        screen.shared = {
+          count: recordings.length,
+          recordings,
         };
         break;
       }

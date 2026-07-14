@@ -1,11 +1,131 @@
 import type { AgentLoopUsage } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
+import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
 
 function spanId(): string {
   return `span-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function llmProviderFromEngine(
+  engineName: string | undefined,
+  model: string,
+): string {
+  const engine = engineName?.trim();
+  if (engine?.startsWith("ai-sdk:")) return engine.slice("ai-sdk:".length);
+  if (engine) return engine;
+  if (/claude|anthropic/i.test(model)) return "anthropic";
+  if (/gpt|openai|codex/i.test(model)) return "openai";
+  if (/gemini|google/i.test(model)) return "google";
+  return "unknown";
+}
+
+function costUsdFromCenticents(value: number): number {
+  return Math.round((value / 10_000) * 1_000_000) / 1_000_000;
+}
+
+function emitLlmGenerationTrackingEvent(args: {
+  runId: string;
+  threadId: string | null;
+  userId: string | null;
+  parentSpanId: string;
+  llmSpanId: string;
+  engineName: string | undefined;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheWriteTokens: number;
+  costCentsX100: number;
+  durationMs: number;
+  status: "success" | "error";
+  errorMessage: string | null;
+  toolCalls: number;
+  successfulTools: number;
+  failedTools: number;
+  createdAt: number;
+  experimentAssignments?: Array<{
+    experimentId: string;
+    variantId: string;
+  }>;
+  modelSelectionSource?: string;
+}): void {
+  const provider = llmProviderFromEngine(args.engineName, args.model);
+  const costUsd = costUsdFromCenticents(args.costCentsX100);
+  const error = args.errorMessage ?? undefined;
+  const properties: Record<string, unknown> = {
+    ...trackingIdentityProperties(),
+    source: "agent_observability",
+    span_type: "llm_call",
+    run_id: args.runId,
+    thread_id: args.threadId,
+    parent_span_id: args.parentSpanId,
+    span_id: args.llmSpanId,
+    model: args.model,
+    provider,
+    input_tokens: args.inputTokens,
+    output_tokens: args.outputTokens,
+    total_tokens: args.inputTokens + args.outputTokens,
+    cache_read_tokens: args.cacheReadTokens,
+    cache_write_tokens: args.cacheWriteTokens,
+    cost_cents_x100: args.costCentsX100,
+    cost_usd: costUsd,
+    duration_ms: args.durationMs,
+    status: args.status,
+    tool_calls: args.toolCalls,
+    successful_tools: args.successfulTools,
+    failed_tools: args.failedTools,
+    model_selection_source: args.modelSelectionSource,
+    created_at: new Date(args.createdAt).toISOString(),
+    created_at_ms: args.createdAt,
+    $ai_trace_id: args.runId,
+    $ai_session_id: args.threadId ?? undefined,
+    $ai_span_id: args.llmSpanId,
+    $ai_span_name: "agent_run",
+    $ai_parent_id: args.parentSpanId,
+    $ai_model: args.model,
+    $ai_provider: provider,
+    $ai_input_tokens: args.inputTokens,
+    $ai_output_tokens: args.outputTokens,
+    $ai_latency: Math.round((args.durationMs / 1000) * 1000) / 1000,
+    $ai_is_error: args.status === "error",
+    $ai_error: error,
+    $ai_cache_read_input_tokens: args.cacheReadTokens,
+    $ai_cache_creation_input_tokens: args.cacheWriteTokens,
+    $ai_request_count: 1,
+    $ai_total_cost_usd: costUsd,
+  };
+  if (args.experimentAssignments?.length) {
+    properties.experiment_ids = args.experimentAssignments
+      .map((assignment) => assignment.experimentId)
+      .join(",");
+    properties.experiment_variants = args.experimentAssignments
+      .map((assignment) => assignment.variantId)
+      .join(",");
+    if (args.experimentAssignments.length === 1) {
+      properties.experiment_id = args.experimentAssignments[0].experimentId;
+      properties.experiment_variant = args.experimentAssignments[0].variantId;
+    }
+  }
+  if (error) properties.error_message = error;
+
+  for (const key of Object.keys(properties)) {
+    if (properties[key] === undefined) delete properties[key];
+  }
+
+  try {
+    void import("../tracking/registry.js")
+      .then(({ track }) => {
+        track("$ai_generation", properties, {
+          userId: args.userId ?? undefined,
+        });
+      })
+      .catch(() => {});
+  } catch {
+    // Tracking must never affect the agent run or trace persistence.
+  }
 }
 
 /** Keys whose values are stripped from persisted tool inputs when
@@ -45,17 +165,19 @@ function redactWalk(value: unknown, seen: WeakSet<object>): unknown {
 }
 
 export async function getObservabilityConfig(): Promise<ObservabilityConfig> {
+  let stored: Partial<ObservabilityConfig> | null = null;
   try {
     const { getSetting } = await import("../settings/store.js");
-    const stored = await getSetting("observability-config");
-    if (stored) {
-      return {
-        ...DEFAULT_OBSERVABILITY_CONFIG,
-        ...stored,
-      } as ObservabilityConfig;
-    }
+    stored = (await getSetting(
+      "observability-config",
+    )) as Partial<ObservabilityConfig> | null;
   } catch {}
-  return DEFAULT_OBSERVABILITY_CONFIG;
+  const { resolveInferredSentimentConfig } = await import("./sentiment.js");
+  return {
+    ...DEFAULT_OBSERVABILITY_CONFIG,
+    ...(stored ?? {}),
+    ...resolveInferredSentimentConfig(stored),
+  };
 }
 
 export async function instrumentAgentLoop(opts: {
@@ -89,6 +211,14 @@ export async function instrumentAgentLoop(opts: {
    *  reads. */
   userId: string | null;
   config: ObservabilityConfig;
+  metadata?: Record<string, unknown> | null;
+  experimentAssignments?: Array<{
+    experimentId: string;
+    variantId: string;
+  }>;
+  modelSelectionSource?: string;
+  /** Raw user-authored message before prompt/context enrichment. */
+  sentimentInput?: string;
   classifyError?: (error: unknown) =>
     | {
         status?: "success" | "error";
@@ -101,6 +231,17 @@ export async function instrumentAgentLoop(opts: {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
   const runStart = Date.now();
   const parentSpanId = spanId();
+  const precedingResponsePromise =
+    config.inferredSentimentEnabled && opts.sentimentInput && threadId && userId
+      ? import("./store.js")
+          .then(({ getLatestTraceSummaryForThread }) =>
+            getLatestTraceSummaryForThread(threadId, {
+              userId,
+              excludeRunId: runId,
+            }),
+          )
+          .catch(() => null)
+      : Promise.resolve(null);
 
   // Optional OpenTelemetry root span for this run. No-ops unless a host has
   // installed `@opentelemetry/api` and registered a provider. The promise is
@@ -112,6 +253,15 @@ export async function instrumentAgentLoop(opts: {
     "agent.thread_id": threadId ?? undefined,
     "agent.user_id": userId ?? undefined,
     "agent.model": loopOpts.model,
+    "agent.model_selection_source": opts.modelSelectionSource,
+    "agent.experiment_id":
+      opts.experimentAssignments?.length === 1
+        ? opts.experimentAssignments[0].experimentId
+        : undefined,
+    "agent.experiment_variant":
+      opts.experimentAssignments?.length === 1
+        ? opts.experimentAssignments[0].variantId
+        : undefined,
   });
 
   const spans: TraceSpan[] = [];
@@ -268,7 +418,7 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
-  let runMetadata: Record<string, unknown> | null = null;
+  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
   try {
     usage = await runAgentLoop({ ...loopOpts, send: instrumentedSend });
   } catch (err: any) {
@@ -278,7 +428,11 @@ export async function instrumentAgentLoop(opts: {
       classification?.errorMessage === undefined
         ? (err?.message ?? String(err))
         : classification.errorMessage;
-    runMetadata = classification?.metadata ?? null;
+    const errorMetadata = classification?.metadata ?? null;
+    runMetadata =
+      runMetadata || errorMetadata
+        ? { ...(runMetadata ?? {}), ...(errorMetadata ?? {}) }
+        : null;
     throw err;
   } finally {
     const runEnd = Date.now();
@@ -301,8 +455,9 @@ export async function instrumentAgentLoop(opts: {
     let llmCallCount = 0;
     if (usage) {
       llmCallCount = 1;
+      const llmSpanId = spanId();
       const llmSpan: TraceSpan = {
-        id: spanId(),
+        id: llmSpanId,
         runId,
         threadId,
         userId,
@@ -321,6 +476,32 @@ export async function instrumentAgentLoop(opts: {
         createdAt: runStart,
       };
       spans.push(llmSpan);
+      emitLlmGenerationTrackingEvent({
+        runId,
+        threadId,
+        userId,
+        parentSpanId,
+        llmSpanId,
+        engineName:
+          typeof loopOpts.engine?.name === "string"
+            ? loopOpts.engine.name
+            : undefined,
+        model: usage.model,
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        costCentsX100,
+        durationMs: totalDurationMs,
+        status: runStatus,
+        errorMessage,
+        toolCalls: toolCallCount,
+        successfulTools,
+        failedTools,
+        createdAt: runStart,
+        experimentAssignments: opts.experimentAssignments,
+        modelSelectionSource: opts.modelSelectionSource,
+      });
     }
 
     const parentSpan: TraceSpan = {
@@ -404,6 +585,31 @@ export async function instrumentAgentLoop(opts: {
       });
     } catch {
       // OTel export must never break the run.
+    }
+  }
+
+  // Classify only after the main loop has finished so the tiny managed Luna
+  // request cannot contend with the user's response for a gateway slot. This
+  // short, awaited tail keeps serverless runtimes alive long enough to emit the
+  // event, while the response content has already streamed to the client.
+  if (usage && opts.sentimentInput) {
+    try {
+      const precedingResponse = await precedingResponsePromise;
+      if (precedingResponse) {
+        const { inferAndTrackSentiment } = await import("./sentiment.js");
+        await inferAndTrackSentiment({
+          classifierModel: config.inferredSentimentModel,
+          precedingResponseModel: precedingResponse.model,
+          text: opts.sentimentInput,
+          precedingRunId: precedingResponse.runId,
+          classificationTriggerRunId: runId,
+          threadId,
+          userId,
+          sampleRate: config.inferredSentimentSampleRate,
+        });
+      }
+    } catch {
+      // Optional inference must never alter the result of the main run.
     }
   }
 

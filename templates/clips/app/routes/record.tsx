@@ -7,8 +7,12 @@ import {
 } from "@agent-native/core/client";
 import { useLiveTranscription } from "@agent-native/core/client/transcription/use-live-transcription";
 import type { BrowserDiagnosticsData } from "@shared/browser-diagnostics";
-import { waitForReadyRecordingAfterFinalizeError } from "@shared/finalize-recovery";
 import {
+  isStoredButUnservableFinalizeError,
+  waitForReadyRecordingAfterFinalizeError,
+} from "@shared/finalize-recovery";
+import {
+  chunkUploadParallelism,
   chunkUploadUrl,
   pickMimeType,
   type UploadMode,
@@ -63,6 +67,10 @@ import {
   inferWindowTitleFromDisplayStream,
 } from "@/lib/recording-title";
 import {
+  decideRecordingVisibilityAction,
+  isMobileRecorderRuntime,
+} from "@/lib/recording-visibility";
+import {
   captureVideoThumbnailBlob,
   uploadRecordingThumbnail,
 } from "@/lib/thumbnail-capture";
@@ -81,6 +89,20 @@ async function writeAppState(key: string, value: unknown): Promise<void> {
       body: JSON.stringify(value),
     },
   );
+}
+
+function recordingLink(recordingId: string): string {
+  const path = `${appBasePath()}/r/${encodeURIComponent(recordingId)}`;
+  if (typeof window === "undefined") return path;
+  return new URL(path, window.location.origin).toString();
+}
+
+async function copyRecordingLink(recordingId: string): Promise<void> {
+  if (typeof navigator === "undefined") return;
+  if (!navigator.clipboard?.writeText) return;
+  await navigator.clipboard
+    .writeText(recordingLink(recordingId))
+    .catch(() => undefined);
 }
 import {
   bugReportTitle,
@@ -462,6 +484,16 @@ function uploadTooLargeMessage(size: number, detail?: string): string {
   )}) after automatic compression. Trim or export a shorter copy and upload again.`;
 }
 
+/** Pre-upload size rejection for a picked file — no compression has been
+ * attempted yet, so the message must not imply it has. */
+function fileTooLargeMessage(size: number): string {
+  return `This file is too large to upload (${formatMb(
+    size,
+  )}, limit is ${formatMb(
+    MAX_UPLOAD_BYTES,
+  )}). Trim it or export a shorter copy and try again.`;
+}
+
 function isUploadFailureError(error: string): boolean {
   return (
     isUploadSizeError(error) ||
@@ -471,7 +503,7 @@ function isUploadFailureError(error: string): boolean {
 
 function friendlyRecordingErrorMessage(error: string): string {
   if (isUploadSizeError(error)) {
-    return `This video is too large for Clips after automatic compression. Trim or export a shorter copy under ${formatMb(
+    return `This video is too large for Clips. Trim or export a shorter copy under ${formatMb(
       MAX_UPLOAD_BYTES,
     )} and upload again.`;
   }
@@ -810,7 +842,7 @@ export default function RecordRoute() {
   const [uiState, setUiState] = useState<UiState>("idle");
   const [error, setError] = useState<string | null>(null);
   const [isPaused, setIsPaused] = useState(false);
-  const [elapsedMs, setElapsedMs] = useState(0);
+  const visibilityAutoPausedRef = useRef(false);
   const [cameraStream, setCameraStream] = useState<MediaStream | null>(null);
   const [cameraSize, setCameraSize] = useState<CameraBubbleSize>(
     () => loadRecorderPreferences().cameraSize ?? "md",
@@ -835,6 +867,12 @@ export default function RecordRoute() {
   const [compressionProgress, setCompressionProgress] = useState<number | null>(
     null,
   );
+  // Fraction (0-1) of upload chunks confirmed sent so far. Chunks are fixed-size
+  // slices of the already-recorded blob, so chunksSent / totalChunks is a
+  // truthful proxy for bytes uploaded — not simulated. Null means the total
+  // chunk count isn't known yet (e.g. the brief live-streaming remainder
+  // upload), so the overlay falls back to an indeterminate spinner.
+  const [uploadProgress, setUploadProgress] = useState<number | null>(null);
 
   const queryClient = useQueryClient();
   const { isDesktopApp } = useDesktopPromo();
@@ -943,37 +981,18 @@ export default function RecordRoute() {
     mode: RecordingMode;
     displaySurface: DisplaySurface;
     micDeviceId: string | null;
+    micDeviceLabel?: string | null;
     cameraDeviceId: string | null;
   } | null>(null);
-  const tickRef = useRef<number | null>(null);
   const previewVideoRef = useRef<HTMLVideoElement>(null);
   const fileUploadAbortRef = useRef<AbortController | null>(null);
   const browserDiagnosticsRef = useRef<BrowserDiagnosticsCapture | null>(null);
   // Bumped by doCancel() to invalidate any in-flight startFlow().
   const startSessionRef = useRef(0);
 
-  // -------------------------------------------------------------------------
-  // Timer
-  // -------------------------------------------------------------------------
-  useEffect(() => {
-    if (uiState !== "recording") {
-      if (tickRef.current !== null) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-      return;
-    }
-    tickRef.current = window.setInterval(() => {
-      const e = engineRef.current?.getElapsedMs() ?? 0;
-      setElapsedMs(e);
-    }, 250);
-    return () => {
-      if (tickRef.current !== null) {
-        window.clearInterval(tickRef.current);
-        tickRef.current = null;
-      }
-    };
-  }, [uiState]);
+  // Elapsed-time display now ticks inside RecordingToolbar itself (via
+  // `active` + `getElapsedMs`) so the ~4x/sec poll doesn't re-render this
+  // whole route — see the `active`/`getElapsedMs` props passed below.
 
   // -------------------------------------------------------------------------
   // Wire preview stream into its video element.
@@ -1026,6 +1045,7 @@ export default function RecordRoute() {
       mode: RecordingMode;
       displaySurface: DisplaySurface;
       micDeviceId: string | null;
+      micDeviceLabel?: string | null;
       cameraDeviceId: string | null;
     }) => {
       const blockedFeature = isEmbeddedWindow()
@@ -1070,6 +1090,7 @@ export default function RecordRoute() {
           mode: opts.mode,
           displaySurface: opts.displaySurface,
           micDeviceId: opts.micDeviceId,
+          micDeviceLabel: opts.micDeviceLabel,
           cameraDeviceId: opts.cameraDeviceId,
           cameraBubbleSize: cameraSize,
           uploadUrl: "",
@@ -1084,6 +1105,13 @@ export default function RecordRoute() {
           // recording keeps going; just let the user know what happened.
           onWarning: (message) => {
             toast.warning(message);
+          },
+          // Camera track ended mid-recording (unplugged, permission revoked,
+          // device asleep). The recorded composite already drops the bubble;
+          // clear the on-page preview stream too so it doesn't keep showing a
+          // frozen last frame that no longer matches the recorded output.
+          onCameraEnded: () => {
+            setCameraStream(null);
           },
           // Track the surface the user actually chose (and any mid-recording
           // switch) so the live camera bubble is hidden only when the full
@@ -1103,19 +1131,29 @@ export default function RecordRoute() {
               // upload — applies whether or not we just came from
               // compressing.
               setCompressionProgress(null);
+              // Reset upload progress at the start of each upload attempt so
+              // a retry doesn't briefly show the previous attempt's percent.
+              setUploadProgress(null);
               // Always sync the UI back to "uploading"; if we were already
               // there from doStop's pre-stop transition, this is a no-op.
               setUiState("uploading");
             }
           },
-          onChunk: ({ index, bytes }) => {
+          onChunk: ({ index, total }) => {
+            // `total` is only known once the full recording is sliced into
+            // fixed-size chunks after stop(); the live per-chunk uploads
+            // during recording report `total: null` and don't drive this bar.
+            const fraction = total ? (index + 1) / total : null;
+            setUploadProgress(fraction);
             const recordingId = pendingRef.current?.id;
             if (!recordingId) return;
+            // Only expose a percentage here — this state is agent-visible, and
+            // chunk/byte counts are an internal transport detail, not
+            // something to surface to the user.
             void writeAppState(`recording-upload-${recordingId}`, {
               recordingId,
               status: "uploading",
-              chunksReceived: index + 1,
-              lastChunkBytes: bytes,
+              progress: fraction !== null ? Math.round(fraction * 100) : null,
               updatedAt: new Date().toISOString(),
             }).catch(() => {});
           },
@@ -1162,12 +1200,10 @@ export default function RecordRoute() {
         // session for instant transcription; the recorded audio still uses
         // the exact selected device and can be transcribed after upload.
         //
-        // The one exception is when a stale saved mic forced the engine to
-        // fall back to the system default during acquire(): the recording is
-        // now on the default device, so live transcription would use the same
-        // mic and is safe to start.
-        const usingDefaultMic =
-          !opts.micDeviceId || engine.didMicFallBackToDefault();
+        // The engine reports whether the final recorded mic stream really is
+        // the system default; corrected explicit fallbacks must not start Web
+        // Speech because it would listen to a different device.
+        const usingDefaultMic = engine.didMicUseSystemDefault();
         if (wantsMic && usingDefaultMic && liveTranscription.supported) {
           liveTranscription.start();
         }
@@ -1323,6 +1359,7 @@ export default function RecordRoute() {
   // upload pipeline so finalize-recording handles it identically.
   // -------------------------------------------------------------------------
   const UPLOAD_CHUNK_BYTES = 3 * 1024 * 1024;
+  const UPLOAD_PARALLELISM = 4;
 
   const probeVideoMetadata = useCallback(
     (
@@ -1378,6 +1415,7 @@ export default function RecordRoute() {
       setError(null);
       setUiState("uploading");
       setCompressionProgress(null);
+      setUploadProgress(null);
 
       const acceptedMime = new Set([
         "video/mp4",
@@ -1397,6 +1435,22 @@ export default function RecordRoute() {
       if (!mimeType) {
         const message =
           "That file type isn't supported. Try MP4, WebM, or MOV.";
+        if (fileUploadAbortRef.current === abort) {
+          fileUploadAbortRef.current = null;
+        }
+        setError(message);
+        setUiState("error");
+        toast.error(message);
+        return;
+      }
+
+      // Fail fast on oversized files before we probe metadata, attempt
+      // compression, or open the upload session — no point spending time or
+      // chunking bytes for a file the server will reject anyway. Uses the
+      // same MAX_UPLOAD_BYTES ceiling as the (currently compression-gated)
+      // post-compression check below and the server chunk/finalize routes.
+      if (file.size > MAX_UPLOAD_BYTES) {
+        const message = fileTooLargeMessage(file.size);
         if (fileUploadAbortRef.current === abort) {
           fileUploadAbortRef.current = null;
         }
@@ -1507,9 +1561,11 @@ export default function RecordRoute() {
               hasAudio: true,
               width: meta.width,
               height: meta.height,
-              visibility: reportContext ? "org" : undefined,
+              visibility: reportContext ? "org" : "public",
               spaceIds: spaceIdFromUrl ? [spaceIdFromUrl] : undefined,
               folderId: folderIdFromUrl ?? undefined,
+              mimeType: uploadMimeType,
+              requestStreaming: true,
             }),
           },
         );
@@ -1525,10 +1581,16 @@ export default function RecordRoute() {
           );
         }
         const created = (await res.json()) as {
-          result?: { id: string; uploadChunkUrl: string; abortUrl?: string };
+          result?: {
+            id: string;
+            uploadChunkUrl: string;
+            abortUrl?: string;
+            uploadMode?: UploadMode;
+          };
           id?: string;
           uploadChunkUrl?: string;
           abortUrl?: string;
+          uploadMode?: UploadMode;
         };
         const info =
           created.result ??
@@ -1536,6 +1598,7 @@ export default function RecordRoute() {
             id: string;
             uploadChunkUrl: string;
             abortUrl?: string;
+            uploadMode?: UploadMode;
           });
         if (!info?.id) {
           throw new Error("create-recording did not return an id");
@@ -1549,97 +1612,192 @@ export default function RecordRoute() {
           1,
           Math.ceil(uploadBlob.size / UPLOAD_CHUNK_BYTES),
         );
-        let finalChunkResult: Record<string, unknown> | null = null;
-        for (let i = 0; i < totalChunks; i++) {
-          if (isStale()) throw makeAbortError("Upload cancelled");
+
+        const chunkDescs = Array.from({ length: totalChunks }, (_, i) => {
           const start = i * UPLOAD_CHUNK_BYTES;
           const end = Math.min(start + UPLOAD_CHUNK_BYTES, uploadBlob.size);
-          const slice = uploadBlob.slice(start, end, uploadMimeType);
           const isFinal = i === totalChunks - 1;
-          const chunkUrl = chunkUploadUrl(uploadBase, {
+          return {
             index: i,
-            total: totalChunks,
+            slice: uploadBlob.slice(start, end, uploadMimeType),
             isFinal,
-            mimeType: uploadMimeType,
-            durationMs: isFinal ? meta.durationMs : undefined,
-            width: isFinal ? meta.width : undefined,
-            height: isFinal ? meta.height : undefined,
-            hasAudio: isFinal ? true : undefined,
-            hasCamera: isFinal ? false : undefined,
+            url: chunkUploadUrl(uploadBase, {
+              index: i,
+              total: totalChunks,
+              isFinal,
+              mimeType: uploadMimeType,
+              durationMs: isFinal ? meta.durationMs : undefined,
+              width: isFinal ? meta.width : undefined,
+              height: isFinal ? meta.height : undefined,
+              hasAudio: isFinal ? true : undefined,
+              hasCamera: isFinal ? false : undefined,
+            }),
+          };
+        });
+        const finalChunkDesc = chunkDescs[chunkDescs.length - 1];
+        const parallelChunks = chunkDescs.slice(0, -1);
+
+        const chunkAbort = new AbortController();
+        if (abort.signal.aborted) {
+          chunkAbort.abort(abort.signal.reason);
+        } else {
+          abort.signal.addEventListener(
+            "abort",
+            () => chunkAbort.abort(abort.signal.reason),
+            { once: true },
+          );
+        }
+
+        const finalChunk = { result: null as Record<string, unknown> | null };
+        let uploadError: Error | null = null;
+        const queue = parallelChunks.slice();
+
+        const worker = async () => {
+          while (queue.length > 0) {
+            if (isStale() || chunkAbort.signal.aborted) break;
+            const item = queue.shift();
+            if (!item) break;
+            const { index, slice, url } = item;
+
+            let chunkRes: Response;
+            try {
+              chunkRes = await fetch(url, {
+                method: "POST",
+                headers: { "Content-Type": uploadMimeType },
+                body: await slice.arrayBuffer(),
+                signal: chunkAbort.signal,
+              });
+            } catch (err) {
+              if (chunkAbort.signal.aborted) return;
+              if (!uploadError) {
+                uploadError =
+                  err instanceof Error ? err : new Error(String(err));
+                chunkAbort.abort(uploadError);
+              }
+              return;
+            }
+
+            if (!chunkRes.ok) {
+              const text = await chunkRes.text().catch(() => "");
+              const error = new Error(
+                t("recordRoute.uploadFailedAtChunk", {
+                  chunk: index + 1,
+                  total: totalChunks,
+                  message: text || chunkRes.statusText,
+                }),
+              );
+              (error as Error & { status?: number }).status = chunkRes.status;
+              if (!uploadError) {
+                uploadError = error;
+                chunkAbort.abort(uploadError);
+              }
+              return;
+            }
+            setUploadProgress((index + 1) / totalChunks);
+          }
+        };
+
+        await Promise.all(
+          Array.from(
+            {
+              length: Math.min(
+                chunkUploadParallelism(info.uploadMode, UPLOAD_PARALLELISM),
+                parallelChunks.length,
+              ),
+            },
+            worker,
+          ),
+        );
+
+        if (uploadError) throw uploadError;
+        if (abort.signal.aborted) {
+          const reason = abort.signal.reason;
+          throw reason instanceof Error
+            ? reason
+            : makeAbortError("Upload cancelled");
+        }
+        if (isStale()) throw makeAbortError("Upload cancelled");
+
+        const { index, slice, url } = finalChunkDesc;
+        let chunkRes: Response | null = null;
+        try {
+          chunkRes = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": uploadMimeType },
+            body: await slice.arrayBuffer(),
+            signal: abort.signal,
           });
-          let chunkRes: Response;
-          try {
-            chunkRes = await fetch(chunkUrl, {
-              method: "POST",
-              headers: { "Content-Type": uploadMimeType },
-              body: await slice.arrayBuffer(),
+        } catch (err) {
+          if (
+            createdId &&
+            (err as { name?: string } | null)?.name !== "AbortError"
+          ) {
+            const recovered = await waitForReadyRecordingAfterFinalizeError({
+              uploadUrl: uploadBase,
+              recordingId: createdId,
+              preferAuthenticated: true,
               signal: abort.signal,
             });
-          } catch (err) {
-            if (
-              isFinal &&
-              createdId &&
-              (err as { name?: string } | null)?.name !== "AbortError"
-            ) {
-              const recovered = await waitForReadyRecordingAfterFinalizeError({
-                uploadUrl: uploadBase,
-                recordingId: createdId,
-                preferAuthenticated: true,
-              });
-              if (recovered) {
-                finalChunkResult = recovered;
-                break;
-              }
+            if (recovered) {
+              finalChunk.result = recovered;
+            } else {
+              throw err;
             }
+          } else {
             throw err;
           }
-          if (!chunkRes.ok) {
-            const text = await chunkRes.text().catch(() => "");
-            const error = new Error(
-              t("recordRoute.uploadFailedAtChunk", {
-                chunk: i + 1,
-                total: totalChunks,
-                message: text || chunkRes.statusText,
-              }),
-            );
-            (error as Error & { status?: number }).status = chunkRes.status;
-            if (
-              isFinal &&
-              createdId &&
-              chunkRes.status !== 413 &&
-              !isUploadSizeError(error.message)
-            ) {
-              const recovered = await waitForReadyRecordingAfterFinalizeError({
-                uploadUrl: uploadBase,
-                recordingId: createdId,
-                preferAuthenticated: true,
-              });
-              if (recovered) {
-                finalChunkResult = recovered;
-                break;
-              }
+        }
+
+        if (chunkRes && !chunkRes.ok) {
+          const text = await chunkRes.text().catch(() => "");
+          const error = new Error(
+            t("recordRoute.uploadFailedAtChunk", {
+              chunk: index + 1,
+              total: totalChunks,
+              message: text || chunkRes.statusText,
+            }),
+          );
+          (error as Error & { status?: number }).status = chunkRes.status;
+          if (
+            createdId &&
+            chunkRes.status !== 413 &&
+            !isUploadSizeError(error.message)
+          ) {
+            const recovered = await waitForReadyRecordingAfterFinalizeError({
+              uploadUrl: uploadBase,
+              recordingId: createdId,
+              preferAuthenticated: true,
+              signal: abort.signal,
+            });
+            if (recovered) {
+              finalChunk.result = recovered;
+            } else {
+              throw error;
             }
+          } else {
             throw error;
           }
-          if (isFinal) {
-            finalChunkResult =
-              ((await chunkRes.json().catch(() => null)) as Record<
-                string,
-                unknown
-              > | null) ?? null;
-          }
+        }
+
+        if (chunkRes?.ok) {
+          finalChunk.result =
+            ((await chunkRes.json().catch(() => null)) as Record<
+              string,
+              unknown
+            > | null) ?? null;
         }
 
         setUiState("complete");
         const waitingForStorage =
-          finalChunkResult?.waitingForStorage === true ||
-          finalChunkResult?.status === "waiting_storage";
+          finalChunk.result?.waitingForStorage === true ||
+          finalChunk.result?.status === "waiting_storage";
         if (waitingForStorage) {
           toast.info(t("recordRoute.videoReadyToUpload"), {
             description: t("recordRoute.connectStorageToFinish"),
             duration: 12_000,
           });
         } else {
+          if (createdId && !reportContext) await copyRecordingLink(createdId);
           toast.success(t("recordRoute.videoUploaded"));
         }
         if (reportContext && createdId) {
@@ -1671,7 +1829,9 @@ export default function RecordRoute() {
             : undefined;
         const serverRejectedTooLarge =
           status === 413 || isUploadSizeError(message);
-        if (createdId && !serverRejectedTooLarge) {
+        const preserveBufferedChunks =
+          isStoredButUnservableFinalizeError(message);
+        if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
           fetch(`${appBasePath()}/api/uploads/${createdId}/abort`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -1699,6 +1859,7 @@ export default function RecordRoute() {
           fileUploadAbortRef.current = null;
         }
         setCompressionProgress(null);
+        setUploadProgress(null);
       }
     },
     [markStorageConfigured, navigate, probeVideoMetadata],
@@ -1739,6 +1900,7 @@ export default function RecordRoute() {
             duration: 12_000,
           });
         } else {
+          await copyRecordingLink(recordingId);
           toast.success(t("recordRoute.loomImported"));
         }
         await writeAppState("navigate", {
@@ -1863,17 +2025,19 @@ export default function RecordRoute() {
       setCameraStream(null);
       setPreviewStream(null);
       setCompressionProgress(null);
+      setUploadProgress(null);
       setUiState("complete");
+      const reportContext = bugReportContextRef.current;
       if (result.waitingForStorage) {
         toast.info(t("recordRoute.recordingReadyToUpload"), {
           description: t("recordRoute.connectStorageToFinish"),
           duration: 12_000,
         });
       } else {
+        if (!reportContext) await copyRecordingLink(recordingId);
         toast.success(t("recordRoute.recordingSaved"));
       }
 
-      const reportContext = bugReportContextRef.current;
       if (reportContext) {
         const path = bugReportDonePath(recordingId, reportContext);
         await writeAppState("navigate", {
@@ -1982,11 +2146,13 @@ export default function RecordRoute() {
         return;
       }
       await saveBrowserDiagnostics(pending.id);
-      fetch(pending.abortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: message }),
-      }).catch(() => {});
+      if (!isStoredButUnservableFinalizeError(message)) {
+        fetch(pending.abortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: message }),
+        }).catch(() => {});
+      }
       setError(message);
       setUiState("error");
       toast.error(t("recordRoute.uploadFailed"), {
@@ -2006,6 +2172,7 @@ export default function RecordRoute() {
 
     setError(null);
     setCompressionProgress(null);
+    setUploadProgress(null);
     setUiState("uploading");
     try {
       const retryResult = await engine.retryUpload();
@@ -2016,12 +2183,15 @@ export default function RecordRoute() {
       }
       const message =
         err instanceof Error ? err.message : t("recordRoute.uploadFailed");
-      fetch(pending.abortUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reason: message }),
-      }).catch(() => {});
+      if (!isStoredButUnservableFinalizeError(message)) {
+        fetch(pending.abortUrl, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reason: message }),
+        }).catch(() => {});
+      }
       setCompressionProgress(null);
+      setUploadProgress(null);
       setError(message);
       setUiState("error");
       toast.error(t("recordRoute.uploadFailed"), {
@@ -2075,16 +2245,25 @@ export default function RecordRoute() {
       // ignore
     }
     if (pendingId) {
+      // The recording may have already finished uploading server-side (the
+      // final chunk can land, and the row can flip to "ready", while we're
+      // still awaiting saveBrowserDiagnostics/finishSavedRecording on the
+      // client). A separate GET-status-then-POST-trash sequence would still
+      // race finalize between the two calls, so ask the server to trash
+      // atomically instead: `skipIfReady` makes the trash a conditional
+      // no-op if the row is already "ready" by the time the UPDATE runs, so a
+      // fully saved video is never silently discarded.
       fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ id: pendingId }),
+        body: JSON.stringify({ id: pendingId, skipIfReady: true }),
       }).catch(() => {});
     }
     setCameraStream(null);
     setPreviewStream(null);
     setIsPaused(false);
     setUiState("idle");
+    setUploadProgress(null);
     pendingRef.current = null;
     engineRef.current = null;
   }, [extensionCapture, liveTranscription]);
@@ -2096,6 +2275,10 @@ export default function RecordRoute() {
   const togglePause = useCallback(() => {
     const engine = engineRef.current;
     if (!engine) return;
+    // A direct user gesture owns the paused state from this point forward.
+    // In particular, returning to the foreground must not auto-resume a clip
+    // that the user deliberately left paused.
+    visibilityAutoPausedRef.current = false;
     if (engine.getState() === "paused") {
       engine.resume();
       liveTranscription.resume();
@@ -2106,6 +2289,59 @@ export default function RecordRoute() {
       setIsPaused(true);
     }
   }, [liveTranscription]);
+
+  useEffect(() => {
+    if (typeof navigator === "undefined") return;
+    if (!isMobileRecorderRuntime(navigator)) return;
+    if (recordingMode !== "camera" || !cameraStream) {
+      visibilityAutoPausedRef.current = false;
+      return;
+    }
+
+    const videoTracks = cameraStream.getVideoTracks();
+    const syncCaptureSuspension = () => {
+      const engine = engineRef.current;
+      if (!engine) {
+        visibilityAutoPausedRef.current = false;
+        return;
+      }
+
+      const decision = decideRecordingVisibilityAction({
+        mode: recordingMode,
+        mobileRuntime: true,
+        documentHidden: document.hidden,
+        cameraTrackMuted: videoTracks.some((track) => track.muted),
+        recorderState: engine.getState(),
+        autoPaused: visibilityAutoPausedRef.current,
+      });
+      visibilityAutoPausedRef.current = decision.autoPaused;
+
+      if (decision.action === "pause") {
+        engine.pause();
+        liveTranscription.pause();
+        setIsPaused(true);
+      } else if (decision.action === "resume") {
+        engine.resume();
+        liveTranscription.resume();
+        setIsPaused(false);
+      }
+    };
+
+    document.addEventListener("visibilitychange", syncCaptureSuspension);
+    for (const track of videoTracks) {
+      track.addEventListener("mute", syncCaptureSuspension);
+      track.addEventListener("unmute", syncCaptureSuspension);
+    }
+    syncCaptureSuspension();
+
+    return () => {
+      document.removeEventListener("visibilitychange", syncCaptureSuspension);
+      for (const track of videoTracks) {
+        track.removeEventListener("mute", syncCaptureSuspension);
+        track.removeEventListener("unmute", syncCaptureSuspension);
+      }
+    };
+  }, [cameraStream, liveTranscription, recordingMode]);
 
   const restart = useCallback(async () => {
     await doCancel();
@@ -2414,7 +2650,8 @@ export default function RecordRoute() {
       {/* Floating toolbar */}
       {showRecordingUi && (
         <RecordingToolbar
-          elapsedMs={elapsedMs}
+          active={uiState === "recording"}
+          getElapsedMs={() => engineRef.current?.getElapsedMs() ?? 0}
           isPaused={isPaused}
           onTogglePause={togglePause}
           onStop={() => void doStop()}
@@ -2427,7 +2664,9 @@ export default function RecordRoute() {
           users wonder if the app froze). */}
       {(uiState === "uploading" || uiState === "compressing") && (
         <div className="fixed inset-0 z-[120] flex flex-col items-center justify-center gap-3 bg-black/70 text-white backdrop-blur">
-          <Spinner className="h-10 w-10 text-white/70" />
+          {!(uiState === "uploading" && uploadProgress !== null) && (
+            <Spinner className="h-10 w-10 text-white/70" />
+          )}
           {uiState === "compressing" ? (
             <>
               <div className="text-sm">
@@ -2441,7 +2680,24 @@ export default function RecordRoute() {
               </div>
             </>
           ) : (
-            <div className="text-sm">{t("recordRoute.savingRecording")}</div>
+            <>
+              <div className="text-sm">{t("recordRoute.savingRecording")}</div>
+              {uploadProgress !== null && (
+                <div className="flex w-48 flex-col items-center gap-1">
+                  <div className="h-1.5 w-full overflow-hidden rounded-full bg-white/20">
+                    <div
+                      className="h-full rounded-full bg-white transition-all"
+                      style={{
+                        width: `${Math.min(100, Math.max(0, Math.round(uploadProgress * 100)))}%`,
+                      }}
+                    />
+                  </div>
+                  <div className="text-[11px] text-white/50">
+                    {Math.round(uploadProgress * 100)}%
+                  </div>
+                </div>
+              )}
+            </>
           )}
           <button
             onClick={doCancel}

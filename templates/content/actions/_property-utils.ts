@@ -41,6 +41,11 @@ import {
   type DocumentPropertyType,
   type DocumentPropertyValue,
 } from "../shared/properties.js";
+import { chunks } from "./_batch-utils.js";
+import {
+  propertyDefinitionsPositionScope,
+  withPositionLock,
+} from "./_position-utils.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type ContentDatabaseRow = InferSelectModel<typeof schema.contentDatabases>;
@@ -247,7 +252,9 @@ function defaultDatabaseView(
               ? "Calendar"
               : type === "timeline"
                 ? "Timeline"
-                : "Table",
+                : type === "form"
+                  ? "Form"
+                  : "Table",
     type,
     sorts: values.sorts ?? [],
     filters: values.filters ?? [],
@@ -264,6 +271,7 @@ function defaultDatabaseView(
     wrapCells: values.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(values.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(values.openPagesIn),
+    formQuestions: normalizeDatabaseFormQuestions(values.formQuestions),
   };
 }
 
@@ -276,7 +284,8 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     view.type === "list" ||
     view.type === "gallery" ||
     view.type === "calendar" ||
-    view.type === "timeline"
+    view.type === "timeline" ||
+    view.type === "form"
       ? view.type
       : "table";
   return {
@@ -312,7 +321,31 @@ function normalizeDatabaseView(value: unknown): ContentDatabaseView | null {
     wrapCells: view.wrapCells === true,
     rowDensity: normalizeDatabaseRowDensity(view.rowDensity),
     openPagesIn: normalizeDatabaseOpenPagesIn(view.openPagesIn),
+    formQuestions: normalizeDatabaseFormQuestions(view.formQuestions),
   };
+}
+
+function normalizeDatabaseFormQuestions(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  return value.flatMap((candidate) => {
+    if (!candidate || typeof candidate !== "object") return [];
+    const question = candidate as {
+      key?: unknown;
+      enabled?: unknown;
+      required?: unknown;
+    };
+    const key = typeof question.key === "string" ? question.key.trim() : "";
+    if (!key || seen.has(key)) return [];
+    seen.add(key);
+    return [
+      {
+        key,
+        enabled: question.enabled !== false,
+        required: question.required === true,
+      },
+    ];
+  });
 }
 
 function normalizeDatabaseFilterMode(
@@ -524,6 +557,173 @@ export async function listPropertiesForDatabase(
   }
 
   return nextProperties;
+}
+
+function serializePropertyDefinition(
+  definition: typeof schema.documentPropertyDefinitions.$inferSelect,
+) {
+  const type = definition.type as DocumentPropertyType;
+  return {
+    id: definition.id,
+    databaseId: definition.databaseId,
+    name: definition.name,
+    type,
+    visibility: normalizePropertyVisibility(definition.visibility),
+    options: parsePropertyOptions(definition.optionsJson),
+    position: definition.position,
+    createdAt: definition.createdAt,
+    updatedAt: definition.updatedAt,
+  };
+}
+
+function propertyValueKey(documentId: string, propertyId: string) {
+  return `${documentId}\0${propertyId}`;
+}
+
+export async function listPropertiesForDatabaseDocuments(
+  databaseId: string,
+  valueDocuments: DocumentRow[],
+): Promise<Map<string, DocumentProperty[]>> {
+  const db = getDb();
+  const definitions = await db
+    .select()
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId))
+    .orderBy(asc(schema.documentPropertyDefinitions.position));
+  const result = new Map<string, DocumentProperty[]>();
+  if (valueDocuments.length === 0) return result;
+  if (definitions.length === 0) {
+    for (const document of valueDocuments) result.set(document.id, []);
+    return result;
+  }
+
+  const documentIds = valueDocuments.map((document) => document.id);
+  const propertyIds = definitions.map((definition) => definition.id);
+  const values: Array<typeof schema.documentPropertyValues.$inferSelect> = [];
+  for (const documentIdChunk of chunks(documentIds, 200)) {
+    for (const propertyIdChunk of chunks(propertyIds, 200)) {
+      values.push(
+        ...(await db
+          .select()
+          .from(schema.documentPropertyValues)
+          .where(
+            and(
+              inArray(
+                schema.documentPropertyValues.documentId,
+                documentIdChunk,
+              ),
+              inArray(
+                schema.documentPropertyValues.propertyId,
+                propertyIdChunk,
+              ),
+            ),
+          )),
+      );
+    }
+  }
+  const valueByDocumentAndProperty = new Map(
+    values.map((value) => [
+      propertyValueKey(value.documentId, value.propertyId),
+      value,
+    ]),
+  );
+
+  const rowNumberByDocumentId = definitions.some((definition) =>
+    isComputedPropertyType(definition.type as DocumentPropertyType),
+  )
+    ? await databaseRowNumbersByDocumentId(databaseId)
+    : new Map<string, number>();
+
+  const blockContentByDocumentAndProperty = new Map<string, string>();
+  const hasAdditionalBlocksFields = definitions.some((definition) => {
+    const type = definition.type as DocumentPropertyType;
+    return (
+      isBlocksPropertyType(type) &&
+      !isPrimaryBlocksField(parsePropertyOptions(definition.optionsJson))
+    );
+  });
+  if (hasAdditionalBlocksFields) {
+    for (const documentIdChunk of chunks(documentIds, 200)) {
+      const rows = await db
+        .select({
+          documentId: schema.documentBlockFieldContents.documentId,
+          propertyId: schema.documentBlockFieldContents.propertyId,
+          content: schema.documentBlockFieldContents.content,
+        })
+        .from(schema.documentBlockFieldContents)
+        .where(
+          inArray(
+            schema.documentBlockFieldContents.documentId,
+            documentIdChunk,
+          ),
+        );
+      for (const row of rows) {
+        blockContentByDocumentAndProperty.set(
+          propertyValueKey(row.documentId, row.propertyId),
+          row.content ?? "",
+        );
+      }
+    }
+  }
+
+  for (const document of valueDocuments) {
+    const properties = definitions.map((definition) => {
+      const propertyDefinition = serializePropertyDefinition(definition);
+      const storedValue = valueByDocumentAndProperty.get(
+        propertyValueKey(document.id, definition.id),
+      );
+      return {
+        definition: propertyDefinition,
+        value:
+          isComputedPropertyType(propertyDefinition.type) &&
+          propertyDefinition.type !== "formula"
+            ? computedPropertyValue(propertyDefinition.type, document, {
+                databaseRowNumber: rowNumberByDocumentId.get(document.id),
+              })
+            : isBlocksPropertyType(propertyDefinition.type)
+              ? resolveBlocksFieldValue({
+                  options: propertyDefinition.options,
+                  documentBody: document.content,
+                  blockFieldContent: blockContentByDocumentAndProperty.get(
+                    propertyValueKey(document.id, definition.id),
+                  ),
+                })
+              : parsePropertyValue(storedValue?.valueJson),
+        editable: !isComputedPropertyType(propertyDefinition.type),
+      };
+    });
+
+    const valuesByName = Object.fromEntries(
+      properties
+        .filter((property) => property.definition.type !== "formula")
+        .map((property) => [property.definition.name, property.value]),
+    );
+    const evaluatedProperties = properties.map((property) =>
+      property.definition.type === "formula"
+        ? {
+            ...property,
+            value: evaluatePropertyFormula(
+              property.definition.options.formula,
+              valuesByName,
+            ),
+          }
+        : property,
+    );
+    const nextProperties = [];
+    for (const property of evaluatedProperties) {
+      if (property.definition.type === "rollup") {
+        nextProperties.push({
+          ...property,
+          value: await evaluatePropertyRollup(property, evaluatedProperties),
+        });
+      } else {
+        nextProperties.push(property);
+      }
+    }
+    result.set(document.id, nextProperties);
+  }
+
+  return result;
 }
 
 async function evaluatePropertyRollup(
@@ -920,27 +1120,34 @@ export async function seedDefaultBlocksField(args: {
   if (database.primaryId) return database.primaryId;
   if (database.blocksSeeded === 1) return null;
 
-  const [maxPos] = await db
-    .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, args.databaseId));
+  await withPositionLock(
+    propertyDefinitionsPositionScope(args.databaseId),
+    async () => {
+      const [maxPos] = await db
+        .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(schema.documentPropertyDefinitions.databaseId, args.databaseId),
+        );
 
-  await db
-    .insert(schema.documentPropertyDefinitions)
-    .values({
-      id,
-      ownerEmail: args.ownerEmail,
-      orgId: args.orgId,
-      databaseId: args.databaseId,
-      name: DEFAULT_BLOCKS_FIELD_NAME,
-      type: "blocks",
-      visibility: "always_show",
-      optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
-      position: (maxPos?.max ?? -1) + 1,
-      createdAt: args.now,
-      updatedAt: args.now,
-    })
-    .onConflictDoNothing();
+      await db
+        .insert(schema.documentPropertyDefinitions)
+        .values({
+          id,
+          ownerEmail: args.ownerEmail,
+          orgId: args.orgId,
+          databaseId: args.databaseId,
+          name: DEFAULT_BLOCKS_FIELD_NAME,
+          type: "blocks",
+          visibility: "always_show",
+          optionsJson: serializePropertyOptions({ blocks: { primary: true } }),
+          position: (maxPos?.max ?? -1) + 1,
+          createdAt: args.now,
+          updatedAt: args.now,
+        })
+        .onConflictDoNothing();
+    },
+  );
 
   const claim = await db
     .update(schema.contentDatabases)

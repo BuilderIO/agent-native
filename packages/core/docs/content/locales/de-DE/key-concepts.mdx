@@ -11,11 +11,9 @@ Wie agentennative Apps unter der Haube funktionieren – die Prinzipien und die 
 
 Bei jeder agentennativen App arbeiten drei Dinge zusammen:
 
-> **Agent** – Autonome KI, die Daten liest, Daten schreibt, actions ausführt und Code ändert. Anpassbar mit skills und Anleitung.
->
-> **Anwendung** – Die Produktoberfläche um den Agenten. Dabei kann es sich zunächst um einen reinen Aktionsmodus, einen umfassenden Chat, eine kleine Steuerungsebene oder um eine vollständige React-UI mit Dashboards, Abläufen und Visualisierungen handeln.
->
-> **Computer** – Datenbank, Browser, Codeausführung. Agenten arbeiten direkt mit SQL und integrierten Tools; MCP-Server sind optionale Add-Ons, nicht die Grundlage.
+- **Agent** – Autonome KI, die Daten liest, Daten schreibt, actions ausführt und Code ändert. Anpassbar mit skills und Anleitung.
+- **Anwendung** – Die Produktoberfläche um den Agenten. Dabei kann es sich zunächst um einen reinen Aktionsmodus, einen umfassenden Chat, eine kleine Steuerungsebene oder um eine vollständige React-UI mit Dashboards, Abläufen und Visualisierungen handeln.
+- **Computer** – Datenbank, Browser, Codeausführung. Agenten arbeiten direkt mit SQL und integrierten Tools; MCP-Server sind optionale Add-Ons, nicht die Grundlage.
 
 <Diagram id="doc-block-1lep3dk" title="Agent, Anwendung und Computer" summary={"Drei Ebenen arbeiten über einen gemeinsamen SQL-Speicher zusammen. Der Agent und die Anwendung lesen und schreiben dieselben Daten."}>
 
@@ -239,20 +237,17 @@ export const forms = table("forms", {
 ```
 
 ```bash
-# Kernaktionen für eine schnelle Datenbankinspektion und einmalige Wartung
+# Kernaktionen für eine schnelle Datenbankinspektion
 pnpm action db-schema                                       # show all tables
 pnpm action db-query --sql "SELECT * FROM forms"
-pnpm action db-exec --sql "UPDATE forms SET status = ? WHERE id = ?" --args '["closed","form-1"]'
-# Chirurgisches find/replace für eine große Textspalte – sendet einen Unterschied, nicht den gesamten Wert
-pnpm action db-patch --table documents --column content \
-  --where "id='doc-1'" --find "old heading" --replace "new heading"
 ```
 
-Das Produktionsagenten-Chat-Plugin ermöglicht standardmäßig Rohdatenbank-Schreibvorgänge.
-(`databaseTools: "write"`), damit Agenten App-eigene Daten reparieren können, ohne auf eine
-neue typisierte Aktion. Diese Schreibvorgänge sind auf den authentifizierten Benutzer/die authentifizierte Organisation beschränkt. Festlegen
-`databaseTools: "read"`, um nur die `db-schema`/`db-query`-Inspektion beizubehalten, oder
-`databaseTools: "off"` / `false` erfordert die typisierte App actions für alle Daten
+Das Produktions-Agent-Chat-Plugin setzt rohe SQL-Werkzeuge standardmäßig auf read-only
+(`databaseTools: "read"`). Agenten prüfen App-Daten mit `db-schema` /
+`db-query` und schreiben über typisierte App-Actions. Setze
+`databaseTools: "write"` (oder `true`) nur für bewusste Wartungsflächen, die
+auch scoped `db-exec` / `db-patch` anbieten sollen; `databaseTools: "off"` /
+`false` erfordert typisierte App-Actions für alle Daten
 Zugriff.
 
 ## Agent-Chat-Brücke {#agent-chat-bridge}
@@ -281,8 +276,7 @@ Warum nicht einen LLM inline aufrufen?
 
 Wenn der Agent etwas Komplexes tun muss – einen API aufrufen, Daten verarbeiten, die Datenbank abfragen – führt er eine **Aktion** aus. Actions sind TypeScript-Dateien in `actions/`, die ein Standard-`defineAction()` exportieren:
 
-```ts
-// actions/fetch-data.ts
+```ts filename="actions/fetch-data.ts"
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -384,9 +378,8 @@ Ein _Frame_ ist die Umgebung, die den Agenten neben Ihrer App hostet – lokal i
 
 Agent-native Apps umfassen ein eingebettetes Agent-Panel, das den KI-Agenten neben der App UI bereitstellt. Dadurch funktioniert die Architektur: Der Agent benötigt einen Computer (Datenbank, Browser, Codeausführung) und die App benötigt den Agenten für die KI-Arbeit.
 
-> **Embedded Agent Panel** – Chat und optionales CLI-Terminal in jede App integriert. Unterstützt Claude-Code, Codex, Gemini, OpenCode und Builder.io. Läuft lokal. Kostenlos und Open Source.
->
-> **Cloud** – Bereitstellung in jeder Cloud mit Echtzeit-Zusammenarbeit, visueller Bearbeitung, Rollen und Berechtigungen. Am besten für Teams.
+- **Embedded Agent Panel** – Chat und optionales CLI-Terminal in jede App integriert. Unterstützt Claude-Code, Codex, Gemini, OpenCode und Builder.io. Läuft lokal. Kostenlos und Open Source.
+- **Cloud** – Bereitstellung in jeder Cloud mit Echtzeit-Zusammenarbeit, visueller Bearbeitung, Rollen und Berechtigungen. Am besten für Teams.
 
 ## Kontextbewusstsein {#context-awareness}
 
@@ -437,6 +430,7 @@ Diese basieren auf demselben Vertrag und haben ihre eigenen Tiefgänge:
 
 - **[Dispatch](/docs/dispatch)** – die Steuerungsebene des Arbeitsbereichs: gemeinsamer Posteingang, Geheimspeicher, geplante Jobs und ein Orchestrator, der über A2A an spezielle Apps delegiert.
 - **[Extensions](/docs/extensions)** – Sandbox-Alpine.js-Mini-Apps, die der Agent zur Laufzeit erstellt, keine Quelländerungen oder Migrationen.
+- **[Datenprogramme](/docs/data-programs)** – gespeicherte, vom Agenten verfasste `run-code`-Skripte, die Dashboard-Panels ein zwischengespeichertes, aktualisierbares Ergebnis liefern statt einer fest codierten Provider-action.
 - **[A2A Protocol](/docs/a2a-protocol)** – wie Apps im selben Arbeitsbereich einander über JSON-RPC erkennen und aufrufen.
 
 ## Was Sie kostenlos bekommen {#what-you-get-for-free}
@@ -457,14 +451,11 @@ Die Übernahme des Frameworks ist vor allem deshalb wertvoll, weil Sie nichts me
 
 Das ist das „und alles andere“, was Sie sonst selbst zusammenkleben würden.
 
-## Tieftauchgänge {#deep-dives}
+## Wie geht es weiter? {#deep-dives}
 
-Detaillierte Anleitungen zu bestimmten Mustern:
-
-- [What Is Agent-Native?](/docs/what-is-agent-native) – die Vision und Philosophie
-- [Context Awareness](/docs/context-awareness) – Navigationsstatus, Bildschirmansicht, Navigationsbefehle
-- [Skills Guide](/docs/skills-guide) – Framework skills, Domäne skills, benutzerdefiniertes skills erstellen
-- [Native Chat-Oberfläche](/docs/native-chat-ui) – aktionsdeklarierte Tabellen, Diagramme und BYO-Laufzeitstatus
-- [Agent Surfaces](/docs/agent-surfaces) – Headless, Rich Chat, eingebetteter Sidecar und vollständige App-Pfade
-- [A2A Protocol](/docs/a2a-protocol) – Agent-zu-Agent-Kommunikation
-- [Multi-App Workspace](/docs/multi-app-workspace) – Hosten Sie viele Apps in einem Monorepo mit gemeinsamer Authentifizierung, skills, Komponenten und Anmeldeinformationen
+- [**What Is Agent-Native?**](/docs/what-is-agent-native) — Die Vision und Philosophie hinter diesen Regeln
+- [**Context Awareness**](/docs/context-awareness) — Navigationsstatus sowie view-screen- und navigate-Befehle im Detail
+- [**Skills Guide**](/docs/skills-guide) — Framework-Skills, Domänen-Skills und das Erstellen eigener Skills
+- [**Native Chat UI**](/docs/native-chat-ui) — Von Actions deklarierte Tabellen, Diagramme und die Haltung zu eigenen Laufzeiten
+- [**Agent Surfaces**](/docs/agent-surfaces) — Chat, native Inline-UI, vollständige App-Seiten, eingebettete Sidecars, Automatisierung und externe Agentenpfade
+- [**A2A Protocol**](/docs/a2a-protocol) — Agent-zu-Agent-Kommunikation

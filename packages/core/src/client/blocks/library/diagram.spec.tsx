@@ -114,6 +114,60 @@ describe("DiagramBlock expand affordance", () => {
     expect(frame?.querySelector(".diagram-box")).toBeTruthy();
   });
 
+  it("shows the diagram frame by default", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-frame-default"
+          ctx={{ sanitizeHtml: (html: string) => html }}
+          data={{ html: "<div class='diagram-node'>Service</div>" }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+    expect(frame?.getAttribute("data-frame")).toBe("show");
+  });
+
+  it("lets host context hide diagram frames by default", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-frame-host-hide"
+          ctx={{
+            sanitizeHtml: (html: string) => html,
+            visualFrame: "hide",
+          }}
+          data={{ html: "<div class='diagram-node'>Service</div>" }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+    expect(frame?.getAttribute("data-frame")).toBe("hide");
+  });
+
+  it("lets explicit diagram data override the host frame default", () => {
+    act(() => {
+      root.render(
+        <DiagramRead
+          blockId="diagram-frame-explicit"
+          ctx={{
+            sanitizeHtml: (html: string) => html,
+            visualFrame: "hide",
+          }}
+          data={{
+            frame: "show",
+            html: "<div class='diagram-node'>Service</div>",
+          }}
+        />,
+      );
+    });
+
+    const frame = container.querySelector<HTMLElement>(".plan-diagram-frame");
+    expect(frame?.getAttribute("data-frame")).toBe("show");
+  });
+
   it("keeps standard diagram primitives on a visible dark-mode border token", () => {
     const css = readFileSync("src/styles/blocks.css", "utf8");
 

@@ -384,24 +384,23 @@ Alterne-os substituindo o env var em cada instância e reimplantando. As sessõe
 ## Ferramentas do agente de produção {#production-agent-tools}
 
 Os agentes de produção obtêm o actions registrado do aplicativo, além das ferramentas de estrutura de
-o plugin de chat do agente. As gravações no banco de dados são habilitadas por padrão porque o banco de dados bruto
-as ferramentas têm como escopo o usuário/organização autenticado, mas os proprietários de aplicativos podem restringir o
-descobre quando uma implantação deveria ser mais opinativa:
+o plugin de bate-papo do agente. A inspeção SQL fica habilitada por padrão; as gravações
+passam por actions tipadas do app, a menos que o app habilite explicitamente ferramentas de escrita SQL bruta:
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — padrão. Registra `db-schema`, `db-query`,
-  `db-exec` e `db-patch`. As gravações têm como escopo o usuário/organização atual e
-  as alterações de esquema estão bloqueadas.
-- `databaseTools: "read"` — registra apenas `db-schema` e `db-query`; agentes
-  inspecione os dados com SQL, mas deve usar o aplicativo digitado actions para gravações.
+- `databaseTools: "read"` — padrão. Registra apenas `db-schema` e `db-query`;
+  os agentes inspecionam dados com SQL, mas devem usar actions tipadas do app para gravar.
+- `databaseTools: "write"` ou `true` — também registra `db-exec` e `db-patch`
+  para manutenção SQL bruta deliberada. As gravações são limitadas ao usuário/
+  organização atual e alterações de esquema são bloqueadas.
 - `databaseTools: "off"` ou `false` — remove ferramentas de banco de dados brutos do
   superfície do agente para que o actions do aplicativo seja o único caminho de acesso aos dados.
 - `extensionTools: false` — remove o gerenciamento de extensão da estrutura actions e
@@ -453,3 +452,11 @@ Consulte [Frames](/docs/frames) para saber mais sobre o painel de agente incorpo
 ## Implantações de múltiplas instâncias {#multi-instance}
 
 Os aplicativos nativos do agente armazenam todo o estado em SQL com Drizzle e sincronizam o UI via [polling](/docs/key-concepts#polling-sync) com o banco de dados – sem estado do sistema de arquivos, sem sessões fixas, sem caches na memória. Isso significa que implantações de múltiplas instâncias e sem servidor funcionam imediatamente: aponte cada instância para o mesmo `DATABASE_URL` e elas convergem automaticamente. Consulte [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) e [Portability](/docs/key-concepts#hosting-agnostic).
+
+## Próximos passos
+
+- [**Database**](/docs/database#production) — escolha um backend SQL persistente antes da primeira implantação em produção
+- [**Security**](/docs/security) — a lista de verificação de produção e os sinalizadores opcionais mencionados nesta página
+- [**Authentication**](/docs/authentication) — credenciais OAuth e variáveis de ambiente para o modo de autenticação escolhido
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — o modelo de espaço de trabalho por trás da compilação de origem única do `deploy`
+- [**Frames**](/docs/frames) — o painel de agente incorporado em comparação com o quadro de nuvem da Builder.io para edições da UI de produção

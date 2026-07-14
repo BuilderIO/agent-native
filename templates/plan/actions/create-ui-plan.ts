@@ -34,7 +34,10 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import { planContentSchema } from "../shared/plan-content.js";
+import {
+  agentPlanContentSchema,
+  planContentSchema,
+} from "../shared/plan-content.js";
 
 const uiPlanStateSchema = z.object({
   name: z.string().min(1).describe("State or screen name"),
@@ -52,64 +55,76 @@ const uiPlanComponentSchema = z.object({
     .describe("Intent, constraints, and details for this UI part"),
 });
 
+const CONTENT_DESCRIPTION =
+  'Structured editable UI plan content. Prefer this for app-owned top canvas wireframes (HTML mockups: set the wireframe\'s data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex). Call get-plan-blocks first for visual frame guidance before choosing frame: "show" or frame: "hide". Do not use legacy kit-tree screen arrays or nested FrameScreen/Card/Row/Btn-style children for new canvas artboards. Use sketch diagrams, rich text, code blocks (grouped in a vertical tabs block for a file map), annotated code for key files, validation checklists, and bounded custom HTML fragments. Diagram data.html/data.css should use renderer-owned .diagram-* primitives plus --wf-* tokens, not custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes. The renderer owns all visual styling; emit lean content, not pixels.';
+
+// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
+// a compact `content` field instead of duplicating every other key. The
+// `.refine()` (brief/goal requirement) only applies to the real runtime
+// `schema` further down.
+const createUiPlanSchema = z.object({
+  title: z.string().optional().describe("Short UI plan title"),
+  brief: z
+    .string()
+    .optional()
+    .describe(
+      "One short sentence summarizing the UI plan, shown as the lede under the title. Keep it to a single tight line; the document carries the detail.",
+    ),
+  goal: z.string().optional().describe("Alias for brief."),
+  source: planSourceSchema.optional().default("manual"),
+  repoPath: z.string().optional().describe("Repository path for the run"),
+  currentFocus: z.string().optional().describe("Current UI plan focus"),
+  status: planStatusSchema.optional().default("review"),
+  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  markdown: z
+    .string()
+    .optional()
+    .describe("Markdown/text fallback or source UI plan"),
+  states: z
+    .array(uiPlanStateSchema)
+    .optional()
+    .default([])
+    .describe(
+      "Screens or states to show primarily on the optional top pan/zoom canvas, such as Default, Empty, Loading, Error, Mobile, or Agent handoff. For component/widget work, prefer focused component variants and one real product-context frame over fake desktop/mobile journeys. Omit when visual states would not help.",
+    ),
+  components: z
+    .array(uiPlanComponentSchema)
+    .optional()
+    .default([])
+    .describe(
+      "Focused UI parts and constraints for canvas annotations and the implementation document. Do not use these to create redundant wireframe tabs when the top canvas already shows the UI.",
+    ),
+  implementationNotes: z
+    .string()
+    .optional()
+    .describe("Concise notes for the implementation map section"),
+  sections: z
+    .array(sectionInputSchema)
+    .optional()
+    .default([])
+    .describe("Optional additional plan sections"),
+  comments: z
+    .array(commentInputSchema)
+    .optional()
+    .default([])
+    .describe("Initial annotations or review prompts"),
+});
+
 export default defineAction({
   description:
     "Create a UI-first plan whose centerpiece is wireframed screens/states on a canvas. For a document-first plan use create-visual-plan; for a recap of an existing diff use create-visual-recap; for a running interactive prototype use create-prototype-plan; for a full-fidelity branded design use create-plan-design. Publish via this tool; never deliver the plan as inline chat text.",
-  schema: z
-    .object({
-      title: z.string().optional().describe("Short UI plan title"),
-      brief: z
-        .string()
-        .optional()
-        .describe(
-          "One short sentence summarizing the UI plan, shown as the lede under the title. Keep it to a single tight line; the document carries the detail.",
-        ),
-      goal: z.string().optional().describe("Alias for brief."),
-      source: planSourceSchema.optional().default("manual"),
-      repoPath: z.string().optional().describe("Repository path for the run"),
-      currentFocus: z.string().optional().describe("Current UI plan focus"),
-      status: planStatusSchema.optional().default("review"),
-      content: planContentSchema
-        .optional()
-        .describe(
-          "Structured editable UI plan content. Prefer this for app-owned top canvas wireframes (HTML mockups: set the wireframe's data.html to a semantic HTML fragment of the screen and pick a surface — the renderer owns the theme, footprint/aspect, hand-drawn font, and sketch overlay; use --wf-* CSS tokens for any custom color, never hex). Do not use legacy kit-tree screen arrays or nested FrameScreen/Card/Row/Btn-style children for new canvas artboards. Use sketch diagrams, rich text, code blocks (grouped in a vertical tabs block for a file map), annotated code for key files, validation checklists, and bounded custom HTML fragments. Diagram data.html/data.css should use renderer-owned .diagram-* primitives plus --wf-* tokens, not custom fonts or hard-coded hex/rgb/hsl colors, so light/dark and sketchy Excalifont/rough.js modes remain correct. The canvas should carry Claude-style flex/grid wireframe artboards and designer annotations; the document should add implementation substance instead of duplicating the same wireframes. The renderer owns all visual styling; emit lean content, not pixels.",
-        ),
-      markdown: z
-        .string()
-        .optional()
-        .describe("Markdown/text fallback or source UI plan"),
-      states: z
-        .array(uiPlanStateSchema)
-        .optional()
-        .default([])
-        .describe(
-          "Screens or states to show primarily on the optional top pan/zoom canvas, such as Default, Empty, Loading, Error, Mobile, or Agent handoff. For component/widget work, prefer focused component variants and one real product-context frame over fake desktop/mobile journeys. Omit when visual states would not help.",
-        ),
-      components: z
-        .array(uiPlanComponentSchema)
-        .optional()
-        .default([])
-        .describe(
-          "Focused UI parts and constraints for canvas annotations and the implementation document. Do not use these to create redundant wireframe tabs when the top canvas already shows the UI.",
-        ),
-      implementationNotes: z
-        .string()
-        .optional()
-        .describe("Concise notes for the implementation map section"),
-      sections: z
-        .array(sectionInputSchema)
-        .optional()
-        .default([])
-        .describe("Optional additional plan sections"),
-      comments: z
-        .array(commentInputSchema)
-        .optional()
-        .default([])
-        .describe("Initial annotations or review prompts"),
-    })
-    .refine((args) => Boolean(args.brief || args.goal), {
+  schema: createUiPlanSchema.refine(
+    (args) => Boolean(args.brief || args.goal),
+    {
       message: "Either brief or goal is required.",
-    }),
+    },
+  ),
+  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
+  // per-block-type union for a compact `type`-enum stand-in. Runtime
+  // validation always runs the full schema above — see the `actions` skill.
+  agentInputSchema: createUiPlanSchema.extend({
+    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  }),
   publicAgent: {
     expose: true,
     readOnly: false,

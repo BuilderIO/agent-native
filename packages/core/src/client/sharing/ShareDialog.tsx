@@ -3,7 +3,6 @@ import {
   IconX,
   IconTrash,
   IconLock,
-  IconBuilding,
   IconWorld,
   IconCheck,
   IconCopy,
@@ -11,6 +10,7 @@ import {
   IconMail,
   IconCode,
   IconChevronDown,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
@@ -52,6 +52,7 @@ interface Share {
   id: string;
   principalType: "user" | "org";
   principalId: string;
+  displayName?: string | null;
   role: Role;
 }
 
@@ -95,9 +96,10 @@ function useOrgMembers(): OrgMember[] {
 }
 
 function displayName(email: string, members: OrgMember[]): string {
-  const match = members.find((m) => m.email === email);
+  const normalized = email.trim().toLowerCase();
+  const match = members.find((m) => m.email.toLowerCase() === normalized);
   if (match?.name && match.name.trim()) return match.name;
-  return email;
+  return normalized.includes("@") ? email : "Unknown person";
 }
 
 const BUTTON_BASE =
@@ -117,7 +119,7 @@ const BUTTON_GHOST_ICON = cn(
 
 const VIS_ICONS: Record<Visibility, typeof IconLock> = {
   private: IconLock,
-  org: IconBuilding,
+  org: IconUsersGroup,
   public: IconWorld,
 };
 
@@ -376,6 +378,7 @@ function LinkTab(props: {
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) return;
     setVisibility.mutate(
       { resourceType, resourceId, visibility: next } as any,
       { onSuccess: () => sharesQuery.refetch() },
@@ -490,6 +493,7 @@ function InviteTab(props: {
 
   const handleVisibility = (next: Visibility) => {
     if (next === visibility) return;
+    if (!canManage) return;
     setVisibility.mutate(
       { resourceType, resourceId, visibility: next } as any,
       { onSuccess: () => sharesQuery.refetch() },
@@ -550,17 +554,11 @@ function InviteTab(props: {
               className="flex items-center gap-3 px-1 py-1.5 text-sm"
             >
               <Avatar
-                label={
-                  s.principalType === "org"
-                    ? s.principalId
-                    : displayName(s.principalId, orgMembers)
-                }
+                label={principalLabel(s, orgMembers)}
                 org={s.principalType === "org"}
               />
               <span className="flex-1 min-w-0 truncate">
-                {s.principalType === "org"
-                  ? s.principalId
-                  : displayName(s.principalId, orgMembers)}
+                {principalLabel(s, orgMembers)}
               </span>
               <span className="text-xs text-muted-foreground">
                 {cap(s.role)}
@@ -762,10 +760,20 @@ function VisibilitySelect(props: {
   value: Visibility;
   onChange: (v: Visibility) => void;
   disabled?: boolean;
+  allowPrivate?: boolean;
+  allowPublic?: boolean;
 }) {
   const t = useT();
   const visibilityMeta = useVisibilityMeta();
   const current = visibilityMeta[props.value];
+  const allowPrivate = props.allowPrivate !== false;
+  const allowPublic = props.allowPublic !== false;
+  const options = (Object.keys(VIS_ICONS) as Visibility[]).filter((k) => {
+    if (k === props.value) return true;
+    if (k === "private" && !allowPrivate) return false;
+    if (k === "public" && !allowPublic) return false;
+    return true;
+  });
   return (
     <Select.Root
       value={props.value}
@@ -792,7 +800,7 @@ function VisibilitySelect(props: {
         >
           <Select.Viewport>
             <SelectItems
-              items={(Object.keys(VIS_ICONS) as Visibility[]).map((k) => ({
+              items={options.map((k) => ({
                 value: k,
                 label: visibilityMeta[k].label,
                 description: visibilityMeta[k].description,
@@ -812,7 +820,7 @@ function Avatar({ label, org }: { label: string; org?: boolean }) {
       className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-muted text-[11px] font-semibold text-muted-foreground"
     >
       {org ? (
-        <IconBuilding size={14} strokeWidth={1.75} />
+        <IconUsersGroup size={14} strokeWidth={1.75} />
       ) : (
         (label.split("@")[0]?.[0] ?? label[0] ?? "?").toUpperCase()
       )}
@@ -828,4 +836,11 @@ function getNotificationUrl(explicit?: string): string | undefined {
 
 function cap(s: string): string {
   return s.charAt(0).toUpperCase() + s.slice(1);
+}
+
+function principalLabel(share: Share, members: OrgMember[]): string {
+  const serverLabel = share.displayName?.trim();
+  if (serverLabel) return serverLabel;
+  if (share.principalType === "org") return "Organization";
+  return displayName(share.principalId, members);
 }

@@ -35,11 +35,23 @@ const defaultTemplateSkillsDir = join(
   ".agents",
   "skills",
 );
+const headlessTemplateSkillsDir = join(
+  rootDir,
+  "packages",
+  "core",
+  "src",
+  "templates",
+  "headless",
+  ".agents",
+  "skills",
+);
 
 const workspaceSkillIncludes = [
   "a2a-protocol",
   "actions",
   "agent-native-docs",
+  "agent-native-toolkit",
+  "agent-page",
   "adding-a-feature",
   "address-feedback",
   "audit-log",
@@ -53,6 +65,7 @@ const workspaceSkillIncludes = [
   "context-awareness",
   "context-xray",
   "create-skill",
+  "data-programs",
   "delegate-to-agent",
   "extension-points",
   "extensions",
@@ -63,6 +76,7 @@ const workspaceSkillIncludes = [
   "internationalization",
   "integration-webhooks",
   "mvp-followup",
+  "native-navigation",
   "observability",
   "onboarding",
   "performance",
@@ -80,6 +94,7 @@ const workspaceSkillIncludes = [
   "sharing",
   "storing-data",
   "tracking",
+  "upgrade-agent-native",
   "visual-answer",
   "voice-transcription",
   "writing-agent-instructions",
@@ -92,6 +107,7 @@ const workspaceSkillIncludes = [
 const templateSharedSkillIncludes = [
   "actions",
   "agent-native-docs",
+  "agent-native-toolkit",
   "adding-a-feature",
   "capture-learnings",
   "client-methods",
@@ -106,13 +122,25 @@ const templateSharedSkillIncludes = [
   "self-modifying-code",
   "shadcn-ui",
   "storing-data",
+  "upgrade-agent-native",
 ];
 
 const requiredTemplateSharedSkills: Record<string, string[]> = {
   chat: ["agent-native-docs"],
 };
 
-const requiredDefaultTemplateSharedSkills = ["internationalization"];
+/** Copied into every first-party template that uses shared skills. */
+const requiredAllTemplateSharedSkills = ["upgrade-agent-native"];
+
+const requiredDefaultTemplateSharedSkills = [
+  "internationalization",
+  "upgrade-agent-native",
+];
+
+const requiredHeadlessTemplateSharedSkills = [
+  "agent-native-docs",
+  "upgrade-agent-native",
+];
 
 const actionFirstInstructionFiles = [
   join(
@@ -320,7 +348,14 @@ function checkSkillDirInSync(label, skill, targetSkillDir) {
 function listTemplateDirs() {
   if (!existsSync(templatesDir)) return [];
   return readdirSync(templatesDir, { withFileTypes: true })
-    .filter((entry) => entry.isDirectory())
+    .filter((entry) => {
+      if (!entry.isDirectory()) return false;
+      if (entry.name.startsWith(".") || entry.name === "node_modules") {
+        return false;
+      }
+      // Skip leftover/retired shells that no longer ship a package.json.
+      return existsSync(join(templatesDir, entry.name, "package.json"));
+    })
     .map((entry) => entry.name)
     .sort();
 }
@@ -381,6 +416,20 @@ function forEachExistingTemplateSharedSkill(fn) {
     }
   }
 
+  for (const skill of templateSharedSkillIncludes) {
+    const targetSkillDir = join(headlessTemplateSkillsDir, skill);
+    if (
+      existsSync(targetSkillDir) ||
+      requiredHeadlessTemplateSharedSkills.includes(skill)
+    ) {
+      fn(
+        "packages/core/src/templates/headless/.agents/skills",
+        skill,
+        targetSkillDir,
+      );
+    }
+  }
+
   for (const template of listTemplateDirs()) {
     for (const skill of templateSharedSkillIncludes) {
       const targetSkillDir = join(
@@ -392,7 +441,8 @@ function forEachExistingTemplateSharedSkill(fn) {
       );
       if (
         existsSync(targetSkillDir) ||
-        (requiredTemplateSharedSkills[template] ?? []).includes(skill)
+        (requiredTemplateSharedSkills[template] ?? []).includes(skill) ||
+        requiredAllTemplateSharedSkills.includes(skill)
       ) {
         fn(`templates/${template}/.agents/skills`, skill, targetSkillDir);
       }

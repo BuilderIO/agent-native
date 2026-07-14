@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core";
 import {
+  buildBuilderDesignSystemIndexFiles,
   startBuilderDesignSystemIndex,
-  type BuilderDesignSystemIndexFile,
 } from "@agent-native/core/server";
 import {
   getRequestOrgId,
@@ -11,50 +11,32 @@ import { z } from "zod";
 
 import { upsertBuilderProxyDesignSystem } from "../server/lib/builder-design-system-proxy.js";
 
-const MAX_CODE_FILES = 50;
-const MAX_TOTAL_CODE_BYTES = 2 * 1024 * 1024;
-
 const codeFileSchema = z.object({
   filename: z.string().trim().min(1).describe("File name or relative path"),
-  content: z.string().describe("Raw text content of the code/design file"),
+  content: z
+    .string()
+    .describe(
+      "File content. Text files (code, CSS, markdown, JSON, SVG): raw text. " +
+        "Binary files -- most importantly `.fig` (a zip/kiwi binary container, " +
+        'never valid text) -- MUST be base64-encoded with encoding: "base64"; ' +
+        "sending raw/binary-as-string content with the default utf8 encoding " +
+        "corrupts the file before it reaches Builder.",
+    ),
   mimeType: z.string().trim().optional().describe("Optional MIME type"),
+  encoding: z
+    .enum(["utf8", "base64"])
+    .optional()
+    .describe(
+      "Encoding of `content`. Defaults to utf8. Set to base64 for `.fig` and " +
+        "other binary files.",
+    ),
 });
-
-function mimeTypeForFilename(filename: string, explicit?: string): string {
-  if (explicit?.trim()) return explicit.trim();
-  const lower = filename.toLowerCase();
-  if (lower.endsWith(".css")) return "text/css";
-  if (lower.endsWith(".json")) return "application/json";
-  if (lower.endsWith(".md") || lower.endsWith(".mdx")) return "text/markdown";
-  if (lower.endsWith(".html")) return "text/html";
-  if (lower.endsWith(".svg")) return "image/svg+xml";
-  return "text/plain";
-}
-
-function makeFiles(
-  codeFiles: Array<z.infer<typeof codeFileSchema>> | undefined,
-): BuilderDesignSystemIndexFile[] {
-  const encoder = new TextEncoder();
-  const files: BuilderDesignSystemIndexFile[] = [];
-  let totalBytes = 0;
-  for (const file of (codeFiles ?? []).slice(0, MAX_CODE_FILES)) {
-    const data = encoder.encode(file.content);
-    if (totalBytes + data.byteLength > MAX_TOTAL_CODE_BYTES) break;
-    totalBytes += data.byteLength;
-    files.push({
-      name: file.filename.replace(/^\/+/, "") || "code.txt",
-      data,
-      mimeType: mimeTypeForFilename(file.filename, file.mimeType),
-    });
-  }
-  return files;
-}
 
 export default defineAction({
   description:
-    "Start Builder design-system indexing from a GitHub repository and/or code files. " +
+    "Start Builder DSI design-system indexing from connected code, a GitHub repository, code/design files, and optional design.md guidance. " +
     "Use this instead of local import-code/import-github when the user wants a reusable brand kit or slide design system. " +
-    "Requires Builder.io to be connected; Builder owns the indexed design-system docs, generated guidance, and job state.",
+    "Requires Builder.io to be connected; Builder owns the indexed design-system docs, generated guidance, token/component extraction, and job state.",
   schema: z.object({
     projectName: z
       .string()
@@ -76,6 +58,12 @@ export default defineAction({
       .array(codeFileSchema)
       .optional()
       .describe("Optional inlined code/design files to upload to Builder"),
+    designMd: z
+      .string()
+      .optional()
+      .describe(
+        "Optional design.md guidance to upload to Builder DSI alongside Figma/code sources",
+      ),
   }),
   run: async ({
     projectName,
@@ -83,8 +71,12 @@ export default defineAction({
     githubRepoUrl,
     connectedProjectId,
     codeFiles,
+    designMd,
   }) => {
-    const files = makeFiles(codeFiles);
+    const files = buildBuilderDesignSystemIndexFiles({
+      codeFiles,
+      designMd,
+    });
     const result = await startBuilderDesignSystemIndex({
       projectName,
       description,

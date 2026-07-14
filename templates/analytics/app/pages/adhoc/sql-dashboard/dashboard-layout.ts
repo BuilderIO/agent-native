@@ -483,6 +483,13 @@ export function movePanelToDropSlot(
     ) {
       rowIndex -= 1;
     }
+    if (
+      sourceGroupKey === slot.groupKey &&
+      sourceRowWasSingle &&
+      sourceRowIndex === rowIndex
+    ) {
+      return panels;
+    }
     targetGroup.rows.splice(Math.max(0, rowIndex), 0, {
       key: movingPanel.id,
       panels: [movingPanel],

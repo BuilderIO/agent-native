@@ -1,0 +1,114 @@
+---
+title: "Setup & Connections Kit"
+description: "Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect."
+---
+
+# Setup & Connections Kit
+
+The Setup & Connections Kit turns missing credentials into a guided product
+flow. It covers onboarding steps, encrypted secrets, workspace-scoped
+connections, OAuth/provider readiness, and Builder connect so apps can explain
+what is missing and link users to the exact fix.
+
+<WireframeBlock id="doc-block-toolkit-setup-connections">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:520px;box-sizing:border-box;padding:26px;display:grid;grid-template-columns:1fr 300px;gap:18px'><main class='wf-card' style='display:flex;flex-direction:column;gap:12px'><h2 style='margin:0'>Finish setup</h2><small class='wf-muted'>2 of 4 steps complete</small><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Connect Builder</div><span class='wf-pill'>Done</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px;border-color:var(--wf-accent)'><span data-icon='lock'></span><div style='flex:1'><strong>Add OpenAI key</strong><br/><small class='wf-muted'>Needed for the agent to run</small></div><button class='primary'>Fix</button></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='plus'></span><div style='flex:1'>Connect Slack</div><span class='wf-muted'>Optional</span></div><div class='wf-box' style='display:flex;align-items:center;gap:10px'><span data-icon='check'></span><div style='flex:1'>Enable GitHub OAuth</div><span class='wf-pill'>Ready</span></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Provider readiness</strong><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>Builder</div><span class='wf-pill'>Connected</span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='x'></span><div style='flex:1'>LLM key</div><span class='wf-pill'>Missing</span></div><div style='display:flex;align-items:center;gap:8px'><span data-icon='check'></span><div style='flex:1'>GitHub</div><span class='wf-pill'>OAuth ready</span></div><div style='flex:1'></div><button class='primary'>Open settings</button></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+## Pieces {#pieces}
+
+| Piece                 | Purpose                                                                 |
+| --------------------- | ----------------------------------------------------------------------- |
+| Onboarding registry   | Declares setup steps and completion checks.                             |
+| Secrets UI            | Writes encrypted user, org, or workspace secrets.                       |
+| Workspace connections | Shared provider connections with scoped grants.                         |
+| OAuth flows           | Provider authorization, callback handling, and token storage.           |
+| Provider readiness    | App-visible status for missing keys, expired auth, or incomplete setup. |
+| Builder connect       | First-party Builder identity and managed gateway setup.                 |
+
+## API {#api}
+
+Use the integrated core kit for the server-side registry/store and the client
+page/components for the standard settings surface.
+
+```tsx
+import {
+  ProviderReadinessBadge,
+  SetupConnectionsPage,
+} from "@agent-native/core/client/setup-connections";
+
+export function SettingsConnectionsTab() {
+  return (
+    <SetupConnectionsPage
+      providerReadiness={
+        <div className="flex items-center gap-2">
+          <span>GitHub</span>
+          <ProviderReadinessBadge status="ready" />
+        </div>
+      }
+    />
+  );
+}
+```
+
+Register setup steps close to the feature that needs them. Link users to the
+standard settings tab instead of building bespoke credential forms.
+
+```ts
+import { registerOnboardingStep } from "@agent-native/core/onboarding";
+
+registerOnboardingStep({
+  id: "openai-key",
+  title: "Add an OpenAI key",
+  description: "Store an OpenAI key so the agent can use OpenAI models.",
+  order: 10,
+  required: true,
+  methods: [
+    {
+      id: "settings",
+      kind: "link",
+      label: "Open settings",
+      primary: true,
+      payload: { url: "/settings#secrets" },
+    },
+  ],
+  isComplete: async () => hasOpenAIKey(),
+});
+```
+
+Workspace/provider setup can use the kit helper:
+
+```ts
+import { registerWorkspaceConnectionOnboardingStep } from "@agent-native/core/setup-connections";
+
+registerWorkspaceConnectionOnboardingStep({
+  providerId: "github",
+  providerLabel: "GitHub",
+  required: true,
+  isComplete: async () => hasGitHubWorkspaceConnection(),
+});
+```
+
+For app settings, compose `SettingsTabsPage` with `SetupConnectionsPage` and the
+standard Settings Kit tabs so keys, connections, Builder connect, and team
+settings live in one predictable place.
+
+## UX Standard {#ux-standard}
+
+- Errors explain the missing connection and offer the direct settings link.
+- Secrets are never stored in app tables or pasted into docs/examples.
+- App setup pages and settings tabs use the same readiness source.
+- Builder connect is offered as a first-class path, not buried as an env-var
+  fallback.
+
+## What's next
+
+- [**Onboarding**](/docs/onboarding) — the setup-step registry this kit's UI
+  renders.
+- [**Workspace Connections**](/docs/workspace-connections) — shared provider
+  connections across a multi-app workspace.
+- [**Security**](/docs/security) — how secrets are scoped and stored.

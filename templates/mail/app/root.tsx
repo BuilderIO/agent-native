@@ -2,9 +2,9 @@ import { useDbSync } from "@agent-native/core/client";
 import {
   AppProviders,
   DEFAULT_LOCALE,
+  ErrorReportActions,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
-  RequireSession,
   appPath,
   appApiPath,
   createAgentNativeQueryClient,
@@ -30,8 +30,14 @@ import type { LinksFunction } from "react-router";
 import { AppLayout } from "@/components/layout/AppLayout";
 import { Button } from "@/components/ui/button";
 import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { markExternalEmailRefresh } from "@/hooks/use-emails";
+import {
+  MAIL_INTEGRATION_STATUS_QUERY_KEY,
+  mailIntegrationProviderFromAppStateKey,
+} from "@/lib/integration-status";
 import { isMcpEmbedSurface } from "@/lib/mcp-embed";
+import { shouldInvalidateMailQueryForActionEvent } from "@/lib/sync-invalidation";
 import { TAB_ID } from "@/lib/tab-id";
 
 import { i18nCatalog } from "./i18n";
@@ -74,81 +80,123 @@ function getHydrationStableLocaleInitScript() {
 const THEME_INIT_SCRIPT = getHydrationStableThemeInitScript();
 const LOCALE_INIT_SCRIPT = getHydrationStableLocaleInitScript();
 
-function skipBroadActionInvalidation() {
-  // Mail's Gmail-backed reads are expensive and already refresh through the
-  // explicit app-state refresh-signal that mutating mail actions write.
-  return false;
-}
-
 const MAIL_ERROR_COPY: Record<
   LocaleCode,
-  { title: string; fallback: string; back: string; reload: string }
+  {
+    title: string;
+    fallback: string;
+    back: string;
+    reload: string;
+    sendFeedback: string;
+    feedbackPlaceholder: string;
+    openGitHubIssue: string;
+  }
 > = {
   "en-US": {
     title: "Mail could not load this view.",
     fallback: "Something went wrong while loading Mail.",
     back: "Back",
     reload: "Reload",
+    sendFeedback: "Send feedback",
+    feedbackPlaceholder:
+      "Describe what happened before this Mail error appeared.",
+    openGitHubIssue: "Open GitHub issue",
   },
   "zh-CN": {
     title: "Mail 无法加载此视图。",
     fallback: "加载 Mail 时出现问题。",
     back: "返回",
     reload: "重新加载",
+    sendFeedback: "发送反馈",
+    feedbackPlaceholder: "描述此 Mail 错误出现前发生了什么。",
+    openGitHubIssue: "打开 GitHub issue",
   },
   "zh-TW": {
     title: "Mail 無法載入此檢視。",
     fallback: "載入 Mail 時發生問題。",
     back: "返回",
     reload: "重新載入",
+    sendFeedback: "傳送意見回饋",
+    feedbackPlaceholder: "描述此 Mail 錯誤出現前發生了什麼。",
+    openGitHubIssue: "開啟 GitHub issue",
   },
   "es-ES": {
     title: "Mail no pudo cargar esta vista.",
     fallback: "Algo salió mal al cargar Mail.",
     back: "Atrás",
     reload: "Recargar",
+    sendFeedback: "Enviar comentarios",
+    feedbackPlaceholder:
+      "Describe qué pasó antes de que apareciera este error de Mail.",
+    openGitHubIssue: "Abrir issue en GitHub",
   },
   "fr-FR": {
     title: "Mail n'a pas pu charger cette vue.",
     fallback: "Un problème est survenu lors du chargement de Mail.",
     back: "Retour",
     reload: "Recharger",
+    sendFeedback: "Envoyer un retour",
+    feedbackPlaceholder:
+      "Décrivez ce qui s'est passé avant cette erreur de Mail.",
+    openGitHubIssue: "Ouvrir une issue GitHub",
   },
   "de-DE": {
     title: "Mail konnte diese Ansicht nicht laden.",
     fallback: "Beim Laden von Mail ist ein Fehler aufgetreten.",
     back: "Zurück",
     reload: "Neu laden",
+    sendFeedback: "Feedback senden",
+    feedbackPlaceholder:
+      "Beschreiben Sie, was vor diesem Mail-Fehler passiert ist.",
+    openGitHubIssue: "GitHub-Issue öffnen",
   },
   "ja-JP": {
     title: "Mail はこのビューを読み込めませんでした。",
     fallback: "Mail の読み込み中に問題が発生しました。",
     back: "戻る",
     reload: "再読み込み",
+    sendFeedback: "フィードバックを送信",
+    feedbackPlaceholder:
+      "この Mail エラーの直前に起きたことを説明してください。",
+    openGitHubIssue: "GitHub issue を開く",
   },
   "ko-KR": {
     title: "Mail에서 이 보기를 불러올 수 없습니다.",
     fallback: "Mail을 불러오는 중 문제가 발생했습니다.",
     back: "뒤로",
     reload: "새로고침",
+    sendFeedback: "피드백 보내기",
+    feedbackPlaceholder:
+      "이 Mail 오류가 나타나기 전에 무슨 일이 있었는지 적어 주세요.",
+    openGitHubIssue: "GitHub issue 열기",
   },
   "pt-BR": {
     title: "O Mail não conseguiu carregar esta visualização.",
     fallback: "Algo deu errado ao carregar o Mail.",
     back: "Voltar",
     reload: "Recarregar",
+    sendFeedback: "Enviar feedback",
+    feedbackPlaceholder:
+      "Descreva o que aconteceu antes deste erro do Mail aparecer.",
+    openGitHubIssue: "Abrir issue no GitHub",
   },
   "hi-IN": {
     title: "Mail यह दृश्य लोड नहीं कर सका।",
     fallback: "Mail लोड करते समय कुछ गलत हुआ।",
     back: "वापस",
     reload: "रीलोड",
+    sendFeedback: "फ़ीडबैक भेजें",
+    feedbackPlaceholder: "इस Mail त्रुटि से पहले क्या हुआ, उसका वर्णन करें।",
+    openGitHubIssue: "GitHub issue खोलें",
   },
   "ar-SA": {
     title: "تعذر على Mail تحميل هذا العرض.",
     fallback: "حدث خطأ أثناء تحميل Mail.",
     back: "رجوع",
     reload: "إعادة التحميل",
+    sendFeedback: "إرسال الملاحظات",
+    feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ Mail هذا.",
+    openGitHubIssue: "فتح مشكلة في GitHub",
   },
 };
 
@@ -281,7 +329,9 @@ function DbSyncSetup() {
   useDbSync({
     queryClient: qc,
     queryKeys: [],
-    actionInvalidatePredicate: skipBroadActionInvalidation,
+    // Action events refresh action-backed reads (such as queued drafts) while
+    // expensive Gmail/provider queries stay on their targeted sync paths.
+    actionInvalidatePredicate: shouldInvalidateMailQueryForActionEvent,
     // Skip events this tab caused — our mutations already handle cache updates
     ignoreSource: TAB_ID,
     onEvent: (data: {
@@ -297,9 +347,6 @@ function DbSyncSetup() {
         qc.invalidateQueries({ queryKey: ["scheduled-jobs"] });
         qc.invalidateQueries({ queryKey: ["automations"] });
         qc.invalidateQueries({ queryKey: ["gmail-filters"] });
-        qc.invalidateQueries({ queryKey: ["apollo-status"] });
-        qc.invalidateQueries({ queryKey: ["integration-status"] });
-        qc.invalidateQueries({ queryKey: ["integration-data"] });
         qc.invalidateQueries({ queryKey: ["google-status"] });
         qc.invalidateQueries({ queryKey: ["automation-settings"] });
         qc.invalidateQueries({ queryKey: ["framework-triggers-mail"] });
@@ -307,6 +354,20 @@ function DbSyncSetup() {
       };
 
       if (data.source === "app-state") {
+        const integrationProvider = mailIntegrationProviderFromAppStateKey(
+          data.key,
+        );
+        if (integrationProvider && !isOwnEvent) {
+          qc.invalidateQueries({
+            queryKey: MAIL_INTEGRATION_STATUS_QUERY_KEY,
+          });
+          qc.invalidateQueries({
+            queryKey:
+              integrationProvider === "*"
+                ? ["integration-data"]
+                : ["integration-data", integrationProvider],
+          });
+        }
         if (
           (data.key?.startsWith("compose-") || data.key === "*") &&
           !isOwnEvent
@@ -347,8 +408,6 @@ function DbSyncSetup() {
           qc.invalidateQueries({ queryKey: ["labels"] });
           invalidateSettingsSurfaces();
         }
-      } else if (!isOwnEvent) {
-        qc.invalidateQueries({ queryKey: ["action"] });
       }
     },
   });
@@ -360,27 +419,17 @@ function DbSyncSetup() {
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 export default function Root() {
-  const [queryClient] = useState(() =>
-    createAgentNativeQueryClient({
-      defaultOptions: {
-        queries: {
-          // Mail's VisibilityRefresh handles the focus-based refresh with a
-          // 60 s throttle, so we also want React Query's focus refetch to
-          // fire for other query keys (labels, settings, etc.).
-          refetchOnWindowFocus: true,
-        },
-      },
-    }),
-  );
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders
-      queryClient={queryClient}
-      themeAttribute={["class", "data-theme"]}
-      tooltipDelayDuration={300}
-      toaster={MAIL_TOASTER}
-      i18n={{ catalog: i18nCatalog }}
-    >
-      <RequireSession bypass={isMcpEmbedSurface()}>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        themeAttribute={["class", "data-theme"]}
+        tooltipDelayDuration={300}
+        toaster={MAIL_TOASTER}
+        sessionBypass={isMcpEmbedSurface()}
+        i18n={{ catalog: i18nCatalog }}
+      >
         <AutoFocus />
         <AutomationTrigger />
         <VisibilityRefresh />
@@ -388,8 +437,8 @@ export default function Root() {
         <AppLayout>
           <Outlet />
         </AppLayout>
-      </RequireSession>
-    </AppProviders>
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 
@@ -436,6 +485,16 @@ export function ErrorBoundary() {
             {copy.reload}
           </Button>
         </div>
+        <ErrorReportActions
+          appName="Mail"
+          title={copy.title}
+          details={message}
+          issueTitle={`Mail error: ${copy.title}`}
+          feedbackLabel={copy.sendFeedback}
+          feedbackPlaceholder={copy.feedbackPlaceholder}
+          githubLabel={copy.openGitHubIssue}
+          className="mt-4"
+        />
       </div>
     </div>
   );

@@ -1,4 +1,6 @@
 import "./overlay.css";
+import { SCREEN_CAPTURE_FRAME_RATE } from "@shared/recording-capture";
+
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("overlay");
@@ -16,6 +18,60 @@ type OverlayPhase = "idle" | "countdown" | "recording" | "paused" | "saving";
 // which owns the iframe size (the iframe can't resize itself).
 const TOOLBAR_COLLAPSED_H = 154;
 const TOOLBAR_EXPANDED_H = 236;
+
+function isDeviceUnavailableError(error: unknown): boolean {
+  const name =
+    error && typeof error === "object" && "name" in error
+      ? String((error as { name?: unknown }).name)
+      : "";
+  return (
+    name === "OverconstrainedError" ||
+    name === "NotFoundError" ||
+    name === "DevicesNotFoundError"
+  );
+}
+
+function cameraConstraint(deviceId: string): MediaTrackConstraints {
+  const video: MediaTrackConstraints = {
+    width: { ideal: 480 },
+    height: { ideal: 480 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
+  };
+  if (deviceId) video.deviceId = { exact: deviceId };
+  else video.facingMode = "user";
+  return video;
+}
+
+async function getCameraBubbleStream(deviceId: string): Promise<MediaStream> {
+  try {
+    return await navigator.mediaDevices.getUserMedia({
+      video: cameraConstraint(deviceId),
+      audio: false,
+    });
+  } catch (error) {
+    if (!deviceId || !isDeviceUnavailableError(error)) throw error;
+    captureExtensionError(
+      new Error("Selected Clips camera was unavailable; using default camera."),
+      {
+        tags: { surface: "overlay", mechanism: "camera-device-fallback" },
+        extra: {
+          requestedDeviceId: deviceId,
+          originalError:
+            error instanceof Error
+              ? { name: error.name, message: error.message }
+              : String(error),
+        },
+      },
+    );
+    return navigator.mediaDevices.getUserMedia({
+      video: cameraConstraint(""),
+      audio: false,
+    });
+  }
+}
 
 function postToolbarSize(height: number): void {
   try {
@@ -80,14 +136,22 @@ const ICONS = {
   ),
 };
 
-function send(type: string, extra: Record<string, unknown> = {}): void {
+function send(
+  type: string,
+  extra: Record<string, unknown> = {},
+  onComplete?: (ok: boolean) => void,
+): void {
   try {
     chrome.runtime.sendMessage(
       { type, ...extra },
-      () => void chrome.runtime.lastError,
+      (response?: { ok?: boolean }) => {
+        const error = chrome.runtime.lastError;
+        onComplete?.(!error && response?.ok !== false);
+      },
     );
   } catch {
     /* the background may be momentarily asleep; state will re-sync */
+    onComplete?.(false);
   }
 }
 
@@ -151,49 +215,114 @@ async function initBubble(): Promise<void> {
 
   root.appendChild(bubble);
 
-  try {
-    const videoDeviceId = await new Promise<string>((resolve) => {
-      try {
-        chrome.storage.sync.get("videoDeviceId", (v) =>
-          resolve(typeof v.videoDeviceId === "string" ? v.videoDeviceId : ""),
-        );
-      } catch {
-        resolve("");
-      }
-    });
-    const videoConstraint: MediaTrackConstraints = {
-      width: { ideal: 640 },
-      height: { ideal: 640 },
-    };
-    if (videoDeviceId) videoConstraint.deviceId = { exact: videoDeviceId };
-    else videoConstraint.facingMode = "user";
-    const stream = await navigator.mediaDevices.getUserMedia({
-      video: videoConstraint,
-      audio: false,
-    });
-    const video = document.createElement("video");
-    video.muted = true;
-    video.autoplay = true;
-    video.playsInline = true;
-    video.srcObject = stream;
-    ring.appendChild(video);
-    await video.play().catch(() => undefined);
-    console.log("[clips-overlay] camera bubble live");
+  let currentStream: MediaStream | null = null;
+  let currentVideo: HTMLVideoElement | null = null;
+  let healthTimer: number | undefined;
+  let reconnectTimer: number | undefined;
+  let unhealthyTicks = 0;
+  let readyPosted = false;
+
+  const postReadyOnce = (): void => {
+    if (readyPosted) return;
+    readyPosted = true;
     // Tell the host the feed is live so it can start the countdown — the "3"
     // shouldn't appear until the camera is actually showing.
     postBubble("camera-ready");
-  } catch (err) {
-    console.warn("[clips-overlay] camera getUserMedia failed:", err);
-    captureExtensionError(err, {
-      tags: { surface: "overlay", overlayPart: "bubble" },
-    });
+  };
+
+  const videoDeviceId = await new Promise<string>((resolve) => {
+    try {
+      chrome.storage.sync.get("videoDeviceId", (v) =>
+        resolve(typeof v.videoDeviceId === "string" ? v.videoDeviceId : ""),
+      );
+    } catch {
+      resolve("");
+    }
+  });
+
+  const stopCurrentStream = (): void => {
+    if (healthTimer !== undefined) window.clearInterval(healthTimer);
+    healthTimer = undefined;
+    if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+    currentVideo?.remove();
+    currentVideo = null;
+    currentStream?.getTracks().forEach((track) => track.stop());
+    currentStream = null;
+    unhealthyTicks = 0;
+  };
+
+  const showCameraUnavailable = (): void => {
+    stopCurrentStream();
+    ring.replaceChildren();
     const empty = document.createElement("div");
     empty.className = "bubble-empty";
     empty.innerHTML = ICONS.cameraOff;
     ring.appendChild(empty);
     // Still release the countdown — a blocked/failed camera must not hang it.
-    postBubble("camera-ready");
+    postReadyOnce();
+  };
+
+  const scheduleReconnect = (reason: string): void => {
+    if (reconnectTimer !== undefined) return;
+    reconnectTimer = window.setTimeout(() => {
+      reconnectTimer = undefined;
+      void connectCamera(reason);
+    }, 500);
+  };
+
+  const watchCameraHealth = (
+    video: HTMLVideoElement,
+    track: MediaStreamTrack,
+  ) => {
+    healthTimer = window.setInterval(() => {
+      const unhealthy =
+        track.readyState !== "live" ||
+        track.muted ||
+        video.readyState < HTMLMediaElement.HAVE_CURRENT_DATA ||
+        video.videoWidth === 0;
+      unhealthyTicks = unhealthy ? unhealthyTicks + 1 : 0;
+      if (unhealthyTicks >= 3) scheduleReconnect("camera stream stalled");
+    }, 2000);
+  };
+
+  async function connectCamera(reason = "initial"): Promise<void> {
+    stopCurrentStream();
+    try {
+      const stream = await getCameraBubbleStream(videoDeviceId);
+      const video = document.createElement("video");
+      video.muted = true;
+      video.autoplay = true;
+      video.playsInline = true;
+      video.srcObject = stream;
+      ring.replaceChildren(video);
+      currentStream = stream;
+      currentVideo = video;
+      const track = stream.getVideoTracks()[0];
+      track?.addEventListener("ended", () => scheduleReconnect("track ended"));
+      track?.addEventListener("mute", () => scheduleReconnect("track muted"));
+      video.addEventListener("stalled", () =>
+        scheduleReconnect("video stalled"),
+      );
+      video.addEventListener("emptied", () =>
+        scheduleReconnect("video emptied"),
+      );
+      await video.play().catch(() => undefined);
+      console.log("[clips-overlay] camera bubble live", reason);
+      postReadyOnce();
+      if (track) watchCameraHealth(video, track);
+    } catch (err) {
+      console.warn("[clips-overlay] camera getUserMedia failed:", err);
+      captureExtensionError(err, {
+        tags: { surface: "overlay", overlayPart: "bubble" },
+        extra: { reason },
+      });
+      showCameraUnavailable();
+    }
   }
+
+  window.addEventListener("pagehide", stopCurrentStream, { once: true });
+  await connectCamera();
 }
 
 /* ------------------------------------------------------------- countdown --- */
@@ -283,6 +412,7 @@ function initToolbar(): void {
     title: string,
     svg: string,
     onClick: () => void,
+    activateOnPointerDown = false,
   ): HTMLButtonElement => {
     const btn = document.createElement("button");
     btn.type = "button";
@@ -290,7 +420,22 @@ function initToolbar(): void {
     btn.title = title;
     btn.setAttribute("aria-label", title);
     btn.innerHTML = svg;
-    btn.addEventListener("click", onClick);
+    if (activateOnPointerDown) {
+      btn.addEventListener("pointerdown", (event) => {
+        if (event.button !== 0) return;
+        // The iframe grows when the pointer enters the toolbar. Act before that
+        // resize/focus work can cancel the browser's later click event.
+        event.preventDefault();
+        onClick();
+      });
+      btn.addEventListener("click", (event) => {
+        // Pointer activation already ran above. Preserve native keyboard
+        // activation, whose synthetic click has detail=0.
+        if (event.detail === 0) onClick();
+      });
+    } else {
+      btn.addEventListener("click", onClick);
+    }
     return btn;
   };
 
@@ -307,10 +452,28 @@ function initToolbar(): void {
   clock.textContent = "0:00";
   time.append(clock);
 
-  const pauseBtn = makeBtn("toolbar-v-pause", "Pause", ICONS.pause, () => {
-    if (state.phase === "paused") send("CLIPS_OVERLAY_RESUME");
-    else send("CLIPS_OVERLAY_PAUSE");
-  });
+  let pauseCommandPending = false;
+  const pauseBtn = makeBtn(
+    "toolbar-v-pause",
+    "Pause",
+    ICONS.pause,
+    () => {
+      if (pauseCommandPending) return;
+      const resume = state.phase === "paused";
+      const command = resume ? "CLIPS_OVERLAY_RESUME" : "CLIPS_OVERLAY_PAUSE";
+      pauseCommandPending = true;
+      // Make the control react to the first press even if waking the MV3
+      // service worker takes a moment. The worker remains authoritative and
+      // immediately broadcasts the confirmed state.
+      state.phase = resume ? "recording" : "paused";
+      toolbarRender?.();
+      send(command, {}, (ok) => {
+        pauseCommandPending = false;
+        if (!ok) send("CLIPS_OVERLAY_HELLO", { part });
+      });
+    },
+    true,
+  );
 
   const hoverGroup = document.createElement("div");
   hoverGroup.className = "toolbar-v-hover-actions";

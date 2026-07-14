@@ -17,12 +17,18 @@
 
 import { AsyncLocalStorage } from "node:async_hooks";
 
+import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import type {
   ActionEntry,
   AgentLoopFinalResponseGuard,
 } from "../agent/production-agent.js";
-import { actionsToEngineTools } from "../agent/production-agent.js";
+import {
+  actionsToEngineTools,
+  filterInitialEngineTools,
+  resolveAgentRequestReasoningEffort,
+} from "../agent/production-agent.js";
 import {
   runAgentLoop,
   appendAgentLoopContinuation,
@@ -42,6 +48,7 @@ import {
   foldAssistantTurn,
   threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import type { RunEvent } from "../agent/types.js";
 import {
@@ -584,6 +591,11 @@ function createTaskMessageFinalGuard(
       retryMessage: formatQueuedTaskMessages(queuedMessages),
       fallbackMessage:
         "I received an orchestrator update while finishing, but could not continue from it. Please check the task status and send the update again if needed.",
+      // A queued update can introduce a request for an action that was
+      // deferred behind tool-search. The retry is already a corrective turn,
+      // so expose the full authorized registry rather than making the
+      // sub-agent spend that turn rediscovering the same tool.
+      expandToolSurface: true,
     };
   };
 }
@@ -1158,7 +1170,11 @@ function summarizeAgentChatEvent(event: RunEvent): {
         metadata: { reason: payload.reason },
       };
     case "clear":
-      return null;
+      return {
+        kind: "status",
+        message: "",
+        metadata: { agentChatEventType: "clear" },
+      };
     case "agent_call":
       return {
         kind: "status",
@@ -1595,6 +1611,16 @@ export interface AgentTeamRunConfig {
   actions: Record<string, ActionEntry>;
   engine: AgentEngine;
   model: string;
+  /**
+   * Tool names to expose on the FIRST engine request for this sub-agent
+   * chunk. See `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) —
+   * same semantics: when provided, every other action in `actions` is
+   * deferred behind an attached `tool-search` entry instead of being
+   * serialized on every chunk; `runAgentLoop`'s mid-run tool expansion still
+   * lets the model discover and call them after a search. Omit to keep the
+   * full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
 }
 
 export interface ProcessAgentTeamRunOptions {
@@ -1705,11 +1731,19 @@ export async function processAgentTeamRun(
         ];
       }
 
+      const initialToolNames = config.initialToolNames;
+      // Only attach tool-search (and pay its schema cost) when the caller
+      // actually supplied an initial subset to filter down to — otherwise
+      // this is byte-for-byte the prior unfiltered behavior.
+      const baseActions = initialToolNames
+        ? attachToolSearch({ ...config.actions })
+        : config.actions;
       const messageAwareActions = createMessageAwareActions(
         opts.taskId,
-        config.actions,
+        baseActions,
       );
-      const tools = actionsToEngineTools(messageAwareActions);
+      const availableTools = actionsToEngineTools(messageAwareActions);
+      const tools = filterInitialEngineTools(availableTools, initialToolNames);
 
       // Fresh runId per chunk (avoids agent_runs PK collisions); stable turnId so
       // the durable assistant message folds across chunks.
@@ -1759,7 +1793,10 @@ export async function processAgentTeamRun(
             const wrappedSend = (event: AgentChatEvent) => {
               send(event);
               if (event.type === "text") {
-                accumulatedText += event.text;
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
                 task.preview = accumulatedText.slice(-800);
                 const now = Date.now();
                 if (now - lastProgressSent >= PROGRESS_INTERVAL_MS) {
@@ -1772,6 +1809,20 @@ export async function processAgentTeamRun(
                   });
                   if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
                 }
+              } else if (event.type === "clear") {
+                accumulatedText = applyAgentTextEventToBuffer(
+                  accumulatedText,
+                  event,
+                );
+                task.preview = "";
+                lastProgressSent = Date.now();
+                saveTask(task).catch((err) => {
+                  console.warn(
+                    `[agent-teams] clear save failed for task ${task.taskId}:`,
+                    describeDbError(err),
+                  );
+                });
+                if (ownerEmail) void updateTaskProgressRun(task, ownerEmail);
               } else if (event.type === "tool_start") {
                 task.currentStep = `Running ${event.tool}...`;
               } else if (event.type === "tool_done") {
@@ -1791,8 +1842,19 @@ export async function processAgentTeamRun(
                   chunkUsage = await runAgentLoop({
                     engine: config.engine,
                     model: config.model,
+                    // Agent-team runs are delegated turns too. Keep their
+                    // first attempt on the same model-aware budget as A2A /
+                    // MCP so reasoning models do not spend the old 4K
+                    // default before emitting a tool call or answer.
+                    maxOutputTokens: resolveMainChatMaxOutputTokens(
+                      config.model,
+                    ),
+                    reasoningEffort: resolveAgentRequestReasoningEffort({
+                      model: config.model,
+                    }),
                     systemPrompt,
                     tools,
+                    availableTools,
                     messages,
                     actions: messageAwareActions,
                     send: wrappedSend,

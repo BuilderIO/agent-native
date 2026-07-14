@@ -264,6 +264,10 @@ export async function ensureObservabilityTables(): Promise<void> {
           `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
         );
         await ensureIndexExists(
+          "idx_trace_summaries_thread_user_created",
+          `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
+        );
+        await ensureIndexExists(
           "idx_trace_spans_user",
           `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
         );
@@ -360,6 +364,7 @@ export async function ensureObservabilityTables(): Promise<void> {
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_created ON agent_trace_spans (created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_trace_summaries_created ON agent_trace_summaries (created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_trace_summaries_user ON agent_trace_summaries (user_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_trace_summaries_thread_user_created ON agent_trace_summaries (thread_id, user_id, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_trace_spans_user ON agent_trace_spans (user_id)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_thread ON agent_feedback (thread_id)`,
         `CREATE INDEX IF NOT EXISTS idx_feedback_created ON agent_feedback (created_at)`,
@@ -589,6 +594,24 @@ export async function getTraceSummary(
   const { rows } = await client.execute({
     sql: `SELECT * FROM agent_trace_summaries WHERE ${where}`,
     args,
+  });
+  if (rows.length === 0) return null;
+  return rowToTraceSummary(rows[0] as any);
+}
+
+/** Latest completed response in a thread, always scoped to its owner. */
+export async function getLatestTraceSummaryForThread(
+  threadId: string,
+  opts: { userId: string; excludeRunId: string },
+): Promise<TraceSummary | null> {
+  await ensureObservabilityTables();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM agent_trace_summaries
+      WHERE thread_id = ? AND user_id = ? AND run_id <> ?
+      ORDER BY created_at DESC
+      LIMIT 1`,
+    args: [threadId, opts.userId, opts.excludeRunId],
   });
   if (rows.length === 0) return null;
   return rowToTraceSummary(rows[0] as any);
@@ -972,7 +995,10 @@ export async function updateExperiment(
     sets.push("status = ?");
     args.push(updates.status);
     if (updates.status === "running" && !updates.endedAt) {
-      sets.push("started_at = ?");
+      // Preserve the original exposure window when a paused experiment
+      // resumes; resetting it would silently discard the first run period from
+      // the results.
+      sets.push("started_at = COALESCE(started_at, ?)");
       args.push(Date.now());
     }
   }

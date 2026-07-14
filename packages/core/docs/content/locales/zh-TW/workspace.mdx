@@ -5,7 +5,11 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 
 # 工作區
 
-> **哪個工作區檔案？** 此頁面涵蓋 **自訂層** — 工作區*是什麼*。對於部署形狀（一個單一儲存庫，許多應用程式），請參閱 [Multi-App Workspaces](/docs/multi-app-workspace)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
+<Callout tone="info">
+
+**哪個工作區檔案？** 此頁面涵蓋 **自訂層** — 工作區*是什麼*。對於部署形狀（一個單一儲存庫，許多應用程式），請參閱 [Multi-App Workspaces](/docs/multi-app-workspace)；有關治理（誰審查、核准和擁有什麼），請參閱 [Workspace Governance](/docs/workspace-management)。
+
+</Callout>
 
 每個 Agent-Native 應用程式都附帶一個**工作區**：使代理成為您的自訂層。它包含團隊指令 (`AGENTS.md`)、共用學習內容 (`LEARNINGS.md`)、個人結構化記憶 (`memory/MEMORY.md`)、代理按需拉入的 skills、自訂子代理、計畫作業和連線的 MCP 伺服器 — 您期望從 Claude 程式碼 / Codex 設定獲得的一切。
 
@@ -82,7 +86,7 @@ description: "Claude - 每個使用者的程式碼級自訂 - skills、記憶、
 | 每個專案 `CLAUDE.md` / skills | 每個應用 `AGENTS.md` + 工作區記憶資源   |
 | JSON 檔案中的 MCP 設定        | JSON 中的 MCP 設定*或*設定 UI，每個範圍 |
 
-相同的功能。不同的經濟。請參閱 [Templates](/docs/cloneable-saas) 了解為什麼這對 SaaS 很重要。
+相同的功能。不同的經濟。請參閱 [應用程式](/docs/cloneable-saas) 了解為什麼這對 SaaS 很重要。
 
 ## 概述 {#overview}
 
@@ -219,11 +223,9 @@ workspace context/brand.md
 -> personal context/brand.md
 ```
 
-保持 `context/` 檔案簡短且真實——代理可以瀏覽的一些要點：
+例如：
 
-```text
-<!-- context/brand.md -->
-
+```text filename="context/brand.md"
 # 品牌
 
 - Voice: direct, warm, concrete
@@ -388,15 +390,9 @@ Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 
 在一個應用程式內使用自訂代理進行委派。當您需要透過 A2A 呼叫另一個應用程式時，請使用連線的代理。
 
-## @標記 {#at-tagging}
+## @ 標記與 / 斜線指令 {#at-tagging}
 
-在聊天輸入中鍵入 `@` 以引用工作區專案。游標處會出現一個下拉清單，顯示匹配的代理和檔案。使用箭頭鍵進行導覽並使用 Enter 進行選取。所選專案在輸入中顯示為行內標籤。
-
-當您傳送訊息時，**檔案/資源**作為代理可以讀取的引用進行傳遞，**自訂代理**使用其設定檔案指令在本機執行，並且**連線的代理**透過 A2A 進行呼叫。
-
-## / 斜線指令 {#slash-commands}
-
-在行首鍵入 `/` 以呼叫技能。下拉清單顯示可用的 skills 及其名稱和描述；選取一個會新增一個行內標籤，並在傳送訊息時將其內容作為脈絡包含在內。如果未設定 skills，則下拉清單連結到這些檔案。
+在聊天輸入框中輸入 `@` 可參照代理、檔案或資源，輸入 `/` 可呼叫 skill——兩者都會在游標處開啟下拉選單，並在選擇項目後加入行內標籤。完整機制（路由、`MentionProvider`、子代理選擇）請參閱[代理提及](/docs/agent-mentions)；skills 的編寫與探索方式請參閱 [Skills 指南](/docs/skills-guide)。
 
 ## 程式碼與應用程式模式 {#dev-vs-prod}
 
@@ -415,10 +411,6 @@ Skills 是 `skills/` 路徑（最好是 `skills/<name>/SKILL.md`）下的 Markdo
 工作區連線允許應用程式共用相同的提供者帳戶（Slack、GitHub、HubSpot 等），而無需重複憑證。連線在 SQL 中紀錄提供者身分、帳戶標籤、狀態、範圍、應用程式授權和憑證引用。秘密保留在憑證儲存中；連線僅指向憑證金鑰名稱，例如 `SLACK_BOT_TOKEN`。
 
 請參閱 [Workspace Connections](/docs/workspace-connections) 了解快速入門、connection/grant/credentialRef API 以及具體的 Slack、HubSpot 和 GitHub 範例。
-
----
-
-# 參考
 
 ## 資源 API {#resource-api}
 
@@ -463,3 +455,12 @@ pnpm action resource-write --path "notes/meeting.md" --content "# 會議紀錄..
 # 刪除資源
 pnpm action resource-delete --path "notes/old.md"
 ```
+
+## 接下來 {#whats-next}
+
+- [**Skills 指南**](/docs/skills-guide) — 編寫 `skills/` 中參照的 skill 檔案並設定其範圍
+- [**代理提及**](/docs/agent-mentions) — `@` 提及與 `/` 指令的完整機制
+- [**定期工作**](/docs/recurring-jobs) — 排程由 Scheduled Tasks 建立的提示詞
+- [**Workspace 治理**](/docs/workspace-management) — 誰負責審查、核准和擁有 workspace 變更
+- [**多應用程式 Workspace**](/docs/multi-app-workspace) — 一個 workspace 所涵蓋的部署形態
+- [**Workspace 連線**](/docs/workspace-connections) — 在應用程式之間共用供應商憑證

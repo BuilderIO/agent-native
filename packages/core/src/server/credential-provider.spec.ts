@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
+const mockReadAppSecrets = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
 const mockGetSetting = vi.fn();
@@ -12,6 +13,7 @@ const mockIsLocalDatabase = vi.fn<[], boolean>();
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
 }));
@@ -32,7 +34,10 @@ import {
   builderCredentialFingerprint,
   canUseDeployCredentialFallbackForRequest,
   getBuilderCredentialAuthFailure,
+  getProviderCredentialAuthFailure,
+  providerCredentialFingerprint,
   recordBuilderCredentialAuthFailure,
+  recordProviderCredentialAuthFailure,
   resolveCredentialWriteScope,
   writeBuilderCredentials,
   deleteBuilderCredentials,
@@ -92,8 +97,25 @@ beforeEach(() => {
   delete process.env.BUILDER_SUBSCRIPTION_NAME;
   delete process.env.BUILDER_IS_ENTERPRISE;
   delete process.env.BUILDER_IS_FREE_ACCOUNT;
+  delete process.env.ANTHROPIC_API_KEY;
   delete process.env.OPENAI_API_KEY;
+  delete process.env.OPENAI_BASE_URL;
+  delete process.env.OPENROUTER_API_KEY;
+  delete process.env.GROQ_API_KEY;
+  delete process.env.GOOGLE_CLIENT_SECRET;
+  delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
+  mockReadAppSecrets.mockImplementation(
+    async ({ keys, scope, scopeId }: any) => {
+      const entries = await Promise.all(
+        keys.map(async (key: string) => [
+          key,
+          await mockReadAppSecret({ key, scope, scopeId }),
+        ]),
+      );
+      return new Map(entries.filter(([, secret]) => secret));
+    },
+  );
   mockWriteAppSecret.mockResolvedValue("id");
   mockDeleteAppSecret.mockResolvedValue(true);
   mockGetSetting.mockResolvedValue(null);
@@ -377,6 +399,90 @@ describe("Builder credential auth failure markers", () => {
   });
 });
 
+describe("provider credential auth failure markers", () => {
+  it("records provider auth failures against a fingerprint without storing raw keys in the setting key", async () => {
+    await recordProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+      status: 401,
+      code: "http_401",
+      message: "401 status code (no body)",
+    });
+
+    expect(mockPutSetting).toHaveBeenCalledTimes(1);
+    const [key, value] = mockPutSetting.mock.calls[0];
+    expect(key).toMatch(/^provider-auth-failure:[a-f0-9]{24}$/);
+    expect(key).not.toContain("OPENAI_API_KEY");
+    expect(key).not.toContain("sk-example-invalid");
+    expect(value).toMatchObject({
+      key: "OPENAI_API_KEY",
+      message: "401 status code (no body)",
+      status: 401,
+      code: "http_401",
+      ownerEmail: null,
+      orgId: null,
+    });
+  });
+
+  it("reads a provider auth-failure marker for the same effective key", async () => {
+    const fingerprint = providerCredentialFingerprint(
+      "OPENAI_API_KEY",
+      "sk-example-invalid",
+    );
+    const at = Date.now();
+    mockGetSetting.mockResolvedValue({
+      fingerprint,
+      key: "OPENAI_API_KEY",
+      message: "Invalid key",
+      status: 401,
+      code: "http_401",
+      at,
+    });
+
+    const failure = await getProviderCredentialAuthFailure({
+      key: "OPENAI_API_KEY",
+      value: "sk-example-invalid",
+    });
+
+    expect(failure).toMatchObject({
+      fingerprint,
+      key: "OPENAI_API_KEY",
+      message: "Invalid key",
+      status: 401,
+      code: "http_401",
+      at,
+    });
+    expect(mockGetSetting).toHaveBeenCalledWith(
+      `provider-auth-failure:${fingerprint}`,
+    );
+  });
+
+  it("expires stale provider auth-failure markers", async () => {
+    const fingerprint = providerCredentialFingerprint(
+      "OPENAI_API_KEY",
+      "sk-example-invalid",
+    );
+    mockGetSetting.mockResolvedValue({
+      fingerprint,
+      key: "OPENAI_API_KEY",
+      message: "Invalid key",
+      status: 401,
+      code: "http_401",
+      at: Date.now() - 16 * 60 * 1000,
+    });
+
+    await expect(
+      getProviderCredentialAuthFailure({
+        key: "OPENAI_API_KEY",
+        value: "sk-example-invalid",
+      }),
+    ).resolves.toBeNull();
+    expect(mockDeleteSetting).toHaveBeenCalledWith(
+      `provider-auth-failure:${fingerprint}`,
+    );
+  });
+});
+
 describe("deleteBuilderCredentials", () => {
   it("deletes at user scope without options", async () => {
     await deleteBuilderCredentials("a@b.com");
@@ -464,15 +570,18 @@ describe("resolveBuilderCredential", () => {
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
   });
 
-  it("does not use deploy-level LLM keys for signed-in hosted workspace users", async () => {
+  it("uses app-provided deploy-level LLM keys for signed-in hosted workspace users", async () => {
     process.env.NODE_ENV = "development";
     process.env.AGENT_NATIVE_WORKSPACE = "1";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "space-id";
+    process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.GITHUB_TOKEN = "github-deploy-token";
     // Fusion/workspace dev servers can still look "local" to DB detection
     // during startup, but their Builder env fallback must not impersonate the
-    // signed-in user.
+    // signed-in user. App-provided LLM keys are allowed because they do not
+    // identify the user; they let the app developer pay for model usage.
     mockIsLocalDatabase.mockReturnValue(true);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockGetRequestOrgId.mockReturnValue("builder_io");
@@ -481,8 +590,36 @@ describe("resolveBuilderCredential", () => {
     expect(await resolveBuilderCredential("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
     expect(await resolveBuilderCredentialSource()).toBeNull();
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "anthropic-deploy-key",
+    );
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
     expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+    expect(canUseDeployCredentialFallbackForRequest("OPENAI_API_KEY")).toBe(
+      true,
+    );
+  });
+
+  it("uses app-provided LLM env keys for signed-in production shared-database users", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ANTHROPIC_API_KEY = "anthropic-deploy-key";
+    process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.BUILDER_PRIVATE_KEY = "deploy-key";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockGetRequestOrgId.mockReturnValue("builder_io");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    expect(await resolveSecret("ANTHROPIC_API_KEY")).toBe(
+      "anthropic-deploy-key",
+    );
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(canUseDeployCredentialFallbackForRequest()).toBe(false);
+    expect(canUseDeployCredentialFallbackForRequest("ANTHROPIC_API_KEY")).toBe(
+      true,
+    );
   });
 
   it("honors env Builder keys for a signed-in workspace user when the local dev escape hatch is set", async () => {
@@ -701,6 +838,10 @@ describe("resolveBuilderCredential", () => {
       isEnterprise: null,
       isFreeAccount: null,
     });
+    expect(mockReadAppSecrets).toHaveBeenCalledTimes(2);
+    expect(
+      mockReadAppSecrets.mock.calls.map(([request]) => request.scope),
+    ).toEqual(["user", "org"]);
     await expect(resolveBuilderCredentialSource()).resolves.toBe("org");
   });
 
@@ -828,26 +969,37 @@ describe("resolveSecret (generic)", () => {
     ]);
   });
 
-  it("does not consult process.env in an authenticated request", async () => {
+  it("uses app-provided Google OAuth client env in a signed-in production shared-database request", async () => {
     process.env.NODE_ENV = "production";
-    process.env.OPENAI_API_KEY = "deploy-key";
+    process.env.GOOGLE_CLIENT_ID = "deploy-client-id";
+    process.env.GOOGLE_CLIENT_SECRET = "deploy-secret";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("GOOGLE_CLIENT_ID")).toBe("deploy-client-id");
+    expect(await resolveSecret("GOOGLE_CLIENT_SECRET")).toBe("deploy-secret");
+    expect(canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(
+      canUseDeployCredentialFallbackForRequest("GOOGLE_CLIENT_SECRET"),
+    ).toBe(true);
   });
 
-  it("keeps deploy env secrets blocked for signed-in production shared-database users even when AGENT_ENGINE is set", async () => {
+  it("blocks generic deploy env secrets for signed-in production shared-database users even when an LLM key is allowed", async () => {
     process.env.NODE_ENV = "production";
     process.env.AGENT_ENGINE = "builder";
     process.env.BUILDER_PRIVATE_KEY = "deploy-key";
     process.env.BUILDER_PUBLIC_KEY = "space-id";
     process.env.OPENAI_API_KEY = "openai-deploy-key";
+    process.env.GITHUB_TOKEN = "github-deploy-token";
     mockIsLocalDatabase.mockReturnValue(false);
     mockGetRequestUserEmail.mockReturnValue("a@b.com");
     mockReadAppSecret.mockResolvedValue(null);
 
-    expect(await resolveSecret("OPENAI_API_KEY")).toBeNull();
+    expect(await resolveSecret("OPENAI_API_KEY")).toBe("openai-deploy-key");
+    expect(await resolveSecret("BUILDER_PRIVATE_KEY")).toBeNull();
+    expect(await resolveSecret("GITHUB_TOKEN")).toBeNull();
   });
 
   it("uses process.env for authenticated requests on local/single-tenant databases", async () => {

@@ -4,8 +4,9 @@ import {
   ChangelogSettingsCard,
   LanguagePicker,
   SettingsTabsPage,
-  openAgentSettings,
+  useAgentSettingsTabs,
   type AppearancePresetId,
+  type SettingsSearchEntry,
   useT,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
@@ -17,7 +18,7 @@ import {
   IconCircleCheck,
   IconCircleX,
 } from "@tabler/icons-react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useMemo } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
@@ -53,6 +54,7 @@ import changelog from "../../CHANGELOG.md?raw";
 
 export default function Settings() {
   const t = useT();
+  const agentSettingsTabs = useAgentSettingsTabs();
   const { data: settings } = useSettings();
   const updateSettings = useUpdateSettings();
   const googleStatus = useGoogleAuthStatus();
@@ -156,17 +158,55 @@ export default function Settings() {
     });
   }
 
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "calendar-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+      {
+        id: "calendar-google",
+        label: t("settings.googleCalendar"),
+        keywords: "google calendar connect oauth sync account",
+        hash: "google-calendar",
+      },
+      {
+        id: "calendar-zoom",
+        label: "Zoom",
+        keywords: "zoom meeting video conferencing connect",
+        hash: "zoom",
+      },
+      {
+        id: "calendar-general",
+        label: t("settings.general"),
+        keywords: "timezone booking duration defaults general",
+        hash: "general-settings",
+      },
+      {
+        id: "calendar-appearance",
+        label: t("settings.appearance"),
+        keywords: "appearance theme color mode dark light",
+        hash: "appearance",
+      },
+    ],
+    [t],
+  );
+
   return (
     <SettingsTabsPage
       generalLabel={t("settings.general")}
       teamLabel={t("navigation.team")}
+      extraTabs={agentSettingsTabs}
+      generalSearchEntries={generalSearchEntries}
       general={
         <div className="mx-auto max-w-2xl space-y-6 pb-12">
           <p className="text-sm text-muted-foreground">
             {t("settings.description")}
           </p>
 
-          <Card>
+          <Card id="language" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-lg">
                 {t("settings.languageTitle")}
@@ -181,24 +221,8 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle className="text-lg">
-                {t("settings.agentTitle")}
-              </CardTitle>
-              <CardDescription>
-                {t("settings.agentDescription")}
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <Button variant="outline" onClick={() => openAgentSettings()}>
-                {t("settings.openAgentSettings")}
-              </Button>
-            </CardContent>
-          </Card>
-
           {/* Google Calendar Connection */}
-          <Card>
+          <Card id="google-calendar" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-lg">
                 {t("settings.googleCalendar")}
@@ -264,7 +288,7 @@ export default function Settings() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card id="zoom" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-lg">Zoom</CardTitle>
               <CardDescription>{t("settings.zoomDescription")}</CardDescription>
@@ -354,7 +378,7 @@ export default function Settings() {
           <Separator />
 
           {/* General Settings */}
-          <Card>
+          <Card id="general-settings" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-lg">{t("settings.general")}</CardTitle>
               <CardDescription>
@@ -435,7 +459,7 @@ export default function Settings() {
           </Card>
 
           {/* Appearance */}
-          <Card>
+          <Card id="appearance" className="scroll-mt-16">
             <CardHeader>
               <CardTitle className="text-lg">
                 {t("settings.appearance")}
@@ -462,7 +486,7 @@ export default function Settings() {
         </div>
       }
       team={
-        <div className="mx-auto w-full max-w-2xl">
+        <div className="mx-auto w-full max-w-3xl">
           <TeamPage
             showTitle={false}
             createOrgDescription="Set up a team to share calendars and booking links with your colleagues."

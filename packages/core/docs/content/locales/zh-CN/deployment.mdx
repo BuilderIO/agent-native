@@ -384,24 +384,22 @@ openssl rand -hex 32
 ## 生产代理工具 {#production-agent-tools}
 
 生产代理从
-代理聊天插件。默认情况下启用数据库写入，因为原始数据库
-工具的范围仅限于经过身份验证的用户/组织，但应用程序所有者可以缩小范围
-何时部署应该更加固执己见：
+代理聊天插件。默认启用 SQL 检查；数据库写入通过类型化应用程序 actions 进行，
+除非应用程序明确启用原始写入工具：
 
 ```ts
 // server/plugins/agent-chat.ts
 export default createAgentChatPlugin({
-  // Default: "write" (also true)
+  // Default: "read"
   databaseTools: "read", // "write" | "read" | "off"
   extensionTools: false,
 });
 ```
 
-- `databaseTools: "write"` — 默认。寄存器`db-schema`、`db-query`、
-  `db-exec` 和 `db-patch`。写入范围仅限于当前用户/组织和
-  架构更改被阻止。
-- `databaseTools: "read"` — 仅注册 `db-schema` 和 `db-query`；代理
-  使用 SQL 检查数据，但必须使用类型化应用程序 actions 进行写入。
+- `databaseTools: "read"` — 默认。仅注册 `db-schema` 和 `db-query`；
+  代理使用 SQL 检查数据，但必须使用类型化应用程序 actions 进行写入。
+- `databaseTools: "write"` 或 `true` — 还会注册 `db-exec` 和 `db-patch`
+  用于有意的原始 SQL 维护。写入范围限定为当前用户/组织，并阻止架构更改。
 - `databaseTools: "off"` 或 `false` — 从
   代理表面，因此应用程序的 actions 是唯一的数据访问路径。
 - `extensionTools: false` — 删除框架扩展管理 actions 和
@@ -453,3 +451,11 @@ agent-native 的核心功能之一是代理可以修改应用程序的源代码 
 ## 多实例部署 {#multi-instance}
 
 代理本机应用程序通过 Drizzle 将所有状态存储在 SQL 中，并通过 [polling](/docs/key-concepts#polling-sync) 与数据库同步 UI — 无文件系统状态、无粘性会话、无内存缓存。这意味着多实例和无服务器部署开箱即用：将每个实例指向同一个 `DATABASE_URL`，它们会自动聚合。请参阅 [Key Concepts — Data in SQL](/docs/key-concepts#data-in-sql) 和 [Portability](/docs/key-concepts#hosting-agnostic)。
+
+## 下一步
+
+- [**Database**](/docs/database#production) — 在首次生产部署前选择持久化 SQL 后端
+- [**Security**](/docs/security) — 本页提到的生产检查清单和可选标志
+- [**Authentication**](/docs/authentication) — 所选身份验证模式的 OAuth 凭据和环境变量
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — `deploy` 单源构建背后的工作区模型
+- [**Frames**](/docs/frames) — 用于生产 UI 编辑的嵌入式代理面板与 Builder.io 云框架

@@ -30,12 +30,11 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo",
-    "typecheck": "tsgo --noEmit",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
-    "@typescript/native-preview": "catalog:",
-    "typescript": "^6.0.3"
+    "typescript-7": "catalog:"
   }
 }

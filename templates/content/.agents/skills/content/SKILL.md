@@ -2,8 +2,9 @@
 name: content
 description: >-
   Use Content for repo-backed Markdown/MDX docs, blogs, resources, rich
-  document editing, local components, shareable copies, and Content local-file
-  workspaces. Prefer Content actions over raw filesystem writes when available.
+  document editing, Notion-style databases and boards, structured intake
+  forms, local components, shareable copies, and Content local-file workspaces.
+  Prefer Content actions over raw filesystem writes when available.
 metadata:
   visibility: exported
 ---
@@ -12,9 +13,11 @@ metadata:
 
 Use the Content app when a workflow is about authoring, editing, reviewing, or
 publishing Markdown/MDX documents: docs sites, blogs, resource libraries,
-marketing pages, internal notes, and local MDX components. Content gives the
-agent a document tree, a rich editor, normal document actions, and optional
-local-file source of truth.
+marketing pages, internal notes, and local MDX components. Also use Content for
+Notion-style databases, tables, boards, structured request intake, and forms
+whose submissions become database row pages. Content gives the agent a document
+tree, a rich editor, structured database properties and views, normal document
+actions, and an optional local-file source of truth.
 
 ## Choose The Path
 
@@ -26,6 +29,10 @@ local-file source of truth.
 - Use `pull-document` or `get-document` before editing a page. Use
   `edit-document` for precise find/replace changes and `update-document` for
   full rewrites or new content.
+- Use `list-documents` or `search-documents` to find an existing database by
+  its exact title, then inspect it with `get-content-database` before creating
+  or submitting anything. Do not create a second database when the canonical
+  one already exists.
 - In Local File Mode, Content actions read and write the repo files declared in
   `agent-native.json`; SQL remains cache/history/search glue, not the source of
   truth for those pages.
@@ -48,6 +55,51 @@ pnpm action share-local-file-document '{"id":"local-file:..."}'
 
 Run `refresh-list` after create/update/delete operations when you need the open
 Content UI sidebar to repaint immediately.
+
+## Database And Intake Workflows
+
+Content databases are one available capability for structured team queues,
+tables, boards, and intake forms. Select Content when workspace instructions or
+app-capability discovery identify it as the owner of the workflow. Do not route
+from a department or subject word alone, and do not embed an organization's
+queue name, destination ID, schema, required fields, or owner in this reusable
+skill. If workspace instructions assign the workflow to another app, follow
+those instructions.
+
+For a named intake workflow:
+
+1. Read the loaded workspace instruction/resource first. It may identify the
+   owning app, canonical database ID or title, form view, and intake policy.
+   Treat that live instruction as authoritative instead of applying defaults
+   from this skill.
+2. Once Content is selected, find the canonical database by the instructed ID
+   or exact title with `list-documents` or `search-documents`; inspect it with
+   `get-content-database` and, when available,
+   `get-content-database-form`. Preserve its database and document IDs. Never
+   guess IDs or create a duplicate queue.
+3. Read the current property/form schema and required fields before asking the
+   user anything. Ask only for required values that are actually missing.
+4. You may infer low-risk values from the request, sender identity, and source
+   context, but state proposed values and confirm any uncertain or consequential
+   inference. Never invent a value for a field marked required.
+5. Preserve a provided `Source Slack thread` URL verbatim in the matching URL
+   or source field. It is request provenance; never replace it with an invented
+   Slack URL.
+6. Submit exactly once with `submit-content-database-form` when that action is
+   available. Prefer it over piecemeal writes because it validates required
+   fields and verifies the saved row. Fall back to `add-database-item` only
+   when the database has no form contract and all required values have already
+   been confirmed.
+7. Treat submission as complete only when the successful result includes a
+   `createdDocumentId` and verification. Return the exact `url` or `urlPath`
+   from the result. The canonical Content row route is `/page/<createdDocumentId>`;
+   never invent a different path, slug, ID, or host.
+
+When the user supplies a complete description in one message, do not force a
+questionnaire: extract the matching fields, show only genuinely uncertain
+inferences for confirmation, then submit once. When required information is
+missing, keep the clarification in the originating thread and retain earlier
+answers as context.
 
 ## Local File Mode
 

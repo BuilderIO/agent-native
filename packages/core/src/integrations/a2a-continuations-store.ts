@@ -10,7 +10,7 @@ import {
   ensureIndexExists,
 } from "../db/ddl-guard.js";
 import { isDuplicateColumnError } from "../db/migrations.js";
-import type { IncomingMessage } from "./types.js";
+import type { IncomingMessage, PlatformRunProgressRef } from "./types.js";
 
 let _initPromise: Promise<void> | undefined;
 const PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
@@ -28,6 +28,8 @@ function buildCreateSql(): string {
     external_thread_id TEXT NOT NULL,
     incoming_payload TEXT NOT NULL,
     placeholder_ref TEXT,
+    progress_ref TEXT,
+    progress_ref_claimed ${intType()} NOT NULL DEFAULT 0,
     owner_email TEXT NOT NULL,
     org_id TEXT,
     agent_name TEXT NOT NULL,
@@ -76,9 +78,24 @@ async function ensureTable(): Promise<void> {
           "dedupe_key",
           `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS dedupe_key TEXT`,
         );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref TEXT`,
+        );
+        await ensureColumnExists(
+          "integration_a2a_continuations",
+          "progress_ref_claimed",
+          `ALTER TABLE integration_a2a_continuations ADD COLUMN IF NOT EXISTS progress_ref_claimed ${intType()} NOT NULL DEFAULT 0`,
+        );
+        await backfillProgressRefOwners(client);
         await ensureIndexExists(
           "idx_a2a_continuations_dedupe_key",
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        );
+        await ensureIndexExists(
+          "idx_a2a_continuations_one_progress_owner",
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
         );
         return;
       }
@@ -101,9 +118,20 @@ async function ensureTable(): Promise<void> {
       );
       await addColumnIfMissing("a2a_auth_token", "TEXT");
       await addColumnIfMissing("dedupe_key", "TEXT");
+      await addColumnIfMissing("progress_ref", "TEXT");
+      await addColumnIfMissing(
+        "progress_ref_claimed",
+        `${intType()} NOT NULL DEFAULT 0`,
+      );
+      await backfillProgressRefOwners(client);
       await retryOnDdlRace(() =>
         client.execute(
           `CREATE INDEX IF NOT EXISTS idx_a2a_continuations_dedupe_key ON integration_a2a_continuations(integration_task_id, agent_url, dedupe_key)`,
+        ),
+      );
+      await retryOnDdlRace(() =>
+        client.execute(
+          `CREATE UNIQUE INDEX IF NOT EXISTS idx_a2a_continuations_one_progress_owner ON integration_a2a_continuations(integration_task_id) WHERE progress_ref_claimed = 1`,
         ),
       );
     })().catch((err) => {
@@ -128,6 +156,33 @@ async function addColumnIfMissing(name: string, definition: string) {
   }
 }
 
+async function backfillProgressRefOwners(
+  client: ReturnType<typeof getDbExec>,
+): Promise<void> {
+  await client.execute(`
+    UPDATE integration_a2a_continuations AS candidate
+    SET progress_ref_claimed = 1
+    WHERE candidate.progress_ref IS NOT NULL
+      AND candidate.status NOT IN ('completed', 'failed')
+      AND candidate.progress_ref_claimed = 0
+      AND NOT EXISTS (
+        SELECT 1
+        FROM integration_a2a_continuations AS owner
+        WHERE owner.integration_task_id = candidate.integration_task_id
+          AND owner.progress_ref_claimed = 1
+      )
+      AND candidate.id = (
+        SELECT selected.id
+        FROM integration_a2a_continuations AS selected
+        WHERE selected.integration_task_id = candidate.integration_task_id
+          AND selected.progress_ref IS NOT NULL
+          AND selected.status NOT IN ('completed', 'failed')
+        ORDER BY selected.created_at ASC, selected.id ASC
+        LIMIT 1
+      )
+  `);
+}
+
 export type A2AContinuationStatus =
   | "pending"
   | "processing"
@@ -142,6 +197,8 @@ export interface A2AContinuation {
   externalThreadId: string;
   incoming: IncomingMessage;
   placeholderRef: string | null;
+  progressRef: PlatformRunProgressRef | null;
+  progressRefClaimed: boolean;
   ownerEmail: string;
   orgId: string | null;
   agentName: string;
@@ -158,6 +215,44 @@ export interface A2AContinuation {
   completedAt: number | null;
 }
 
+const MAX_PROGRESS_REF_KIND_CHARS = 128;
+const MAX_PROGRESS_REF_STREAM_TS_CHARS = 256;
+
+/**
+ * Keep only the tiny, adapter-owned continuation reference. Invalid rows are
+ * treated as unavailable rather than throwing during a retry sweep.
+ */
+function parseProgressRef(value: unknown): PlatformRunProgressRef | null {
+  if (typeof value !== "string" || value.length === 0) return null;
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return null;
+    }
+    const { kind, streamTs } = parsed as Record<string, unknown>;
+    if (
+      typeof kind !== "string" ||
+      typeof streamTs !== "string" ||
+      kind.length === 0 ||
+      streamTs.length === 0 ||
+      kind.length > MAX_PROGRESS_REF_KIND_CHARS ||
+      streamTs.length > MAX_PROGRESS_REF_STREAM_TS_CHARS
+    ) {
+      return null;
+    }
+    return { kind, streamTs };
+  } catch {
+    return null;
+  }
+}
+
+function serializeProgressRef(value: unknown): string | null {
+  const parsed = parseProgressRef(
+    typeof value === "string" ? value : JSON.stringify(value),
+  );
+  return parsed ? JSON.stringify(parsed) : null;
+}
+
 function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
   return {
     id: row.id as string,
@@ -166,6 +261,8 @@ function rowToContinuation(row: Record<string, unknown>): A2AContinuation {
     externalThreadId: row.external_thread_id as string,
     incoming: JSON.parse(row.incoming_payload as string) as IncomingMessage,
     placeholderRef: (row.placeholder_ref as string | null) ?? null,
+    progressRef: parseProgressRef(row.progress_ref),
+    progressRefClaimed: Number(row.progress_ref_claimed ?? 0) === 1,
     ownerEmail: row.owner_email as string,
     orgId: (row.org_id as string | null) ?? null,
     agentName: row.agent_name as string,
@@ -190,6 +287,7 @@ export async function insertA2AContinuation(input: {
   externalThreadId: string;
   incoming: IncomingMessage;
   placeholderRef?: string | null;
+  progressRef?: PlatformRunProgressRef | null;
   ownerEmail: string;
   orgId?: string | null;
   agentName: string;
@@ -203,14 +301,15 @@ export async function insertA2AContinuation(input: {
   const now = Date.now();
   const id = `a2a-cont-${now}-${Math.random().toString(36).slice(2, 8)}`;
   const payload = JSON.stringify(input.incoming);
+  const progressRef = serializeProgressRef(input.progressRef);
 
   try {
     await client.execute({
       sql: `INSERT INTO integration_a2a_continuations
         (id, integration_task_id, platform, external_thread_id, incoming_payload,
-         placeholder_ref, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
+         placeholder_ref, progress_ref, progress_ref_claimed, owner_email, org_id, agent_name, agent_url, dedupe_key, a2a_task_id, a2a_auth_token,
          status, attempts, next_check_at, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       args: [
         id,
         input.integrationTaskId,
@@ -218,6 +317,8 @@ export async function insertA2AContinuation(input: {
         input.externalThreadId,
         payload,
         input.placeholderRef ?? null,
+        null,
+        0,
         input.ownerEmail,
         input.orgId ?? null,
         input.agentName,
@@ -232,7 +333,6 @@ export async function insertA2AContinuation(input: {
         now,
       ],
     });
-    return (await getA2AContinuation(id))!;
   } catch (err: any) {
     if (!isDuplicateContinuationError(err)) throw err;
     const existing = await findA2AContinuation(
@@ -240,7 +340,65 @@ export async function insertA2AContinuation(input: {
       input.agentUrl,
       input.a2aTaskId,
     );
-    if (existing) return existing;
+    if (existing) {
+      // A retry can reach this row after the original invocation created it
+      // without a resumable progress surface (or with one that has gone
+      // stale). Keep the most recent valid adapter reference for active work,
+      // but never resurrect short-lived delivery state after a terminal row
+      // has deliberately scrubbed it.
+      if (
+        progressRef &&
+        existing.status !== "completed" &&
+        existing.status !== "failed"
+      ) {
+        if (existing.progressRefClaimed) {
+          if (JSON.stringify(existing.progressRef) !== progressRef) {
+            await client.execute({
+              sql: `UPDATE integration_a2a_continuations
+                    SET progress_ref = ?, updated_at = ?
+                    WHERE id = ? AND status NOT IN ('completed', 'failed')
+                      AND progress_ref_claimed = 1
+                      AND (progress_ref IS NULL OR progress_ref <> ?)`,
+              args: [progressRef, now, existing.id, progressRef],
+            });
+          }
+        } else {
+          await claimA2AContinuationProgressRef(existing.id, progressRef);
+        }
+        return (await getA2AContinuation(existing.id)) ?? existing;
+      }
+      return existing;
+    }
+    throw err;
+  }
+
+  if (progressRef) {
+    await claimA2AContinuationProgressRef(id, progressRef);
+  }
+  return (await getA2AContinuation(id))!;
+}
+
+/**
+ * A native platform stream has one terminal completion. Claim it for a single
+ * downstream continuation, and retain the ownership marker after terminal
+ * cleanup scrubs the short-lived stream reference. The partial unique index
+ * makes concurrent downstream inserts safe across processes.
+ */
+async function claimA2AContinuationProgressRef(
+  id: string,
+  progressRef: string,
+): Promise<void> {
+  try {
+    await getDbExec().execute({
+      sql: `UPDATE integration_a2a_continuations
+            SET progress_ref = ?, progress_ref_claimed = 1
+            WHERE id = ? AND progress_ref_claimed = 0`,
+      args: [progressRef, id],
+    });
+  } catch (err) {
+    // A sibling continuation already owns this stream and will finalize it.
+    // This continuation still delivers through the normal response path.
+    if (isDuplicateContinuationError(err)) return;
     throw err;
   }
 }
@@ -461,9 +619,10 @@ export async function completeA2AContinuation(id: string): Promise<void> {
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, updated_at = ?, completed_at = ?
+          SET status = ?, updated_at = ?, completed_at = ?,
+              incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL
           WHERE id = ? AND status IN ('processing', 'delivering', 'completed')`,
-    args: ["completed", now, now, id],
+    args: ["completed", now, now, "{}", id],
   });
 }
 
@@ -476,8 +635,9 @@ export async function failA2AContinuation(
   const now = Date.now();
   await client.execute({
     sql: `UPDATE integration_a2a_continuations
-          SET status = ?, updated_at = ?, error_message = ?
+          SET status = ?, updated_at = ?, error_message = ?,
+              incoming_payload = ?, a2a_auth_token = NULL, progress_ref = NULL
           WHERE id = ? AND status <> 'completed'`,
-    args: ["failed", now, errorMessage.slice(0, 2000), id],
+    args: ["failed", now, errorMessage.slice(0, 2000), "{}", id],
   });
 }

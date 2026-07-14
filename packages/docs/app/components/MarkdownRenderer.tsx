@@ -39,7 +39,6 @@ const DOCS_IMAGE_DIMENSIONS: Record<string, ImageDimensions> = {
   "/screenshots/mail.png": { width: 1400, height: 710 },
   "/screenshots/slides.png": { width: 1400, height: 710 },
   "/screenshots/chat.png": { width: 2434, height: 1440 },
-  "/screenshots/videos.png": { width: 1400, height: 710 },
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe2c86908c2fa4f119ee4aa90b4823944?format=webp&width=1200":
     { width: 1200, height: 947 },
   "https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F769092170a14474f998cbca47384f891?format=webp&width=1200":
@@ -96,6 +95,8 @@ const GENERIC_LANGUAGES = new Set(["", "plain", "plaintext", "text", "txt"]);
 interface CodeFenceOptions {
   language?: string;
   maxLines?: number;
+  /** Real project file path from a `filename="path/to/file.ts"` fence attribute. */
+  filename?: string;
 }
 
 function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
@@ -105,6 +106,7 @@ function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
   for (const token of tokens) {
     const normalized = token.toLowerCase();
     const maxLinesMatch = token.match(/^(?:maxlines|max-lines|lines)=(.+)$/i);
+    const filenameMatch = token.match(/^filename=(.+)$/i);
     const disablesCollapse = [
       "expanded",
       "showall",
@@ -122,6 +124,12 @@ function parseCodeFenceOptions(info: string | undefined): CodeFenceOptions {
           Math.min(MAX_CONFIGURED_CODE_LINES, Math.floor(parsed)),
         );
       }
+      continue;
+    }
+
+    if (filenameMatch) {
+      const raw = filenameMatch[1].replace(/^['"]|['"]$/g, "").trim();
+      if (raw) options.filename = raw;
       continue;
     }
 
@@ -320,8 +328,12 @@ function createRenderer() {
     const fade = collapsible
       ? `<div class="code-block-fade" aria-hidden="true"></div>`
       : "";
+    const filenameAttr = options.filename ? ` data-filename="true"` : "";
+    const filenameBar = options.filename
+      ? `<div class="code-block-filename"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3v4a1 1 0 0 0 1 1h4"/><path d="M17 21H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h7l5 5v11a2 2 0 0 1-2 2z"/></svg><span>${escapeHtml(options.filename)}</span></div>`
+      : "";
 
-    return `<div class="code-block group relative"${collapsedAttrs}><div class="code-block-scroll"><pre><code${langClass}>${escapeHtml(text)}</code></pre>${fade}</div>${toggle}</div>\n`;
+    return `<div class="code-block group relative"${filenameAttr}${collapsedAttrs}>${filenameBar}<div class="code-block-scroll"><pre><code${langClass}>${escapeHtml(text)}</code></pre>${fade}</div>${toggle}</div>\n`;
   };
 
   renderer.heading = function (

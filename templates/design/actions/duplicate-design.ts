@@ -9,6 +9,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
 
 export default defineAction({
   description:
@@ -64,36 +65,70 @@ export default defineAction({
 
     // Copy the design with remapped canvasFrames
     const orgId = getRequestOrgId() || null;
-    await db.insert(schema.designs).values({
-      id: newId,
-      title: newTitle,
-      description: source.description,
-      projectType: source.projectType,
-      designSystemId: source.designSystemId ?? null,
-      data: newData,
-      ownerEmail: (() => {
-        const e = getRequestUserEmail();
-        if (!e) throw new Error("no authenticated user");
-        return e;
-      })(),
-      orgId,
-      visibility: orgId ? "org" : "private",
-      createdAt: now,
-      updatedAt: now,
-    });
+    const ownerEmail = (() => {
+      const e = getRequestUserEmail();
+      if (!e) throw new Error("no authenticated user");
+      return e;
+    })();
 
-    // Copy all associated files using the pre-generated IDs
-    for (const file of files) {
-      await db.insert(schema.designFiles).values({
-        id: idMap.get(file.id)!,
-        designId: newId,
-        filename: file.filename,
-        fileType: file.fileType,
-        content: file.content,
+    // Copy all associated files using the pre-generated IDs. `content` is
+    // copied verbatim, including any `data-agent-native-node-id` attributes
+    // already stamped on the source screen — those ids are NOT regenerated
+    // here.
+    //
+    // This is a deliberate simplification, not an oversight: node ids are
+    // scoped to a single file's DOM, never looked up globally. Every
+    // consumer (buildCodeLayerProjection/ensureCodeLayerNodeIdsInHtml in
+    // shared/code-layer.ts, the MultiScreenCanvas/editor-chrome bridge
+    // querySelectorAll calls) resolves ids against one screen's parsed HTML
+    // or one iframe's contentDocument, and each design's screens render in
+    // their own isolated iframe — so a duplicated screen sharing ids with its
+    // source design is harmless: there is no code path that queries two
+    // screens' DOMs together. Regenerating ids here would additionally have
+    // to rewrite every `[data-agent-native-node-id="..."]` selector embedded
+    // inline by shared/motion-compiler.ts and shared/interaction-states.ts
+    // (motion timelines and hover/focus states target nodes by id in CSS
+    // baked into the same HTML string) to keep them pointing at the
+    // corresponding element — a real rewrite with real regression risk
+    // (silently dropped motion/interaction styling on duplicated screens) to
+    // fix a collision that has no observable effect. If a future feature
+    // introduces cross-design lookups keyed on node id alone (e.g. pasting
+    // one design's screen into another), reconsider this and add an id-remap
+    // pass that also rewrites those embedded CSS selectors in lockstep.
+    //
+    // Still fill in any MISSING ids (belt-and-suspenders for designs
+    // generated/imported before ids were stamped at creation time): this only
+    // adds ids where none exist and never touches an id that's already
+    // present, so it can't disturb the existing-id-copy contract above.
+    await db.transaction(async (tx) => {
+      await tx.insert(schema.designs).values({
+        id: newId,
+        title: newTitle,
+        description: source.description,
+        projectType: source.projectType,
+        designSystemId: source.designSystemId ?? null,
+        data: newData,
+        ownerEmail,
+        orgId,
+        visibility: orgId ? "org" : "private",
         createdAt: now,
         updatedAt: now,
       });
-    }
+
+      if (files.length > 0) {
+        await tx.insert(schema.designFiles).values(
+          files.map((file) => ({
+            id: idMap.get(file.id)!,
+            designId: newId,
+            filename: file.filename,
+            fileType: file.fileType,
+            content: annotateScreenHtmlForPersist(file.content, file.fileType),
+            createdAt: now,
+            updatedAt: now,
+          })),
+        );
+      }
+    });
 
     return {
       id: newId,

@@ -15,7 +15,7 @@ import {
   IconUsers,
 } from "@tabler/icons-react";
 import { differenceInMinutes, format } from "date-fns";
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { toast } from "sonner";
 
 import {
@@ -46,6 +46,7 @@ import {
 import {
   Select,
   SelectContent,
+  SelectGroup,
   SelectItem,
   SelectTrigger,
   SelectValue,
@@ -58,10 +59,18 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useCreateEvent, useDeleteEvent } from "@/hooks/use-events";
+import { useGoogleAuthStatus } from "@/hooks/use-google-auth";
 import { useSettings } from "@/hooks/use-settings";
 import { setUndoAction } from "@/hooks/use-undo";
+import { useViewPreferences } from "@/hooks/use-view-preferences";
 import { useConnectZoom, useZoomStatus } from "@/hooks/use-zoom-auth";
+import { defaultColorForAccount } from "@/lib/calendar-view-preferences";
+import {
+  reconcileEventAccountEmail,
+  shouldShowEventAccountSelector,
+} from "@/lib/event-account-selection";
 import { getGoogleEventColorHex } from "@/lib/event-colors";
+import { buildEventFormInitializationKey } from "@/lib/event-form-initialization";
 import {
   attachmentsToDrafts,
   buildReminderPayload,
@@ -76,12 +85,15 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
+import { buildDeleteEventMutationInput } from "@/lib/event-mutation-inputs";
 
 type VideoProvider = "none" | "google_meet" | "zoom";
 type EventType = "default" | "outOfOffice" | "focusTime" | "workingLocation";
 type Availability = "opaque" | "transparent";
 type Visibility = "default" | "public" | "private" | "confidential";
 type WorkingLocationType = "homeOffice" | "officeLocation" | "customLocation";
+
+const EMPTY_CONNECTED_ACCOUNTS: Array<{ email: string }> = [];
 
 function addDaysToDateString(date: string, days: number) {
   const next = new Date(`${date}T00:00:00`);
@@ -111,9 +123,25 @@ function uniqueAttendees(attendees: AttendeeRecipient[]) {
       email,
       displayName: existing?.displayName ?? attendee.displayName,
       photoUrl: existing?.photoUrl ?? attendee.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : existing?.optional === true
+            ? true
+            : undefined,
     });
   }
   return Array.from(byEmail.values());
+}
+
+function buildVideoProviderPatch(
+  provider: VideoProvider,
+  explicitChoice: boolean,
+): { addGoogleMeet?: boolean; addZoom?: boolean } {
+  if (provider === "google_meet")
+    return { addGoogleMeet: true, addZoom: false };
+  if (provider === "zoom") return { addGoogleMeet: false, addZoom: true };
+  return explicitChoice ? { addGoogleMeet: false, addZoom: false } : {};
 }
 
 function dateTimePartsInTimezone(value: string, timezone: string) {
@@ -234,13 +262,23 @@ export function CreateEventPopover({
   const [workingLocationType, setWorkingLocationType] =
     useState<WorkingLocationType>("customLocation");
   const [videoProvider, setVideoProvider] = useState<VideoProvider>("none");
+  const [videoProviderTouched, setVideoProviderTouched] = useState(false);
   const [attendees, setAttendees] = useState<AttendeeRecipient[]>([]);
+  const [accountEmail, setAccountEmail] = useState<string>();
   const [findTimeOpen, setFindTimeOpen] = useState(false);
   const timedOnlyStatus =
     eventType === "outOfOffice" || eventType === "focusTime";
 
   const createEvent = useCreateEvent();
   const delEvent = useDeleteEvent();
+  const googleStatus = useGoogleAuthStatus();
+  const connectedAccounts =
+    googleStatus.data?.accounts ?? EMPTY_CONNECTED_ACCOUNTS;
+  const connectedAccountEmails = useMemo(
+    () => connectedAccounts.map((account) => account.email),
+    [connectedAccounts],
+  );
+  const { prefs: viewPrefs } = useViewPreferences();
   const zoomStatus = useZoomStatus();
   const connectZoom = useConnectZoom();
   const formRef = useRef<HTMLFormElement>(null);
@@ -256,9 +294,14 @@ export function CreateEventPopover({
     const nextDate = format(defaultDate || new Date(), "yyyy-MM-dd");
     const draftTimezone =
       draft?.startTimeZone || draft?.endTimeZone || defaultTimezone;
-    const initKey = draft?.id
-      ? `draft:${draft.id}:${draftTimezone}`
-      : `new:${nextDate}:${defaultStart || fallbackStart}:${defaultEnd || fallbackEnd}:${defaultTimezone}`;
+    const initKey = buildEventFormInitializationKey({
+      draftId: draft?.id,
+      draftTimezone,
+      date: nextDate,
+      startTime: defaultStart || fallbackStart,
+      endTime: defaultEnd || fallbackEnd,
+      defaultTimezone,
+    });
     if (initializedKeyRef.current === initKey) return;
     initializedKeyRef.current = initKey;
 
@@ -298,12 +341,16 @@ export function CreateEventPopover({
       setVideoProvider(
         draft.addGoogleMeet ? "google_meet" : draft.addZoom ? "zoom" : "none",
       );
+      setVideoProviderTouched(
+        draft.addGoogleMeet !== undefined || draft.addZoom !== undefined,
+      );
       setAttendees(
         uniqueAttendees(
           (draft.attendees ?? []).map((attendee) => ({
             email: attendee.email,
             displayName: attendee.displayName,
             photoUrl: attendee.photoUrl,
+            optional: attendee.optional === true ? true : undefined,
           })),
         ),
       );
@@ -328,6 +375,7 @@ export function CreateEventPopover({
     setAttachments([createAttachmentDraft()]);
     setWorkingLocationType("customLocation");
     setVideoProvider("none");
+    setVideoProviderTouched(false);
     setAttendees([]);
   }, [
     open,
@@ -339,6 +387,21 @@ export function CreateEventPopover({
     fallbackEnd,
     defaultTimezone,
   ]);
+
+  useEffect(() => {
+    if (!open) {
+      setAccountEmail(undefined);
+      return;
+    }
+
+    setAccountEmail((currentAccountEmail) =>
+      reconcileEventAccountEmail(
+        connectedAccounts,
+        currentAccountEmail,
+        draft?.accountEmail,
+      ),
+    );
+  }, [open, connectedAccounts, draft?.accountEmail]);
 
   useEffect(() => {
     if (!open) setFindTimeOpen(false);
@@ -393,11 +456,11 @@ export function CreateEventPopover({
           ? attendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
+              ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
-      addGoogleMeet: videoProvider === "google_meet",
-      addZoom: videoProvider === "zoom",
-      accountEmail: draft?.accountEmail,
+      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
+      accountEmail,
       workingLocationType,
       workingLocationLabel:
         workingLocationType === "customLocation" ? location : undefined,
@@ -422,7 +485,7 @@ export function CreateEventPopover({
     open,
     draft?.id,
     draft?.createdAt,
-    draft?.accountEmail,
+    accountEmail,
     title,
     description,
     date,
@@ -441,6 +504,7 @@ export function CreateEventPopover({
     attachments,
     attendees,
     videoProvider,
+    videoProviderTouched,
     workingLocationType,
     timedOnlyStatus,
     onDraftChange,
@@ -490,6 +554,19 @@ export function CreateEventPopover({
     setAttendees((prev) =>
       prev.filter(
         (attendee) => attendee.email.toLowerCase() !== email.toLowerCase(),
+      ),
+    );
+  }
+
+  function toggleAttendeeOptional(email: string, optional: boolean) {
+    setAttendees((prev) =>
+      prev.map((attendee) =>
+        attendee.email.toLowerCase() === email.toLowerCase()
+          ? {
+              ...attendee,
+              optional: optional ? true : undefined,
+            }
+          : attendee,
       ),
     );
   }
@@ -615,7 +692,7 @@ export function CreateEventPopover({
       startTimeZone: effectiveAllDay ? undefined : timezone,
       endTimeZone: effectiveAllDay ? undefined : timezone,
       location,
-      accountEmail: draft?.accountEmail,
+      accountEmail,
       allDay: effectiveAllDay,
       transparency:
         eventType === "workingLocation"
@@ -626,8 +703,6 @@ export function CreateEventPopover({
       visibility: eventType === "workingLocation" ? "public" : visibility,
       ...reminderPatch,
       ...statusPatch,
-      addGoogleMeet: videoProvider === "google_meet",
-      addZoom: videoProvider === "zoom",
       color: colorId ? getGoogleEventColorHex(colorId) : undefined,
       colorId,
       attachments:
@@ -639,8 +714,10 @@ export function CreateEventPopover({
           ? finalAttendees.map((attendee) => ({
               email: attendee.email,
               displayName: attendee.displayName,
+              ...(attendee.optional === true ? { optional: true } : {}),
             }))
           : undefined,
+      ...buildVideoProviderPatch(videoProvider, videoProviderTouched),
     };
 
     onOpenChange(false);
@@ -653,11 +730,15 @@ export function CreateEventPopover({
         const eventId = result?.id;
         const undo = eventId
           ? () => {
-              delEvent.mutate({
-                id: eventId,
-                scope: "single",
-                sendUpdates: "none",
-              });
+              delEvent.mutate(
+                buildDeleteEventMutationInput(
+                  {
+                    id: eventId,
+                    accountEmail: result.accountEmail ?? accountEmail,
+                  },
+                  { scope: "single", sendUpdates: "none" },
+                ),
+              );
             }
           : undefined;
         if (undo) setUndoAction(undo);
@@ -716,6 +797,47 @@ export function CreateEventPopover({
                 className="h-8 text-sm"
               />
             </div>
+
+            {shouldShowEventAccountSelector(connectedAccounts) &&
+              accountEmail && (
+                <div className="space-y-1.5">
+                  <Label htmlFor="event-calendar" className="text-xs">
+                    {t("navigation.calendar")}
+                  </Label>
+                  <Select value={accountEmail} onValueChange={setAccountEmail}>
+                    <SelectTrigger
+                      id="event-calendar"
+                      aria-label={t("navigation.calendar")}
+                      className="h-8 text-sm"
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectGroup>
+                        {connectedAccounts.map((account) => (
+                          <SelectItem key={account.email} value={account.email}>
+                            <span className="flex min-w-0 items-center gap-2">
+                              <span
+                                className="size-2.5 shrink-0 rounded-full"
+                                style={{
+                                  backgroundColor:
+                                    viewPrefs.accountColors[account.email] ??
+                                    viewPrefs.singleColor ??
+                                    defaultColorForAccount(
+                                      account.email,
+                                      connectedAccountEmails,
+                                    ),
+                                }}
+                              />
+                              <span className="truncate">{account.email}</span>
+                            </span>
+                          </SelectItem>
+                        ))}
+                      </SelectGroup>
+                    </SelectContent>
+                  </Select>
+                </div>
+              )}
 
             <div className="space-y-1.5">
               <Label htmlFor="event-type" className="text-xs">
@@ -925,6 +1047,7 @@ export function CreateEventPopover({
                 attendees={attendees}
                 onAdd={addAttendee}
                 onRemove={removeAttendee}
+                onToggleOptional={toggleAttendeeOptional}
                 inputId="event-attendees"
                 placeholder={t("eventForm.attendeesPlaceholder")}
                 onEmptyEnter={() => formRef.current?.requestSubmit()}
@@ -956,9 +1079,10 @@ export function CreateEventPopover({
               </Label>
               <Select
                 value={videoProvider}
-                onValueChange={(value) =>
-                  setVideoProvider(value as VideoProvider)
-                }
+                onValueChange={(value) => {
+                  setVideoProvider(value as VideoProvider);
+                  setVideoProviderTouched(true);
+                }}
               >
                 <SelectTrigger
                   id="event-video-provider"
@@ -1163,7 +1287,7 @@ export function CreateEventPopover({
             timezone={timezone}
             durationMinutes={findTimeDurationMinutes}
             attendees={attendees}
-            accountEmail={draft?.accountEmail}
+            accountEmail={accountEmail}
             selectedStart={currentStartISO}
             selectedEnd={currentEndISO}
             onSelectSlot={handleSelectFindTimeSlot}
@@ -1194,6 +1318,7 @@ export function CreateEventPopover({
                 className="h-7 text-xs"
                 disabled={
                   createEvent.isPending ||
+                  !accountEmail ||
                   (videoProvider === "zoom" && !zoomStatus.data?.connected)
                 }
               >

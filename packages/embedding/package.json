@@ -45,18 +45,17 @@
     "provenance": true
   },
   "scripts": {
-    "build": "tsgo",
-    "dev": "tsgo --watch",
+    "build": "tsc",
+    "dev": "tsc --watch",
     "test": "vitest --run src",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "prepublishOnly": "npm run build"
   },
   "devDependencies": {
     "@agent-native/core": "workspace:*",
     "@types/react": "^19.2.15",
-    "@typescript/native-preview": "catalog:",
     "react": "^19.2.6",
-    "typescript": "^6.0.3",
+    "typescript-7": "catalog:",
     "vitest": "^4.1.5"
   },
   "peerDependencies": {

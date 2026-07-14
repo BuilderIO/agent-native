@@ -11,7 +11,7 @@ Actions は、アプリの動作に関する唯一の信頼できる情報源で
 - **タイプセーフ React フック** — フロントエンドの `useActionQuery("name")` および `useActionMutation("name")`、タイプはスキーマから推論されます。
 - **命令型クライアント呼び出し** — フックが適合しない場合の `callAction("name", params)`。
 - **フレームワーク トランスポート** — これらのフックの背後にあるフレームワークによって自動マウントされ、外部 HTTP クライアントが利用できます。
-- **MCP ツール** — Claude、ChatGPT カスタム MCP アプリ、Claude デスクトップ/コード、カーソル、Codex、およびその他の MCP クライアントに公開されます。
+- **MCP ツール** — Claude、ChatGPT カスタム MCP アプリ、Claude デスクトップ/コード、カーソル、Codex、およびその他の MCP ホストに公開されます。
 - **A2A ツール** — A2A 経由で他のエージェント ネイティブ アプリによって呼び出されます。
 - **A CLI コマンド** — スクリプト作成および開発ループ用の `pnpm action <name>`。
 
@@ -540,7 +540,7 @@ JSON 入力は、エージェントおよび複雑なオブジェクトに推奨
 
 ## MCP 上で公開 {#mcp}
 
-MCP を有効にすると、actions はフレームワークの MCP サーバー (`/_agent-native/mcp`) に表示されます。すべての呼び出し元は、デフォルトでコンパクトなカタログ (アプリ向けの組み込みとテンプレートで宣言されたアプリ actions) を取得します。また、`tool-search` は常に存在するため、他のツールはオンデマンドでアクセスできます。完全なアクション サーフェスは明示的なオプトイン (`--full-catalog` トークンまたは `AGENT_NATIVE_MCP_FULL_CATALOG=1`) でのみ提供され、`publicAgent.expose` はパブリック サーフェスへの安全な読み取り/取り込みツールを選択します。カタログ層、認証、および `mcpApp` リソースの詳細については、「[MCP Protocol](/docs/mcp-protocol)」を参照してください。
+MCP を有効にすると、actions はフレームワークの MCP サーバー (`/mcp`) に表示されます。すべての呼び出し元は、デフォルトでコンパクトなカタログ (アプリ向けの組み込みとテンプレートで宣言されたアプリ actions) を取得します。また、`tool-search` は常に存在するため、他のツールはオンデマンドでアクセスできます。完全なアクション サーフェスは明示的なオプトイン (`--full-catalog` トークンまたは `AGENT_NATIVE_MCP_FULL_CATALOG=1`) でのみ提供され、`publicAgent.expose` はパブリック サーフェスへの安全な読み取り/取り込みツールを選択します。カタログ層、認証、および `mcpApp` リソースの詳細については、「[MCP Protocol](/docs/mcp-protocol)」を参照してください。
 
 UI 対応の MCP ホストの場合、アクションは `mcpApp` フィールド (および一致する `link`) を介してオプションの MCP アプリ リソースを宣言できるため、対応するホストは結果をインラインでレンダリングします。 `link` と `mcpApp` が同じルートを指す必要がある場合、`embedRoute()` は 1 つの純粋なパス ビルダーから両方を構築します。
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-`link` を CLI および非 UI MCP クライアントのフォールバックとして保持します。これは、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名付き埋め込み開始セッション、移植対制御フレーム レンダリング、`ui/*` ホスト ブリッジ、CSP、および高さクランプ) は、[External Agents](/docs/external-agents#mcp-app-bridge) によって所有されています。
+`link` を CLI および非 UI MCP ホストのフォールバックとして保持します。これは、埋め込みの起動ターゲットでもあります。埋め込みブリッジ (署名付き埋め込み開始セッション、移植対制御フレーム レンダリング、`ui/*` ホスト ブリッジ、CSP、および高さクランプ) は、[External Agents](/docs/external-agents#mcp-app-bridge) によって所有されています。
 
 ## 標準 actions {#standard-actions}
 

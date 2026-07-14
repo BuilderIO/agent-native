@@ -28,8 +28,8 @@
   "type": "commonjs",
   "main": "./dist/extension.js",
   "scripts": {
-    "build": "tsgo -p tsconfig.json",
-    "typecheck": "tsgo --noEmit -p tsconfig.json",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "vitest --run src --passWithNoTests",
     "test:e2e": "pnpm run build && node dist/test/runTest.js",
     "vscode:prepublish": "pnpm run build"
@@ -37,9 +37,8 @@
   "devDependencies": {
     "@types/node": "^25.9.3",
     "@types/vscode": "1.120.0",
-    "@typescript/native-preview": "catalog:",
     "@vscode/test-electron": "3.0.0",
-    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vitest": "catalog:"
   },
   "contributes": {

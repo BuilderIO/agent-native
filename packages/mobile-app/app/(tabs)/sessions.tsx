@@ -6,7 +6,6 @@ import {
   KeyboardAvoidingView,
   Platform,
   RefreshControl,
-  SafeAreaView,
   ScrollView,
   StyleSheet,
   Text,
@@ -14,6 +13,7 @@ import {
   TouchableOpacity,
   View,
 } from "react-native";
+import { SafeAreaView } from "react-native-safe-area-context";
 
 import {
   appendRemoteFollowUp,
@@ -21,10 +21,10 @@ import {
   createRemoteRun,
   decidePendingCommand,
   getPendingCommand,
-  getRemoteRunDetail,
   getRemoteRelayBaseUrl,
-  isRemoteRunActive,
+  getRemoteRunDetail,
   isRemoteAuthError,
+  isRemoteRunActive,
   listPairedHosts,
   listRemoteRuns,
   readRemoteTranscript,

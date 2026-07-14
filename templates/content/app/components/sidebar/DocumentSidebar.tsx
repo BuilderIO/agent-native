@@ -2,6 +2,7 @@ import {
   DevDatabaseLink,
   FeedbackButton,
   appPath,
+  useActionMutation,
   useCodeMode,
   useT,
 } from "@agent-native/core/client";
@@ -28,6 +29,7 @@ import {
 import type { Document, DocumentTreeNode } from "@shared/api";
 import {
   IconDatabase,
+  IconBrain,
   IconFileText,
   IconPlus,
   IconRestore,
@@ -39,12 +41,15 @@ import {
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
   IconChevronRight,
+  IconDots,
+  IconTrash,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   AlertDialog,
@@ -61,6 +66,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -71,6 +77,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useCreateContentDatabase,
+  useDeleteContentDatabase,
   useRestoreContentDatabase,
   useTrashedContentDatabases,
 } from "@/hooks/use-content-database";
@@ -83,6 +90,7 @@ import {
   buildDocumentTree,
   filterDocumentTreeDocuments,
 } from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { cn } from "@/lib/utils";
 
 import {
@@ -151,6 +159,36 @@ type SidebarSectionId =
   | "organization"
   | "trash";
 
+type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
+
+const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
+  "content-sidebar-collapsed-sections";
+
+const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
+  "local-files": false,
+  "shared-copies": false,
+  private: false,
+  organization: false,
+  trash: false,
+};
+
+function normalizeCollapsedSections(
+  value: Partial<Record<SidebarSectionId, boolean>> | null | undefined,
+): CollapsedSectionsState {
+  return {
+    "local-files": value?.["local-files"] ?? false,
+    "shared-copies": value?.["shared-copies"] ?? false,
+    private: value?.private ?? false,
+    organization: value?.organization ?? false,
+    trash: value?.trash ?? false,
+  };
+}
+
+interface RemoveLocalFileSourceResult {
+  success: boolean;
+  deleted: number;
+}
+
 export function DocumentSidebar({
   activeDocumentId,
   collapsed,
@@ -163,15 +201,21 @@ export function DocumentSidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const t = useT();
-  const { data: documents = [], isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const { data: documents = [], isLoading } = documentsQuery;
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
+  const deleteContentDatabase = useDeleteContentDatabase();
   const deleteDocument = useDeleteDocument();
   const moveDocument = useMoveDocument();
   const restoreContentDatabase = useRestoreContentDatabase();
   const { data: trashedDatabases } = useTrashedContentDatabases();
   const { isCodeMode } = useCodeMode();
   const updateDocument = useUpdateDocument();
+  const removeLocalFileSource = useActionMutation<
+    RemoveLocalFileSourceResult,
+    { sourceRootPath?: string | null }
+  >("remove-local-file-source");
   const [searchQuery, setSearchQuery] = useState("");
   const [isSearching, setIsSearching] = useState(false);
   // Track user-expanded nodes only; active ancestors are derived below so they
@@ -179,16 +223,17 @@ export function DocumentSidebar({
   const expandedIdsRef = useRef(new Set<string>());
   const [, forceUpdate] = useState(0);
   const [isResizing, setIsResizing] = useState(false);
-  const [collapsedSections, setCollapsedSections] = useState<
-    Record<SidebarSectionId, boolean>
-  >({
-    "local-files": false,
-    "shared-copies": false,
-    private: false,
-    organization: false,
-    trash: false,
-  });
+  const [storedCollapsedSections, setStoredCollapsedSections] = useLocalStorage<
+    Partial<Record<SidebarSectionId, boolean>>
+  >(SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY, DEFAULT_COLLAPSED_SECTIONS);
+  const collapsedSections = useMemo(
+    () => normalizeCollapsedSections(storedCollapsedSections),
+    [storedCollapsedSections],
+  );
+  const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
+    useState(false);
   const localFilesActive = location.pathname.startsWith("/local-files");
+  const agentActive = location.pathname.startsWith("/agent");
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -242,6 +287,12 @@ export function DocumentSidebar({
   const organizationTree = databaseTree.filter(
     (node) => node.visibility === "org",
   );
+  const importedLocalFileCount = localFileMode
+    ? 0
+    : localSourceDocuments.filter(
+        (document) => document.source?.kind !== "folder",
+      ).length;
+  const canRemoveLocalFiles = localFileMode || importedLocalFileCount > 0;
   // Match the tree rows' right-side inset so favorite titles clip inside the
   // visible sidebar instead of widening the scroll surface.
   const favoriteRowWidth =
@@ -417,6 +468,7 @@ export function DocumentSidebar({
 
   const handleDelete = useCallback(
     async (id: string) => {
+      const deletedDocument = documents.find((doc) => doc.id === id) ?? null;
       const deletedIds = collectDocumentSubtreeIds(documents, id);
       const activeDeleted = activeDocumentId
         ? deletedIds.has(activeDocumentId)
@@ -455,7 +507,13 @@ export function DocumentSidebar({
       }
 
       try {
-        await deleteDocument.mutateAsync({ id });
+        if (deletedDocument?.database) {
+          await deleteContentDatabase.mutateAsync({
+            databaseId: deletedDocument.database.id,
+          });
+        } else {
+          await deleteDocument.mutateAsync({ id });
+        }
         queryClient.invalidateQueries({
           queryKey: ["action", "list-documents"],
         });
@@ -477,6 +535,7 @@ export function DocumentSidebar({
     },
     [
       activeDocumentId,
+      deleteContentDatabase,
       deleteDocument,
       documents,
       localFileMode,
@@ -611,6 +670,26 @@ export function DocumentSidebar({
     [deleteDocument, queryClient, t],
   );
 
+  const handleRemoveLocalFiles = useCallback(async () => {
+    try {
+      const result = await removeLocalFileSource.mutateAsync({});
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+      setRemoveLocalFilesDialogOpen(false);
+      toast.success(t("sidebar.localFilesRemoved"), {
+        description: t("sidebar.localFilesRemovedDescription", {
+          count: result.deleted,
+        }),
+      });
+    } catch (err) {
+      toast.error(t("sidebar.failedRemoveLocalFiles"), {
+        description:
+          err instanceof Error ? err.message : t("empty.genericError"),
+      });
+    }
+  }, [queryClient, removeLocalFileSource, t]);
+
   const filteredDocuments = searchQuery
     ? documents.filter((d) =>
         d.title.toLowerCase().includes(searchQuery.toLowerCase()),
@@ -711,65 +790,135 @@ export function DocumentSidebar({
   );
 
   const renderLocalFilesNavButton = () => (
-    <button
+    <Link
+      to="/local-files"
       className={cn(
         "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
         localFilesActive
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
-      onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-start">
         {t("sidebar.localFiles")}
       </span>
-    </button>
+    </Link>
   );
 
   const renderSettingsNavButton = () => (
-    <button
+    <Link
+      to="/settings"
       className={cn(
         "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
         settingsActive
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
-      onClick={() => navigate("/settings")}
     >
       <IconSettings size={15} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-start">
         {t("navigation.settings")}
       </span>
-    </button>
+    </Link>
+  );
+
+  const renderAgentNavButton = () => (
+    <Link
+      to="/agent"
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        agentActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+    >
+      <IconBrain size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("navigation.agent")}
+      </span>
+    </Link>
   );
 
   const toggleSection = (id: SidebarSectionId) => {
-    setCollapsedSections((current) => ({
-      ...current,
-      [id]: !current[id],
-    }));
+    setStoredCollapsedSections((current) => {
+      const normalized = normalizeCollapsedSections(current);
+      return {
+        ...normalized,
+        [id]: !normalized[id],
+      };
+    });
   };
 
-  const renderSectionHeader = (id: SidebarSectionId, label: string) => {
+  const renderLocalFilesSectionActions = () => (
+    <DropdownMenu>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <DropdownMenuTrigger asChild>
+            <button
+              type="button"
+              aria-label={t("sidebar.localFilesActions")}
+              className="flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground"
+            >
+              <IconDots size={14} />
+            </button>
+          </DropdownMenuTrigger>
+        </TooltipTrigger>
+        <TooltipContent>{t("sidebar.localFilesActions")}</TooltipContent>
+      </Tooltip>
+      <DropdownMenuContent align="end" className="w-56">
+        <DropdownMenuItem asChild>
+          <Link to="/local-files">
+            <IconFolderOpen className="me-2 size-4" />
+            {t("sidebar.manageLocalFolders")}
+          </Link>
+        </DropdownMenuItem>
+        {canRemoveLocalFiles && (
+          <>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem
+              className="text-destructive focus:text-destructive"
+              disabled={removeLocalFileSource.isPending}
+              onSelect={(event) => {
+                event.preventDefault();
+                setRemoveLocalFilesDialogOpen(true);
+              }}
+            >
+              <IconTrash className="me-2 size-4" />
+              {t("sidebar.removeLocalFilesFromSidebar")}
+            </DropdownMenuItem>
+          </>
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderSectionHeader = (
+    id: SidebarSectionId,
+    label: string,
+    actions?: ReactNode,
+  ) => {
     const collapsed = collapsedSections[id];
     return (
-      <button
-        type="button"
-        aria-expanded={!collapsed}
-        className="flex w-full items-center gap-1 rounded-md px-3 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
-        onClick={() => toggleSection(id)}
-      >
-        <IconChevronRight
-          size={12}
-          className={cn(
-            "shrink-0 transition-transform",
-            !collapsed && "rotate-90",
-            "rtl:-scale-x-100",
-          )}
-        />
-        <span className="min-w-0 flex-1 truncate">{label}</span>
-      </button>
+      <div className="flex min-w-0 items-center gap-1 px-1">
+        <button
+          type="button"
+          aria-expanded={!collapsed}
+          className="flex min-w-0 flex-1 items-center gap-1 rounded-md px-2 py-1.5 text-start text-[10px] font-semibold uppercase tracking-wider text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+          onClick={() => toggleSection(id)}
+        >
+          <IconChevronRight
+            size={12}
+            className={cn(
+              "shrink-0 transition-transform",
+              !collapsed && "rotate-90",
+              "rtl:-scale-x-100",
+            )}
+          />
+          <span className="min-w-0 flex-1 truncate">{label}</span>
+        </button>
+        {actions}
+      </div>
     );
   };
 
@@ -793,6 +942,7 @@ export function DocumentSidebar({
     nodes,
     emptyLabel,
     className,
+    headerActions,
     footer,
   }: {
     id: SidebarSectionId;
@@ -800,12 +950,13 @@ export function DocumentSidebar({
     nodes: DocumentTreeNode[];
     emptyLabel: string;
     className?: string;
+    headerActions?: ReactNode;
     footer?: ReactNode;
   }) => {
     const collapsed = collapsedSections[id];
     return (
       <div className={className}>
-        {renderSectionHeader(id, label)}
+        {renderSectionHeader(id, label, headerActions)}
         {!collapsed && (
           <>
             <DndContext
@@ -815,6 +966,12 @@ export function DocumentSidebar({
             >
               {isLoading ? (
                 renderTreeSkeleton()
+              ) : documentsQuery.isError ? (
+                <QueryErrorState
+                  compact
+                  onRetry={() => void documentsQuery.refetch()}
+                  retrying={documentsQuery.isFetching}
+                />
               ) : nodes.length === 0 ? (
                 <div className="px-3 py-4 text-center text-sm text-muted-foreground">
                   {emptyLabel}
@@ -929,7 +1086,7 @@ export function DocumentSidebar({
 
   if (collapsed) {
     return (
-      <div className="flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-muted/30 py-3 transition-[width] duration-200 ease-out">
+      <div className="agent-layout-left-drawer flex h-full w-12 flex-col items-center gap-1 border-e border-border bg-sidebar py-3 transition-[width] duration-200 ease-out">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -944,33 +1101,49 @@ export function DocumentSidebar({
         {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Link
+              to="/local-files"
               className={cn(
                 "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
                 localFilesActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => navigate("/local-files")}
             >
               <IconFolderOpen size={16} />
-            </button>
+            </Link>
           </TooltipTrigger>
           <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Link
+              to="/agent"
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                agentActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <IconBrain size={16} />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>{t("navigation.agent")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              to="/settings"
               className={cn(
                 "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
                 settingsActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => navigate("/settings")}
             >
               <IconSettings size={16} />
-            </button>
+            </Link>
           </TooltipTrigger>
           <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
@@ -981,7 +1154,8 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-muted/30 transition-[width] duration-200 ease-out",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar",
+        !isResizing && "transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -1051,8 +1225,8 @@ export function DocumentSidebar({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pe-2">
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+        <div className="w-full min-w-0 py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>
@@ -1142,6 +1316,7 @@ export function DocumentSidebar({
                     label: t("sidebar.localFiles"),
                     nodes: localFileTree,
                     emptyLabel: t("sidebar.noFilesYet"),
+                    headerActions: renderLocalFilesSectionActions(),
                     footer: renderNewButton(),
                   })}
                   {databaseTree.length > 0
@@ -1164,6 +1339,7 @@ export function DocumentSidebar({
                       nodes: localFileTree,
                       emptyLabel: t("sidebar.noLocalFilesYet"),
                       className: "mb-2",
+                      headerActions: renderLocalFilesSectionActions(),
                     })}
 
                   {renderTreeSection({
@@ -1193,6 +1369,7 @@ export function DocumentSidebar({
       <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
           {renderLocalFilesNavButton()}
+          {renderAgentNavButton()}
           {renderSettingsNavButton()}
         </div>
       </div>
@@ -1235,6 +1412,34 @@ export function DocumentSidebar({
           onMouseDown={handleMouseDown}
         />
       )}
+      <AlertDialog
+        open={removeLocalFilesDialogOpen}
+        onOpenChange={setRemoveLocalFilesDialogOpen}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("sidebar.removeLocalFilesQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("sidebar.removeLocalFilesDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("comments.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              disabled={removeLocalFileSource.isPending}
+              onClick={(event) => {
+                event.preventDefault();
+                void handleRemoveLocalFiles();
+              }}
+            >
+              {t("sidebar.removeLocalFilesFromSidebar")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

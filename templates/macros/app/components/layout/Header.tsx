@@ -1,13 +1,16 @@
 import { AgentToggleButton, useT } from "@agent-native/core/client";
+import {
+  useHeaderTitle,
+  useHeaderActions,
+} from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useLocation } from "react-router";
-
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitles: Record<string, string> = {
   "/": "header.entry",
   "/entry": "header.entry",
   "/analytics": "header.analytics",
+  "/agent": "settings.agentTitle",
   "/settings": "header.settings",
   "/extensions": "header.extensions",
 };

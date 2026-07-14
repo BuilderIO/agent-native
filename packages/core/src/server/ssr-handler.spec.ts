@@ -9,6 +9,7 @@ import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   AGENT_NATIVE_SOCIAL_IMAGE_PATH,
 } from "../shared/social-meta.js";
+import { registerErrorCaptureProvider } from "./capture-error.js";
 import { getRequestUserEmail } from "./request-context.js";
 import {
   createH3SSRHandler,
@@ -100,6 +101,37 @@ describe("createH3SSRHandler", () => {
     expect(mocks.requestHandler).toHaveBeenCalledTimes(1);
   });
 
+  it("captures SSR exceptions with request context before returning a safe 500", async () => {
+    const error = new Error("render failed");
+    const provider = vi.fn();
+    const unregister = registerErrorCaptureProvider(
+      "ssr-handler-test",
+      provider,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    mocks.requestHandler.mockImplementationOnce(async () => {
+      throw error;
+    });
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    try {
+      const response = await handler(createEvent("/recaps/recap_test"));
+
+      expect(response.status).toBe(500);
+      expect(provider).toHaveBeenCalledWith(error, {
+        route: "/recaps/recap_test",
+        method: "GET",
+        userAgent: undefined,
+        tags: { renderMode: "anonymous-public", surface: "ssr" },
+      });
+    } finally {
+      consoleError.mockRestore();
+      unregister();
+    }
+  });
+
   it("strips APP_BASE_PATH from React Router lazy route manifest paths", async () => {
     process.env.APP_BASE_PATH = "/dispatch";
     const handler = createH3SSRHandler(() => ({})) as any;
@@ -183,6 +215,8 @@ describe("createH3SSRHandler", () => {
         headers: {
           "cache-control": "private, no-store",
           "content-type": "text/html; charset=utf-8",
+          "set-cookie": "viewer=private; Path=/",
+          vary: "Cookie, Accept-Encoding, Authorization",
         },
       }),
     );
@@ -190,6 +224,31 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/private-html"));
 
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("vary")).toBe("Accept-Encoding");
+  });
+
+  it("strips credential headers before React Router renders the public shell", async () => {
+    mocks.requestHandler.mockImplementationOnce(
+      async (request: Request) =>
+        new Response(
+          `<html><head></head><body>${request.headers.get("cookie") ?? "no-cookie"}:${request.headers.get("authorization") ?? "no-auth"}</body></html>`,
+          { headers: { "content-type": "text/html; charset=utf-8" } },
+        ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/private", "GET", {
+        headers: {
+          cookie: "an_session=active",
+          authorization: "Bearer private-token",
+        },
+      }),
+    );
+
+    expect(await response.text()).toContain("no-cookie:no-auth");
     expectDefaultSsrCacheHeaders(response);
   });
 
@@ -655,6 +714,25 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('src="/docs/app.js"');
   });
 
+  it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
+    process.env.APP_BASE_PATH = "/analytics";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(
+        '<html><body><script>window.__reactRouterContext = {"basename":"/","future":{},"ssr":true};</script></body></html>',
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/analytics"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      'window.__reactRouterContext = {"basename":"/analytics"',
+    );
+    expect(html).not.toContain('window.__reactRouterContext = {"basename":"/"');
+  });
+
   it("injects runtime browser Sentry config into SSR HTML", async () => {
     process.env.SENTRY_DSN = "https://public@example/4511270423822336";
     process.env.SENTRY_ENVIRONMENT = "production";
@@ -690,156 +768,9 @@ describe("createH3SSRHandler", () => {
   });
 
   describe("document CSP", () => {
-    it("sets object-src/base-uri enforcement CSP on HTML responses in production", async () => {
+    it("does not emit CSP headers on production HTML responses", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "production";
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response("<html><head></head><body>ok</body></html>", {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        const response = await handler(createEvent("/"));
-
-        expect(response.headers.get("content-security-policy")).toBe(
-          "object-src 'none'; base-uri 'self'",
-        );
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-      }
-    });
-
-    it("emits a script-src Report-Only CSP on HTML responses in production", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = "production";
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response("<html><head></head><body>ok</body></html>", {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        const response = await handler(createEvent("/"));
-
-        const ro = response.headers.get("content-security-policy-report-only");
-        expect(ro).not.toBeNull();
-        expect(ro).toContain("script-src");
-        expect(ro).toContain("'self'");
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-      }
-    });
-
-    it("includes the Sentry script hash in the Report-Only script-src when Sentry is configured", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = "production";
-      process.env.SENTRY_DSN = "https://public@example/4511270423822336";
-      process.env.SENTRY_ENVIRONMENT = "production";
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response("<html><head></head><body>ok</body></html>", {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        const response = await handler(createEvent("/"));
-
-        const ro = response.headers.get("content-security-policy-report-only");
-        // Must contain a sha256 hash token for the Sentry config script.
-        expect(ro).toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-        delete process.env.SENTRY_DSN;
-        delete process.env.SENTRY_ENVIRONMENT;
-      }
-    });
-
-    it("allows the framework-injected GA loader + gtag hash in the Report-Only script-src when GA is configured", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      const previousGa = process.env.GA_MEASUREMENT_ID;
-      process.env.NODE_ENV = "production";
-      process.env.GA_MEASUREMENT_ID = "G-CSPTEST123";
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response("<html><head></head><body>ok</body></html>", {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        const response = await handler(createEvent("/"));
-
-        const ro = response.headers.get("content-security-policy-report-only");
-        expect(ro).not.toBeNull();
-        // The GA / Tag Manager loader hosts and the inline gtag config hash the
-        // framework injects itself must be allow-listed so the policy does not
-        // report a violation on every page load.
-        expect(ro).toContain("https://www.googletagmanager.com");
-        expect(ro).toContain("https://www.google-analytics.com");
-        expect(ro).toMatch(/'sha256-[A-Za-z0-9+/]+=*'/);
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-        if (previousGa === undefined) {
-          delete process.env.GA_MEASUREMENT_ID;
-        } else {
-          process.env.GA_MEASUREMENT_ID = previousGa;
-        }
-      }
-    });
-
-    it("omits GA hosts from the Report-Only script-src when GA is not configured", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      const previousGa = process.env.GA_MEASUREMENT_ID;
-      process.env.NODE_ENV = "production";
-      delete process.env.GA_MEASUREMENT_ID;
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response("<html><head></head><body>ok</body></html>", {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        const response = await handler(createEvent("/"));
-
-        const ro = response.headers.get("content-security-policy-report-only");
-        expect(ro).not.toBeNull();
-        expect(ro).not.toContain("googletagmanager.com");
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-        if (previousGa !== undefined) {
-          process.env.GA_MEASUREMENT_ID = previousGa;
-        }
-      }
-    });
-
-    it("does not set CSP on HTML responses in development", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = "development";
       try {
         mocks.requestHandler.mockResolvedValueOnce(
           new Response("<html><head></head><body>ok</body></html>", {
@@ -863,65 +794,7 @@ describe("createH3SSRHandler", () => {
       }
     });
 
-    it("does not set CSP when AGENT_NATIVE_DISABLE_DOC_CSP=1", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = "production";
-      process.env.AGENT_NATIVE_DISABLE_DOC_CSP = "1";
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response("<html><head></head><body>ok</body></html>", {
-            headers: { "content-type": "text/html; charset=utf-8" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        const response = await handler(createEvent("/"));
-
-        expect(response.headers.get("content-security-policy")).toBeNull();
-        expect(
-          response.headers.get("content-security-policy-report-only"),
-        ).toBeNull();
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-        delete process.env.AGENT_NATIVE_DISABLE_DOC_CSP;
-      }
-    });
-
-    it("does not set CSP on non-HTML responses in production", async () => {
-      const previousNodeEnv = process.env.NODE_ENV;
-      process.env.NODE_ENV = "production";
-      try {
-        mocks.requestHandler.mockResolvedValueOnce(
-          new Response('{"ok":true}', {
-            headers: { "content-type": "application/json" },
-          }),
-        );
-        const handler = createH3SSRHandler(() => ({})) as any;
-
-        // Use a non-framework path so the handler is called and the mock is
-        // consumed; /api/* paths are filtered early before calling the handler,
-        // which would leave this mockResolvedValueOnce unconsumed and corrupt
-        // the next test's mock queue (vi.mockClear does not flush pending values).
-        const response = await handler(createEvent("/graphql"));
-
-        expect(response.headers.get("content-security-policy")).toBeNull();
-        expect(
-          response.headers.get("content-security-policy-report-only"),
-        ).toBeNull();
-      } finally {
-        if (previousNodeEnv === undefined) {
-          delete process.env.NODE_ENV;
-        } else {
-          process.env.NODE_ENV = previousNodeEnv;
-        }
-      }
-    });
-
-    it("respects a route-provided Content-Security-Policy and does not overwrite it", async () => {
+    it("removes route-provided CSP headers from production HTML responses", async () => {
       const previousNodeEnv = process.env.NODE_ENV;
       process.env.NODE_ENV = "production";
       try {
@@ -929,18 +802,84 @@ describe("createH3SSRHandler", () => {
           new Response("<html><head></head><body>ok</body></html>", {
             headers: {
               "content-type": "text/html; charset=utf-8",
-              "content-security-policy": "frame-ancestors *",
+              "content-security-policy": "script-src 'self'",
+              "content-security-policy-report-only":
+                "script-src https://www.googletagmanager.com",
             },
           }),
         );
         const handler = createH3SSRHandler(() => ({})) as any;
 
-        const response = await handler(createEvent("/embed/public"));
+        const response = await handler(createEvent("/"));
 
-        // The route's explicit CSP must be preserved.
-        expect(response.headers.get("content-security-policy")).toBe(
-          "frame-ancestors *",
+        expect(response.headers.get("content-security-policy")).toBeNull();
+        expect(
+          response.headers.get("content-security-policy-report-only"),
+        ).toBeNull();
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+      }
+    });
+
+    it("removes route-provided CSP headers from production HEAD HTML responses", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response("<html><head></head><body>ok</body></html>", {
+            headers: {
+              "content-type": "text/html; charset=utf-8",
+              "content-security-policy": "script-src 'self'",
+              "content-security-policy-report-only":
+                "script-src https://www.googletagmanager.com",
+            },
+          }),
         );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/", "HEAD"));
+
+        expect(response.body).toBeNull();
+        expect(response.headers.get("content-security-policy")).toBeNull();
+        expect(
+          response.headers.get("content-security-policy-report-only"),
+        ).toBeNull();
+      } finally {
+        if (previousNodeEnv === undefined) {
+          delete process.env.NODE_ENV;
+        } else {
+          process.env.NODE_ENV = previousNodeEnv;
+        }
+      }
+    });
+
+    it("leaves CSP headers on non-HTML responses", async () => {
+      const previousNodeEnv = process.env.NODE_ENV;
+      process.env.NODE_ENV = "production";
+      try {
+        mocks.requestHandler.mockResolvedValueOnce(
+          new Response('{"ok":true}', {
+            headers: {
+              "content-type": "application/json",
+              "content-security-policy": "default-src 'none'",
+              "content-security-policy-report-only": "script-src 'none'",
+            },
+          }),
+        );
+        const handler = createH3SSRHandler(() => ({})) as any;
+
+        const response = await handler(createEvent("/graphql"));
+
+        expect(response.headers.get("content-security-policy")).toBe(
+          "default-src 'none'",
+        );
+        expect(
+          response.headers.get("content-security-policy-report-only"),
+        ).toBe("script-src 'none'");
       } finally {
         if (previousNodeEnv === undefined) {
           delete process.env.NODE_ENV;

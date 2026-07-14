@@ -7,6 +7,8 @@ description: "如何创建和发布您自己的代理本机应用模板。"
 
 模板是完整的、可分叉的代理本机应用程序，可解决实际工作流程。第一方模板使用您使用的相同框架表面构建：用于 UI 的 React 路由、用于数据的 Drizzle SQL、用于操作的 actions、用于代理行为的工作区资源以及轮询同步，以便代理和 UI 保持一致。
 
+将 `@agent-native/core` 用于运行时契约：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。将 `@agent-native/toolkit` 用于可复用的应用构建 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和简单 app shell slots。当变体承载产品行为或视觉身份时，请保留在模板本地。
+
 一个好的模板：
 
 - 使用有用的种子数据或空状态流端到端地解决一个工作流。
@@ -42,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-1a8slw0"
   title={"模板项目结构"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -170,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 使用框架 Drizzle 帮助程序定义域表，以便架构在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支持的后端之间保持可移植性：
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -202,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 对于应用程序读取和写入，请使用 Drizzle 的查询生成器和 `drizzle-orm` 的可移植运算符。当Drizzle可以表达查询时，不要使用原始SQL编写产品代码，并且不要在模板中从`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`导入。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -347,8 +346,7 @@ export function useNavigationState() {
 `path`（当 URL 已知时）。同一动作不要写为 `__set_url__`；
 该密钥是为框架 URL 工具和仅 URL 过滤器更改保留的。
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

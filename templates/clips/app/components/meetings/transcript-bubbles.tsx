@@ -1,7 +1,15 @@
 import { useT } from "@agent-native/core/client";
-import { IconNotes } from "@tabler/icons-react";
-import { useEffect, useMemo, useRef } from "react";
+import {
+  IconChevronDown,
+  IconChevronUp,
+  IconNotes,
+  IconSearch,
+  IconX,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
@@ -42,6 +50,31 @@ interface BubbleGroup {
   segments: { seg: TranscriptSegment; index: number }[];
 }
 
+// Splits `text` into plain/matched runs for a case-insensitive substring
+// highlight. Returns the original text as a single run when there's no query
+// or no match, so callers can render uniformly either way.
+function highlightRuns(
+  text: string,
+  query: string,
+): Array<{ text: string; match: boolean }> {
+  if (!query) return [{ text, match: false }];
+  const lower = text.toLowerCase();
+  const needle = query.toLowerCase();
+  const runs: Array<{ text: string; match: boolean }> = [];
+  let cursor = 0;
+  while (cursor < text.length) {
+    const at = lower.indexOf(needle, cursor);
+    if (at === -1) {
+      runs.push({ text: text.slice(cursor), match: false });
+      break;
+    }
+    if (at > cursor) runs.push({ text: text.slice(cursor, at), match: false });
+    runs.push({ text: text.slice(at, at + needle.length), match: true });
+    cursor = at + needle.length;
+  }
+  return runs.length ? runs : [{ text, match: false }];
+}
+
 function groupConsecutive(segments: TranscriptSegment[]): BubbleGroup[] {
   const groups: BubbleGroup[] = [];
   segments.forEach((seg, index) => {
@@ -70,8 +103,67 @@ export function TranscriptBubbles({
   const userPausedRef = useRef(false);
   const segmentRefs = useRef<Record<number, HTMLDivElement | null>>({});
   const flashTimeoutRef = useRef<number | null>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [matchCursor, setMatchCursor] = useState(0);
 
   const groups = useMemo(() => groupConsecutive(segments), [segments]);
+
+  const normalizedQuery = searchQuery.trim().toLowerCase();
+  const matchIndexes = useMemo(() => {
+    if (!normalizedQuery) return [];
+    const out: number[] = [];
+    segments.forEach((seg, index) => {
+      if (seg.text.toLowerCase().includes(normalizedQuery)) out.push(index);
+    });
+    return out;
+  }, [segments, normalizedQuery]);
+
+  // Keep the cursor in range as matches change (typing narrows the set).
+  useEffect(() => {
+    setMatchCursor(0);
+  }, [normalizedQuery]);
+
+  const scrollToSegmentRef = useRef<((segmentIndex: number) => void) | null>(
+    null,
+  );
+
+  // Only scroll when the resolved target actually changes — during a live
+  // meeting the segments array (and thus matchIndexes) gets a new identity on
+  // every poll, and re-scrolling each time would fight the user's scrolling.
+  const lastSearchScrollRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!normalizedQuery || !matchIndexes.length) {
+      lastSearchScrollRef.current = null;
+      return;
+    }
+    const target = matchIndexes[matchCursor % matchIndexes.length];
+    const scrollKey = `${normalizedQuery}:${target}`;
+    if (lastSearchScrollRef.current === scrollKey) return;
+    lastSearchScrollRef.current = scrollKey;
+    scrollToSegmentRef.current?.(target);
+  }, [normalizedQuery, matchIndexes, matchCursor]);
+
+  useEffect(() => {
+    if (searchOpen) {
+      const raf = requestAnimationFrame(() => searchInputRef.current?.focus());
+      return () => cancelAnimationFrame(raf);
+    }
+  }, [searchOpen]);
+
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearchQuery("");
+  };
+
+  const goToMatch = (dir: 1 | -1) => {
+    if (!matchIndexes.length) return;
+    setMatchCursor(
+      (prev) => (prev + dir + matchIndexes.length) % matchIndexes.length,
+    );
+  };
 
   useEffect(() => {
     const el = containerRef.current;
@@ -91,24 +183,28 @@ export function TranscriptBubbles({
     }
   }, [isLive, segments.length]);
 
+  // Shared imperative scroll-and-flash, used by both the parent's bullet-jump
+  // wiring (registerScrollTo) and in-panel search navigation below.
+  const scrollToAndFlash = useRef((segmentIndex: number) => {
+    const node = segmentRefs.current[segmentIndex];
+    if (!node) return;
+    node.scrollIntoView({ behavior: "smooth", block: "center" });
+    // Yellow-flash highlight for ~1.5s.
+    node.classList.add("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
+    if (flashTimeoutRef.current) window.clearTimeout(flashTimeoutRef.current);
+    flashTimeoutRef.current = window.setTimeout(() => {
+      node.classList.remove("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
+    }, 1500);
+  }).current;
+
+  useEffect(() => {
+    scrollToSegmentRef.current = scrollToAndFlash;
+  }, [scrollToAndFlash]);
+
   useEffect(() => {
     if (!registerScrollTo) return;
-    registerScrollTo((segmentIndex: number) => {
-      const node = segmentRefs.current[segmentIndex];
-      if (!node) return;
-      node.scrollIntoView({ behavior: "smooth", block: "center" });
-      // Yellow-flash highlight for ~1.5s.
-      node.classList.add("ring-2", "ring-yellow-400/70", "bg-yellow-400/10");
-      if (flashTimeoutRef.current) window.clearTimeout(flashTimeoutRef.current);
-      flashTimeoutRef.current = window.setTimeout(() => {
-        node.classList.remove(
-          "ring-2",
-          "ring-yellow-400/70",
-          "bg-yellow-400/10",
-        );
-      }, 1500);
-    });
-  }, [registerScrollTo]);
+    registerScrollTo(scrollToAndFlash);
+  }, [registerScrollTo, scrollToAndFlash]);
 
   if (segments.length === 0) {
     if (isLive) {
@@ -133,75 +229,170 @@ export function TranscriptBubbles({
     );
   }
 
+  const activeMatchIndex = matchIndexes.length
+    ? matchIndexes[matchCursor % matchIndexes.length]
+    : null;
+
   return (
     <TooltipProvider delayDuration={200}>
+      <div className="flex shrink-0 items-center justify-end gap-1.5 border-b border-border px-2 py-1.5">
+        {searchOpen ? (
+          <>
+            <Input
+              ref={searchInputRef}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  closeSearch();
+                } else if (e.key === "Enter") {
+                  e.preventDefault();
+                  goToMatch(e.shiftKey ? -1 : 1);
+                }
+              }}
+              onBlur={() => {
+                if (!searchQuery.trim()) closeSearch();
+              }}
+              placeholder={t("transcriptBubbles.searchPlaceholder")}
+              className="h-7 flex-1 text-xs"
+            />
+            {normalizedQuery && (
+              <span className="shrink-0 text-[10px] tabular-nums text-muted-foreground">
+                {matchIndexes.length > 0
+                  ? t("transcriptBubbles.searchMatchCount", {
+                      current: (matchCursor % matchIndexes.length) + 1,
+                      total: matchIndexes.length,
+                    })
+                  : t("transcriptBubbles.searchNoMatches")}
+              </span>
+            )}
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 shrink-0 cursor-pointer"
+              disabled={!matchIndexes.length}
+              aria-label={t("transcriptBubbles.searchPrevMatch")}
+              onClick={() => goToMatch(-1)}
+            >
+              <IconChevronUp className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 shrink-0 cursor-pointer"
+              disabled={!matchIndexes.length}
+              aria-label={t("transcriptBubbles.searchNextMatch")}
+              onClick={() => goToMatch(1)}
+            >
+              <IconChevronDown className="h-3.5 w-3.5" />
+            </Button>
+            <Button
+              size="icon"
+              variant="ghost"
+              className="h-7 w-7 shrink-0 cursor-pointer"
+              aria-label={t("transcriptBubbles.searchClose")}
+              onClick={closeSearch}
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </Button>
+          </>
+        ) : (
+          <Button
+            size="icon"
+            variant="ghost"
+            className="h-7 w-7 shrink-0 cursor-pointer"
+            aria-label={t("transcriptBubbles.searchTranscript")}
+            onClick={() => setSearchOpen(true)}
+          >
+            <IconSearch className="h-3.5 w-3.5" />
+          </Button>
+        )}
+      </div>
       <div ref={containerRef} className="flex-1 overflow-y-auto p-4">
-        <div className="space-y-3">
+        <div className="mx-auto max-w-3xl space-y-6">
           {groups.map((group, gi) => {
             const isMe = group.source === "mic";
             return (
-              <div
-                key={gi}
-                className={cn(
-                  "flex flex-col gap-1",
-                  isMe ? "items-end" : "items-start",
-                )}
-              >
-                <div
-                  className={cn(
-                    "text-[10px] font-medium uppercase tracking-wide text-muted-foreground/70 px-1",
-                  )}
-                >
+              <section key={gi} className="space-y-1.5">
+                <div className="flex items-center gap-2 px-1 text-[11px] font-medium tracking-wide text-muted-foreground">
+                  <span
+                    aria-hidden="true"
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      isMe ? "bg-primary" : "bg-muted-foreground/50",
+                    )}
+                  />
                   {isMe
                     ? t("transcriptBubbles.me")
                     : t("transcriptBubbles.them")}
                 </div>
-                {group.segments.map(({ seg, index }) => {
-                  const clickable = !!recordingId;
-                  return (
-                    <Tooltip key={index}>
-                      <TooltipTrigger asChild>
-                        <div
-                          ref={(el) => {
-                            segmentRefs.current[index] = el;
-                          }}
-                          role={clickable ? "button" : undefined}
-                          tabIndex={clickable ? 0 : -1}
-                          onClick={() => clickable && onSeek(seg.startMs)}
-                          onKeyDown={(e) => {
-                            if (
+                <div className="space-y-0.5">
+                  {group.segments.map(({ seg, index }) => {
+                    const clickable = !!recordingId;
+                    return (
+                      <Tooltip key={index}>
+                        <TooltipTrigger asChild>
+                          <div
+                            ref={(el) => {
+                              segmentRefs.current[index] = el;
+                            }}
+                            role={clickable ? "button" : undefined}
+                            tabIndex={clickable ? 0 : -1}
+                            onClick={() => clickable && onSeek(seg.startMs)}
+                            onKeyDown={(e) => {
+                              if (
+                                clickable &&
+                                (e.key === "Enter" || e.key === " ")
+                              ) {
+                                e.preventDefault();
+                                onSeek(seg.startMs);
+                              }
+                            }}
+                            className={cn(
+                              "group/segment -mx-1 rounded-md px-1 py-1 text-left text-sm leading-relaxed text-foreground transition-colors",
                               clickable &&
-                              (e.key === "Enter" || e.key === " ")
-                            ) {
-                              e.preventDefault();
-                              onSeek(seg.startMs);
-                            }
-                          }}
-                          className={cn(
-                            "max-w-[80%] rounded-2xl px-3.5 py-2 text-sm leading-relaxed transition-shadow",
-                            isMe
-                              ? "bg-primary text-primary-foreground"
-                              : "bg-muted text-foreground",
-                            clickable && "cursor-pointer hover:opacity-90",
-                          )}
-                        >
-                          {seg.speaker && !isMe && (
-                            <div className="text-[10px] font-medium opacity-70 mb-0.5">
-                              {seg.speaker}
-                            </div>
-                          )}
-                          <p className="whitespace-pre-wrap">{seg.text}</p>
-                        </div>
-                      </TooltipTrigger>
-                      <TooltipContent side={isMe ? "left" : "right"}>
-                        <span className="font-mono tabular-nums text-[11px]">
-                          {formatTimestamp(seg.startMs)}
-                        </span>
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </div>
+                                "cursor-pointer hover:bg-accent/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                            )}
+                          >
+                            {seg.speaker && !isMe && (
+                              <span className="me-2 text-[11px] font-medium text-muted-foreground">
+                                {seg.speaker}
+                              </span>
+                            )}
+                            <span className="whitespace-pre-wrap">
+                              {normalizedQuery
+                                ? highlightRuns(seg.text, normalizedQuery).map(
+                                    (run, ri) =>
+                                      run.match ? (
+                                        <mark
+                                          key={ri}
+                                          className={cn(
+                                            "rounded-sm bg-yellow-400/70 text-foreground",
+                                            index === activeMatchIndex &&
+                                              "bg-yellow-400 ring-1 ring-yellow-600",
+                                          )}
+                                        >
+                                          {run.text}
+                                        </mark>
+                                      ) : (
+                                        <span key={ri}>{run.text}</span>
+                                      ),
+                                  )
+                                : seg.text}
+                            </span>
+                          </div>
+                        </TooltipTrigger>
+                        <TooltipContent side="right">
+                          <span className="font-mono tabular-nums text-[11px]">
+                            {formatTimestamp(seg.startMs)}
+                          </span>
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+                </div>
+              </section>
             );
           })}
           <div ref={liveEndRef} />

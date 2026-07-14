@@ -16,6 +16,7 @@ import {
   readBuilderCmsModelFields,
 } from "./_builder-cms-read-client.js";
 import type { BuilderCmsSourceEntry } from "./_builder-cms-source-adapter.js";
+import { getContentDatabaseSourceAdapter } from "./_content-database-source-adapters.js";
 import {
   enqueueBuilderBodyHydrationForItems,
   ensureDatabaseSourceProperty,
@@ -112,11 +113,9 @@ function sourceType(value: string): ContentDatabaseSourceType {
   if (
     value === "builder-cms" ||
     value === "local-table" ||
-    value === "local-folder" ||
-    value === "github-url"
-  ) {
+    value === "notion-database"
+  )
     return value;
-  }
   return "mock-local";
 }
 
@@ -194,6 +193,37 @@ async function removeRowsOwnedOnlyBySource(args: {
     );
 }
 
+export async function readBuilderCmsEntriesForRoleChange(
+  args: {
+    model: string;
+    existingFieldPaths?: readonly string[];
+  },
+  dependencies: {
+    readModelFields?: typeof readBuilderCmsModelFields;
+    readEntries?: typeof readBuilderCmsContentEntries;
+  } = {},
+) {
+  const readModelFields =
+    dependencies.readModelFields ?? readBuilderCmsModelFields;
+  const readEntries = dependencies.readEntries ?? readBuilderCmsContentEntries;
+  let modelFields: BuilderCmsModelFieldSummary[] = [];
+  let modelFieldsError: unknown = null;
+  try {
+    modelFields = await readModelFields({ model: args.model });
+  } catch (error) {
+    modelFieldsError = error;
+  }
+  const read = await readEntries({
+    model: args.model,
+    fieldPaths: [
+      ...(args.existingFieldPaths ?? []),
+      ...modelFields.map((field) => `data.${field.name}`),
+    ],
+  });
+  if (modelFieldsError) throw modelFieldsError;
+  return { read, modelFields };
+}
+
 async function readSourceEntries(args: {
   sourceType: ContentDatabaseSourceType;
   sourceTable: string;
@@ -207,12 +237,12 @@ async function readSourceEntries(args: {
   message: string | null;
 }> {
   if (args.sourceType === "builder-cms") {
-    const read = await readBuilderCmsContentEntries({
+    const { read, modelFields } = await readBuilderCmsEntriesForRoleChange({
       model: args.sourceTable,
     });
     return {
       entries: read.state === "live" ? read.entries : [],
-      modelFields: await readBuilderCmsModelFields({ model: args.sourceTable }),
+      modelFields,
       readState: read.state,
       fetchedAt: read.fetchedAt,
       message: read.message,
@@ -229,6 +259,22 @@ async function readSourceEntries(args: {
       readState: null,
       fetchedAt: null,
       message: null,
+    };
+  }
+  if (args.sourceType === "notion-database") {
+    const read = await getContentDatabaseSourceAdapter("notion-database")!.read(
+      {
+        sourceTable: args.sourceTable,
+        limit: args.limit,
+        offset: args.offset,
+      },
+    );
+    return {
+      entries: read.entries,
+      modelFields: read.fields,
+      readState: read.state,
+      fetchedAt: read.fetchedAt,
+      message: read.message,
     };
   }
   return {
@@ -314,6 +360,7 @@ export default defineAction({
       await seedSecondarySourceFields({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,
+        sourceType: normalizedType,
         modelFields,
         sampleEntry: entries[0],
         now,
@@ -343,13 +390,20 @@ export default defineAction({
         throw new Error("Only Builder sources can add more items right now.");
       }
 
-      const read = await readBuilderCmsContentEntries({
-        model: source.sourceTable,
-      });
+      const existingSourceFields = await db
+        .select({
+          sourceFieldKey: schema.contentDatabaseSourceFields.sourceFieldKey,
+        })
+        .from(schema.contentDatabaseSourceFields)
+        .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
+      const { read, modelFields: builderModelFields } =
+        await readBuilderCmsEntriesForRoleChange({
+          model: source.sourceTable,
+          existingFieldPaths: existingSourceFields.map(
+            (field) => field.sourceFieldKey,
+          ),
+        });
       const entries = read.state === "live" ? read.entries : [];
-      const builderModelFields = await readBuilderCmsModelFields({
-        model: source.sourceTable,
-      });
       await db
         .delete(schema.contentDatabaseSourceFields)
         .where(eq(schema.contentDatabaseSourceFields.sourceId, source.id));
@@ -358,8 +412,12 @@ export default defineAction({
         .where(eq(schema.contentDatabaseSourceRows.sourceId, source.id));
       await clearSourceFederation(source.id, now);
 
+      let importedEntriesByDocumentId = new Map<
+        string,
+        BuilderCmsSourceEntry
+      >();
       if (read.state === "live") {
-        await importBuilderCmsEntriesAsDatabaseItems({
+        const importResult = await importBuilderCmsEntriesAsDatabaseItems({
           database,
           entries,
           now,
@@ -367,6 +425,7 @@ export default defineAction({
           existingSourceRows: [],
           skipTitleDedup: true,
         });
+        importedEntriesByDocumentId = importResult.importedEntriesByDocumentId;
       }
       const refreshedSetup = await sourceSetupPayload(database.id);
       const builderEntriesByDocumentId =
@@ -379,6 +438,9 @@ export default defineAction({
               existingRows: [],
             })
           : new Map<string, BuilderCmsSourceEntry>();
+      for (const [documentId, entry] of importedEntriesByDocumentId) {
+        builderEntriesByDocumentId.set(documentId, entry);
+      }
       await seedMockSourceFields({
         sourceId: source.id,
         ownerEmail: database.ownerEmail,
@@ -422,6 +484,7 @@ export default defineAction({
         now,
         message: read.message,
         syncState: "linked",
+        builderModelFields,
       });
 
       const latestSources = await db

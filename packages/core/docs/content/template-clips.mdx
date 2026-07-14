@@ -17,7 +17,7 @@ A capture-everything app: screen recordings, meeting notes from your calendar, a
   />
 </WireframeBlock>
 
-Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a normal Clips share link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
+Think along the lines of Loom + Granola + Wispr Flow rolled into one app: async screen recordings, calendar-synced meeting notes, and push-to-talk voice dictation — but the agent is a first-class editor across every surface, and the recordings, meetings, and dictations are yours, not a SaaS vendor's. Clips also makes shared recordings agent-readable: paste a public Clips share link or a temporary **Copy for agent** link into an agent and it can "hear" the transcript as text and "see" timestamped screen frames as images — no raw video needed. Frame-viewing works in any image-capable agent (ChatGPT, Claude Code, Cursor, Codex); text-only web chats still get the full transcript and can take a frame you upload.
 
 <Diagram id="doc-block-pqnd4p" title="Capture, transcribe, reuse" summary={"Three capture types land in one library; the agent transcribes, titles, and summarizes, then every transcript is searchable and shareable."}>
 
@@ -77,6 +77,9 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 ## What you can do with it
 
 - **Record your screen** with a built-in recorder, webcam overlay, audio capture, and pause/trim.
+- **Import public Loom videos.** On the web, select **Record → Import Loom**,
+  then paste a Loom share or embed URL. Clips saves a copy in your library and
+  imports the public transcript when one is available.
 - **Capture meetings from your calendar.** Connect Google Calendar, see upcoming meetings in the sidebar, and hit record on any one. You get a live transcript plus AI summary, bullet notes, and action items the moment it ends.
 - **Push-to-talk dictation.** Hold Fn on your machine, speak, and the cleaned-up text drops into whatever app you're using. Every dictation is kept in a searchable history with originals and AI-cleaned versions side by side.
 - **Get an auto-generated title, summary, and chapter markers** for every recording — the agent fills them in and keeps them current.
@@ -87,7 +90,7 @@ Think along the lines of Loom + Granola + Wispr Flow rolled into one app — but
 - **Capture browser logs with the Chrome extension.** Browser recordings can
   attach redacted console logs and fetch/XHR metadata, which is helpful for
   product bugs and browser-only repros.
-- **Paste Clips links into agents** so they can discover the agent-readable context: metadata, transcript segments, recommended frames, and timestamped frame images without receiving the raw video file.
+- **Paste Clips links into agents** so they can discover the agent-readable context: metadata, transcript segments, recommended frames, and timestamped frame images without receiving the raw video file. Private clips use a temporary scoped link instead of changing visibility.
 - **Smart library views.** Group by project, filter by speaker, auto-tag based on content.
 - **Edit the transcript through chat.** "Fix the mis-transcribed word at 1:42." "Pull three quotes for a blog post." The agent edits the transcript and the UI updates live.
 
@@ -158,10 +161,14 @@ directly to anonymous users.
 
 ## Agent-readable clips
 
-Paste a normal public Clips share link into an agent. The share page advertises
-a compact agent context URL, and that context points to the transcript and frame
-APIs, so models that only accept text or still images can still understand what
-happened in the recording.
+Paste a public Clips share link into an agent, or use **Share → Copy** in the
+**Share with agents** row to mint a temporary private agent link. Private,
+organization, and passworded clips do not need to become public: the copied URL
+carries a recording-scoped `agent_access` token that expires after two hours.
+
+The share page advertises a compact agent context URL, and that context points
+to the transcript and frame APIs, so models that only accept text or still
+images can still understand what happened in the recording.
 
 Any agent that can fetch an image URL into its vision — ChatGPT, Claude Code,
 Cursor, Codex, and MCP-connected agents — reads the transcript and sees the
@@ -175,10 +182,18 @@ agent.
 | `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, readable timestamps, text, and optional source labels |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | A JPEG frame extracted from the video at an original-video timestamp                                           |
 
-The endpoints follow the same public/password/expiry rules as the share page.
+The endpoints follow the same public/password/expiry rules as the share page,
+or accept the scoped `agent_access` token from a temporary agent link.
 Password-protected clips require the password once; successful responses return
 short-lived tokenized links so downstream agents do not need the plaintext
 password.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
 
 When `transcript.status` is `pending`, agents should wait 15-30 seconds and
 retry the context or transcript URL a few times before falling back to frames or
@@ -194,13 +209,20 @@ only returns a playable Slack `video` block for ready, public clips without a
 password, expiry hit, archive marker, or trash marker. Other clips still get the
 normal share-page title/thumbnail metadata and require opening Clips.
 
-<Endpoint id="doc-block-6q76u0" title="Agent context entry point" method="GET" path="/api/agent-context.json" summary="Compact, agent-readable description of a shared clip" auth="Same public / password / expiry rules as the share page" params={[
+<Endpoint id="doc-block-6q76u0" title="Agent context entry point" method="GET" path="/api/agent-context.json" summary="Compact, agent-readable description of a shared clip" auth="Same public / password / expiry rules as the share page, or a scoped agent_access token" params={[
   {
     "name": "id",
     "in": "query",
     "type": "string",
     "required": true,
     "description": "Recording id"
+  },
+  {
+    "name": "agent_access",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "Temporary token from Copy for agent links"
   }
 ]} responses={[
   {
@@ -209,7 +231,7 @@ normal share-page title/thumbnail metadata and require opening Clips.
   }
 ]}>
 
-Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by the public share page so a text- or image-only agent can understand a recording without ingesting raw video.
+Returns clip metadata, transcript status, chapters, CTAs, recommended frames, and links to the transcript and frame APIs. Advertised by public share pages and temporary private agent links so a text- or image-only agent can understand a recording without ingesting raw video.
 
 </Endpoint>
 
@@ -358,7 +380,7 @@ tray app at `http://localhost:8094`.
 
 **Non-destructive editing.** Trim, split, filler-word removal, silence removal, and stitching stay in `edits_json` so original media remains intact.
 
-**Agent-readable share links.** Public share links expose transcript and frame APIs so agents can understand recordings without ingesting raw video.
+**Agent-readable share links.** Public share links and temporary private agent links expose transcript and frame APIs so agents can understand recordings without ingesting raw video.
 
 **Slack playable unfurls.** Public share links can render a Slack `video` block
 that points at the existing `/embed/:id` player. This is a workspace Slack app
@@ -552,7 +574,7 @@ Routes in the UI live under `templates/clips/app/routes/` — the authenticated 
 
 ### Key actions
 
-Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are ~80 actions; the useful groupings:
+Every agent-callable operation is a TypeScript file in `templates/clips/actions/`, auto-mounted at `POST /_agent-native/actions/:name` and runnable from the CLI as `pnpm action <name>`. There are about 100 actions; the useful groupings:
 
 - **Recording lifecycle** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Bug reports** — `save-bug-report-context` stores redacted host-product context for recordings launched from `/bug-report`; `get-recording-player-data` returns the sidecar to editors.

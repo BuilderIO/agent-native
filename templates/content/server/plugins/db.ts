@@ -1,6 +1,29 @@
-import { runMigrations } from "@agent-native/core/db";
+import {
+  ensureAdditiveColumns,
+  getDbExec,
+  runMigrations,
+} from "@agent-native/core/db";
 
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
+import * as schema from "../db/schema.js";
+
+/**
+ * Every Drizzle table exported from schema.ts. Filters out type-only and
+ * helper exports the same way db.spec.ts's `isDrizzleTable` regression guard
+ * does: a real table carries a Symbol-keyed drizzle metadata bag, plain
+ * exports don't.
+ */
+function isDrizzleTable(value: unknown): value is object {
+  return (
+    !!value &&
+    typeof value === "object" &&
+    Object.getOwnPropertySymbols(value).some((s) =>
+      s.toString().includes("drizzle"),
+    )
+  );
+}
+
+const schemaTables = Object.values(schema).filter(isDrizzleTable);
 
 function scheduleBlocksRepairRetry(attempt = 1): void {
   const delayMs = Math.min(30_000 * attempt, 5 * 60_000);
@@ -14,6 +37,11 @@ function scheduleBlocksRepairRetry(attempt = 1): void {
   }
 }
 
+// Convention: every new migration below MUST set a unique `name:` slug (see
+// packages/core/src/db/migrations.ts for the full rationale). Version numbers
+// alone are not a safe identity across parallel branches that each extend
+// this list independently — see the analytics db.ts v75-v83 incident this
+// convention was introduced to prevent.
 const runContentMigrations = runMigrations(
   [
     {
@@ -568,6 +596,45 @@ const runContentMigrations = runMigrations(
         CREATE UNIQUE INDEX IF NOT EXISTS content_database_body_hydration_queue_item_idx ON content_database_body_hydration_queue (database_item_id);
         CREATE INDEX IF NOT EXISTS content_database_items_body_hydration_idx ON content_database_items (database_id, body_hydration_status)`,
     },
+    {
+      version: 61,
+      name: "document-sync-links-claim-column",
+      // Best-effort cross-instance serialization for Notion pull/push: a
+      // conditional UPDATE claims this column before making Notion API calls
+      // so two concurrent syncs for the same document (different tabs,
+      // different serverless instances) don't race Notion mutations against
+      // each other. See server/lib/notion-sync.ts's use of this column.
+      sql: `ALTER TABLE document_sync_links ADD COLUMN IF NOT EXISTS sync_claimed_at TEXT`,
+    },
+    {
+      version: 62,
+      name: "document-comments-notion-discussion-id-column",
+      // Notion groups a top-level comment and its replies under one
+      // discussion_id. Storing it locally lets sync-notion-comments create
+      // replies with `discussion_id` (instead of `parent`) so they thread
+      // under the existing Notion discussion in both directions instead of
+      // becoming unrelated top-level comments. See actions/sync-notion-comments.ts.
+      sql: `ALTER TABLE document_comments ADD COLUMN IF NOT EXISTS notion_discussion_id TEXT`,
+    },
+    {
+      version: 63,
+      name: "builder-source-refresh-hot-path-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS content_database_items_database_position_idx ON content_database_items (database_id, position);
+        CREATE INDEX IF NOT EXISTS content_database_items_document_idx ON content_database_items (document_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_created_idx ON content_database_source_rows (source_id, created_at);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_document_idx ON content_database_source_rows (source_id, document_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_item_idx ON content_database_source_rows (source_id, database_item_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_rows_source_row_idx ON content_database_source_rows (source_id, source_row_id);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_source_key_idx ON content_database_source_fields (source_id, source_field_key);
+        CREATE INDEX IF NOT EXISTS content_database_source_fields_source_property_idx ON content_database_source_fields (source_id, property_id);
+        CREATE INDEX IF NOT EXISTS content_database_body_hydration_queue_source_document_idx ON content_database_body_hydration_queue (source_id, document_id, priority, created_at)`,
+    },
+    {
+      version: 64,
+      name: "document-property-value-hot-path-indexes",
+      sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
+        CREATE INDEX IF NOT EXISTS document_property_values_property_document_idx ON document_property_values (property_id, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );
@@ -598,11 +665,39 @@ const runContentSourceMigrations = runMigrations(
   { table: "content_source_migrations" },
 );
 
+/**
+ * The migration lists above are the authoritative source for tables, indexes,
+ * and data transforms. `ensureAdditiveColumns` runs after they complete as a
+ * belt-and-braces safety net for the failure mode where a column is added to
+ * schema.ts without a matching hand-written ALTER migration, which silently
+ * 500s every query touching a pre-existing production table. It only ever
+ * adds missing columns — never drops, renames, or retypes anything — and any
+ * failure here is logged and swallowed so it can never fail boot.
+ */
 export default async function contentDatabasePlugin(
   nitroApp: Parameters<typeof runContentMigrations>[0],
 ) {
   await runContentMigrations(nitroApp);
   await runContentSourceMigrations(nitroApp);
+  try {
+    const summary = await ensureAdditiveColumns({
+      db: getDbExec(),
+      tables: schemaTables,
+    });
+    if (summary.errors.length > 0) {
+      console.warn(
+        "[db] ensureAdditiveColumns completed with errors:",
+        summary.errors,
+      );
+    }
+  } catch (err) {
+    // Never fail boot over the safety net itself — the authoritative
+    // migrations above already ran.
+    console.warn(
+      "[db] ensureAdditiveColumns failed (non-fatal):",
+      err instanceof Error ? err.message : err,
+    );
+  }
   // One-time, boot-time repair: seed the primary "Content" Blocks field for any
   // legacy database that has never been seeded (blocks_seeded = 0). Idempotent —
   // the atomic claim in seedDefaultBlocksField makes re-runs no-ops, and it

@@ -5,8 +5,11 @@ import {
   useChangeVersions,
   ChangelogSettingsCard,
   LanguagePicker,
-  openAgentSettings,
+  SettingsTabsPage,
+  useAgentSettingsTabs,
   useT,
+  type SettingsSearchEntry,
+  type SettingsTabItem,
 } from "@agent-native/core/client";
 import { appApiPath } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
@@ -32,8 +35,7 @@ import {
   IconSignature,
   IconFilter,
   IconInfoCircle,
-  IconHistory,
-  IconSettings,
+  IconMessage2,
 } from "@tabler/icons-react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, useEffect, useRef, useMemo } from "react";
@@ -41,6 +43,7 @@ import { useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { GmailFiltersSection } from "@/components/settings/GmailFiltersSection";
+import { SnippetsSection } from "@/components/settings/SnippetsSection";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -326,7 +329,7 @@ function AliasesSection() {
   };
 
   return (
-    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+    <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -936,7 +939,7 @@ function AutomationsSection() {
   };
 
   return (
-    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+    <div>
       {/* Header */}
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -1113,7 +1116,7 @@ function DraftingSection() {
   };
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+    <div>
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-foreground">
           {t("settings.drafting")}
@@ -1250,7 +1253,7 @@ function TrackingSection() {
   };
 
   return (
-    <div className="flex-1 p-4 sm:p-8 overflow-y-auto">
+    <div>
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-foreground">
           {t("settings.tracking")}
@@ -1332,7 +1335,7 @@ function SlackIntakeSection() {
     : t("settings.slackNeedsCredentials");
 
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+    <div>
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-foreground">
           {t("settings.slackIntake")}
@@ -1410,7 +1413,7 @@ function SlackIntakeSection() {
 function GeneralSection() {
   const t = useT();
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+    <div>
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-foreground">
           {t("settings.general")}
@@ -1420,7 +1423,10 @@ function GeneralSection() {
         </p>
       </div>
 
-      <div className="max-w-2xl rounded-lg border border-border/20 bg-card/50 p-4">
+      <div
+        id="language"
+        className="max-w-2xl scroll-mt-4 rounded-lg border border-border/20 bg-card/50 p-4"
+      >
         <div className="mb-3">
           <h3 className="text-[13px] font-semibold text-foreground">
             {t("settings.languageTitle")}
@@ -1433,20 +1439,6 @@ function GeneralSection() {
           <LanguagePicker label={t("settings.languageLabel")} />
         </div>
       </div>
-
-      <div className="mt-4 max-w-2xl rounded-lg border border-border/20 bg-card/50 p-4">
-        <div className="mb-3">
-          <h3 className="text-[13px] font-semibold text-foreground">
-            {t("settings.agentTitle")}
-          </h3>
-          <p className="mt-0.5 text-[12px] text-muted-foreground">
-            {t("settings.agentDescription")}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => openAgentSettings()}>
-          {t("settings.openAgentSettings")}
-        </Button>
-      </div>
     </div>
   );
 }
@@ -1454,7 +1446,7 @@ function GeneralSection() {
 function WhatsNewSection() {
   const t = useT();
   return (
-    <div className="flex-1 overflow-y-auto p-4 sm:p-8">
+    <div>
       <div className="mb-6">
         <h2 className="text-[16px] font-semibold text-foreground">
           {t("settings.whatsNew")}
@@ -1473,109 +1465,136 @@ function WhatsNewSection() {
 
 // ─── Settings Page ────────────────────────────────────────────────────────────
 
-type SettingsSection =
-  | "general"
-  | "whats-new"
-  | "drafting"
-  | "automations"
-  | "gmail-filters"
-  | "aliases"
-  | "tracking"
-  | "slack"
-  | "team";
-
-const navItems: {
-  id: SettingsSection;
-  labelKey: string;
-  icon: React.ComponentType<{ className?: string }>;
-}[] = [
-  { id: "general", labelKey: "settings.general", icon: IconSettings },
-  { id: "team", labelKey: "settings.team", icon: IconUsers },
-  { id: "whats-new", labelKey: "settings.whatsNew", icon: IconHistory },
-  { id: "drafting", labelKey: "settings.drafting", icon: IconSignature },
-  { id: "automations", labelKey: "settings.automations", icon: IconBolt },
-  { id: "gmail-filters", labelKey: "settings.gmailFilters", icon: IconFilter },
-  { id: "aliases", labelKey: "settings.aliases", icon: IconUsers },
-  { id: "tracking", labelKey: "settings.tracking", icon: IconChartBar },
-  { id: "slack", labelKey: "settings.slack", icon: IconBolt },
-];
-
-function isSettingsSection(value: string | null): value is SettingsSection {
-  return navItems.some((item) => item.id === value);
-}
-
 export function SettingsPage() {
   const t = useT();
   const [searchParams, setSearchParams] = useSearchParams();
   const navState = useNavigationState();
-  const [activeSection, setActiveSection] =
-    useState<SettingsSection>("general");
+  const agentSettingsTabs = useAgentSettingsTabs();
+  const [activeSection, setActiveSection] = useState<string>("general");
 
+  const mailTabs = useMemo<SettingsTabItem[]>(
+    () => [
+      {
+        id: "drafting",
+        label: t("settings.drafting"),
+        icon: IconSignature,
+        content: <DraftingSection />,
+        keywords: "signature writing style compose reply draft",
+      },
+      {
+        id: "snippets",
+        label: t("settings.snippets"),
+        icon: IconMessage2,
+        content: <SnippetsSection />,
+        keywords: "snippets templates canned responses shortcuts",
+      },
+      {
+        id: "automations",
+        label: t("settings.automations"),
+        icon: IconBolt,
+        group: "automation",
+        content: <AutomationsSection />,
+        keywords: "automations rules triggers events labels model",
+      },
+      {
+        id: "gmail-filters",
+        label: t("settings.gmailFilters"),
+        icon: IconFilter,
+        group: "integrations",
+        content: <GmailFiltersSection />,
+        keywords: "gmail filters import rules",
+      },
+      {
+        id: "aliases",
+        label: t("settings.aliases"),
+        icon: IconUsers,
+        content: <AliasesSection />,
+        keywords: "aliases groups distribution lists recipients",
+      },
+      {
+        id: "tracking",
+        label: t("settings.tracking"),
+        icon: IconChartBar,
+        content: <TrackingSection />,
+        keywords: "tracking opens clicks pixel analytics",
+      },
+      {
+        id: "slack",
+        label: t("settings.slack"),
+        icon: IconBolt,
+        group: "integrations",
+        content: <SlackIntakeSection />,
+        keywords: "slack intake integration webhook",
+      },
+    ],
+    [t],
+  );
+
+  const extraTabs = useMemo<SettingsTabItem[]>(
+    () => [...mailTabs, ...agentSettingsTabs],
+    [agentSettingsTabs, mailTabs],
+  );
+
+  const generalSearchEntries = useMemo<SettingsSearchEntry[]>(
+    () => [
+      {
+        id: "mail-language",
+        label: t("settings.languageTitle"),
+        keywords: "language locale translation i18n",
+        hash: "language",
+      },
+    ],
+    [t],
+  );
+
+  const validSectionIds = useMemo(() => {
+    const ids = new Set<string>(["general", "team", "whats-new"]);
+    for (const tab of extraTabs) ids.add(tab.id);
+    return ids;
+  }, [extraTabs]);
+
+  // Deep links arrive as /settings?section=<id> (e.g. from the agent's
+  // navigate action). Adopt that section, then strip the param so later tab
+  // switches aren't overridden by a stale query value.
   useEffect(() => {
     const section = searchParams.get("section");
-    if (!isSettingsSection(section)) return;
+    if (!section || !validSectionIds.has(section)) return;
     setActiveSection(section);
-    setSearchParams((prev) => {
-      const next = new URLSearchParams(prev);
-      next.delete("section");
-      return next;
-    });
-  }, [searchParams, setSearchParams]);
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete("section");
+        return next;
+      },
+      { replace: true },
+    );
+  }, [searchParams, setSearchParams, validSectionIds]);
 
+  // Keep app state aware of the visible settings section for the agent.
   useEffect(() => {
     navState.sync({ view: "settings", settingsSection: activeSection });
   }, [activeSection]); // eslint-disable-line react-hooks/exhaustive-deps
 
   return (
-    <div className="flex flex-1 flex-col sm:flex-row overflow-hidden">
-      {/* Top tabs on mobile, left sidebar on desktop */}
-      <div className="sm:w-[200px] shrink-0 sm:border-e border-b sm:border-b-0 border-border/30 bg-muted/50 dark:bg-[hsl(220,6%,5%)] sm:p-3 flex sm:flex-col gap-0.5 overflow-x-auto">
-        {navItems.map((item) => {
-          const Icon = item.icon;
-          const isActive = activeSection === item.id;
-          const label = t(item.labelKey);
-          return (
-            <button
-              key={item.id}
-              onClick={() => setActiveSection(item.id)}
-              className={cn(
-                "flex items-center gap-2.5 sm:w-full rounded-md px-3 sm:px-2.5 py-2.5 sm:py-2 text-[13px] transition-colors text-start whitespace-nowrap",
-                isActive
-                  ? "bg-blue-500/15 text-blue-400 font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50",
-              )}
-            >
-              <Icon
-                className={cn(
-                  "h-4 w-4 shrink-0",
-                  isActive ? "text-blue-400" : "text-muted-foreground/60",
-                )}
-              />
-              {label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Right content panel */}
-      <div className="flex flex-1 overflow-hidden bg-background">
-        {activeSection === "general" && <GeneralSection />}
-        {activeSection === "whats-new" && <WhatsNewSection />}
-        {activeSection === "drafting" && <DraftingSection />}
-        {activeSection === "automations" && <AutomationsSection />}
-        {activeSection === "gmail-filters" && <GmailFiltersSection />}
-        {activeSection === "aliases" && <AliasesSection />}
-        {activeSection === "tracking" && <TrackingSection />}
-        {activeSection === "slack" && <SlackIntakeSection />}
-        {activeSection === "team" && (
-          <div className="flex-1 overflow-y-auto">
-            <TeamPage
-              showTitle={false}
-              createOrgDescription={t("settings.teamDescription")}
-            />
-          </div>
-        )}
-      </div>
-    </div>
+    <SettingsTabsPage
+      className="flex-1"
+      generalLabel={t("settings.general")}
+      teamLabel={t("settings.team")}
+      whatsNewLabel={t("settings.whatsNew")}
+      extraTabs={extraTabs}
+      generalSearchEntries={generalSearchEntries}
+      value={activeSection}
+      onValueChange={setActiveSection}
+      general={<GeneralSection />}
+      team={
+        <div className="mx-auto w-full max-w-3xl">
+          <TeamPage
+            showTitle={false}
+            createOrgDescription={t("settings.teamDescription")}
+          />
+        </div>
+      }
+      whatsNew={<WhatsNewSection />}
+    />
   );
 }

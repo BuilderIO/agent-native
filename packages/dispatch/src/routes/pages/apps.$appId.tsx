@@ -7,14 +7,15 @@ import {
 import { useEffect, useMemo } from "react";
 import { Link, useParams } from "react-router";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ActionQueryError } from "../../components/action-query-error";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
 import {
   workspaceAppHref,
   type WorkspaceAppSummary,
-} from "@/lib/workspace-apps";
+} from "../../lib/workspace-apps";
 
 export function meta() {
   return [{ title: "Workspace app - Dispatch" }];
@@ -23,13 +24,10 @@ export function meta() {
 export default function WorkspaceAppRoute() {
   const t = useT();
   const { appId } = useParams();
-  const { data: apps = [], isLoading } = useActionQuery(
-    "list-workspace-apps",
-    { includeAgentCards: false },
-    {
-      refetchInterval: 2_000,
-    },
-  );
+  const appsQuery = useActionQuery("list-workspace-apps", {
+    includeAgentCards: false,
+  });
+  const { data: apps = [], isLoading } = appsQuery;
   const app = useMemo(
     () =>
       (apps as WorkspaceAppSummary[]).find((item) => item.id === appId) ?? null,
@@ -55,7 +53,12 @@ export default function WorkspaceAppRoute() {
           </Link>
         </Button>
 
-        {isLoading && !app ? (
+        {appsQuery.isError ? (
+          <ActionQueryError
+            error={appsQuery.error}
+            onRetry={() => void appsQuery.refetch()}
+          />
+        ) : isLoading && !app ? (
           <div className="space-y-3">
             <Skeleton className="h-5 w-48" />
             <Skeleton className="h-4 w-full" />

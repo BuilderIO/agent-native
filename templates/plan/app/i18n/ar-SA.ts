@@ -434,6 +434,16 @@ const messages = {
       title: "لم يتم العثور على الخطة المحلية",
       message: 'تعذرت قراءة مجلد الخطة المحلية "{{slug}}".',
     },
+    localPlanConnection: {
+      promptTitle: "الاتصال بهذه الخطة المحلية",
+      promptMessage:
+        "تظل هذه الخطة على جهازك. يحتاج Plan إلى إذن المتصفح لقراءتها من الجسر المحلي.",
+      deniedTitle: "تم حظر الوصول إلى الشبكة المحلية",
+      deniedMessage:
+        "افتح إعدادات الموقع في متصفحك لـ Plan، واسمح بالوصول إلى الشبكة المحلية، ثم تحقق مرة أخرى.",
+      connect: "الاتصال بالخطة المحلية",
+      checkAgain: "التحقق مرة أخرى",
+    },
     overview: {
       title: "يخطط",
       documentCount_other: "{{count}} المستندات",
@@ -641,6 +651,9 @@ const messages = {
       signIn: "تسجيل الدخول",
       haveAccount: "لدي حساب بالفعل",
       retry: "حاول ثانية",
+      sendFeedback: "إرسال الملاحظات",
+      feedbackPlaceholder: "صف ما حدث قبل ظهور خطأ الخطة هذا.",
+      openGitHubIssue: "فتح مشكلة في GitHub",
       joinedOrg: "انضم {{orgName}}. خطة الافتتاح...",
       acceptingInvite: "قبول الدعوة",
       joiningOrg: "الانضمام إلى المنظمة",

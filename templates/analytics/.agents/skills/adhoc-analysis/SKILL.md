@@ -52,14 +52,14 @@ Use the available actions to pull data. Read the relevant `.agents/skills/<provi
 
 **Common data source combinations:**
 
-| Analysis type           | Data sources                                                    |
-| ----------------------- | --------------------------------------------------------------- |
+| Analysis type           | Data sources                                                     |
+| ----------------------- | ---------------------------------------------------------------- |
 | Deal/account deep dive  | `account-deep-dive` bundle, then targeted HubSpot/Gong follow-up |
-| Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions                     |
-| Customer health check   | HubSpot deals + Pylon support tickets + BigQuery usage events   |
-| Content performance     | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups       |
-| Engineering velocity    | GitHub PRs + Jira tickets + BigQuery deploy events              |
-| Churn investigation     | Stripe billing + HubSpot deals + Pylon tickets + BigQuery usage |
+| Sales pipeline analysis | HubSpot deals + Gong calls + Slack mentions                      |
+| Customer health check   | HubSpot deals + Pylon support tickets + BigQuery usage events    |
+| Content performance     | BigQuery pageviews + GA4 + SEO keywords + HubSpot signups        |
+| Engineering velocity    | GitHub PRs + Jira tickets + BigQuery deploy events               |
+| Churn investigation     | Stripe billing + HubSpot deals + Pylon tickets + BigQuery usage  |
 
 **Tips for data gathering:**
 
@@ -270,6 +270,7 @@ iteration independent.
 
 After completing a significant analysis, update `LEARNINGS.md` (via the
 `resources` tool) or `save-memory` with newly confirmed:
+
 - Metric definitions (how a metric is actually calculated in this dataset)
 - Provider gotchas discovered during the analysis
 - Schema discoveries (table names, column names, join patterns that worked)

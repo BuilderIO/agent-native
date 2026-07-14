@@ -1,8 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client";
 
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-
+import { ActionQueryError } from "./action-query-error";
+import { Badge } from "./ui/badge";
+import { Skeleton } from "./ui/skeleton";
 import { formatResourceTimestamp } from "./workspace-resource-effective-stack";
 
 function isApprovalRequest(result: any): boolean {
@@ -33,7 +33,7 @@ export function ImpactPreview({
   scope?: "all" | "selected";
   enabled?: boolean;
 }) {
-  const { data: impact, isLoading } = useActionQuery(
+  const query = useActionQuery(
     "preview-workspace-resource-change",
     {
       operation,
@@ -43,6 +43,7 @@ export function ImpactPreview({
     },
     { enabled: enabled && Boolean(resourceId || path) },
   );
+  const { data: impact, isLoading } = query;
 
   if (!enabled || (!resourceId && !path)) return null;
 
@@ -52,6 +53,15 @@ export function ImpactPreview({
         <Skeleton className="h-4 w-40" />
         <Skeleton className="mt-2 h-3 w-72" />
       </div>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <ActionQueryError
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 

@@ -4,6 +4,7 @@ const messages = {
     searchForms: "फॉर्म खोजें",
     appearance: "दिखावट",
     toggleTheme: "थीम बदलें",
+    openAgent: "एजेंट खोलें",
   },
   header: {
     settings: "सेटिंग्स",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "प्रपत्र पूछें",
     allForms: "सभी फॉर्म",
     team: "टीम",
+    agent: "एजेंट",
   },
   settings: {
     title: "सेटिंग्स",
@@ -188,6 +190,12 @@ const messages = {
       successMessage: "सफलता संदेश",
       defaultSuccessMessage: "धन्यवाद! आपकी प्रतिक्रिया रिकॉर्ड हो गई है।",
       redirectUrl: "रीडायरेक्ट URL (वैकल्पिक)",
+      anonymousResponses: "गुमनाम प्रतिक्रियाएँ",
+      anonymousResponsesDescription:
+        "IP पते, प्रतिक्रिया देने वाले की पहचान या स्रोत मेटाडेटा सहेजें नहीं।",
+      emailNewResponses: "नई प्रतिक्रियाओं के लिए मुझे ईमेल करें",
+      emailNewResponsesDescription:
+        "हर प्रतिक्रिया पर फ़ॉर्म के मालिक के खाते के ईमेल पर सूचना भेजें।",
       saveSettings: "सेटिंग्स सहेजें",
     },
     integrations: {

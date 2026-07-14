@@ -4,7 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
 
@@ -19,6 +19,18 @@ export default defineAction({
     "for a specific design + localhost connection. The grant scopes writes to the " +
     "connection's rootPath and expires after 8 hours. Requires editor access on the design. " +
     "The LocalhostWriteConsentDialog calls this after the user clicks 'Allow writes'.",
+  // This action persists the real bridgeToken that unlocks the local
+  // bridge's unrestricted /read-file, /write-file, and /apply-edit. It must
+  // only ever be triggered by a human clicking "Allow writes" in
+  // LocalhostWriteConsentDialog — never by the agent itself, or an agent
+  // could self-grant local filesystem write/read access and bypass the
+  // human consent model entirely. `agentTool: false` hides it from every
+  // agent tool surface (in-app assistant, MCP, A2A) while keeping it
+  // callable from the frontend via `callAction` / `useActionMutation` and
+  // the raw `/_agent-native/actions/grant-localhost-write-consent` route. The
+  // token intentionally stays server-side: browser callers only need grant
+  // metadata because write-local-file adds bridge authentication itself.
+  agentTool: false,
   schema: z.object({
     designId: z.string().describe("Design ID."),
     connectionId: z
@@ -43,6 +55,9 @@ export default defineAction({
         and(
           eq(schema.designLocalhostConnections.id, connectionId),
           eq(schema.designLocalhostConnections.ownerEmail, ownerEmail),
+          orgId
+            ? eq(schema.designLocalhostConnections.orgId, orgId)
+            : isNull(schema.designLocalhostConnections.orgId),
         ),
       )
       .limit(1);
@@ -83,6 +98,9 @@ export default defineAction({
           eq(schema.designLocalhostWriteGrants.designId, designId),
           eq(schema.designLocalhostWriteGrants.connectionId, connectionId),
           eq(schema.designLocalhostWriteGrants.ownerEmail, ownerEmail),
+          orgId
+            ? eq(schema.designLocalhostWriteGrants.orgId, orgId)
+            : isNull(schema.designLocalhostWriteGrants.orgId),
         ),
       )
       .limit(1);
@@ -108,7 +126,6 @@ export default defineAction({
 
     return {
       grantId: existing?.id ?? grantId,
-      bridgeToken,
       rootPath,
       grantedUntil,
     };

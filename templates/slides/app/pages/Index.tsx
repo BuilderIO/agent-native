@@ -5,19 +5,26 @@ import {
   useSession,
   useT,
 } from "@agent-native/core/client";
+import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
 import { extractGoogleDocUrls } from "@shared/google-docs";
-import { IconPlus, IconStack2, IconUserCircle } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconPlus,
+  IconRefresh,
+  IconStack2,
+  IconUserCircle,
+} from "@tabler/icons-react";
 import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router";
+import { toast } from "sonner";
 
 import DeckCard from "@/components/deck/DeckCard";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
-import {
-  useSetHeaderActions,
-  useSetPageTitle,
-} from "@/components/layout/HeaderActions";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -40,7 +47,6 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDesignSystems } from "@/hooks/use-design-systems";
-import { toast } from "@/hooks/use-toast";
 import { savePromptToComposerDraft } from "@/lib/composer-draft";
 
 const MAX_SOURCE_CONTEXT_CHARS = 60_000;
@@ -101,6 +107,47 @@ function truncateSourceForContext(prompt: string): {
   };
 }
 
+interface DesignSystemGenerationContextResult {
+  title?: string;
+  agentContext?: string;
+}
+
+async function loadDesignSystemGenerationContext(
+  designSystemId?: string | null,
+): Promise<string> {
+  if (!designSystemId) return "";
+  try {
+    const result = (await callAction(
+      "get-design-system",
+      { id: designSystemId },
+      { method: "GET" },
+    )) as DesignSystemGenerationContextResult | undefined;
+    if (result?.agentContext?.trim()) {
+      return [
+        "",
+        result.agentContext.trim(),
+        "",
+        "The selected design system context above was hydrated before this agent run. Follow it directly; do not replace it with generic colors, fonts, spacing, imagery, or slide components.",
+      ].join("\n");
+    }
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "unknown loading error";
+    return [
+      "",
+      "## Selected Design System Context",
+      `The selected design system id "${designSystemId}" could not be loaded before generation: ${message}`,
+      "Before adding slides, call `get-design-system` for this id. If it still fails, stop and tell the user the selected design system is unavailable instead of improvising a generic style.",
+    ].join("\n");
+  }
+  return [
+    "",
+    "## Selected Design System Context",
+    `The selected design system id "${designSystemId}" returned no generation context.`,
+    "Call `get-design-system` for this id before adding slides. If it still has no usable tokens/docs, stop and ask the user to finish design-system indexing instead of improvising a generic style.",
+  ].join("\n");
+}
+
 function describeUploadedFilesForAgent(
   files: UploadedFile[],
   deckId: string,
@@ -135,6 +182,8 @@ export default function Index() {
     deleteDeck,
     updateDeck,
     loading,
+    loadError,
+    reloadDecks,
   } = useDecks();
   const { designSystems, defaultSystem } = useDesignSystems();
   const { session } = useSession();
@@ -359,13 +408,17 @@ export default function Index() {
             "If the action cannot read a private document, tell the user the exact sharing step from the action error instead of generating from the URL alone.",
           ].join("\n")
         : "";
+    const hydratedDesignSystemContext = await loadDesignSystemGenerationContext(
+      selectedDesignSystem?.id,
+    );
     const designSystemContext = selectedDesignSystem
       ? [
           "",
           "Design system selection:",
           `- Use "${selectedDesignSystem.title}" (id: ${selectedDesignSystem.id}).`,
           "- The deck has already been linked to this design system.",
-          `- Before adding slides, call \`get-design-system --id ${selectedDesignSystem.id}\` and use its tokens for colors, typography, spacing, imagery, and slide defaults.`,
+          "- Use the hydrated design system context below for colors, typography, spacing, imagery, and slide defaults.",
+          hydratedDesignSystemContext,
           "- Do not choose or apply a different design system.",
         ].join("\n")
       : [
@@ -406,8 +459,7 @@ export default function Index() {
       }
       setNewDeckRetryFiles(filesForGeneration);
       deleteDeck(deck.id);
-      toast({
-        title: t("home.generationStartFailed"),
+      toast.error(t("home.generationStartFailed"), {
         description: t("home.generationStartFailedDescription"),
       });
       setShowNewDeckPrompt(true);
@@ -495,6 +547,26 @@ export default function Index() {
             </div>
           </div>
         </>
+      ) : loadError ? (
+        <div className="flex min-h-[360px] items-center justify-center">
+          <div className="flex max-w-sm flex-col items-center gap-3 text-center">
+            <IconAlertTriangle className="size-7 text-destructive/70" />
+            <div>
+              <h2 className="font-medium">{t("home.loadFailed")}</h2>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("home.loadFailedDescription")}
+              </p>
+            </div>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => void reloadDecks()}
+            >
+              <IconRefresh className="size-4" />
+              {t("home.retry")}
+            </Button>
+          </div>
+        </div>
       ) : decks.length === 0 ? (
         <EmptyState onCreateDeck={openNewDeck} />
       ) : (

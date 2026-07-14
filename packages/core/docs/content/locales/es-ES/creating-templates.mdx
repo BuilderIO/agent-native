@@ -7,6 +7,8 @@ description: "Cómo crear y publicar sus propias plantillas de aplicaciones nati
 
 Las plantillas son aplicaciones nativas del agente completas y bifurcables que resuelven un flujo de trabajo real. Las plantillas propias se crean con la misma superficie de marco que usted utiliza: rutas React para UI, Drizzle SQL para datos, actions para operaciones, recursos del espacio de trabajo para el comportamiento del agente y sincronización de sondeos para que el agente y UI permanezcan alineados.
 
+Use `@agent-native/core` para el contrato de runtime: actions, plugins de servidor, helpers de base de datos, estado de aplicación, helpers de rutas y chat del agente. Use `@agent-native/toolkit` para UI reutilizable y helpers de construcción de apps, como primitivas compartidas, hooks de toast/móvil, selectores de fecha y slots simples de shell de aplicación. Mantenga locales las variantes específicas de una plantilla cuando codifiquen comportamiento de producto o identidad visual.
+
 Una buena plantilla:
 
 - Resuelve un flujo de trabajo de principio a fin, con datos iniciales útiles o un flujo de estado vacío.
@@ -42,7 +44,6 @@ Cada plantilla sigue el mismo diseño general:
 <FileTree
   id="doc-block-1qe28n0"
   title="Estructura del proyecto de plantilla"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -170,8 +171,7 @@ Las cuatro áreas de cada plantilla se conectan a través de una superficie de a
 
 Defina tablas de dominio con los asistentes del marco Drizzle para que los esquemas sigan siendo portátiles en SQLite, Postgres, D1, Turso, Supabase, Neon y otros backends compatibles:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -202,8 +202,7 @@ Los cambios de esquema deben ser aditivos. Agregue tablas y columnas a través d
 
 Para lecturas y escrituras de aplicaciones, utilice el generador de consultas de Drizzle y los operadores portátiles de `drizzle-orm`. No escriba código de producto con SQL sin formato cuando Drizzle pueda expresar la consulta y no importe desde `drizzle-orm/sqlite-core` o `drizzle-orm/pg-core` en plantillas.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -347,8 +346,7 @@ Para la navegación de aplicaciones, prefiera un comando `navigate` que incluya 
 `path` cuando se conoce el URL. No escribas también `__set_url__` para el mismo movimiento;
 Esa clave está reservada para las herramientas del marco URL y los cambios de filtro exclusivos de URL.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

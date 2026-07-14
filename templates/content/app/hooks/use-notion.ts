@@ -16,8 +16,25 @@ import type {
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 
+// The server signs a `redirect` query param into the OAuth `state` and the
+// callback route sends the user back there once the connection completes. If
+// we never send it, `state.redirectPath` defaults to "/" server-side and
+// every OAuth round-trip drops the user at the app root regardless of what
+// document/view they started from. Current path + search (no hash — Notion's
+// redirect_uri validation is stricter about odd characters, and in-page
+// anchors aren't meaningful across a page reload anyway).
+export function currentRedirectTarget(): string {
+  if (typeof window === "undefined") return "/";
+  const { pathname, search } = window.location;
+  return `${pathname}${search}` || "/";
+}
+
 async function fetchNotionAuthUrl(): Promise<string> {
-  const res = await fetch(appApiPath("/api/notion/auth-url"));
+  const redirect = currentRedirectTarget();
+  const url = appApiPath(
+    `/api/notion/auth-url?redirect=${encodeURIComponent(redirect)}`,
+  );
+  const res = await fetch(url);
   if (!res.ok) {
     const body = await res.json().catch(() => null);
     throw new Error(
@@ -29,11 +46,21 @@ async function fetchNotionAuthUrl(): Promise<string> {
   return body.url;
 }
 
-function invalidateDocumentQueries(
+export function invalidateDocumentQueries(
   queryClient: ReturnType<typeof useQueryClient>,
   documentId: string,
 ) {
-  queryClient.invalidateQueries({ queryKey: ["action"] });
+  // Targeted invalidation only — this fires on every link/unlink/pull/push/
+  // resolve-conflict mutation success (including the auto-sync push-on-save
+  // path after every debounced editor save). Invalidating the bare ["action"]
+  // key would refetch every mounted query app-wide (sidebar tree, comments,
+  // database views, search, connection status, ...) on each cycle.
+  queryClient.invalidateQueries({
+    queryKey: ["action", "get-document", { id: documentId }],
+  });
+  queryClient.invalidateQueries({
+    queryKey: ["action", "list-documents"],
+  });
   queryClient.invalidateQueries({
     queryKey: documentSyncStatusQueryKey(documentId),
   });
@@ -46,10 +73,11 @@ export function documentSyncStatusQueryKey(
   documentId: string,
   options?: { autoSync?: boolean },
 ) {
+  const normalizedDocumentId = documentId.trim();
   return [
     "action",
     "refresh-notion-sync-status",
-    { documentId, autoSync: !!options?.autoSync },
+    { documentId: normalizedDocumentId, autoSync: !!options?.autoSync },
   ] as const;
 }
 
@@ -76,32 +104,53 @@ export async function openNotionOAuthUrl() {
   return fetchNotionAuthUrl();
 }
 
+// Not linked (no pageId) or the workspace isn't connected: there is nothing to
+// sync, so fall back to a slow heartbeat instead of the 2s/30s cadence. This
+// still notices a fresh link/connection made from another tab eventually,
+// without hammering refresh-notion-sync-status (get-document + getSyncLink +
+// connection lookup) for every open, unlinked document.
+const UNLINKED_SYNC_POLL_MS = 60_000;
+
+export function documentSyncRefetchIntervalMs(
+  data: DocumentSyncStatus | undefined,
+  autoSync: boolean,
+): number {
+  if (data && (!data.connected || !data.pageId)) return UNLINKED_SYNC_POLL_MS;
+  return autoSync ? 2_000 : 30_000;
+}
+
 export function useDocumentSyncStatus(
   documentId: string | null,
   options?: { autoSync?: boolean },
 ) {
   const queryClient = useQueryClient();
   const lastObservedSyncedAtRef = useRef<string | null>(null);
+  const normalizedDocumentId = documentId?.trim() || null;
+  const autoSync = !!options?.autoSync;
   const query = useQuery<DocumentSyncStatus>({
-    queryKey: documentId
-      ? documentSyncStatusQueryKey(documentId, options)
+    queryKey: normalizedDocumentId
+      ? documentSyncStatusQueryKey(normalizedDocumentId, options)
       : ["action", "refresh-notion-sync-status", null],
     queryFn: () => {
-      if (!documentId) throw new Error("documentId is required");
+      if (!normalizedDocumentId) throw new Error("documentId is required");
       return callAction<DocumentSyncStatus>("refresh-notion-sync-status", {
-        documentId,
-        autoSync: !!options?.autoSync,
+        documentId: normalizedDocumentId,
+        autoSync,
       });
     },
-    enabled: !!documentId,
+    enabled: !!normalizedDocumentId,
     // Poll Notion aggressively when auto-sync is on so remote changes appear
     // within ~2s. Server throttles match (see REFRESH_THROTTLE_AUTO_SYNC_MS in
     // notion-sync.ts) so we make at most one real Notion request per 2s per doc.
-    refetchInterval: options?.autoSync ? 2_000 : 30_000,
+    // Once we know the doc is unlinked/disconnected, back off to a slow
+    // heartbeat (see documentSyncRefetchIntervalMs) instead of polling at full
+    // speed forever.
+    refetchInterval: (query) =>
+      documentSyncRefetchIntervalMs(query.state.data, autoSync),
   });
 
   useEffect(() => {
-    if (!documentId || !query.data?.lastSyncedAt) return;
+    if (!normalizedDocumentId || !query.data?.lastSyncedAt) return;
     if (lastObservedSyncedAtRef.current === query.data.lastSyncedAt) return;
 
     lastObservedSyncedAtRef.current = query.data.lastSyncedAt;
@@ -109,7 +158,7 @@ export function useDocumentSyncStatus(
     const cachedDocument = queryClient.getQueryData<Document>([
       "action",
       "get-document",
-      { id: documentId },
+      { id: normalizedDocumentId },
     ]);
     const syncedLocalUpdatedAt = query.data.lastPushedLocalUpdatedAt;
 
@@ -119,12 +168,12 @@ export function useDocumentSyncStatus(
       syncedLocalUpdatedAt > cachedDocument.updatedAt
     ) {
       queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: documentId }],
+        queryKey: ["action", "get-document", { id: normalizedDocumentId }],
       });
       queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
     }
   }, [
-    documentId,
+    normalizedDocumentId,
     query.data?.lastPushedLocalUpdatedAt,
     query.data?.lastSyncedAt,
     queryClient,
@@ -133,12 +182,33 @@ export function useDocumentSyncStatus(
   return query;
 }
 
+const AUTO_SYNC_STORAGE_PREFIX = "notion-auto-sync:";
+
+// Disconnect is workspace-wide, so every per-document auto-sync toggle is
+// stale afterward. Without this, a doc that once had auto-sync ON keeps its
+// localStorage flag set to true and re-arms the 2s poll (see
+// documentSyncRefetchIntervalMs) the moment the workspace reconnects.
+export function clearAllAutoSyncToggles() {
+  if (typeof window === "undefined") return;
+  try {
+    const staleKeys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i++) {
+      const key = window.localStorage.key(i);
+      if (key?.startsWith(AUTO_SYNC_STORAGE_PREFIX)) staleKeys.push(key);
+    }
+    for (const key of staleKeys) window.localStorage.removeItem(key);
+  } catch {
+    // Best-effort — localStorage may be unavailable (private mode, etc.).
+  }
+}
+
 export function useDisconnectNotion() {
   const queryClient = useQueryClient();
   return useActionMutation<{ success: boolean; deleted: number }>(
     "disconnect-notion",
     {
       onSuccess: () => {
+        clearAllAutoSyncToggles();
         queryClient.invalidateQueries({
           queryKey: ["action", "connect-notion-status"],
         });
@@ -183,12 +253,12 @@ export function usePullDocumentFromNotion(documentId: string) {
 
 export function usePushDocumentToNotion(documentId: string) {
   const queryClient = useQueryClient();
-  return useActionMutation<DocumentSyncStatus, { documentId: string }>(
-    "push-notion-page",
-    {
-      onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
-    },
-  );
+  return useActionMutation<
+    DocumentSyncStatus,
+    { documentId: string; flushOpenEditor?: boolean }
+  >("push-notion-page", {
+    onSuccess: () => invalidateDocumentQueries(queryClient, documentId),
+  });
 }
 
 export function useResolveDocumentSyncConflict(documentId: string) {

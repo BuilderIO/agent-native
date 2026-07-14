@@ -18,6 +18,7 @@ import { defineEventHandler } from "h3";
  */
 import { createRequestHandler } from "react-router";
 
+import { isMcpPublicPath } from "../mcp/route-paths.js";
 import {
   DEFAULT_SSR_CACHE_HEADERS,
   DEFAULT_SPECULATION_RULES_PATH,
@@ -31,15 +32,11 @@ import {
   withAgentNativeSocialImageCacheBuster,
 } from "../shared/social-meta.js";
 import {
-  GA_CSP_SCRIPT_HOSTS,
-  getGaInlineConfigScriptBody,
-} from "./analytics.js";
-import {
   getAppBasePathFromViteEnv,
   stripAppBasePath as canonicalStripAppBasePath,
 } from "./app-base-path.js";
+import { captureError } from "./capture-error.js";
 import { runWithRequestContext } from "./request-context.js";
-import { computeInlineScriptHash } from "./security-headers.js";
 import { getSentryClientConfigScript } from "./sentry-config.js";
 
 export {
@@ -102,6 +99,22 @@ function requestWithPathname(
   return new Request(url, init);
 }
 
+function requestForAnonymousSsr(request: Request): Request {
+  const headers = new Headers(request.headers);
+  headers.delete("cookie");
+  headers.delete("authorization");
+  const init: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers,
+    signal: request.signal,
+  };
+  if (request.body && !["GET", "HEAD"].includes(request.method.toUpperCase())) {
+    init.body = request.body;
+    init.duplex = "half";
+  }
+  return new Request(request.url, init);
+}
+
 function prefixMountedPath(path: string, basePath: string): string {
   if (!basePath || !path.startsWith("/") || path.startsWith("//")) return path;
   if (path === basePath || path.startsWith(`${basePath}/`)) return path;
@@ -110,7 +123,7 @@ function prefixMountedPath(path: string, basePath: string): string {
 
 function prefixMountedHtml(html: string, basePath: string): string {
   if (!basePath) return html;
-  return html
+  const prefixedHtml = html
     .replace(
       /\b(href|src|action|formaction|poster)=(["'])(\/(?!\/)[^"']*)\2/g,
       (_match, attr: string, quote: string, path: string) =>
@@ -120,6 +133,20 @@ function prefixMountedHtml(html: string, basePath: string): string {
       const q = quote || "";
       return `url(${q}${prefixMountedPath(path, basePath)}${q})`;
     });
+
+  // React Router serializes the server-side basename into its hydration
+  // context. The request above is deliberately rendered mount-relative, so
+  // that value is normally "/" even though the browser URL is mounted at a
+  // workspace prefix such as "/analytics". If the client hydrates that
+  // context unchanged, the mounted pathname no longer matches the route tree:
+  // index redirects can stall and child pages can fall through to the 404.
+  // Keep the serialized router state consistent with the URLs we just
+  // prefixed. Template entry clients also set this defensively for older
+  // responses, but the initial hydration state must be correct at the source.
+  return prefixedHtml.replace(
+    /(window\.__reactRouterContext\s*=\s*\{\s*"basename"\s*:\s*)"(?:\\.|[^"\\])*"/,
+    `$1${JSON.stringify(basePath)}`,
+  );
 }
 
 function injectHeadScript(html: string, script: string | null): string {
@@ -223,6 +250,27 @@ function applyDefaultSsrCacheHeader(
 ) {
   if (!isSsrHtmlOrDataResponse(headers, status, pathname)) return;
 
+  // A public shell must never set a viewer cookie or vary by credentials.
+  // Preserve harmless content-negotiation dimensions such as Accept-Encoding.
+  headers.delete("set-cookie");
+  const vary = headers.get("vary");
+  if (vary) {
+    const publicVary = vary
+      .split(",")
+      .map((value) => value.trim())
+      .filter((value) => {
+        const normalized = value.toLowerCase();
+        return (
+          normalized &&
+          normalized !== "*" &&
+          normalized !== "cookie" &&
+          normalized !== "authorization"
+        );
+      });
+    if (publicVary.length > 0) headers.set("vary", publicVary.join(", "));
+    else headers.delete("vary");
+  }
+
   // Netlify Functions/proxies are not cached by default. Set all three cache
   // headers: Cache-Control for browsers, CDN-Cache-Control for generic CDNs,
   // and Netlify-CDN-Cache-Control (with durable) so Netlify's shared cache
@@ -256,92 +304,22 @@ function applyDefaultSpeculationRulesHeader(
 }
 
 /**
- * Extract the plain JS body from a `<script ...>body</script>` string.
- * Returns `null` if the input is falsy or has no recognisable `</script>` end.
- * Used to compute the sha256 hash of framework-injected inline scripts so the
- * hash can be listed in the `script-src` CSP directive without relying on
- * `'unsafe-inline'`.
+ * Strip document-level CSP from app HTML responses.
+ *
+ * Hosted templates inject framework bootstrap scripts, analytics, Sentry config,
+ * and app-owned inline scripts whose exact bytes vary by build/template. Any
+ * shared CSP header, even Report-Only, can block or noisily report Google Tag
+ * Manager and those bootstraps. Extension iframes and webviews keep their own
+ * route-specific sandboxes; normal app documents deliberately do not emit CSP.
  */
-function extractScriptBody(scriptTag: string | null): string | null {
-  if (!scriptTag) return null;
-  const start = scriptTag.indexOf(">") + 1;
-  const end = scriptTag.lastIndexOf("</script>");
-  if (start <= 0 || end < start) return null;
-  return scriptTag.slice(start, end);
-}
-
-/**
- * Apply a Content-Security-Policy header to HTML document responses.
- *
- * Two directives are always enforced in production:
- *
- *   - `object-src 'none'`  — disables Flash / Java / PDF plugin execution,
- *     which are a reliable code-execution vector even in modern browsers.
- *   - `base-uri 'self'`    — prevents a `<base href="...">` injection from
- *     hijacking all relative URLs in the document (a common attack target when
- *     user-controlled content reaches the HTML).
- *
- * A third directive, `script-src`, is emitted via `Content-Security-Policy-
- * Report-Only` rather than enforced. The framework injects deterministic inline
- * scripts (the Sentry config block, whose hash is computed once at process
- * startup from the resolved env vars, and — when `GA_MEASUREMENT_ID` is set —
- * the gtag config block, whose hash is derived from the same string
- * `wrapWithAnalytics` embeds). It also loads Google Tag Manager / GA4 from
- * `GA_CSP_SCRIPT_HOSTS`. All of those are listed here so the report-only policy
- * reflects the code the framework itself injects instead of reporting a
- * violation on every page load. Templates additionally render a theme-init
- * inline script whose exact content varies by template (default theme param,
- * custom docs variant, etc.) and which is rendered by React Router, not this
- * handler, so its hash is not available here. Shipping script-src as
- * Report-Only surfaces the remaining violations without breaking template
- * customisations; teams can graduate to enforcement once their hashes are
- * enumerated.
- *
- * Skipped in development (`NODE_ENV !== 'production'`) so HMR eval and Vite
- * dev-server injects are never blocked. Set `AGENT_NATIVE_DISABLE_DOC_CSP=1`
- * to opt out in production for a template with exotic needs.
- */
-function applyDocumentCsp(headers: Headers, sentryScript: string | null): void {
-  if (process.env.NODE_ENV !== "production") return;
-  if (process.env.AGENT_NATIVE_DISABLE_DOC_CSP === "1") return;
-
-  // object-src / base-uri: enforced; neither directive mentions scripts, so
-  // they are safe even when a template's inline script hashes are unknown.
-  const existing = headers.get("content-security-policy") ?? "";
-  if (!existing) {
-    headers.set(
-      "content-security-policy",
-      "object-src 'none'; base-uri 'self'",
-    );
-  }
-
-  // script-src as Report-Only: list 'self', the framework-injected inline
-  // script hashes (Sentry config + gtag config), and the Google Analytics /
-  // Tag Manager loader hosts. These are exactly the scripts the framework
-  // itself injects, so listing them keeps the report-only policy from flagging
-  // GA on every page load (and keeps it safe to graduate to enforcement).
-  // Template theme-init hashes are NOT included here — see function comment.
-  const sentryBody = extractScriptBody(sentryScript);
-  const sentryHash = sentryBody ? computeInlineScriptHash(sentryBody) : null;
-  const gaInlineBody = getGaInlineConfigScriptBody();
-  const gaHash = gaInlineBody ? computeInlineScriptHash(gaInlineBody) : null;
-  const gaHosts = gaInlineBody ? [...GA_CSP_SCRIPT_HOSTS] : [];
-  const scriptSrcTokens = [
-    "'self'",
-    ...(sentryHash ? [sentryHash] : []),
-    ...(gaHash ? [gaHash] : []),
-    ...gaHosts,
-  ];
-  const scriptSrc = `script-src ${scriptSrcTokens.join(" ")}`;
-
-  const existingRo = headers.get("content-security-policy-report-only") ?? "";
-  if (!existingRo) {
-    headers.set("content-security-policy-report-only", scriptSrc);
-  }
+function removeDocumentCsp(headers: Headers): void {
+  headers.delete("content-security-policy");
+  headers.delete("content-security-policy-report-only");
 }
 
 function isFrameworkOrAssetPath(pathname: string): boolean {
   return (
+    isMcpPublicPath(pathname) ||
     pathname.startsWith("/.well-known/") ||
     pathname.startsWith("/_agent_native/") ||
     pathname.startsWith("/_agent-native/") ||
@@ -375,7 +353,15 @@ async function rewriteMountedResponse(
   }
 
   const contentType = headers.get("content-type") ?? "";
-  if (!contentType.toLowerCase().includes("text/html") || !response.body) {
+  if (!contentType.toLowerCase().includes("text/html")) {
+    return new Response(response.body, {
+      status: response.status,
+      statusText: response.statusText,
+      headers,
+    });
+  }
+  removeDocumentCsp(headers);
+  if (!response.body) {
     return new Response(response.body, {
       status: response.status,
       statusText: response.statusText,
@@ -385,7 +371,6 @@ async function rewriteMountedResponse(
 
   const html = await response.text();
   headers.delete("content-length");
-  applyDocumentCsp(headers, sentryClientConfigScript);
   return new Response(
     injectHeadScript(
       injectDefaultSocialImageMeta(
@@ -415,7 +400,9 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       return new Response(null, { status: 404 });
     }
     try {
-      const request = requestWithPathname(event.req as Request, p, basePath);
+      const request = requestForAnonymousSsr(
+        requestWithPathname(event.req as Request, p, basePath),
+      );
       // SSR renders an IMPERSONAL public shell — we deliberately do NOT read the
       // request's session/cookies here, and pin an explicitly anonymous request
       // context. That keeps the SSR HTML/.data identical for every visitor so it
@@ -460,6 +447,12 @@ export function createH3SSRHandler(getBuild: () => Promise<unknown> | unknown) {
       // that aid reconnaissance attacks. In dev we surface the message text
       // so devtools shows something useful; in prod we return a bare 500.
       console.error("[ssr-handler] SSR error:", err);
+      captureError(err, {
+        route: p,
+        method: event.req.method,
+        userAgent: event.req.headers.get("user-agent") ?? undefined,
+        tags: { renderMode: "anonymous-public", surface: "ssr" },
+      });
       const isProd = process.env.NODE_ENV === "production";
       const body = isProd
         ? "Internal Server Error"

@@ -1,8 +1,10 @@
 import type { ActionChatUIConfig } from "../action-ui.js";
 import {
+  isCredentialGapCodeAgentEvent,
   normalizeCodeAgentTranscript,
   type CodeAgentTranscriptEvent as CoreCodeAgentTranscriptEvent,
   type NormalizedCodeAgentStatusEvent,
+  type NormalizedCodeAgentThinkingEvent,
   type NormalizedCodeAgentToolEvent,
   type NormalizedCodeAgentTranscriptItem,
 } from "../code-agents/transcript-normalizer.js";
@@ -124,10 +126,18 @@ export function buildAssistantMessage(
     }
   };
 
+  const appendReasoning = (text: string) => {
+    const last = content[content.length - 1];
+    if (last && last.type === "reasoning") {
+      last.text = (last.text ?? "") + text;
+    } else {
+      content.push({ type: "reasoning", text });
+    }
+  };
+
   for (const { event } of events) {
     if (event.type === "clear") {
-      content.length = 0;
-      toolCallCounter = 0;
+      clearAssistantDraftContent(content);
       continue;
     }
 
@@ -136,11 +146,16 @@ export function buildAssistantMessage(
       continue;
     }
 
+    if (event.type === "thinking") {
+      appendReasoning(event.text ?? "");
+      continue;
+    }
+
     if (event.type === "tool_start") {
       toolCallCounter += 1;
-      const toolCallId = runId
-        ? `${runId}:tc_${toolCallCounter}`
-        : `tc_${toolCallCounter}`;
+      const toolCallId =
+        event.id?.trim() ||
+        (runId ? `${runId}:tc_${toolCallCounter}` : `tc_${toolCallCounter}`);
       const args = (event.input ?? {}) as Record<string, string>;
       content.push({
         type: "tool-call",
@@ -153,22 +168,46 @@ export function buildAssistantMessage(
     }
 
     if (event.type === "tool_done") {
-      for (let i = content.length - 1; i >= 0; i--) {
-        const part = content[i];
-        if (
-          part.type === "tool-call" &&
-          part.toolName === event.tool &&
-          part.result === undefined
-        ) {
-          part.result = event.result ?? "";
-          if (event.isError !== undefined) part.isError = event.isError;
-          if (event.completedSideEffect !== undefined) {
-            part.completedSideEffect = event.completedSideEffect;
+      const eventToolCallId = event.id?.trim();
+      let matchingIndex = -1;
+
+      if (eventToolCallId) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolCallId === eventToolCallId &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
           }
-          if (event.mcpApp) part.mcpApp = event.mcpApp;
-          if (event.chatUI) part.chatUI = event.chatUI;
-          break;
         }
+      }
+
+      if (matchingIndex === -1) {
+        for (let i = content.length - 1; i >= 0; i--) {
+          const part = content[i];
+          if (
+            part.type === "tool-call" &&
+            part.toolName === event.tool &&
+            part.result === undefined
+          ) {
+            matchingIndex = i;
+            break;
+          }
+        }
+      }
+
+      const part = content[matchingIndex];
+      if (part?.type === "tool-call") {
+        part.result = event.result ?? "";
+        if (event.isError !== undefined) part.isError = event.isError;
+        if (event.completedSideEffect !== undefined) {
+          part.completedSideEffect = event.completedSideEffect;
+        }
+        if (event.mcpApp) part.mcpApp = event.mcpApp;
+        if (event.chatUI) part.chatUI = event.chatUI;
       }
       continue;
     }
@@ -250,6 +289,26 @@ export function buildAssistantMessage(
       : { type: "complete" as const, reason: "stop" as const },
     metadata,
   };
+}
+
+function clearAssistantDraftContent(content: ContentPart[]): void {
+  for (let index = content.length - 1; index >= 0; index--) {
+    const part = content[index];
+    if (!part) continue;
+    if (part.type === "text" || part.type === "reasoning") {
+      content.splice(index, 1);
+      continue;
+    }
+    if (part.type === "tool-call" && part.result === undefined) {
+      // Keep materialized in-flight tool cards across retry clears so persisted
+      // thread rebuilds match the live SSE processor and avoid hide→show flicker.
+      const isEphemeral =
+        (part as { activity?: boolean }).activity === true ||
+        part.argsText === "" ||
+        Object.keys(part.args ?? {}).length === 0;
+      if (isEphemeral) content.splice(index, 1);
+    }
+  }
 }
 
 function getStoredMessage(entry: any): any {
@@ -606,6 +665,7 @@ export interface CodeAgentThreadTranscriptEvent {
   metadata?: Record<string, unknown>;
   artifactPath?: string;
   artifactUrl?: string;
+  signal?: CoreCodeAgentTranscriptEvent["signal"];
 }
 
 export interface BuildRepositoryFromCodeAgentTranscriptOptions {
@@ -1036,6 +1096,7 @@ function toCoreCodeAgentTranscriptEvent(
       ...(event.artifactPath ? { artifactPath: event.artifactPath } : {}),
       ...(event.artifactUrl ? { artifactUrl: event.artifactUrl } : {}),
     },
+    ...(event.signal ? { signal: event.signal } : {}),
   };
 }
 
@@ -1049,11 +1110,21 @@ function contentPartForCodeAgentTranscriptItem(
   if (item.type === "tool") {
     return toolContentPartForCodeAgentTranscriptItem(item);
   }
+  if (item.type === "thinking") {
+    return thinkingContentPartForCodeAgentTranscriptItem(item);
+  }
   if (item.type === "status") {
     const text = statusTextForCodeAgentTranscriptItem(item, options);
     return text ? { type: "text", text } : null;
   }
   return null;
+}
+
+function thinkingContentPartForCodeAgentTranscriptItem(
+  item: NormalizedCodeAgentThinkingEvent,
+): ContentPart | null {
+  const text = item.text.trim();
+  return text ? { type: "reasoning", text } : null;
 }
 
 function toolContentPartForCodeAgentTranscriptItem(
@@ -1069,6 +1140,9 @@ function toolContentPartForCodeAgentTranscriptItem(
       ? { result: previewCodeAgentTranscriptValue(item.result) ?? "" }
       : {}),
     ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
+    ...(item.pendingApprovalKey
+      ? { approval: { approvalKey: item.pendingApprovalKey } }
+      : {}),
   };
 }
 
@@ -1076,7 +1150,7 @@ function statusTextForCodeAgentTranscriptItem(
   item: NormalizedCodeAgentStatusEvent,
   options: BuildRepositoryFromCodeAgentTranscriptOptions,
 ): string | null {
-  if (options.hideCredentialMessages && isCredentialCodeAgentText(item.text)) {
+  if (options.hideCredentialMessages && isCredentialGapCodeAgentEvent(item)) {
     return null;
   }
   if (item.statusKind === "artifact") {
@@ -1149,10 +1223,6 @@ function stringRecordValue(
 ): string | undefined {
   const value = record?.[key];
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
-}
-
-function isCredentialCodeAgentText(value: string): boolean {
-  return /No LLM provider key was found|Missing credentials/i.test(value);
 }
 
 export function upsertUserMessage(repo: any, userMsg: UserMessage): any {

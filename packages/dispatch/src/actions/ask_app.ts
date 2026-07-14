@@ -9,6 +9,18 @@ export default defineAction({
   schema: z.object({
     app: z.string().describe("Granted app id, e.g. mail or calendar."),
     message: z.string().describe("The request to send to that app's agent."),
+    async: z
+      .boolean()
+      .optional()
+      .describe("Start a durable task and return immediately with a taskId."),
+    maxWaitMs: z
+      .number()
+      .int()
+      .min(0)
+      .max(25_000)
+      .optional()
+      .describe("Maximum inline wait in milliseconds."),
   }),
-  run: async ({ app, message }) => askGrantedDispatchMcpApp(app, message),
+  run: async ({ app, message, async, maxWaitMs }) =>
+    askGrantedDispatchMcpApp(app, message, { async, maxWaitMs }),
 });

@@ -14,7 +14,16 @@
  */
 import { useEffect, useRef } from "react";
 
+import {
+  removeAgentChatContextItem,
+  setAgentChatContextItem,
+} from "../agent-chat.js";
 import { agentNativePath } from "../api-path.js";
+import {
+  deleteClientAppState,
+  readClientAppState,
+  setClientAppState,
+} from "../application-state.js";
 
 const NAVIGATION_PATH = agentNativePath(
   "/_agent-native/application-state/navigation",
@@ -24,6 +33,9 @@ const NAVIGATE_PATH = agentNativePath(
 );
 
 const POLL_INTERVAL_MS = 1500;
+const TABLE_CONTEXT_KEY = "database-selected-table";
+const SELECTED_OBJECT_STATE_KEY = "selected-object";
+const SELECTED_OBJECT_SOURCE_FIELD = "__agentNativeSelectedObjectSource";
 
 let cachedSource: string | null = null;
 
@@ -55,6 +67,23 @@ function headers(extra?: Record<string, string>): Record<string, string> {
   return h;
 }
 
+async function deleteSelectedObjectIfOwned(source: string | undefined) {
+  if (!source) return;
+  try {
+    const current = await readClientAppState<Record<string, unknown>>(
+      SELECTED_OBJECT_STATE_KEY,
+    );
+    if (current?.[SELECTED_OBJECT_SOURCE_FIELD] !== source) return;
+    await deleteClientAppState(SELECTED_OBJECT_STATE_KEY, {
+      keepalive: true,
+      requestSource: source,
+    });
+  } catch {
+    // Best effort only; stale selected-object context is less harmful than
+    // clearing a selection owned by another tab.
+  }
+}
+
 export interface DbAdminNavigationState {
   view: "database";
   table: string | null;
@@ -64,6 +93,7 @@ export interface DbAdminNavigationState {
 export interface UseDbAdminAgentSyncArgs {
   table: string | null;
   mode: "table" | "sql";
+  enabled?: boolean;
 }
 
 /**
@@ -74,8 +104,10 @@ export interface UseDbAdminAgentSyncArgs {
 export function useDbAdminAgentSync({
   table,
   mode,
+  enabled = true,
 }: UseDbAdminAgentSyncArgs): void {
   useEffect(() => {
+    if (!enabled) return;
     const state: DbAdminNavigationState = { view: "database", table, mode };
     fetch(NAVIGATION_PATH, {
       method: "PUT",
@@ -84,7 +116,50 @@ export function useDbAdminAgentSync({
       headers: headers({ "Content-Type": "application/json" }),
       body: JSON.stringify(state),
     }).catch(() => {});
-  }, [table, mode]);
+  }, [enabled, table, mode]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const source = requestSource();
+    if (!table) {
+      removeAgentChatContextItem({
+        key: TABLE_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      deleteSelectedObjectIfOwned(source);
+      return;
+    }
+
+    const selection = {
+      type: "database-table",
+      table,
+      mode,
+      [SELECTED_OBJECT_SOURCE_FIELD]: source,
+    };
+    setAgentChatContextItem({
+      key: TABLE_CONTEXT_KEY,
+      title: `Table: ${table}`,
+      context: [
+        `The user currently has this database table selected: ${table}.`,
+        `Database admin mode: ${mode}`,
+        "Use the database admin actions and current-screen context to inspect rows, schema, or run SQL against this table.",
+      ].join("\n"),
+      openSidebar: false,
+      focus: false,
+    });
+    setClientAppState(SELECTED_OBJECT_STATE_KEY, selection, {
+      keepalive: true,
+      requestSource: source,
+    }).catch(() => {});
+
+    return () => {
+      removeAgentChatContextItem({
+        key: TABLE_CONTEXT_KEY,
+        openSidebar: false,
+      });
+      deleteSelectedObjectIfOwned(source);
+    };
+  }, [enabled, table, mode]);
 }
 
 interface NavigateCommand {
@@ -97,11 +172,15 @@ interface NavigateCommand {
  * a database table, invoke `onNavigate(table)` then clear the key so it does
  * not replay on the next poll.
  */
-export function useNavigateConsumer(onNavigate: (table: string) => void): void {
+export function useNavigateConsumer(
+  onNavigate: (table: string) => void,
+  enabled = true,
+): void {
   const handlerRef = useRef(onNavigate);
   handlerRef.current = onNavigate;
 
   useEffect(() => {
+    if (!enabled) return;
     let active = true;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
@@ -143,5 +222,5 @@ export function useNavigateConsumer(onNavigate: (table: string) => void): void {
       active = false;
       if (timer) clearTimeout(timer);
     };
-  }, []);
+  }, [enabled]);
 }

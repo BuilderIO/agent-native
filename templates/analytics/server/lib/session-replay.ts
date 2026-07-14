@@ -8,15 +8,36 @@ import {
   readPrivateBlob,
   type PrivateBlobHandle,
 } from "@agent-native/core/private-blob";
-import { recordChange, runWithRequestContext } from "@agent-native/core/server";
+import {
+  getRequestUserEmail,
+  recordChange,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import {
   accessFilter,
   resolveAccess,
   roleSatisfies,
   type ShareRole,
 } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, gte, isNull, lt, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lt,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
+import {
+  isFailedSessionReplayNetworkStatus,
+  SESSION_REPLAY_CONSOLE_EVENT_TAG,
+  SESSION_REPLAY_NETWORK_EVENT_TAG,
+} from "../../shared/session-replay-diagnostics.js";
 import { getDb, schema } from "../db/index.js";
 import { resolveAnalyticsEventDimensions } from "./first-party-analytics.js";
 
@@ -100,6 +121,7 @@ export interface ParsedSessionReplayIngest {
   template: string | null;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   status: "active" | "completed";
@@ -122,6 +144,7 @@ export interface SessionRecordingSummary {
   totalBytes: number;
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
   firstUrl: string | null;
@@ -144,6 +167,72 @@ export interface SessionRecordingSummary {
   canManage?: boolean;
 }
 
+export interface AgentSessionRecordingSummary {
+  id: string;
+  clientRecordingId: string;
+  sessionId: string;
+  userId: string | null;
+  anonymousId: string | null;
+  userKey: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  durationMs: number | null;
+  chunkCount: number;
+  eventCount: number;
+  totalBytes: number;
+  pageCount: number;
+  errorCount: number;
+  networkErrorCount: number;
+  rageClickCount: number;
+  privacyMode: string;
+  firstUrl: string | null;
+  lastUrl: string | null;
+  path: string | null;
+  hostname: string | null;
+  referrer: string | null;
+  app: string | null;
+  template: string | null;
+  status: "active" | "completed";
+  createdAt: string;
+  updatedAt: string;
+  lastIngestedAt: string | null;
+}
+
+export function compactSessionRecordingSummary(
+  recording: SessionRecordingSummary,
+): AgentSessionRecordingSummary {
+  return {
+    id: recording.id,
+    clientRecordingId: recording.clientRecordingId,
+    sessionId: recording.sessionId,
+    userId: recording.userId,
+    anonymousId: recording.anonymousId,
+    userKey: recording.userKey,
+    startedAt: recording.startedAt,
+    endedAt: recording.endedAt,
+    durationMs: recording.durationMs,
+    chunkCount: recording.chunkCount,
+    eventCount: recording.eventCount,
+    totalBytes: recording.totalBytes,
+    pageCount: recording.pageCount,
+    errorCount: recording.errorCount,
+    networkErrorCount: recording.networkErrorCount,
+    rageClickCount: recording.rageClickCount,
+    privacyMode: recording.privacyMode,
+    firstUrl: recording.firstUrl,
+    lastUrl: recording.lastUrl,
+    path: recording.path,
+    hostname: recording.hostname,
+    referrer: recording.referrer,
+    app: recording.app,
+    template: recording.template,
+    status: recording.status,
+    createdAt: recording.createdAt,
+    updatedAt: recording.updatedAt,
+    lastIngestedAt: recording.lastIngestedAt,
+  };
+}
+
 const MAX_REPLAY_CHUNKS_PER_REQUEST = 20;
 const MAX_REPLAY_CHUNKS_PER_RECORDING = 2_000;
 const MAX_INLINE_REPLAY_CHUNK_BYTES = 256 * 1024;
@@ -151,8 +240,14 @@ const MAX_BLOB_REPLAY_CHUNK_BYTES = 5 * 1024 * 1024;
 const MAX_REPLAY_BLOB_REF_LENGTH = 16 * 1024;
 const MAX_REPLAY_METADATA_BYTES = 16 * 1024;
 const MAX_REPLAY_EVENTS_PER_CHUNK = 1_000;
-const MAX_REPLAY_EVENTS_READ = 10_000;
-const MAX_REPLAY_EVENTS_RESPONSE_BYTES = 2 * 1024 * 1024;
+const DEFAULT_REPLAY_EVENTS_READ = 10_000;
+const MAX_REPLAY_EVENTS_READ = 100_000;
+const MAX_REPLAY_EVENTS_RESPONSE_BYTES =
+  MAX_BLOB_REPLAY_CHUNK_BYTES + 512 * 1024;
+export const MAX_REPLAY_CHUNK_READ_BATCH_SIZE = 20;
+export const MAX_REPLAY_CHUNK_READ_BATCH_BYTES =
+  MAX_REPLAY_EVENTS_RESPONSE_BYTES;
+const REPLAY_CHUNK_READ_CONCURRENCY = 10;
 const DEFAULT_SESSION_RECORDINGS_LIMIT = 50;
 const MAX_SESSION_RECORDINGS_LIMIT = 100;
 const DEFAULT_REPLAY_RETENTION_DAYS = 30;
@@ -505,16 +600,16 @@ function abandonedReplayMinutes(): number {
   );
 }
 
-function productionInlineFallbackAllowed(): boolean {
+function inlineReplayFallbackAllowed(): boolean {
   if (process.env.NODE_ENV !== "production") return true;
-  return process.env.ANALYTICS_SESSION_REPLAY_SQL_FALLBACK === "1";
+  return false;
 }
 
 function warnInlineReplayFallback(): void {
   if (inlineReplayFallbackWarned) return;
   inlineReplayFallbackWarned = true;
   console.warn(
-    "[session-replay] Private blob storage is not configured; storing capped replay chunks inline in SQL. This is intended only for local/dev use.",
+    "[session-replay] Private blob storage is not configured; storing capped replay chunks inline in SQL. This is for local/dev use only.",
   );
 }
 
@@ -544,9 +639,15 @@ async function storeReplayChunkBlob(
     },
   });
   if (!handle) {
-    if (!productionInlineFallbackAllowed()) {
+    if (!inlineReplayFallbackAllowed()) {
       throw replayError(
-        "Session replay blob storage is required in production. Configure a private blob provider or set ANALYTICS_SESSION_REPLAY_SQL_FALLBACK=1 for a capped temporary fallback.",
+        "Session replay blob storage is required in production. Configure a private blob provider before enabling full snapshot playback.",
+        503,
+      );
+    }
+    if (chunk.byteLength > MAX_INLINE_REPLAY_CHUNK_BYTES) {
+      throw replayError(
+        "Session replay chunk is too large for inline SQL fallback. Configure private blob storage for full snapshot playback.",
         503,
       );
     }
@@ -590,10 +691,7 @@ function normalizeReplayChunk(rawValue: unknown): NormalizedSessionReplayChunk {
     storageKind === "inline"
       ? Buffer.byteLength(inlineData ?? "", "utf8")
       : (replayInteger(raw.byteLength ?? raw.bytes) ?? 0);
-  const maxBytes =
-    storageKind === "inline"
-      ? MAX_INLINE_REPLAY_CHUNK_BYTES
-      : MAX_BLOB_REPLAY_CHUNK_BYTES;
+  const maxBytes = MAX_BLOB_REPLAY_CHUNK_BYTES;
   if (byteLength <= 0 || byteLength > maxBytes) {
     throw replayError(
       `Replay ${storageKind} chunks must be between 1 and ${maxBytes} bytes`,
@@ -671,6 +769,28 @@ function inlineEventsForSignals(
   return events;
 }
 
+function replayDiagnosticsTag(event: unknown): {
+  tag: string;
+  payload: Record<string, unknown>;
+} | null {
+  const record = replayRecord(event);
+  if (replayInteger(record.type) !== 5) return null;
+  const data = replayRecord(record.data);
+  const tag = replayString(data.tag);
+  if (
+    tag !== SESSION_REPLAY_CONSOLE_EVENT_TAG &&
+    tag !== SESSION_REPLAY_NETWORK_EVENT_TAG
+  ) {
+    return null;
+  }
+  return { tag, payload: replayRecord(data.payload) };
+}
+
+function replayConsoleRepeat(payload: Record<string, unknown>): number {
+  const repeat = replayInteger(payload.repeat);
+  return repeat !== null && repeat > 0 ? repeat : 1;
+}
+
 function deriveReplaySignals({
   body,
   metadata,
@@ -684,19 +804,42 @@ function deriveReplaySignals({
 }): {
   pageCount: number;
   errorCount: number;
+  networkErrorCount: number;
   rageClickCount: number;
   privacyMode: string;
 } {
   const events = inlineEventsForSignals(chunks);
   const pages = new Set<string>();
   if (url) pages.add(url);
-  let detectedErrors = 0;
+  let heuristicErrors = 0;
+  let taggedConsoleErrors = 0;
+  let taggedNetworkErrors = 0;
+  let hasTaggedDiagnostics = false;
 
   for (const event of events) {
     const record = replayRecord(event);
     const data = replayRecord(record.data);
     const href = replayString(data.href ?? data.url);
     if (href) pages.add(href);
+
+    const tagged = replayDiagnosticsTag(event);
+    if (tagged) {
+      // Tagged diagnostics are the real signal; never let the substring
+      // heuristic below double-count these same events.
+      hasTaggedDiagnostics = true;
+      if (tagged.tag === SESSION_REPLAY_CONSOLE_EVENT_TAG) {
+        if (replayString(tagged.payload.level) === "error") {
+          taggedConsoleErrors += replayConsoleRepeat(tagged.payload);
+        }
+      } else {
+        const status = replayInteger(tagged.payload.status);
+        if (status !== null && isFailedSessionReplayNetworkStatus(status)) {
+          taggedNetworkErrors += 1;
+        }
+      }
+      continue;
+    }
+
     const source = `${replayString(record.type) ?? ""} ${
       replayString(data.type) ?? ""
     } ${replayString(data.message) ?? ""}`.toLowerCase();
@@ -705,9 +848,16 @@ function deriveReplaySignals({
       source.includes("exception") ||
       source.includes("unhandledrejection")
     ) {
-      detectedErrors += 1;
+      heuristicErrors += 1;
     }
   }
+
+  // The substring heuristic predates tagged console/network capture. Once any
+  // tagged diagnostics event is present the recorder is diagnostics-aware, so
+  // the tagged counts are authoritative and the heuristic stays off.
+  const detectedErrors = hasTaggedDiagnostics
+    ? taggedConsoleErrors
+    : heuristicErrors;
 
   return {
     pageCount:
@@ -716,6 +866,12 @@ function deriveReplaySignals({
     errorCount:
       numberFrom(body.errorCount, body.error_count, metadata.errorCount) ??
       detectedErrors,
+    networkErrorCount:
+      numberFrom(
+        body.networkErrorCount,
+        body.network_error_count,
+        metadata.networkErrorCount,
+      ) ?? taggedNetworkErrors,
     rageClickCount:
       numberFrom(
         body.rageClickCount,
@@ -850,6 +1006,7 @@ export function parseSessionReplayIngestPayload(
     template,
     pageCount: signals.pageCount,
     errorCount: signals.errorCount,
+    networkErrorCount: signals.networkErrorCount,
     rageClickCount: signals.rageClickCount,
     privacyMode: signals.privacyMode,
     status,
@@ -1007,6 +1164,7 @@ function rowToSessionRecordingSummary(
     totalBytes: row.totalBytes ?? 0,
     pageCount: row.pageCount ?? 0,
     errorCount: row.errorCount ?? 0,
+    networkErrorCount: row.networkErrorCount ?? 0,
     rageClickCount: row.rageClickCount ?? 0,
     privacyMode: row.privacyMode ?? "unknown",
     firstUrl: row.firstUrl ?? null,
@@ -1182,6 +1340,7 @@ export async function recordSessionReplayChunks(
         durationMs: clampedInput.durationMs,
         pageCount: clampedInput.pageCount,
         errorCount: clampedInput.errorCount,
+        networkErrorCount: clampedInput.networkErrorCount,
         rageClickCount: clampedInput.rageClickCount,
         privacyMode: clampedInput.privacyMode,
         firstUrl: clampedInput.url,
@@ -1384,6 +1543,10 @@ export async function recordSessionReplayChunks(
         Number(recording.errorCount ?? 0),
         clampedInput.errorCount,
       ),
+      networkErrorCount: Math.max(
+        Number(recording.networkErrorCount ?? 0),
+        clampedInput.networkErrorCount,
+      ),
       rageClickCount: Math.max(
         Number(recording.rageClickCount ?? 0),
         clampedInput.rageClickCount,
@@ -1520,6 +1683,25 @@ export async function getSessionReplaySummary(
   return rowToSessionRecordingSummary(access.resource, access.role);
 }
 
+export async function getSessionReplayTokenizedSummary(
+  recordingId: string,
+  viewerEmail: string,
+): Promise<SessionRecordingSummary> {
+  // Tokenized reads often run without an authenticated request session. The
+  // viewer identity is still required by the signed, recording-scoped grant.
+  const db = getDb() as any;
+  // guard:allow-unscoped -- called only after verifySessionReplayAgentAccess(recordingId, token) verifies a signed, recording-scoped agent_access token.
+  const [row] = await db
+    .select()
+    .from(schema.sessionRecordings)
+    .where(eq(schema.sessionRecordings.id, recordingId))
+    .limit(1);
+  if (!row || !isVisibleSessionRecording(row)) {
+    throw replayError("Session recording not found", 404);
+  }
+  return rowToSessionRecordingSummary(row, "viewer");
+}
+
 function parseInlineReplayEvents(inlineData: string): unknown[] {
   try {
     const parsed = JSON.parse(inlineData);
@@ -1559,8 +1741,51 @@ export async function getSessionReplayManifest(
   }>;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayManifestForRecording(recording);
+}
+
+export async function getSessionReplayTokenizedManifest(
+  recordingId: string,
+  viewerEmail: string,
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
+  const manifest = await getSessionReplayManifestForRecording(recording);
+  return {
+    ...manifest,
+    recording: compactSessionRecordingSummary(manifest.recording),
+  };
+}
+
+async function getSessionReplayManifestForRecording(
+  recording: SessionRecordingSummary,
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    startedAt: string | null;
+    endedAt: string | null;
+    bytesPath: string;
+  }>;
+}> {
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const rows = await db
     .select()
     .from(schema.sessionReplayChunks)
@@ -1595,8 +1820,43 @@ export async function readSessionReplayChunkBytes(
   json: string;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return readSessionReplayChunkBytesForRecording(recording, seq);
+}
+
+export async function readSessionReplayTokenizedChunkBytes(
+  recordingId: string,
+  seq: number,
+  viewerEmail: string,
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  seq: number;
+  checksum: string;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
+  const chunk = await readSessionReplayChunkBytesForRecording(recording, seq);
+  return {
+    ...chunk,
+    recording: compactSessionRecordingSummary(chunk.recording),
+  };
+}
+
+async function readSessionReplayChunkBytesForRecording(
+  recording: SessionRecordingSummary,
+  seq: number,
+): Promise<{
+  recording: SessionRecordingSummary;
+  seq: number;
+  checksum: string;
+  /** Decompressed replay-chunk JSON text (a serialized rrweb events array). */
+  json: string;
+}> {
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const [row] = await db
     .select()
     .from(schema.sessionReplayChunks)
@@ -1619,7 +1879,16 @@ export async function readSessionReplayChunkBytes(
     const ref = decodeReplayBlobRef(row.storageRef);
     if (!ref)
       throw replayError("Session replay blob reference is invalid", 500);
-    const blob = await readPrivateBlob(ref.handle);
+    const blob = await readPrivateBlob(ref.handle).catch((error) => {
+      console.error(
+        `[session-replay] Failed to decrypt blob chunk ${recording.id}/${row.seq}:`,
+        error,
+      );
+      throw replayError(
+        "Session replay storage could not be decrypted with this environment's encryption key. When using a production Analytics database locally, set ANALYTICS_SECRETS_ENCRYPTION_KEY to the matching production key.",
+        503,
+      );
+    });
     return {
       recording,
       seq: row.seq,
@@ -1635,6 +1904,191 @@ export async function readSessionReplayChunkBytes(
     checksum: row.checksum,
     json: row.inlineData,
   };
+}
+
+export interface SessionReplayChunkBatchItem {
+  seq: number;
+  checksum: string;
+  byteLength: number;
+  eventCount: number;
+  events: unknown[];
+  unavailable?: true;
+}
+
+export interface SessionReplayChunkBatchResult {
+  chunks: SessionReplayChunkBatchItem[];
+  unavailableChunks: number;
+}
+
+function validateReplayChunkReadSeqs(seqs: number[]): number[] {
+  if (!seqs.length) {
+    throw replayError("At least one replay chunk seq is required", 400);
+  }
+  if (seqs.length > MAX_REPLAY_CHUNK_READ_BATCH_SIZE) {
+    throw replayError(
+      `At most ${MAX_REPLAY_CHUNK_READ_BATCH_SIZE} replay chunks may be read per request`,
+      400,
+    );
+  }
+  const unique = new Set<number>();
+  for (const seq of seqs) {
+    if (!Number.isSafeInteger(seq) || seq < 0) {
+      throw replayError("Replay chunk seqs must be non-negative integers", 400);
+    }
+    if (unique.has(seq)) {
+      throw replayError("Replay chunk seqs must be unique", 400);
+    }
+    unique.add(seq);
+  }
+  return [...seqs];
+}
+
+function unavailableReplayChunkBatchItem(
+  seq: number,
+  row?: any,
+): SessionReplayChunkBatchItem {
+  return {
+    seq,
+    checksum: row?.checksum ?? "",
+    byteLength: Number(row?.byteLength ?? 0),
+    eventCount: Number(row?.eventCount ?? 0),
+    events: [],
+    unavailable: true,
+  };
+}
+
+async function readReplayChunkBatchRow(
+  recording: SessionRecordingSummary,
+  row: any,
+): Promise<SessionReplayChunkBatchItem> {
+  let json: string;
+  if (row.storageKind === "blob" && row.storageRef) {
+    const ref = decodeReplayBlobRef(row.storageRef);
+    if (!ref) return unavailableReplayChunkBatchItem(row.seq, row);
+    let blob: Awaited<ReturnType<typeof readPrivateBlob>>;
+    try {
+      blob = await readPrivateBlob(ref.handle);
+    } catch (error) {
+      console.error(
+        `[session-replay] Failed to read blob chunk ${recording.id}/${row.seq}:`,
+        error,
+      );
+      throw replayError(
+        "Session replay storage could not be read with this environment's storage configuration or encryption key.",
+        503,
+      );
+    }
+    try {
+      json = gunzipSync(Buffer.from(blob.data)).toString("utf8");
+    } catch {
+      return unavailableReplayChunkBatchItem(row.seq, row);
+    }
+  } else if (row.inlineData) {
+    json = row.inlineData;
+  } else {
+    return unavailableReplayChunkBatchItem(row.seq, row);
+  }
+
+  return {
+    seq: row.seq,
+    checksum: row.checksum,
+    byteLength: row.byteLength,
+    eventCount: row.eventCount,
+    events: parseInlineReplayEvents(json),
+  };
+}
+
+async function readSessionReplayChunkBatchForRecording(
+  recording: SessionRecordingSummary,
+  requestedSeqs: number[],
+): Promise<SessionReplayChunkBatchResult> {
+  const seqs = validateReplayChunkReadSeqs(requestedSeqs);
+  const db = getDb() as any;
+  // guard:allow-unscoped -- rows are loaded only after one recording-scoped resolveAccess check or a signed recording-scoped agent token verifies access.
+  const rows = await db
+    .select()
+    .from(schema.sessionReplayChunks)
+    .where(
+      and(
+        eq(schema.sessionReplayChunks.recordingId, recording.id),
+        inArray(schema.sessionReplayChunks.seq, seqs),
+      ),
+    )
+    .orderBy(asc(schema.sessionReplayChunks.seq));
+
+  const declaredBytes = rows.reduce(
+    (total: number, row: any) => total + Math.max(0, Number(row.byteLength)),
+    0,
+  );
+  if (declaredBytes > MAX_REPLAY_CHUNK_READ_BATCH_BYTES) {
+    throw replayError(
+      `Replay chunk batches must be ${MAX_REPLAY_CHUNK_READ_BATCH_BYTES} bytes or smaller`,
+      413,
+    );
+  }
+
+  const rowBySeq = new Map<number, any>(
+    rows.map((row: any) => [Number(row.seq), row]),
+  );
+  const chunks = new Array<SessionReplayChunkBatchItem>(seqs.length);
+  let nextIndex = 0;
+
+  async function worker(): Promise<void> {
+    while (nextIndex < seqs.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      const seq = seqs[index];
+      const row = rowBySeq.get(seq);
+      chunks[index] = row
+        ? await readReplayChunkBatchRow(recording, row)
+        : unavailableReplayChunkBatchItem(seq);
+    }
+  }
+
+  await Promise.all(
+    Array.from(
+      {
+        length: Math.min(REPLAY_CHUNK_READ_CONCURRENCY, seqs.length),
+      },
+      worker,
+    ),
+  );
+
+  const result = {
+    chunks,
+    unavailableChunks: chunks.filter((chunk) => chunk.unavailable).length,
+  };
+  if (
+    Buffer.byteLength(JSON.stringify(result), "utf8") >
+    MAX_REPLAY_CHUNK_READ_BATCH_BYTES
+  ) {
+    throw replayError(
+      `Replay chunk batch responses must be ${MAX_REPLAY_CHUNK_READ_BATCH_BYTES} bytes or smaller`,
+      413,
+    );
+  }
+  return result;
+}
+
+export async function readSessionReplayChunkBatch(
+  recordingId: string,
+  seqs: number[],
+  scope: SessionReplayScope,
+): Promise<SessionReplayChunkBatchResult> {
+  const recording = await getSessionReplaySummary(recordingId, scope);
+  return readSessionReplayChunkBatchForRecording(recording, seqs);
+}
+
+export async function readSessionReplayTokenizedChunkBatch(
+  recordingId: string,
+  seqs: number[],
+  viewerEmail: string,
+): Promise<SessionReplayChunkBatchResult> {
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
+  return readSessionReplayChunkBatchForRecording(recording, seqs);
 }
 
 export async function getSessionReplayEvents(
@@ -1656,9 +2110,58 @@ export async function getSessionReplayEvents(
   unavailableChunks: number;
 }> {
   const recording = await getSessionReplaySummary(recordingId, scope);
+  return getSessionReplayEventsForRecording(recording, options);
+}
+
+export async function getSessionReplayTokenizedEvents(
+  recordingId: string,
+  viewerEmail: string,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: AgentSessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
+  const recording = await getSessionReplayTokenizedSummary(
+    recordingId,
+    viewerEmail,
+  );
+  const result = await getSessionReplayEventsForRecording(recording, options);
+  return {
+    ...result,
+    recording: compactSessionRecordingSummary(result.recording),
+  };
+}
+
+async function getSessionReplayEventsForRecording(
+  recording: SessionRecordingSummary,
+  options: SessionReplayEventReadOptions = {},
+): Promise<{
+  recording: SessionRecordingSummary;
+  chunks: Array<{
+    seq: number;
+    checksum: string;
+    byteLength: number;
+    eventCount: number;
+    events: unknown[];
+    unavailable?: boolean;
+  }>;
+  eventCount: number;
+  truncated: boolean;
+  unavailableChunks: number;
+}> {
   const maxEvents = Math.min(
     MAX_REPLAY_EVENTS_READ,
-    Math.max(1, options.limit ?? MAX_REPLAY_EVENTS_READ),
+    Math.max(1, options.limit ?? DEFAULT_REPLAY_EVENTS_READ),
   );
   const conditions: any[] = [
     eq(schema.sessionReplayChunks.recordingId, recording.id),
@@ -1671,7 +2174,7 @@ export async function getSessionReplayEvents(
   }
 
   const db = getDb() as any;
-  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) verifies viewer access; chunks are not directly shareable resources.
+  // guard:allow-unscoped -- chunk rows are loaded only after resolveAccess("session-recording", recordingId) or a scoped agent token verifies access; chunks are not directly shareable resources.
   const rows = await db
     .select()
     .from(schema.sessionReplayChunks)

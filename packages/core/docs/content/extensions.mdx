@@ -17,6 +17,20 @@ If you've used QuickBooks Online, you've seen the model: QBO ships a core accoun
 
 The framing matters: an extension isn't a generic "do whatever you want" sandbox. It's a **mini-app that extends a specific template** — Mail, Analytics, Calendar, Clips, Design — and uses that template's actions and data. A Mail extension reads emails. An Analytics extension reads a dashboard's metrics. A Calendar extension acts on the open event. They feel like part of the host product because they _are_ part of the host product.
 
+<Callout tone="info">
+
+**Extensions add UI; they do not rewrite the host UI.** An extension renders on
+its own page or inside a named [slot](#slots) exposed by the template. It
+cannot inject elements into arbitrary native components — for example, beside
+every attendee in Calendar — unless the template exposes a slot there. For
+deeper customization, ask the agent to edit the template's source code. Full
+code customization is a core Agent Native capability; extensions are the
+fast, no-deploy layer.
+
+</Callout>
+
+The gallery, building flow, and capabilities table below apply whether you're an end user asking the agent for a widget or a template developer wiring up slots. The bridge/data API reference (`#capabilities` onward through `#local-file-extensions`) is written for template developers who need the exact helper contract or the authenticated data-API shape.
+
 Three things make extensions work:
 
 - **No code, no deploy.** The agent writes them and they're live in seconds. Stored in the database, not the repo.
@@ -40,7 +54,7 @@ app agent intact.
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -230,10 +244,10 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 
 | Helper                                           | Purpose                                                   | Example                                                   |
 | ------------------------------------------------ | --------------------------------------------------------- | --------------------------------------------------------- |
-| `appAction(name, params)`                        | Call any of the host template's actions                   | `appAction('list-emails', { view: 'inbox' })`             |
+| `appAction(name, params)`                        | Call any of the host template's actions, including writes | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Call allowed framework endpoints under `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
-| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user)                   | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Write to SQL                                              | `dbExec('INSERT INTO ...')`                               |
+| `dbQuery(sql, args)`                             | Read from SQL (auto-scoped to the user; never for writes) | `dbQuery('SELECT id, name FROM tools')`                   |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions     | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | Hit external APIs through a secure proxy with secrets     | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Persist data per-extension (user / org scoping)           | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | List persisted items                                      | `extensionData.list('notes', { scope: 'all' })`           |
@@ -245,7 +259,7 @@ Inside the iframe sandbox, every extension has these helpers on `window`:
 
 Three rules of thumb:
 
-- **Prefer `appAction` over `dbQuery`.** Actions are the template's official surface — they handle access control, scoping, and validation for you. Reach for raw SQL only when no action fits.
+- **Prefer `appAction` over raw SQL.** Actions are the template's official surface — they handle access control, scoping, and validation for you. `dbQuery` is read-only; `dbExec` remains for legacy trusted editor/admin extensions, but new app data writes should go through actions.
 - **Use `appAction` for template data.** Extension `appFetch` is limited to framework `/_agent-native/*` endpoints; template `/api/*` routes are blocked by the iframe bridge.
 - **Prefer `extensionData` over making new tables.** Each extension gets its own isolated key-value store. No schema, no migration. Set `{ scope: 'org' }` to share with the user's org, `'user'` (default) for private.
 - **Use `agentNative.ui.output` for inline control values the agent should read later.** It writes `inline-ui:<extensionId>:output` to application state; `agentNative.chat.send` is for visible submit/apply messages.
@@ -528,7 +542,11 @@ The next time you open an email thread, your sticky-note pad is right under the 
 
 In practice you don't run those three commands by hand. Just say "pin this widget to my contact sidebar" and the agent handles target + install for you.
 
-> **Slots are an _added_ capability, not a prerequisite.** Plenty of useful extensions never get installed into a slot — they live happily on their own page. Reach for slots when the widget needs to be _next to_ what the user is looking at in the host template.
+<Callout tone="info">
+
+**Slots are an _added_ capability, not a prerequisite.** Plenty of useful extensions never get installed into a slot — they live happily on their own page. Reach for slots when the widget needs to be _next to_ what the user is looking at in the host template.
+
+</Callout>
 
 For deeper detail on slots — how to declare them in your template, how the context contract works, how installs are scoped — see the `extension-points` skill. Skills ship inside every scaffolded template under `.agents/skills/`; see [Skills Guide](/docs/skills-guide) for how they work.
 
@@ -581,7 +599,7 @@ Local extensions have a tighter v1 permission model:
 
 - `extensionData` is available for small runtime state unless disabled.
 - `appAction` calls must be explicitly listed in `permissions.appActions`.
-- `dbQuery`, `dbExec`, and `extensionFetch` are blocked for now.
+- `dbQuery` and `extensionFetch` are blocked for now.
 - SQL-backed update, delete, share, and history actions return a message that
   points back to the local entry file.
 
@@ -614,6 +632,8 @@ The framework lets the agent edit the app's source code directly — components,
 
 Rule of thumb: **if it's for one user or one team, it's an extension.** If every user of the template should get it, ship it as a real feature.
 
+If what you actually need is a cached, refreshable data source for an existing chart or table — not a new interactive widget — see [Data Programs](/docs/data-programs) instead; it shares this page's sandbox and security posture but has no UI of its own.
+
 ## Security {#security}
 
 <Callout id="doc-block-frp4nq" tone="success">
@@ -628,7 +648,8 @@ Extensions run in a sandboxed iframe:
 - **Server-side secret injection** via the `${keys.NAME}` template — the actual key value never reaches the browser.
 - **Domain-locked secrets** — each key is bound to a URL allowlist; the proxy refuses requests to other hosts.
 - **Private-network protection** — extensions can't reach internal addresses.
-- **Auth required** — extensions only run for logged-in users, and `dbQuery` / `dbExec` calls are auto-scoped.
+- **Auth required** — extensions only run for logged-in users, and `dbQuery`
+  calls are auto-scoped.
 
 ## A few things to know about naming {#naming-back-compat}
 
@@ -645,6 +666,7 @@ You also won't see this in normal use, but the agent has a third related concept
 
 - [**Templates**](/docs/cloneable-saas) — the host apps extensions extend
 - [**Actions**](/docs/actions) — the operations an extension calls via `appAction`
+- [**Data Programs**](/docs/data-programs) — the no-UI sibling primitive for cached, refreshable data sources
 - [**Sharing & Privacy**](/docs/sharing) — how extension visibility, org sharing, and per-user grants work
 - [**Onboarding & API Keys**](/docs/onboarding) — how secrets surface in the settings UI
 - [**Security**](/docs/security) — the framework's data scoping and access model

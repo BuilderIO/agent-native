@@ -22,6 +22,9 @@ const guards = [
   "guard:plan-marketplace",
   "guard:no-error-string-returns",
   "guard:no-action-twin-routes",
+  "guard:agent-chat-context",
+  "guard:request-storms",
+  "guard:ssr-cache-shell",
 ] as const;
 
 type GuardName = (typeof guards)[number];

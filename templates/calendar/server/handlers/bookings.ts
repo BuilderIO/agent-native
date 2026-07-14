@@ -64,28 +64,16 @@ async function requireRequestContext<T>(
   );
 }
 
-async function getBookingLinkSlugsForOwner(
-  ownerEmail: string,
-  db: ConflictDb = getDb(),
-): Promise<string[]> {
-  const rows = await db
-    .select({ slug: schema.bookingLinks.slug })
-    .from(schema.bookingLinks)
-    .where(eq(schema.bookingLinks.ownerEmail, ownerEmail));
-  return rows.map((row) => row.slug);
-}
-
 async function getBookingLinkSlugsForOwners(
   ownerEmails: string[],
   db: ConflictDb = getDb(),
 ): Promise<string[]> {
-  const slugs = new Set<string>();
-  for (const ownerEmail of ownerEmails) {
-    for (const slug of await getBookingLinkSlugsForOwner(ownerEmail, db)) {
-      slugs.add(slug);
-    }
-  }
-  return Array.from(slugs);
+  if (ownerEmails.length === 0) return [];
+  const rows = await db
+    .select({ slug: schema.bookingLinks.slug })
+    .from(schema.bookingLinks)
+    .where(inArray(schema.bookingLinks.ownerEmail, ownerEmails));
+  return Array.from(new Set(rows.map((row) => row.slug)));
 }
 
 async function getBookingLinkOwnerEmail(
@@ -110,23 +98,51 @@ function isValidEmail(value: string): boolean {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);
 }
 
+export async function resolveBookingCalendarAccount({
+  booking,
+  hostEmail,
+}: {
+  booking: Pick<
+    typeof schema.bookings.$inferSelect,
+    "slug" | "ownerEmail" | "calendarAccountId"
+  >;
+  hostEmail?: string;
+}) {
+  const ownerEmail =
+    hostEmail ||
+    booking.ownerEmail ||
+    (await getBookingLinkOwnerEmail(booking.slug));
+  if (!ownerEmail) return;
+
+  if (booking.calendarAccountId) {
+    return {
+      ownerEmail,
+      accountEmail: booking.calendarAccountId,
+    };
+  }
+
+  return googleCalendar.getDefaultAccountSelection(ownerEmail);
+}
+
 async function deleteGoogleEventForBooking({
   booking,
   hostEmail,
 }: {
   booking: Pick<
     typeof schema.bookings.$inferSelect,
-    "id" | "slug" | "googleEventId"
+    "id" | "slug" | "googleEventId" | "ownerEmail" | "calendarAccountId"
   >;
   hostEmail?: string;
 }) {
   if (!booking.googleEventId) return;
-  const ownerEmail =
-    hostEmail ?? (await getBookingLinkOwnerEmail(booking.slug));
-  if (!ownerEmail) return;
 
   try {
-    await googleCalendar.deleteEvent(booking.googleEventId, ownerEmail, {
+    const account = await resolveBookingCalendarAccount({
+      booking,
+      hostEmail,
+    });
+    if (!account) return;
+    await googleCalendar.deleteEvent(booking.googleEventId, account, {
       sendUpdates: "none",
     });
   } catch (error) {
@@ -370,38 +386,38 @@ async function resolveAvailabilityContext({
   slug: string;
   db?: ConflictDb;
 }): Promise<AvailabilityContext> {
-  const config = (await getSetting(
-    "calendar-availability",
-  )) as unknown as AvailabilityConfig | null;
-  const bookingLink = slug
-    ? await db
-        .select()
-        .from(schema.bookingLinks)
-        .where(eq(schema.bookingLinks.slug, slug))
-        .then((rows) => rows[0])
-    : undefined;
+  const [configRaw, bookingLink] = await Promise.all([
+    getSetting("calendar-availability"),
+    slug
+      ? db
+          .select()
+          .from(schema.bookingLinks)
+          .where(eq(schema.bookingLinks.slug, slug))
+          .then((rows) => rows[0])
+      : Promise.resolve(undefined),
+  ]);
+  const config = configRaw as unknown as AvailabilityConfig | null;
   const ownerEmail = bookingLink?.ownerEmail;
-  const ownerConfig = ownerEmail
-    ? ((await getUserSetting(
-        ownerEmail,
-        "calendar-availability",
-      )) as unknown as AvailabilityConfig | null)
-    : null;
-  const ownerSettings = ownerEmail
-    ? ((await getUserSetting(ownerEmail, "calendar-settings")) as {
-        timezone?: string;
-      } | null)
-    : null;
   const hostEmails = bookingLink
     ? getBookingLinkRequiredHostEmails(bookingLink)
     : ownerEmail
       ? [ownerEmail]
       : [];
-  const conflictSlugs = ownerEmail
-    ? await getBookingLinkSlugsForOwners(hostEmails, db)
-    : slug
-      ? [slug]
-      : [];
+  const [ownerConfigRaw, ownerSettingsRaw, conflictSlugs] = await Promise.all([
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-availability")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getUserSetting(ownerEmail, "calendar-settings")
+      : Promise.resolve(null),
+    ownerEmail
+      ? getBookingLinkSlugsForOwners(hostEmails, db)
+      : slug
+        ? Promise.resolve([slug])
+        : Promise.resolve([]),
+  ]);
+  const ownerConfig = ownerConfigRaw as unknown as AvailabilityConfig | null;
+  const ownerSettings = ownerSettingsRaw as { timezone?: string } | null;
 
   return {
     effectiveConfig:
@@ -459,14 +475,20 @@ export async function getConflictItems({
 
   if (ownerConnected) {
     try {
-      if (requiredHosts.length > 0) {
-        const freeBusy = await googleCalendar.getFreeBusy(
-          rangeStartIso,
-          rangeEndIso,
-          requiredHosts,
-          ownerEmail,
-          timezone,
-        );
+      const [freeBusy, googleEventsResult] = await Promise.all([
+        requiredHosts.length > 0
+          ? googleCalendar.getFreeBusy(
+              rangeStartIso,
+              rangeEndIso,
+              requiredHosts,
+              ownerEmail,
+              timezone,
+            )
+          : Promise.resolve(null),
+        googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail),
+      ]);
+
+      if (freeBusy) {
         if (freeBusy.errors.length > 0) {
           return {
             items: [],
@@ -490,7 +512,7 @@ export async function getConflictItems({
       }
 
       const { events: googleEvents, errors: googleEventErrors } =
-        await googleCalendar.listEvents(rangeStartIso, rangeEndIso, ownerEmail);
+        googleEventsResult;
       if (googleEventErrors.length > 0) {
         return {
           items: [],
@@ -979,6 +1001,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     }
     let meetingLink: string | undefined;
     let googleEventId: string | undefined;
+    let calendarAccountId: string | undefined;
 
     // For custom-URL conferencing, use the static URL — only http(s).
     if (conferencing?.type === "custom" && conferencing.url) {
@@ -1022,6 +1045,8 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
     // host rather than relying on ambient user state.
     if (await googleCalendar.isConnected(hostEmail)) {
       try {
+        const account =
+          await googleCalendar.getDefaultAccountSelection(hostEmail);
         const descParts: string[] = [
           `Booking by ${attendeeName} (${attendeeEmail})`,
         ];
@@ -1056,7 +1081,7 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           location: meetingLink || "",
           allDay: false,
           source: "google",
-          accountEmail: hostEmail,
+          accountEmail: account.accountEmail,
           attendees: buildBookingEventAttendees({
             attendeeEmail,
             attendeeName,
@@ -1066,11 +1091,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
           updatedAt: now,
         };
         const result = await googleCalendar.createEvent(calEvent, {
+          account,
           addGoogleMeet: conferencing?.type === "google_meet",
           sendUpdates: "all",
         });
         // Google Meet link is returned by the API when created
         googleEventId = result.id;
+        calendarAccountId = account.accountEmail;
         if (result.meetLink) {
           meetingLink = result.meetLink;
         }
@@ -1088,9 +1115,13 @@ export const createBooking = defineEventHandler(async (event: H3Event) => {
       const providerUpdates: {
         meetingLink?: string;
         googleEventId?: string;
+        calendarAccountId?: string;
       } = {};
       if (meetingLink) providerUpdates.meetingLink = meetingLink;
       if (googleEventId) providerUpdates.googleEventId = googleEventId;
+      if (googleEventId && calendarAccountId) {
+        providerUpdates.calendarAccountId = calendarAccountId;
+      }
       await getDb()
         .update(schema.bookings)
         .set(providerUpdates)

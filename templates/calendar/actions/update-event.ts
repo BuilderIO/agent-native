@@ -11,9 +11,12 @@ import type { CalendarEvent } from "../shared/api.js";
 import {
   availabilityInput,
   attachmentsInput,
+  attendeesInput,
   buildReminderOverrides,
+  buildStatusEventFields,
   cliBoolean,
   googleColorIdInput,
+  normalizeAttendees,
   normalizeGoogleEventId,
   normalizeRecurrence,
   reminderMethodInput,
@@ -21,29 +24,10 @@ import {
   remindersInput,
   requireActionUserEmail,
   resolveOwnedAccountEmail,
+  validateStatusEventTiming,
   visibilityInput,
+  workingLocationTypeInput,
 } from "./event-action-helpers.js";
-
-const attendeeInput = z.object({
-  email: z.string(),
-  displayName: z.string().optional(),
-});
-
-const attendeesInput = z.union([z.array(attendeeInput), z.string()]);
-
-function normalizeAttendees(
-  input: z.infer<typeof attendeesInput> | undefined,
-): CalendarEvent["attendees"] | undefined {
-  if (input === undefined) return undefined;
-  if (typeof input === "string") {
-    const emails = input
-      .split(/[\s,;]+/)
-      .map((s) => s.trim())
-      .filter((s) => s.length > 0 && s.includes("@"));
-    return emails.map((email) => ({ email }));
-  }
-  return input.filter((a) => a.email && a.email.includes("@"));
-}
 
 function mergeAttendees(
   existing: CalendarEvent["attendees"] | undefined,
@@ -71,10 +55,26 @@ function mergeAttendees(
       email,
       displayName: attendee.displayName ?? current?.displayName,
       photoUrl: attendee.photoUrl ?? current?.photoUrl,
+      optional:
+        attendee.optional === true
+          ? true
+          : attendee.optional === false
+            ? undefined
+            : current?.optional,
     });
   }
 
   return Array.from(merged.values());
+}
+
+function workingLocationTitle(
+  properties: NonNullable<CalendarEvent["workingLocationProperties"]>,
+): string {
+  if (properties.type === "homeOffice") return "Home";
+  if (properties.type === "officeLocation") {
+    return properties.officeLocation?.label || "Office";
+  }
+  return properties.customLocation?.label || "Working location";
 }
 
 export default defineAction({
@@ -93,6 +93,15 @@ export default defineAction({
     title: z.string().optional().describe("New event title"),
     description: z.string().optional().describe("New event description"),
     location: z.string().optional().describe("New event location"),
+    workingLocationType: workingLocationTypeInput.describe(
+      "For existing working-location events: homeOffice, officeLocation, or customLocation. Google Calendar event types cannot be changed after creation.",
+    ),
+    workingLocationLabel: z
+      .string()
+      .optional()
+      .describe(
+        "For existing working-location events: label shown in Google Calendar.",
+      ),
     start: z.string().optional().describe("New start time/date as ISO string"),
     end: z.string().optional().describe("New end time/date as ISO string"),
     startTimeZone: z
@@ -105,10 +114,10 @@ export default defineAction({
       .describe("IANA timezone for the event end, e.g. America/New_York"),
     allDay: cliBoolean.optional().describe("Whether the event is all-day"),
     transparency: availabilityInput.describe(
-      "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free).",
+      "Google Calendar availability: opaque blocks time (Busy), transparent does not block time (Free). Existing working-location events are always sent to Google as transparent.",
     ),
     visibility: visibilityInput.describe(
-      "Google Calendar visibility: default, public, private, or confidential.",
+      "Google Calendar visibility: default, public, private, or confidential. Existing working-location events are always sent to Google as public.",
     ),
     status: z
       .enum(["confirmed", "tentative", "cancelled"])
@@ -157,12 +166,12 @@ export default defineAction({
     attendees: attendeesInput
       .optional()
       .describe(
-        "Replace the event's attendee list. Accepts an array of {email, displayName?} or a comma-separated string of emails. Pass an empty array to clear all attendees.",
+        "Replace the event's attendee list. Accepts an array of {email, displayName?, optional?} or a comma-separated string of emails. Pass an empty array to clear all attendees. Set optional:true to mark a guest optional.",
       ),
     addAttendees: attendeesInput
       .optional()
       .describe(
-        "Add invitees without dropping or resetting existing attendees. Accepts an array of {email, displayName?} or a comma-separated string of emails.",
+        "Add invitees without dropping or resetting existing attendees. Accepts an array of {email, displayName?, optional?} or a comma-separated string of emails. Set optional:true to mark a newly added guest optional.",
       ),
     sendUpdates: z
       .enum(["all", "none"])
@@ -206,6 +215,13 @@ export default defineAction({
       reminderMethod: args.reminderMethod,
       useDefaultReminders: args.remindersUseDefault,
     });
+    const hasWorkingLocationPatch =
+      args.workingLocationType !== undefined ||
+      args.workingLocationLabel !== undefined;
+    const hasTimePatch =
+      args.start !== undefined ||
+      args.end !== undefined ||
+      args.allDay !== undefined;
 
     const attendeesToAdd = normalizeAttendees(args.addAttendees);
     let attendees = normalizeAttendees(args.attendees);
@@ -229,7 +245,8 @@ export default defineAction({
       attendeesToAdd !== undefined ||
       Object.keys(reminderFields).length > 0 ||
       args.addGoogleMeet === true ||
-      args.addZoom === true;
+      args.addZoom === true ||
+      hasWorkingLocationPatch;
 
     if (!hasPatch) {
       throw new Error("No event updates provided.");
@@ -259,12 +276,97 @@ export default defineAction({
 
     let existingEvent: CalendarEvent | undefined;
     const loadExistingEvent = async () => {
-      existingEvent ??= await googleCalendar.getEvent(
-        googleEventId,
+      existingEvent ??= await googleCalendar.getEvent(googleEventId, {
+        ownerEmail,
         accountEmail,
-      );
+      });
       return existingEvent;
     };
+
+    if (args.location !== undefined && !hasWorkingLocationPatch) {
+      const existingEvent = await loadExistingEvent();
+      if (existingEvent.eventType === "workingLocation") {
+        throw new Error(
+          "Working-location events do not support a generic location. Use workingLocationType and workingLocationLabel instead.",
+        );
+      }
+    }
+
+    if (hasTimePatch) {
+      const existingEvent = await loadExistingEvent();
+      const existingStatusEventType =
+        existingEvent.eventType === "outOfOffice" ||
+        existingEvent.eventType === "focusTime" ||
+        existingEvent.eventType === "workingLocation"
+          ? existingEvent.eventType
+          : "default";
+      validateStatusEventTiming({
+        eventType: existingStatusEventType,
+        allDay: args.allDay ?? existingEvent.allDay,
+        start: args.start ?? existingEvent.start,
+        end: args.end ?? existingEvent.end,
+      });
+      if (
+        existingEvent.eventType === "workingLocation" &&
+        existingEvent.workingLocationProperties
+      ) {
+        Object.assign(updates, {
+          eventType: "workingLocation" as const,
+          transparency: "transparent" as const,
+          visibility: "public" as const,
+          workingLocationProperties: existingEvent.workingLocationProperties,
+        });
+      }
+    }
+
+    if (hasWorkingLocationPatch) {
+      const existingEvent = await loadExistingEvent();
+      if (existingEvent.eventType !== "workingLocation") {
+        throw new Error(
+          "Working location details can only be updated on existing working-location events. Google Calendar event types cannot be changed after creation.",
+        );
+      }
+      const nextWorkingLocationType =
+        args.workingLocationType ??
+        existingEvent.workingLocationProperties?.type ??
+        "customLocation";
+      const existingWorkingLocationLabel =
+        existingEvent.workingLocationProperties?.type === "officeLocation"
+          ? existingEvent.workingLocationProperties.officeLocation?.label
+          : existingEvent.workingLocationProperties?.type === "customLocation"
+            ? existingEvent.workingLocationProperties.customLocation?.label
+            : undefined;
+      const nextWorkingLocationLabel =
+        args.workingLocationLabel ??
+        args.location ??
+        existingWorkingLocationLabel ??
+        existingEvent.title;
+      const workingLocationFields = buildStatusEventFields({
+        eventType: "workingLocation",
+        title: args.title ?? existingEvent.title,
+        workingLocationType: nextWorkingLocationType,
+        workingLocationLabel: nextWorkingLocationLabel,
+      });
+      const nextWorkingLocationProperties =
+        nextWorkingLocationType === "officeLocation"
+          ? {
+              type: "officeLocation" as const,
+              officeLocation: {
+                ...(existingEvent.workingLocationProperties?.type ===
+                "officeLocation"
+                  ? existingEvent.workingLocationProperties.officeLocation
+                  : {}),
+                label: nextWorkingLocationLabel,
+              },
+            }
+          : workingLocationFields.workingLocationProperties;
+      Object.assign(updates, {
+        transparency: "transparent",
+        visibility: "public",
+        workingLocationProperties: nextWorkingLocationProperties,
+      });
+      delete updates.location;
+    }
 
     if (attendeesToAdd !== undefined) {
       const existingEvent = await loadExistingEvent();
@@ -309,15 +411,109 @@ export default defineAction({
       };
     }
 
-    const result = await googleCalendar.updateEvent(googleEventId, updates, {
-      sendUpdates:
-        args.sendUpdates ??
-        (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
-          ? "all"
-          : undefined),
-      addGoogleMeet: args.addGoogleMeet,
-      scope: args.scope,
-    });
+    let result: Awaited<ReturnType<typeof googleCalendar.updateEvent>>;
+    let returnedGoogleEventId = googleEventId;
+    const replaceRecurringWorkingLocation =
+      hasWorkingLocationPatch &&
+      (args.scope ?? "single") === "single" &&
+      existingEvent?.recurringEventId &&
+      updates.workingLocationProperties;
+
+    if (replaceRecurringWorkingLocation) {
+      const hasUnsupportedReplacementPatch =
+        args.title !== undefined ||
+        args.description !== undefined ||
+        args.start !== undefined ||
+        args.end !== undefined ||
+        args.startTimeZone !== undefined ||
+        args.endTimeZone !== undefined ||
+        args.allDay !== undefined ||
+        args.status !== undefined ||
+        args.colorId !== undefined ||
+        args.attachments !== undefined ||
+        args.reminders !== undefined ||
+        args.reminderMinutes !== undefined ||
+        args.remindersUseDefault !== undefined ||
+        args.addGoogleMeet === true ||
+        args.addZoom === true ||
+        args.recurrence !== undefined ||
+        args.attendees !== undefined ||
+        args.addAttendees !== undefined ||
+        args.notificationMessage !== undefined;
+      if (hasUnsupportedReplacementPatch) {
+        throw new Error(
+          "Change the working location separately from other event fields for a single recurring occurrence.",
+        );
+      }
+      const now = new Date().toISOString();
+      const replacement = await googleCalendar.createEvent(
+        {
+          id: "",
+          title: workingLocationTitle(updates.workingLocationProperties!),
+          description: "",
+          start: existingEvent!.start,
+          end: existingEvent!.end,
+          startTimeZone: existingEvent!.startTimeZone,
+          endTimeZone: existingEvent!.endTimeZone,
+          location: "",
+          allDay: existingEvent!.allDay,
+          source: "google",
+          accountEmail,
+          colorId: existingEvent!.colorId,
+          transparency: "transparent",
+          visibility: "public",
+          status: "confirmed",
+          eventType: "workingLocation",
+          workingLocationProperties: updates.workingLocationProperties,
+          createdAt: now,
+          updatedAt: now,
+        },
+        { account: { ownerEmail, accountEmail } },
+      );
+      if (!replacement.id) {
+        throw new Error(
+          "Google did not return an id for the working location.",
+        );
+      }
+      try {
+        await googleCalendar.deleteEvent(
+          googleEventId,
+          { ownerEmail, accountEmail },
+          { scope: "single" },
+        );
+      } catch (error) {
+        try {
+          await googleCalendar.deleteEvent(
+            replacement.id,
+            { ownerEmail, accountEmail },
+            { scope: "single" },
+          );
+        } catch (cleanupError) {
+          console.error(
+            "Failed to clean up a working-location replacement after the original occurrence could not be cancelled.",
+            cleanupError,
+          );
+        }
+        throw error;
+      }
+      returnedGoogleEventId = replacement.id;
+      result = {
+        htmlLink: replacement.htmlLink,
+        meetLink: replacement.meetLink,
+        conferenceData: replacement.conferenceData,
+      };
+    } else {
+      result = await googleCalendar.updateEvent(googleEventId, updates, {
+        account: { ownerEmail, accountEmail },
+        sendUpdates:
+          args.sendUpdates ??
+          (guestNotificationMessage || (attendeesToAdd?.length ?? 0) > 0
+            ? "all"
+            : undefined),
+        addGoogleMeet: args.addGoogleMeet,
+        scope: args.scope,
+      });
+    }
 
     const returnedPatch: Partial<CalendarEvent> = {};
     if (result.htmlLink) returnedPatch.htmlLink = result.htmlLink;
@@ -352,7 +548,10 @@ export default defineAction({
 
     return {
       success: true,
-      id: `google-${googleEventId}`,
+      id: `google-${returnedGoogleEventId}`,
+      ...(returnedGoogleEventId !== googleEventId
+        ? { replacedId: `google-${googleEventId}` }
+        : {}),
       accountEmail,
       updated: updatedKeys,
       htmlLink: result.htmlLink,

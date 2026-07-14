@@ -38,6 +38,8 @@ import {
   ensurePersonalDefaults,
   canWriteLocalWorkspaceResourcePath,
   isLocalWorkspaceResourceId,
+  organizationIdFromResourceOwner,
+  sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
   type ResourceMeta,
@@ -48,7 +50,7 @@ import {
 // ---------------------------------------------------------------------------
 
 async function resolveOwner(event: any, shared?: boolean): Promise<string> {
-  if (shared) return SHARED_OWNER;
+  if (shared) return sharedResourceOwner(await resolveOrgId(event));
   const session = await getSession(event);
   if (!session?.email) {
     throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
@@ -56,8 +58,51 @@ async function resolveOwner(event: any, shared?: boolean): Promise<string> {
   return session.email;
 }
 
-function canReadOwner(owner: string, email: string): boolean {
-  return owner === email || owner === SHARED_OWNER || owner === WORKSPACE_OWNER;
+function canReadOwner(
+  owner: string,
+  email: string,
+  orgId?: string | null,
+): boolean {
+  const ownerOrgId = organizationIdFromResourceOwner(owner);
+  return (
+    owner === email ||
+    owner === SHARED_OWNER ||
+    owner === WORKSPACE_OWNER ||
+    (!!ownerOrgId && ownerOrgId === orgId)
+  );
+}
+
+function mergeScopedResources(
+  primary: ResourceMeta[],
+  inherited: ResourceMeta[],
+): ResourceMeta[] {
+  const seen = new Set(primary.map((resource) => resource.path));
+  return [
+    ...primary,
+    ...inherited.filter((resource) => !seen.has(resource.path)),
+  ];
+}
+
+async function listSharedResources(
+  orgId: string | null,
+  prefix?: string,
+  options?: Parameters<typeof resourceList>[2],
+): Promise<ResourceMeta[]> {
+  const organizationOwner = sharedResourceOwner(orgId);
+  if (organizationOwner === SHARED_OWNER) {
+    return options
+      ? resourceList(SHARED_OWNER, prefix, options)
+      : resourceList(SHARED_OWNER, prefix);
+  }
+  const [organization, legacyAppDefaults] = await Promise.all([
+    options
+      ? resourceList(organizationOwner, prefix, options)
+      : resourceList(organizationOwner, prefix),
+    options
+      ? resourceList(SHARED_OWNER, prefix, options)
+      : resourceList(SHARED_OWNER, prefix),
+  ]);
+  return mergeScopedResources(organization, legacyAppDefaults);
 }
 
 async function resolveEmail(event: any): Promise<string> {
@@ -215,9 +260,7 @@ export async function handleListResources(event: any) {
   } else if (scope === "workspace") {
     resources = await resourceList(WORKSPACE_OWNER, prefix, scopedListOptions);
   } else if (scope === "shared") {
-    resources = localListOptions
-      ? await resourceList(SHARED_OWNER, prefix, localListOptions)
-      : await resourceList(SHARED_OWNER, prefix);
+    resources = await listSharedResources(orgId, prefix, localListOptions);
   } else {
     // "all" — personal + organization/shared + inherited workspace
     resources = await resourceListAccessible(email, prefix, scopedListOptions);
@@ -256,9 +299,7 @@ export async function handleGetResourceTree(event: any) {
       scopedListOptions,
     );
   } else if (scope === "shared") {
-    resources = localListOptions
-      ? await resourceList(SHARED_OWNER, undefined, localListOptions)
-      : await resourceList(SHARED_OWNER);
+    resources = await listSharedResources(orgId, undefined, localListOptions);
   } else {
     resources = await resourceListAccessible(
       email,
@@ -379,7 +420,7 @@ export async function handleGetResource(event: any) {
     return { error: "Resource not found" };
   }
 
-  if (!canReadOwner(resource.owner, email)) {
+  if (!canReadOwner(resource.owner, email, orgId)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -473,7 +514,8 @@ export async function handleUpdateResource(event: any) {
 
   // Ownership check: only the owner (or shared resource editors) can update
   const email = await resolveEmail(event);
-  if (!canReadOwner(existing.owner, email)) {
+  const orgId = await resolveOrgId(event);
+  if (!canReadOwner(existing.owner, email, orgId)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -483,12 +525,29 @@ export async function handleUpdateResource(event: any) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
-  if (existing.owner === SHARED_OWNER) {
+  const existingOrganizationId = organizationIdFromResourceOwner(
+    existing.owner,
+  );
+  if (existing.owner === SHARED_OWNER || existingOrganizationId) {
     await assertCanEditShared(event);
   }
 
   const body = await readBody(event);
   const nextPath = body.path ?? existing.path;
+  const activeSharedOwner = sharedResourceOwner(orgId);
+
+  // Existing `__shared__` rows are legacy app defaults. In an organization,
+  // editing one creates an organization override instead of mutating the
+  // fallback seen by every tenant in the deployment.
+  if (existing.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER) {
+    return resourcePut(
+      activeSharedOwner,
+      nextPath,
+      body.content ?? existing.content,
+      body.mimeType ?? existing.mimeType,
+      body.metadata !== undefined ? { metadata: body.metadata } : undefined,
+    );
+  }
 
   if (
     isLocalWorkspaceResource &&
@@ -547,7 +606,8 @@ export async function handleDeleteResource(event: any) {
 
   // Ownership check: only the owner (or shared resource editors) can delete
   const email = await resolveEmail(event);
-  if (!canReadOwner(existing.owner, email)) {
+  const orgId = await resolveOrgId(event);
+  if (!canReadOwner(existing.owner, email, orgId)) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
@@ -558,8 +618,22 @@ export async function handleDeleteResource(event: any) {
     setResponseStatus(event, 403);
     return { error: "Workspace resources are managed from Dispatch" };
   }
-  if (existing.owner === SHARED_OWNER) {
+  const existingOrganizationId = organizationIdFromResourceOwner(
+    existing.owner,
+  );
+  if (existing.owner === SHARED_OWNER || existingOrganizationId) {
     await assertCanEditShared(event);
+  }
+
+  if (
+    existing.owner === SHARED_OWNER &&
+    sharedResourceOwner(orgId) !== SHARED_OWNER
+  ) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "This is an inherited app default. Create an organization override instead of deleting it.",
+    };
   }
 
   await resourceDelete(id);
@@ -607,10 +681,9 @@ export async function handleUploadResource(event: any) {
   }
   const owner = await resolveOwner(event, shared);
 
-  // Prefer a registered file upload provider (e.g. Builder.io) for binary
-  // assets so we get a real CDN URL instead of a base64 blob in SQL.
-  // Text resources still live in SQL — they're edited inline and benefit
-  // from the resource store's metadata/search features.
+  // Binary assets must live in file storage so resource rows do not become
+  // base64 blobs in SQL. Text resources still live in SQL because they are
+  // edited inline and benefit from the resource store's metadata/search.
   const isText =
     mimeType.startsWith("text/") || mimeType === "application/json";
 
@@ -638,12 +711,15 @@ export async function handleUploadResource(event: any) {
       setResponseStatus(event, 201);
       return { ...resource, url: uploaded.url, provider: uploaded.provider };
     }
+    setResponseStatus(event, 503);
+    return {
+      error:
+        "File storage is not configured. Connect Builder.io or register an S3/R2/GCS file upload provider before uploading binary resources.",
+      storageSetupRequired: true,
+    };
   }
 
-  // Fallback: store contents in SQL (base64 for binary, text as-is).
-  const content = isText
-    ? Buffer.from(filePart.data).toString("utf-8")
-    : Buffer.from(filePart.data).toString("base64");
+  const content = Buffer.from(filePart.data).toString("utf-8");
 
   const resource = await resourcePut(owner, path, content, mimeType);
 

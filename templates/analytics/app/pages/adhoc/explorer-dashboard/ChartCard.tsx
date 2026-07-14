@@ -6,10 +6,12 @@ import {
   IconTrash,
   IconArrowsMaximize,
   IconArrowsMinimize,
+  IconDotsVertical,
   IconExternalLink,
+  IconMessageCircle,
 } from "@tabler/icons-react";
 import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 
 import {
   AlertDialog,
@@ -22,13 +24,24 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import type {
+  DashboardPanelChatContextArgs,
+  SelectDashboardPanelOptions,
+} from "@/hooks/use-dashboard-chat-context";
 import { useMetricsQuery } from "@/lib/query-metrics";
+import { cn } from "@/lib/utils";
 
 import { ExplorerChart } from "../explorer/components/ExplorerChart";
 import { buildSql } from "../explorer/sql-builder";
@@ -42,6 +55,11 @@ interface ChartCardProps {
   onToggleWidth: () => void;
   onEdit: () => void;
   editable?: boolean;
+  selectedForChat?: boolean;
+  selectPanelForChat: (
+    panel: DashboardPanelChatContextArgs,
+    options?: SelectDashboardPanelOptions,
+  ) => void;
 }
 
 async function fetchConfig(id: string): Promise<ExplorerConfig | null> {
@@ -66,6 +84,8 @@ export function DashboardChartCard({
   onToggleWidth,
   onEdit,
   editable = true,
+  selectedForChat = false,
+  selectPanelForChat,
 }: ChartCardProps) {
   const t = useT();
   const [confirmOpen, setConfirmOpen] = useState(false);
@@ -100,15 +120,59 @@ export function DashboardChartCard({
   );
 
   const isLoading = !config || queryLoading;
+  const displayTitle = config?.name ?? configName;
+  const handleSelectForChat = useCallback(
+    (options?: SelectDashboardPanelOptions) => {
+      selectPanelForChat(
+        {
+          panelId: chart.id,
+          panelTitle: displayTitle,
+          panelKind: config?.chartType === "table" ? "table" : "chart",
+          chartType: config?.chartType,
+          configId: chart.configId,
+        },
+        options,
+      );
+    },
+    [
+      chart.configId,
+      chart.id,
+      config?.chartType,
+      displayTitle,
+      selectPanelForChat,
+    ],
+  );
+  const handleCardClick = useCallback(
+    (event: React.MouseEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        target instanceof Element &&
+        target.closest(
+          "button, a, input, textarea, select, [role='menuitem'], [data-no-panel-chat-select]",
+        )
+      ) {
+        return;
+      }
+      handleSelectForChat({ focus: false });
+    },
+    [handleSelectForChat],
+  );
 
   return (
     <div
       ref={setNodeRef}
+      onClick={handleCardClick}
       style={style}
       data-dragging={isDragging ? "true" : undefined}
+      data-chat-selected={selectedForChat ? "true" : undefined}
       className={`explorer-dashboard-card group relative ${chart.width === 2 ? "explorer-dashboard-card-wide" : ""}`}
     >
-      <Card className="h-full">
+      <Card
+        className={cn(
+          "h-full transition-colors",
+          selectedForChat && "border-foreground/35 ring-1 ring-foreground/10",
+        )}
+      >
         <CardHeader className="pb-2 flex flex-row items-center gap-2">
           {editable ? (
             <button
@@ -120,8 +184,37 @@ export function DashboardChartCard({
             </button>
           ) : null}
           <CardTitle className="text-sm font-medium flex-1 truncate">
-            {config?.name ?? configName}
+            {displayTitle}
           </CardTitle>
+          <div className="opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100">
+            <DropdownMenu>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <DropdownMenuTrigger asChild>
+                    <button
+                      className="p-1 rounded text-muted-foreground hover:text-foreground transition-colors"
+                      aria-label={t("sqlDashboard.panelOptions")}
+                    >
+                      <IconDotsVertical className="h-3.5 w-3.5" />
+                    </button>
+                  </DropdownMenuTrigger>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {t("sqlDashboard.panelOptions")}
+                </TooltipContent>
+              </Tooltip>
+              <DropdownMenuContent align="end" className="w-44">
+                <DropdownMenuItem
+                  onSelect={() =>
+                    handleSelectForChat({ openSidebar: true, focus: true })
+                  }
+                >
+                  <IconMessageCircle className="h-4 w-4 mr-2" />
+                  {t("explorerDashboard.chatWithChart")}
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          </div>
           {editable ? (
             <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
               <Tooltip>

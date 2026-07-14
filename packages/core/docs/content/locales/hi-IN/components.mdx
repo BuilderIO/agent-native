@@ -25,6 +25,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` या एक केंद्रित `@agent-native/core/client/*` उपपथ
 इसलिए बंडलर ब्राउज़र-सुरक्षित प्रविष्टि चुनते हैं।
 
+`@agent-native/toolkit` का उपयोग उन पुन: उपयोग योग्य ऐप-बिल्डिंग हिस्सों के लिए करें जो मूल रनटाइम अनुबंध का भाग नहीं हैं: shadcn-शैली UI primitives, साझा hooks, सरल ऐप shell helpers, और अन्य template composition modules. संक्रमण के दौरान Core compatibility re-exports रखता है.
+
+पुन: उपयोग योग्य packages Toolkit modules सीधे import कर सकते हैं:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Template apps के अंदर app-local adapters को प्राथमिकता दें, ताकि teams primitives को एक बार बदलें और reused Toolkit surfaces वही local implementation इस्तेमाल करें:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-109zkj3" title={"एक परत नीचे गिराएं, ढांचे से बाहर नहीं"} summary={"प्रत्येक परत आपको क्रोम पर अधिक नियंत्रण प्रदान करते हुए समान रनटाइम - क्रियाएं, थ्रेड स्थिति और SQL-backed सिंक रखती है।"}>
 
 ```html
@@ -428,15 +446,16 @@ function WorkspaceResources() {
 
 ## अन्य सार्वजनिक UI {#other-ui}
 
-| क्षेत्र       | APIs                                                  | आयात पथ                                   |
-| ------------- | ----------------------------------------------------- | ----------------------------------------- |
-| साझा करना     | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
-| सूचनाएं       | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
-| प्रगति        | `<RunsTray>`, प्रगति हुक और प्रकार                    | `@agent-native/core/client/progress`      |
-| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक                | `@agent-native/core/client/onboarding`    |
-| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
-| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक      | `@agent-native/core/client/resources`     |
-| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक      | `@agent-native/core/client/editor`        |
+| क्षेत्र       | APIs                                             | आयात पथ                                   |
+| ------------- | ------------------------------------------------ | ----------------------------------------- |
+| साझा करना     | `<ShareButton>`, `<ShareDialog>`                 | `@agent-native/core/client/sharing`       |
+| Sharing UI    | `<VisibilityBadge>`                              | `@agent-native/toolkit/sharing`           |
+| सूचनाएं       | `<NotificationsBell>`                            | `@agent-native/core/client/notifications` |
+| प्रगति        | `<RunsTray>`, प्रगति हुक और प्रकार               | `@agent-native/core/client/progress`      |
+| ऑनबोर्डिंग    | `useOnboarding()`, ऑनबोर्डिंग पैनल हुक           | `@agent-native/core/client/onboarding`    |
+| अवलोकनशीलता   | `<ObservabilityDashboard>`, `<ThumbsFeedback>`   | `@agent-native/core/client/observability` |
+| संसाधन        | `<ResourcesPanel>`, `<ResourceTree>`, संसाधन हुक | `@agent-native/core/client/resources`     |
+| समृद्ध संपादक | `<SharedRichEditor>`, स्लैश कमांड, ब्लॉक नोड हुक | `@agent-native/core/client/editor`        |
 
 ## एकमुश्त पाठ समापन {#one-off-text-completion}
 
@@ -453,10 +472,12 @@ function WorkspaceResources() {
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -471,3 +492,11 @@ export default defineAction({
 इसके बजाय `sendToAgentChat({ background: true, openSidebar: false })` का उपयोग करें जब
 कार्य के लिए उपकरण, स्थिति, ऑडिटेबिलिटी, उपयोगकर्ता स्टीयरिंग या मल्टी-स्टेप की आवश्यकता होती है
 तर्क.
+
+## आगे क्या है {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — ट्यूटोरियल-प्रथम मार्गदर्शन के साथ `<AgentSidebar>` और `<AgentPanel>` माउंट करें
+- [**Native Chat UI**](/docs/native-chat-ui) — डेटा विजेट और कस्टम रेंडरर के पीछे का कार्रवाई परिणाम अनुबंध
+- [**Actions**](/docs/actions) — `defineAction()`, स्कीमा और इन घटकों द्वारा बुलाई जाने वाली कार्रवाई सतह
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — सहयोग हुक और उपस्थिति घटकों का विस्तृत विवरण
+- [**Sharing**](/docs/sharing) — स्वामित्व योग्य संसाधनों के लिए `<ShareButton>` और `<ShareDialog>` की वायरिंग

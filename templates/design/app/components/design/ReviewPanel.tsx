@@ -31,7 +31,7 @@ import {
   IconShieldCheck,
   IconTool,
 } from "@tabler/icons-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -194,6 +194,21 @@ function FindingRow({
   const applyFix = useActionMutation("apply-a11y-fix");
   const [fixStatus, setFixStatus] = useState<FixStatus>("idle");
 
+  // `finding.id` is stable across audit runs (`"category:node-id"`), so a
+  // parent refetch that still includes the same id — e.g. the fix didn't
+  // fully resolve the issue and a fresh audit re-detected it — reuses this
+  // same row instance. Without this, a stale "Fixed" checkmark would keep
+  // showing even though the finding is live again. Only reset when a
+  // genuinely new `finding` object arrives (a fresh audit pass), not on our
+  // own optimistic `setFixStatus` calls, which don't touch the prop.
+  const lastFindingRef = useRef(finding);
+  useEffect(() => {
+    if (lastFindingRef.current !== finding) {
+      lastFindingRef.current = finding;
+      setFixStatus("idle");
+    }
+  }, [finding]);
+
   // A Fix affordance is shown only when (a) the finding maps to a deterministic
   // inline edit and (b) a design source is available to write to.  Everything
   // else stays informational.
@@ -248,7 +263,13 @@ function FindingRow({
       tabIndex={onClick ? 0 : undefined}
       onClick={() => onClick?.(finding)}
       onKeyDown={(e) => {
-        if (e.key === "Enter" || e.key === " ") onClick?.(finding);
+        if (e.key === "Enter" || e.key === " ") {
+          // This is a `role="button"` div, not a native <button>, so the
+          // browser's default Space behavior (page scroll) isn't suppressed
+          // automatically — prevent it before activating.
+          e.preventDefault();
+          onClick?.(finding);
+        }
       }}
       aria-label={finding.message}
     >

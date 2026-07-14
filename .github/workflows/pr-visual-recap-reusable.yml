@@ -22,26 +22,41 @@ name: PR Visual Recap (reusable)
 on:
   workflow_call:
     inputs:
-      # Version of @agent-native/core to use when the consumer repo does NOT
+      # Version of @agent-native/recap-cli to use when the consumer repo does NOT
       # have a local packages/core/src/cli/index.ts (the normal case for
       # consumer repos).  Defaults to "latest".  Pin to a specific version or
       # tag for reproducibility: e.g. "1.2.3" or "latest".
       cli-version:
-        description: "Version of @agent-native/core CLI (npx @agent-native/core@<version>)"
+        description: "Version of @agent-native/recap-cli (npx @agent-native/recap-cli@<version>)"
+        required: false
+        type: string
+        default: "latest"
+      # Version of @agent-native/core to use for the optional OpenAI-compatible
+      # code-exec runtime. Defaults to "latest"; pin independently because the
+      # core and recap-cli packages are released on separate version tracks.
+      core-cli-version:
+        description: "Version of @agent-native/core for the openai-compatible runtime"
         required: false
         type: string
         default: "latest"
       # Coding-agent backend.  Validated in the gate; mis-cased values are
       # normalized to lowercase.
       agent:
-        description: "Coding-agent backend: 'claude' (default) or 'codex'"
+        description: "Coding-agent backend: 'claude' (default), 'codex', or 'openai-compatible'"
         required: false
         type: string
         default: "claude"
-      # Optional model override passed to the agent CLI via --model.  Must
-      # match [a-zA-Z0-9._-]{1,80}.  Leave empty to use the CLI default.
+      # Model override passed to the agent CLI via --model. Must match
+      # [a-zA-Z0-9._-]{1,80}; required when agent=openai-compatible.
       model:
-        description: "Model name passed to the agent CLI (leave empty for CLI default)"
+        description: "Model name passed to the agent CLI (required for openai-compatible)"
+        required: false
+        type: string
+        default: ""
+      # Base URL for an OpenAI-compatible backend such as DeepSeek, Kimi, or a
+      # self-hosted gateway. Required when agent=openai-compatible.
+      base-url:
+        description: "OpenAI-compatible API base URL"
         required: false
         type: string
         default: ""
@@ -60,7 +75,7 @@ on:
         type: string
         default: "https://plan.agent-native.com"
       # Controls which visual-recap guidance the agent prompt is built from.
-      # 'auto' / 'latest' uses the bundled guidance in @agent-native/core.
+      # 'auto' / 'latest' uses the bundled guidance in @agent-native/recap-cli.
       # 'repo' pins to the committed visual-recap skill in the caller's repo.
       skill-source:
         description: "Skill-source mode: auto (default), latest, or repo"
@@ -72,6 +87,16 @@ on:
         required: false
         type: string
         default: "high-confidence"
+      runs-on:
+        description: "JSON runner label or self-hosted label array"
+        required: false
+        type: string
+        default: '"ubuntu-latest"'
+      gate-runs-on:
+        description: "Plain gate runner label for trusted same-repository PR authors only"
+        required: false
+        type: string
+        default: "ubuntu-latest"
     secrets:
       # Required: bearer token minted by `agent-native connect`.  Authorizes
       # publishing the recap plan and the screenshot upload.
@@ -82,6 +107,9 @@ on:
         required: false
       # Required when agent=codex; ignored otherwise.
       OPENAI_API_KEY:
+        required: false
+      # Required when agent=openai-compatible; ignored otherwise.
+      VISUAL_RECAP_API_KEY:
         required: false
       # Override only when self-hosting the Plan app at a non-default origin.
       # Must match the plan-url input origin.
@@ -98,7 +126,10 @@ concurrency:
 jobs:
   gate:
     name: Gate
-    runs-on: ubuntu-latest
+    # A custom plain-label runner is allowed only for trusted same-repo authors.
+    # Fork and untrusted PRs are forced onto GitHub-hosted ubuntu-latest before
+    # any step starts. The only fromJSON input is this static association list.
+    runs-on: ${{ github.event.pull_request.head.repo.full_name == github.repository && contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.pull_request.author_association) && inputs['gate-runs-on'] || 'ubuntu-latest' }}
     timeout-minutes: 10
     permissions:
       contents: read
@@ -107,6 +138,7 @@ jobs:
     outputs:
       run: ${{ steps.decide.outputs.run }}
       agent: ${{ steps.decide.outputs.agent }}
+      runs_on: ${{ steps.decide.outputs.runs_on }}
     steps:
       - id: decide
         uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
@@ -115,8 +147,11 @@ jobs:
           HAS_PLAN: ${{ secrets.PLAN_RECAP_TOKEN != '' }}
           HAS_ANTHROPIC: ${{ secrets.ANTHROPIC_API_KEY != '' }}
           HAS_OPENAI: ${{ secrets.OPENAI_API_KEY != '' }}
+          HAS_COMPATIBLE: ${{ secrets.VISUAL_RECAP_API_KEY != '' }}
           AGENT: ${{ inputs.agent }}
           VISUAL_RECAP_MODEL: ${{ inputs.model }}
+          VISUAL_RECAP_RUNS_ON: ${{ inputs.runs-on }}
+          VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
           VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         with:
@@ -141,6 +176,21 @@ jobs:
             const association = (pr && pr.author_association || '').toUpperCase();
             const trustedAssociations = ['OWNER', 'MEMBER', 'COLLABORATOR'];
             const isTrustedAuthor = trustedAssociations.includes(association);
+            let configuredRunner = 'ubuntu-latest';
+            let usesSelfHostedRunner = false;
+            try {
+              const candidate = JSON.parse(process.env.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"');
+              const hosted = typeof candidate === 'string' && /^(?:ubuntu|windows|macos)-[A-Za-z0-9.-]+$/.test(candidate);
+              const selfHosted = Array.isArray(candidate) && candidate.length >= 1 && candidate.length <= 20 && candidate.includes('self-hosted') && candidate.every((label) => typeof label === 'string' && label.length >= 1 && label.length <= 100 && !/[\u0000-\u001f\u007f]/.test(label)) && new Set(candidate).size === candidate.length;
+              if (!hosted && !selfHosted) throw new Error('unsupported runner value');
+              configuredRunner = candidate;
+              usesSelfHostedRunner = selfHosted;
+            } catch {
+              reasons.push('invalid VISUAL_RECAP_RUNS_ON JSON');
+            }
+            if (usesSelfHostedRunner && (isFork || !isTrustedAuthor)) {
+              reasons.push('self-hosted runner mode requires a trusted same-repository PR author');
+            }
             if (isFork && process.env.HAS_PLAN !== 'true') {
               reasons.push(`fork PR (${headRepo}) without secret access — enable "Send secrets to workflows from pull requests" (and write tokens) in the repo/org Actions settings to run recaps on forks`);
             }
@@ -153,13 +203,26 @@ jobs:
             if (!isFork && process.env.HAS_PLAN !== 'true') reasons.push('PLAN_RECAP_TOKEN not configured');
 
             // Normalize + validate the agent.
-            const agent = (process.env.AGENT || 'claude').toLowerCase();
-            if (agent !== 'claude' && agent !== 'codex') {
-              reasons.push(`unsupported agent input "${process.env.AGENT}" (expected "claude" or "codex")`);
+            const rawAgent = (process.env.AGENT || 'claude').toLowerCase();
+            const agent = ['deepseek', 'kimi', 'moonshot', 'custom'].includes(rawAgent) ? 'openai-compatible' : rawAgent;
+            if (!['claude', 'codex', 'openai-compatible'].includes(agent)) {
+              reasons.push(`unsupported agent input "${process.env.AGENT}" (expected "claude", "codex", or "openai-compatible")`);
             } else if (agent === 'codex') {
               if (process.env.HAS_OPENAI !== 'true') reasons.push('OPENAI_API_KEY not configured (codex backend)');
-            } else {
+            } else if (agent === 'claude') {
               if (process.env.HAS_ANTHROPIC !== 'true') reasons.push('ANTHROPIC_API_KEY not configured (claude backend)');
+            } else {
+              if (process.env.HAS_COMPATIBLE !== 'true') reasons.push('VISUAL_RECAP_API_KEY not configured (openai-compatible backend)');
+              if (!(process.env.VISUAL_RECAP_MODEL || '').trim()) reasons.push('VISUAL_RECAP_MODEL is required (openai-compatible backend)');
+              const baseUrl = process.env.VISUAL_RECAP_BASE_URL || '';
+              try {
+                const parsed = new URL(baseUrl);
+                if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+                  reasons.push('OpenAI-compatible API base URL must be an http(s) URL without credentials');
+                }
+              } catch {
+                reasons.push('OpenAI-compatible API base URL must be a valid http(s) URL');
+              }
             }
 
             // Validate the model before it reaches the agent CLI.
@@ -209,6 +272,7 @@ jobs:
             const run = reasons.length === 0;
             core.setOutput('run', run ? 'true' : 'false');
             core.setOutput('agent', agent);
+            core.setOutput('runs_on', JSON.stringify(configuredRunner));
             if (run) {
               core.info(`Visual recap will run (${agent}).`);
             } else {
@@ -265,7 +329,7 @@ jobs:
     name: Generate visual recap
     needs: gate
     if: needs.gate.outputs.run == 'true'
-    runs-on: ubuntu-latest
+    runs-on: ${{ fromJSON(needs.gate.outputs.runs_on) }}
     timeout-minutes: 30
     permissions:
       actions: write
@@ -285,10 +349,12 @@ jobs:
       PR_MERGED_AT: ${{ github.event.pull_request.merged_at }}
       HEAD_SHA: ${{ github.event.pull_request.head.sha }}
       VISUAL_RECAP_MODEL: ${{ inputs.model }}
+      VISUAL_RECAP_BASE_URL: ${{ inputs.base-url }}
       VISUAL_RECAP_REASONING: ${{ inputs.reasoning }}
       VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
       VISUAL_RECAP_SECRET_SCAN: ${{ inputs.secret-scan || 'high-confidence' }}
       RECAP_CLI_VERSION: ${{ inputs.cli-version || 'latest' }}
+      CORE_CLI_VERSION: ${{ inputs.core-cli-version || 'latest' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
@@ -311,17 +377,30 @@ jobs:
           set -euo pipefail
           VERSION="$RECAP_CLI_VERSION"
           if [ "$VERSION" = "latest" ]; then
-            VERSION="$(npm view @agent-native/core@latest version)"
+            VERSION="$(npm view @agent-native/recap-cli@latest version)"
           fi
           for attempt in 1 2 3; do
-            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund "@agent-native/core@$VERSION"; then
+            if npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts "@agent-native/recap-cli@$VERSION"; then
               break
             fi
             if [ "$attempt" = "3" ]; then exit 1; fi
             sleep $((attempt * 10))
           done
+          echo "RECAP_CLI_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
+
+      - name: Install OpenAI-compatible provider runtime
+        if: needs.gate.outputs.agent == 'openai-compatible'
+        run: |
+          set -euo pipefail
+          CORE_VERSION="$CORE_CLI_VERSION"
+          if [ "$CORE_VERSION" = "latest" ]; then
+            CORE_VERSION="$(npm view @agent-native/core@latest version)"
+          fi
+          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai "@agent-native/core@$CORE_VERSION"
+          echo "CORE_CLI_VERSION=$CORE_VERSION" >> "$GITHUB_ENV"
+          echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
         id: recap_check
@@ -490,7 +569,7 @@ jobs:
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
-          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
           rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           run_claude() {
             set +e
@@ -504,9 +583,13 @@ jobs:
           # "retry me" signal — the deterministic publisher needs that file, and
           # the agent occasionally finishes a turn without writing it. Retry once.
           if [ ! -s recap-source.json ]; then
-            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
-            sleep 5
-            run_claude
+            if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' claude-result.json claude-stderr.log 2>/dev/null; then
+              echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
+            else
+              echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+              sleep 5
+              run_claude
+            fi
           fi
 
       - name: Run agent (Codex)
@@ -538,9 +621,45 @@ jobs:
           # Retry once if the agent exited without writing recap-source.json
           # (see the Claude step) — the publisher needs that file.
           if [ ! -s recap-source.json ]; then
-            echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
-            sleep 5
-            run_codex
+            if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' codex-events.jsonl codex-stderr.log 2>/dev/null; then
+              echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
+            else
+              echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+              sleep 5
+              run_codex
+            fi
+          fi
+
+      - name: Run agent (OpenAI-compatible)
+        id: openai_compatible
+        if: needs.gate.outputs.agent == 'openai-compatible' && steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
+          OPENAI_BASE_URL: ${{ inputs.base-url }}
+          AGENT_ENGINE: ai-sdk:openai
+          AGENT_MODEL: ${{ inputs.model }}
+          AGENT_NATIVE_CODE_USAGE_FILE: openai-compatible-usage.json
+          AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source
+        run: |
+          set -uo pipefail
+          rm -f recap-source.json recap-url.txt recap-url-reason.txt openai-compatible-result.txt openai-compatible-usage.json openai-compatible-stderr.log
+          run_openai_compatible() {
+            set +e
+            $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-prompt.md)" > openai-compatible-result.txt 2> openai-compatible-stderr.log
+            OPENAI_COMPATIBLE_STATUS="$?"
+            set -e
+            echo "$OPENAI_COMPATIBLE_STATUS" > openai-compatible-exit-code.txt
+          }
+          run_openai_compatible
+          if [ ! -s recap-source.json ]; then
+            if grep -Eiq -- 'quota exceeded|billing details|insufficient (credits|quota)|rate[-_ ]limit|invalid (api )?key|authentication (failed|error)|unauthorized|forbidden' openai-compatible-result.txt openai-compatible-stderr.log 2>/dev/null; then
+              echo "::error::Visual recap agent failed with a non-retryable provider error; skipping the duplicate retry."
+            else
+              echo "::warning::recap-source.json missing after the agent run; retrying the agent once."
+              sleep 5
+              run_openai_compatible
+            fi
           fi
 
       - name: Publish recap source
@@ -641,24 +760,6 @@ jobs:
           RECAP_PUBLISH_REASON: ${{ steps.publish.outputs.reason }}
         run: |
           set -uo pipefail
-          if [ -n "${RECAP_BLOCK_REFERENCE_SUMMARY:-}" ]; then
-            {
-              echo 'summary<<__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
-              echo "$RECAP_BLOCK_REFERENCE_SUMMARY"
-              echo '__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
-            } >> "$GITHUB_OUTPUT"
-            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_BLOCK_REFERENCE_SUMMARY || "" }) + "\n")'
-            exit 0
-          fi
-          if [ -n "${RECAP_PUBLISH_REASON:-}" ]; then
-            {
-              echo 'summary<<__RECAP_PUBLISH_SUMMARY_EOF__'
-              echo "$RECAP_PUBLISH_REASON"
-              echo '__RECAP_PUBLISH_SUMMARY_EOF__'
-            } >> "$GITHUB_OUTPUT"
-            node -e 'process.stdout.write(JSON.stringify({ ok: true, summary: process.env.RECAP_PUBLISH_REASON || "" }) + "\n")'
-            exit 0
-          fi
           RESULT=claude-result.json
           STDERR=claude-stderr.log
           EXIT_CODE=claude-exit-code.txt
@@ -666,8 +767,32 @@ jobs:
             RESULT=codex-events.jsonl
             STDERR=codex-stderr.log
             EXIT_CODE=codex-exit-code.txt
+          elif [ "$RECAP_AGENT" = "openai-compatible" ]; then
+            RESULT=openai-compatible-result.txt
+            STDERR=openai-compatible-stderr.log
+            EXIT_CODE=openai-compatible-exit-code.txt
           fi
-          $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || true
+          SUMMARY_JSON="$(GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || echo '{}')"
+          SUMMARY="$(node -e 'try { const value = JSON.parse(process.argv[1]).summary; process.stdout.write(typeof value === "string" ? value : ""); } catch {}' "$SUMMARY_JSON")"
+          if [ -n "$SUMMARY" ]; then
+            {
+              echo 'summary<<__RECAP_AGENT_SUMMARY_EOF__'
+              echo "$SUMMARY"
+              echo '__RECAP_AGENT_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+          elif [ -n "${RECAP_BLOCK_REFERENCE_SUMMARY:-}" ]; then
+            {
+              echo 'summary<<__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
+              echo "$RECAP_BLOCK_REFERENCE_SUMMARY"
+              echo '__RECAP_BLOCK_REFERENCE_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+          elif [ -n "${RECAP_PUBLISH_REASON:-}" ]; then
+            {
+              echo 'summary<<__RECAP_PUBLISH_SUMMARY_EOF__'
+              echo "$RECAP_PUBLISH_REASON"
+              echo '__RECAP_PUBLISH_SUMMARY_EOF__'
+            } >> "$GITHUB_OUTPUT"
+          fi
 
       - name: Attach usage
         if: steps.url.outputs.ok == 'true'
@@ -679,6 +804,7 @@ jobs:
           set -uo pipefail
           RESULT=claude-result.json
           if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
+          if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-usage.json; fi
           if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       - name: Cache Playwright browsers
@@ -768,6 +894,9 @@ jobs:
             claude-stderr.log
             codex-events.jsonl
             codex-stderr.log
+            openai-compatible-result.txt
+            openai-compatible-usage.json
+            openai-compatible-stderr.log
           if-no-files-found: ignore
           retention-days: 14
 

@@ -11,6 +11,16 @@ Si vous avez utilisé QuickBooks en ligne, vous avez vu le modèle : QBO est li
 
 Le cadrage est important : une extension n'est pas un bac à sable générique "faites ce que vous voulez". Il s'agit d'une **mini-application qui étend un modèle spécifique** (Mail, Analytics, Calendrier, Clips, Conception) et utilise le actions et les données de ce modèle. Une extension Mail lit les e-mails. Une extension Analytics lit les métriques d'un tableau de bord. Une extension Calendrier agit sur l'événement ouvert. Ils ont l'impression de faire partie du produit hôte car ils _font_ partie du produit hôte.
 
+> **Les extensions ajoutent une interface ; elles ne réécrivent pas l'interface
+> de l'application hôte.** Une extension s'affiche sur sa propre page ou dans un
+> [emplacement](#slots) nommé exposé par le modèle. Elle ne peut pas injecter
+> d'éléments dans n'importe quel composant natif — par exemple à côté de chaque
+> participant dans Calendrier — sauf si le modèle expose un emplacement à cet
+> endroit. Pour une personnalisation plus poussée, demandez à l'agent de
+> modifier le code source du modèle. La personnalisation complète du code est
+> une capacité fondamentale d'Agent Native ; les extensions constituent la
+> couche rapide, sans déploiement.
+
 Trois éléments font que les extensions fonctionnent :
 
 - **Pas de code, pas de déploiement.** L'agent les écrit et ils sont opérationnels en quelques secondes. Stocké dans la base de données, pas dans le dépôt.
@@ -34,7 +44,7 @@ Agent d'application intact.
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -227,7 +237,7 @@ Dans le bac à sable iframe, chaque extension dispose de ces assistants sur `win
 | `appAction(name, params)`                        | Appelez l'un des actions du modèle hôte                                          | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Appeler les points de terminaison du framework autorisés sous `/_agent-native/*` | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql, args)`                             | Lecture à partir de SQL (portée automatiquement sur l'utilisateur)               | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | Écrire dans SQL                                                                  | `dbExec('INSERT INTO ...')`                               |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions                            | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | Atteignez les API externes via un proxy sécurisé avec des secrets                | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Conserver les données par extension (portée utilisateur/organisation)            | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | Liste des éléments persistants                                                   | `extensionData.list('notes', { scope: 'all' })`           |
@@ -397,7 +407,7 @@ Les extensions locales ont un modèle d'autorisation v1 plus strict :
 
 - `extensionData` est disponible pour les petits états d'exécution, sauf s'il est désactivé.
 - Les appels `appAction` doivent être explicitement répertoriés dans `permissions.appActions`.
-- `dbQuery`, `dbExec` et `extensionFetch` sont bloqués pour le moment.
+- `dbQuery` et `extensionFetch` sont bloqués pour le moment.
 - La mise à jour, la suppression, le partage et l'historique basés sur SQL actions renvoient un message qui
   pointe vers le fichier d'entrée local.
 
@@ -430,6 +440,8 @@ Le framework permet à l'agent de modifier directement le code source de l'appli
 
 Règle générale : **si c'est pour un utilisateur ou une équipe, c'est une extension.** Si chaque utilisateur du modèle doit l'obtenir, expédiez-le comme une véritable fonctionnalité.
 
+Pour une récupération de données personnalisée destinée à alimenter des graphiques et tableaux natifs plutôt qu'une UI de widget sur mesure, voir [Programmes de données](/docs/data-programs) — un script `run-code` stocké et actualisable auquel les panneaux de dashboard se lient directement, sans aucun iframe d'extension.
+
 ## Sécurité {#security}
 
 <Callout id="doc-block-frp4nq" tone="success">
@@ -444,7 +456,7 @@ Les extensions s'exécutent dans une iframe en bac à sable :
 - **Injection de secret côté serveur** via le modèle `${keys.NAME}` — la valeur réelle de la clé n'atteint jamais le navigateur.
 - **Secrets verrouillés par domaine** — chaque clé est liée à une liste verte URL ; le proxy refuse les demandes adressées aux autres hôtes.
 - **Protection des réseaux privés** : les extensions ne peuvent pas atteindre les adresses internes.
-- **Authentification requise** : les extensions ne s'exécutent que pour les utilisateurs connectés et les appels `dbQuery`/`dbExec` sont automatiquement étendus.
+- **Authentification requise** : les extensions ne s'exécutent que pour les utilisateurs connectés et les appels `dbQuery` sont automatiquement étendus.
 
 ## Quelques choses à savoir sur la dénomination {#naming-back-compat}
 

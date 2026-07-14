@@ -34,7 +34,10 @@ import {
   sectionInputSchema,
   writeEvent,
 } from "../server/plans.js";
-import { planContentSchema } from "../shared/plan-content.js";
+import {
+  agentPlanContentSchema,
+  planContentSchema,
+} from "../shared/plan-content.js";
 
 const designSurfaceSchema = z.enum([
   "desktop",
@@ -100,89 +103,94 @@ const designContextRecordSchema = z.record(z.string(), z.unknown()).refine(
   { message: "Design context metadata is too large." },
 );
 
+const CONTENT_DESCRIPTION =
+  "Full structured content when the caller has already authored the design/prototype. Prefer screens/transitions for normal /plan-design creation.";
+
+// Named (and un-refined) so `agentInputSchema` below can `.extend()` it with
+// a compact `content` field instead of duplicating every other key. The
+// `.refine()` (brief/goal requirement) only applies to the real runtime
+// `schema` further down.
+const createPlanDesignSchema = z.object({
+  title: z.string().optional().describe("Short design plan title"),
+  brief: z
+    .string()
+    .optional()
+    .describe(
+      "One short sentence summarizing the design direction, shown as the lede under the title. Keep it to a single tight line.",
+    ),
+  goal: z.string().optional().describe("Alias for brief."),
+  source: planSourceSchema.optional().default("manual"),
+  repoPath: z.string().optional().describe("Repository path for the run"),
+  currentFocus: z.string().optional().describe("Current design review focus"),
+  status: planStatusSchema.optional().default("review"),
+  content: planContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  screens: z
+    .array(designScreenSchema)
+    .max(6)
+    .optional()
+    .default([])
+    .describe(
+      "Full-fidelity design screens. Include one to six substantial screens/states with real labels, brand styling, and data-design-id attributes on editable elements. Use CSS for Tailwind-like utility classes because the Plan renderer does not load arbitrary CDN scripts.",
+    ),
+  transitions: z
+    .array(designTransitionSchema)
+    .max(24)
+    .optional()
+    .default([])
+    .describe(
+      "Expected screen transitions for the Prototype tab. Use data-goto attributes in screen HTML for true route/step changes.",
+    ),
+  designMd: z
+    .string()
+    .max(100_000)
+    .optional()
+    .describe("Optional design.md content used as design direction"),
+  brandKit: designContextRecordSchema
+    .optional()
+    .describe("Optional parsed brand kit or .fig design-system data"),
+  codebaseStyles: designContextRecordSchema
+    .optional()
+    .describe("Optional parsed CSS vars, Tailwind tokens, fonts, and colors"),
+  designNotes: z
+    .string()
+    .max(20_000)
+    .optional()
+    .describe("Concise notes about brand/style assumptions"),
+  implementationNotes: z
+    .string()
+    .max(20_000)
+    .optional()
+    .describe("Concise notes for the implementation map section"),
+  markdown: z
+    .string()
+    .max(100_000)
+    .optional()
+    .describe("Markdown/text fallback or source design plan"),
+  sections: z
+    .array(sectionInputSchema)
+    .optional()
+    .default([])
+    .describe("Optional legacy plan sections"),
+  comments: z
+    .array(commentInputSchema)
+    .optional()
+    .default([])
+    .describe("Initial annotations or review prompts"),
+});
+
 export default defineAction({
   description:
     "Create a full-fidelity branded design plan with a Design tab (editable design canvas) and optional Prototype tab. For a document-first plan use create-visual-plan; for a wireframe-canvas plan use create-ui-plan; for a recap of an existing diff use create-visual-recap; for a functional prototype use create-prototype-plan. Use design.md, .fig brand kits, and codebase CSS/Tailwind/token evidence when available. Design screens are bounded HTML/CSS fragments with data-design-id targets. Publish via this tool; never deliver the plan as inline chat text.",
-  schema: z
-    .object({
-      title: z.string().optional().describe("Short design plan title"),
-      brief: z
-        .string()
-        .optional()
-        .describe(
-          "One short sentence summarizing the design direction, shown as the lede under the title. Keep it to a single tight line.",
-        ),
-      goal: z.string().optional().describe("Alias for brief."),
-      source: planSourceSchema.optional().default("manual"),
-      repoPath: z.string().optional().describe("Repository path for the run"),
-      currentFocus: z
-        .string()
-        .optional()
-        .describe("Current design review focus"),
-      status: planStatusSchema.optional().default("review"),
-      content: planContentSchema
-        .optional()
-        .describe(
-          "Full structured content when the caller has already authored the design/prototype. Prefer screens/transitions for normal /plan-design creation.",
-        ),
-      screens: z
-        .array(designScreenSchema)
-        .max(6)
-        .optional()
-        .default([])
-        .describe(
-          "Full-fidelity design screens. Include one to six substantial screens/states with real labels, brand styling, and data-design-id attributes on editable elements. Use CSS for Tailwind-like utility classes because the Plan renderer does not load arbitrary CDN scripts.",
-        ),
-      transitions: z
-        .array(designTransitionSchema)
-        .max(24)
-        .optional()
-        .default([])
-        .describe(
-          "Expected screen transitions for the Prototype tab. Use data-goto attributes in screen HTML for true route/step changes.",
-        ),
-      designMd: z
-        .string()
-        .max(100_000)
-        .optional()
-        .describe("Optional design.md content used as design direction"),
-      brandKit: designContextRecordSchema
-        .optional()
-        .describe("Optional parsed brand kit or .fig design-system data"),
-      codebaseStyles: designContextRecordSchema
-        .optional()
-        .describe(
-          "Optional parsed CSS vars, Tailwind tokens, fonts, and colors",
-        ),
-      designNotes: z
-        .string()
-        .max(20_000)
-        .optional()
-        .describe("Concise notes about brand/style assumptions"),
-      implementationNotes: z
-        .string()
-        .max(20_000)
-        .optional()
-        .describe("Concise notes for the implementation map section"),
-      markdown: z
-        .string()
-        .max(100_000)
-        .optional()
-        .describe("Markdown/text fallback or source design plan"),
-      sections: z
-        .array(sectionInputSchema)
-        .optional()
-        .default([])
-        .describe("Optional legacy plan sections"),
-      comments: z
-        .array(commentInputSchema)
-        .optional()
-        .default([])
-        .describe("Initial annotations or review prompts"),
-    })
-    .refine((args) => Boolean(args.brief || args.goal), {
-      message: "Either brief or goal is required.",
-    }),
+  schema: createPlanDesignSchema.refine(
+    (args) => Boolean(args.brief || args.goal),
+    { message: "Either brief or goal is required." },
+  ),
+  // ADVERTISED-ONLY: same top-level shape, but `content` swaps the deep
+  // per-block-type union for a compact `type`-enum stand-in. Runtime
+  // validation always runs the full schema above — see the `actions` skill.
+  agentInputSchema: createPlanDesignSchema.extend({
+    content: agentPlanContentSchema.optional().describe(CONTENT_DESCRIPTION),
+  }),
   publicAgent: {
     expose: true,
     readOnly: false,

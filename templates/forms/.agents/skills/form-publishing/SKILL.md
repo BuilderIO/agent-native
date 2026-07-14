@@ -63,6 +63,8 @@ Each form has a `settings` JSON object:
   "successMessage": "Thank you! Your response has been recorded.",
   "redirectUrl": null,
   "showProgressBar": false,
+  "emailOnNewResponses": false,
+  "anonymous": false,
   "integrations": []
 }
 ```
@@ -73,7 +75,14 @@ Each form has a `settings` JSON object:
 | `successMessage`   | string  | Message shown after successful submission  |
 | `redirectUrl`      | string  | URL to redirect to after submission        |
 | `showProgressBar`  | boolean | Show progress bar for multi-section forms  |
+| `emailOnNewResponses` | boolean | Email the form owner's account when someone submits a response |
+| `anonymous`        | boolean | Suppress IP, submitter identity, chat/run ids, page URL, and client-surface metadata for every response |
 | `integrations`     | array   | Webhook/Slack/Discord notification configs |
+
+For a genuinely anonymous form, set `anonymous: true` when creating the form.
+Do not describe an ordinary published form as anonymous: published forms accept
+public responses, but only anonymous mode suppresses identifying and source
+metadata.
 
 ## Integration Types
 

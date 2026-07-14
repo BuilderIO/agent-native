@@ -433,6 +433,16 @@ const messages = {
       title: "Local plan not found",
       message: 'The local plan folder "{{slug}}" could not be read.',
     },
+    localPlanConnection: {
+      promptTitle: "Connect to this local plan",
+      promptMessage:
+        "This plan stays on your computer. Plan needs browser permission to read it from the local bridge.",
+      deniedTitle: "Local network access is blocked",
+      deniedMessage:
+        "Open your browser's site settings for Plan, allow local network access, then check again.",
+      connect: "Connect to local plan",
+      checkAgain: "Check again",
+    },
     overview: {
       title: "Plans",
       documentCount_one: "{{count}} document",
@@ -630,6 +640,10 @@ const messages = {
       signIn: "Sign in",
       haveAccount: "I have an account",
       retry: "Retry",
+      sendFeedback: "Send feedback",
+      feedbackPlaceholder:
+        "Describe what happened before this plan error appeared.",
+      openGitHubIssue: "Open GitHub issue",
       joinedOrg: "Joined {{orgName}}. Opening plan...",
       acceptingInvite: "Accepting invite",
       joiningOrg: "Joining organization",

@@ -5,6 +5,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  useSetPageTitle,
+  useSetHeaderActions,
+} from "@agent-native/toolkit/app-shell";
+import {
   IconArrowLeft,
   IconBrandGithub,
   IconBrandFigma,
@@ -19,13 +23,9 @@ import {
   IconExternalLink,
 } from "@tabler/icons-react";
 import { useState, useCallback, useRef, useMemo, useEffect } from "react";
-import { useNavigate, useSearchParams } from "react-router";
+import { Link, useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
-import {
-  useSetPageTitle,
-  useSetHeaderActions,
-} from "@/components/layout/HeaderActions";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
@@ -57,6 +57,20 @@ interface BuilderIndexResult {
   localDesignSystemId?: string;
   uploadedFileCount?: number;
   instructions?: string;
+}
+
+async function readJsonResponse(res: Response): Promise<any> {
+  const text = await res.text();
+  if (!text.trim()) return {};
+  try {
+    return JSON.parse(text);
+  } catch {
+    return {
+      error: res.ok
+        ? "The server returned an invalid response."
+        : text.slice(0, 240),
+    };
+  }
 }
 
 export default function DesignSystemSetup() {
@@ -127,7 +141,7 @@ export default function DesignSystemSetup() {
             body,
           },
         );
-        const json = await res.json();
+        const json = await readJsonResponse(res);
         if (!res.ok || json?.error) {
           throw new Error(json?.error || `Upload failed (${res.status})`);
         }
@@ -240,7 +254,7 @@ export default function DesignSystemSetup() {
         if (
           f.size < 200 * 1024 &&
           (f.name.match(
-            /\.(css|scss|sass|less|ts|tsx|js|jsx|json|html|svg|xml)$/i,
+            /\.(css|scss|sass|less|ts|tsx|js|jsx|json|html|svg|xml|md|markdown|mdx|txt)$/i,
           ) ||
             f.type.startsWith("text/"))
         ) {
@@ -348,10 +362,16 @@ export default function DesignSystemSetup() {
     const normalizedGithubLinks = pendingGithubUrl
       ? [...githubLinks, { id: "pending", url: pendingGithubUrl }]
       : githubLinks;
+    const readableCodeFiles = codeFiles.filter((f) => f.textContent);
+    const designMdFiles = readableCodeFiles.filter(isDesignMdFile);
+    const builderCodeFiles = readableCodeFiles.filter(
+      (file) => !isDesignMdFile(file),
+    );
+    const unreadableCodeFiles = codeFiles.filter((f) => !f.textContent);
 
     const parts: string[] = [];
     parts.push(
-      "Set up a design system from the following sources. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system.",
+      "Set up a design system from the following sources. Use Builder Design System Intelligence (DSI) as the source of truth for reusable Figma/code/design.md indexing. Analyze each source, extract design tokens (colors, fonts, spacing, borders), and create a cohesive design system.",
     );
 
     if (companyInfo.trim()) {
@@ -366,34 +386,41 @@ export default function DesignSystemSetup() {
 
     if (normalizedGithubLinks.length > 0) {
       parts.push(
-        `\n## GitHub Repositories\nStart Builder design-system indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder from Settings instead of asking me to paste repository credentials into chat.`,
+        `\n## Connect Code: GitHub Repositories\nStart Builder DSI indexing for each repository with \`index-design-system-with-builder\`:\n${normalizedGithubLinks.map((l) => `- ${l.url}`).join("\n")}\n\nBuilder is the source of truth for repo/code design-system indexing. The action also creates a local selectable proxy design system for Design flows. If Builder is not connected, stop and tell me to connect Builder from Settings instead of asking me to paste repository credentials into chat.`,
       );
     }
 
     if (codeFiles.length > 0) {
-      const withContent = codeFiles.filter((f) => f.textContent);
-      const withoutContent = codeFiles.filter((f) => !f.textContent);
-
-      if (withContent.length > 0) {
+      if (builderCodeFiles.length > 0) {
         parts.push(
-          `\n## Code Files (${withContent.length} files with content)\nStart Builder design-system indexing with \`index-design-system-with-builder\` using these files:`,
+          `\n## Connect Code: Code Files (${builderCodeFiles.length} files with content)\nStart Builder DSI indexing with \`index-design-system-with-builder\` using these files as the \`codeFiles\` argument:`,
         );
-        for (const f of withContent) {
+        for (const f of builderCodeFiles) {
           parts.push(
             `\n### ${f.name}\n\`\`\`\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
           );
         }
       }
-      if (withoutContent.length > 0) {
+      if (designMdFiles.length > 0) {
         parts.push(
-          `\nBinary code files (could not read):\n${withoutContent.map((f) => `- ${f.name}`).join("\n")}`,
+          `\n## Optional design.md (${designMdFiles.length} file${designMdFiles.length === 1 ? "" : "s"})\nPass this content as the \`designMd\` argument to \`index-design-system-with-builder\` alongside any Figma/code sources:`,
+        );
+        for (const f of designMdFiles) {
+          parts.push(
+            `\n### ${f.name}\n\`\`\`md\n${f.textContent!.slice(0, 5000)}\n\`\`\``,
+          );
+        }
+      }
+      if (unreadableCodeFiles.length > 0) {
+        parts.push(
+          `\nBinary code files (could not read):\n${unreadableCodeFiles.map((f) => `- ${f.name}`).join("\n")}`,
         );
       }
     }
 
     if (builderIndexResult) {
       parts.push(
-        `\n## Builder-Indexed Figma File\nBuilder design-system indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for extracted tokens, assets, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
+        `\n## Connect Figma: Builder-Indexed Figma File\nBuilder DSI indexing has already started.\n- Design system: ${builderIndexResult.designSystemId}\n- Local selectable design system: ${builderIndexResult.localDesignSystemId ?? "(not returned)"}\n- Project: ${builderIndexResult.projectId}\n- Job: ${builderIndexResult.jobId}\n- URL: ${builderIndexResult.builderUrl}\n\nUse Builder as the source of truth for indexed tokens, assets, components, and guidance. Do not call \`create-design-system\` again for this Builder-indexed source.`,
       );
     }
 
@@ -440,7 +467,7 @@ export default function DesignSystemSetup() {
     }
 
     parts.push(
-      `\n---\nAfter processing all sources, if you started Builder design-system indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for those Builder-indexed sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
+      `\n---\nAfter processing all sources, if you started Builder DSI indexing, report the Builder job/design-system URL plus the local selectable design-system id returned by \`index-design-system-with-builder\`. Do not call \`create-design-system\` again for Builder-indexed Figma/code/design.md sources. If you processed non-Builder sources into concrete tokens, call \`create-design-system\` with the combined tokens${
         customInstructions.trim()
           ? " AND the verbatim --customInstructions string from above"
           : ""
@@ -477,13 +504,13 @@ export default function DesignSystemSetup() {
 
   useSetPageTitle(
     <div className="flex items-center gap-2 min-w-0">
-      <button
-        onClick={() => navigate("/design-systems")}
+      <Link
+        to="/design-systems"
         className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground/90"
         aria-label={t("designSystemSetup.backToDesignSystems")}
       >
         <IconArrowLeft className="w-4 h-4" />
-      </button>
+      </Link>
       <h1 className="text-lg font-semibold tracking-tight truncate">
         {t("navigation.setupDesignSystem")}
       </h1>
@@ -524,7 +551,7 @@ export default function DesignSystemSetup() {
           )}
 
           <div className="space-y-8">
-            {/* Start from a Figma file — deep brand extraction → ready system */}
+            {/* Start from a Figma file via Builder DSI. */}
             <Section
               title={t("designSystemSetup.sections.figma.title")}
               description={t("designSystemSetup.sections.figma.description")}
@@ -743,7 +770,7 @@ export default function DesignSystemSetup() {
                   ref={codeInputRef}
                   type="file"
                   multiple
-                  accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg"
+                  accept=".css,.scss,.sass,.less,.ts,.tsx,.js,.jsx,.json,.html,.svg,.xml,.md,.markdown,.mdx,.txt"
                   onChange={handleCodeUpload}
                   className="hidden"
                 />
@@ -1121,6 +1148,11 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes}B`;
   if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)}KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)}MB`;
+}
+
+function isDesignMdFile(file: UploadedFile): boolean {
+  const name = file.name.split(/[\\/]/).pop()?.toLowerCase() ?? file.name;
+  return name === "design.md" || name === "design.mdx";
 }
 
 function isHttpUrl(value: string): boolean {

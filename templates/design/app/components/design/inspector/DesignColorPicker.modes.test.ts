@@ -10,12 +10,18 @@
  *     back in on every render).
  */
 
+import { rgbaToHsl, hslToRgba, type RgbaColor } from "@shared/color-utils";
 import { describe, expect, it } from "vitest";
 
 import {
+  expandHexShorthand,
   GRADIENT_PAINT_TYPES,
+  hasHexAlpha,
+  hsvToRgba,
   inferPaintType,
+  parseNumericDraft,
   resolveActivePaint,
+  rgbaToHsv,
 } from "./DesignColorPicker";
 
 // ─── inferPaintType ───────────────────────────────────────────────────────────
@@ -218,5 +224,222 @@ describe("resolveActivePaint – localPaintType stability", () => {
     const r3 = resolveActivePaint("solid", "radial", css, 100);
     expect(r3.effectivePaintType).toBe("radial");
     expect(r3.showGradientEditor).toBe(true);
+  });
+});
+
+// ─── parseNumericDraft (IP20) ─────────────────────────────────────────────────
+
+describe("parseNumericDraft", () => {
+  it("parses ordinary numeric drafts", () => {
+    expect(parseNumericDraft("42")).toBe(42);
+    expect(parseNumericDraft("-3.5")).toBe(-3.5);
+    expect(parseNumericDraft("  10  ")).toBe(10);
+  });
+
+  it("returns null (revert) for an emptied draft instead of committing 0", () => {
+    // The bug: Number("") === 0, so clearing the field used to commit 0.
+    expect(parseNumericDraft("")).toBeNull();
+    expect(parseNumericDraft("   ")).toBeNull();
+  });
+
+  it("returns null for non-numeric drafts", () => {
+    expect(parseNumericDraft("abc")).toBeNull();
+    expect(parseNumericDraft("--")).toBeNull();
+  });
+
+  it("returns 0 only when the draft explicitly says 0", () => {
+    expect(parseNumericDraft("0")).toBe(0);
+  });
+});
+
+// ─── expandHexShorthand (IP20 nice-to-have) ──────────────────────────────────
+
+describe("expandHexShorthand", () => {
+  it("expands a single hex digit across all channels", () => {
+    expect(expandHexShorthand("F")).toBe("FFFFFF");
+    expect(expandHexShorthand("a")).toBe("aaaaaa");
+    expect(expandHexShorthand("#F")).toBe("FFFFFF");
+  });
+
+  it("repeats two-digit hex values three times", () => {
+    expect(expandHexShorthand("0A")).toBe("0A0A0A");
+    expect(expandHexShorthand("#f0")).toBe("f0f0f0");
+  });
+
+  it("expands standard three-digit shorthand", () => {
+    expect(expandHexShorthand("F0A")).toBe("FF00AA");
+    expect(expandHexShorthand("#abc")).toBe("aabbcc");
+  });
+
+  it("leaves full-length and alpha hex values unchanged", () => {
+    expect(expandHexShorthand("FFFFFF")).toBe("FFFFFF");
+    expect(expandHexShorthand("#336699")).toBe("336699");
+    expect(expandHexShorthand("F00A")).toBe("F00A");
+    expect(expandHexShorthand("FF0000AA")).toBe("FF0000AA");
+  });
+});
+
+// ─── hasHexAlpha ──────────────────────────────────────────────────────────────
+
+describe("hasHexAlpha", () => {
+  it("detects 4-digit shorthand hex-with-alpha (#RGBA)", () => {
+    expect(hasHexAlpha("F00A")).toBe(true);
+    expect(hasHexAlpha("#f00a")).toBe(true);
+  });
+
+  it("detects 8-digit hex-with-alpha (#RRGGBBAA)", () => {
+    expect(hasHexAlpha("FF0000AA")).toBe(true);
+    expect(hasHexAlpha("#ff0000aa")).toBe(true);
+  });
+
+  it("is case-insensitive", () => {
+    expect(hasHexAlpha("AABBCCDD")).toBe(true);
+    expect(hasHexAlpha("aabbccdd")).toBe(true);
+    expect(hasHexAlpha("AaBbCcDd")).toBe(true);
+  });
+
+  it("returns false for 3-digit and 6-digit hex (no alpha channel)", () => {
+    expect(hasHexAlpha("FFF")).toBe(false);
+    expect(hasHexAlpha("FFFFFF")).toBe(false);
+    expect(hasHexAlpha("#336699")).toBe(false);
+  });
+
+  it("returns false for non-hex or malformed input", () => {
+    expect(hasHexAlpha("")).toBe(false);
+    expect(hasHexAlpha("zzzz")).toBe(false);
+    expect(hasHexAlpha("FF")).toBe(false);
+    expect(hasHexAlpha("FFFFF")).toBe(false); // 5 digits — not a valid length
+  });
+
+  it("tolerates surrounding whitespace", () => {
+    expect(hasHexAlpha("  FF0000AA  ")).toBe(true);
+  });
+});
+
+// ─── RGB <-> HSL / HSB round-trip stability (no drift on repeated conversion) ──
+//
+// Classic bug: converting RGB -> HSL -> RGB (or RGB -> HSV -> RGB) repeatedly,
+// as happens every time a user nudges a value in one mode then switches to
+// another, can "creep" indefinitely if intermediate state is cached instead
+// of always re-derived from a single RGB source of truth. DesignColorPicker
+// always recomputes HSL/HSV fresh from the current RGB `value` on every
+// render (see `hsl`/`hsv` in the component body), so this suite pins that
+// no-cache invariant at the pure-function level.
+//
+// Note: because HSL/HSV store saturation/lightness/value as rounded 0-100
+// integers (matching Figma's own integer HSB/HSL fields), a handful of
+// arbitrary RGB triples are inherently off by ±1 per channel after the very
+// first round trip — that's unavoidable quantization from displaying a
+// continuous color in an integer percent field, not a bug. The bug this
+// suite actually guards against is *unbounded* drift: once an RGB value has
+// gone through one round trip, every further round trip of that same value
+// must reproduce it exactly — a fixed point, not a random walk that keeps
+// creeping every time the user nudges a field or switches modes.
+
+describe("RGB <-> HSL round-trip stability (shared/color-utils)", () => {
+  // Primaries, grayscale, black, and white are exactly representable in
+  // integer HSL and must round-trip losslessly on the very first pass.
+  const exactSamples: RgbaColor[] = [
+    { r: 255, g: 0, b: 0, a: 1 },
+    { r: 0, g: 255, b: 0, a: 1 },
+    { r: 0, g: 0, b: 255, a: 1 },
+    { r: 0, g: 0, b: 0, a: 1 },
+    { r: 255, g: 255, b: 255, a: 1 },
+    { r: 128, g: 128, b: 128, a: 1 },
+  ];
+  // Arbitrary triples that may shift by at most 1 per channel on the first
+  // trip (integer-percent quantization) but must then stay fixed forever.
+  const arbitrarySamples: RgbaColor[] = [
+    { r: 128, g: 64, b: 200, a: 1 },
+    { r: 17, g: 202, b: 91, a: 0.5 },
+    { r: 51, g: 143, b: 199, a: 1 },
+  ];
+
+  it("a single RGB -> HSL -> RGB round trip is exact for primaries/grayscale/black/white", () => {
+    for (const rgb of exactSamples) {
+      const back = hslToRgba(rgbaToHsl(rgb));
+      expect(back.r).toBe(rgb.r);
+      expect(back.g).toBe(rgb.g);
+      expect(back.b).toBe(rgb.b);
+    }
+  });
+
+  it("a single round trip never shifts an arbitrary RGB triple by more than 1 per channel", () => {
+    for (const rgb of arbitrarySamples) {
+      const back = hslToRgba(rgbaToHsl(rgb));
+      expect(Math.abs(back.r - rgb.r)).toBeLessThanOrEqual(1);
+      expect(Math.abs(back.g - rgb.g)).toBeLessThanOrEqual(1);
+      expect(Math.abs(back.b - rgb.b)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("repeated round trips do not creep further after the first one stabilizes", () => {
+    for (const rgb of [...exactSamples, ...arbitrarySamples]) {
+      let current = rgb;
+      const seen: RgbaColor[] = [];
+      for (let i = 0; i < 20; i++) {
+        current = hslToRgba(rgbaToHsl(current));
+        seen.push(current);
+      }
+      // Every trip after the first must reproduce the exact same RGB as the
+      // first trip's result — no slow drift across many conversions.
+      const stabilizedAt = seen[0];
+      for (const value of seen) {
+        expect(value.r).toBe(stabilizedAt.r);
+        expect(value.g).toBe(stabilizedAt.g);
+        expect(value.b).toBe(stabilizedAt.b);
+      }
+    }
+  });
+});
+
+describe("RGB <-> HSV round-trip stability (DesignColorPicker internal hsv helpers)", () => {
+  const exactSamples: RgbaColor[] = [
+    { r: 255, g: 0, b: 0, a: 1 },
+    { r: 0, g: 255, b: 0, a: 1 },
+    { r: 0, g: 0, b: 255, a: 1 },
+    { r: 0, g: 0, b: 0, a: 1 },
+    { r: 255, g: 255, b: 255, a: 1 },
+    { r: 128, g: 128, b: 128, a: 1 },
+  ];
+  const arbitrarySamples: RgbaColor[] = [
+    { r: 128, g: 64, b: 200, a: 1 },
+    { r: 17, g: 202, b: 91, a: 0.5 },
+    { r: 51, g: 143, b: 199, a: 1 },
+  ];
+
+  it("a single RGB -> HSV -> RGB round trip is exact for primaries/grayscale/black/white", () => {
+    for (const rgb of exactSamples) {
+      const back = hsvToRgba(rgbaToHsv(rgb));
+      expect(back.r).toBe(rgb.r);
+      expect(back.g).toBe(rgb.g);
+      expect(back.b).toBe(rgb.b);
+    }
+  });
+
+  it("a single round trip never shifts an arbitrary RGB triple by more than 1 per channel", () => {
+    for (const rgb of arbitrarySamples) {
+      const back = hsvToRgba(rgbaToHsv(rgb));
+      expect(Math.abs(back.r - rgb.r)).toBeLessThanOrEqual(1);
+      expect(Math.abs(back.g - rgb.g)).toBeLessThanOrEqual(1);
+      expect(Math.abs(back.b - rgb.b)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it("repeated round trips do not creep further after the first one stabilizes", () => {
+    for (const rgb of [...exactSamples, ...arbitrarySamples]) {
+      let current = rgb;
+      const seen: RgbaColor[] = [];
+      for (let i = 0; i < 20; i++) {
+        current = hsvToRgba(rgbaToHsv(current));
+        seen.push(current);
+      }
+      const stabilizedAt = seen[0];
+      for (const value of seen) {
+        expect(value.r).toBe(stabilizedAt.r);
+        expect(value.g).toBe(stabilizedAt.g);
+        expect(value.b).toBe(stabilizedAt.b);
+      }
+    }
   });
 });

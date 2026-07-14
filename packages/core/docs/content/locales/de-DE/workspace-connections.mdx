@@ -264,7 +264,7 @@ Die anfänglichen Anbieter-IDs sind:
 | `google_drive` | Suche, Import, Dokumente                | Gehirn, Inhalte, Folien                          |
 | `hubspot`      | Suche, Import, CRM                      | Analyse, Gehirn, E-Mail                          |
 | `granola`      | Suche, Import, Besprechungen, Dokumente | Gehirn, Kalender, Versand                        |
-| `clips`        | Suche, Import, Besprechungen            | Gehirn, Clips, Videos                            |
+| `clips`        | Suche, Import, Besprechungen            | Gehirn, Clips                                    |
 | `generic`      | Suche, Import, Dokumente                | benutzerdefiniertes webhooks und Dateilöschungen |
 
 Anmeldeinformationsschlüssel sind nur Namen, wie z. B. `SLACK_BOT_TOKEN` oder `GITHUB_TOKEN`. Anbietermetadaten dürfen niemals tatsächliche Anmeldeinformationswerte enthalten.
@@ -425,10 +425,9 @@ ZxQ6QXZ/Token-Speicher nicht in jeder App duplizieren. Im Verbindungsdatensatz s
 
 ### Einrichtung der Dispatch-Steuerungsebene
 
-Dispatch macht die Steuerungsebene actions verfügbar, die dieselben gemeinsam genutzten Store-Funktionen schreibt, die eine App direkt aufrufen könnte:
+Dispatch stellt Steuerungsebenen-Aktionen bereit, die dieselben gemeinsam genutzten Store-Funktionen verwenden, die eine App direkt aufrufen könnte – die Aktion `upsert-workspace-connection` validiert Eingaben anhand des Anbieterkatalogs und delegiert dann an dieselbe `upsertWorkspaceConnection()`-Funktion, die auf dieser Seite gezeigt wird:
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -493,3 +492,11 @@ Der Anbieterkatalog und der Grant Store bilden die Grundlage für eine breitere 
 Halten Sie die Grenze streng: Anbietermetadaten können sicher angezeigt werden; Anmeldeinformationswerte bleiben im Tresor.
 
 </details>
+
+## Wie geht es weiter? {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) – die App, die normalerweise die Einrichtung von Workspace-Verbindungen und den Tresor verwaltet
+- [**Sicherheit**](/docs/security) – der Anmeldeinformationstresor, die Geheimnisbereiche und das Zugriffsmodell, auf das Verbindungen verweisen
+- [**Onboarding**](/docs/onboarding#checking-workspace-connections-in-onboarding) – Verbindungsbereitschaft in der Setup-Checkliste einer Vorlage prüfen
+- [**MCP-Clients**](/docs/mcp-clients) – MCP-Server-Anmeldeinformationen als verwandtes wiederverwendbares Konfigurationsmuster im Workspace teilen
+- [**Brain**](/docs/template-brain) – die Referenzimplementierung einer Anbieter-Quellseite auf Grundlage dieses Modells

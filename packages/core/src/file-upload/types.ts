@@ -16,8 +16,10 @@ export interface FileUploadInput {
   mimeType?: string;
   /** Optional owner email for per-user scoping in fallback storage. */
   ownerEmail?: string;
-  /** Builder.io upload hint: return after asset registration instead of waiting for server-side compression. */
-  skipCompressionWait?: boolean;
+  /** Builder.io upload hint: return one stable URL while compression finishes asynchronously. */
+  stableUrl?: boolean;
+  /** Builder.io upload hint: set false for internal artifacts that should not appear in the asset library. */
+  recordAsset?: boolean;
 }
 
 export interface FileUploadResult {
@@ -79,7 +81,9 @@ export interface FileUploadProvider {
     completeSession(
       session: ResumableUploadSession,
       filename: string,
-      options?: { skipCompressionWait?: boolean },
+      options?: { stableUrl?: boolean; recordAsset?: boolean },
     ): Promise<string>;
+    /** Best-effort provider cleanup for a session the caller will not resume. */
+    abortSession?(session: ResumableUploadSession): Promise<void>;
   };
 }

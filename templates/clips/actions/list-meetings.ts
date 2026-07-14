@@ -14,6 +14,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { accessFilter } from "@agent-native/core/sharing";
 import {
   and,
@@ -31,6 +32,7 @@ import {
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { isSoloCalendarEvent } from "../server/lib/calendar-event-classification.js";
 import {
   calendarEventToMeetingView,
   eventEndIso,
@@ -73,10 +75,25 @@ export default defineAction({
       .describe(
         "If set, only return upcoming meetings starting within this many minutes. Used by the desktop reminder watcher.",
       ),
+    includeStartedWithinMin: z.coerce
+      .number()
+      .int()
+      .min(0)
+      .max(60)
+      .optional()
+      .describe(
+        "Also include meetings that started within this many minutes (desktop reminder hold window). Default 0.",
+      ),
+    excludePersonalSoloEvents: booleanParam
+      .default(false)
+      .describe(
+        "Exclude calendar events with no active attendee besides the current user. Used by desktop meeting reminders.",
+      ),
   }),
   http: { method: "GET" },
   run: async (args) => {
     const db = getDb();
+    const currentUserEmail = getRequestUserEmail();
     const now = new Date();
     const nowIso = now.toISOString();
 
@@ -92,6 +109,11 @@ export default defineAction({
           now.getTime() + args.upcomingWithinMin * 60 * 1000,
         ).toISOString()
       : null;
+    const startedWithinMin = args.includeStartedWithinMin ?? 0;
+    const upcomingWindowMinIso =
+      startedWithinMin > 0
+        ? new Date(now.getTime() - startedWithinMin * 60 * 1000).toISOString()
+        : nowIso;
 
     const whereClauses = [accessFilter(schema.meetings, schema.meetingShares)];
 
@@ -102,11 +124,12 @@ export default defineAction({
     }
 
     if (args.view === "upcoming") {
-      // Scheduled in the future and not yet finished.
+      // Scheduled in the future (or recently started, for desktop hold window)
+      // and not yet finished.
       whereClauses.push(
         and(
           isNotNull(schema.meetings.scheduledStart),
-          gte(schema.meetings.scheduledStart, nowIso),
+          gte(schema.meetings.scheduledStart, upcomingWindowMinIso),
           isNull(schema.meetings.actualStart),
           isNull(schema.meetings.actualEnd),
           upcomingWindowMaxIso
@@ -167,6 +190,11 @@ export default defineAction({
     // event was emitted here — not merely because some other account returned
     // data or errored.
     const emittedLiveEventKeys = new Set<string>();
+    // Calendar events excluded from desktop reminders because they have no
+    // active attendee besides the current user. Keep the correlated
+    // persisted meeting ids here too, so materialized solo events cannot
+    // re-enter the reminder list through the fallback persisted-row merge.
+    const excludedLiveEventKeys = new Set<string>();
     // Map a persisted meeting's `calendarEventId` (calendar_events.id) to the
     // Google event externalId so we can match it against the emitted set.
     const calendarEventIdToExternalId = new Map<string, string>();
@@ -209,7 +237,10 @@ export default defineAction({
               ? new Date(now.getTime() - THIRTY_DAYS_MS).toISOString()
               : args.view === "all"
                 ? new Date(now.getTime() - THIRTY_DAYS_MS).toISOString()
-                : new Date(now.getTime() - 60 * 1000).toISOString();
+                : startedWithinMin > 0
+                  ? upcomingWindowMinIso
+                  : // Small cushion for clock skew when listing pure upcoming.
+                    new Date(now.getTime() - 60 * 1000).toISOString();
           const timeMax =
             args.view === "past"
               ? nowIso
@@ -245,6 +276,17 @@ export default defineAction({
           for (const event of items) {
             if (!event.id || event.status === "cancelled") continue;
             if (!isTimedCalendarEvent(event)) continue;
+            const cached = cachedByExternalId.get(event.id);
+            if (
+              args.excludePersonalSoloEvents &&
+              isSoloCalendarEvent({ account, event, currentUserEmail })
+            ) {
+              excludedLiveEventKeys.add(event.id);
+              if (cached?.meetingId) {
+                excludedLiveEventKeys.add(cached.meetingId);
+              }
+              continue;
+            }
             const startIso = eventStartIso(event);
             const endIso = eventEndIso(event);
             if (!startIso || !endIso) continue;
@@ -253,6 +295,16 @@ export default defineAction({
             const endMs = Date.parse(endIso);
             if (Number.isNaN(startMs) || Number.isNaN(endMs)) continue;
             if (args.view === "upcoming" && endMs < now.getTime()) continue;
+            // Only clamp already-started events when the desktop hold window
+            // is active — the normal Meetings list still shows in-progress
+            // calendar events until they end.
+            if (
+              args.view === "upcoming" &&
+              startedWithinMin > 0 &&
+              startMs < Date.parse(upcomingWindowMinIso)
+            ) {
+              continue;
+            }
             if (args.view === "past" && endMs >= now.getTime()) continue;
             if (
               upcomingWindowMaxIso &&
@@ -261,7 +313,6 @@ export default defineAction({
               continue;
             }
 
-            const cached = cachedByExternalId.get(event.id);
             const persisted = cached?.meetingId
               ? persistedById.get(cached.meetingId)
               : null;
@@ -304,6 +355,10 @@ export default defineAction({
       const liveExternalId = meeting.calendarEventId
         ? calendarEventIdToExternalId.get(meeting.calendarEventId)
         : undefined;
+      const liveEventExcluded =
+        excludedLiveEventKeys.has(meeting.id) ||
+        (liveExternalId ? excludedLiveEventKeys.has(liveExternalId) : false);
+      if (liveEventExcluded) continue;
       const liveEventEmitted =
         emittedLiveEventKeys.has(meeting.id) ||
         (liveExternalId ? emittedLiveEventKeys.has(liveExternalId) : false);

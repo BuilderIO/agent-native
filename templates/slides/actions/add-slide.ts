@@ -8,6 +8,7 @@ import { normalizeSlidePadding } from "../app/lib/normalize-slide-padding.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { slideLabelFor, touchAgentSlidePresence } from "./_agent-presence.js";
 import {
   awaitLayoutFitCheck,
   formatOverflowForTool,
@@ -16,6 +17,10 @@ import {
   readAppStateForCurrentTab,
   writeAppStateForCurrentTab,
 } from "./_tab-state.js";
+// Use the shared, globalThis-pinned per-deck lock so add-slide, update-slide,
+// and the browser's patch-deck all serialise against the SAME lock — writes to
+// different slides of the same deck can never clobber each other.
+import { withDeckLock } from "./patch-deck.js";
 
 function deckDeepLink(deckId: string): string {
   return buildDeepLink({
@@ -25,28 +30,12 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
-// In-process serialization per deckId. `add-slide` is intentionally advertised
-// as a sequential write, but the lock still protects against accidental
-// concurrent calls and any direct integrations that bypass agent guidance.
-const deckLocks = new Map<string, Promise<unknown>>();
-
-function withDeckLock<T>(deckId: string, fn: () => Promise<T>): Promise<T> {
-  const prev = deckLocks.get(deckId) ?? Promise.resolve();
-  const next = prev.then(fn, fn);
-  deckLocks.set(deckId, next);
-  next
-    .finally(() => {
-      if (deckLocks.get(deckId) === next) deckLocks.delete(deckId);
-    })
-    .catch(() => {});
-  return next;
-}
-
 export default defineAction({
   description:
     "Add a single slide to an existing deck. Use this to build decks slide-by-slide — " +
     "call it once per slide in slide order and wait for each result before adding the next slide. " +
     "Avoid parallel add-slide calls for the same deck; sequential writes keep the editor and agent connection stable. " +
+    "If the deck has a designSystemId, first use `get-design-system` and apply its `agentContext` tokens/docs; do not use generic slide styling from the id alone. " +
     "Returns the new slide ID, 1-based slideNumber, and updated slide count.",
   schema: z.object({
     deckId: z.string().describe("Target deck ID"),
@@ -148,8 +137,18 @@ export default defineAction({
         .set({ data: JSON.stringify(deck), updatedAt: now })
         .where(eq(schema.decks.id, deckId));
 
+      // Best-effort agent presence: light the agent up on the newly-added slide
+      // in open editors and drop a lingering "AI edited" highlight for it. Uses
+      // the NEW slide's id. Never blocks or fails the write.
+      touchAgentSlidePresence({
+        deckId,
+        slideId: newSlideId,
+        label: slideLabelFor(newSlide, insertIndex),
+      });
+
       // Broadcast to any open editors so the new slide appears immediately.
-      notifyClients(deckId);
+      // Include the new slideId + agent actor (backwards-compatible payload).
+      notifyClients(deckId, { slideId: newSlideId, actor: "agent" });
 
       // Nudge any open editor onto the new slide so the renderer measures
       // IT (not whichever slide was previously selected). Only fires when an

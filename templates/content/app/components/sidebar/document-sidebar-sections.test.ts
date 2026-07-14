@@ -104,4 +104,74 @@ describe("document sidebar sections", () => {
       privateFavorite.id,
     ]);
   });
+
+  it("groups imported local-source documents under source folders", () => {
+    const guide = doc({
+      id: "imported_guide",
+      title: "Guide",
+      source: {
+        mode: "local-files",
+        kind: "file",
+        path: "docs/guide.mdx",
+        rootPath: "docs",
+      },
+    });
+    const intro = doc({
+      id: "imported_intro",
+      title: "Intro",
+      source: {
+        mode: "local-files",
+        kind: "file",
+        path: "docs/intro.mdx",
+        rootPath: "docs",
+      },
+    });
+
+    const sections = getDocumentSidebarSections([guide, intro]);
+
+    expect(
+      sections.localSourceDocuments.map((document) => document.id),
+    ).toEqual(["local-source-folder:docs", guide.id, intro.id]);
+    expect(sections.localSourceDocuments[0]).toMatchObject({
+      title: "Docs",
+      canEdit: false,
+      source: { mode: "local-files", kind: "folder", path: "docs" },
+    });
+    expect(sections.localSourceDocuments[1].parentId).toBe(
+      "local-source-folder:docs",
+    );
+    expect(sections.localSourceDocuments[2].parentId).toBe(
+      "local-source-folder:docs",
+    );
+  });
+
+  it("deduplicates imported local-source documents by source path", () => {
+    const first = doc({
+      id: "imported_first",
+      title: "Guide",
+      source: {
+        mode: "local-files",
+        kind: "file",
+        path: "docs/guide.mdx",
+        rootPath: "docs",
+      },
+    });
+    const duplicate = doc({
+      id: "imported_duplicate",
+      title: "Guide duplicate",
+      position: 1,
+      source: {
+        mode: "local-files",
+        kind: "file",
+        path: "docs/guide.mdx",
+        rootPath: "docs",
+      },
+    });
+
+    const sections = getDocumentSidebarSections([first, duplicate]);
+
+    expect(
+      sections.localSourceDocuments.map((document) => document.id),
+    ).toEqual(["local-source-folder:docs", first.id]);
+  });
 });

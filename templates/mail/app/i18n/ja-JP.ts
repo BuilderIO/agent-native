@@ -42,6 +42,8 @@ const messages = {
       placeholder: "検索...",
       clear: "Clear search (Esc)",
       noMatches: "一致する結果はありません",
+      localResults: "この受信トレイ内",
+      searchingGmail: "Gmail を検索中...",
     },
     tabSettings: {
       views: "ビュー",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "ブロック",
       media: "メディア",
       ai: "AI",
+      snippets: "スニペット",
     },
     mobileActions: {
       archive: "アーカイブ",
@@ -269,6 +272,7 @@ const messages = {
       scheduledCancelled: "予約メールをキャンセルしました。",
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "画像のアップロードに失敗しました",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -512,10 +516,10 @@ const messages = {
     slackUpdateFailed: "Slack 取り込みを更新できませんでした",
     slackConfigured: "Slack 認証情報は設定済みです。",
     slackNeedsCredentials:
-      "Slack 取り込みを有効にするには SLACK_BOT_TOKEN と SLACK_SIGNING_SECRET を追加してください。",
-    slackIntake: "Slack 取り込み",
+      "従来のカスタム取り込みには SLACK_BOT_TOKEN と SLACK_SIGNING_SECRET が必要です。新しい Slack メッセージ自動化では、設定 > メッセージングでワークスペースを接続してください。",
+    slackIntake: "Slack 取り込み（レガシー）",
     slackDescription:
-      "組織メンバーが Slack からメール下書きをキューに入れられます。",
+      "組織メンバーが Slack からメール下書きをキューに入れられる従来のカスタム連携です。",
     enabled: "有効",
     disable: "無効化",
     enable: "有効化",
@@ -534,6 +538,20 @@ const messages = {
     whatsNew: "新着情報",
     whatsNewDescription: "Agent-Native Mail の最近のユーザー向け変更です。",
     drafting: "下書き",
+    snippets: "スニペット",
+    snippetsDescription:
+      "/ とスニペット名を入力して作成中のメールに挿入できる、保存済みの定型文です。",
+    newSnippet: "新しいスニペット",
+    noSnippets: "スニペットはまだありません。作成して始めましょう。",
+    snippetName: "スニペット名",
+    snippetNamePlaceholder: "例: 見積もりのフォローアップ",
+    snippetBody: "スニペットの本文",
+    snippetBodyPlaceholder:
+      "このスニペットを使用したときに挿入されるテキスト...",
+    editSnippet: "スニペットを編集",
+    deleteSnippet: "スニペットを削除",
+    deleteSnippetDescription:
+      "スニペット「{{name}}」を削除しますか？元に戻せません。",
     automations: "自動化",
     gmailFilters: "Gmail フィルター",
     aliases: "エイリアス",

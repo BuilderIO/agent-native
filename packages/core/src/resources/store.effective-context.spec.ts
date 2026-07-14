@@ -48,6 +48,74 @@ afterAll(() => {
 });
 
 describe("resourceEffectiveContext", () => {
+  it("isolates organization resources and preserves legacy app defaults", async () => {
+    const {
+      SHARED_OWNER,
+      organizationResourceOwner,
+      resourceDeleteByPath,
+      resourceEffectiveContext,
+      resourceGetByPath,
+      resourceListAccessible,
+      resourcePut,
+    } = await import("./store.js");
+
+    const path = `context/org-learning-${Date.now()}.md`;
+    const orgAOwner = organizationResourceOwner("org-a");
+    const orgBOwner = organizationResourceOwner("org-b");
+    try {
+      await resourcePut(SHARED_OWNER, path, "legacy app default");
+      await resourcePut(orgAOwner, path, "org A learning");
+      await resourcePut(orgBOwner, path, "org B learning");
+
+      const orgA = await resourceEffectiveContext("member@example.test", path, {
+        orgId: "org-a",
+      });
+      const orgB = await resourceEffectiveContext("member@example.test", path, {
+        orgId: "org-b",
+      });
+      const solo = await resourceEffectiveContext("member@example.test", path, {
+        orgId: null,
+      });
+
+      expect(orgA.effectiveResource).toMatchObject({
+        owner: orgAOwner,
+      });
+      expect(orgB.effectiveResource).toMatchObject({
+        owner: orgBOwner,
+      });
+      expect(solo.effectiveResource).toMatchObject({
+        owner: SHARED_OWNER,
+      });
+      await expect(resourceGetByPath(orgAOwner, path)).resolves.toMatchObject({
+        content: "org A learning",
+      });
+      await expect(resourceGetByPath(orgBOwner, path)).resolves.toMatchObject({
+        content: "org B learning",
+      });
+      await expect(
+        resourceGetByPath(SHARED_OWNER, path),
+      ).resolves.toMatchObject({ content: "legacy app default" });
+
+      const orgAResources = await resourceListAccessible(
+        "member@example.test",
+        "context/org-learning-",
+        { orgId: "org-a" },
+      );
+      expect(orgAResources).toEqual([
+        expect.objectContaining({ owner: orgAOwner, path }),
+      ]);
+      expect(
+        orgAResources.some((resource) => resource.owner === orgBOwner),
+      ).toBe(false);
+    } finally {
+      await Promise.all([
+        resourceDeleteByPath(SHARED_OWNER, path),
+        resourceDeleteByPath(orgAOwner, path),
+        resourceDeleteByPath(orgBOwner, path),
+      ]);
+    }
+  });
+
   it("exposes selected Dispatch workspace skills only to granted apps", async () => {
     const {
       WORKSPACE_OWNER,

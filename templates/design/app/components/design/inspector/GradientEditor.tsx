@@ -1,7 +1,9 @@
 import { parseCssColor, rgbaToCss } from "@shared/color-utils";
 import { IconTrash } from "@tabler/icons-react";
 import {
+  type KeyboardEvent as ReactKeyboardEvent,
   type PointerEvent as ReactPointerEvent,
+  useEffect,
   useRef,
   useState,
 } from "react";
@@ -25,6 +27,50 @@ export interface GradientValue {
   /** Angle in degrees — used by linear and angular (conic) gradients. */
   angle: number;
   stops: GradientStopValue[];
+}
+
+/**
+ * Contract for "a gradient editing session is active for element X with
+ * value V" (Figma-parity on-canvas handles, IP21 follow-up). This popover
+ * component stays the source of truth for parsing/serializing the CSS string
+ * (`parseGradientCss`/`gradientToCss` below) and for the ramp-bar UI; a
+ * canvas-side overlay (see `MultiScreenCanvas`'s `gradientEditTarget` prop)
+ * is a *second*, purely-visual view of the same session, so the two must
+ * agree on one shared shape rather than inventing parallel state.
+ *
+ * A caller that wants on-canvas handles alongside this popover should:
+ *  1. Keep the "which element/selection is being fill-edited" id it already
+ *     has to open this popover (e.g. a selected draft primitive id or a
+ *     selected screen/frame id).
+ *  2. Track the *current* `GradientValue` for that element the same way this
+ *     component's `value` prop is already threaded (parsed once via
+ *     `parseGradientCss`, then serialized back to CSS via `gradientToCss` on
+ *     every change — exactly what this component's own `onChange` callers do
+ *     today).
+ *  3. Build a `GradientEditSessionTarget` from those two pieces and pass it
+ *     to `MultiScreenCanvas`'s `gradientEditTarget` prop whenever this
+ *     popover is open (gated on `showGradientEditor` /
+ *     `GRADIENT_PAINT_TYPES.has(effectivePaintType)`) and the target is a
+ *     board/draft primitive or screen frame that canvas can draw chrome for;
+ *     pass `null`/`undefined` otherwise (popover closed, non-canvas target,
+ *     or non-linear kind — see that prop's doc for the current linear-only
+ *     scope).
+ */
+export interface GradientEditSessionTarget {
+  /** Id of the draft primitive or screen/frame the gradient applies to. */
+  frameOrDraftId: string;
+  /** The live CSS gradient string, e.g. what `gradientToCss` produces. */
+  cssValue: string;
+  /**
+   * Called by the canvas overlay when the user drags an on-canvas handle.
+   * `nextCss` is a full replacement gradient CSS string (round-trippable
+   * through `parseGradientCss`). `phase` mirrors the gesture-coalescing
+   * convention used elsewhere in this popover (see `onChangeComplete` on
+   * `DesignColorPickerProps`): "preview" fires on every drag tick for live
+   * feedback, "commit" fires once on pointerup with the final value so undo
+   * history only gets one entry per drag.
+   */
+  onChange: (nextCss: string, meta?: { phase: "preview" | "commit" }) => void;
 }
 
 // ─── Checkerboard (matches DesignColorPicker) ───────────────────────────────────
@@ -81,6 +127,44 @@ function round(n: number): number {
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n));
+}
+
+/**
+ * Parses a stop-position draft string into a finite 0–100 number, or `null`
+ * when the draft is invalid/empty and the field should revert instead of
+ * committing (mirrors `parseNumericDraft` in DesignColorPicker.tsx).
+ */
+export function parseStopPositionDraft(draft: string): number | null {
+  const trimmed = draft.trim();
+  if (trimmed === "") return null;
+  const parsed = Number(trimmed);
+  return Number.isFinite(parsed) ? clamp(parsed, 0, 100) : null;
+}
+
+/**
+ * Picks which remaining stop should become selected after deleting one.
+ * Returns the id of the stop whose position is closest to the removed
+ * stop's position (ties broken by whichever appears first in `stops`),
+ * rather than always jumping to the leftmost stop — deleting a stop near
+ * the right edge of the ramp should keep selection nearby, not teleport
+ * the user's focus across the gradient.
+ */
+export function nearestStopId(
+  stops: GradientStopValue[],
+  removedPosition: number | undefined,
+): string | null {
+  if (stops.length === 0) return null;
+  if (removedPosition === undefined) return sortedStops(stops)[0]?.id ?? null;
+  let best: GradientStopValue | null = null;
+  let bestDistance = Infinity;
+  for (const stop of stops) {
+    const distance = Math.abs(stop.position - removedPosition);
+    if (distance < bestDistance) {
+      best = stop;
+      bestDistance = distance;
+    }
+  }
+  return best?.id ?? null;
 }
 
 // ─── Default / parse helpers ───────────────────────────────────────────────────
@@ -201,11 +285,18 @@ export function parseGradientCss(
 interface AngleDialProps {
   angle: number;
   onChange: (angle: number) => void;
+  /** Fires once when a drag gesture ends (pointerup/pointercancel) — see GradientEditorProps.onCommit. */
+  onCommit?: () => void;
   disabled?: boolean;
 }
 
 /** design-editor circular dial for rotating gradient angle. */
-function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
+function AngleDial({
+  angle,
+  onChange,
+  onCommit,
+  disabled = false,
+}: AngleDialProps) {
   const dialRef = useRef<HTMLDivElement>(null);
   const draggingRef = useRef(false);
 
@@ -235,10 +326,12 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
   };
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const wasDragging = draggingRef.current;
     draggingRef.current = false;
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
     }
+    if (wasDragging) onCommit?.();
   };
 
   const dotAngle = ((angle - 90) * Math.PI) / 180;
@@ -265,9 +358,11 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
         if (e.key === "ArrowRight" || e.key === "ArrowUp") {
           e.preventDefault();
           onChange((angle + 1) % 360);
+          onCommit?.();
         } else if (e.key === "ArrowLeft" || e.key === "ArrowDown") {
           e.preventDefault();
           onChange((angle - 1 + 360) % 360);
+          onCommit?.();
         }
       }}
       className={cn(
@@ -310,6 +405,18 @@ function AngleDial({ angle, onChange, disabled = false }: AngleDialProps) {
 export interface GradientEditorProps {
   value: GradientValue;
   onChange: (value: GradientValue) => void;
+  /**
+   * Fires once per discrete edit or drag gesture — mirrors the
+   * `onChangeComplete` convention used by `DesignColorPickerProps` (see the
+   * doc comment there): `onChange` alone fires on every stop-drag/angle-drag
+   * pointermove tick (cheap live preview), while `onCommit` fires exactly
+   * once (stop added, stop removed, stop-drag pointerup, angle-drag
+   * pointerup, or a position/angle field committed via blur/Enter) so a
+   * caller that persists through history only records one entry per gesture
+   * instead of one per tick. Optional so existing callers that only wired
+   * `onChange` keep their current every-tick-is-final behavior.
+   */
+  onCommit?: () => void;
   selectedStopId: string;
   onSelectStop: (id: string) => void;
   disabled?: boolean;
@@ -328,6 +435,7 @@ const WRAPPER_HEIGHT = BAR_HEIGHT + HANDLE_AREA; // total component height
 export function GradientEditor({
   value,
   onChange,
+  onCommit,
   selectedStopId,
   onSelectStop,
   disabled = false,
@@ -335,6 +443,10 @@ export function GradientEditor({
 }: GradientEditorProps) {
   const barRef = useRef<HTMLDivElement>(null);
   const draggingStopRef = useRef<string | null>(null);
+  // Set once a stop-drag actually moves the pointer (vs a plain click that
+  // only selects the stop) — endStopDrag uses this to skip firing onCommit
+  // for a no-op "select" click where nothing actually changed.
+  const stopDragMovedRef = useRef(false);
   // Track whether a pointerdown on the bar started a drag (vs click-to-add).
   const barClickRef = useRef<{ moved: boolean; startX: number } | null>(null);
 
@@ -356,9 +468,17 @@ export function GradientEditor({
   };
 
   // Bar background click → add a new stop (only if no significant drag movement).
+  // setPointerCapture pins all subsequent pointermove/pointerup events to the
+  // bar element regardless of where the cursor physically ends up — without
+  // it, a fast drag that leaves the bar's bounding box before the next
+  // pointermove fires stops delivering events to this handler (hit-testing
+  // sends them to whatever's now under the cursor instead), so the movement
+  // never gets flagged and the eventual pointerup elsewhere is misread as a
+  // stationary click that adds a spurious stop.
   const handleBarPointerDown = (event: ReactPointerEvent<HTMLDivElement>) => {
     if (disabled) return;
     barClickRef.current = { moved: false, startX: event.clientX };
+    event.currentTarget.setPointerCapture(event.pointerId);
   };
 
   const handleBarPointerMove = (event: ReactPointerEvent<HTMLDivElement>) => {
@@ -369,6 +489,9 @@ export function GradientEditor({
   };
 
   const handleBarClick = (event: ReactPointerEvent<HTMLDivElement>) => {
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
+    }
     // Only add if the pointer didn't move significantly (not a drag).
     if (!barClickRef.current || barClickRef.current.moved) {
       barClickRef.current = null;
@@ -407,6 +530,7 @@ export function GradientEditor({
     };
     onChange({ ...value, stops: [...value.stops, newStop] });
     onSelectStop(newStop.id);
+    onCommit?.();
   };
 
   const startStopDrag = (
@@ -418,6 +542,7 @@ export function GradientEditor({
     event.preventDefault();
     onSelectStop(id);
     draggingStopRef.current = id;
+    stopDragMovedRef.current = false;
     event.currentTarget.setPointerCapture(event.pointerId);
   };
 
@@ -425,6 +550,7 @@ export function GradientEditor({
     event: ReactPointerEvent<HTMLButtonElement>,
   ) => {
     if (!draggingStopRef.current || disabled) return;
+    stopDragMovedRef.current = true;
     updateStopPosition(
       draggingStopRef.current,
       positionFromPointer(event.clientX),
@@ -432,19 +558,25 @@ export function GradientEditor({
   };
 
   const endStopDrag = (event: ReactPointerEvent<HTMLButtonElement>) => {
+    const wasDragging =
+      draggingStopRef.current !== null && stopDragMovedRef.current;
     draggingStopRef.current = null;
+    stopDragMovedRef.current = false;
     if (event.currentTarget.hasPointerCapture(event.pointerId)) {
       event.currentTarget.releasePointerCapture(event.pointerId);
     }
+    if (wasDragging) onCommit?.();
   };
 
   const removeStop = (id: string) => {
     if (value.stops.length <= 2) return;
+    const removed = value.stops.find((stop) => stop.id === id);
     const nextStops = value.stops.filter((stop) => stop.id !== id);
     onChange({ ...value, stops: nextStops });
     if (selectedStopId === id) {
-      onSelectStop(sortedStops(nextStops)[0]?.id ?? "");
+      onSelectStop(nearestStopId(nextStops, removed?.position) ?? "");
     }
+    onCommit?.();
   };
 
   const setAngle = (angle: number) => {
@@ -453,6 +585,41 @@ export function GradientEditor({
 
   const showAngle = value.kind === "linear" || value.kind === "angular";
   const selectedStop = value.stops.find((s) => s.id === selectedStopId);
+
+  // Stop-position draft: buffered so typing doesn't commit (and dirty the
+  // history) on every keystroke. Commits on blur/Enter; Escape reverts.
+  const [positionDraft, setPositionDraft] = useState<string>(() =>
+    String(Math.round(selectedStop?.position ?? 0)),
+  );
+  const positionDraftRef = useRef(positionDraft);
+  const skipPositionBlurRef = useRef(false);
+  const selectedStopPosition = selectedStop?.position;
+  useEffect(() => {
+    const next = String(Math.round(selectedStopPosition ?? 0));
+    positionDraftRef.current = next;
+    setPositionDraft(next);
+    // Resync whenever the selected stop changes or its position changes
+    // externally (drag on the bar, another control).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedStopId, selectedStopPosition]);
+
+  const commitPositionDraft = () => {
+    const parsed = parseStopPositionDraft(positionDraftRef.current);
+    if (parsed === null) {
+      const reverted = String(Math.round(selectedStop?.position ?? 0));
+      positionDraftRef.current = reverted;
+      setPositionDraft(reverted);
+      return;
+    }
+    updateStopPosition(selectedStopId, parsed);
+    onCommit?.();
+  };
+
+  const revertPositionDraft = () => {
+    const reverted = String(Math.round(selectedStop?.position ?? 0));
+    positionDraftRef.current = reverted;
+    setPositionDraft(reverted);
+  };
 
   return (
     <div className={cn("px-3 pt-1.5 pb-1 select-none", className)}>
@@ -521,6 +688,28 @@ export function GradientEditor({
                 e.stopPropagation();
                 removeStop(stop.id);
               }}
+              onKeyDown={(e) => {
+                if (disabled) return;
+                // Figma parity: Delete/Backspace removes the focused stop,
+                // and Left/Right nudges its position (Shift for a bigger
+                // step) — mirrors the numeric position field's arrow-key
+                // behavior but works directly on the handle too.
+                if (e.key === "Delete" || e.key === "Backspace") {
+                  e.preventDefault();
+                  removeStop(stop.id);
+                  return;
+                }
+                if (e.key === "ArrowLeft" || e.key === "ArrowRight") {
+                  e.preventDefault();
+                  const step = e.shiftKey ? 10 : 1;
+                  const delta = e.key === "ArrowRight" ? step : -step;
+                  updateStopPosition(
+                    stop.id,
+                    clamp(stop.position + delta, 0, 100),
+                  );
+                  onCommit?.();
+                }
+              }}
               className={cn(
                 // Base: round handle with white border ring + outer accent ring
                 "absolute cursor-grab active:cursor-grabbing",
@@ -558,11 +747,31 @@ export function GradientEditor({
             max={100}
             aria-label={"Stop position" /* i18n-ignore */}
             disabled={disabled}
-            value={Math.round(selectedStop?.position ?? 0)}
+            value={positionDraft}
             onChange={(event) => {
-              const next = Number(event.target.value);
-              if (Number.isFinite(next))
-                updateStopPosition(selectedStopId, clamp(next, 0, 100));
+              positionDraftRef.current = event.target.value;
+              setPositionDraft(event.target.value);
+            }}
+            onFocus={(event) => event.target.select()}
+            onKeyDown={(event: ReactKeyboardEvent<HTMLInputElement>) => {
+              if (event.key === "Enter") {
+                event.preventDefault();
+                commitPositionDraft();
+                skipPositionBlurRef.current = true;
+                event.currentTarget.blur();
+              }
+              if (event.key === "Escape") {
+                revertPositionDraft();
+                skipPositionBlurRef.current = true;
+                event.currentTarget.blur();
+              }
+            }}
+            onBlur={() => {
+              if (skipPositionBlurRef.current) {
+                skipPositionBlurRef.current = false;
+                return;
+              }
+              commitPositionDraft();
             }}
             className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums focus-visible:outline-none"
           />
@@ -574,6 +783,7 @@ export function GradientEditor({
             <AngleDial
               angle={value.angle}
               onChange={setAngle}
+              onCommit={onCommit}
               disabled={disabled}
             />
             <div className="flex h-6 w-14 items-center overflow-hidden rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)]">
@@ -594,7 +804,17 @@ export function GradientEditor({
                     setAngleInput(e.target.value);
                   }
                 }}
-                onBlur={() => setAngleInput(null)}
+                onBlur={() => {
+                  // `angleInput` is only non-null once the user has actually
+                  // typed into this field (see onChange below) — mirrors the
+                  // sibling stop-position field's commitPositionDraft, which
+                  // only commits on an actual edit rather than unconditionally
+                  // on every blur (tabbing through/refocusing without typing
+                  // must not re-fire the commit).
+                  const changed = angleInput !== null;
+                  setAngleInput(null);
+                  if (changed) onCommit?.();
+                }}
                 className="h-full min-w-0 flex-1 bg-transparent px-1.5 !text-[11px] tabular-nums focus-visible:outline-none"
               />
               <span className="flex w-4 shrink-0 items-center justify-center text-[10px] text-muted-foreground">

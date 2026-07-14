@@ -13,7 +13,7 @@ cd agent-native
 pnpm install
 ```
 
-The `postinstall` script automatically builds the workspace packages other packages depend on (`shared-app-config`, `core`, `code-agents-ui`, `migrate`, `pinpoint`, `scheduling`, `embedding`, `dispatch`).
+The `postinstall` script automatically builds the workspace packages other packages depend on (`shared-app-config`, `toolkit`, `core`, `code-agents-ui`, `migrate`, `pinpoint`, `scheduling`, `embedding`, `dispatch`).
 
 ## Development
 
@@ -66,7 +66,7 @@ This is a pnpm monorepo. Workspaces are defined in `pnpm-workspace.yaml`.
 
 Production-ready template apps that demonstrate the framework. Each template is a standalone app with its own `package.json`, Drizzle schema, actions, and UI.
 
-Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `macros`, `mail`, `plan`, `slides`, `videos`
+Templates: `analytics`, `assets`, `brain`, `calendar`, `chat`, `clips`, `content`, `design`, `dispatch`, `forms`, `macros`, `mail`, `plan`, `slides`
 
 Each template uses the same scripts:
 
@@ -109,23 +109,27 @@ All SQL must be dialect-agnostic -- never assume SQLite.
 
 Run these from the repo root:
 
-| Command              | Description                                                      |
-| -------------------- | ---------------------------------------------------------------- |
-| `pnpm run prep`      | Format + typecheck + test + guards in parallel (run before push) |
-| `pnpm run fmt`       | Format all files with Prettier                                   |
-| `pnpm run fmt:check` | Check formatting without writing                                 |
-| `pnpm run typecheck` | Type-check all packages and templates                            |
-| `pnpm test`          | Run tests (core + migrate + docs + dispatch + brain evals)       |
-| `pnpm run guards`    | Run all security/consistency guard scripts (see Guards below)    |
-| `pnpm run lint`      | Format check + typecheck                                         |
+| Command              | Description                                                            |
+| -------------------- | ---------------------------------------------------------------------- |
+| `pnpm run prep`      | Format + typecheck + test + guards in parallel (run before push)       |
+| `pnpm run fmt`       | Format all files with Prettier                                         |
+| `pnpm run fmt:check` | Check formatting without writing                                       |
+| `pnpm run typecheck` | Type-check all packages and templates                                  |
+| `pnpm test`          | Run tests across every workspace package/template with a `test` script |
+| `pnpm run guards`    | Run all security/consistency guard scripts (see Guards below)          |
+| `pnpm run lint`      | Format check + typecheck                                               |
 
 ## Guards
 
-The `guards` script chains a suite of guard scripts under `scripts/guard-*.mjs`,
-each codifying a real past incident or invariant (cross-tenant data leaks,
-credential leaks, `drizzle-kit push` against prod, unscoped ownable queries,
-env-based credentials, the public template allow-list, etc.). Read the header
-comment of each `scripts/guard-*.mjs` for what it enforces.
+The `guards` script (`scripts/run-guards.ts`) runs the fixed list of checks
+registered there. Most are `scripts/guard-*` scripts (`.mjs` and `.ts`), but a
+few -- `guard:workspace-skills`, `guard:plan-skills`, `guard:plan-marketplace`
+-- run `scripts/sync-*.ts --check` and don't match the `guard-*` filename
+glob. `scripts/run-guards.ts` is the authoritative registry of what runs;
+each check codifies a real past incident or invariant (cross-tenant data
+leaks, credential leaks, `drizzle-kit push` against prod, unscoped ownable
+queries, env-based credentials, the public template allow-list, etc.). Read
+the header comment of each guard script for what it enforces.
 
 Enforcement:
 

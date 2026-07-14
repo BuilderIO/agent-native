@@ -9,6 +9,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -141,6 +142,26 @@ function escapeCssIdentifier(value: string): string {
   return value.replace(/[^a-zA-Z0-9_-]/g, "\\$&");
 }
 
+/**
+ * Best-effort check for whether a pin's captured anchor element still exists
+ * on the canvas. Only meaningful for parent-DOM canvases with a captured
+ * `targetSelector` — iframe canvases never capture one (see `dropPinAt`), so
+ * this naturally no-ops there rather than mislabeling every iframe pin as
+ * stale. Recomputed on each render (already triggered by scroll/resize/pins
+ * changes); this deliberately avoids adding a dedicated poll so idle canvas
+ * perf is unaffected.
+ */
+function pinAnchorStillPresent(canvas: HTMLElement, pin: CanvasPin): boolean {
+  if (!pin.targetSelector) return true;
+  try {
+    return canvas.querySelector(pin.targetSelector) !== null;
+  } catch {
+    // A selector that no longer parses shouldn't be reported as "stale" —
+    // that's a different failure mode than "the element was removed".
+    return true;
+  }
+}
+
 function getTargetAnchor(target?: HTMLElement | null): {
   targetSelector?: string;
   targetAnchorId?: string;
@@ -205,6 +226,46 @@ function pinsLikelyOverlap(pin: CanvasPin, other: CanvasPin): boolean {
   const xDelta = Math.abs(pin.xPct - other.xPct);
   const yDelta = Math.abs(pin.yPct - other.yPct);
   return xDelta <= 4 && yDelta <= 4;
+}
+
+/**
+ * Purely visual "same spot" check used to spread overlapping markers apart on
+ * screen. Unlike `pinsLikelyOverlap` (which only flags *live* conflicts and
+ * ignores already-submitted pins), this also considers submitted pins so a
+ * new pin dropped on top of an earlier confirmation marker doesn't render
+ * fully hidden/unclickable underneath it.
+ */
+function pinsAtSameSpot(pin: CanvasPin, other: CanvasPin): boolean {
+  if (pin.id === other.id) return false;
+  const xDelta = Math.abs(pin.xPct - other.xPct);
+  const yDelta = Math.abs(pin.yPct - other.yPct);
+  return xDelta <= 3 && yDelta <= 3;
+}
+
+/**
+ * Deterministic pixel nudge for a pin whose marker would otherwise render
+ * stacked exactly on top of an earlier pin at (approximately) the same
+ * canvas position. Pins are placed in a small golden-angle spiral around
+ * their true position so every marker in a cluster stays visible and
+ * individually clickable; the stored `xPct`/`yPct` (and the position sent to
+ * the agent) are unaffected.
+ */
+function pinClusterOffset(
+  pin: CanvasPin,
+  indexInPins: number,
+  pins: CanvasPin[],
+): { dx: number; dy: number } {
+  let clusterIndex = 0;
+  for (let i = 0; i < indexInPins; i++) {
+    if (pinsAtSameSpot(pin, pins[i]!)) clusterIndex += 1;
+  }
+  if (clusterIndex === 0) return { dx: 0, dy: 0 };
+  const angle = clusterIndex * 2.4; // golden angle (radians) for even spread
+  const radius = 9 + clusterIndex * 5;
+  return {
+    dx: Math.round(Math.cos(angle) * radius),
+    dy: Math.round(Math.sin(angle) * radius),
+  };
 }
 
 function derivePinStatus(pin: CanvasPin, pins: CanvasPin[]): PinStatusMeta {
@@ -298,6 +359,11 @@ export function CanvasCommentPins({
 }: CanvasCommentPinsProps) {
   const t = useT();
   const [pins, setPins] = useState<CanvasPin[]>([]);
+  // Mirrors `pins` so the context-change reset effect below can inspect what
+  // was on the canvas the instant `contextId` changes, without re-running on
+  // every pin edit (it should only fire once, on the context switch itself).
+  const pinsRef = useRef<CanvasPin[]>(pins);
+  pinsRef.current = pins;
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
   const lastSubmitQueuedSignalRef = useRef(submitQueuedSignal);
@@ -308,9 +374,25 @@ export function CanvasCommentPins({
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
+    // Queued-but-unsent comment drafts don't survive a context switch (pins
+    // are intentionally scoped to one view). Losing them is unavoidable here
+    // since we don't control cross-view navigation, but it must never be
+    // silent — warn instead of quietly wiping the user's typed drafts.
+    const discardedDraftCount = pinsRef.current.filter(
+      (pin) => pin.queued && !pin.submitted && (pin.draft || "").trim(),
+    ).length;
+    if (discardedDraftCount > 0) {
+      toast(
+        t("visualEditor.queuedCommentsDiscarded", {
+          count: discardedDraftCount,
+        }),
+      );
+    }
     setPins([]);
     setActivePinId(null);
     setCanvasEl(null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- only fire on an
+    // actual context (slide/design) switch, not on every pins/t change.
   }, [contextId]);
 
   // Find the canvas container the pins overlay
@@ -340,16 +422,34 @@ export function CanvasCommentPins({
     const ro = new ResizeObserver(bump);
     ro.observe(canvas);
 
-    // Scroll listeners on the canvas's scrollable ancestor(s) and window cover
-    // both page-level scrolling and container-level panning.
-    const scrollTarget =
-      canvas.closest<HTMLElement>("[class*='overflow']") ?? window;
-    scrollTarget.addEventListener("scroll", bump, { passive: true });
+    // Scroll listeners on every scrollable ancestor and the window cover both
+    // page-level scrolling and container-level panning. Walk the ancestor
+    // chain with getComputedStyle instead of a class-name heuristic so
+    // inline-styled, nested, and multiple scroll containers are all covered.
+    const isScrollable = (value: string) =>
+      value === "auto" || value === "scroll" || value === "overlay";
+    const scrollTargets: Array<HTMLElement | Window> = [];
+    for (let el: HTMLElement | null = canvas; el; el = el.parentElement) {
+      const style = getComputedStyle(el);
+      if (
+        isScrollable(style.overflow) ||
+        isScrollable(style.overflowX) ||
+        isScrollable(style.overflowY)
+      ) {
+        scrollTargets.push(el);
+      }
+    }
+    scrollTargets.push(window);
+    for (const target of scrollTargets) {
+      target.addEventListener("scroll", bump, { passive: true });
+    }
     window.addEventListener("resize", bump, { passive: true });
 
     return () => {
       ro.disconnect();
-      scrollTarget.removeEventListener("scroll", bump);
+      for (const target of scrollTargets) {
+        target.removeEventListener("scroll", bump);
+      }
       window.removeEventListener("resize", bump);
     };
   }, [canvasEl]);
@@ -706,12 +806,19 @@ export function CanvasCommentPins({
       )}
 
       {/* Pin overlays */}
-      {pins.map((pin) => {
-        const left = rect.left + (pin.xPct / 100) * rect.width;
-        const top = rect.top + (pin.yPct / 100) * rect.height;
+      {pins.map((pin, pinIndex) => {
+        const { dx, dy } = pinClusterOffset(pin, pinIndex, pins);
+        const left = rect.left + (pin.xPct / 100) * rect.width + dx;
+        const top = rect.top + (pin.yPct / 100) * rect.height + dy;
         const isActive = activePinId === pin.id;
         const PinIcon = pin.submitted ? IconMessageCheck : IconMessage;
         const status = localizePinStatus(derivePinStatus(pin, pins), t);
+        // Not submitted yet + claims a specific anchor that's no longer on
+        // the canvas (e.g. the element was deleted or the design was edited
+        // elsewhere) — flag it instead of silently pretending the position
+        // is still meaningful.
+        const isStaleAnchor =
+          !pin.submitted && !pinAnchorStillPresent(canvas, pin);
         return (
           <div
             key={pin.id}
@@ -736,22 +843,26 @@ export function CanvasCommentPins({
                     "absolute -mt-1 flex size-7 -translate-x-1/2 -translate-y-full cursor-pointer items-center justify-center rounded-full rounded-bl-none shadow-lg ring-2 transition-transform hover:scale-110",
                     status.markerClassName,
                     pin.submitted && "opacity-95",
+                    isStaleAnchor &&
+                      "outline outline-2 outline-dashed outline-offset-2 outline-muted-foreground/70",
                   )}
                 >
                   <PinIcon className="size-3.5" />
                 </button>
               </TooltipTrigger>
               <TooltipContent className="pointer-events-none">
-                {pin.queued
-                  ? t("visualEditor.queuedStatus", { status: status.label })
-                  : pin.draft ||
-                    (pin.submitted
-                      ? t("visualEditor.commentSentStatus", {
-                          status: status.label,
-                        })
-                      : t("visualEditor.commentStatus", {
-                          status: status.label,
-                        }))}
+                {isStaleAnchor
+                  ? t("visualEditor.staleAnchorDetail")
+                  : pin.queued
+                    ? t("visualEditor.queuedStatus", { status: status.label })
+                    : pin.draft ||
+                      (pin.submitted
+                        ? t("visualEditor.commentSentStatus", {
+                            status: status.label,
+                          })
+                        : t("visualEditor.commentStatus", {
+                            status: status.label,
+                          }))}
               </TooltipContent>
             </Tooltip>
             <span
@@ -828,10 +939,19 @@ export function CanvasCommentPins({
                       {status.detail}
                     </p>
                     {pin.targetAnchorId && (
-                      <div className="mt-1 truncate rounded-md bg-muted/45 px-2 py-1 text-[10px] text-muted-foreground">
-                        {t("visualEditor.anchorLabel", {
-                          id: pin.targetAnchorId,
-                        })}
+                      <div
+                        className={cn(
+                          "mt-1 truncate rounded-md px-2 py-1 text-[10px]",
+                          isStaleAnchor
+                            ? "bg-destructive/10 text-destructive"
+                            : "bg-muted/45 text-muted-foreground",
+                        )}
+                      >
+                        {isStaleAnchor
+                          ? t("visualEditor.staleAnchorDetail")
+                          : t("visualEditor.anchorLabel", {
+                              id: pin.targetAnchorId,
+                            })}
                       </div>
                     )}
                     {pin.targetText && (

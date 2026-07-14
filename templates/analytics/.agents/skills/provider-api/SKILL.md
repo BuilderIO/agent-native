@@ -31,6 +31,29 @@ expose.
   counts, and column names.
 - `delete-staged-dataset` — remove a staged dataset to free scratch storage.
 
+## Clay
+
+Clay is a credentialed GTM data and enrichment provider, not a messaging
+channel. Use the `clay` provider for its Public API:
+
+- Authentication is the configured `CLAY_PUBLIC_API_KEY`, injected server-side
+  in the `clay-api-key` header. Never pass the key in action arguments.
+- Provider requests are restricted to the exact `https://api.clay.com` origin,
+  with `/public/v0` as the default base path. Read the registered official docs
+  or OpenAPI spec on `developers.clay.com` through `provider-api-docs`; do not
+  try to send an authenticated provider request to that documentation host.
+- Searches cover companies and people and use a stateful forward-only iterator:
+  create the search, then repeat its run endpoint while `has_more` is true.
+- Routines are asynchronous. Start the routine, then poll its results endpoint
+  or use a separately verified completion webhook.
+- Tables are query-only, require Enterprise access, and require a known table
+  id. The Public API cannot list, create, or update tables.
+
+The optional local Clay CLI/MCP plugin uses a separate browser-login session.
+It is not required for hosted Agent Native provider access. Do not install or
+vendor that plugin by default; its public repository currently declares no
+license.
+
 ## Workflow
 
 1. Use a first-class action when it exactly fits the request.
@@ -173,6 +196,16 @@ provider-api-request(
   pagination: { offsetParam: "offset", pageSize: 100, maxPages: 30 }
 )
 ```
+
+## Turning a one-off pull into a dashboard panel
+
+When an ad-hoc `provider-api-request` call or `run-code` fetch/join/aggregate
+script answers a question well enough that it should become a live,
+refreshable dashboard panel other users can see — not just a one-time chat
+answer — save it as a data program with `save-data-program` instead of
+re-running the same script by hand on every visit. See the `data-programs`
+skill for the `emit(rows, schema)` contract, caching/refresh model, and a
+worked HubSpot x Pylon join example.
 
 ## Guardrails
 

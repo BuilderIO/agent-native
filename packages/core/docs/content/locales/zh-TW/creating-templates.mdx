@@ -7,6 +7,8 @@ description: "如何建立和發布您自己的 Agent-Native 應用範本。"
 
 範本是完整的、可分叉的 Agent-Native 應用程式，可解決實際工作流程。第一方範本使用您使用的相同框架表面建置：用於 UI 的 React 路由、用於資料的 Drizzle SQL、用於操作的 actions、用於代理行為的工作區資源以及輪詢同步，以便代理和 UI 保持一致。
 
+將 `@agent-native/core` 用於執行階段合約：actions、server plugins、database helpers、app state、routing helpers 和 agent chat。將 `@agent-native/toolkit` 用於可重用的應用程式建構 UI 和 helpers，例如共享 primitives、toast/mobile hooks、date pickers 和簡單 app shell slots。當變體承載產品行為或視覺識別時，請保留在範本本地。
+
 一個好的範本：
 
 - 使用有用的種子資料或空狀態流端對端地解決一個工作流。
@@ -42,7 +44,6 @@ npx @agent-native/core@latest create my-platform
 <FileTree
   id="doc-block-xwc8h5"
   title={"範本專案結構"}
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -170,8 +171,7 @@ npx @agent-native/core@latest create my-platform
 
 使用框架 Drizzle 幫助程式定義域表，以便架構在 SQLite、Postgres、D1、Turso、Supabase、Neon 和其他支援的後端之間保持可移植性：
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -202,8 +202,7 @@ export const projectShares = createSharesTable("project_shares");
 
 對於應用程式讀取和寫入，請使用 Drizzle 的查詢生成器和 `drizzle-orm` 的可移植運算符。當 Drizzle 可以表達查詢時，不要使用原始 SQL 編寫產品程式碼，並且不要在範本中從`drizzle-orm/sqlite-core`或`drizzle-orm/pg-core`匯入。
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -347,8 +346,7 @@ export function useNavigationState() {
 `path`（當 URL 已知時）。同一動作不要寫為 `__set_url__`；
 該金鑰是為框架 URL 工具和僅 URL 過濾器更改保留的。
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

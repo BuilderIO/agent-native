@@ -7,7 +7,8 @@
  *
  * Relation to `source-mode.ts`:
  * - `DesignBridgeOperation` ("select" | "resolveNodeToFile" | "readFile" |
- *   "applyEdit" | "writeFile" | "captureSnapshot" | "captureState") describes
+ *   "applyEdit" | "writeFile" | "captureSnapshot" | "captureState" |
+ *   "listFiles") describes
  *   the low-level bridge RPC surface.
  * - `DesignCapabilityName` below is the *higher-level* capability vocabulary
  *   that UI panels and agent actions read.  Several capabilities build on one
@@ -147,15 +148,15 @@ export function unavailable(reason?: string): DesignSourceCapabilityEntry {
  *
  * - CSS-var token edits and motion are available through the Tweaks loop and
  *   the managed `<style data-agent-native-motion>` block respectively.
- * - File-level write ops (`readFile`, `writeFile`, `applyEdit`) are `planned`
- *   pending bridge write hardening.
+ * - File-level ops (`readFile`, `writeFile`, `applyEdit`) are available for
+ *   inline SQL-backed design_files through the Design source action surface.
  * - Real-app-only capabilities (`indexComponents`, `writeTokens`, `branch`,
  *   `deploy*`) are `unavailable` and trigger the "Make it real" CTA.
  */
 export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
-  readFile: planned("Local file reads require bridge hardening"),
-  writeFile: planned("Local file writes require bridge hardening"),
-  applyEdit: planned("Source edits require bridge hardening"),
+  readFile: available("Inline design files can be read from Design"),
+  writeFile: available("Inline design files can be saved through Design"),
+  applyEdit: available("Inline design files can be edited through Design"),
   resolveNodeToFile: available(),
   previewPatch: available(),
   diffPatch: available(),
@@ -174,16 +175,25 @@ export const INLINE_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
 /**
  * Default capability map for **localhost** designs.
  *
- * Starts read-only / preview-only; write ops become `available` after bridge
- * hardening.  Real-app features (`indexComponents`, `writeTokens`, etc.) are
- * `planned` and light up once the bridge proves capability.
+ * File I/O (`readFile`, `writeFile`, `applyEdit`) is `available` through the
+ * design bridge started by `agent-native design connect`: reads and writes go
+ * through the bridge's token-authenticated `/read-file`, `/write-file`, and
+ * `/apply-edit` endpoints, and every write additionally requires an explicit
+ * user write-consent grant (`grant-localhost-write-consent` +
+ * `verifyWriteGrant`).  Genuinely-unshipped real-app features
+ * (`indexComponents`, `writeTokens`) remain `planned` and light up once the
+ * bridge proves those capabilities.
  */
 export const LOCALHOST_DEFAULT_CAPABILITIES: DesignSourceCapabilities = {
-  readFile: planned("Local file reads require the next bridge hardening pass"),
-  writeFile: planned(
-    "Local file writes require the next bridge hardening pass",
+  readFile: available(
+    "Local file reads go through the design bridge (agent-native design connect)",
   ),
-  applyEdit: planned("Source edits require the next bridge hardening pass"),
+  writeFile: available(
+    "Local file writes go through the design bridge after user write consent",
+  ),
+  applyEdit: available(
+    "Local source edits go through the design bridge after user write consent",
+  ),
   resolveNodeToFile: available(),
   previewPatch: available(),
   diffPatch: available(),

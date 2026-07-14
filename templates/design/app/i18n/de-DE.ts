@@ -1,3 +1,59 @@
 import { messagesByLocale } from "../i18n-data";
 
-export default messagesByLocale["de-DE"];
+const messages = {
+  ...messagesByLocale["de-DE"],
+  review: {
+    comments: "Kommentare",
+    commentsTab: "Kommentare · {{count}}",
+    commentsTitle: "Prüfkommentare",
+    commentNumber: "Prüfkommentar {{count}}",
+    thisScreen: "Dieser Bildschirm",
+    allScreens: "Alle Bildschirme",
+    signInToComment: "Zum Kommentieren anmelden",
+    panelTitle: "Feedback",
+    placeholder: "Feedback hinterlassen…",
+    emptyState: "Noch keine Prüfkommentare.",
+    clickToPin: "Klicke an eine beliebige Stelle, um Feedback anzuheften",
+    escToExit: "Esc zum Beenden",
+    newComment: "Neuer Kommentar",
+    commentMode: "Kommentieren",
+    sendToAgent: "An den Agenten senden",
+    sendingToAgent: "Wird an den Agenten gesendet…",
+    enterToPost: "Mit Enter posten · Mit Umschalt+Enter neue Zeile",
+    post: "Posten",
+    posting: "Wird gepostet…",
+    postFailed: "Dieser Kommentar konnte nicht gepostet werden",
+    loading: "Kommentare werden geladen",
+    replyPlaceholder: "Auf diesen Thread antworten…",
+    reply: "Antworten",
+    cancelReply: "Antwort abbrechen",
+    replyFailed: "Diese Antwort konnte nicht gepostet werden",
+    resolve: "Erledigen",
+    resolving: "Wird erledigt…",
+    resolveFailed: "Dieser Thread konnte nicht erledigt werden",
+    deleteComment: "Kommentar löschen",
+    moreActions: "Weitere Aktionen",
+    resolved: "Erledigt",
+    reviewer: "Prüfende Person",
+    applyFeedback: "Feedback anwenden ({{count}})",
+    applyingFeedback: "Feedback wird angewendet…",
+    applyFeedbackFailed: "Prüfungsfeedback konnte nicht angewendet werden",
+    sendToAgentFailed:
+      "Dieser Thread konnte nicht an den Agenten gesendet werden",
+    shareLinkDescription:
+      "Jeder mit diesem Link kann das Design ansehen. Angemeldete Personen mit Prüfrechten können kommentieren.",
+    presentComments: "Kommentare",
+    presentCommentMode: "Kommentarmodus",
+    closeComments: "Kommentare schließen",
+    status: {
+      draft: "Entwurf",
+      in_review: "In Prüfung",
+      approved: "Freigegeben",
+      changes_requested: "Änderungen angefordert",
+      change: "Prüfstatus ändern",
+      saveFailed: "Prüfstatus konnte nicht aktualisiert werden",
+    },
+  },
+};
+
+export default messages;

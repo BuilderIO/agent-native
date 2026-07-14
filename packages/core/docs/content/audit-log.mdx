@@ -73,10 +73,11 @@ Everything in `audit` is optional. The minimum useful addition is `target: () =>
 
 ## Reading the trail {#reading}
 
-Two read actions are available to the agent **and** the frontend in every app, scoped in SQL to the caller — they never return another tenant's rows:
+Three read actions are available to the agent **and** the frontend in every app, scoped in SQL to the caller — they never return another tenant's rows:
 
 - **`list-audit-events`** — filter by `targetType` / `targetId`, `actorKind` (`agent` | `human` | `system`), `status`, `threadId` / `turnId`, `action`, `sinceMs`, and `limit`.
 - **`get-audit-event`** — one event by id, including its redacted input payload.
+- **`export-audit-events`** — bulk-export the trail as CSV or NDJSON instead of hand-paging `list-audit-events`, for offline compliance pulls. Takes the same filters as `list-audit-events` (minus `limit`) plus `format` (`csv` | `ndjson`, default `csv`) and `maxRows` (default 5000, hard cap 10000), and returns `{ content, rowCount, truncated, format }` — `truncated: true` means more rows matched than `maxRows` allowed. It's itself a sensitive read, audited via `audit: { onRead: true }`.
 
 Build an activity feed or a "who changed this" line by calling `list-audit-events` from the UI with `useActionQuery` — never hand-write a fetch to the audit table:
 

@@ -15,6 +15,7 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { isDirectPillClick, type ScreenPoint } from "../lib/pill-interaction";
 import { speakerFor } from "../lib/transcription-engine";
 import { LiveTranscript, type FinalLine } from "./live-transcript";
 import { PillLogo } from "./pill-logo";
@@ -83,6 +84,7 @@ export function RecordingPill() {
   const sysCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const stopFallbackRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const dragStartScreenPointRef = useRef<ScreenPoint | null>(null);
 
   useEffect(() => {
     const unlistens: Array<() => void> = [];
@@ -106,11 +108,22 @@ export function RecordingPill() {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
         };
+        const prev = ctxRef.current;
+        const isSameSession =
+          prev.meetingId === next.meetingId && prev.mode === next.mode;
         ctxRef.current = next;
         setCtx(next);
+        // The Rust side re-shows (and re-emits this event for) the same pill
+        // window whenever the tray icon re-triggers `recording_pill_show`
+        // (e.g. toggling the popover) while a meeting is already in progress.
+        // Only reset session state below when the meeting/mode actually
+        // changed — otherwise an in-progress meeting's timer, transcript, and
+        // notes would wipe out on every tray click.
+        if (isSameSession) return;
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
+        setPaused(false);
         // The Rust side reuses the pill window across recordings, so the
         // component never unmounts. Reset stop state explicitly when a
         // new recording session begins, otherwise the Stop button stays
@@ -137,6 +150,21 @@ export function RecordingPill() {
           stopFallbackRef.current = null;
         }
       }),
+    );
+    trackListen(
+      listen<{ paused: boolean; elapsedMs: number }>(
+        "clips:recorder-state",
+        (ev) => {
+          // Meeting capture has its own optimistic pause state. Ordinary clips
+          // follow the recorder's authoritative broadcast so this reused pill
+          // cannot drift or emit an inverted command.
+          if (ctxRef.current.mode !== "clip") return;
+          setPaused(!!ev.payload.paused);
+          setElapsed(
+            Math.max(0, Math.floor((ev.payload.elapsedMs ?? 0) / 1000)),
+          );
+        },
+      ),
     );
     trackListen(
       listen<{ meetingId: string; initialNotes: string }>(
@@ -240,7 +268,9 @@ export function RecordingPill() {
 
   // Elapsed timer.
   useEffect(() => {
-    if (paused) return;
+    // Clip recordings already broadcast their pause-aware elapsed time every
+    // 500ms. Keep the local wall clock only for meeting mode.
+    if (paused || ctx.mode === "clip") return;
     tickRef.current = setInterval(() => {
       setElapsed(Math.floor((Date.now() - startedAtRef.current) / 1000));
     }, 500);
@@ -248,25 +278,27 @@ export function RecordingPill() {
       if (tickRef.current) clearInterval(tickRef.current);
       tickRef.current = null;
     };
-  }, [paused]);
+  }, [ctx.mode, paused]);
 
-  // Dual-stream waveform — one bar group per source. When system-audio
-  // hasn't emitted any levels yet (e.g. dictation-only flow), the system
-  // canvas is hidden by the JSX below, but the rAF loop still runs over
-  // whichever canvas refs are mounted.
+  // Dual-stream "dancing bars" meter — one discrete vertical-bar group per
+  // source (Granola/Wispr-style VU meter, not a continuous waveform line).
+  // When system-audio hasn't emitted any levels yet (e.g. dictation-only
+  // flow), the system canvas is hidden by the JSX below, but the rAF loop
+  // still runs over whichever canvas refs are mounted.
   useEffect(() => {
-    const N_PTS = 8;
+    const N_BARS = 14;
     const setups: Array<{
       W: number;
       H: number;
       centerY: number;
       ctx2d: CanvasRenderingContext2D;
       rng: number[];
-      pts: Array<{ x: number; y: number }>;
       grad: CanvasGradient;
       levelRef: React.MutableRefObject<number>;
       shadowColor: string;
       gain: number;
+      barWidth: number;
+      gap: number;
     }> = [];
 
     const mount = (
@@ -293,22 +325,22 @@ export function RecordingPill() {
       grad.addColorStop(0.9, color);
       grad.addColorStop(1, color0);
       const centerY = H / 2;
-      // Pre-allocate pts; mutated in tick to avoid per-frame allocation.
-      const pts = Array.from({ length: N_PTS }, (_, i) => ({
-        x: (i / (N_PTS - 1)) * W,
-        y: centerY,
-      }));
+      // Gap takes ~35% of each bar's slot, matching a "dancing bars" density.
+      const slot = W / N_BARS;
+      const gap = Math.max(1, slot * 0.35);
+      const barWidth = Math.max(1, slot - gap);
       setups.push({
         W,
         H,
         centerY,
         ctx2d,
-        rng: Array(N_PTS).fill(0.5),
-        pts,
+        rng: Array(N_BARS).fill(0.5),
         grad,
         levelRef,
         shadowColor,
         gain,
+        barWidth,
+        gap,
       });
     };
 
@@ -329,58 +361,49 @@ export function RecordingPill() {
       2.0,
     );
 
-    // Hoisted outside tick — no closure recreation per frame.
-    const drawWavePath = (
-      ctx2d: CanvasRenderingContext2D,
-      pts: Array<{ x: number; y: number }>,
-      W: number,
-    ) => {
-      ctx2d.moveTo(0, pts[0].y);
-      for (let i = 0; i < pts.length - 1; i += 1) {
-        const mx = (pts[i].x + pts[i + 1].x) / 2;
-        const my = (pts[i].y + pts[i + 1].y) / 2;
-        ctx2d.quadraticCurveTo(pts[i].x, pts[i].y, mx, my);
-      }
-      ctx2d.lineTo(W, pts[pts.length - 1].y);
-    };
-
     const startMs = Date.now();
+    let lastDrawMs = 0;
+    // A bar meter reads the same to the eye well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the pill is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
     const tick = () => {
+      rafRef.current = requestAnimationFrame(tick);
+      const nowMs = Date.now();
+      if (nowMs - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = nowMs;
       // Modulo prevents float precision loss on long recordings.
-      const t = (Date.now() - startMs) % 1_000_000;
+      const t = (nowMs - startMs) % 1_000_000;
       for (const s of setups) {
         const target = Math.min(1, s.levelRef.current * s.gain);
-        for (let i = 0; i < N_PTS; i += 1) {
-          const phase = t * 0.004 + i * (Math.PI * 0.65);
-          const waveTarget = 0.5 + Math.sin(phase) * target * 0.42;
-          s.rng[i] = s.rng[i] * 0.8 + waveTarget * 0.2;
-          s.pts[i].y = s.centerY - (s.rng[i] - 0.5) * s.H * 0.88;
-        }
 
         s.ctx2d.clearRect(0, 0, s.W, s.H);
-
-        // Fill between wave and center line.
-        s.ctx2d.beginPath();
-        drawWavePath(s.ctx2d, s.pts, s.W);
-        s.ctx2d.lineTo(s.W, s.centerY);
-        s.ctx2d.lineTo(0, s.centerY);
-        s.ctx2d.closePath();
-        s.ctx2d.globalAlpha = 0.2;
         s.ctx2d.fillStyle = s.grad;
-        s.ctx2d.fill();
-        s.ctx2d.globalAlpha = 1;
-
-        // Stroke the wave line.
-        s.ctx2d.beginPath();
-        drawWavePath(s.ctx2d, s.pts, s.W);
-        s.ctx2d.lineWidth = 1.5;
-        s.ctx2d.strokeStyle = s.grad;
         s.ctx2d.shadowColor = s.shadowColor;
-        s.ctx2d.shadowBlur = 5;
-        s.ctx2d.stroke();
+        s.ctx2d.shadowBlur = 4;
+
+        for (let i = 0; i < N_BARS; i += 1) {
+          const phase = t * 0.005 + i * (Math.PI * 0.65);
+          // Low idle baseline (~12% height) when silent; rises toward the
+          // full bar height as level approaches 1.
+          const barTarget =
+            0.12 + Math.sin(phase) * 0.5 * target + target * 0.38;
+          s.rng[i] = s.rng[i] * 0.75 + Math.max(0.06, barTarget) * 0.25;
+
+          const h = Math.min(1, s.rng[i]) * s.H * 0.9;
+          const x = i * (s.barWidth + s.gap) + s.gap / 2;
+          const y = s.centerY - h / 2;
+          const radius = Math.min(s.barWidth / 2, 2);
+          s.ctx2d.beginPath();
+          if (typeof s.ctx2d.roundRect === "function") {
+            s.ctx2d.roundRect(x, y, s.barWidth, h, radius);
+          } else {
+            s.ctx2d.rect(x, y, s.barWidth, h);
+          }
+          s.ctx2d.fill();
+        }
         s.ctx2d.shadowBlur = 0;
       }
-      rafRef.current = requestAnimationFrame(tick);
     };
     tick();
     return () => {
@@ -404,7 +427,7 @@ export function RecordingPill() {
 
   async function onPauseClick() {
     const nextPaused = !paused;
-    setPaused(nextPaused);
+    if (ctxRef.current.mode === "meeting") setPaused(nextPaused);
     emit(nextPaused ? "clips:recorder-pause" : "clips:recorder-resume").catch(
       () => {},
     );
@@ -475,11 +498,19 @@ export function RecordingPill() {
     if (e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("[data-no-drag]")) return;
+    dragStartScreenPointRef.current = { x: e.screenX, y: e.screenY };
     getCurrentWindow()
       .startDragging()
       .catch((err) => {
         console.warn("[clips-pill] startDragging failed", err);
       });
+  };
+
+  const handlePillMediaClick = (e: React.MouseEvent) => {
+    const start = dragStartScreenPointRef.current;
+    dragStartScreenPointRef.current = null;
+    if (!isDirectPillClick(start, { x: e.screenX, y: e.screenY })) return;
+    void toggleExpanded();
   };
 
   const mm = String(Math.floor(elapsed / 60)).padStart(2, "0");
@@ -506,9 +537,7 @@ export function RecordingPill() {
         >
           <div
             className="pill-media"
-            onClick={
-              !expanded && !detached ? () => void toggleExpanded() : undefined
-            }
+            onClick={!expanded && !detached ? handlePillMediaClick : undefined}
           >
             <PillLogo className="pill-logo" />
             {hasSystemAudio ? (

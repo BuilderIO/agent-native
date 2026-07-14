@@ -448,6 +448,16 @@ const messages = {
       title: "Lokaler Plan nicht gefunden",
       message: "Der lokale Planordner „{{slug}}“ konnte nicht gelesen werden.",
     },
+    localPlanConnection: {
+      promptTitle: "Mit diesem lokalen Plan verbinden",
+      promptMessage:
+        "Dieser Plan bleibt auf deinem Computer. Plan benötigt die Berechtigung des Browsers, um ihn über die lokale Verbindung zu lesen.",
+      deniedTitle: "Der Zugriff auf das lokale Netzwerk ist blockiert",
+      deniedMessage:
+        "Öffne die Website-Einstellungen deines Browsers für Plan, erlaube den Zugriff auf das lokale Netzwerk und prüfe es dann erneut.",
+      connect: "Mit lokalem Plan verbinden",
+      checkAgain: "Erneut prüfen",
+    },
     overview: {
       title: "planen",
       documentCount_other: "{{count}} Dokumente",
@@ -653,6 +663,10 @@ const messages = {
       signIn: "Einloggen",
       haveAccount: "Ich habe bereits ein Konto",
       retry: "Versuchen Sie es erneut",
+      sendFeedback: "Feedback senden",
+      feedbackPlaceholder:
+        "Beschreiben Sie, was vor diesem Planfehler passiert ist.",
+      openGitHubIssue: "GitHub-Issue öffnen",
       joinedOrg: "Beigetreten {{orgName}}. Eröffnungsplan...",
       acceptingInvite: "Einladung annehmen",
       joiningOrg: "Beitritt zur Organisation",

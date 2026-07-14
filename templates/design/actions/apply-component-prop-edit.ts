@@ -12,9 +12,12 @@
  *                    HTML attribute on the component root.
  * - `classReplace` — replaces one Tailwind class with another on the root node.
  *
- * **Tier B (real-app, localhost / fusion):**  prop writes require the
- * `applyEdit` source capability (bridge write hardening).  Until that lands the
- * action returns a `ctaRequired: true` response and does not modify any source.
+ * **Real-app sources (localhost / fusion):** deliberately fail closed. This
+ * action's patcher operates on SQL-backed HTML design files; it must never be
+ * reused for compiled JSX/TSX source. Real-app prop persistence needs a
+ * dedicated consented, version-guarded bridge transform. Until that exists,
+ * callers may preview but this action returns `ctaRequired: true` without
+ * reading or modifying a design file.
  *
  * See DESIGN-STUDIO-PLAN.md §6.1, §7 (preview/apply contract), §11 phase 2.
  */
@@ -24,9 +27,6 @@ import {
   agentEnterDocument,
   agentLeaveDocument,
   agentUpdateSelection,
-  applyText,
-  hasCollabState,
-  seedFromText,
 } from "@agent-native/core/collab";
 import {
   accessFilter,
@@ -38,7 +38,12 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import { resolveSourceCapabilities } from "../shared/capability-resolver.js";
+import {
+  prepareInlineSourceEdit,
+  SourceWorkspaceEditConflictError,
+  writeInlineSourceFile,
+  type SourceWorkspaceFile,
+} from "../server/source-workspace.js";
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
@@ -48,12 +53,12 @@ import type {
   ClassEditIntent,
   StyleEditIntent,
 } from "../shared/code-layer.js";
+import { agentSelectionDescriptor } from "../shared/collab-selection.js";
 import {
   componentNameFor,
   componentNodeIdMatches,
 } from "../shared/component-model.js";
-import { hasCapability } from "../shared/design-source-capabilities.js";
-import { normalizeDesignSourceType } from "../shared/source-mode.js";
+import { designSourceTypeFromData } from "../shared/source-mode.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -119,34 +124,46 @@ export function applyRootAttributeEdit(
 async function persistEdit(file: {
   id: string;
   designId: string;
+  filename: string;
   content: string;
+  expectedVersionHash: string;
 }): Promise<string> {
   await assertAccess("design", file.designId, "editor");
-  const db = getDb();
-  const now = new Date().toISOString();
 
   agentEnterDocument(file.id);
   try {
-    await db
-      .update(schema.designFiles)
-      .set({ content: file.content, updatedAt: now })
-      .where(eq(schema.designFiles.id, file.id));
+    // Pass through the versionHash of the ACTUAL base the transform used
+    // (captured by the caller in run() at the same read as `html`, BEFORE
+    // applyRootAttributeEdit/applyVisualEdit computed `patchedContent` from
+    // it) — not a fresh re-read of the (already-transformed) content here.
+    // Re-reading the live/SQL state at persist time and hashing THAT would
+    // always match itself trivially, proving nothing about whether a sibling
+    // write landed between the transform's base read and this persist call.
+    // writeInlineSourceFile re-reads the live text immediately before its own
+    // applyText/DB write and rejects it if it no longer matches this hash —
+    // closing the race window (the same stale-diff-base bug fixed for
+    // insert-design-native-asset.ts / insert-asset.ts / apply-visual-edit.ts).
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: null,
+    };
 
-    if (await hasCollabState(file.id)) {
-      await applyText(file.id, file.content, "content", "agent");
-    } else {
-      await seedFromText(file.id, file.content);
-    }
+    const result = await writeInlineSourceFile({
+      designId: file.designId,
+      file: workspaceFile,
+      content: file.content,
+      expectedVersionHash: file.expectedVersionHash,
+    });
 
-    await db
-      .update(schema.designs)
-      .set({ updatedAt: now })
-      .where(eq(schema.designs.id, file.designId));
+    return result.updatedAt;
   } finally {
     agentLeaveDocument(file.id);
   }
-
-  return now;
 }
 
 // ─── Action ───────────────────────────────────────────────────────────────────
@@ -157,8 +174,8 @@ export default defineAction({
     "For inline/Alpine designs, edits the data-agent-native-prop-* attributes, " +
     "x-data expression, or class list of the component root via the deterministic " +
     "HTML-patch path (same seam as apply-visual-edit). " +
-    "For real-app sources, the applyEdit capability must be available; if not, " +
-    "returns ctaRequired=true without modifying any file.",
+    "For real-app sources, returns ctaRequired=true without modifying any file; " +
+    "compiled source requires a dedicated consented bridge transform.",
   schema: z.object({
     designId: z.string().describe("Design project ID"),
     nodeId: z
@@ -217,35 +234,21 @@ export default defineAction({
       .optional(),
   }),
   run: async ({ designId, nodeId, fileId, edit, source }) => {
-    const db = getDb();
-
     // ── Access check ────────────────────────────────────────────────────────
     const access = await resolveAccess("design", designId);
     if (!access) throw new Error("Design not found");
 
-    // ── Source type + capability gate ────────────────────────────────────────
-    let rawSourceType: unknown = "inline";
+    // ── Source type gate ────────────────────────────────────────────────────
     const rawData = (access.resource as { data?: unknown }).data;
-    if (typeof rawData === "string") {
-      try {
-        const parsed: unknown = JSON.parse(rawData);
-        if (
-          parsed !== null &&
-          typeof parsed === "object" &&
-          "sourceType" in (parsed as object)
-        ) {
-          rawSourceType = (parsed as { sourceType: unknown }).sourceType;
-        }
-      } catch {
-        // Default to inline.
-      }
-    }
+    const sourceType = designSourceTypeFromData(rawData);
 
-    const sourceType = normalizeDesignSourceType(rawSourceType) ?? "inline";
-    const caps = resolveSourceCapabilities(sourceType);
-
-    // Real-app sources gate on `applyEdit` (bridge write hardening).
-    if (sourceType !== "inline" && !hasCapability(caps, "applyEdit")) {
+    // Fail closed for every real-app tier even if its generic capability map
+    // advertises applyEdit. This action only knows how to patch SQL-backed HTML;
+    // allowing localhost through here could report success for the mirror while
+    // leaving the real JSX/TSX file untouched. A future compiled-source action
+    // must perform consent, canonical path resolution, AST anchoring, and an
+    // expected-version bridge write as one dedicated transaction.
+    if (sourceType !== "inline") {
       return {
         designId,
         nodeId,
@@ -253,13 +256,14 @@ export default defineAction({
         persisted: false,
         ctaRequired: true,
         ctaMessage:
-          "Prop write-back to real app sources requires the bridge applyEdit " +
-          "capability, which lands with bridge write hardening. " +
+          "Prop write-back to real app sources requires a dedicated consented, " +
+          "version-guarded compiled-source transform. " +
           "Use preview-component-prop-edit to preview without persisting.",
       };
     }
 
     await assertAccess("design", designId, "editor");
+    const db = getDb();
 
     // ── Fetch file ───────────────────────────────────────────────────────────
     const conditions = [
@@ -288,12 +292,24 @@ export default defineAction({
 
     if (!file) throw new Error("Design HTML file not found.");
 
-    if (
-      source?.currentContent &&
-      source.revision &&
-      file.updatedAt &&
-      source.revision !== file.updatedAt
-    ) {
+    const workspaceFile: SourceWorkspaceFile = {
+      id: file.id,
+      designId: file.designId,
+      filename: file.filename,
+      fileType: "html",
+      content: file.content,
+      createdAt: null,
+      updatedAt: file.updatedAt,
+    };
+    let prepared: Awaited<ReturnType<typeof prepareInlineSourceEdit>>;
+    try {
+      prepared = await prepareInlineSourceEdit({
+        file: workspaceFile,
+        currentContent: source?.currentContent,
+        revision: source?.revision,
+      });
+    } catch (error) {
+      if (!(error instanceof SourceWorkspaceEditConflictError)) throw error;
       return {
         designId,
         nodeId,
@@ -306,13 +322,12 @@ export default defineAction({
       };
     }
 
-    // Prefer explicit editor content after the caller's revision check, and use
-    // the saved SQL content as the fallback. Collab/Yjs reads can be stale
-    // across local dev worker processes and make prop controls lag behind.
-    const html =
-      typeof source?.currentContent === "string"
-        ? source.currentContent
-        : (file.content ?? "");
+    // The transform runs against the caller's working copy (when supplied),
+    // while the persist CAS uses the live hash that working copy is allowed to
+    // replace. Keeping those identities separate preserves rapid unsaved prop
+    // edits without weakening concurrent-writer rejection.
+    const html = prepared.content;
+    const baseVersionHash = prepared.expectedVersionHash;
 
     // ── Resolve node ─────────────────────────────────────────────────────────
     const codeLayerSource: CodeLayerSource = {
@@ -342,70 +357,12 @@ export default defineAction({
       );
     }
 
-    // ── Build edit intent ────────────────────────────────────────────────────
-    // Map the component prop edit kind to an EditIntent that apply-visual-edit
-    // understands.  We use the same deterministic patch path for all kinds.
-
-    const target = { nodeId };
-
-    let intent: ClassEditIntent | StyleEditIntent;
-
-    if (edit.kind === "alpineData") {
-      // x-data is not a standard CSS property or Tailwind class — we write it
-      // as a style-like "attribute" edit by embedding it in the class edit path
-      // via the `set` operation on a synthetic class string.  Because the HTML
-      // patcher writes raw attribute values we use the attribute-set approach
-      // that `apply-visual-edit` already supports through the `style` path
-      // (targeting `x-data` as a custom property in an inline `style`
-      // attribute would corrupt the DOM, so instead we encode the value in a
-      // `data-agent-native-alpine-data` attribute and let the bridge pick it
-      // up).  For maximum compatibility with the existing apply-visual-edit
-      // path we use a class operation to manipulate the x-data value through a
-      // well-known pattern the bridge understands.
-      //
-      // The cleanest path is to write `data-agent-native-alpine-data` as an
-      // attribute so the iframe bridge can relay it to Alpine as the effective
-      // x-data — but since the bridge postMessage layer handles x-data edits
-      // on preview, for the persist path we do a direct HTML attribute patch.
-      // We accomplish this by treating it as a `style` edit on a sentinel
-      // property that the patcher will place as an attribute.  However the
-      // current patcher only handles CSS properties, so we write the x-data
-      // value through the attribute approach: stamp `data-agent-native-prop-x-data`.
-      intent = {
-        kind: "class",
-        target,
-        // Use the `set` operation with a minimal token list to mark the node's
-        // Alpine data without touching real layout classes.  The actual x-data
-        // attribute is written below via a direct HTML splice.
-        operation: "add",
-        className: `data-[x-data=${JSON.stringify(edit.value)}]:hidden`, // sentinel (will not apply visually)
-      } as ClassEditIntent;
-      // Fall through to the direct HTML splice below.
-    } else if (edit.kind === "classReplace") {
-      intent = {
-        kind: "class",
-        target,
-        operation: "replace",
-        from: edit.from,
-        to: edit.to,
-      } as ClassEditIntent;
-    } else {
-      // attribute kind — write as a class add of a data-attribute sentinel so
-      // the existing patcher path handles it, then fall through to the direct
-      // splice for the actual attribute patch.
-      intent = {
-        kind: "class",
-        target,
-        operation: "add",
-        className: `data-[prop-${edit.attribute}]:hidden`, // sentinel
-      } as ClassEditIntent;
-    }
-
-    // ── Direct HTML splice for attribute edits (alpineData + attribute) ──────
-    // The existing apply-visual-edit patcher is class/style/text focused.  For
-    // attribute mutations on the component root we splice the raw HTML directly
-    // using the node's source span (the same technique the patcher uses for
-    // attribute stamping).
+    // ── Apply the edit ───────────────────────────────────────────────────────
+    // - alpineData / attribute: attribute mutations on the component root are
+    //   applied with a direct HTML splice using the node's source span — the
+    //   deterministic patcher is class/style/text focused.
+    // - classReplace: routed through the deterministic apply-visual-edit
+    //   patcher (same seam as all other class edits).
 
     let patchedContent = html;
     let changed = false;
@@ -420,8 +377,15 @@ export default defineAction({
       );
       patchedContent = result.content;
       changed = result.changed;
-    } else if (edit.kind === "classReplace") {
-      // Use the deterministic patcher for class edits.
+    } else {
+      // classReplace — use the deterministic patcher for class edits.
+      const intent: ClassEditIntent = {
+        kind: "class",
+        target: { nodeId },
+        operation: "replace",
+        from: edit.from,
+        to: edit.to,
+      };
       const patch = applyVisualEdit(html, intent, { source: codeLayerSource });
       if (patch.result.status === "applied" && patch.result.changed) {
         patchedContent = patch.content;
@@ -436,11 +400,16 @@ export default defineAction({
       const updatedAt = await persistEdit({
         id: file.id,
         designId: file.designId,
+        filename: file.filename,
         content: patchedContent,
+        expectedVersionHash: baseVersionHash,
       });
 
       agentUpdateSelection(file.id, {
-        selection: node.selector,
+        selection: agentSelectionDescriptor(
+          { nodeId, selector: node.selector },
+          "Editing component",
+        ),
         nodeId,
         editingFile: file.filename,
         designId: file.designId,

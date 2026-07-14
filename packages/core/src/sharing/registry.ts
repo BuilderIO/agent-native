@@ -61,6 +61,13 @@ export interface ShareableResourceRegistration {
    * this so public visibility remains viewer-only. Use narrowly for local or
    * otherwise constrained resources where the resource owner intentionally wants
    * unauthenticated link holders to do more than view.
+   *
+   * When this is a function, it may read arbitrary fields on the resource row
+   * (not just the ownership/visibility columns). Because of that,
+   * `resolveAccess`/`assertAccess`'s opt-in `{ skipResourceBody: true }`
+   * projected load (see `access.ts`) is automatically ignored for this
+   * registration and always loads the full row instead — a fixed role string
+   * has no such requirement and is compatible with the projection.
    */
   publicAccessRole?:
     | "viewer"
@@ -105,6 +112,25 @@ export interface ShareableResourceRegistration {
    * Default: `false`.
    */
   ownerAccessIgnoresOrg?: boolean;
+  /**
+   * Optional external-agent read handoff. When set, the framework-level
+   * `create-agent-resource-link` action can mint a short-lived, read-only
+   * `agent_access` URL for this resource. The context endpoint is owned by the
+   * template so it can expose the same intentionally shareable shape as the
+   * public page, not a generic raw database row.
+   */
+  agentReadable?:
+    | false
+    | {
+        /** Token scope. Include the app name to avoid cross-app collisions. */
+        resourceKind: string;
+        /** App-relative JSON endpoint that accepts `id` + `agent_access`. */
+        getContextPath: (resource: any) => string | undefined;
+        /** Optional override for the page URL. Defaults to getResourcePath. */
+        getPagePath?: (resource: any) => string | undefined;
+        /** Optional override for the default two-hour token lifetime. */
+        ttlSeconds?: number;
+      };
 }
 
 // Stash the registry on globalThis so it survives SSR bundle duplication.

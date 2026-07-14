@@ -2,7 +2,6 @@ import {
   IconX,
   IconPlus,
   IconHistory,
-  IconSearch,
   IconLink,
   IconLinkOff,
   IconCheck,
@@ -17,8 +16,9 @@ import React, {
 
 import { DEFAULT_MODEL } from "../agent/default-model.js";
 import {
-  getReasoningEffortOptionsForModel,
+  DEFAULT_REASONING_EFFORT,
   isReasoningEffort,
+  resolveReasoningEffortSelection,
   type ReasoningEffort,
 } from "../shared/reasoning-effort.js";
 import {
@@ -26,10 +26,14 @@ import {
   AGENT_CHAT_REMOVE_CONTEXT_MESSAGE_TYPE,
   AGENT_CHAT_SET_CONTEXT_MESSAGE_TYPE,
   appendAgentChatContextToMessage,
+  claimAgentChatOpenRequest,
   claimAgentChatSubmit,
+  drainBufferedAgentChatOpenRequests,
   drainBufferedAgentChatSubmits,
+  isAgentChatSubmitCancelled,
   normalizeAgentChatContextItem,
   parseSubmitChatMessage,
+  reportAgentChatSubmitResult,
   type AgentChatContextItem,
 } from "./agent-chat.js";
 import { agentNativePath, appPath } from "./api-path.js";
@@ -43,6 +47,11 @@ import {
   type EngineModelGroup,
 } from "./chat-model-groups.js";
 import {
+  ChatHistoryList,
+  type ChatHistoryItem,
+  type ChatHistorySection,
+} from "./chat/ChatHistoryList.js";
+import {
   Popover,
   PopoverAnchor,
   PopoverContent,
@@ -55,8 +64,10 @@ import {
   TooltipTrigger,
 } from "./components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "./frame.js";
+import { KeepTabOpenNotice } from "./KeepTabOpenNotice.js";
 import { RunStuckBanner } from "./RunStuckBanner.js";
 import { callAction } from "./use-action.js";
+import { useChangeVersion } from "./use-change-version.js";
 import {
   useChatThreads,
   type ChatThreadScope,
@@ -76,6 +87,8 @@ interface PendingSend {
   submit: boolean;
   trackInRunsTray?: boolean;
   requestMode?: "act" | "plan";
+  /** Correlates with `AGENT_CHAT_SUBMIT_RESULT_EVENT` — see agent-chat.ts. */
+  submitMessageId?: string;
 }
 
 /**
@@ -90,14 +103,18 @@ interface PendingDelivery {
 
 /** The single path that hands a queued send to a mounted chat ref. */
 function deliverPendingSend(ref: AssistantChatHandle, send: PendingSend): void {
+  if (isAgentChatSubmitCancelled(send.submitMessageId)) return;
   if (!send.submit) {
     ref.prefillMessage(send.message);
     return;
   }
-  if (send.trackInRunsTray || send.requestMode) {
+  if (send.trackInRunsTray || send.requestMode || send.submitMessageId) {
     ref.sendMessage(send.message, send.images, {
       ...(send.trackInRunsTray ? { trackInRunsTray: true } : {}),
       ...(send.requestMode ? { requestMode: send.requestMode } : {}),
+      ...(send.submitMessageId
+        ? { submitMessageId: send.submitMessageId }
+        : {}),
     });
   } else {
     ref.sendMessage(send.message, send.images);
@@ -117,7 +134,10 @@ function readStoredModelSelection(key: string): ModelSelection | undefined {
     }
     const selection: ModelSelection = {
       model: parsed.model,
-      effort: isReasoningEffort(parsed.effort) ? parsed.effort : "auto",
+      effort: resolveReasoningEffortSelection(
+        parsed.model,
+        isReasoningEffort(parsed.effort) ? parsed.effort : undefined,
+      ),
     };
     if (typeof parsed.engine === "string") selection.engine = parsed.engine;
     return selection;
@@ -139,14 +159,12 @@ function resolveModelSelection(
 ): ModelSelection | undefined {
   if (!selection?.model) return undefined;
   if (groups.length === 0) {
-    const requestedEffort = selection.effort ?? "auto";
-    const effortOptions = getReasoningEffortOptionsForModel(selection.model);
     return {
       model: selection.model,
-      effort:
-        requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-          ? requestedEffort
-          : "auto",
+      effort: resolveReasoningEffortSelection(
+        selection.model,
+        selection.effort,
+      ),
     };
   }
   const preferredGroup = groups.find(
@@ -164,12 +182,10 @@ function resolveModelSelection(
     preferredGroup?.engine ?? fallbackGroup?.engine ?? selection.engine;
   if (!engine && groups.length > 0) return undefined;
 
-  const requestedEffort = selection.effort ?? "auto";
-  const effortOptions = getReasoningEffortOptionsForModel(selection.model);
-  const effort =
-    requestedEffort === "auto" || effortOptions.includes(requestedEffort)
-      ? requestedEffort
-      : "auto";
+  const effort = resolveReasoningEffortSelection(
+    selection.model,
+    selection.effort,
+  );
   const resolved: ModelSelection = { model: selection.model, effort };
   if (engine) resolved.engine = engine;
   return resolved;
@@ -281,7 +297,7 @@ function ScopeBadge({
         <PopoverTrigger asChild>
           <button
             type="button"
-            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground shadow-[0_-8px_24px_hsl(var(--background)/0.72)] transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
+            className="inline-flex h-7 min-w-0 max-w-full cursor-pointer items-center gap-1.5 rounded-t-lg border border-b-0 border-input bg-background px-3 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground sm:max-w-72"
             aria-label={heading}
           >
             <IconLink size={11} className="shrink-0 opacity-70" />
@@ -432,6 +448,8 @@ function HistoryPopover({
   onClose,
   onLoadMore,
   onSearch,
+  onTogglePin,
+  onRename,
 }: {
   threads: ChatThreadSummary[];
   openTabIds: Set<string>;
@@ -444,6 +462,11 @@ function HistoryPopover({
   onClose: () => void;
   onLoadMore?: () => void;
   onSearch?: (query: string) => Promise<ChatThreadSummary[]>;
+  /** Presence enables the pin/unpin row action. Receives the thread's
+   * current pinned state so the caller can flip it. */
+  onTogglePin?: (id: string, pinned: boolean) => void;
+  /** Presence enables the inline rename row action. */
+  onRename?: (id: string, nextTitle: string) => void;
 }) {
   const [search, setSearch] = useState("");
   const [searchResults, setSearchResults] = useState<
@@ -500,18 +523,26 @@ function HistoryPopover({
       )
     : visibleThreads;
 
-  // When scope is set we split history into two sections so the user can
-  // see "this deck's chats" first without losing access to general /
+  // Pinned threads always float to the top of `threads` already (see
+  // `sortThreadSummaries` in use-chat-threads.ts and the matching server
+  // ORDER BY), but pulling them into their own labeled section — instead of
+  // just relying on sort order within "All chats" — makes the pin affordance
+  // visible at a glance, matching common chat-history UX.
+  const pinnedThreads = filtered.filter((t) => t.pinnedAt != null);
+  const unpinnedThreads = filtered.filter((t) => t.pinnedAt == null);
+
+  // When scope is set we split (unpinned) history into two sections so the
+  // user can see "this deck's chats" first without losing access to general /
   // other-deck chats. Section labels intentionally use the current
   // resource type (deck/design/dashboard) instead of a generic phrase.
   const sectionedThreads = currentScope
     ? {
-        scoped: filtered.filter(
+        scoped: unpinnedThreads.filter(
           (t) =>
             t.scope?.type === currentScope.type &&
             t.scope?.id === currentScope.id,
         ),
-        other: filtered.filter(
+        other: unpinnedThreads.filter(
           (t) =>
             !t.scope ||
             t.scope.type !== currentScope.type ||
@@ -519,6 +550,53 @@ function HistoryPopover({
         ),
       }
     : null;
+
+  const toHistoryItem = (thread: ChatThreadSummary): ChatHistoryItem => {
+    const isActive = thread.id === activeThreadId;
+    const title = thread.title || thread.preview || "Chat";
+    return {
+      id: thread.id,
+      title,
+      titleText: title,
+      subtitle:
+        thread.preview && thread.title !== thread.preview
+          ? thread.preview
+          : undefined,
+      detail: thread.scope?.label || undefined,
+      timestamp: isActive
+        ? "Active"
+        : openTabIds.has(thread.id)
+          ? "Open"
+          : formatThreadTime(thread.updatedAt),
+      pinned: thread.pinnedAt != null,
+    };
+  };
+
+  const historySections: ChatHistorySection[] = [
+    ...(pinnedThreads.length > 0
+      ? [
+          {
+            id: "pinned",
+            label: "Pinned",
+            items: pinnedThreads.map(toHistoryItem),
+          },
+        ]
+      : []),
+    ...(sectionedThreads
+      ? [
+          {
+            id: "scoped",
+            label: `This ${currentScope!.type}`,
+            items: sectionedThreads.scoped.map(toHistoryItem),
+          },
+          {
+            id: "other",
+            label: "All chats",
+            items: sectionedThreads.other.map(toHistoryItem),
+          },
+        ]
+      : [{ id: "all", items: unpinnedThreads.map(toHistoryItem) }]),
+  ];
 
   return (
     <Popover open onOpenChange={(open) => !open && onClose()}>
@@ -535,90 +613,45 @@ function HistoryPopover({
         }}
         className="w-72 rounded-lg p-0"
       >
-        <div className="flex items-center gap-2 px-3 py-2 border-b border-border">
-          <IconSearch size={13} />
-          <input
-            ref={inputRef}
-            type="text"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search chats..."
-            className="flex-1 bg-transparent text-xs text-foreground placeholder:text-muted-foreground outline-none"
-          />
-        </div>
-        <div className="max-h-64 overflow-y-auto py-1">
-          {loadError && !search.trim() ? (
-            <div className="px-3 py-4 text-xs text-amber-500 text-center">
-              {loadError}
-            </div>
-          ) : isSearching ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              Searching...
-            </div>
-          ) : filtered.length === 0 ? (
-            <div className="px-3 py-4 text-xs text-muted-foreground text-center">
-              {search ? "No matching chats" : "No chats yet"}
-            </div>
-          ) : sectionedThreads ? (
-            <>
-              {sectionedThreads.scoped.length > 0 && (
-                <>
-                  <div className="px-3 pt-1.5 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    This {currentScope!.type}
-                  </div>
-                  {sectionedThreads.scoped.map((thread) =>
-                    renderThreadRow(
-                      thread,
-                      activeThreadId,
-                      openTabIds,
-                      formatThreadTime,
-                      onSelect,
-                      onClose,
-                    ),
-                  )}
-                </>
-              )}
-              {sectionedThreads.other.length > 0 && (
-                <>
-                  <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wider text-muted-foreground/70">
-                    All chats
-                  </div>
-                  {sectionedThreads.other.map((thread) =>
-                    renderThreadRow(
-                      thread,
-                      activeThreadId,
-                      openTabIds,
-                      formatThreadTime,
-                      onSelect,
-                      onClose,
-                    ),
-                  )}
-                </>
-              )}
-            </>
-          ) : (
-            filtered.map((thread) =>
-              renderThreadRow(
-                thread,
-                activeThreadId,
-                openTabIds,
-                formatThreadTime,
-                onSelect,
-                onClose,
-              ),
-            )
-          )}
-          {!search.trim() && hasMoreThreads && (
-            <button
-              type="button"
-              onClick={() => onLoadMore?.()}
-              disabled={isLoadingMoreThreads}
-              className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
-            >
-              {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
-            </button>
-          )}
-        </div>
+        <ChatHistoryList
+          sections={historySections}
+          activeId={activeThreadId}
+          onSelect={(id) => {
+            onSelect(id);
+            onClose();
+          }}
+          onTogglePin={
+            onTogglePin
+              ? (id) => {
+                  const isPinned =
+                    threads.find((t) => t.id === id)?.pinnedAt != null;
+                  onTogglePin(id, !isPinned);
+                }
+              : undefined
+          }
+          onRename={onRename}
+          searchValue={search}
+          onSearchChange={setSearch}
+          searchPlaceholder="Search chats..."
+          searchInputRef={inputRef}
+          loading={isSearching}
+          loadingLabel="Searching..."
+          error={loadError && !search.trim() ? loadError : undefined}
+          emptyLabel="No chats yet"
+          emptySearchLabel="No matching chats"
+          footer={
+            !search.trim() && hasMoreThreads ? (
+              <button
+                type="button"
+                onClick={() => onLoadMore?.()}
+                disabled={isLoadingMoreThreads}
+                className="mx-1 mt-1 flex w-[calc(100%-0.5rem)] items-center justify-center rounded-md px-3 py-2 text-xs text-muted-foreground hover:bg-accent hover:text-foreground disabled:cursor-default disabled:opacity-60"
+              >
+                {isLoadingMoreThreads ? "Loading..." : "Load older chats"}
+              </button>
+            ) : undefined
+          }
+        />
       </PopoverContent>
     </Popover>
   );
@@ -1062,6 +1095,8 @@ export function MultiTabAssistantChat({
     isLoadingMoreThreads,
     threadsLoadError,
     isNewThread,
+    pinThread,
+    renameThread,
   } = useChatThreads(apiUrl, storageKey, scope, {
     restoreActiveThread,
     routeThreadId: threadUrlSyncEnabled ? urlThreadId : undefined,
@@ -1093,7 +1128,27 @@ export function MultiTabAssistantChat({
   );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
+  const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    setPageOverlayScrolled(false);
+  }, [activeThreadId]);
+
+  const handlePageOverlayScroll = useCallback(
+    (event: React.UIEvent<HTMLDivElement>) => {
+      const target = event.target;
+      if (
+        !renderOverlay ||
+        !(target instanceof HTMLElement) ||
+        !target.closest(".agent-chat-scroll")
+      ) {
+        return;
+      }
+      setPageOverlayScrolled(target.scrollTop > 1);
+    },
+    [renderOverlay],
+  );
 
   // ─── Model state ─────────────────────────────────────────────────────────
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
@@ -1188,12 +1243,7 @@ export function MultiTabAssistantChat({
       const threadId = activeThreadIdRef.current;
       if (!threadId) return;
       const existing = threadModelRef.current.get(threadId);
-      const existingEffort = existing?.effort ?? "auto";
-      const effortOptions = getReasoningEffortOptionsForModel(model);
-      const effort =
-        existingEffort === "auto" || effortOptions.includes(existingEffort)
-          ? existingEffort
-          : "auto";
+      const effort = resolveReasoningEffortSelection(model, existing?.effort);
       const selection = { model, engine, effort };
       threadModelRef.current.set(threadId, selection);
       persistModelSelection(selection);
@@ -1764,6 +1814,7 @@ export function MultiTabAssistantChat({
         background,
         submit,
         images,
+        submitMessageId,
       } = parsed;
       const requestedTabId = parsed.tabId;
       const requestMode =
@@ -1774,7 +1825,14 @@ export function MultiTabAssistantChat({
       if (openSidebar !== false && !background) {
         window.dispatchEvent(new CustomEvent("agent-panel:open"));
       }
-      if (postMessageSubmissionsDisabled) return;
+      if (postMessageSubmissionsDisabled) {
+        reportAgentChatSubmitResult(
+          submitMessageId,
+          false,
+          "composer-disabled",
+        );
+        return;
+      }
 
       // Plan mode is sent as request metadata by the chat adapter. Keep the
       // user-visible message clean so mode instructions never enter history.
@@ -1788,22 +1846,21 @@ export function MultiTabAssistantChat({
         submit,
         ...(background ? { trackInRunsTray: true } : {}),
         ...(requestMode ? { requestMode } : {}),
+        ...(submitMessageId ? { submitMessageId } : {}),
       };
 
       const sendToTab = (threadId: string) => {
+        if (isAgentChatSubmitCancelled(submitMessageId)) return;
         // If a model override was specified, apply it only if we recognize it
         if (model) {
           const matchedGroup = availableModels.find((g) =>
             g.models.includes(model),
           );
           if (matchedGroup) {
-            const requestedEffort = isReasoningEffort(effort) ? effort : "auto";
-            const effortOptions = getReasoningEffortOptionsForModel(model);
-            const selectedEffort =
-              requestedEffort === "auto" ||
-              effortOptions.includes(requestedEffort)
-                ? requestedEffort
-                : "auto";
+            const selectedEffort = resolveReasoningEffortSelection(
+              model,
+              isReasoningEffort(effort) ? effort : undefined,
+            );
             threadModelRef.current.set(threadId, {
               model,
               engine: matchedGroup.engine,
@@ -1823,8 +1880,17 @@ export function MultiTabAssistantChat({
 
       if (newTab) {
         const previousTabId = activeThreadIdRef.current;
-        createThread(requestedTabId).then((newId) => {
-          if (newId) {
+        createThread(requestedTabId)
+          .then((newId) => {
+            if (isAgentChatSubmitCancelled(submitMessageId)) return;
+            if (!newId) {
+              reportAgentChatSubmitResult(
+                submitMessageId,
+                false,
+                "thread-create-failed",
+              );
+              return;
+            }
             newThreadIds.current.add(newId);
             if (background) {
               mountedTabsRef.current.add(newId);
@@ -1839,8 +1905,14 @@ export function MultiTabAssistantChat({
             if (background && previousTabId) {
               switchThreadState(previousTabId);
             }
-          }
-        });
+          })
+          .catch(() => {
+            reportAgentChatSubmitResult(
+              submitMessageId,
+              false,
+              "thread-create-failed",
+            );
+          });
       } else {
         const currentTabId = activeThreadIdRef.current;
         if (currentTabId) {
@@ -1898,6 +1970,7 @@ export function MultiTabAssistantChat({
     const active = activeThreadIdRef.current;
     const remaining: PendingDelivery[] = [];
     for (const delivery of pendingDeliveries.current) {
+      if (isAgentChatSubmitCancelled(delivery.send.submitMessageId)) continue;
       const threadId = delivery.threadId ?? active ?? null;
       const ref = threadId ? chatRefs.current.get(threadId) : null;
       if (threadId && ref) {
@@ -2087,11 +2160,30 @@ export function MultiTabAssistantChat({
   useEffect(() => {
     const handleOpenThread = (event: Event) => {
       const detail = (event as CustomEvent).detail as
-        | { threadId?: unknown; newThread?: unknown }
+        | {
+            threadId?: unknown;
+            newThread?: unknown;
+            onlyIfActiveThreadId?: unknown;
+            openRequestId?: unknown;
+          }
         | undefined;
       const threadId =
         typeof detail?.threadId === "string" ? detail.threadId : "";
-      if (!threadId) return;
+      if (!detail || !threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
+
+      const onlyIfActiveThreadId =
+        typeof detail.onlyIfActiveThreadId === "string"
+          ? detail.onlyIfActiveThreadId.trim()
+          : "";
+      const activeThreadId = activeThreadIdRef.current;
+      if (
+        onlyIfActiveThreadId &&
+        activeThreadId &&
+        activeThreadId !== onlyIfActiveThreadId
+      ) {
+        return;
+      }
 
       if (detail?.newThread === true) {
         newThreadIds.current.add(threadId);
@@ -2143,6 +2235,7 @@ export function MultiTabAssistantChat({
       const detail = (e as CustomEvent).detail;
       const threadId = detail?.threadId;
       if (!threadId) return;
+      if (!claimAgentChatOpenRequest(detail.openRequestId)) return;
       dismissedSubAgentTabsRef.current.delete(threadId);
       // Prefer an explicit parent (RunsTray/background hydration knows it);
       // inline task cards fall back to the active orchestrator thread.
@@ -2196,13 +2289,26 @@ export function MultiTabAssistantChat({
     return () => window.removeEventListener("agent-task-open", handleOpenTask);
   }, [openTabIds, switchThread, refreshThreads, parentMap]);
 
-  // Watch for agent-issued chat-command in application-state
+  // Replay thread/task opens requested before this lazy panel's listeners
+  // attached. Live events claim their id; replay drains only unclaimed requests.
+  useEffect(() => {
+    const buffered = drainBufferedAgentChatOpenRequests();
+    for (const request of buffered) {
+      window.dispatchEvent(
+        new CustomEvent(request.eventType, { detail: request.detail }),
+      );
+    }
+  }, []);
+
+  // Watch for agent-issued chat-command in application-state. The shared
+  // DB-sync transport advances this key-specific version, so the command gets
+  // one initial read and one read per actual write instead of a 2s loop.
   const lastChatCommandRef = useRef(0);
+  const chatCommandVersion = useChangeVersion("app-state:chat-command");
   useEffect(() => {
     let stopped = false;
-    let timer: ReturnType<typeof setTimeout> | null = null;
 
-    async function pollChatCommand() {
+    async function readChatCommand() {
       if (stopped) return;
       try {
         const res = await fetch(
@@ -2218,9 +2324,9 @@ export function MultiTabAssistantChat({
             lastChatCommandRef.current = data.value.timestamp;
             const threadId = data.value.threadId as string;
             // Open the thread as a tab and focus it
-            if (!openTabIds.includes(threadId)) {
-              setOpenTabIds((prev) => [...prev, threadId]);
-            }
+            setOpenTabIds((prev) =>
+              prev.includes(threadId) ? prev : [...prev, threadId],
+            );
             switchThread(threadId);
             // Clear the command
             fetch(
@@ -2233,17 +2339,13 @@ export function MultiTabAssistantChat({
           }
         }
       } catch {}
-      if (!stopped) {
-        timer = setTimeout(pollChatCommand, 2000);
-      }
     }
 
-    pollChatCommand();
+    void readChatCommand();
     return () => {
       stopped = true;
-      if (timer) clearTimeout(timer);
     };
-  }, [openTabIds, switchThread]);
+  }, [chatCommandVersion, switchThread]);
 
   const handleGenerateTitle = useCallback(
     (threadId: string, message: string) => {
@@ -2594,7 +2696,13 @@ export function MultiTabAssistantChat({
           : null}
 
       {/* Chat content with optional overlay */}
-      <div className="relative flex-1 flex flex-col min-h-0">
+      <div
+        className="relative flex-1 flex flex-col min-h-0"
+        data-agent-page-chat-scrolled={
+          renderOverlay && pageOverlayScrolled ? "" : undefined
+        }
+        onScrollCapture={renderOverlay ? handlePageOverlayScroll : undefined}
+      >
         {renderOverlay ? renderOverlay(headerProps) : null}
 
         {/* History popover — rendered inside relative container so positioning works */}
@@ -2611,6 +2719,8 @@ export function MultiTabAssistantChat({
             onClose={() => setShowHistory(false)}
             onLoadMore={loadMoreThreads}
             onSearch={searchThreads}
+            onTogglePin={pinThread}
+            onRename={renameThread}
           />
         )}
 
@@ -2667,9 +2777,20 @@ export function MultiTabAssistantChat({
                     contentHidden || tabId !== activeThreadId ? "none" : "flex",
                 }}
               >
+                <KeepTabOpenNotice
+                  threadId={tabId}
+                  enabled={tabId === activeThreadId}
+                  apiUrl={apiUrl}
+                />
                 <RunStuckBanner
                   threadId={tabId}
+                  enabled={tabId === activeThreadId}
                   apiUrl={apiUrl}
+                  autoRetry
+                  autoRetryOwnerId={browserTabId}
+                  hasInFlightWork={() =>
+                    chatRefs.current.get(tabId)?.hasInFlightWork() ?? false
+                  }
                   onRetry={() => {
                     const handle = chatRefs.current.get(tabId);
                     handle?.sendRecoveryMessage(
@@ -2714,7 +2835,9 @@ export function MultiTabAssistantChat({
                   onSlashCommand={handleSlashCommand}
                   selectedModel={modelSelection?.model}
                   selectedEngine={modelSelection?.engine}
-                  selectedEffort={modelSelection?.effort ?? "auto"}
+                  selectedEffort={
+                    modelSelection?.effort ?? DEFAULT_REASONING_EFFORT
+                  }
                   composerSlot={composerSlot}
                   defaultModel={defaultModel}
                   availableModels={availableModels}

@@ -212,9 +212,87 @@ registerRequiredSecret({
   key: "SLACK_BOT_TOKEN",
   label: "Slack Bot Token (legacy)",
   description:
-    "Legacy single-workspace bot token fallback for Clips link unfurls. New installs should use the Slack OAuth connect flow.",
+    "Legacy single-workspace bot token fallback for Clips link unfurls. New installs should use the Clips Slack workspace connection; new messaging automations should connect Slack in Settings > Messaging.",
   docsUrl: "https://api.slack.com/apps",
   scope: "workspace",
   kind: "api-key",
   required: false,
+});
+
+// ── Dark-launched media worker plumbing ──────────────────────────────
+// These are optional until the ai-services worker is deployed. When enabled,
+// Clips enqueues background video compression jobs there instead of using
+// Builder's existing compress-media endpoint.
+
+registerRequiredSecret({
+  key: "CLIPS_DISABLE_BUILDER_COMPRESSION",
+  label: "Disable Builder media compression",
+  description:
+    "Emergency kill switch for Clips background calls to Builder's compress-media endpoint.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    const normalized = value.trim().toLowerCase();
+    return ["true", "1", "yes", "on", "false", "0", "no", "off"].includes(
+      normalized,
+    )
+      ? true
+      : { ok: false, error: "Use true/1/yes/on or false/0/no/off." };
+  },
+});
+
+registerRequiredSecret({
+  key: "CLIPS_MEDIA_WORKER_ENABLED",
+  label: "Clips media worker enabled",
+  description:
+    "Boolean flag for the upcoming ai-services media worker. Leave unset or false until the worker endpoint is deployed.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    const normalized = value.trim().toLowerCase();
+    return ["true", "1", "yes", "on", "false", "0", "no", "off"].includes(
+      normalized,
+    )
+      ? true
+      : { ok: false, error: "Use true/1/yes/on or false/0/no/off." };
+  },
+});
+
+registerRequiredSecret({
+  key: "CLIPS_MEDIA_WORKER_URL",
+  label: "Clips media worker URL",
+  description:
+    "Absolute enqueue endpoint URL for the upcoming ai-services media worker.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    try {
+      new URL(value);
+      return true;
+    } catch {
+      return { ok: false, error: "Enter an absolute URL." };
+    }
+  },
+});
+
+registerRequiredSecret({
+  key: "CLIPS_MEDIA_WORKER_SECRET",
+  label: "Clips media worker signing secret",
+  description:
+    "Shared HMAC secret used to sign media-worker enqueue requests and verify callbacks.",
+  scope: "workspace",
+  kind: "api-key",
+  required: false,
+  validator: (value) => {
+    if (!value) return true;
+    return value.length >= 24
+      ? true
+      : { ok: false, error: "Use at least 24 characters." };
+  },
 });

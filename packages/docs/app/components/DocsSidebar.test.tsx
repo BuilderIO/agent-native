@@ -1,9 +1,14 @@
+import { existsSync } from "node:fs";
+import { join } from "node:path";
+
 import { AgentNativeI18nProvider } from "@agent-native/core/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
 import { describe, expect, it } from "vitest";
 
 import { docsI18nCatalog } from "../i18n";
+import { docsSlugFromPathname } from "./docs-locale";
+import { getDocsNavItems } from "./docsNavItems";
 import DocsSidebar from "./DocsSidebar";
 
 function renderSidebar(path: string) {
@@ -31,7 +36,45 @@ function getLinkMarkup(html: string, href: string) {
   return match[0];
 }
 
+function docsContentDir() {
+  const candidates = [
+    join(process.cwd(), "../core/docs/content"),
+    join(process.cwd(), "packages/core/docs/content"),
+  ];
+  const dir = candidates.find((candidate) => existsSync(candidate));
+
+  if (!dir) {
+    throw new Error(
+      `Could not find docs content directory from ${process.cwd()}`,
+    );
+  }
+
+  return dir;
+}
+
+function hasDocSource(slug: string) {
+  const contentDir = docsContentDir();
+  return [".mdx", ".md"].some((extension) =>
+    existsSync(join(contentDir, `${slug}${extension}`)),
+  );
+}
+
 describe("DocsSidebar", () => {
+  it("keeps every nav destination backed by a docs source file", () => {
+    const missing = getDocsNavItems()
+      .map((item) => ({
+        path: item.to,
+        slug: docsSlugFromPathname(item.to),
+      }))
+      .filter(
+        (item): item is { path: string; slug: string } =>
+          typeof item.slug === "string",
+      )
+      .filter((item) => !hasDocSource(item.slug));
+
+    expect(missing).toEqual([]);
+  });
+
   it("keeps the overview section expanded without a toggle", () => {
     const html = renderSidebar("/docs");
 
@@ -70,6 +113,24 @@ describe("DocsSidebar", () => {
     expect(mainDocLink).toContain("sidebar-sublink");
     expect(html).toContain('href="/docs/pr-visual-recap"');
     expect(html).toContain('href="/docs/plan-plugin"');
+  });
+
+  it("renders Toolkits as a top-level section with focused docs", () => {
+    const html = renderSidebar("/docs/toolkit-collaboration");
+    const toolkitLinks = getDocsNavItems().filter(
+      (item) =>
+        item.to === "/docs/agent-native-toolkit" ||
+        item.to.startsWith("/docs/toolkit-"),
+    );
+
+    expect(html).toContain("Toolkit");
+    expect(toolkitLinks.length).toBeGreaterThan(0);
+    for (const item of toolkitLinks) {
+      expect(html).toContain(`href="${item.to}"`);
+    }
+
+    const activeLink = getLinkMarkup(html, "/docs/toolkit-collaboration");
+    expect(activeLink).toContain("is-active");
   });
 
   it("expands the Apps section and the Plans group on a plan sub-doc", () => {

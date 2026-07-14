@@ -263,11 +263,8 @@ export default createCollabPlugin({
 ### 4. Utilice el gancho del cliente
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -369,12 +366,14 @@ Importar presencia del lado del cliente y editor UI desde la subruta del navegad
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 Los asistentes de presencia del agente del lado del servidor permanecen en el paquete de colaboración de nivel inferior:
@@ -460,7 +459,7 @@ El agente (AGENT_CLIENT_ID) aparece como un participante de primera clase con `i
 Representa cursores remotos como etiquetas absolutamente posicionadas sobre un elemento contenedor:
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -480,7 +479,7 @@ El cursor del agente se muestra claramente con un icono brillante. Los cursores 
 Representa anillos de contorno de colores + etiquetas de nombre sobre elementos seleccionados de forma remota:
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}

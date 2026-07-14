@@ -67,6 +67,129 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("injects Clay's public API key with the official header", async () => {
+    const fakeKey = "clay-test-example-key";
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "CLAY_PUBLIC_API_KEY" ? fakeKey : null,
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "clay",
+      path: "/me",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.clay.com/public/v0/me",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          "clay-api-key": fakeKey,
+        }),
+      }),
+    );
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(headers).not.toHaveProperty("Authorization");
+  });
+
+  it("keeps Clay requests on the exact official API origin", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "clay",
+        path: "https://developers.clay.com/openapi.json",
+      }),
+    ).rejects.toThrow(/must stay on the configured provider host/);
+    await expect(
+      runtime.executeRequest({
+        provider: "clay",
+        path: "https://preview.api.clay.com/public/v0/me",
+      }),
+    ).rejects.toThrow(/must stay on the configured provider host/);
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(resolveCredential).not.toHaveBeenCalled();
+  });
+
+  it("redacts Clay API keys from provider responses", async () => {
+    const fakeKey = "clay-test-example-key";
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "CLAY_PUBLIC_API_KEY" ? fakeKey : null,
+    );
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          echoedKey: fakeKey,
+          message: `request used ${fakeKey}`,
+        }),
+        {
+          status: 401,
+          headers: {
+            "content-type": "application/json",
+            "x-debug-key": fakeKey,
+          },
+        },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const result = (await runtime.executeRequest({
+      provider: "clay",
+      path: "/me",
+    })) as any;
+
+    expect(result.response.json).toEqual({
+      echoedKey: "[redacted]",
+      message: "request used [redacted]",
+    });
+    expect(result.response.headers["x-debug-key"]).toBe("[redacted]");
+    expect(JSON.stringify(result)).not.toContain(fakeKey);
+  });
+
+  it("exposes Clay's official catalog and docs metadata", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["clay"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    const [catalogEntry] = (await runtime.listCatalog("clay")) as any[];
+    const docs = (await runtime.fetchDocs({ provider: "clay" })) as any;
+
+    expect(catalogEntry).toMatchObject({
+      id: "clay",
+      defaultBaseUrl: "https://api.clay.com/public/v0",
+      auth: "api-key-header:clay-api-key",
+      credentialKeys: ["CLAY_PUBLIC_API_KEY"],
+      allowedHostSuffixes: [],
+      specUrls: ["https://developers.clay.com/openapi.json"],
+      templateUses: ["analytics"],
+    });
+    expect(catalogEntry.docsUrls).toContain(
+      "https://developers.clay.com/llms.txt",
+    );
+    expect(docs.catalog).toEqual(catalogEntry);
+    expect(docs.guidance).toContain("Registered docsUrls");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
   it("does not fall back after a custom credential resolver returns null", async () => {
     resolveCredential.mockResolvedValue("local-token");
     const fetchMock = vi.spyOn(globalThis, "fetch");

@@ -15,7 +15,7 @@ import {
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconCheck, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +27,7 @@ import {
   ScrollRestoration,
   useLoaderData,
   useLocation,
+  useNavigate,
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
@@ -41,6 +42,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Toaster } from "@/components/ui/sonner";
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 
 import { i18nCatalog, loadI18nMessages } from "./i18n";
@@ -323,6 +325,10 @@ function isStandalonePublicPath(pathname: string): boolean {
   const path = pathname.replace(/\/+$/, "") || "/";
   return (
     path === "/download" ||
+    path === "/bug-report" ||
+    path.startsWith("/bug-report/") ||
+    path === "/r" ||
+    path.startsWith("/r/") ||
     path.startsWith("/share/") ||
     path.startsWith("/embed/") ||
     path.startsWith("/invite/")
@@ -331,6 +337,7 @@ function isStandalonePublicPath(pathname: string): boolean {
 
 function AppContent() {
   const location = useLocation();
+  const navigate = useNavigate();
   const t = useT();
   const standalonePublic = isStandalonePublicPath(location.pathname);
   const [cmdkOpen, setCmdkOpen] = useState(false);
@@ -353,6 +360,10 @@ function AppContent() {
           changelogKey="clips"
         >
           <CommandMenu.Group heading={t("root.commandActions")}>
+            <CommandMenu.Item onSelect={() => navigate("/agent")}>
+              <IconBrain size={16} />
+              {t("root.openAgent")}
+            </CommandMenu.Item>
             <CommandMenu.Item onSelect={() => {}}>
               {t("root.commandSearch")}
             </CommandMenu.Item>
@@ -381,19 +392,21 @@ export default function Root() {
   const loaderData = useLoaderData<typeof loader>();
   const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
-    <AppProviders
-      queryClient={queryClient}
-      isPublicPath={isStandalonePublicPath(location.pathname)}
-      i18n={{
-        catalog: i18nCatalog,
-        initialLocale: loaderData.locale,
-        initialPreference: loaderData.preference,
-        initialMessages: loaderData.messages,
-        persistPreference: !isStandalonePublicPath(location.pathname),
-      }}
-    >
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isStandalonePublicPath(location.pathname)}
+        i18n={{
+          catalog: i18nCatalog,
+          initialLocale: loaderData.locale,
+          initialPreference: loaderData.preference,
+          initialMessages: loaderData.messages,
+          persistPreference: !isStandalonePublicPath(location.pathname),
+        }}
+      >
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

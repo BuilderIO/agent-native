@@ -13,7 +13,9 @@ metadata:
 
 ## Rule
 
-All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
+All application data lives in **SQL** (SQLite locally, persistent database in production). The agent and UI share the same database. SQL stores structured records, metadata, references, and searchable text — not large raw file payloads. Do not store durable app data in the filesystem unless the app is explicitly running a Local File Mode artifact flow described below.
+
+Large binary or file-like payloads (images, video/audio, PDFs, ZIPs, screenshots, session replay chunks, thumbnails, generated assets, `data:` URLs, and base64 file bodies) must go through configured file/blob storage such as `uploadFile()` or `putPrivateBlob()`. Persist only the returned URL, asset id, or opaque blob handle in SQL. If storage is unavailable in hosted or persistent-database mode, fail closed with setup guidance instead of falling back to base64 in `application_state`, `settings`, `resources`, or app tables. Local SQLite-only dev fallbacks may exist for tiny assets, but they must be capped, documented as dev-only, and kept off hot list/read paths.
 
 **Local File Mode exception:** some artifact apps (Content, Plans, Slides, Dashboards, Designs, etc.) can intentionally use repo files as the source of truth for the artifact itself. This must be explicit via `agent-native.json`, `AGENT_NATIVE_MODE=local-files`, or an app-owned local-file action helper. In that mode, the UI and agent still go through app actions, but those actions read/write scoped files through `@agent-native/core/local-artifacts` instead of SQL rows. App state, auth, settings, credentials, collaboration metadata, and hosted database mode remain SQL. File-to-database or file-to-provider synchronization is an explicit sync step, not an implicit side effect of editing.
 
@@ -24,6 +26,14 @@ When you add a data model, a list, or a read path, also follow the `performance`
 Agent-native apps use Drizzle ORM over the configured SQL backend. Local development works out of the box with a SQLite file at `data/app.db`; production and shared preview deploys need a persistent `DATABASE_URL` because container/serverless filesystems can reset. The code should behave the same across backends, but the local SQLite file is not durable once deployed.
 
 For app code, use Drizzle's schema/query DSL by default. Raw SQL is an escape hatch for additive migrations, health checks, or one-off maintenance, not the normal way to build features.
+
+### Naming migrations
+
+When you add an entry to a `runMigrations([...])` list (`@agent-native/core/db`), always give it a unique `name:` slug (e.g. `name: "analytics-alert-rules-table"`) alongside its `version`. Never renumber or reuse version numbers on existing entries.
+
+Why: version numbers alone are not a safe identity. Two branches that each independently extend the same migration list can ship different DDL under the same version numbers — whichever branch deploys first "claims" those version numbers in the bookkeeping table, and the other branch's DDL is silently treated as already applied even though it never ran. This exact collision took down analytics: parallel branches both extended their migration list through v75-v83 with different DDL, so `analytics_alert_rules`, `analytics_alert_incidents`, and `session_recordings.network_error_count` never made it to production despite the bookkeeping table showing every version as applied. A `name:` slug is tracked independently of version numbers, so it applies exactly once per database regardless of what any other branch already recorded.
+
+Existing unnamed migrations don't need to be renamed retroactively (the two gating strategies coexist), but any new entry should always carry a name.
 
 ### Core SQL Stores (auto-created, available in all templates)
 
@@ -128,6 +138,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Use the `settings` store for app configuration and user preferences
 - Use `application-state` for ephemeral UI state that the agent and UI share
 - Use `oauth-tokens` for OAuth credentials
+- Use `uploadFile()` or `putPrivateBlob()` for large files/blob data and store only URLs, ids, or handles in SQL
 - Use core DB scripts (`db-schema`, `db-query`, `db-exec`, `db-patch`) for ad-hoc database operations
 - Use `db-exec --statements` instead of several separate `db-exec` calls for related writes; it is faster and rolls back the whole batch if one statement fails
 - Reach for `db-patch` instead of `db-exec UPDATE` whenever you're making a small change to a large text/JSON column — it's much cheaper on tokens
@@ -138,6 +149,7 @@ Polling streams database changes to the UI. When the agent writes to the databas
 - Don't store app state in localStorage, sessionStorage, or cookies (except for UI-only preferences like sidebar width)
 - Don't keep state only in memory (server variables, global stores)
 - Don't use Redis or any external state store for app data
+- Don't store large files, base64 blobs, `data:` URLs, screenshots, videos, audio, PDFs, ZIPs, or session replay chunks directly in SQL rows, `application_state`, `settings`, or `resources`
 - Don't implement product features with raw SQL or `getDbExec()` when Drizzle can express the query
 - Don't write SQLite-only or Postgres-only SQL in app code
 - Don't interpolate user input directly into SQL queries — use Drizzle ORM's query builder

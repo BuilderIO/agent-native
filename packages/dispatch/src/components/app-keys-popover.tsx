@@ -8,13 +8,11 @@ import {
 import { useMemo, useState, type ReactNode } from "react";
 import { toast } from "sonner";
 
-import { Button } from "@/components/ui/button";
-import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
-import { Skeleton } from "@/components/ui/skeleton";
+import { ActionQueryError } from "./action-query-error";
+import { Button } from "./ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover";
+import { Skeleton } from "./ui/skeleton";
+import { Tooltip, TooltipContent, TooltipTrigger } from "./ui/tooltip";
 
 interface VaultSecret {
   id: string;
@@ -50,23 +48,30 @@ export function AppKeysPopover({
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
-      <PopoverTrigger asChild>
-        {trigger ?? (
-          <button
-            type="button"
-            aria-label={`Manage keys for ${appName}`}
-            onClick={(event) => {
-              // Keep parent card click handlers from also firing. Do not
-              // preventDefault here: Radix uses the same click to open the
-              // popover trigger.
-              event.stopPropagation();
-            }}
-            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-md border border-transparent text-muted-foreground/70 hover:border-border hover:bg-accent/40 hover:text-foreground"
-          >
-            <IconSettings size={14} />
-          </button>
-        )}
-      </PopoverTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <PopoverTrigger asChild>
+            {trigger ?? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                aria-label={`Manage keys for ${appName}`}
+                onClick={(event) => {
+                  // Keep parent card click handlers from also firing. Do not
+                  // preventDefault here: Radix uses the same click to open the
+                  // popover trigger.
+                  event.stopPropagation();
+                }}
+                className="size-7 rounded-md p-0 text-muted-foreground transition-[background-color,color] hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring data-[state=open]:bg-accent data-[state=open]:text-foreground"
+              >
+                <IconSettings size={14} />
+              </Button>
+            )}
+          </PopoverTrigger>
+        </TooltipTrigger>
+        <TooltipContent>Manage keys</TooltipContent>
+      </Tooltip>
       <PopoverContent
         align={align}
         side={side}
@@ -80,20 +85,23 @@ export function AppKeysPopover({
   );
 }
 
-function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
-  const { data: secrets = [], isLoading: secretsLoading } = useActionQuery(
-    "list-vault-secret-options",
-    {},
-  );
+export function AppKeysPanel({
+  appId,
+  appName,
+}: {
+  appId: string;
+  appName: string;
+}) {
+  const secretsQuery = useActionQuery("list-vault-secret-options", {});
+  const grantsQuery = useActionQuery("list-vault-grants", { appId });
+  const accessQuery = useActionQuery("get-vault-access-settings", {});
+  const { data: secrets = [], isLoading: secretsLoading } = secretsQuery;
   const {
     data: grants = [],
     isLoading: grantsLoading,
     refetch: refetchGrants,
-  } = useActionQuery("list-vault-grants", { appId });
-  const { data: accessSettings, isLoading: accessLoading } = useActionQuery(
-    "get-vault-access-settings",
-    {},
-  );
+  } = grantsQuery;
+  const { data: accessSettings, isLoading: accessLoading } = accessQuery;
   const accessMode =
     (accessSettings as any)?.mode === "manual" ? "manual" : "all-apps";
 
@@ -143,6 +151,7 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
   });
 
   const isLoading = secretsLoading || grantsLoading || accessLoading;
+  const error = secretsQuery.error ?? grantsQuery.error ?? accessQuery.error;
   const grantedCount = grantBySecretId.size;
   const typedSecrets = secrets as VaultSecret[];
   const allApps = accessMode !== "manual";
@@ -168,34 +177,47 @@ function AppKeysPanel({ appId, appName }: { appId: string; appName: string }) {
             Keys for {appName}
           </p>
           <p className="text-[11px] text-muted-foreground">
-            {allApps
-              ? `${typedSecrets.length} available`
-              : `${grantedCount} of ${typedSecrets.length} granted`}
+            {error
+              ? null
+              : allApps
+                ? `${typedSecrets.length} available`
+                : `${grantedCount} of ${typedSecrets.length} granted`}
           </p>
         </div>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          disabled={
-            syncMutation.isPending ||
-            typedSecrets.length === 0 ||
-            (!allApps && grantedCount === 0)
-          }
-          onClick={() => syncMutation.mutate({ appId })}
-          className="h-7 px-2"
-        >
-          {syncMutation.isPending ? (
-            <IconLoader2 className="h-3 w-3 animate-spin" />
-          ) : (
-            <IconRefresh className="h-3 w-3" />
-          )}
-          <span className="ml-1 text-xs">Sync</span>
-        </Button>
+        {!error ? (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={
+              syncMutation.isPending ||
+              typedSecrets.length === 0 ||
+              (!allApps && grantedCount === 0)
+            }
+            onClick={() => syncMutation.mutate({ appId })}
+            className="h-7 px-2"
+          >
+            {syncMutation.isPending ? (
+              <IconLoader2 className="h-3 w-3 animate-spin" />
+            ) : (
+              <IconRefresh className="h-3 w-3" />
+            )}
+            <span className="ml-1 text-xs">Sync</span>
+          </Button>
+        ) : null}
       </div>
 
       <div className="max-h-[320px] space-y-1.5 overflow-y-auto rounded-md border border-border bg-card p-1.5">
-        {isLoading ? (
+        {error ? (
+          <ActionQueryError
+            error={error}
+            onRetry={() => {
+              void secretsQuery.refetch();
+              void grantsQuery.refetch();
+              void accessQuery.refetch();
+            }}
+          />
+        ) : isLoading ? (
           <div className="space-y-1.5 p-1.5">
             {Array.from({ length: 3 }).map((_, index) => (
               <div

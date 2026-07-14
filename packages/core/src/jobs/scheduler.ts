@@ -1,3 +1,4 @@
+import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
 import {
   getStoredModelForEngine,
   normalizeModelForEngine,
@@ -7,12 +8,15 @@ import type { AgentEngine } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
 import { startRun, resolveRunSoftTimeoutMs } from "../agent/run-manager.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread } from "../chat-threads/store.js";
 import {
+  organizationIdFromResourceOwner,
   resourceListAllOwners,
   resourcePut,
   type Resource,
@@ -32,6 +36,12 @@ export interface JobFrontmatter {
   lastStatus?: "success" | "error" | "running" | "skipped";
   lastError?: string;
   nextRun?: string;
+  originScopeId?: string;
+  deliveryPlatform?: string;
+  deliveryDestination?: string;
+  deliveryThreadRef?: string;
+  deliveryTenantId?: string;
+  model?: string;
 }
 
 const FRONTMATTER_RE = /^---\n([\s\S]*?)\n---\n?([\s\S]*)$/;
@@ -101,6 +111,24 @@ export function parseJobFrontmatter(content: string): {
       case "nextRun":
         meta.nextRun = value;
         break;
+      case "originScopeId":
+        meta.originScopeId = value;
+        break;
+      case "deliveryPlatform":
+        meta.deliveryPlatform = value;
+        break;
+      case "deliveryDestination":
+        meta.deliveryDestination = value;
+        break;
+      case "deliveryThreadRef":
+        meta.deliveryThreadRef = value;
+        break;
+      case "deliveryTenantId":
+        meta.deliveryTenantId = value;
+        break;
+      case "model":
+        meta.model = value;
+        break;
     }
   }
 
@@ -128,6 +156,16 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
     lines.push(`lastError: "${escaped}"`);
   }
   if (meta.nextRun) lines.push(`nextRun: ${meta.nextRun}`);
+  if (meta.originScopeId) lines.push(`originScopeId: ${meta.originScopeId}`);
+  if (meta.deliveryPlatform)
+    lines.push(`deliveryPlatform: ${meta.deliveryPlatform}`);
+  if (meta.deliveryDestination)
+    lines.push(`deliveryDestination: ${meta.deliveryDestination}`);
+  if (meta.deliveryThreadRef)
+    lines.push(`deliveryThreadRef: ${meta.deliveryThreadRef}`);
+  if (meta.deliveryTenantId)
+    lines.push(`deliveryTenantId: ${meta.deliveryTenantId}`);
+  if (meta.model) lines.push(`model: ${meta.model}`);
   lines.push(`---`);
   lines.push("");
   lines.push(body);
@@ -139,6 +177,18 @@ export function buildJobContent(meta: JobFrontmatter, body: string): string {
 export interface SchedulerDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  /**
+   * Tool names to expose on the FIRST engine request for a job run. When
+   * provided, every other action returned by `getActions()` is deferred
+   * behind an attached `tool-search` entry instead of being serialized on
+   * every scheduled tick — `runAgentLoop`'s mid-run tool expansion
+   * (`expandActiveTools`) still lets the model discover and call them after
+   * a search. Omit to keep the full `getActions()` set visible up front
+   * (current behavior). The caller (not this module) knows which of the
+   * merged actions are the app's own vs. framework additions, so this must
+   * be supplied explicitly rather than inferred here.
+   */
+  getInitialToolNames?: () => string[] | undefined;
   /** Optional engine override. Defaults to the resolved request engine. */
   engine?: AgentEngine;
   apiKey?: string;
@@ -297,7 +347,12 @@ async function isJobRunAsStillValid(
 ): Promise<{ ok: boolean; reason?: string }> {
   // Shared-owner sentinel isn't a real user (used by jobs run as the
   // workspace identity).
-  if (jobUserEmail === "__shared__") return { ok: true };
+  if (
+    jobUserEmail === "__shared__" ||
+    organizationIdFromResourceOwner(jobUserEmail)
+  ) {
+    return { ok: true };
+  }
   try {
     const { getDbExec } = await import("../db/client.js");
     const db = getDbExec();
@@ -390,12 +445,52 @@ async function executeJob(
   await updateResource(resource, meta, body);
 
   await runWithRequestContext(
-    { userEmail: jobUserEmail, orgId: jobOrgId },
+    {
+      userEmail: jobUserEmail,
+      orgId: jobOrgId,
+      ...(meta.originScopeId &&
+      meta.deliveryPlatform &&
+      meta.deliveryDestination
+        ? {
+            isIntegrationCaller: true,
+            integration: {
+              taskId: `job:${jobName}:${now.getTime()}`,
+              scopeId: meta.originScopeId,
+              principalType: "service" as const,
+              incoming: {
+                platform: meta.deliveryPlatform,
+                externalThreadId: `${meta.deliveryTenantId || "unknown"}:${meta.deliveryDestination}:${meta.deliveryThreadRef || "root"}`,
+                text: "",
+                tenantId: meta.deliveryTenantId,
+                integrationScopeId: meta.originScopeId,
+                platformContext: {
+                  channelId: meta.deliveryDestination,
+                  threadTs: meta.deliveryThreadRef,
+                  teamId: meta.deliveryTenantId,
+                },
+                threadRef: meta.deliveryThreadRef,
+                timestamp: now.getTime(),
+              },
+            },
+          }
+        : {}),
+    },
     async () => {
       try {
-        const actions = deps.getActions();
+        const baseActions = deps.getActions();
         const systemPrompt = await deps.getSystemPrompt(jobUserEmail);
-        const tools = actionsToEngineTools(actions);
+        const initialToolNames = deps.getInitialToolNames?.();
+        // Only attach tool-search (and pay its schema cost) when the caller
+        // actually supplied an initial subset to filter down to — otherwise
+        // this is byte-for-byte the prior unfiltered behavior.
+        const actions = initialToolNames
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
+        const availableTools = actionsToEngineTools(actions);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         // Prefer the job runner's saved Anthropic key so recurring jobs
         // don't silently bill the shared platform key once a user has
@@ -408,6 +503,7 @@ async function executeJob(
             appId: deps.appId,
           }));
         const modelCandidate =
+          meta.model ??
           deps.model ??
           (await getStoredModelForEngine(engine, { appId: deps.appId })) ??
           engine.defaultModel;
@@ -445,28 +541,28 @@ async function executeJob(
           useHostedDefault: true,
         });
 
-        // Hard-abort backstop: 5 minutes. On hosted runtimes the soft-timeout
-        // will fire first; locally this is the only guard.
-        const hardAbortTimer = setTimeout(
-          () => {
-            // startRun's abort controller handles this below, but we still need
-            // the handle to clear it in the finally block.
-          },
-          5 * 60 * 1000,
-        );
-
         let jobError: Error | null = null;
+        // Hard-abort backstop: 5 minutes. On hosted runtimes the soft-timeout
+        // will fire first; locally this is the only guard. Cleared when the
+        // run completes so finished jobs don't leave a live timer keeping the
+        // process/event loop alive for the remainder of the window.
+        let hardAbortTimer: ReturnType<typeof setTimeout> | null = null;
+        const jobUsageRef: {
+          current: Awaited<ReturnType<typeof runAgentLoop>> | null;
+        } = { current: null };
+        let responseText = "";
         await new Promise<void>((resolve, reject) => {
           const activeRun = startRun(
             runId,
             thread.id,
             async (send, signal) => {
               try {
-                await runAgentLoop({
+                jobUsageRef.current = await runAgentLoop({
                   engine,
                   model,
                   systemPrompt,
                   tools,
+                  availableTools,
                   messages,
                   actions,
                   send,
@@ -479,7 +575,14 @@ async function executeJob(
             },
             // onComplete: run finished (completed or aborted)
             async (run) => {
+              if (hardAbortTimer) {
+                clearTimeout(hardAbortTimer);
+                hardAbortTimer = null;
+              }
               if (run.status === "completed") {
+                responseText = collectFinalResponseTextFromAgentEvents(
+                  (run.events ?? []).map((event) => event.event),
+                );
                 resolve();
               } else {
                 reject(new Error(`Job run ended with status: ${run.status}`));
@@ -491,11 +594,11 @@ async function executeJob(
             },
           );
 
-          // Hard-abort backstop: abort the run-manager's own controller after
-          // 5 minutes if it hasn't finished naturally.
-          clearTimeout(hardAbortTimer);
-          setTimeout(
+          // Abort the run-manager's own controller after 5 minutes if the
+          // run hasn't finished naturally.
+          hardAbortTimer = setTimeout(
             () => {
+              hardAbortTimer = null;
               if (activeRun.status === "running") {
                 activeRun.abort.abort("job_hard_timeout");
                 reject(new Error("Job timed out after 5 minutes"));
@@ -506,8 +609,61 @@ async function executeJob(
         }).catch((err: any) => {
           jobError = err;
         });
+        if (hardAbortTimer) {
+          clearTimeout(hardAbortTimer);
+          hardAbortTimer = null;
+        }
 
         if (jobError) throw jobError;
+
+        if (
+          responseText.trim() &&
+          meta.deliveryPlatform &&
+          meta.deliveryDestination
+        ) {
+          const { getDefaultAdapter } =
+            await import("../integrations/adapters/index.js");
+          const adapter = getDefaultAdapter(meta.deliveryPlatform);
+          if (!adapter?.sendMessageToTarget) {
+            throw new Error(
+              `Recurring job delivery is not supported for ${meta.deliveryPlatform}`,
+            );
+          }
+          await adapter.sendMessageToTarget(
+            adapter.formatAgentResponse(responseText),
+            {
+              destination: meta.deliveryDestination,
+              threadRef: meta.deliveryThreadRef ?? null,
+              tenantId: meta.deliveryTenantId,
+            },
+          );
+        }
+
+        const jobUsage = jobUsageRef.current;
+        if (
+          jobUsage &&
+          (jobUsage.inputTokens > 0 ||
+            jobUsage.outputTokens > 0 ||
+            jobUsage.cacheReadTokens > 0 ||
+            jobUsage.cacheWriteTokens > 0)
+        ) {
+          try {
+            const { recordUsage } = await import("../usage/store.js");
+            await recordUsage({
+              ownerEmail: jobUserEmail,
+              inputTokens: jobUsage.inputTokens,
+              outputTokens: jobUsage.outputTokens,
+              cacheReadTokens: jobUsage.cacheReadTokens,
+              cacheWriteTokens: jobUsage.cacheWriteTokens,
+              model: jobUsage.model,
+              label: `recurring-job:${jobName}`,
+              app: deps.appId,
+              refId: runId,
+            });
+          } catch {
+            // Usage attribution must not break the scheduled task.
+          }
+        }
 
         // Success — update status. Compute the next run from completion time,
         // not the job's start time `now`: a long run could otherwise schedule a

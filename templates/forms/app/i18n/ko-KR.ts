@@ -4,6 +4,7 @@ const messages = {
     searchForms: "양식 검색",
     appearance: "모양",
     toggleTheme: "테마 전환",
+    openAgent: "에이전트 열기",
   },
   header: {
     settings: "설정",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "양식에 문의하기",
     allForms: "모든 양식",
     team: "팀",
+    agent: "에이전트",
   },
   settings: {
     title: "설정",
@@ -186,6 +188,12 @@ const messages = {
       successMessage: "성공 메시지",
       defaultSuccessMessage: "감사합니다! 응답이 기록되었습니다.",
       redirectUrl: "리디렉션 URL(선택 사항)",
+      anonymousResponses: "익명 응답",
+      anonymousResponsesDescription:
+        "IP 주소, 응답자 신원 또는 출처 메타데이터를 저장하지 않습니다.",
+      emailNewResponses: "새 응답을 이메일로 받기",
+      emailNewResponsesDescription:
+        "응답이 제출될 때마다 양식 소유자 계정의 이메일 주소로 알림을 보냅니다.",
       saveSettings: "설정 저장",
     },
     integrations: {

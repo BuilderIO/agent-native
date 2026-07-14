@@ -264,7 +264,7 @@ if (workspaceConnectionProviderSupports("slack", "messages")) {
 | `google_drive` | खोजें, आयात करें, दस्तावेज़  | मस्तिष्क, सामग्री, स्लाइड       |
 | `hubspot`      | खोजें, आयात करें, सीआरएम     | एनालिटिक्स, मस्तिष्क, मेल       |
 | `granola`      | खोज, आयात, मीटिंग, दस्तावेज़ | मस्तिष्क, कैलेंडर, प्रेषण       |
-| `clips`        | खोज, आयात, मीटिंग्स          | मस्तिष्क, क्लिप, वीडियो         |
+| `clips`        | खोज, आयात, मीटिंग्स          | मस्तिष्क, क्लिप                 |
 | `generic`      | खोजें, आयात करें, दस्तावेज़  | कस्टम webhooks और फ़ाइल ड्रॉप्स |
 
 क्रेडेंशियल कुंजियाँ केवल नाम हैं, जैसे `SLACK_BOT_TOKEN` या `GITHUB_TOKEN`। प्रदाता मेटाडेटा में कभी भी वास्तविक क्रेडेंशियल मान शामिल नहीं होने चाहिए।
@@ -425,10 +425,9 @@ const brainCatalog = await listWorkspaceConnectionProviderCatalogForApp({
 
 ### डिस्पैच कंट्रोल-प्लेन सेटअप
 
-डिस्पैच नियंत्रण-प्लेन actions को उजागर करता है जो समान साझा स्टोर फ़ंक्शन लिखता है जिसे एक ऐप सीधे कॉल कर सकता है:
+Dispatch ऐसे control-plane actions उपलब्ध कराता है जो उन्हीं shared store functions का उपयोग करते हैं जिन्हें कोई ऐप सीधे कॉल कर सकता है — इसका `upsert-workspace-connection` action provider catalog के विरुद्ध input को validate करता है, फिर इसी पृष्ठ पर दिखाए गए `upsertWorkspaceConnection()` को delegate करता है:
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -493,3 +492,11 @@ await upsertWorkspaceConnectionGrant({
 सीमा को सख्त रखें: प्रदाता मेटाडेटा दिखाना सुरक्षित है; क्रेडेंशियल मान तिजोरी में रहते हैं।
 
 </details>
+
+## आगे क्या है {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — वह ऐप जो आम तौर पर workspace connection setup और vault का स्वामी होता है
+- [**सुरक्षा**](/docs/security) — credential vault, secret scoping और access model जिनकी ओर connections संकेत करते हैं
+- [**Onboarding**](/docs/onboarding#checking-workspace-connections-in-onboarding) — template setup checklist से connection readiness जाँचना
+- [**MCP Clients**](/docs/mcp-clients) — workspace में MCP server credentials साझा करने का संबंधित reusable-config pattern
+- [**Brain**](/docs/template-brain) — इस model पर आधारित provider Sources page का reference implementation

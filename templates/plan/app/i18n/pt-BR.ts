@@ -445,6 +445,16 @@ const messages = {
       title: "Plano local não encontrado",
       message: 'A pasta do plano local "{{slug}}" não pôde ser lida.',
     },
+    localPlanConnection: {
+      promptTitle: "Conectar a este plano local",
+      promptMessage:
+        "Este plano permanece no seu computador. O Plan precisa da permissão do navegador para lê-lo pela ponte local.",
+      deniedTitle: "O acesso à rede local está bloqueado",
+      deniedMessage:
+        "Abra as configurações do site do Plan no navegador, permita o acesso à rede local e verifique novamente.",
+      connect: "Conectar ao plano local",
+      checkAgain: "Verificar novamente",
+    },
     overview: {
       title: "plano",
       documentCount_other: "{{count}} documentos",
@@ -651,6 +661,10 @@ const messages = {
       signIn: "Conecte-se",
       haveAccount: "Eu já tenho uma conta",
       retry: "Tente novamente",
+      sendFeedback: "Enviar feedback",
+      feedbackPlaceholder:
+        "Descreva o que aconteceu antes deste erro do plano aparecer.",
+      openGitHubIssue: "Abrir issue no GitHub",
       joinedOrg: "Inscreveu-se em {{orgName}}. Plano de abertura...",
       acceptingInvite: "Aceitando convite",
       joiningOrg: "Aderindo à organização",

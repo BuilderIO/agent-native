@@ -7,6 +7,8 @@ description: "So erstellen und veröffentlichen Sie Ihre eigenen agentennativen 
 
 Vorlagen sind vollständige, forkbare agentennative Apps, die einen echten Arbeitsablauf lösen. Die Erstanbieter-Vorlagen werden mit derselben Framework-Oberfläche erstellt, die Sie verwenden: React-Routen für UI, Drizzle SQL für Daten, actions für Vorgänge, Arbeitsbereichsressourcen für Agentenverhalten und Abfragesynchronisierung, damit der Agent und UI aufeinander abgestimmt bleiben.
 
+Verwenden Sie `@agent-native/core` für den Laufzeitvertrag: Actions, Server-Plugins, Datenbank-Helfer, App-State, Routing-Helfer und Agent-Chat. Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Building-UI und Helfer wie gemeinsame Primitives, Toast- und Mobile-Hooks, Date-Picker und einfache App-Shell-Slots. Halten Sie template-spezifische Varianten lokal, wenn sie Produktverhalten oder visuelle Identität kodieren.
+
 Eine gute Vorlage:
 
 - Löst einen Workflow durchgängig, mit nützlichen Seed-Daten oder einem Leerzustandsfluss.
@@ -42,7 +44,6 @@ Jede Vorlage folgt dem gleichen allgemeinen Layout:
 <FileTree
   id="doc-block-153a4yn"
   title="Projektstruktur des Templates"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -170,8 +171,7 @@ Die vier Bereiche jeder Vorlage sind über eine gemeinsame Aktionsoberfläche un
 
 Definieren Sie Domänentabellen mit den Framework-Drizzle-Helfern, damit Schemata über SQLite, Postgres, D1, Turso, Supabase, Neon und andere unterstützte Backends hinweg portierbar bleiben:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -202,8 +202,7 @@ Schemaänderungen müssen additiv sein. Fügen Sie Tabellen und Spalten über `r
 
 Für App-Lese- und Schreibvorgänge verwenden Sie den Abfrage-Builder von Drizzle und die portablen Operatoren von `drizzle-orm`. Schreiben Sie keinen Produktcode mit rohem SQL, wenn Drizzle die Abfrage ausdrücken kann, und importieren Sie nicht aus `drizzle-orm/sqlite-core` oder `drizzle-orm/pg-core` in Vorlagen.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -347,8 +346,7 @@ Bevorzugen Sie für die App-Navigation einen `navigate`-Befehl, der einen gleich
 `path`, wenn URL bekannt ist. Schreiben Sie nicht auch `__set_url__` für denselben Zug;
 Dieser Schlüssel ist für die Framework-URL-Tools und nur URL-Filteränderungen reserviert.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

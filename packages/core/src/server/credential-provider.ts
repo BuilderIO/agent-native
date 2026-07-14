@@ -73,22 +73,52 @@ export function readDeployCredentialEnv(key: string): string | undefined {
   return process.env[key] || undefined;
 }
 
+const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
+  "ANTHROPIC_API_KEY",
+  "OPENAI_API_KEY",
+  "OPENAI_BASE_URL",
+  "OPENROUTER_API_KEY",
+  "GOOGLE_CLIENT_ID",
+  "GOOGLE_CLIENT_SECRET",
+  "GOOGLE_GENERATIVE_AI_API_KEY",
+  "GROQ_API_KEY",
+  "MISTRAL_API_KEY",
+  "COHERE_API_KEY",
+]);
+
+function isAppProvidedDeployCredentialKey(key: string | undefined): boolean {
+  return !!key && APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS.has(key);
+}
+
 /**
  * Deployment-level credentials are safe as a runtime fallback only in local /
  * single-tenant contexts. In hosted production with a shared database, every
- * signed-in user needs their own user/org/workspace credential so one deploy
- * key does not silently power another tenant's chat.
+ * signed-in user needs their own user/org/workspace credential for
+ * identity-bearing provider keys so one deploy key does not silently
+ * impersonate another tenant. App-provided service credentials are different:
+ * they configure the deployed app itself rather than identifying a user. This
+ * includes LLM keys that let the app developer pay for model usage and OAuth
+ * client credentials whose per-user identity remains in scoped OAuth tokens.
+ * Key-aware callers may use those env vars.
+ *
+ * @deprecated Use `canUseDeployCredentialFallbackForRequest()` for generic
+ * provider secrets. This stricter helper remains for legacy call sites with
+ * identity-bearing deploy credentials.
  */
 export function isDeployCredentialFallbackAllowed(): boolean {
   if (!isProductionLikeRuntime()) return true;
   return isLocalDatabase();
 }
 
-export function canUseDeployCredentialFallbackForRequest(): boolean {
+export function canUseDeployCredentialFallbackForRequest(
+  key?: string,
+): boolean {
   const email = getRequestUserEmail();
-  if (email && isHostedWorkspaceRuntime()) return false;
   if (!email) return true;
-  return isDeployCredentialFallbackAllowed();
+  if (isAppProvidedDeployCredentialKey(key)) return true;
+  if (isHostedWorkspaceRuntime()) return false;
+  if (!isProductionLikeRuntime()) return true;
+  return isLocalDatabase();
 }
 
 const BUILDER_CREDENTIAL_KEYS = [
@@ -227,30 +257,27 @@ export function isBuilderPrivateKey(value: string | null | undefined): boolean {
 }
 
 async function readBuilderCredentialScope(
-  readAppSecret: typeof import("../secrets/storage.js").readAppSecret,
+  readAppSecrets: typeof import("../secrets/storage.js").readAppSecrets,
   scope: "user" | "org" | "workspace",
   scopeId: string,
 ): Promise<BuilderResolvedCredentials> {
-  const values = await Promise.all(
-    BUILDER_CREDENTIAL_KEYS.map(async (key) => {
-      const secret = await readAppSecret({ key, scope, scopeId });
-      return [key, secret?.value ?? null] as const;
-    }),
-  );
-  const map = new Map<string, string | null>(values);
+  const secrets = await readAppSecrets({
+    keys: BUILDER_CREDENTIAL_KEYS,
+    scope,
+    scopeId,
+  });
+  const value = (key: string): string | null => secrets.get(key)?.value ?? null;
   return {
-    privateKey: map.get("BUILDER_PRIVATE_KEY") ?? null,
-    publicKey: map.get("BUILDER_PUBLIC_KEY") ?? null,
-    userId: map.get("BUILDER_USER_ID") ?? null,
-    orgName: map.get("BUILDER_ORG_NAME") ?? null,
-    orgKind: map.get("BUILDER_ORG_KIND") ?? null,
-    subscription: map.get("BUILDER_SUBSCRIPTION") ?? null,
-    subscriptionLevel: map.get("BUILDER_SUBSCRIPTION_LEVEL") ?? null,
-    subscriptionName: map.get("BUILDER_SUBSCRIPTION_NAME") ?? null,
-    isEnterprise: readOptionalBuilderBoolean(map.get("BUILDER_IS_ENTERPRISE")),
-    isFreeAccount: readOptionalBuilderBoolean(
-      map.get("BUILDER_IS_FREE_ACCOUNT"),
-    ),
+    privateKey: value("BUILDER_PRIVATE_KEY"),
+    publicKey: value("BUILDER_PUBLIC_KEY"),
+    userId: value("BUILDER_USER_ID"),
+    orgName: value("BUILDER_ORG_NAME"),
+    orgKind: value("BUILDER_ORG_KIND"),
+    subscription: value("BUILDER_SUBSCRIPTION"),
+    subscriptionLevel: value("BUILDER_SUBSCRIPTION_LEVEL"),
+    subscriptionName: value("BUILDER_SUBSCRIPTION_NAME"),
+    isEnterprise: readOptionalBuilderBoolean(value("BUILDER_IS_ENTERPRISE")),
+    isFreeAccount: readOptionalBuilderBoolean(value("BUILDER_IS_FREE_ACCOUNT")),
     source: scope === "workspace" ? "workspace" : scope,
   };
 }
@@ -367,7 +394,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
   const traceLookup = shouldTraceCredentialResolve();
   let scopeAttempted = "user";
   try {
-    const { readAppSecret } = await import("../secrets/storage.js");
+    const { readAppSecrets } = await import("../secrets/storage.js");
     const traceScope = (creds: BuilderResolvedCredentials, scopeId: string) => {
       if (!traceLookup) return;
       console.log(
@@ -376,7 +403,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
     };
 
     const userCreds = await readBuilderCredentialScope(
-      readAppSecret,
+      readAppSecrets,
       "user",
       email,
     );
@@ -387,7 +414,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
     if (orgId) {
       scopeAttempted = "org";
       const orgCreds = await readBuilderCredentialScope(
-        readAppSecret,
+        readAppSecrets,
         "org",
         orgId,
       );
@@ -396,7 +423,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
 
       scopeAttempted = "workspace";
       const workspaceCreds = await readBuilderCredentialScope(
-        readAppSecret,
+        readAppSecrets,
         "workspace",
         orgId,
       );
@@ -406,7 +433,7 @@ async function resolveScopedBuilderCredentials(): Promise<BuilderResolvedCredent
       scopeAttempted = "workspace-solo";
       const scopeId = `solo:${email}`;
       const workspaceCreds = await readBuilderCredentialScope(
-        readAppSecret,
+        readAppSecrets,
         "workspace",
         scopeId,
       );
@@ -694,6 +721,124 @@ export async function clearBuilderCredentialAuthFailure(creds: {
   }
 }
 
+const PROVIDER_AUTH_FAILURE_SETTING_PREFIX = "provider-auth-failure:";
+/** Stale failure markers expire so a transient 401 cannot permanently block deploy keys. */
+export const PROVIDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
+
+export interface ProviderCredentialAuthFailure {
+  fingerprint: string;
+  key: string;
+  message: string;
+  status?: number;
+  code?: string;
+  at: number;
+  ownerEmail?: string | null;
+  orgId?: string | null;
+}
+
+export function providerCredentialFingerprint(
+  key?: string | null,
+  value?: string | null,
+): string | null {
+  const normalizedKey = key?.trim().toUpperCase();
+  const normalizedValue = value?.trim();
+  if (!normalizedKey || !normalizedValue) return null;
+  return createHash("sha256")
+    .update(normalizedKey)
+    .update("\0")
+    .update(normalizedValue)
+    .digest("hex")
+    .slice(0, 24);
+}
+
+function providerAuthFailureSettingKey(fingerprint: string): string {
+  return `${PROVIDER_AUTH_FAILURE_SETTING_PREFIX}${fingerprint}`;
+}
+
+export async function getProviderCredentialAuthFailure(opts: {
+  key?: string | null;
+  value?: string | null;
+}): Promise<ProviderCredentialAuthFailure | null> {
+  const key = opts.key?.trim().toUpperCase() ?? "";
+  const fingerprint = providerCredentialFingerprint(key, opts.value);
+  if (!fingerprint) return null;
+  try {
+    const settings = await import("../settings/store.js");
+    const settingKey = providerAuthFailureSettingKey(fingerprint);
+    const row = await settings.getSetting(settingKey);
+    if (!row) return null;
+    if (row.fingerprint !== fingerprint) return null;
+    const at = typeof row.at === "number" ? row.at : Date.now();
+    if (Date.now() - at > PROVIDER_AUTH_FAILURE_TTL_MS) {
+      if (typeof settings.deleteSetting === "function") {
+        await settings.deleteSetting(settingKey).catch(() => {});
+      }
+      return null;
+    }
+    return {
+      fingerprint,
+      key:
+        typeof row.key === "string" && row.key
+          ? row.key
+          : key || "UNKNOWN_PROVIDER_KEY",
+      message:
+        typeof row.message === "string" && row.message
+          ? row.message
+          : "The model provider rejected the saved API key.",
+      status: typeof row.status === "number" ? row.status : undefined,
+      code: typeof row.code === "string" ? row.code : undefined,
+      at,
+      ownerEmail:
+        typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
+      orgId: typeof row.orgId === "string" ? row.orgId : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function recordProviderCredentialAuthFailure(opts: {
+  key?: string | null;
+  value?: string | null;
+  status?: number;
+  code?: string;
+  message?: string;
+}): Promise<void> {
+  try {
+    const key = opts.key?.trim().toUpperCase() ?? "";
+    const value = opts.value?.trim();
+    const fingerprint = providerCredentialFingerprint(key, value);
+    if (!fingerprint) return;
+    const { putSetting } = await import("../settings/store.js");
+    await putSetting(providerAuthFailureSettingKey(fingerprint), {
+      fingerprint,
+      key,
+      message: opts.message || "The model provider rejected the saved API key.",
+      ...(typeof opts.status === "number" && { status: opts.status }),
+      ...(opts.code && { code: opts.code }),
+      at: Date.now(),
+      ownerEmail: getRequestUserEmail() ?? null,
+      orgId: getRequestOrgId() ?? null,
+    });
+  } catch {
+    // Best-effort marker only; the chat error is still returned to the user.
+  }
+}
+
+export async function clearProviderCredentialAuthFailure(opts: {
+  key?: string | null;
+  value?: string | null;
+}): Promise<void> {
+  const fingerprint = providerCredentialFingerprint(opts.key, opts.value);
+  if (!fingerprint) return;
+  try {
+    const { deleteSetting } = await import("../settings/store.js");
+    await deleteSetting(providerAuthFailureSettingKey(fingerprint));
+  } catch {
+    // A stale failure marker should not block writing or using fresh keys.
+  }
+}
+
 /**
  * Write Builder credentials to `app_secrets`.
  *
@@ -873,10 +1018,9 @@ export async function deleteBuilderCredentials(
 // User-pasted and shared secrets live in `app_secrets` (encrypted). The
 // settings UI / onboarding panels can write user, org, or workspace rows.
 // Deploy-level env vars are the fallback for unauthenticated/CLI/background
-// contexts where there's no user to scope by — never the silent fallback
-// for an authenticated request, since on a multi-tenant deploy that would
-// silently identify every user as whoever set the deploy-level key
-// (KVesta Space, 2026-04).
+// contexts where there's no user to scope by. Authenticated requests may also
+// use app-provided LLM provider keys such as OPENAI_API_KEY or
+// ANTHROPIC_API_KEY, but Builder identity keys keep the stricter scoped policy.
 // ---------------------------------------------------------------------------
 
 /**
@@ -962,14 +1106,14 @@ export async function resolveSecret(key: string): Promise<string | null> {
       }
       // Secrets table not ready — treat as missing.
     }
-    // Authenticated multi-tenant context: never fall back to process.env.
-    // The deploy-level value would silently impersonate the actual key
-    // owner across every tenant. Local/single-tenant deployments keep the
-    // original env fallback for BYO-server workflows.
+    // Read deployment-provided env values as fallbacks; framework code must not
+    // write to `process.env`, but keys supplied by the host remain valid config.
+    // Builder credentials keep a narrower path below because those keys carry a
+    // Builder identity rather than just enabling a provider call.
     const envFallback = (
       isBuilderCredentialKey(key)
         ? canUseBuilderDeployCredentialFallbackForRequest()
-        : canUseDeployCredentialFallbackForRequest()
+        : canUseDeployCredentialFallbackForRequest(key)
     )
       ? process.env[key] || null
       : null;

@@ -3,14 +3,17 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
+import {
+  useHeaderTitle,
+  useHeaderActions,
+} from "@agent-native/toolkit/app-shell";
 import { useLocation } from "react-router";
-
-import { useHeaderTitle, useHeaderActions } from "./HeaderActions";
 
 const pageTitleKeys: Record<string, string> = {
   "/": "navigation.create",
   "/library": "navigation.library",
   "/brand-kits": "navigation.brandKits",
+  "/agent": "settings.agentTitle",
   "/extensions": "navigation.extensions",
   "/settings": "navigation.settings",
 };
@@ -51,7 +54,7 @@ export function Header() {
   const showAgentToggle = location.pathname !== "/";
 
   return (
-    <header className="flex h-12 items-center gap-3 border-b border-border bg-background px-4 lg:px-6 shrink-0">
+    <header className="hidden h-12 shrink-0 items-center gap-3 border-b border-border bg-background px-4 md:flex lg:px-6">
       <div className="flex items-center gap-3 flex-1 min-w-0">
         {title ?? <ResolvedTitle />}
       </div>

@@ -1,0 +1,329 @@
+---
+title: "Data Programs"
+description: "Stored, agent-authored JS scripts that fetch, join, and aggregate data server-side, cached in SQL, and rendered by dashboard panels — the live-data middle ground between a one-off run-code query and a hardcoded provider action."
+search: "data program emit rows schema providerFetch dashboard panel program source refresh TTL viewer-scoped cache save-data-program run-data-program"
+---
+
+# Data Programs
+
+A **data program** is a named, stored, agent-authored JS script that fetches, joins, filters, or aggregates data — provider APIs via `providerFetch` / `providerFetchAll` / `providerSearchAll`, app data via `appAction`, or Resources-backed workspace files — and calls `emit(rows, schema)` exactly once with the result. The result is cached in SQL and any chart/table component can render it, refreshed on a policy you choose instead of on every page view.
+
+It ships automatically wherever [`run-code`](/docs/actions) is available — there is nothing to mount or configure per app. If your app already has run-code enabled, `save-data-program`, `preview-data-program`, `run-data-program`, `list-data-programs`, `get-data-program`, and `delete-data-program` are already registered actions.
+
+<Diagram id="doc-block-dp-overview" title="From ad-hoc query to live panel" summary="A run-code script becomes a stored program once it calls emit(); any dashboard panel can bind to it and the cache/refresh policy takes over from there.">
+
+```html
+<div class="dp-flow">
+  <div class="diagram-card" data-rough>
+    <span class="diagram-pill">run-code script</span
+    ><small class="diagram-muted">providerFetch, joins, aggregation</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel">
+    <span class="diagram-pill accent">emit(rows, schema)</span
+    ><small class="diagram-muted"
+      >save-data-program dry-runs, then persists</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-box" data-rough>
+    data_program_runs<br /><small class="diagram-muted"
+      >cached per (program, params, viewer)</small
+    >
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill">Dashboard panel</span
+    ><small class="diagram-muted"><code>source: "program"</code></small>
+  </div>
+</div>
+```
+
+```css
+.dp-flow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.dp-flow .diagram-card,
+.dp-flow .diagram-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 14px 16px;
+  min-width: 180px;
+}
+.dp-flow .diagram-arrow {
+  font-size: 20px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+## Why this exists {#why}
+
+Without a stored data program, "build a live view of X" tends to end in one of two bad places:
+
+- **A hardcoded action per vendor/query shape.** Brittle, and it can't anticipate every customer's custom properties, a cross-provider join, or an arbitrary filter you didn't think to build in.
+- **Re-running the same fetch/join logic from scratch on every page view.** Slow, and it re-spends the same provider API quota every time someone looks at a chart.
+
+A data program is the middle ground: write the fetch/join/aggregate logic once as ordinary `run-code`, save it, and let the cache and refresh policy decide how often it actually needs to re-run.
+
+## When to use one {#when-to-use-one}
+
+| Situation                                                                                                                                                               | Reach for                                                                               |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| A standard rollup already has a first-class action (a canned `hubspot-deals` filter, a built-in metric)                                                                 | The existing action — don't wrap it in a program                                        |
+| A one-time chat question you'll never look at again                                                                                                                     | Plain `run-code` or `provider-api-request` — answer it directly, don't persist anything |
+| An extension needs a small, per-user interactive widget with its own UI                                                                                                 | [Extensions](/docs/extensions) — a data program has no UI of its own                    |
+| A cohort needs an arbitrary property filter, an IN-search over custom values, or a join across two providers, **and** someone will want to see it again with fresh data | A data program                                                                          |
+| A dashboard panel should show that joined/aggregated result and refresh by cache policy                                                                                 | A data program bound to a `"program"` panel                                             |
+
+A comparison against the other run-code-shaped options:
+
+|                                     | One-off `run-code`         | Hardcoded provider action                        | Data program                                |
+| ----------------------------------- | -------------------------- | ------------------------------------------------ | ------------------------------------------- |
+| **Persists between calls**          | No                         | N/A (it's source code)                           | Yes — stored row + result cache             |
+| **Result is cached/refreshed**      | No, re-runs every time     | No caching built in                              | Yes — `refreshMode`/`refreshTtlMs`          |
+| **Handles arbitrary filters/joins** | Yes, but thrown away after | No — limited to what the action's schema exposes | Yes — it's still ordinary code              |
+| **Bindable to a dashboard panel**   | No                         | Only if a panel source was built for it          | Yes — the generic `"program"` source        |
+| **Requires a deploy**               | No                         | Yes (new action = code change)                   | No — created by the agent at runtime        |
+| **Credentials used at read time**   | Caller's                   | Caller's                                         | **Viewer's**, resolved per read (see below) |
+
+## Authoring workflow {#authoring-workflow}
+
+1. **Prototype in chat first.** Write the fetch/join/aggregate logic as a normal `run-code` script and confirm it returns the rows you expect.
+2. **Change it to call `emit(rows, schema?)` exactly once** at the end instead of returning or printing the result.
+3. **Save it** with `save-data-program`. This **dry-runs the code with `defaultParams` before persisting** and rejects the save with a structured error if it fails, so a broken program is never stored. On success it returns `{ programId, rowCount, columns, sampleRows }` — treat that as proof the program produces the rows you expect before telling the user it's ready.
+4. **Bind a dashboard panel to it**, or call `run-data-program` directly from your own read path. There is no dashboard-specific plumbing baked into the primitive itself — the analytics template's `"program"` panel source (below) is one adoption, not a required pattern.
+5. **Iterate without persisting** via `preview-data-program({ code, params? })` — same dry-run path, no stored row.
+
+### A realistic example
+
+Suppose an app wants a live "recent high-value support tickets" table sourced from a support provider, filtered to a threshold that isn't exposed by any built-in action:
+
+```ts
+// The program's stored `code` — ordinary run-code, with one emit() call.
+const minValue = Number(params.minValue || 5000);
+
+const tickets = await providerFetchAll("acme-support", "/v1/tickets", {
+  query: { status: "open" },
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "next_cursor",
+    maxPages: 10,
+  },
+});
+
+const rows = (tickets.items || [])
+  .filter((t) => Number(t.contract_value || 0) >= minValue)
+  .map((t) => ({
+    ticket_id: t.id,
+    subject: t.subject,
+    account: t.account_name,
+    contract_value: Number(t.contract_value || 0),
+    opened_at: t.created_at,
+  }));
+
+emit(rows, [
+  { name: "ticket_id", type: "string" },
+  { name: "subject", type: "string" },
+  { name: "account", type: "string" },
+  { name: "contract_value", type: "number" },
+  { name: "opened_at", type: "string" },
+]);
+```
+
+Saving it:
+
+```ts
+await appAction("save-data-program", {
+  name: "high-value-open-tickets",
+  title: "High-Value Open Tickets",
+  description:
+    "Open support tickets above a configurable contract-value threshold.",
+  code: "/* the script above */",
+  defaultParams: { minValue: 5000 },
+  refreshMode: "ttl",
+  refreshTtlMs: 300_000,
+});
+```
+
+The response carries `{ programId, rowCount, columns, sampleRows }` — the dry-run's proof-of-done. From there, `run-data-program({ programId, params: { minValue: 10000 } })` re-runs it (or serves the cache) for a different threshold, and a dashboard panel can bind to `programId` the same way.
+
+## The sandbox surface {#sandbox-surface}
+
+A data program runs through the exact same `executeSandboxCode` sandbox as `run-code` — no new sandboxing, credential, SSRF, or quota code exists for this primitive. It gets the same globals (`providerFetch`, `providerFetchAll`, `providerSearchAll`, `appAction`, `webFetch`, `workspace*` Resources helpers) plus two additions from a small framework-injected prelude:
+
+- **`params`** — a **frozen** global object holding the params for this run (`defaultParams` merged with whatever was passed to `run-data-program` or the panel descriptor). Reading it is fine; mutating it throws.
+- **`emit(rows, schema?)`** — call this **exactly once**, at the end. A second call throws. `rows` must be an array of plain objects. `schema`, when provided, is `{ name: string, type: string }[]`; when omitted it is inferred from the first 50 rows (a column is `"json"` if rows disagree on primitive type across the sample, otherwise `"number"` / `"string"` / `"boolean"`). `console.log` remains completely free for debugging — the runner captures combined stdout/stderr and only strips the sentinel line that `emit()` writes when parsing the result.
+
+Caps enforced on every run (not configurable per-program):
+
+| Limit                                       | Value                                                                                                                                               |
+| ------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Max emitted rows                            | 10,000 — rows beyond this are dropped, `truncated: true`                                                                                            |
+| Max emitted result size                     | 4 MiB — rows dropped from the end to fit; a single row over the cap is a hard `result_too_large` failure, since there's nothing safe to truncate to |
+| Max active (non-archived) programs per app  | 200 — archive unused ones to free room                                                                                                              |
+| Minimum refresh TTL                         | 60,000 ms                                                                                                                                           |
+| Run rows kept per (program, params, viewer) | 5 most recent — older ones are pruned automatically on every write                                                                                  |
+
+Truncation is always explicit (`truncated: true` on the result) — never a silent drop.
+
+## Params and dashboard panel binding {#params-and-panel-binding}
+
+Programs declare an optional `paramsSchema` (JSON Schema describing accepted params) and `defaultParams`. A dashboard adopts the `"program"` panel source by putting a small JSON descriptor in the panel's query field instead of a query string:
+
+```json
+{ "programId": "dp_a1b2c3d4e5f6", "params": { "minValue": 10000 } }
+```
+
+The panel renders through the exact same chart/table components as every other panel source — it only ever receives `{ rows, schema }` back. Binding a panel to a program is just "which stored program, with which param overrides"; there's no dashboard-specific execution path duplicated anywhere else.
+
+## Refresh, TTL, and caching semantics {#refresh-and-caching}
+
+Every `(programId, paramsHash)` pair has its own run history in `data_program_runs`, and `paramsHash` folds in **the viewer**, not just the params (see the security section for why). What happens on each read:
+
+| Situation                                                                                  | Behavior                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Fresh cache (younger than `refreshTtlMs`, or `refreshMode: "manual"` with a prior success) | Returns cached rows instantly, `cacheHit: true`                                                                                                                                        |
+| Cache is older than the TTL                                                                | Re-executes synchronously — a 25s budget for panel-view reads, 120s for agent/manual calls — and replaces the cache on success                                                         |
+| `refreshMode: "manual"`                                                                    | Never auto-refreshes; only an explicit `forceRefresh: true` (or a manual-refresh UI action) re-runs it                                                                                 |
+| No cache yet                                                                               | Executes synchronously like a normal first fetch                                                                                                                                       |
+| `background: true` program, no fresh cache                                                 | Serves the last good run immediately with `stale: true` and enqueues a durable background execution (10-minute budget); a later call finalizes the result once the execution completes |
+| Background program still running, no prior success                                         | `background_pending` failure — surface an explicit "still computing" state, never a blank result                                                                                       |
+| Execution fails (timeout, sandbox error, bad `emit()` shape)                               | A structured `{ code, message }` failure; if a previous success exists, it is attached as `lastGoodRun` so a panel can stale-serve instead of going blank                              |
+| Program was archived (soft-deleted via `delete-data-program`)                              | Explicit `archived` failure — never a silent blank panel                                                                                                                               |
+
+Reach for `background: true` only for programs that routinely exceed the foreground timeout — large multi-provider joins, deep pagination. Everything else should stay foreground: it's simpler to reason about and serves fresh data faster.
+
+### Why the cache is scoped per viewer {#per-viewer-cache}
+
+`providerFetch` inside a program resolves auth using the **calling viewer's own request context** — never the program author's. That is true whether the call comes from the agent, a `run-data-program` call, or a dashboard panel being viewed by a teammate. Two different viewers running the same program with the same params can legitimately get two different results: one has a configured HubSpot key and the other doesn't, or row-level provider permissions differ per person.
+
+Because of that, `hashDataProgramParams` folds the caller's identity into the cache key alongside the canonicalized params. This matters most for **shared dashboards**: if the cache were keyed on params alone, the first person to view a panel would silently determine what every other viewer sees, including a viewer without the credentials that produced that cached result. Per-viewer scoping means a teammate missing a credential sees their own auth error on that panel, not someone else's data.
+
+## Security model {#security}
+
+<Callout id="doc-block-dp-security" tone="success">
+
+**Raw provider tokens never reach the model or the browser.** The only thing that ever leaves the sandbox is the `{ rows, schema }` an `emit()` call produces — the same trust boundary as every other run-code execution and every other dashboard panel source.
+
+</Callout>
+
+- **Server-side only.** A data program's code executes exclusively inside `executeSandboxCode` on the server. Neither the stored source nor any credential it touches is sent to the browser or to the model — only the emitted rows/schema and compact run metadata (row count, columns, sample rows) are.
+- **Credentials are always the calling viewer's, never the program's original author's.** See [Refresh, TTL, and caching semantics](#per-viewer-cache) above for why this also drives the cache key.
+- **`allowPublic: false` is a hard invariant, not a default.** Data programs register with the sharing registry the same way [Extensions](/docs/extensions#security) do, with public sharing disabled. A public program would let any authenticated user run arbitrary stored code under their own token — sharing a program is scoped to your org, and only ever means "teammates can view its cached result and trigger reruns," never "the general internet can execute this."
+- **Mutating and executing actions are not tool-callable from the sandboxed extension/iframe bridge.** `save-data-program`, `preview-data-program`, `run-data-program`, and `delete-data-program` are `toolCallable: false` — only the agent or a server-side read path can invoke them, never an extension iframe under the opener's session. `list-data-programs` and `get-data-program` are read-only and access-scoped through the same sharing helpers as every other ownable resource.
+- **Programs are scoped to the app that created them.** Passing `appId` to a lookup means a program created in one app is not runnable from another app's agent chat in a shared-database deployment, even for a caller who otherwise has row-level (owner/org/share) access to it.
+- **Only bind to or view a program you trust.** Because execution always uses the viewer's own credentials, viewing a shared program's result is exactly like opening someone else's extension — trust the code, not just the access grant.
+
+## The Risk Meeting worked example {#risk-meeting-example}
+
+The analytics template ships a concrete, runnable case study: the `ensure-risk-meeting-dashboard` action idempotently installs two data programs plus a two-panel "Risk Meeting" dashboard, demonstrating three things a hardcoded action can't anticipate for every customer.
+
+<FileTree
+  id="doc-block-dp-risk-meeting-files"
+  title="Risk Meeting installer"
+  entries={[
+    {
+      path: "templates/analytics/actions/ensure-risk-meeting-dashboard.ts",
+      note: "idempotent action: upserts both programs by stable name, then the dashboard by id",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-cohort.js",
+      note: "stored program payload — plain JS text, not a build source file",
+    },
+    {
+      path: "templates/analytics/seeds/data-programs/risk-meeting-pylon-early-warning.js",
+      note: "the complementary early-warning program",
+    },
+  ]}
+/>
+
+**`risk-meeting-cohort.js`** — searches for a configurable cohort of CRM deals by an arbitrary `risk_status` property (an IN-search over custom values a canned action can't anticipate), resolves each deal's company through a batched association lookup, resolves each company's domain, fetches a second, unrelated provider's account sentiment, and joins the two by domain:
+
+```js
+// params: { riskStatuses?: string[], enterpriseOnly?: boolean }
+const riskStatuses = params.riskStatuses?.length
+  ? params.riskStatuses
+  : ["On the Radar", "Churn Risk", "Confirmed Churn", "No Save Attempted"];
+
+// 1. Arbitrary property IN-search — not expressible through a canned filter.
+const dealSearch = await providerFetchAll("crm-provider", "/deals/search", {
+  method: "POST",
+  body: {
+    filterGroups: [
+      {
+        filters: [
+          { propertyName: "risk_status", operator: "IN", values: riskStatuses },
+        ],
+      },
+    ],
+  },
+  itemsPath: "results",
+  pagination: {
+    cursorBodyPath: "after",
+    nextCursorPath: "paging.next.after",
+    maxPages: 20,
+  },
+});
+
+// 2-3. Batched deal -> company -> domain resolution (elided here; see the
+// real seed file for the full batching helper).
+
+// 4. A second, unrelated provider — zero bespoke glue action required.
+const accounts = await providerFetchAll("support-provider", "/accounts", {
+  itemsPath: "data",
+  pagination: {
+    cursorParam: "cursor",
+    nextCursorPath: "pagination.cursor",
+    maxPages: 20,
+  },
+});
+
+// 5. Join + emit.
+const rows = dealSearch.items.map((deal) => ({
+  deal_id: deal.id,
+  risk_status: deal.properties.risk_status,
+  arr: Number(deal.properties.total_contract_value || 0),
+  // ...domain lookup + sentiment join...
+}));
+
+emit(rows, [
+  { name: "deal_id", type: "string" },
+  { name: "risk_status", type: "string" },
+  { name: "arr", type: "number" },
+]);
+```
+
+**`risk-meeting-pylon-early-warning.js`** — the complementary view: accounts already flagged at-risk by support sentiment that have **not yet** shown up in the CRM cohort above. That gap — support signal outrunning CRM signal — requires excluding one provider's cohort from another's, which is exactly the kind of cross-provider set logic no single-vendor action can express.
+
+Both programs are installed and kept current by `ensure-risk-meeting-dashboard`, which:
+
+- Upserts each program by its stable `name`, so re-running the installer updates the same rows instead of duplicating them.
+- Requires no CRM/support credentials at install time — provider auth resolves per-viewer only when a panel is actually rendered or `run-data-program` is called, consistent with the per-viewer cache scoping above.
+- Builds a two-panel dashboard whose panels use `source: "program"`, bound to each program's id.
+
+See the `data-programs` skill for the full annotated source.
+
+## How other apps adopt the panel source {#adopting-the-panel-source}
+
+The `"program"` dashboard panel source is one adoption of the primitive, implemented entirely in the host app's own panel-query layer — nothing dashboard-specific is baked into `@agent-native/core/data-programs` itself. The analytics template's implementation is a useful reference for wiring your own:
+
+- The panel's `sql` column carries a small JSON descriptor — `{ programId, params? }` — instead of a query string.
+- Rendering a panel calls `runDataProgram` with `triggeredBy: "panel_view"` and the current viewer's identity, so the per-viewer cache and credential resolution apply automatically.
+- On success, the panel gets `{ rows, schema }` — the same shape every other panel source returns, so it flows through the existing chart/table components unmodified.
+- On failure, a `lastGoodRun` is preferred over a broken panel whenever one exists; only when there is no prior success does the panel surface a structured error (with friendlier copy for common codes like `access_denied`, `archived`, and `background_pending`).
+
+Any app can implement the same adoption for its own dashboards/tables: call `run-data-program` (or `runDataProgram` directly if you're inside the same server process) from your own read path, and hand the returned `rows`/`schema` to your own rendering components.
+
+## What's next {#whats-next}
+
+- [Extensions](/docs/extensions) — the sandboxed mini-app primitive data programs share a security posture and sharing model with, but with a UI of its own.
+- [Actions](/docs/actions) — the `run-code` conventions and sandbox globals (`providerFetch`, `appAction`, etc.) data programs are built on.
+- [Sharing & Privacy](/docs/sharing) — the org-internal, never-public sharing model data programs use.
+- [Security](/docs/security) — the framework's credential-handling and access-scoping invariants.

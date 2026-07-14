@@ -19,6 +19,17 @@ function Probe({ enabled = true }: { enabled?: boolean }) {
   return <output>{status.state}</output>;
 }
 
+function ScopedProbe({
+  tabId,
+  threadId,
+}: {
+  tabId?: string;
+  threadId?: string;
+}) {
+  const status = useAgentEngineConfigured(true, { tabId, threadId });
+  return <output>{status.state}</output>;
+}
+
 describe("useAgentEngineConfigured", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -139,6 +150,26 @@ describe("useAgentEngineConfigured", () => {
     await expect(fetchAgentEngineConfiguredState()).resolves.toBe("missing");
   });
 
+  it("uses the canonical engine status when legacy status checks are partial", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const href = String(url);
+        if (href.includes("/_agent-native/env-status")) {
+          return jsonResponse([]);
+        }
+        if (href.includes("/_agent-native/agent-engine/status")) {
+          return jsonResponse({ configured: false });
+        }
+        return new Promise<Response>(() => {});
+      }),
+    );
+
+    await expect(
+      fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
+    ).resolves.toBe("missing");
+  });
+
   it("returns unknown when every status check times out", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
@@ -152,7 +183,7 @@ describe("useAgentEngineConfigured", () => {
     await expect(status).resolves.toBe("unknown");
   });
 
-  it("honors missing fallback when timed-out status checks follow a missing-key event", async () => {
+  it("does not use missing fallback after timed-out status checks", async () => {
     vi.useFakeTimers();
     vi.stubGlobal(
       "fetch",
@@ -165,6 +196,50 @@ describe("useAgentEngineConfigured", () => {
     });
 
     await vi.advanceTimersByTimeAsync(25);
-    await expect(status).resolves.toBe("missing");
+    await expect(status).resolves.toBe("unknown");
+  });
+
+  it("ignores scoped missing-key events for other tabs", async () => {
+    let initialCheck = true;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string | URL | Request) => {
+        const href = String(url);
+        if (initialCheck) {
+          if (href.includes("/_agent-native/builder/status")) {
+            return jsonResponse({ configured: true });
+          }
+          if (href.includes("/_agent-native/agent-engine/status")) {
+            return jsonResponse({ configured: true });
+          }
+          return jsonResponse([]);
+        }
+        if (href.includes("/_agent-native/env-status")) {
+          return jsonResponse([]);
+        }
+        return jsonResponse({ configured: false });
+      }),
+    );
+
+    await act(async () => {
+      root.render(<ScopedProbe tabId="active-tab" threadId="thread-a" />);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("configured");
+    initialCheck = false;
+
+    await act(async () => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:missing-api-key", {
+          detail: { tabId: "other-tab", threadId: "thread-b" },
+        }),
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(container.textContent).toBe("configured");
   });
 });

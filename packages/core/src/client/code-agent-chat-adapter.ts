@@ -61,7 +61,14 @@ export interface CodeAgentChatController {
   }): Promise<CodeAgentChatControlResult>;
   control(input: {
     runId: string;
-    command: "stop";
+    /**
+     * `"approve"` resolves the run's current pending `needsApproval` gate
+     * (see `requestCodeAgentApproval` in `cli/code-agent-executor.ts`) — the
+     * same effect as the host UI's "Approve" control. Deny / always-allow are
+     * intentionally NOT routed through this method; hosts wire those directly
+     * via `AssistantChatProps.approvalActions` instead (see CodeAgentsApp).
+     */
+    command: "stop" | "approve";
   }): Promise<CodeAgentChatControlResult>;
 }
 
@@ -101,12 +108,23 @@ export function createCodeAgentChatAdapter(
   const stopOnAbort = options.stopOnAbort === true;
 
   return {
-    async *run({ messages, abortSignal }: ChatModelRunOptions) {
+    async *run({ messages, abortSignal, runConfig }: ChatModelRunOptions) {
       const runId = options.runIdRef.current;
       if (!runId) {
         yield errorResult("Select an Agent-Native Code session first.");
         return;
       }
+
+      // Human-in-the-loop: `ApprovalContext.onApprove` (tool-call-display.tsx)
+      // re-issues the turn carrying the pending approval's key in
+      // `approvedToolCalls`, the same mechanism regular SSE agent-chat
+      // approvals use. For Code sessions there is no server-side gate to
+      // notify — resolve the run's own pending approval directly instead of
+      // treating the accompanying "Approved..." text as a new prompt.
+      const approvedToolCalls = extractApprovedToolCalls(runConfig);
+      const isApprovalTurn = Boolean(
+        approvedToolCalls && approvedToolCalls.length > 0,
+      );
 
       const lastUserMessage = latestUserMessage(messages);
       const attachments = lastUserMessage
@@ -115,7 +133,7 @@ export function createCodeAgentChatAdapter(
       const prompt =
         latestUserText(messages).trim() ||
         (attachments.length > 0 ? "Use the attached context." : "");
-      if (!prompt.trim()) {
+      if (!isApprovalTurn && !prompt.trim()) {
         yield errorResult("Enter a follow-up prompt.");
         return;
       }
@@ -138,7 +156,19 @@ export function createCodeAgentChatAdapter(
         const seenEventIds = new Set(initialEvents.map((event) => event.id));
         const tailedEvents: CodeAgentChatTranscriptEvent[] = [];
 
-        if (!options.attachOnlyRef?.current) {
+        if (isApprovalTurn) {
+          const response = await options.controller.control({
+            runId,
+            command: "approve",
+          });
+          if (!response.ok) {
+            yield errorResult(
+              response.error ?? response.message ?? "Could not approve.",
+              runId,
+            );
+            return;
+          }
+        } else if (!options.attachOnlyRef?.current) {
           const beforeSendRun = await options.controller.get(runId);
           const response = await options.controller.sendFollowUp({
             runId,
@@ -180,7 +210,8 @@ export function createCodeAgentChatAdapter(
           }
 
           const content = codeAgentTranscriptEventsToContent(tailedEvents);
-          if (content.length > 0 && nextEvents.length > 0) {
+          const sawClear = nextEvents.some(isAgentChatClearTranscriptEvent);
+          if ((content.length > 0 || sawClear) && nextEvents.length > 0) {
             yieldedContent = true;
             yield withRunMetadata({ content: [...content] }, runId);
           }
@@ -217,6 +248,41 @@ export function createCodeAgentChatAdapter(
   };
 }
 
+function extractApprovedToolCalls(
+  runConfig: ChatModelRunOptions["runConfig"] | undefined,
+): string[] | undefined {
+  const raw =
+    runConfig?.custom &&
+    typeof runConfig.custom === "object" &&
+    "approvedToolCalls" in runConfig.custom
+      ? (runConfig.custom as { approvedToolCalls?: unknown }).approvedToolCalls
+      : undefined;
+  if (!Array.isArray(raw)) return undefined;
+  const keys = raw.filter(
+    (key): key is string => typeof key === "string" && key.length > 0,
+  );
+  return keys.length > 0 ? keys : undefined;
+}
+
+/**
+ * Whether any tool-call in this Code transcript currently carries an
+ * unresolved approval (see `NormalizedCodeAgentToolEvent.pendingApprovalKey`).
+ * Hosts (e.g. `CodeAgentsApp`) use this to keep their standalone approval
+ * banner as a fallback only for transcripts where the inline
+ * `ApprovalAffordance` cannot be joined to a tool-call part, instead of
+ * showing both at once.
+ */
+export function codeAgentTranscriptHasPendingApproval(
+  events: readonly CodeAgentChatTranscriptEvent[],
+): boolean {
+  const normalized = normalizeCodeAgentTranscript(
+    events.map(toCoreCodeAgentTranscriptEvent),
+  );
+  return normalized.items.some(
+    (item) => item.type === "tool" && Boolean(item.pendingApprovalKey),
+  );
+}
+
 export function codeAgentTranscriptEventsToContent(
   events: readonly CodeAgentChatTranscriptEvent[],
 ): ContentPart[] {
@@ -247,6 +313,12 @@ export function codeAgentTranscriptEventsToContent(
   }
 
   return content;
+}
+
+function isAgentChatClearTranscriptEvent(
+  event: CodeAgentChatTranscriptEvent | undefined,
+): boolean {
+  return event?.metadata?.agentChatEventType === "clear";
 }
 
 function latestUserMessage(
@@ -350,16 +422,9 @@ function thinkingContentPartForCodeAgentTranscriptItem(
 ): ContentPart | null {
   const text = item.text.trim();
   if (!text) return null;
-  // Surface as a special "thinking" tool-call-like part so the chat renderer
-  // can display a collapsed-by-default "Thinking…" cell.  Using a distinct
-  // toolName makes it easy to style in AssistantChat without a new content type.
   return {
-    type: "tool-call",
-    toolCallId: `thinking-${item.id}`,
-    toolName: "thinking",
-    argsText: "",
-    args: {},
-    result: text,
+    type: "reasoning",
+    text,
   };
 }
 
@@ -377,6 +442,9 @@ function toolContentPartForCodeAgentTranscriptItem(
       : {}),
     ...(item.mcpApp ? { mcpApp: item.mcpApp } : {}),
     ...(item.structuredMeta ? { structuredMeta: item.structuredMeta } : {}),
+    ...(item.pendingApprovalKey
+      ? { approval: { approvalKey: item.pendingApprovalKey } }
+      : {}),
   };
 }
 

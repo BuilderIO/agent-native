@@ -24,6 +24,15 @@ export const BOARD_FILENAME = "__board__.html";
 const DEFAULT_SHAPE_FILL = "rgb(218 218 218)";
 const DEFAULT_SHAPE_STROKE = "rgb(168 168 168)";
 
+// Figma-parity default stroke for vector primitives (line/arrow/pen path).
+// Mirrors DEFAULT_LINE_STROKE / DEFAULT_LINE_STROKE_WIDTH_PX in
+// app/components/design/canvas-primitive-style.ts — duplicated as literal
+// values (not imported) so this module stays free of any dependency on the
+// React-adjacent app component tree, per this file's module doc above.
+// Keep these two values in sync if either canonical token ever changes.
+const DEFAULT_LINE_STROKE = "#000000";
+const DEFAULT_LINE_STROKE_WIDTH_PX = 1;
+
 // ---------------------------------------------------------------------------
 // isBoardFile
 // ---------------------------------------------------------------------------
@@ -104,13 +113,18 @@ export function boardObjectEntryToHtmlFragment(
   const nodeId = id;
   const layerName = name ?? kindToLayerName(kind);
 
+  // Auto-sized text grows to fit its content (matches the creation path in
+  // DesignEditor.tsx canvasPrimitiveHtmlDocument, which omits width/height for
+  // `kind === "text" && primitive.autoSize`). Persisting a fixed width/height
+  // for these would fight the auto-size behavior on reload.
+  const isAutoSizeText = kind === "text" && entry.autoSize === true;
+
   // Base inline style — negative left/top are kept as-is.
   const baseStyle = [
     "position:absolute",
     `left:${x}px`,
     `top:${y}px`,
-    `width:${width}px`,
-    `height:${height}px`,
+    ...(isAutoSizeText ? [] : [`width:${width}px`, `height:${height}px`]),
     ...(geometry.rotation ? [`transform:rotate(${geometry.rotation}deg)`] : []),
     ...(typeof geometry.z === "number" ? [`z-index:${geometry.z}`] : []),
   ].join(";");
@@ -141,8 +155,8 @@ export function boardObjectEntryToHtmlFragment(
             `${i === 0 ? "M" : "L"} ${Math.round(p.x - originX)} ${Math.round(p.y - originY)}`,
         )
         .join(" ");
-    const strokeColor = stroke ?? "var(--primary, #2563eb)";
-    const sw = strokeWidth ?? 3;
+    const strokeColor = stroke ?? DEFAULT_LINE_STROKE;
+    const sw = strokeWidth ?? DEFAULT_LINE_STROKE_WIDTH_PX;
 
     let markerDefs = "";
     let markerEnd = "";
@@ -152,7 +166,19 @@ export function boardObjectEntryToHtmlFragment(
       markerEnd = ` marker-end="url(#${escapeAttr(markerId)})"`;
     }
 
-    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible" ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
+    // Pen-authored paths (pathData present) serialize anchors in absolute
+    // canvas/geometry space, not relative to the fragment's own 0,0 origin
+    // like the synthesized `pts`-based `d` above. Without a matching viewBox,
+    // the SVG paints those absolute coordinates directly inside its own
+    // top-left-at-0,0 box while the box itself is *also* offset to
+    // geometry.x/y via baseStyle's left/top — doubling the displacement.
+    // Give the SVG a viewBox anchored at the geometry origin so pathData
+    // coordinates land exactly where they were authored.
+    const viewBoxAttr = pathData
+      ? ` viewBox="${x} ${y} ${width} ${height}"`
+      : "";
+
+    return `<svg style="${baseStyle}" xmlns="http://www.w3.org/2000/svg" overflow="visible"${viewBoxAttr} ${dataAttrs}>${markerDefs}<path d="${escapeAttr(d)}" fill="none" stroke="${escapeAttr(strokeColor)}" stroke-width="${sw}" stroke-linecap="round" stroke-linejoin="round"${markerEnd}/></svg>`;
   }
 
   // Ellipse kind uses a <div> with border-radius.
@@ -165,10 +191,13 @@ export function boardObjectEntryToHtmlFragment(
     return `<div style="${style}" ${dataAttrs}></div>`;
   }
 
-  // Text kind uses a <div> with text content.
+  // Text kind uses a <div> with text content. font-size/line-height defaults
+  // match the creation path (DesignEditor.tsx canvasPrimitiveHtmlDocument:
+  // element.style.fontSize = "16px"; element.style.lineHeight = "1.2";) so a
+  // freshly persisted board text object looks identical to its draft preview.
   if (kind === "text") {
     const color = fill ?? "inherit";
-    const style = `${baseStyle};color:${color};white-space:pre-wrap;`;
+    const style = `${baseStyle};color:${color};white-space:pre-wrap;font-size:16px;line-height:1.2;`;
     return `<div style="${style}" ${dataAttrs}>${text ? escapeHtml(text) : ""}</div>`;
   }
 
@@ -581,6 +610,376 @@ function _inferSvgPrimitiveKind(inner: string): string | null {
 
   // No reliable signal — leave unmarked.
   return null;
+}
+
+// ---------------------------------------------------------------------------
+// Poisoned nested-coordinate normalization
+// ---------------------------------------------------------------------------
+
+/**
+ * Half-size of the board's oversized iframe surface (131072 / 2). The board
+ * renderer shifts top-level board elements by this amount via a
+ * `body > [data-agent-native-node-id]{translate:65536px 65536px}` rule
+ * (DesignCanvas.tsx embeddedContentOffsetStyle) so board coordinate (0,0)
+ * lands at the center of the surface.
+ *
+ * Historic bugs wrote NESTED board children's left/top in board-IFRAME
+ * viewport coordinates (board coordinate + 65536) instead of parent-relative
+ * coordinates — and, before the offset rule was scoped to top-level children,
+ * the compounding translate could stack the offset more than once. The
+ * helpers below detect and repair those persisted values.
+ */
+export const BOARD_SURFACE_CONTENT_OFFSET_PX = 65_536;
+
+/**
+ * How far from an exact 65536-multiple a coordinate may sit and still be
+ * classified as "poisoned by the surface offset". Real poisoned values look
+ * like `k * 65536 + boardCoordinate` where the board coordinate of actual
+ * content is at most a few thousand px from origin; real parent-relative
+ * coordinates of nested children are bounded by their parent's size (far
+ * below this). A quarter of the offset is a comfortable margin on both sides.
+ */
+const BOARD_COORD_POISON_REMAINDER_MAX_PX = 16_384;
+
+/**
+ * Largest magnitude a rebased nested coordinate may have (when the parent's
+ * size is unknown) before it is considered garbage and clamped back into the
+ * parent's box. No sane nested child sits 16k px from its parent's origin.
+ */
+const BOARD_NESTED_COORD_SANE_MAX_PX = 16_384;
+
+/**
+ * Returns true when a persisted left/top value carries the board-surface
+ * offset fingerprint: within BOARD_COORD_POISON_REMAINDER_MAX_PX of a
+ * non-zero multiple of 65536.
+ */
+export function isBoardSurfacePoisonedCoord(value: number): boolean {
+  if (!Number.isFinite(value)) return false;
+  const k = Math.round(value / BOARD_SURFACE_CONTENT_OFFSET_PX);
+  if (k === 0) return false;
+  return (
+    Math.abs(value - k * BOARD_SURFACE_CONTENT_OFFSET_PX) <=
+    BOARD_COORD_POISON_REMAINDER_MAX_PX
+  );
+}
+
+/**
+ * Strips the board-surface offset from a coordinate when (and only when) it
+ * carries the poison fingerprint; all other values pass through untouched.
+ * `66904 → 1368`, `-65420 → 116`, `131172 → 100`, `250 → 250`.
+ */
+export function stripBoardSurfaceOffsetFromCoord(value: number): number {
+  if (!isBoardSurfacePoisonedCoord(value)) return value;
+  const k = Math.round(value / BOARD_SURFACE_CONTENT_OFFSET_PX);
+  return value - k * BOARD_SURFACE_CONTENT_OFFSET_PX;
+}
+
+/**
+ * Parent-relative position for a node being reparented INTO a target
+ * container, from the two elements' persisted absolute positions in the same
+ * coordinate space. This is the pure seam used by
+ * `handleOverviewPrimitiveReparent` (DesignEditor.tsx).
+ *
+ * The flat subtraction below is only correct when both `source` and `target`
+ * are already expressed in the SAME coordinate space — historically that
+ * meant "both are direct children of the screen root", because callers used
+ * to read a node's own inline left/top verbatim (parent-relative, not
+ * root-relative). DesignEditor.tsx's `getAbsolutePositioningForNodeInHtml`
+ * now resolves both inputs with an ancestor walk
+ * (`authoredElementPosition`) up to the screen root before calling this, so
+ * the subtraction is valid regardless of how deeply either node is nested —
+ * dropping a node into a container that's itself nested inside another frame
+ * no longer produces a garbage delta.
+ *
+ * Both inputs are also normalized with `stripBoardSurfaceOffsetFromCoord`
+ * first: a source that was persisted in board-iframe viewport coordinates
+ * (boardCoord + 65536 — see BOARD_SURFACE_CONTENT_OFFSET_PX) is rebased to
+ * board space before subtracting the target's origin, so the child's new
+ * left/top always comes out parent-relative regardless of which upstream
+ * path produced the source position. For in-screen reparenting (small
+ * screen-root coordinates on both sides) the strip is a no-op and this is a
+ * plain subtraction.
+ */
+export function computeReparentedChildPosition(
+  source: { x: number; y: number },
+  target: { x: number; y: number },
+): { x: number; y: number } {
+  return {
+    x:
+      stripBoardSurfaceOffsetFromCoord(source.x) -
+      stripBoardSurfaceOffsetFromCoord(target.x),
+    y:
+      stripBoardSurfaceOffsetFromCoord(source.y) -
+      stripBoardSurfaceOffsetFromCoord(target.y),
+  };
+}
+
+interface BoardWalkFrame {
+  tagName: string;
+  isNodeIdElement: boolean;
+  left: number | null;
+  top: number | null;
+  width: number | null;
+  height: number | null;
+}
+
+const BOARD_HTML_TAG_RE =
+  /<!--[\s\S]*?-->|<\/?([a-zA-Z][\w:-]*)((?:"[^"]*"|'[^']*'|[^"'<>])*)\/?>/g;
+
+/** Tags whose raw text content must not be tag-walked. */
+const BOARD_RAW_TEXT_TAGS = new Set(["script", "style", "textarea"]);
+
+function parseInlineStylePx(
+  style: string,
+  prop: "left" | "top" | "width" | "height",
+): number | null {
+  const match = style.match(
+    new RegExp(
+      `(?:^|;)\\s*${prop}\\s*:\\s*(-?\\d+(?:\\.\\d+)?)px\\s*(?=;|$)`,
+      "i",
+    ),
+  );
+  if (!match?.[1]) return null;
+  const parsed = Number(match[1]);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+function replaceInlineStylePx(
+  style: string,
+  prop: "left" | "top",
+  next: number,
+): string {
+  return style.replace(
+    new RegExp(`((?:^|;)\\s*${prop}\\s*:\\s*)(-?\\d+(?:\\.\\d+)?)px`, "i"),
+    `$1${next}px`,
+  );
+}
+
+function rebaseNestedBoardCoord(args: {
+  value: number;
+  ancestorOrigin: number;
+  parentSize: number | null;
+  childSize: number | null;
+}): number {
+  const { value, ancestorOrigin, parentSize, childSize } = args;
+  if (!isBoardSurfacePoisonedCoord(value)) return value;
+  // Two distinct historic poison shapes, distinguishable by the sign of the
+  // offset multiple:
+  // - k >= 1 (positive): value = k*65536 + boardCoordinate — the child's
+  //   board/viewport-space position was written verbatim (container-drop
+  //   persist path). Parent-relative = board coordinate minus the parent's
+  //   accumulated board-space origin.
+  // - k <= -1 (negative): value = parentRelative - 65536 — the bridge's
+  //   rect-space nest rebase pre-compensated the (old, blanket) content
+  //   translate. The stripped remainder already IS parent-relative; no
+  //   ancestor subtraction. (A genuine board coordinate can never reach
+  //   k <= -1 here: that would put content beyond the surface edge.)
+  const k = Math.round(value / BOARD_SURFACE_CONTENT_OFFSET_PX);
+  let rebased =
+    stripBoardSurfaceOffsetFromCoord(value) - (k > 0 ? ancestorOrigin : 0);
+  // Sanity clamp: exact recovery is possible for the common single-poison
+  // case, but compounded corruption (the parent moved after the child's
+  // position was written, multiple stacked offsets, user "fixes" made while
+  // the content rendered off-world) can leave a rebased value that is still
+  // far outside the parent. Pull those back into the parent's box so the
+  // child is at least visible and re-editable — the alternative is an
+  // element parked tens of thousands of px off-world.
+  const sane =
+    parentSize !== null
+      ? rebased >= -parentSize && rebased <= 2 * parentSize
+      : Math.abs(rebased) <= BOARD_NESTED_COORD_SANE_MAX_PX;
+  if (!sane) {
+    const max =
+      parentSize !== null ? Math.max(0, parentSize - (childSize ?? 0)) : 0;
+    rebased = Math.min(Math.max(0, rebased), max);
+  }
+  return Math.round(rebased);
+}
+
+/**
+ * Repairs already-persisted board content whose NESTED children carry
+ * left/top values poisoned by the board-surface offset (near-65536-multiple
+ * values — see BOARD_SURFACE_CONTENT_OFFSET_PX).
+ *
+ * For each element that (a) carries `data-agent-native-node-id`, (b) has at
+ * least one node-id-bearing ancestor inside `<body>` (i.e. is a nested board
+ * child, never a top-level one — top-level children legitimately use raw
+ * board coordinates), and (c) has a poisoned inline left and/or top:
+ *
+ * 1. the nearest 65536-multiple is stripped (recovering the board-space
+ *    coordinate the value was written from),
+ * 2. the accumulated origin of its node-id ancestor chain (using
+ *    already-normalized ancestor values, walking outer→inner) is subtracted
+ *    to produce a parent-relative coordinate, and
+ * 3. values that are still implausible after rebasing are clamped into the
+ *    parent's box.
+ *
+ * Everything else — non-poisoned coordinates, top-level children, elements
+ * without node ids, all other markup — passes through byte-identical. The
+ * function is pure, string-level (no DOM), and idempotent: normalized output
+ * contains no poisoned values, so a second pass returns `changed: false`.
+ *
+ * Applied on board-content load/adopt (DesignEditor) so designs corrupted by
+ * the historic nest-on-drop bugs self-heal the next time an editor opens
+ * them, and as a post-reparent safety net.
+ *
+ * Detectability (finding 4): this repair is a heuristic rewrite of
+ * already-persisted content with no built-in trace — a bad heuristic could
+ * silently mis-rebase real content and nobody would know. The return value
+ * includes `fixedNodeCount` and a small `samples` list (each node's original
+ * vs. rebased left/top) so callers can log what actually happened; this
+ * function itself stays side-effect-free (no console usage) so it remains
+ * safely callable from any context (including the post-reparent safety-net
+ * call sites, not just the load effect) — logging is the caller's job.
+ */
+const NORMALIZE_POISONED_COORDS_SAMPLE_LIMIT = 5;
+
+export function normalizePoisonedBoardNestedCoords(html: string): {
+  html: string;
+  changed: boolean;
+  fixedNodeCount: number;
+  samples: Array<{
+    nodeId: string | null;
+    before: { left: number | null; top: number | null };
+    after: { left: number | null; top: number | null };
+  }>;
+} {
+  if (!html || !html.includes("data-agent-native-node-id")) {
+    return { html, changed: false, fixedNodeCount: 0, samples: [] };
+  }
+  // Cheap pre-scan: a poisoned coordinate needs at least 5 digits
+  // (|value| >= 65536 - 16384 = 49152).
+  if (!/(?:left|top)\s*:\s*-?\d{5,}/i.test(html)) {
+    return { html, changed: false, fixedNodeCount: 0, samples: [] };
+  }
+
+  const bodyStart = html.indexOf("<body");
+  const bodyTagEnd = bodyStart === -1 ? -1 : html.indexOf(">", bodyStart);
+  const walkStart = bodyTagEnd === -1 ? 0 : bodyTagEnd + 1;
+  const bodyClose = html.lastIndexOf("</body>");
+  const walkEnd = bodyClose === -1 ? html.length : bodyClose;
+
+  const stack: BoardWalkFrame[] = [];
+  let out = "";
+  let cursor = 0;
+  let changed = false;
+  let fixedNodeCount = 0;
+  const samples: Array<{
+    nodeId: string | null;
+    before: { left: number | null; top: number | null };
+    after: { left: number | null; top: number | null };
+  }> = [];
+
+  BOARD_HTML_TAG_RE.lastIndex = walkStart;
+  let match: RegExpExecArray | null;
+  while ((match = BOARD_HTML_TAG_RE.exec(html)) !== null) {
+    if (match.index >= walkEnd) break;
+    const token = match[0];
+    const tagName = match[1]?.toLowerCase();
+    if (!tagName) continue; // comment
+
+    if (token.startsWith("</")) {
+      const index = stack.map((frame) => frame.tagName).lastIndexOf(tagName);
+      if (index >= 0) stack.splice(index);
+      continue;
+    }
+
+    // Raw-text elements: skip their content wholesale so stray "<" inside
+    // scripts/styles can't desync the walk.
+    if (BOARD_RAW_TEXT_TAGS.has(tagName) && !token.endsWith("/>")) {
+      const close = html.indexOf(`</${tagName}`, BOARD_HTML_TAG_RE.lastIndex);
+      if (close === -1) break;
+      BOARD_HTML_TAG_RE.lastIndex = close;
+      continue;
+    }
+
+    const attrs = match[2] ?? "";
+    const isNodeIdElement = /\bdata-agent-native-node-id\s*=/.test(attrs);
+    const styleMatch = token.match(/(\bstyle\s*=\s*)("([^"]*)"|'([^']*)')/i);
+    const style = styleMatch?.[3] ?? styleMatch?.[4] ?? "";
+    let left = parseInlineStylePx(style, "left");
+    let top = parseInlineStylePx(style, "top");
+    const width = parseInlineStylePx(style, "width");
+    const height = parseInlineStylePx(style, "height");
+
+    const nodeIdAncestors = stack.filter((frame) => frame.isNodeIdElement);
+    const isNestedBoardChild = isNodeIdElement && nodeIdAncestors.length > 0;
+    const leftPoisoned =
+      isNestedBoardChild && left !== null && isBoardSurfacePoisonedCoord(left);
+    const topPoisoned =
+      isNestedBoardChild && top !== null && isBoardSurfacePoisonedCoord(top);
+
+    if ((leftPoisoned || topPoisoned) && styleMatch) {
+      const parent = nodeIdAncestors[nodeIdAncestors.length - 1];
+      const originX = nodeIdAncestors.reduce(
+        (sum, frame) => sum + (frame.left ?? 0),
+        0,
+      );
+      const originY = nodeIdAncestors.reduce(
+        (sum, frame) => sum + (frame.top ?? 0),
+        0,
+      );
+      const beforeLeft = left;
+      const beforeTop = top;
+      let nextStyle = style;
+      if (leftPoisoned && left !== null) {
+        left = rebaseNestedBoardCoord({
+          value: left,
+          ancestorOrigin: originX,
+          parentSize: parent?.width ?? null,
+          childSize: width,
+        });
+        nextStyle = replaceInlineStylePx(nextStyle, "left", left);
+      }
+      if (topPoisoned && top !== null) {
+        top = rebaseNestedBoardCoord({
+          value: top,
+          ancestorOrigin: originY,
+          parentSize: parent?.height ?? null,
+          childSize: height,
+        });
+        nextStyle = replaceInlineStylePx(nextStyle, "top", top);
+      }
+      if (nextStyle !== style) {
+        fixedNodeCount += 1;
+        if (samples.length < NORMALIZE_POISONED_COORDS_SAMPLE_LIMIT) {
+          const nodeIdMatch =
+            /\bdata-agent-native-node-id\s*=\s*("([^"]*)"|'([^']*)')/.exec(
+              attrs,
+            );
+          samples.push({
+            nodeId: nodeIdMatch?.[2] ?? nodeIdMatch?.[3] ?? null,
+            before: { left: beforeLeft, top: beforeTop },
+            after: { left, top },
+          });
+        }
+        const quote = styleMatch[2]?.startsWith("'") ? "'" : '"';
+        const rewrittenToken =
+          token.slice(0, styleMatch.index ?? 0) +
+          styleMatch[1] +
+          quote +
+          nextStyle +
+          quote +
+          token.slice((styleMatch.index ?? 0) + styleMatch[0].length);
+        out += html.slice(cursor, match.index) + rewrittenToken;
+        cursor = match.index + token.length;
+        changed = true;
+      }
+    }
+
+    const selfClosing = token.endsWith("/>") || VOID_ELEMENTS.has(tagName);
+    if (!selfClosing) {
+      stack.push({ tagName, isNodeIdElement, left, top, width, height });
+    }
+  }
+
+  if (!changed) return { html, changed: false, fixedNodeCount: 0, samples: [] };
+  return {
+    html: out + html.slice(cursor),
+    changed: true,
+    fixedNodeCount,
+    samples,
+  };
 }
 
 // ---------------------------------------------------------------------------

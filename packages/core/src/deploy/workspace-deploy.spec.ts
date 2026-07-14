@@ -361,7 +361,9 @@ describe("workspace deploy", () => {
     );
     expect(dispatchServer).toContain('const basePath = "/dispatch";');
     expect(dispatchServer).toContain("Object.assign(processRef.env");
+    expect(dispatchServer).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchServer).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchServer).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
     expect(dispatchServer).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchServer).toContain('await import("./main.mjs")');
@@ -389,7 +391,9 @@ describe("workspace deploy", () => {
       ),
       "utf-8",
     );
-    expect(starterServer).toContain('path: ["/starter","/starter/*"]');
+    expect(starterServer).toContain(
+      'path: ["/starter","/starter.data","/starter/*"]',
+    );
     expect(starterServer).toContain("normalizeBasePathArgs");
     expect(starterServer).toContain('"/starter/assets/*"');
     expect(starterServer).toContain('"/starter/feed.xml"');
@@ -699,7 +703,9 @@ describe("workspace deploy", () => {
     );
     expect(dispatchWrapper).toContain('const basePath = "/dispatch";');
     expect(dispatchWrapper).toContain("Object.assign(processRef.env");
+    expect(dispatchWrapper).toContain('AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("APP_BASE_PATH: basePath");
+    expect(dispatchWrapper).toContain('VITE_AGENT_NATIVE_WORKSPACE: "1"');
     expect(dispatchWrapper).toContain("AGENT_NATIVE_WORKSPACE_APPS_JSON");
     expect(dispatchWrapper).toContain('\\"path\\":\\"/starter\\"');
     expect(dispatchWrapper).toContain('await import("./main.mjs")');
@@ -1085,10 +1091,10 @@ describe("workspace deploy", () => {
       'if (pathname === "/dispatch" || pathname === "/dispatch/") return Response.redirect(new URL("/dispatch/overview" + search, request.url).toString(), 302);',
     );
     expect(worker).toContain(
-      'if (pathname === "/dispatch" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
+      'if (pathname === "/dispatch" || pathname === "/dispatch.data" || pathname.startsWith("/dispatch/")) return app_dispatch.fetch(requestForMountedApp(request, "/dispatch"), env, ctx);',
     );
     expect(worker).toContain(
-      'if (pathname === "/starter" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
+      'if (pathname === "/starter" || pathname === "/starter.data" || pathname.startsWith("/starter/")) return app_starter.fetch(requestForMountedApp(request, "/starter"), env, ctx);',
     );
     expect(worker).toContain(
       "function requestForMountedApp(request, basePath)",
@@ -1226,7 +1232,25 @@ describe("durable-background Netlify function emit (workspace, flag-gated)", () 
           `/${app}/_agent-native/agent-chat/_process-run`,
         )}`,
       );
-      expect(entry).toContain("url.pathname = PROCESS_RUN_PATH");
+      expect(entry).toContain(
+        "url.pathname = processorPathFromBody(body) || PROCESS_RUN_PATH",
+      );
+      expect(entry).toContain(
+        `const A2A_PROCESS_TASK_PATH = ${JSON.stringify(
+          `/${app}/_agent-native/a2a/_process-task`,
+        )}`,
+      );
+      expect(entry).toContain(
+        'const BACKGROUND_PROCESSOR_FIELD = "__agentNativeProcessor"',
+      );
+      expect(entry).toContain('const BACKGROUND_PROCESSOR_ROUTE = "route"');
+      expect(entry).toContain(
+        'const BACKGROUND_PROCESSOR_ROUTE_FIELD = "__agentNativeProcessorRoute"',
+      );
+      expect(entry).toContain("function processorPathFromBody(body)");
+      expect(entry).toContain(
+        'route.startsWith(basePath + "/api/_agent-native-background/")',
+      );
       // The HMAC Authorization header + body must survive the rewrite.
       expect(entry).toContain("await request.text()");
       expect(entry).toContain("headers: request.headers");

@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client";
-import { IconWand } from "@tabler/icons-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Textarea } from "@/components/ui/textarea";
@@ -279,10 +278,5 @@ function AiBulletsBlock({
 /* -------------------------------------------------------------------------- */
 
 function AiTabIndicator() {
-  return (
-    <div className="flex items-center gap-1 text-[10px] uppercase tracking-wide text-muted-foreground/60 opacity-0 group-hover:opacity-100 transition-opacity">
-      <IconWand className="h-3 w-3" />
-      <span>AI</span>
-    </div>
-  );
+  return null;
 }

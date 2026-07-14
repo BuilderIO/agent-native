@@ -11,6 +11,16 @@ Wenn Sie QuickBooks Online verwendet haben, haben Sie das Modell gesehen: QBO li
 
 Der Rahmen ist wichtig: Eine Erweiterung ist keine generische Sandbox „Machen Sie, was Sie wollen“. Es handelt sich um eine **Mini-App, die eine bestimmte Vorlage** – Mail, Analytics, Kalender, Clips, Design – erweitert und die actions und Daten dieser Vorlage verwendet. Eine Mail-Erweiterung liest E-Mails. Eine Analytics-Erweiterung liest die Metriken eines Dashboards. Eine Kalendererweiterung wirkt auf das offene Ereignis. Sie fühlen sich als Teil des Host-Produkts, weil sie Teil des Host-Produkts sind.
 
+> **Erweiterungen ergänzen die Benutzeroberfläche; sie schreiben die
+> Host-Benutzeroberfläche nicht um.** Eine Erweiterung wird auf einer eigenen
+> Seite oder in einem benannten [Slot](#slots) dargestellt, den die Vorlage
+> bereitstellt. Sie kann keine Elemente in beliebige native Komponenten
+> einfügen – zum Beispiel neben jeden Teilnehmer im Kalender –, sofern dort
+> kein Slot vorhanden ist. Für tiefere Anpassungen bitten Sie den Agenten, den
+> Quellcode der Vorlage zu bearbeiten. Die vollständige Anpassbarkeit des Codes
+> ist eine Kernfunktion von Agent Native; Erweiterungen sind die schnelle Ebene
+> ohne Bereitstellung.
+
 Drei Dinge sorgen dafür, dass Erweiterungen funktionieren:
 
 - **Kein Code, keine Bereitstellung.** Der Agent schreibt sie und sie sind in Sekundenschnelle live. Wird in der Datenbank gespeichert, nicht im Repo.
@@ -34,7 +44,7 @@ App-Agent intakt.
     <div class="ext-helpers">
       <span class="diagram-pill">appAction</span
       ><span class="diagram-pill">appFetch</span
-      ><span class="diagram-pill">dbQuery / dbExec</span
+      ><span class="diagram-pill">dbQuery</span
       ><span class="diagram-pill">extensionData</span
       ><span class="diagram-pill">extensionFetch</span>
     </div>
@@ -227,7 +237,7 @@ Innerhalb der Iframe-Sandbox verfügt jede Erweiterung über diese Helfer auf `w
 | `appAction(name, params)`                        | Rufen Sie einen beliebigen actions der Host-Vorlage auf             | `appAction('list-emails', { view: 'inbox' })`             |
 | `appFetch(path, options)`                        | Zulässige Framework-Endpunkte unter `/_agent-native/*` aufrufen     | `appFetch('/_agent-native/application-state/navigation')` |
 | `dbQuery(sql, args)`                             | Lesen aus SQL (automatisch auf den Benutzer beschränkt)             | `dbQuery('SELECT id, name FROM tools')`                   |
-| `dbExec(sql, args)`                              | In SQL schreiben                                                    | `dbExec('INSERT INTO ...')`                               |
+| `dbExec(sql, args)`                              | Legacy trusted SQL writes for editor/admin extensions               | Prefer `appAction` for app data writes                    |
 | `extensionFetch(url, options)`                   | Treffen Sie externe APIs über einen sicheren Proxy mit Geheimnissen | `extensionFetch('https://api.github.com/user')`           |
 | `extensionData.set(collection, id, data, opts?)` | Daten pro Erweiterung beibehalten (Benutzer-/Organisationsbereich)  | `extensionData.set('notes', id, { text: '...' })`         |
 | `extensionData.list(collection, opts?)`          | Persistente Elemente auflisten                                      | `extensionData.list('notes', { scope: 'all' })`           |
@@ -397,7 +407,7 @@ Lokale Erweiterungen haben ein strengeres v1-Berechtigungsmodell:
 
 - `extensionData` ist für den kleinen Laufzeitstatus verfügbar, sofern es nicht deaktiviert ist.
 - `appAction`-Aufrufe müssen explizit in `permissions.appActions` aufgeführt werden.
-- `dbQuery`, `dbExec` und `extensionFetch` sind vorerst blockiert.
+- `dbQuery` und `extensionFetch` sind vorerst blockiert.
 - SQL-gestützte Aktualisierung, Löschung, Freigabe und Verlauf actions geben eine Meldung zurück, die
   zeigt zurück auf die lokale Eintragsdatei.
 
@@ -430,6 +440,8 @@ Mit dem Framework kann der Agent den Quellcode der App direkt bearbeiten – Kom
 
 Faustregel: **Wenn es für einen Benutzer oder ein Team ist, handelt es sich um eine Erweiterung.** Wenn jeder Benutzer der Vorlage sie erhalten soll, liefern Sie sie als echtes Feature aus.
 
+Für benutzerdefinierten Datenabruf, der native Diagramme und Tabellen speisen soll statt einer eigens gebauten Widget-UI, siehe [Datenprogramme](/docs/data-programs) — ein gespeichertes, aktualisierbares `run-code`-Skript, an das sich Dashboard-Panels direkt binden, ganz ohne Extension-iframe.
+
 ## Sicherheit {#security}
 
 <Callout id="doc-block-frp4nq" tone="success">
@@ -444,7 +456,7 @@ Erweiterungen werden in einem Sandbox-Iframe ausgeführt:
 - **Serverseitige geheime Injektion** über die `${keys.NAME}`-Vorlage – der tatsächliche Schlüsselwert erreicht nie den Browser.
 - **Domänengesperrte Geheimnisse** – jeder Schlüssel ist an eine URL-Zulassungsliste gebunden; Der Proxy lehnt Anfragen an andere Hosts ab.
 - **Privater Netzwerkschutz** – Erweiterungen können interne Adressen nicht erreichen.
-- **Authentifizierung erforderlich** – Erweiterungen werden nur für angemeldete Benutzer ausgeführt und `dbQuery`-/`dbExec`-Aufrufe werden automatisch eingeschränkt.
+- **Authentifizierung erforderlich** – Erweiterungen werden nur für angemeldete Benutzer ausgeführt und `dbQuery`-Aufrufe werden automatisch eingeschränkt.
 
 ## Ein paar Dinge, die Sie über die Benennung wissen sollten {#naming-back-compat}
 

@@ -5,12 +5,7 @@ description: "Agent-Native Plans convierte el plan de su agente de codificación
 
 # Planos visuales
 
-> **La mayoría de las personas instalan Plan como una habilidad, no como una aplicación estructurada.** Un comando CLI
-> agrega `/visual-plan` y `/visual-recap` skills más el plan alojado
-> conector a su agente de codificación: consulte [Plan plugin & marketplace](/docs/plan-plugin)
-> para las rutas del complemento y del mercado. Plantilla de bifurcación del plan (tratada en
-> [For developers](#for-developers)) es la ruta secundaria, para autohospedaje o
-> basándose en el propio Plan.
+> **La mayoría de las personas instalan Plan como una skill, no como una app scaffolded.** Un comando CLI agrega las skills `/visual-plan`, `/visual-recap` y `/visualize-repo`, además del conector Plan alojado, a tu agente de código — consulta [Plan plugin & marketplace](/docs/plan-plugin) para las rutas de plugin y marketplace. Bifurcar la plantilla Plan (cubierto en [For developers](#for-developers)) es la ruta secundaria para autohospedar o construir sobre Plan.
 
 Agent-Native Planes es el modo de plan visual para agentes de codificación. Se vuelve normal
 Codex, Código Claude, Markdown o plan de implementación pegado en un formato estructurado
@@ -115,11 +110,11 @@ golpeó una pared OAuth:
 npx @agent-native/core@latest skills add visual-plan
 ```
 
-El comando instala ambos comandos: `/visual-plan` y `/visual-recap`.
+El comando instala tres comandos: `/visual-plan`, `/visual-recap` y `/visualize-repo`.
 
 Si está utilizando un host basado en chat que acepta conectores MCP URL directamente
 (en lugar de un cliente configurado con CLI), conecte el conector de planes alojado en
-`https://plan.agent-native.com/_agent-native/mcp`: consulte [MCP Clients](/docs/mcp-clients) para conocer la configuración específica del cliente.
+`https://plan.agent-native.com/mcp`: consulte [MCP Clients](/docs/mcp-clients) para conocer la configuración específica del cliente.
 
 La autenticación es un inicio de sesión único en el navegador durante la configuración; esto es lo que se pretende y
 es lo que permite al agente persistir y compartir los planes que genera. ¿Qué diablos?
@@ -217,6 +212,20 @@ Si el primer pase todavía tiene decisiones responsables, el agente puede coloca
 Formulario **Preguntas abiertas** en la parte inferior del mismo plan. Responderlo y enviar
 El agente inicia un turno de revisión contra el plan existente.
 
+## Costo y elección de modelo
+
+Generar un plan o un resumen ejecuta una sesión completa de agente frente al LLM
+de su agente de codificación, no un simple relleno de plantilla ligero, por lo que
+el costo escala con el tamaño del diff o del plan y con el modelo que elija.
+
+- El modelo de chat predeterminado de la propia aplicación es Sonnet 5; cámbielo
+  en cualquier momento en **Configuración**. Haiku es la opción más económica de
+  Claude, y Luna es la opción más económica dentro de la familia GPT-5.6.
+- Los resúmenes de PR automatizados de la GitHub Action se ejecutan por separado
+  de la aplicación interactiva y tienen sus propios controles de modelo y costo;
+  consulte [PR Visual Recap](/docs/pr-visual-recap) para `VISUAL_RECAP_MODEL`,
+  `VISUAL_RECAP_AGENT` y `VISUAL_RECAP_REASONING`.
+
 ## Qué puedes hacer con él
 
 - **Revisión antes de la implementación.** React a diagramas, estructuras alámbricas, pestañas de opciones,
@@ -258,7 +267,7 @@ Compartir y comentar son los flujos de trabajo que necesitan una cuenta:
   revisión en varios dispositivos o en equipo) requiere iniciar sesión. El inicio de sesión de Google aparece cuando
   las variables de entorno estándar de Google OAuth están configuradas.
 
-El conector de planes alojado se encuentra en `https://plan.agent-native.com/_agent-native/mcp`.
+El conector de planes alojado se encuentra en `https://plan.agent-native.com/mcp`.
 Nunca coloques secretos compartidos en archivos de habilidades.
 
 ## Modo de privacidad de archivos locales {#local-files}
@@ -295,7 +304,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 Parece el puente URL
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 La página es el visor de planes normal, pero el navegador recupera `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json` y recursos de imagen locales de
 el puente del host local. El contenido del plan no se escribe en la base de datos alojada y se
@@ -358,6 +367,25 @@ y comentando, y devuelve el URL alojado. El modo de archivos locales no
 convierta automáticamente el LLM de su agente de codificación en local; elige un local o homologado
 modele si ese límite de privacidad también importa.
 
+## Documentación visual del repositorio {#visualize-repo}
+
+Usa `/visualize-repo` cuando quieras una capa duradera de documentación visual para una base de código en lugar de un plan o recapitulación puntual. Crea o abre un workspace local de Plan MDX, actualiza `agent-native.json` con una sección `apps.visualize-repo` en modo local-files y sirve los documentos a través del mismo puente localhost:
+
+```bash
+npx @agent-native/core@latest visualize-repo --open
+```
+
+Si no existe `agent-native.json`, el comando lo inicializa y recomienda un pequeño conjunto inicial a partir de la estructura del repositorio, como `actions/`, `app/components/`, `app/pages/`, `server/db/schema.ts`, `src/`, `packages/`, `templates/`, `docs/` o `content/`. Puedes apuntar a anclas de código específicas:
+
+```bash
+npx @agent-native/core@latest visualize-repo \
+  --target actions/webhooks.ts \
+  --target server/db/schema.ts \
+  --target app/components/PromptComposer.tsx
+```
+
+La carpeta inicial vive de forma predeterminada en `.agent-native/visual-docs/repo-overview`. Los comentarios permanecen locales en `comments.json`, para que los revisores puedan marcar secciones para un agente de código y el agente pueda actualizar código y MDX en el mismo cambio. Ejecuta `visualize-repo check` para lint local y `visualize-repo verify` cuando quieras que el esquema del renderizador de Plan valide el MDX.
+
 ## Sincronización de archivos locales de escritorio {#desktop-local-sync}
 
 Agent Native Desktop también ofrece a los planes alojados un puente de carpeta local nativo. Esto
@@ -410,6 +438,8 @@ tocar archivos locales.
 - "Utilice `/visual-recap` en la diferencia entre `main` y esta rama."
 - "Utilice `/visual-recap` en modo de archivos locales para que no se escriba ningún contenido resumido en la base de datos del plan."
 
+- "Ejecuta `/visualize-repo` y empieza con nuestras acciones API públicas y el esquema."
+
 ## Recuperación de errores de autenticación {#auth-errors}
 
 Si una herramienta de Planes alguna vez devuelve `needs auth`, `Unauthorized` o `Session
@@ -436,7 +466,7 @@ pnpm dev
 La habilidad respaldada por la aplicación alojada utiliza:
 
 - Aplicación: `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 La plantilla local es útil cuando estás desarrollando planes, probando la persistencia local o ejecutando una superficie de revisión totalmente autohospedada.
 

@@ -1,0 +1,119 @@
+---
+title: "Toolkits"
+description: "Battle-tested reusable building blocks for high-quality agentic applications: collaboration, sharing, settings, teams, setup, navigation, resources, agent UX, history, comments, and observability."
+---
+
+# Toolkits
+
+Toolkits are reusable, battle-tested building blocks for high-quality agentic
+applications. They turn the hard product work that repeats across apps into
+standard surfaces: realtime collaboration between humans and agents, sharing
+with humans and agents, settings, teams, setup, resources, history, review, and
+observability.
+
+Each kit packages the UI patterns, action contracts, app-state expectations,
+access boundaries, and agent-visible behavior that users expect to work
+consistently. Apps still own their domain model and visual identity; toolkits
+make the common product systems feel complete from the first version instead of
+being rebuilt in slightly different ways every time.
+
+<WireframeBlock id="doc-block-toolkits-index">
+  <Screen
+    surface="desktop"
+    html={
+      "<div style='min-height:560px;box-sizing:border-box;display:grid;grid-template-columns:200px 1fr 280px;gap:16px'><aside class='wf-card' style='display:flex;flex-direction:column;gap:8px;padding:14px'><div style='display:flex;align-items:center;gap:8px'><div style='width:26px;height:26px;border-radius:8px;background:var(--wf-accent-soft);display:flex;align-items:center;justify-content:center;font-size:12px;flex:none'>A</div><strong style='flex:1'>Acme</strong><span data-icon='chevronDown'></span></div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:8px;background:var(--wf-accent-soft)'><span data-icon='search'></span> Home</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='edit'></span> Documents</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='user'></span> Team</div><div style='display:flex;align-items:center;gap:8px;padding:7px 9px'><span data-icon='settings'></span> Settings</div><div style='flex:1'></div><div style='display:flex;align-items:center;gap:8px;padding-top:10px;border-top:1.4px solid var(--wf-line)'><div style='width:24px;height:24px;border-radius:999px;background:var(--wf-accent-soft);flex:none'></div><small style='flex:1'>Steve</small><span data-icon='dots'></span></div></aside><main class='wf-card' style='display:flex;flex-direction:column;gap:14px'><div style='display:flex;align-items:center;gap:10px'><h2 style='margin:0'>Q3 Forecast</h2><div style='flex:1'></div><div style='display:flex'><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent-soft);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div><div style='width:26px;height:26px;border-radius:999px;background:var(--wf-accent);border:2px solid var(--wf-card);margin-left:-8px;flex:none'></div></div><button class='primary'><span data-icon='user'></span> Share</button></div><div class='wf-box' style='display:flex;flex-direction:column;gap:10px'><small class='wf-muted'>Revenue by month</small><div style='display:flex;align-items:flex-end;gap:10px;height:120px'><div style='flex:1;height:45%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:65%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:55%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:80%;background:var(--wf-accent-soft);border-radius:4px'></div><div style='flex:1;height:95%;background:var(--wf-accent);border-radius:4px'></div></div></div><div style='display:flex;gap:10px'><div class='wf-box' style='flex:1'><small class='wf-muted'>ARR</small><br/><strong>$4.2M</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Win rate</small><br/><strong>28%</strong></div><div class='wf-box' style='flex:1'><small class='wf-muted'>Pipeline</small><br/><strong>3.2x</strong></div></div></main><aside class='wf-card' style='display:flex;flex-direction:column;gap:10px'><strong>Agent</strong><div class='wf-box'>Summarize Q3 versus Q2 and flag risks.</div><div class='wf-box' style='background:var(--wf-accent-soft)'>Revenue up 12%. Two pipeline risks flagged.</div><div style='flex:1'></div><div class='wf-card' style='padding:10px;display:flex;flex-direction:column;gap:8px'><span class='wf-muted'>Ask about this dashboard...</span><div style='display:flex;align-items:center;gap:6px'><span class='wf-pill'>Q3 Forecast</span><span class='wf-pill'>GPT-5</span><div style='flex:1'></div><button class='primary'><span data-icon='send'></span></button></div></div></aside></div>"
+    }
+  />
+</WireframeBlock>
+
+<Diagram id="doc-block-toolkits-boundary" title="How kits fit" summary={"The framework runtime supplies durable guarantees. Toolkits turn those guarantees into reusable product systems. Apps add domain-specific data, routes, and visual identity."}>
+
+```html
+<div class="diagram-row">
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Runtime</span><br />
+    actions, SQL, auth, app state, access checks, realtime transport
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Toolkits</span><br />
+    collaboration, sharing, setup, review, history, observability
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-card">
+    <span class="diagram-pill accent">Apps</span><br />
+    domain schema, routes, actions, branding, specialized workflows
+  </div>
+</div>
+```
+
+```css
+.diagram-row {
+  display: flex;
+  gap: 12px;
+  align-items: stretch;
+  flex-wrap: wrap;
+}
+.diagram-row .diagram-card {
+  flex: 1 1 210px;
+  padding: 14px;
+}
+.diagram-row .diagram-arrow {
+  align-self: center;
+  font-size: 22px;
+}
+```
+
+</Diagram>
+
+## The Kits {#the-kits}
+
+| Kit                                                      | Use it for                                                                                                                       |
+| -------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| [Sharing](/docs/toolkit-sharing)                         | Ownable resources, share dialogs, visibility badges, share actions, public/private/org access.                                   |
+| [Collaboration](/docs/toolkit-collaboration)             | Realtime editing, presence, live cursors, recent-edit highlights, collaborative undo.                                            |
+| [Settings](/docs/toolkit-settings)                       | Standard settings pages and tabs so app settings and agent/provider settings live in one predictable place.                      |
+| [Org & Team](/docs/toolkit-org-team)                     | Team pages, org switching, invites, org domains, roles, and app switching.                                                       |
+| [Setup & Connections](/docs/toolkit-setup-connections)   | Onboarding, secrets, workspace connections, OAuth/provider readiness, and Builder connect.                                       |
+| [Command & Navigation](/docs/toolkit-command-navigation) | Command menu, deep links, standard app routes, sidebar and shell patterns.                                                       |
+| [Resources](/docs/toolkit-resources)                     | Resource trees, editors, file picker/search, attachments, and local file mode.                                                   |
+| [Agent UX](/docs/toolkit-agent-ux)                       | Composer, model picker, context chips, approvals, run recovery, and the runs tray.                                               |
+| [History](/docs/toolkit-history)                         | Registered versioned resources, snapshot actions, history panels, audit logs, undo/redo, restore, and "what changed" surfaces.   |
+| [Comments & Review](/docs/toolkit-comments-review)       | Registered reviewable resources, comment actions, feedback queues, thread panels, mentions, resolved threads, and review status. |
+| [Observability](/docs/toolkit-observability)             | Usage, spend, feedback, replay, errors, and run diagnostics.                                                                     |
+
+## Implementation Boundary {#implementation-boundary}
+
+Kits are product surfaces first. Some pieces are runtime-backed
+(`@agent-native/core`), some are presentation primitives
+(`@agent-native/toolkit`), and apps usually wrap both through local adapters.
+Use the package path that owns the needed behavior, but design the user-facing
+settings, collaboration, sharing, team, review, and setup experiences as one
+coherent kit instead of exposing package boundaries in the app.
+
+## Foundation Pieces {#foundation-pieces}
+
+- [UI Primitives](/docs/toolkit-ui) covers the shared shadcn-style primitives
+  under `@agent-native/toolkit/ui/*`, the local app-adapter pattern every
+  template wraps them in, and the shared shell hooks (header actions, mobile
+  detection, toasts).
+- [Component API](/docs/components) remains the lower-level reference for the
+  public React exports.
+
+## Design Rule {#design-rule}
+
+Use a toolkit when the behavior repeats across apps and users expect it to feel
+standard: sharing, settings, teams, comments, history, and agent progress should
+not be slightly different in every template. Keep domain-specific data,
+workflows, labels, and visual styling in the app.
+
+## What's next
+
+- [**Toolkit UI Primitives**](/docs/toolkit-ui) — the shared primitives, app
+  adapters, and shell hooks every kit builds on.
+- [**Sharing Kit**](/docs/toolkit-sharing) — a good first kit to adopt: ownable
+  resources, share dialogs, and visibility.
+- [**Creating Templates**](/docs/creating-templates) — build a template end to
+  end and see where kits fit alongside your own domain model.
+- [**Component API**](/docs/components) — the generated reference for every
+  public React export, including kit components.

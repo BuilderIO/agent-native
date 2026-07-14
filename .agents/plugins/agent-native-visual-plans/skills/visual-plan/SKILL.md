@@ -201,10 +201,12 @@ forward only the code-research and plan-composition guidance here.
 
 ## Self-Review Before Handoff
 
-For high-stakes plans — architecture, backend, data-model, migration, multi-file,
-or otherwise risky work — run one adversarial self-review pass before treating the
-plan as final. Skip it for small, UI-only, or single-decision plans where the cost
-outweighs the value. Keep the pass cheap and non-blocking:
+This adversarial self-review pass is opt-in, not default: run it only for
+high-stakes plans — irreversible migrations, security-sensitive work, or when
+the user explicitly asks for extra rigor — and skip it otherwise. It roughly
+doubles the cost of plan generation, so the default for small, UI-only,
+single-decision, or ordinary plans is to skip it, not to run it. Keep the pass
+cheap and non-blocking when it does run:
 
 - **Surface the plan first, review concurrently.** Post the link and let the user
   start reading, then run the review in parallel — never make the user wait on it.
@@ -433,9 +435,10 @@ not hit an OAuth wall:
 npx @agent-native/core@latest skills add visual-plans
 ```
 
-After that, `/visual-plan` and `/visual-recap` are the two installed slash
-commands. If you only need one command, use `skills add visual-plan` or
-`skills add visual-recap` instead. The other planning modes
+After that, `/visual-plan`, `/visual-recap`, and `/visualize-repo` are the
+installed slash commands. If you only need one command, use
+`skills add visual-plan`, `skills add visual-recap`, or
+`skills add visualize-repo` instead. The other planning modes
 (`create-ui-plan`, `create-prototype-plan`, `create-plan-design`,
 `create-visual-questions`) are MCP tools reachable from `/visual-plan`, not
 separate slash commands. Pass `--no-connect` to register the connector without
@@ -455,9 +458,14 @@ For fully offline, no-account use, run the Plans app locally and sync plans to
 your repo as MDX. This local mode is a separate advanced path, not the default
 hosted flow.
 
+For repo-wide visual docs, run
+`npx @agent-native/core@latest visualize-repo --open` to create/update
+`agent-native.json`, seed `.agent-native/visual-docs/repo-overview`, and open
+the local bridge.
+
 If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`, do
 not keep retrying it — stop and give the user the per-client reconnect step from
 `references/connection.md`, then continue once the connector is available.
 
-Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
+Hosted default: connect `https://plan.agent-native.com/mcp`. Do
 not put shared secrets in skill files.

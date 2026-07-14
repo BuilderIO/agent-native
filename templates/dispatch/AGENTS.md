@@ -8,6 +8,10 @@ specific essentials.
 
 ## Core Rules
 
+- Store large file/blob payloads in configured file/blob storage, not SQL: no
+  base64, `data:` URLs, images, video/audio, PDFs, ZIPs, screenshots,
+  thumbnails, or replay chunks in app tables, `application_state`, `settings`,
+  or `resources`; persist URLs, ids, or handles instead.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Treat Dispatch as workspace infrastructure. Prefer actions over raw SQL for
   vault, integrations, resource grants, messaging, routing, and approvals.
@@ -27,13 +31,21 @@ specific essentials.
   setup item is unclear.
 - Keep approval and routing behavior explicit. Never silently widen access to
   secrets, apps, integrations, or workspace resources.
+- `/operations` is the focused operator console. Its Monitoring tab reuses the
+  shared observability dashboard for traces, conversations, evaluations,
+  experiments, and feedback; its Database tab reuses the Code-mode database
+  admin. Use `navigate --view operations|monitoring|observability|database` and
+  `view-screen` to align with the active tab. Use Thread Debug, Audit, and
+  Destinations for concrete thread, change-history, and delivery investigations;
+  Dispatch does not invent a separate issue tracker when those framework
+  surfaces contain the operational evidence.
 
 ## Application State
 
 - `navigation` exposes current Dispatch view, selected integration/resource,
   approval, route, or settings panel.
-- `navigate` moves the UI to setup, vault, integrations, resources, routing, and
-  approval surfaces.
+- `navigate` moves the UI to setup, vault, integrations, resources, routing,
+  approval, and operator surfaces.
 
 ## Skills
 

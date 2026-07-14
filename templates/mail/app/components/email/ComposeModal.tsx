@@ -19,7 +19,7 @@ import {
   IconTrash,
   IconPlus,
 } from "@tabler/icons-react";
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import type { CSSProperties } from "react";
 import { toast } from "sonner";
 
@@ -50,7 +50,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
-import { openFilePicker, uploadFiles } from "@/lib/upload";
+import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -359,6 +359,54 @@ export function ComposeModal({
   };
 
   const composeRef = useRef<HTMLDivElement>(null);
+  const composeAnimationRef = useRef<Animation | null>(null);
+
+  const animateComposeLayout = useCallback((updateLayout: () => void) => {
+    const compose = composeRef.current;
+    const before = compose?.getBoundingClientRect();
+
+    updateLayout();
+
+    if (
+      !compose ||
+      !before ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    ) {
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      const after = compose.getBoundingClientRect();
+      if (after.width === 0 || after.height === 0) return;
+
+      const translateX = before.left - after.left;
+      const translateY = before.top - after.top;
+      const scaleX = before.width / after.width;
+      const scaleY = before.height / after.height;
+
+      composeAnimationRef.current?.cancel();
+      composeAnimationRef.current = compose.animate(
+        [
+          {
+            transform: `translate(${translateX}px, ${translateY}px) scale(${scaleX}, ${scaleY})`,
+            transformOrigin: "top left",
+          },
+          { transform: "none", transformOrigin: "top left" },
+        ],
+        {
+          duration: 200,
+          easing: "cubic-bezier(0.23, 1, 0.32, 1)",
+        },
+      );
+    });
+  }, []);
+
+  useEffect(
+    () => () => {
+      composeAnimationRef.current?.cancel();
+    },
+    [],
+  );
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     // Only handle shortcuts for events originating within the compose window
@@ -449,6 +497,16 @@ export function ComposeModal({
     }
   };
 
+  const handleUploadImage = async (file: File) => {
+    try {
+      const result = await uploadFile(file);
+      return result.url;
+    } catch (err) {
+      toast.error(t("mail.toasts.failedToUploadImage"));
+      throw err;
+    }
+  };
+
   const handleAttach = async () => {
     const file = await openFilePicker("*/*");
     if (!file) return;
@@ -465,6 +523,17 @@ export function ComposeModal({
   const handleDrop = (e: React.DragEvent<HTMLDivElement>) => {
     const files = Array.from(e.dataTransfer.files ?? []);
     if (files.length === 0) return;
+    // All-image drops landing inside the editor are left alone here so
+    // ComposeEditor's own handleDrop (bubble phase) can insert them inline;
+    // everything else (non-image or mixed drops) still goes to attachments.
+    const target = e.target as HTMLElement;
+    const droppedOnEditor = target.closest(".compose-editor") != null;
+    if (
+      droppedOnEditor &&
+      files.every((file) => file.type.startsWith("image/"))
+    ) {
+      return;
+    }
     e.preventDefault();
     e.stopPropagation();
     void handleAttachFiles(files);
@@ -497,7 +566,7 @@ export function ComposeModal({
     <div
       ref={composeRef}
       className={cn(
-        "compose-window fixed z-50 flex w-full flex-col bg-card transition-[width,height,top,bottom] duration-150 sm:rounded-t-xl",
+        "compose-window fixed z-50 flex w-full flex-col bg-card sm:rounded-t-xl",
         minimized
           ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
           : isExpanded
@@ -589,8 +658,10 @@ export function ComposeModal({
                     : t("mail.compose.minimizeCompose")
                 }
                 onClick={() => {
-                  setIsExpanded(false);
-                  setMinimized(!minimized);
+                  animateComposeLayout(() => {
+                    setIsExpanded(false);
+                    setMinimized(!minimized);
+                  });
                 }}
               >
                 <IconMinus className="h-3.5 w-3.5" />
@@ -616,8 +687,10 @@ export function ComposeModal({
                   }
                   aria-pressed={isExpanded}
                   onClick={() => {
-                    setMinimized(false);
-                    setIsExpanded((value) => !value);
+                    animateComposeLayout(() => {
+                      setMinimized(false);
+                      setIsExpanded((value) => !value);
+                    });
                   }}
                 >
                   {isExpanded ? (
@@ -746,6 +819,7 @@ export function ComposeModal({
             showQuoted={showQuoted}
             setShowQuoted={setShowQuoted}
             signature={settings?.signature}
+            onUploadImage={handleUploadImage}
           />
 
           {/* Attachments */}
@@ -917,6 +991,7 @@ function ComposeBody({
   showQuoted,
   setShowQuoted,
   signature,
+  onUploadImage,
 }: {
   activeDraft: ComposeState;
   activeId: string;
@@ -935,6 +1010,7 @@ function ComposeBody({
   showQuoted: boolean;
   setShowQuoted: (show: boolean) => void;
   signature?: string;
+  onUploadImage: (file: File) => Promise<string>;
 }) {
   const t = useT();
   const [editableContent, quotedContent] = useMemo(
@@ -1002,6 +1078,7 @@ function ComposeBody({
           })
         }
         sendToAgent={sendToAgent}
+        onUploadImage={onUploadImage}
       />
       {hasQuote && (
         <>

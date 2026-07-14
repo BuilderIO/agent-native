@@ -9,6 +9,7 @@ import {
 import { useMemo, useState, useEffect } from "react";
 import { useSearchParams } from "react-router";
 
+import { ResourceLoadError } from "@/components/ResourceLoadError";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -54,6 +55,8 @@ export default function ExplorerPage() {
     setConfig,
     currentId,
     savedConfigs,
+    savedConfigsError,
+    retrySavedConfigs,
     loadConfig,
     saveConfig,
     deleteConfig,
@@ -158,27 +161,38 @@ export default function ExplorerPage() {
                   {t("explorer.saveAs")}
                 </DropdownMenuItem>
               )}
-              {savedConfigs.length > 0 && <DropdownMenuSeparator />}
-              {savedConfigs.map((sc) => (
-                <DropdownMenuItem
-                  key={sc.id}
-                  className="flex items-center justify-between"
-                  onClick={() => loadConfig(sc.id)}
-                >
-                  <span className="truncate">{sc.name}</span>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-5 w-5 shrink-0 ml-2"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setDeleteConfirm({ id: sc.id, name: sc.name });
-                    }}
+              {(savedConfigsError || savedConfigs.length > 0) && (
+                <DropdownMenuSeparator />
+              )}
+              {savedConfigsError ? (
+                <ResourceLoadError
+                  inline
+                  message={t("commandPalette.loadFailed")}
+                  retryLabel={t("sidebar.retry")}
+                  onRetry={() => void retrySavedConfigs()}
+                />
+              ) : (
+                savedConfigs.map((sc) => (
+                  <DropdownMenuItem
+                    key={sc.id}
+                    className="flex items-center justify-between"
+                    onClick={() => loadConfig(sc.id)}
                   >
-                    <IconTrash className="h-3 w-3 text-destructive" />
-                  </Button>
-                </DropdownMenuItem>
-              ))}
+                    <span className="truncate">{sc.name}</span>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-5 w-5 shrink-0 ml-2"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setDeleteConfirm({ id: sc.id, name: sc.name });
+                      }}
+                    >
+                      <IconTrash className="h-3 w-3 text-destructive" />
+                    </Button>
+                  </DropdownMenuItem>
+                ))
+              )}
             </DropdownMenuContent>
           </DropdownMenu>
 

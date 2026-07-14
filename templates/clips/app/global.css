@@ -3,6 +3,7 @@
 
 @import "tailwindcss";
 @import "@agent-native/core/styles/agent-native.css";
+@import "@agent-native/toolkit/styles.css";
 
 @source "./**/*.{ts,tsx}";
 
@@ -73,6 +74,51 @@
     @apply bg-background text-foreground;
     font-family: "Inter Variable", "Inter", sans-serif;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+}
+
+@keyframes clips-collapsible-down {
+  from {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes clips-collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.clips-collapsible-content {
+  overflow: hidden;
+  transform-origin: top;
+}
+
+.clips-collapsible-content[data-state="open"] {
+  animation: clips-collapsible-down 160ms ease-out;
+}
+
+.clips-collapsible-content[data-state="closed"] {
+  animation: clips-collapsible-up 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clips-collapsible-content[data-state] {
+    animation-duration: 1ms;
   }
 }
 

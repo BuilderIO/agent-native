@@ -161,6 +161,8 @@ export default function AnalyticsTemplate() {
             <img
               src={template.screenshot}
               alt={t("templateLanding.analytics.s001")}
+              loading="lazy"
+              decoding="async"
               className="w-full object-cover object-top"
             />
           </div>

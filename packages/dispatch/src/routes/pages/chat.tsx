@@ -3,6 +3,7 @@ import {
   appBasePath,
   appPath,
   markAgentChatHomeHandoff,
+  useT,
 } from "@agent-native/core/client";
 import {
   useCallback,
@@ -13,7 +14,7 @@ import {
 } from "react";
 import { useLocation, useNavigate } from "react-router";
 
-import { submitOverviewPrompt } from "@/lib/overview-chat";
+import { submitOverviewPrompt } from "../../lib/overview-chat";
 
 function chatThreadPath(threadId: string | null): string {
   return threadId ? `/chat/${encodeURIComponent(threadId)}` : "/chat";
@@ -86,6 +87,7 @@ export function meta() {
 }
 
 export default function ChatRoute() {
+  const t = useT();
   const location = useLocation();
   const navigate = useNavigate();
   const routeThreadId = threadIdFromPath(location.pathname);
@@ -175,18 +177,36 @@ export default function ChatRoute() {
         showTabBar={false}
         dynamicSuggestions={false}
         suggestions={[]}
-        emptyStateText="Ask Dispatch to create apps, route work, or manage the workspace."
+        emptyStateText={t("dispatch.pages.chatAcrossAppsDescription", {
+          defaultValue:
+            "Route work, inspect status, or create something new from one place.",
+        })}
         emptyStateDisplay="hidden"
-        centerComposerWhenEmpty
-        composerLayoutVariant="hero"
-        composerPlaceholder="Ask Dispatch..."
+        {...(!prompt?.message
+          ? {
+              centerComposerWhenEmpty: true,
+              composerLayoutVariant: "hero" as const,
+            }
+          : {})}
+        composerPlaceholder={t("dispatch.pages.chatPromptPlaceholder", {
+          defaultValue: "Ask Dispatch...",
+        })}
         composerSlot={
-          <div className="dispatch-chat-intro">
-            <h1>What should Dispatch do next?</h1>
-            <p>
-              Create apps, manage shared keys, and route work across agents.
-            </p>
-          </div>
+          !prompt?.message ? (
+            <div className="dispatch-chat-intro">
+              <h1>
+                {t("dispatch.pages.chatAcrossApps", {
+                  defaultValue: "Chat across your apps",
+                })}
+              </h1>
+              <p>
+                {t("dispatch.pages.chatAcrossAppsDescription", {
+                  defaultValue:
+                    "Route work, inspect status, or create something new from one place.",
+                })}
+              </p>
+            </div>
+          ) : null
         }
       />
     </div>

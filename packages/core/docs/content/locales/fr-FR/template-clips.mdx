@@ -17,7 +17,7 @@ Une application permettant de tout capturer : enregistrements d'écran, notes d
   />
 </WireframeBlock>
 
-Pensez à l'exemple de Loom + Granola + Wispr Flow regroupés dans une seule application - mais l'agent est un éditeur de premier ordre sur toutes les surfaces, et les enregistrements, les réunions et les dictées vous appartiennent, et non celles d'un fournisseur SaaS. Clips rend également les enregistrements partagés lisibles par l'agent : collez un lien de partage Clips normal dans un agent et celui-ci peut "entendre" la transcription sous forme de texte et "voir" les images d'écran horodatées sous forme d'images - aucune vidéo brute n'est nécessaire. La visualisation des images fonctionne dans n'importe quel agent compatible avec les images (ChatGPT, code Claude, curseur, Codex) ; Les discussions Web en texte uniquement reçoivent toujours la transcription complète et peuvent prendre une image que vous téléchargez.
+Des enregistrements d’écran asynchrones, des notes de réunion synchronisées avec le calendrier et une dictée vocale par pression réunis dans une seule application : l’agent est un éditeur de premier ordre sur chaque surface, et les enregistrements, réunions et dictées vous appartiennent, pas à un fournisseur SaaS. Clips rend également les enregistrements partagés lisibles par les agents : collez dans un agent un lien de partage Clips public ou un lien temporaire **Copier pour l’agent** et il peut « entendre » la transcription sous forme de texte et « voir » sous forme d’images les captures d’écran horodatées, sans vidéo brute. La visualisation des images fonctionne dans tout agent compatible avec les images (ChatGPT, Claude Code, Cursor, Codex) ; les chats web textuels reçoivent toujours la transcription complète et peuvent utiliser une image que vous téléchargez.
 
 <Diagram id="doc-block-qffztn" title={"Capturer, transcrire, réutiliser"} summary={"Trois types de capture atterrissent dans une seule bibliothèque ; l'agent transcrit, titre et résume, puis chaque transcription est consultable et partageable."}>
 
@@ -77,12 +77,13 @@ Pensez à l'exemple de Loom + Granola + Wispr Flow regroupés dans une seule app
 ## Ce que vous pouvez en faire
 
 - **Enregistrez votre écran** avec un enregistreur intégré, une superposition de webcam, une capture audio et une pause/recadrage.
+- **Importez des vidéos Loom publiques.** Sur le Web, sélectionnez **Enregistrer → Importer Loom**, puis collez une URL de partage ou d’intégration Loom. Clips enregistre une copie dans votre bibliothèque et importe la transcription publique lorsqu’elle est disponible.
 - **Capturez des réunions à partir de votre calendrier.** Connectez Google Calendar, consultez les réunions à venir dans la barre latérale et cliquez sur Enregistrer sur l'une d'entre elles. Vous obtenez une transcription en direct ainsi qu'un résumé de l'IA, des notes à puces et des éléments d'action dès la fin.
 - **Dictée Push-to-talk.** Maintenez Fn sur votre appareil, parlez et le texte nettoyé apparaît dans l'application que vous utilisez. Chaque dictée est conservée dans un historique consultable avec les originaux et les versions nettoyées par l'IA côte à côte.
 - **Obtenez un titre, un résumé et des marqueurs de chapitre générés automatiquement** pour chaque enregistrement : l'agent les remplit et les tient à jour.
 - **Recherchez dans chaque transcription** : enregistrements d'écran, réunions et dictées dans une seule bibliothèque. "Trouvez le clip dans lequel nous avons discuté du plan de déploiement."
 - **Partagez des clips** avec des autorisations par clip (publiques, d'équipe, privées). Le suivi des liens et les commentaires en fil de discussion fonctionnent également.
-- **Prévisualisez les clips publics dans Slack** avec un déroulement jouable de style Loom après le
+- **Prévisualisez les clips publics dans Slack** avec un aperçu vidéo lisible après que le
   workspace installe votre application Clips Slack.
 - **Capturez les journaux du navigateur avec l'extension Chrome.** Les enregistrements du navigateur peuvent
   joindre les journaux de console expurgés et récupérer les métadonnées/XHR, ce qui est utile pour
@@ -130,6 +131,15 @@ agent.
 | `/api/agent-context.json?id=<recordingId>`        | Métadonnées du clip, statut de la transcription, chapitres, CTA, cadres recommandés et liens vers les API de la transcription/du cadre |
 | `/api/agent-transcript.json?id=<recordingId>`     | Segments de transcription horodatés avec `startMs`, `endMs`, horodatages lisibles, texte et étiquettes de source facultatives          |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Une image JPEG extraite de la vidéo avec un horodatage de la vidéo d'origine                                                           |
+
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
 
 Les points de terminaison suivent les mêmes règles de public/mot de passe/expiration que la page de partage.
 Les clips protégés par mot de passe nécessitent le mot de passe une seule fois ; les réponses positives reviennent
@@ -498,7 +508,7 @@ Les itinéraires du UI sont en direct sous `templates/clips/app/routes/` : l'ap
 
 ### Clé actions
 
-Chaque opération appelable par un agent est un fichier TypeScript dans `templates/clips/actions/`, monté automatiquement sur `POST /_agent-native/actions/:name` et exécutable à partir du CLI en tant que `pnpm action <name>`. Il y a environ 80 actions ; les regroupements utiles :
+Chaque opération appelable par un agent est un fichier TypeScript dans `templates/clips/actions/`, monté automatiquement sur `POST /_agent-native/actions/:name` et exécutable à partir du CLI en tant que `pnpm action <name>`. Il y a environ 100 actions ; les regroupements utiles :
 
 - **Cycle de vie de l'enregistrement** — `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Transcription et IA** — `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` et `finalize-meeting` sont des appels de pipeline multimédia côté serveur ; la plupart des autres fonctionnalités d'IA délèguent au chat de l'agent.)

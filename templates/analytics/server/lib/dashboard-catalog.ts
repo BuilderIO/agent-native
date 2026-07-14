@@ -938,7 +938,7 @@ export const dashboardCatalogEntries: DashboardCatalogEntry[] = [
       "referrals",
       "virality",
     ],
-    panelCount: 34,
+    panelCount: 36,
     version: CATALOG_VERSION,
     recommended: true,
     visibleInCatalog: false,

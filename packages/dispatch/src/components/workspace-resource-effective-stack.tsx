@@ -1,7 +1,8 @@
 import { useActionQuery } from "@agent-native/core/client";
 
-import { Badge } from "@/components/ui/badge";
-import { cn } from "@/lib/utils";
+import { cn } from "../lib/utils";
+import { ActionQueryError } from "./action-query-error";
+import { Badge } from "./ui/badge";
 
 export function appAvailabilityLabel(value?: string) {
   switch (value) {
@@ -54,11 +55,12 @@ export function AppResourceEffectiveStack({
   appId: string;
   resource: any;
 }) {
-  const { data: context, isLoading } = useActionQuery(
+  const query = useActionQuery(
     "get-workspace-resource-effective-context",
     { resourceId: resource.id, appId },
     { enabled: !!resource.id },
   );
+  const { data: context, isLoading } = query;
   const layers = ((context as any)?.layers ?? []) as any[];
   const active = (context as any)?.effectiveResource;
   const availability = (context as any)?.availability;
@@ -73,6 +75,16 @@ export function AppResourceEffectiveStack({
           <div className="h-20 animate-pulse rounded-md bg-muted-foreground/10" />
         </div>
       </div>
+    );
+  }
+
+  if (query.isError) {
+    return (
+      <ActionQueryError
+        className="mt-3"
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
     );
   }
 

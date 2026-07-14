@@ -125,4 +125,135 @@ describe("fireInternalDispatch", () => {
       }),
     ).resolves.toBeUndefined();
   });
+
+  // ─── awaitResponse (confirmed handoff for continuation dispatch) ───────────
+
+  describe("awaitResponse", () => {
+    it("resolves once the target confirms receipt with a 2xx", async () => {
+      globalThis.fetch = vi.fn(async () => ({
+        ok: true,
+        status: 202,
+        statusText: "Accepted",
+        text: async () => "",
+      })) as unknown as typeof fetch;
+
+      await expect(
+        fireInternalDispatch({
+          baseUrl: "https://slides.example.test",
+          path: "/_agent-native/agent-chat/_process-run",
+          taskId: "task-await-ok",
+          awaitResponse: true,
+        }),
+      ).resolves.toBeUndefined();
+    });
+
+    it("throws on a non-2xx response instead of racing the settle timer", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      globalThis.fetch = vi.fn(async () => ({
+        ok: false,
+        status: 500,
+        statusText: "Internal Server Error",
+        text: async () => "boom",
+      })) as unknown as typeof fetch;
+
+      await expect(
+        fireInternalDispatch({
+          baseUrl: "https://slides.example.test",
+          path: "/_agent-native/agent-chat/_process-run",
+          taskId: "task-await-500",
+          awaitResponse: true,
+        }),
+      ).rejects.toThrow(
+        "Self-dispatch to /_agent-native/agent-chat/_process-run returned HTTP 500 Internal Server Error",
+      );
+      errorSpy.mockRestore();
+    });
+
+    it("throws when the fetch itself rejects (network error)", async () => {
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      globalThis.fetch = vi.fn(async () => {
+        throw new Error("network unreachable");
+      }) as unknown as typeof fetch;
+
+      await expect(
+        fireInternalDispatch({
+          baseUrl: "https://slides.example.test",
+          path: "/_agent-native/agent-chat/_process-run",
+          taskId: "task-await-network-fail",
+          awaitResponse: true,
+        }),
+      ).rejects.toThrow("network unreachable");
+      errorSpy.mockRestore();
+    });
+
+    it("bounds the wait with an AbortSignal derived from responseTimeoutMs", async () => {
+      let sawSignal: AbortSignal | undefined;
+      globalThis.fetch = vi.fn(async (_url: string, init?: RequestInit) => {
+        sawSignal = init?.signal ?? undefined;
+        return {
+          ok: true,
+          status: 200,
+          statusText: "OK",
+          text: async () => "",
+        };
+      }) as unknown as typeof fetch;
+
+      await fireInternalDispatch({
+        baseUrl: "https://slides.example.test",
+        path: "/_agent-native/agent-chat/_process-run",
+        taskId: "task-await-timeout-signal",
+        awaitResponse: true,
+        responseTimeoutMs: 5_000,
+      });
+
+      expect(sawSignal).toBeInstanceOf(AbortSignal);
+    });
+
+    it("regression: WITHOUT awaitResponse, a slow non-2xx response after the settle window does not throw or reject the call", async () => {
+      // Old behavior must be preserved for every other caller: the settle race
+      // resolves once the dispatch has had time to leave the process, and a
+      // late-arriving error response (after settleMs) must not surface as a
+      // rejection — the caller has already moved on.
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+      let rejectUnhandled: (() => void) | undefined;
+      const unhandledGuard = new Promise<void>((_resolve, reject) => {
+        rejectUnhandled = () =>
+          reject(new Error("unhandled rejection surfaced"));
+      });
+      const onUnhandledRejection = () => rejectUnhandled?.();
+      process.on("unhandledRejection", onUnhandledRejection);
+
+      globalThis.fetch = vi.fn(
+        () =>
+          new Promise((resolve) => {
+            setTimeout(
+              () =>
+                resolve({
+                  ok: false,
+                  status: 503,
+                  statusText: "Service Unavailable",
+                  text: async () => "late failure",
+                }),
+              50,
+            );
+          }),
+      ) as unknown as typeof fetch;
+
+      await expect(
+        fireInternalDispatch({
+          baseUrl: "https://slides.example.test",
+          path: "/_agent-native/agent-chat/_process-run",
+          taskId: "task-no-await-late-failure",
+          settleMs: 1,
+          // awaitResponse intentionally omitted.
+        }),
+      ).resolves.toBeUndefined();
+
+      // Let the late 503 land and be swallowed by the existing .catch path.
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      process.off("unhandledRejection", onUnhandledRejection);
+      await Promise.race([unhandledGuard, Promise.resolve()]);
+      errorSpy.mockRestore();
+    });
+  });
 });

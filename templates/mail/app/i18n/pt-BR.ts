@@ -42,6 +42,8 @@ const messages = {
       placeholder: "Pesquisar...",
       clear: "Clear search (Esc)",
       noMatches: "Nenhum resultado",
+      localResults: "Nesta caixa de entrada",
+      searchingGmail: "Pesquisando no Gmail...",
     },
     tabSettings: {
       views: "Visualizações",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "Blocos",
       media: "Mídia",
       ai: "IA",
+      snippets: "Trechos",
     },
     mobileActions: {
       archive: "Arquivar",
@@ -269,6 +272,7 @@ const messages = {
       scheduledCancelled: "Email agendado cancelado.",
       scheduledCancelFailed: "Falha ao cancelar email agendado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
+      failedToUploadImage: "Falha ao enviar imagem",
       failedToSendEmail: "No se pudo enviar el email",
       failedToScheduleEmailDraftKeptOpen:
         "No se pudo programar el email - borrador abierto",
@@ -517,10 +521,10 @@ const messages = {
     slackUpdateFailed: "Falha ao atualizar entrada do Slack",
     slackConfigured: "As credenciais do Slack estão configuradas.",
     slackNeedsCredentials:
-      "Adicione SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET para ativar a entrada do Slack.",
-    slackIntake: "Entrada do Slack",
+      "A entrada personalizada legada requer SLACK_BOT_TOKEN e SLACK_SIGNING_SECRET. Para novas automações de mensagens do Slack, conecte um workspace em Configurações > Mensagens.",
+    slackIntake: "Entrada do Slack (legada)",
     slackDescription:
-      "Permita que membros da organização coloquem rascunhos de email na fila pelo Slack.",
+      "Integração personalizada legada que permite colocar rascunhos de email na fila pelo Slack.",
     enabled: "Ativado",
     disable: "Desativar",
     enable: "Ativar",
@@ -540,6 +544,19 @@ const messages = {
     whatsNewDescription:
       "Mudancas recentes voltadas a usuarios no Agent-Native Mail.",
     drafting: "Rascunhos",
+    snippets: "Trechos",
+    snippetsDescription:
+      "Respostas salvas que voce pode inserir em um rascunho digitando / e o nome do trecho.",
+    newSnippet: "Novo trecho",
+    noSnippets: "Nenhum trecho ainda. Crie um para comecar.",
+    snippetName: "Nome do trecho",
+    snippetNamePlaceholder: "ex.: Acompanhamento de preco",
+    snippetBody: "Conteudo do trecho",
+    snippetBodyPlaceholder: "Texto inserido ao usar este trecho...",
+    editSnippet: "Editar trecho",
+    deleteSnippet: "Excluir trecho",
+    deleteSnippetDescription:
+      'Excluir o trecho "{{name}}"? Isso nao pode ser desfeito.',
     automations: "Automacoes",
     gmailFilters: "Filtros do Gmail",
     aliases: "Aliases",

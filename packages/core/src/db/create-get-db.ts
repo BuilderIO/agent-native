@@ -1,8 +1,11 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+
 import { drizzle as drizzleD1 } from "drizzle-orm/d1";
 import type { LibSQLDatabase } from "drizzle-orm/libsql";
 
 import {
   getDialect,
+  getCloudflareD1Binding,
   getDatabaseUrl,
   getDatabaseAuthToken,
   isLocalSqliteUrl,
@@ -181,6 +184,88 @@ export function buildResilientNeonPool(pool: {
 }
 
 /**
+ * Wraps a postgres.js client so Drizzle queries on the non-Neon Postgres
+ * path get the same withDbTimeout + retryOnConnectionError protection as
+ * every other Postgres path (raw DbExec postgres.js, raw DbExec Neon, and
+ * the Drizzle Neon pool above). Without this, one hung query on a BYO
+ * Postgres deployment stalls its request forever.
+ *
+ * Drizzle's postgres-js session only calls `client.unsafe(query, params)` —
+ * awaited directly for row-object results or via `.values()` for row-array
+ * results — plus `client.begin(...)` for transactions. We interpose on
+ * `unsafe` with a lazy thenable that re-issues the query per retry attempt,
+ * and leave transactions unwrapped (same rule as the Neon wrapper: the
+ * driver manages the sticky connection inside `begin`).
+ *
+ * Retry-safety mirrors buildResilientNeonPool: reads retry freely on
+ * connection-class errors; writes retry only on CONNECT_TIMEOUT (postgres.js
+ * raises it before the statement is ever sent), so writes can't
+ * double-execute.
+ */
+export function buildResilientPostgresJsClient<
+  T extends {
+    unsafe(query: string, params?: any[], options?: any): any;
+  },
+>(client: T): T {
+  const wrapUnsafe = (query: string, params?: any[], options?: any) => {
+    const isRead = isSqlRead(query);
+
+    const runAttempt = (mode: "rows" | "values") => async (): Promise<any> => {
+      const pending = client.unsafe(query, params, options);
+      return withDbTimeout(
+        "query",
+        async () => (mode === "values" ? pending.values() : pending),
+        dbOpTimeoutMs(),
+        () => {
+          // Best-effort cancel so the timed-out statement doesn't keep
+          // occupying one of the (small, serverless-capped) pool slots.
+          try {
+            pending.cancel?.();
+          } catch {
+            // ignore — cancellation is advisory
+          }
+        },
+      );
+    };
+
+    const execute = async (mode: "rows" | "values"): Promise<any> => {
+      if (isRead) return retryOnConnectionError(runAttempt(mode));
+      try {
+        return await runAttempt(mode)();
+      } catch (err) {
+        // Connect timeout fires before the statement is sent → one retry is
+        // safe even for writes.
+        if (
+          isConnectionError(err) &&
+          (err as any)?.code === "CONNECT_TIMEOUT"
+        ) {
+          return runAttempt(mode)();
+        }
+        throw err;
+      }
+    };
+
+    // Lazy thenable mirroring the slice of postgres.js's PendingQuery
+    // surface that Drizzle uses: `await q` or `await q.values()`.
+    return {
+      then: (onFulfilled?: any, onRejected?: any) =>
+        execute("rows").then(onFulfilled, onRejected),
+      catch: (onRejected?: any) => execute("rows").catch(onRejected),
+      finally: (onFinally?: any) => execute("rows").finally(onFinally),
+      values: () => execute("values"),
+    };
+  };
+
+  return new Proxy(client as any, {
+    get(target, prop) {
+      if (prop === "unsafe") return wrapUnsafe;
+      const val = target[prop];
+      return typeof val === "function" ? val.bind(target) : val;
+    },
+  }) as T;
+}
+
+/**
  * Neon's pooler endpoints cold-start in 5–10s. Serverless environments
  * (Netlify Functions, Vercel Edge, CF Workers) have short cold-start
  * budgets of their own, and `postgres-js` opens a raw TCP connection on
@@ -238,15 +323,26 @@ function getBetterSqliteDrizzle() {
  * The patched transaction also patches the tx object it passes to the callback
  * so that nested async calls (tx.transaction(async …)) work recursively.
  */
-function patchBetterSqliteTransactions<
+/** @internal exported for the async-tx concurrency spec */
+export function patchBetterSqliteTransactions<
   DB extends { transaction: (...args: any[]) => any; session: any },
 >(db: DB, sqlite: { inTransaction: boolean; exec: (sql: string) => void }): DB {
   let savepointSeq = 0;
+  // Concurrent TOP-LEVEL async transactions on the single better-sqlite3
+  // connection must not interleave: a second transaction starting while the
+  // first is open would see `inTransaction` and open a savepoint INSIDE the
+  // first transaction, which then commits out from under it ("no such
+  // savepoint"). Serialize top-level transactions through a promise chain;
+  // genuine same-task nesting (tx.transaction or db.transaction inside an
+  // open callback) is detected via AsyncLocalStorage and keeps the direct
+  // savepoint path so it cannot deadlock on the queue.
+  const txContext = new AsyncLocalStorage<boolean>();
+  let txChain: Promise<unknown> = Promise.resolve();
 
   function makeAsyncTransaction(
     originalTransaction: (...args: any[]) => any,
   ): (...args: any[]) => Promise<unknown> {
-    return async function asyncTransaction(
+    async function runTransactionBody(
       cb: (tx: unknown) => unknown,
     ): Promise<unknown> {
       // Extract the drizzle tx proxy synchronously — call the original with a
@@ -310,6 +406,23 @@ function patchBetterSqliteTransactions<
         }
         throw err;
       }
+    }
+
+    return function asyncTransaction(
+      cb: (tx: unknown) => unknown,
+    ): Promise<unknown> {
+      if (txContext.getStore()) {
+        // Same-task nesting: run directly (savepoint path inside the open
+        // transaction). Queueing here would deadlock behind the outer tx.
+        return runTransactionBody(cb);
+      }
+      const run = () => txContext.run(true, () => runTransactionBody(cb));
+      const next = txChain.then(run, run);
+      txChain = next.then(
+        () => undefined,
+        () => undefined,
+      );
+      return next;
     };
   }
 
@@ -332,7 +445,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
 
     // D1 only if dialect detected it (DATABASE_URL takes priority)
     if (dialect === "d1") {
-      const d1 = globalThis.__cf_env?.DB;
+      const d1 = getCloudflareD1Binding() as
+        | Parameters<typeof drizzleD1>[0]
+        | undefined;
       if (d1) {
         _db = drizzleD1(d1, { schema }) as unknown as LibSQLDatabase<T>;
         _dbReady = Promise.resolve(_db);
@@ -369,7 +484,7 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           // concurrent frozen instances don't exhaust Neon/Postgres'
           // connection limit ("Max client connections reached").
           const client = postgres(url, pgPoolOptions(url));
-          _db = drizzle(client, { schema });
+          _db = drizzle(buildResilientPostgresJsClient(client), { schema });
         });
       }
     } else if (isLocalSqliteUrl(url)) {
@@ -378,6 +493,9 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
         getBetterSqliteDrizzle(),
       ]).then(([sqliteUrl, { drizzle, Database }]) => {
         const sqlite = new Database(sqliteFilenameFromUrl(sqliteUrl));
+        // Wait up to 10s for a concurrent writer instead of failing fast
+        // with SQLITE_BUSY — mirrors the raw DbExec SQLite path in client.ts.
+        sqlite.pragma("busy_timeout = 10000");
         sqlite.pragma("journal_mode = WAL");
         const db = drizzle(sqlite, { schema });
         _db = patchBetterSqliteTransactions(db, sqlite);

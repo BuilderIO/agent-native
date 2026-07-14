@@ -58,7 +58,11 @@ Both fields are set by `start-meeting-recording`. Agents that operate on a recor
 
 ## Calendar reminders
 
-Calendar events fire a desktop notification **5 minutes before** the meeting start (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Agents do not need to schedule reminders manually.
+Calendar events fire a desktop notification **1 minute before** the meeting start and keep it visible until **5 minutes after** start unless dismissed (consumer: the desktop tray in `src-tauri/`). The tray polls `list-meetings`, which reads Google Calendar live, so upcoming reminders do not depend on a manual sync or pre-created `meetings` rows. Desktop Zoom joins use Zoom's native `zoommtg://` link so the Zoom app opens directly without an intermediate browser tab; unsupported Zoom link shapes and other providers retain their HTTPS join URL. Agents do not need to schedule reminders manually.
+
+## Adhoc Zoom / Teams detection (desktop)
+
+When meetings are enabled, the Clips desktop app also watches for native Zoom (`us.zoom.xos` / `us.zoom.ZoomClips`) and Microsoft Teams (`com.microsoft.teams` / `com.microsoft.teams2`) becoming frontmost. After a short dwell (~9s) it creates an adhoc meeting via `create-meeting` (`source: "adhoc"`) and shows the same Granola-style popup (`type: "adhoc"`, subtitle "Take notes?"). Auto transcription mode also emits `meetings:start-transcription` with reason `adhoc-auto`. Detection skips when a meeting is already being transcribed, when Manual mode has the meeting widget disabled, and soft-skips shortly after a calendar reminder for the same platform.
 
 ## Actions
 
@@ -66,7 +70,7 @@ Calendar events fire a desktop notification **5 minutes before** the meeting sta
 | ------------------------- | --------------------------------------------------------------------- |
 | `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live |
 | `get-meeting`             | One meeting + participants + segments + notes                         |
-| `create-meeting`          | Internal/escape-hatch meeting row creation; the visible Meetings UI is calendar-sourced |
+| `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams detection passes `source: "adhoc"` |
 | `update-meeting`          | Inline title edit, notes edits                                        |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |

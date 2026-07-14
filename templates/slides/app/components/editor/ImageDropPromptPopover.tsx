@@ -2,10 +2,16 @@ import { appBasePath, sendToAgentChat, useT } from "@agent-native/core/client";
 import { IconLoader2, IconX } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { toast } from "@/hooks/use-toast";
+import {
+  buildImageDropAgentPayload,
+  readFileAsDataUrl,
+  type HostedImageUploadResult,
+} from "@/lib/image-drop-to-agent";
+import { parseUploadResponse } from "@/lib/upload-response";
 
 const POPOVER_WIDTH = 360;
 const POPOVER_MARGIN = 12;
@@ -24,8 +30,12 @@ interface ImageDropPromptPopoverProps {
  * Popover shown after a user drops an image somewhere on the slides editor
  * that doesn't have a clear target (i.e. not on an image placeholder or
  * existing `<img>`). The popover previews the image, lets the user describe
- * what to do with it, and hands the task off to the agent chat with the image
- * uploaded to Builder.io as a reference URL.
+ * what to do with it, and hands the task off to the agent chat.
+ *
+ * Prefers a hosted CDN URL via `/api/assets/upload` when a file-upload
+ * provider (Builder.io / S3 / …) is configured. When nothing is configured,
+ * falls back to an inline data-URL attachment so the drop still reaches the
+ * agent instead of toasting a 503.
  *
  * Why this exists: dropping image files onto an unclear target previously did
  * one of two unhelpful things — opened the file in a new browser tab (when the
@@ -113,55 +123,59 @@ export default function ImageDropPromptPopover({
     try {
       const form = new FormData();
       form.append("file", file);
-      // Use the slides assets endpoint (which routes through the framework's
-      // uploadFile() provider chain first, then falls back to local disk in
-      // dev). Goes via Builder.io when configured; works without it in dev.
+      // Prefer the hosted provider chain. When none is configured the route
+      // returns 503 — fall back to an inline data URL so the agent still gets
+      // the image (chat already accepts `images` data URLs).
       const res = await fetch(`${appBasePath()}/api/assets/upload`, {
         method: "POST",
         body: form,
       });
-      const data = (await res.json().catch(() => null)) as {
+      const data = await parseUploadResponse<{
         url?: string;
         error?: string;
-      } | null;
-      if (!res.ok || !data?.url) {
-        throw new Error(
-          data?.error ||
-            "Image upload failed. Connect Builder.io from the agent composer model menu, or register a custom provider via registerFileUploadProvider().",
-        );
+      }>(res, t("raw.imageUploadGenericError"));
+      const upload: HostedImageUploadResult = {
+        ok: res.ok && !!data.url,
+        status: res.status,
+        url: data.url,
+        error: data.error,
+      };
+
+      let dataUrl: string | undefined;
+      if (!upload.ok) {
+        dataUrl = await readFileAsDataUrl(file);
       }
 
-      const userIntent = prompt.trim();
-      const intentLine =
-        userIntent.length > 0
-          ? userIntent
-          : "Use this image on the current slide.";
-      const lines = [intentLine];
-      if (contextHint && contextHint.trim().length > 0) {
-        lines.push(contextHint.trim());
-      }
-      lines.push(
-        `Image URL (already uploaded): ${data.url}`,
-        `Filename: ${file.name}`,
-      );
-
-      sendToAgentChat({
-        message: lines.join("\n\n"),
-        submit: true,
-        referenceImagePaths: [data.url],
+      const payload = buildImageDropAgentPayload({
+        intent: prompt,
+        contextHint,
+        filename: file.name,
+        upload,
+        dataUrl,
       });
 
+      if (payload.kind === "hosted") {
+        sendToAgentChat({
+          message: payload.message,
+          submit: true,
+          referenceImagePaths: payload.referenceImagePaths,
+        });
+      } else {
+        sendToAgentChat({
+          message: payload.message,
+          submit: true,
+          images: payload.images,
+        });
+      }
+
       onClose();
-      toast({
-        title: t("raw.sentToAgent"),
+      toast.success(t("raw.sentToAgent"), {
         description: file.name,
       });
     } catch (err) {
-      toast({
-        title: t("raw.imageUploadFailed"),
+      toast.error(t("raw.imageUploadFailed"), {
         description:
           err instanceof Error ? err.message : t("raw.imageUploadGenericError"),
-        variant: "destructive",
       });
     } finally {
       setUploading(false);

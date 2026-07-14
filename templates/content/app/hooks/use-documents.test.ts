@@ -1,11 +1,16 @@
-import type { Document } from "@shared/api";
+import type { ContentDatabaseItem, Document } from "@shared/api";
+import { QueryClient } from "@tanstack/react-query";
 import { describe, expect, it } from "vitest";
 
 import {
   buildDocumentTree,
+  documentPropertiesQueryKey,
+  documentQueryKey,
   filterDocumentTreeDocuments,
+  isDocumentUpdateConflict,
   mergeDocumentIntoDocumentCache,
   mergeDocumentIntoListDocumentsCache,
+  seedDatabaseItemDocumentCaches,
 } from "./use-documents";
 
 function doc(id: string, parentId: string | null, position = 0): Document {
@@ -158,5 +163,209 @@ describe("mergeDocumentIntoDocumentCache", () => {
         updated,
       ),
     ).toEqual({ ...updated, database });
+  });
+});
+
+describe("isDocumentUpdateConflict", () => {
+  it("recognizes a conflict result", () => {
+    expect(
+      isDocumentUpdateConflict({
+        conflict: true,
+        id: "doc-1",
+        document: { ...doc("doc-1", null), urlPath: "/page/doc-1" } as any,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not treat a normal saved document as a conflict", () => {
+    expect(
+      isDocumentUpdateConflict({
+        ...doc("doc-1", null),
+        urlPath: "/page/doc-1",
+        softDeletedDatabaseIds: [],
+      } as any),
+    ).toBe(false);
+  });
+});
+
+describe("seedDatabaseItemDocumentCaches", () => {
+  it("warms get-document and list-document-properties from a database row", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        icon: "B",
+        canEdit: true,
+        canManage: true,
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+        },
+      },
+      properties: [
+        {
+          definition: {
+            id: "status",
+            databaseId: "database",
+            name: "Status",
+            type: "text",
+            visibility: "always_show",
+            options: {},
+            position: 0,
+            createdAt: "2026-05-12T00:00:00.000Z",
+            updatedAt: "2026-05-12T00:00:00.000Z",
+          },
+          value: "Draft",
+          editable: true,
+        },
+      ],
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(
+      queryClient.getQueryData(documentQueryKey("row-page")),
+    ).toMatchObject({
+      id: "row-page",
+      title: "Builder blog launch",
+      icon: "B",
+      properties: item.properties,
+    });
+    expect(
+      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+    ).toEqual({
+      documentId: "row-page",
+      databaseId: "database",
+      properties: item.properties,
+    });
+  });
+
+  it("skips get-document body seeding for rows whose Builder body is still hydrating", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        content: "",
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+          sourceId: "builder-source",
+          bodyHydration: {
+            status: "hydrating",
+            attemptedAt: "2026-07-02T12:00:00.000Z",
+            error: null,
+            version: null,
+          },
+        },
+      },
+      properties: [],
+      bodyHydration: {
+        status: "hydrating",
+        attemptedAt: "2026-07-02T12:00:00.000Z",
+        error: null,
+        version: null,
+      },
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
+    expect(
+      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+    ).toEqual({
+      documentId: "row-page",
+      databaseId: "database",
+      properties: [],
+    });
+  });
+
+  it("skips get-document body seeding for source-backed rows with empty list content", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        content: "",
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+          bodyHydration: {
+            status: "hydrated",
+            attemptedAt: "2026-07-02T12:00:00.000Z",
+            error: null,
+            version: "2026-07-02T12:00:00.000Z:readable-native-images-v5",
+          },
+        },
+      },
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: "2026-07-02T12:00:00.000Z",
+        error: null,
+        version: "2026-07-02T12:00:00.000Z:readable-native-images-v5",
+      },
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
+    expect(
+      queryClient.getQueryData(documentPropertiesQueryKey("row-page")),
+    ).toEqual({
+      documentId: "row-page",
+      databaseId: "database",
+      properties: [],
+    });
+  });
+
+  it("does not overwrite an already-warm get-document cache", () => {
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(documentQueryKey("row-page"), {
+      ...doc("row-page", "database-page"),
+      title: "Freshly saved title",
+      content: "Full body",
+      source: { mode: "database" },
+    });
+
+    seedDatabaseItemDocumentCaches(queryClient, {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Stale table title",
+      },
+      properties: [],
+    });
+
+    expect(
+      queryClient.getQueryData(documentQueryKey("row-page")),
+    ).toMatchObject({
+      id: "row-page",
+      title: "Freshly saved title",
+      content: "Full body",
+      source: { mode: "database" },
+    });
   });
 });

@@ -1,5 +1,10 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import {
+  agentTouchDocument,
+  hasCollabState,
+  searchAndReplace,
+} from "@agent-native/core/collab";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -32,9 +37,15 @@ export default defineAction({
       .describe("JSON array of {find, replace} objects (batch mode)"),
   }),
   http: false,
-  run: async (args) => {
+  run: async (args, ctx) => {
     const id = args.id;
     if (!id) throw new Error("--id is required");
+
+    // Only publish AI presence for genuine agent invocations (in-app tool loop,
+    // sub-agents/A2A → "tool"; external MCP agents → "mcp"). A browser or
+    // programmatic call must never light the "AI editing" flag.
+    const isAgentCaller =
+      ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
 
     let edits: TextEdit[];
 
@@ -91,6 +102,7 @@ export default defineAction({
     let content: string = existing.content ?? "";
     const results: string[] = [];
     let changeCount = 0;
+    const appliedEdits: TextEdit[] = [];
 
     for (const edit of edits) {
       const idx = content.indexOf(edit.find);
@@ -105,6 +117,7 @@ export default defineAction({
         edit.replace +
         content.slice(idx + edit.find.length);
       changeCount++;
+      appliedEdits.push(edit);
       const action = edit.replace === "" ? "deleted" : "replaced";
       results.push(
         `${action}: "${edit.find.slice(0, 40)}${edit.find.length > 40 ? "..." : ""}"`,
@@ -132,6 +145,40 @@ export default defineAction({
       .update(schema.documents)
       .set({ content, updatedAt: new Date().toISOString() })
       .where(eq(schema.documents.id, id));
+
+    // Make the agent edit VISIBLE as a live collaborator. Content's collab doc
+    // binds the TipTap Y.XmlFragment("default"), so a live editing session is
+    // patched surgically through `searchAndReplace` (which also auto-publishes
+    // agent presence + a lingering recent-edit highlight on the changed text).
+    // When no collab session exists (no editor open, XmlFragment unseeded) the
+    // SQL write above is authoritative and reconciles on next open; we still
+    // touch agent presence best-effort so a viewer who opens the doc mid-linger
+    // sees the AI flag. All of this is wrapped so presence never fails the edit.
+    if (isAgentCaller) {
+      try {
+        if (await hasCollabState(id)) {
+          for (const edit of appliedEdits) {
+            await searchAndReplace(id, edit.find, edit.replace, "agent");
+          }
+        } else {
+          const firstChange = appliedEdits.find((e) => e.replace)?.replace;
+          agentTouchDocument(id, {
+            edit: {
+              descriptor: {
+                kind: "text",
+                quote: (firstChange ?? appliedEdits[0]?.find ?? "").slice(
+                  0,
+                  80,
+                ),
+              },
+              label: existing.title || undefined,
+            },
+          });
+        }
+      } catch (error) {
+        console.error("edit-document: agent presence publish failed", error);
+      }
+    }
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 

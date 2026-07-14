@@ -386,6 +386,48 @@ ambiente do aplicativo e passe a identidade do chamador (`userEmail`) para que a
 assinado como tokens ao portador JWT. Use `apiKeyEnv` apenas para pares externos legados que
 espera um token de portador estático. Use actions local em vez de invocar você mesmo.
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke` é um wrapper de CLI simples sobre a mesma primitiva de resolver-e-chamar usada por `agentNative.invoke()`. Use-o para acionar o agente de um aplicativo a partir de um script de shell, um job de CI, uma entrada de cron ou qualquer sistema externo que possa executar comandos de shell — o equivalente em CLI de postar manualmente em `/_agent-native/a2a`.
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# Resolve "analytics" no registro do espaço de trabalho e aguarda a resposta
+agent-native invoke analytics "Summarize signups by source this month"
+
+# Chama um aplicativo implantado diretamente por URL, lendo o token de portador a partir de uma variável de ambiente
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# Força uma única mensagem/envio bloqueante em vez do padrão assíncrono+polling
+agent-native invoke analytics "Quick lookup" --sync
+
+# Saída legível por máquina para uso em scripts
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                    | Description                                                                            |
+| ------------------------- | -------------------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | Agente de destino (alias para o argumento posicional `<app-or-url>`)                   |
+| `--message <text>`        | Prompt (alias para o argumento posicional `"prompt"`)                                  |
+| `--api-key-env <name>`    | Lê o token de portador a partir de uma variável de ambiente                            |
+| `--api-key <token>`       | Valor do token de portador, passado diretamente                                        |
+| `--context-id <id>`       | `contextId` do A2A, para continuar a conversa de uma tarefa existente                  |
+| `--self-app-id <id>`      | ID do aplicativo atual, usado para evitar autochamadas                                 |
+| `--self-url <url>`        | URL do aplicativo atual, usada para evitar autochamadas                                |
+| `--timeout-ms <n>`        | Tempo limite do polling assíncrono                                                     |
+| `--poll-interval-ms <n>`  | Intervalo do polling assíncrono                                                        |
+| `--sync`                  | Usa uma única requisição `message/send` bloqueante em vez do padrão assíncrono+polling |
+| `--no-hint`               | Envia o prompt como está, sem a dica de invocação entre aplicativos                    |
+| `--json`                  | Imprime os metadados do destino e o texto da resposta como JSON                        |
+
+Assim como `callAgent()`, a CLI usa por padrão o modo assíncrono + polling (`invokeAgent` → `callAgent` internamente), que é a escolha segura contra destinos hospedados/serverless — veja [Tempos limite de webhook e gateway serverless](#json-rpc-methods) acima. Passe `--sync` somente quando você souber que o destino não está atrás de um gateway com um limite de execução curto.
+
+O destino é resolvido da mesma forma que em `agentNative.invoke()`: pelo ID do aplicativo no espaço de trabalho, pelo nome do aplicativo ou por uma URL completa — assim, o mesmo comando funciona tanto contra um aplicativo irmão em um espaço de trabalho com múltiplos aplicativos quanto contra um par A2A arbitrário em outro lugar.
+
 ## Ciclo de vida da tarefa {#task-lifecycle}
 
 Cada mensagem cria uma tarefa que passa por estes estados:
@@ -437,6 +479,18 @@ A política de produção é rigorosa: em qualquer tempo de execução de produ�
 Esse limite é importante porque o loop do agente aceita entrada de formato livre de um chamador remoto. Colocar a verificação ao portador dentro do loop ou confiar em uma ferramenta para aplicá-la permitiria que a injeção de prompt ou um manipulador com erros ignorasse a autenticação. Mantê-lo no limite HTTP significa uma falha de token em curto-circuito antes de qualquer chamada LLM.
 
 A verificação JWT (`verifyA2AToken` em `server.ts`) aceita tokens assinados com o `A2A_SECRET` global ou com um segredo no escopo da organização consultado em SQL por meio da declaração `org_domain` do token e impõe as declarações `aud`/`iss` do próprio token, quando presentes.
+
+### Sincronização do segredo da organização {#organization-secret-sync}
+
+A configuração **Organização → Autenticação entre aplicativos** gerencia o segredo com escopo da organização que autentica a delegação entre aplicativos implantados separadamente na mesma organização. Não é uma configuração de login de usuário nem de Cross-App SSO. O segredo complementa o `A2A_SECRET` da implantação: um JWT A2A com uma declaração `org_domain` pode ser verificado com o segredo da organização correspondente.
+
+O proprietário da organização deve dar a cada aplicativo participante o mesmo domínio de e-mail permitido e o mesmo segredo com escopo da organização:
+
+1. No primeiro aplicativo, gere ou revele o segredo em **Organização → Autenticação entre aplicativos**.
+2. Em cada aplicativo adicional, escolha **Colar segredo de outro aplicativo** e cole esse valor. Essa etapa manual é necessária para a primeira conexão: um aplicativo que ainda não possui o segredo não pode verificar uma solicitação de sincronização remota.
+3. Quando os aplicativos compartilharem o segredo, use **Sincronizar com aplicativos** para enviar atualizações futuras aos aplicativos conectados e descobertos. O resultado informa qualquer aplicativo que não pôde ser atualizado.
+
+Ao **Regenerar** o segredo, a interface de configurações o sincroniza imediatamente e assina a atualização com o segredo anterior para que aplicativos já conectados possam verificar a mudança. Se um aplicativo perder essa sincronização, cole o novo segredo nele manualmente e sincronize novamente. Trate esse segredo como qualquer outra credencial: não o coloque em código do cliente, logs ou configuração de cliente de terceiros.
 
 ## Continuações {#continuations}
 

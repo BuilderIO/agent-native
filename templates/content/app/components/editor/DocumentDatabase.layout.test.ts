@@ -3,9 +3,19 @@ import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 function readDatabaseSource() {
-  return readFileSync(new URL("./database/DatabaseView.tsx", import.meta.url), {
-    encoding: "utf8",
-  });
+  return [
+    "./database/DatabaseView.tsx",
+    "./database/settings.tsx",
+    "./database/shared.tsx",
+    "./database/view-config.ts",
+    "./database/view-state.ts",
+  ]
+    .map((path) =>
+      readFileSync(new URL(path, import.meta.url), {
+        encoding: "utf8",
+      }),
+    )
+    .join("\n");
 }
 
 describe("document database layout", () => {
@@ -149,15 +159,23 @@ describe("document database layout", () => {
     expect(source).toContain('onClick={() => onPanelChange("source")}');
   });
 
-  it("auto-syncs the connected source instead of showing a manual refresh button", () => {
+  it("keeps idle reloads, source-panel mounts, remounts, and focus local until explicit refresh", () => {
     const source = readDatabaseSource();
 
-    // The manual "Refresh source" block is gone; sync is automatic.
-    expect(source).not.toContain("Refresh source");
-    // Auto-sync runs on panel open and whenever the window regains focus.
-    expect(source).toContain("const autoSyncEnabled");
-    expect(source).toContain('window.addEventListener("focus"');
-    expect(source).toContain("refreshSourceRef.current()");
+    expect(source).not.toContain("const autoSyncEnabled");
+    expect(source).not.toContain('window.addEventListener("focus"');
+    expect(source).not.toContain("refreshSourceRef.current()");
+    expect(source.match(/dbText\("refreshSource"\)/g)).toHaveLength(2);
+    expect(
+      source.match(/onClick=\{\(\) => onRefreshSource\(source\.id\)\}/g),
+    ).toHaveLength(4);
+    // The independent DatabaseView continuation pump still resumes an already
+    // fetching snapshot after a reload; it is not a panel-open freshness read.
+    expect(source).toContain(
+      'builderSourceRowFetchStatus(source) !== "fetching"',
+    );
+    expect(source).toContain("source.metadata.lastReadHasMore !== true");
+    expect(source).toContain("const continuationKey");
   });
 
   it("reduces the connected source panel to read-only status plus a diff slot", () => {

@@ -2,10 +2,13 @@
 
 import { execSync, spawn } from "child_process";
 import fs from "fs";
+import { createRequire } from "module";
 import path from "path";
 import { fileURLToPath } from "url";
 
 import * as Sentry from "@sentry/node";
+
+import { resolveDeployPostBuildInvocation } from "./deploy-build.js";
 
 // Resolve version once at module scope — used by both --version and --help
 let _version = "unknown";
@@ -253,11 +256,20 @@ function handleScaffoldImportError(err: any): never {
   throw err;
 }
 
+function findBinUpwards(binName: string): string | undefined {
+  let dir = process.cwd();
+  for (let i = 0; i < 20; i++) {
+    const candidate = path.join(dir, "node_modules", ".bin", binName);
+    if (fs.existsSync(candidate)) return candidate;
+    const parent = path.dirname(dir);
+    if (parent === dir) break;
+    dir = parent;
+  }
+  return undefined;
+}
+
 function findViteBin(): string {
-  // Look for vite in node_modules/.bin
-  const localVite = path.resolve("node_modules/.bin/vite");
-  if (fs.existsSync(localVite)) return localVite;
-  return "vite"; // fallback to PATH
+  return findBinUpwards("vite") ?? "vite";
 }
 
 function findTsxBin(): string {
@@ -267,19 +279,18 @@ function findTsxBin(): string {
 }
 
 function findTypeScriptCompilerBin(): string {
-  const localTsgo = path.resolve("node_modules/.bin/tsgo");
-  if (fs.existsSync(localTsgo)) return localTsgo;
-
   const localTsc = path.resolve("node_modules/.bin/tsc");
   if (fs.existsSync(localTsc)) return localTsc;
 
-  return "tsgo";
+  // Prefer TypeScript 7's tsc; fall back to legacy tsgo if present.
+  const localTsgo = path.resolve("node_modules/.bin/tsgo");
+  if (fs.existsSync(localTsgo)) return localTsgo;
+
+  return "tsc";
 }
 
 function findReactRouterBin(): string {
-  const localBin = path.resolve("node_modules/.bin/react-router");
-  if (fs.existsSync(localBin)) return localBin;
-  return "react-router";
+  return findBinUpwards("react-router") ?? "react-router";
 }
 
 /** Check if the project uses React Router framework mode (has react-router.config.ts) */
@@ -288,6 +299,73 @@ function isReactRouterFramework(): boolean {
     fs.existsSync(path.resolve("react-router.config.ts")) ||
     fs.existsSync(path.resolve("react-router.config.js"))
   );
+}
+
+function canResolveFromProject(specifier: string): boolean {
+  try {
+    const requireFromProject = createRequire(path.resolve("package.json"));
+    requireFromProject.resolve(specifier);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function projectUsesFsRoutes(): boolean {
+  for (const file of [
+    path.resolve("app/routes.ts"),
+    path.resolve("app/routes.tsx"),
+    path.resolve("routes.ts"),
+    path.resolve("routes.tsx"),
+  ]) {
+    try {
+      if (
+        fs.existsSync(file) &&
+        fs.readFileSync(file, "utf-8").includes("@react-router/fs-routes")
+      ) {
+        return true;
+      }
+    } catch {}
+  }
+  return false;
+}
+
+function validateReactRouterBuildDependencies(): void {
+  const required: Array<[packageName: string, specifier: string]> = [
+    ["react-router", "react-router"],
+    ["@react-router/dev", "@react-router/dev/vite"],
+    ["vite", "vite"],
+  ];
+  if (projectUsesFsRoutes()) {
+    required.push(["@react-router/fs-routes", "@react-router/fs-routes"]);
+  }
+
+  const missing = required
+    .filter(([, specifier]) => !canResolveFromProject(specifier))
+    .map(([packageName]) => packageName);
+
+  if (missing.length === 0) return;
+
+  const packageManager = fs.existsSync(path.resolve("pnpm-lock.yaml"))
+    ? "pnpm"
+    : fs.existsSync(path.resolve("yarn.lock"))
+      ? "yarn"
+      : "npm";
+  const installCommand =
+    packageManager === "pnpm"
+      ? `pnpm add ${missing.join(" ")}`
+      : packageManager === "yarn"
+        ? `yarn add ${missing.join(" ")}`
+        : `npm install ${missing.join(" ")}`;
+
+  console.error(
+    [
+      "React Router framework mode requires build packages that are not installed from this app root.",
+      `Missing: ${missing.join(", ")}`,
+      `Install them with: ${installCommand}`,
+    ].join("\n"),
+  );
+  process.exit(1);
 }
 
 function isWorkspaceRoot(): boolean {
@@ -487,7 +565,31 @@ switch (command) {
     // child exits non-zero, runBuildStep calls process.exit itself; the
     // continuation only runs on success.
     (async () => {
+      // Doctor pre-step: scans app source for the security-critical guard
+      // invariants (see `agent-native doctor --help`). Warn-only by
+      // default — prints findings to stderr and always continues. Only
+      // fails the build when `agent-native build --strict` was passed or
+      // `agent-native.json` sets `{ "doctor": { "failOnBuild": true } }`.
+      try {
+        const { runDoctorBuildHook } = await import("./doctor.js");
+        const hook = await runDoctorBuildHook({
+          cwd: process.cwd(),
+          strict: args.includes("--strict"),
+        });
+        if (!hook.ok) {
+          console.error(
+            "\nBuild aborted by `agent-native doctor` (see findings above).",
+          );
+          process.exit(1);
+        }
+      } catch (err) {
+        console.warn(
+          `[doctor] pre-build scan failed to run (continuing): ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+
       if (isReactRouterFramework()) {
+        validateReactRouterBuildDependencies();
         const rr = findReactRouterBin();
         console.log("Building (React Router framework mode)...");
         await runBuildStep(rr, ["build"], { label: "react-router-build" });
@@ -501,15 +603,18 @@ switch (command) {
       // `agent-native start` and for serverless presets.
       if (isReactRouterFramework()) {
         const __dirname = path.dirname(fileURLToPath(import.meta.url));
-        const deployBuild = path.resolve(__dirname, "../deploy/build.js");
-        if (fs.existsSync(deployBuild)) {
-          await runBuildStep("node", [deployBuild], {
+        const deployBuild = resolveDeployPostBuildInvocation({
+          cliDir: __dirname,
+          findTsxBin,
+        });
+        if (deployBuild) {
+          await runBuildStep(deployBuild.command, deployBuild.args, {
             label: "deploy-build",
             env: process.env,
           });
         } else {
           console.warn(
-            `[build] Deploy build script not found at ${deployBuild}. Skipping post-build step.`,
+            "[build] Deploy build script not found and no deploy preset is configured. Skipping post-build step.",
           );
         }
       }
@@ -592,6 +697,7 @@ switch (command) {
     // Run TypeScript type checking
     // React Router framework mode generates route types first
     if (isReactRouterFramework()) {
+      validateReactRouterBuildDependencies();
       const rr = findReactRouterBin();
       try {
         execSync(`${rr} typegen`, { stdio: "inherit" });
@@ -650,6 +756,37 @@ switch (command) {
     import("./migrate.js")
       .then((m) => m.runMigrate(args))
       .catch(handleScaffoldImportError);
+    break;
+  }
+
+  case "upgrade": {
+    // Bring an existing app/workspace to current @agent-native/* packages,
+    // refresh scaffold skills, and verify — without framework patches.
+    import("./upgrade.js")
+      .then(async (m) => {
+        const code = await m.runUpgrade(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "doctor": {
+    // Scan app source for security-critical guard invariants (see
+    // `agent-native doctor --help`). For dependency-pin health, see
+    // `agent-native upgrade check` instead.
+    import("./doctor.js")
+      .then(async (m) => {
+        const code = await m.runDoctor(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
     break;
   }
 
@@ -728,6 +865,19 @@ switch (command) {
     import("./content-local.js")
       .then(async (m) => {
         const code = await m.runContentLocal(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "visualize-repo": {
+    import("./visualize-repo.js")
+      .then(async (m) => {
+        const code = await m.runVisualizeRepo(args);
         process.exit(code);
       })
       .catch((err) => {
@@ -830,6 +980,19 @@ switch (command) {
     import("./add.js")
       .then((m) => {
         const code = m.runAdd(args);
+        process.exit(code);
+      })
+      .catch((err) => {
+        console.error(err?.message ?? err);
+        process.exit(1);
+      });
+    break;
+  }
+
+  case "package": {
+    import("./package-lifecycle.js")
+      .then(async (m) => {
+        const code = await m.runPackageLifecycle(args);
         process.exit(code);
       })
       .catch((err) => {
@@ -948,6 +1111,11 @@ Usage:
                                 local serve | local verify | local preview
   agent-native migrate <source> Create an Agent-Native Code /migrate session, or use
                                 --emit for a portable own-agent dossier.
+  agent-native upgrade          Bring an existing app/workspace to current
+                                @agent-native/* packages, refresh scaffold
+                                skills, and typecheck. Prefer this over
+                                patching core/dispatch. 'upgrade check' is
+                                doctor-only.
   agent-native add-app [name]   Add one or more apps to the current workspace
   agent-native workspace-dev    Start the multi-app workspace gateway
   agent-native deploy           Build & deploy every app in the workspace to
@@ -963,6 +1131,10 @@ Usage:
                                 Pass a URL instead of a name for a generic
                                 research-and-integrate blueprint. --list to
                                 browse available blueprints.
+  agent-native package <cmd> <package>
+                                Manifest package lifecycle: inspect | add | eject.
+                                add/eject are dry-run unless --apply; --json emits
+                                a machine-readable compatibility/change report.
   agent-native changelog <cmd>  Author the app's user-facing changelog.
                                 cmds: add "<summary>" [--type added|fixed|...] |
                                 release | list. Pending entries live in

@@ -141,6 +141,8 @@ describe("buildExtensionHtml", () => {
     // Refuse the old unpinned-major form.
     expect(html).not.toContain('@tailwindcss/browser@4"');
     expect(html).not.toContain("alpinejs@3/dist/cdn.min.js");
+    expect(html).toContain("@rrweb/record@2.1.0/umd/record.min.js");
+    expect(html).toContain("recordCrossOriginIframes: true");
   });
 
   it("adds default canvas padding with a full-bleed escape hatch", () => {
@@ -183,7 +185,16 @@ describe("extension iframe sandbox attribute (CI guard)", () => {
     it(`${file} renders the iframe without allow-same-origin`, () => {
       const text = readFileSync(join(CLIENT_DIR, file), "utf8");
       const sandboxMatches = text.match(/sandbox="([^"]*)"/g) ?? [];
-      expect(sandboxMatches.length).toBeGreaterThan(0);
+      const usesNormalizedSandbox = text.includes(
+        "sandbox={EXTENSION_IFRAME_SANDBOX}",
+      );
+      if (usesNormalizedSandbox) {
+        expect(text).toContain(
+          "normalizeAgentNativeExtensionSandbox(undefined)",
+        );
+      } else {
+        expect(sandboxMatches.length).toBeGreaterThan(0);
+      }
       for (const sandbox of sandboxMatches) {
         expect(sandbox).not.toContain("allow-same-origin");
       }

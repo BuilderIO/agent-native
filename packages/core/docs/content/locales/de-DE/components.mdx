@@ -25,6 +25,24 @@ Vermeiden Sie den Import von UI-Komponenten aus dem bloßen `@agent-native/core`
 `@agent-native/core/client` oder ein fokussierter `@agent-native/core/client/*`-Unterpfad
 daher wählen Bundler den browsersicheren Eintrag.
 
+Verwenden Sie `@agent-native/toolkit` für wiederverwendbare App-Bausteine, die nicht Teil des grundlegenden Laufzeitvertrags sind: shadcn-artige UI-Primitives, gemeinsame Hooks, einfache App-Shell-Helfer und weitere Template-Kompositionsmodule. Core behält während der Umstellung Kompatibilitäts-Reexports.
+
+Wiederverwendbare Packages können Toolkit-Module direkt importieren:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+Innerhalb von Template-Apps sollten app-lokale Adapter bevorzugt werden, damit Teams Primitives einmal ersetzen können und jede wiederverwendete Toolkit-Oberfläche die lokale Implementierung nutzt:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-6bst90" title="Lassen Sie eine Ebene nach unten fallen, nicht aus dem Framework heraus" summary={"Jede Ebene behält die gleiche Laufzeit bei – Aktionen, Thread-Status und SQL-backed-Synchronisierung – und gibt Ihnen gleichzeitig mehr Kontrolle über Chrome."}>
 
 ```html
@@ -434,7 +452,8 @@ function WorkspaceResources() {
 
 | Bereich            | APIs                                                   | Importpfad                                |
 | ------------------ | ------------------------------------------------------ | ----------------------------------------- |
-| Teilen             | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`  | `@agent-native/core/client/sharing`       |
+| Teilen             | `<ShareButton>`, `<ShareDialog>`                       | `@agent-native/core/client/sharing`       |
+| Sharing UI         | `<VisibilityBadge>`                                    | `@agent-native/toolkit/sharing`           |
 | Benachrichtigungen | `<NotificationsBell>`                                  | `@agent-native/core/client/notifications` |
 | Fortschritt        | `<RunsTray>`, Fortschritts-Hooks und -Typen            | `@agent-native/core/client/progress`      |
 | Onboarding         | `useOnboarding()`, Onboarding-Panel-Haken              | `@agent-native/core/client/onboarding`    |
@@ -457,10 +476,12 @@ Aktion, damit UI und Agent die gleiche Funktion nutzen.
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -475,3 +496,11 @@ export default defineAction({
 Verwenden Sie stattdessen `sendToAgentChat({ background: true, openSidebar: false })`, wenn
 Die Arbeit erfordert Tools, Status, Überprüfbarkeit, Benutzersteuerung oder mehrere Schritte
 Begründung.
+
+## Wie geht es weiter {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — `<AgentSidebar>` und `<AgentPanel>` mit einer tutorialorientierten Einführung einbinden
+- [**Native Chat UI**](/docs/native-chat-ui) — der Action-Ergebnisvertrag hinter Daten-Widgets und benutzerdefinierten Renderern
+- [**Actions**](/docs/actions) — `defineAction()`, Schemas und die von diesen Komponenten aufgerufene Action-Oberfläche
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — Kollaborations-Hooks und Anwesenheitskomponenten im Detail
+- [**Sharing**](/docs/sharing) — Verdrahtung von `<ShareButton>` und `<ShareDialog>` für besitzbare Ressourcen

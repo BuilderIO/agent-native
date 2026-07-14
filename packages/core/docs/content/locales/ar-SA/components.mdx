@@ -25,6 +25,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` أو مسار فرعي `@agent-native/core/client/*` مركّز
 لذلك يختار القائمون على التجميع الإدخال الآمن للمتصفح.
 
+استخدم `@agent-native/toolkit` للقطع القابلة لإعادة الاستخدام في بناء التطبيقات التي ليست جزءا من عقد وقت التشغيل الأساسي: عناصر UI بأسلوب shadcn، hooks المشتركة، مساعدات هيكل التطبيق البسيطة، ووحدات تركيب القوالب. يحتفظ Core بإعادة تصدير توافقية أثناء الانتقال.
+
+يمكن للحزم القابلة لإعادة الاستخدام استيراد وحدات Toolkit مباشرة:
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+داخل تطبيقات القوالب، فضّل adapters محلية للتطبيق حتى تتمكن الفرق من استبدال primitives مرة واحدة وتستخدم كل أسطح Toolkit المعاد استخدامها التنفيذ المحلي:
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-1vw6fvr" title={"المنسدلة طبقة، وليس خارج الإطار"} summary={"تحتفظ كل طبقة بنفس وقت التشغيل — الإجراءات، وحالة مؤشر الترابط، ومزامنة SQL-backed — بينما تمنحك مزيدًا من التحكم في Chrome."}>
 
 ```html
@@ -430,7 +448,8 @@ function WorkspaceResources() {
 
 | المساحة         | APIs                                                       | مسار الاستيراد                            |
 | --------------- | ---------------------------------------------------------- | ----------------------------------------- |
-| المشاركة        | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>`      | `@agent-native/core/client/sharing`       |
+| المشاركة        | `<ShareButton>`, `<ShareDialog>`                           | `@agent-native/core/client/sharing`       |
+| Sharing UI      | `<VisibilityBadge>`                                        | `@agent-native/toolkit/sharing`           |
 | الإشعارات       | `<NotificationsBell>`                                      | `@agent-native/core/client/notifications` |
 | التقدم          | `<RunsTray>`، خطافات التقدم وأنواعها                       | `@agent-native/core/client/progress`      |
 | التأهيل         | `useOnboarding()`، خطافات لوحة التثبيت                     | `@agent-native/core/client/onboarding`    |
@@ -453,10 +472,12 @@ function WorkspaceResources() {
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -471,3 +492,11 @@ export default defineAction({
 استخدم `sendToAgentChat({ background: true, openSidebar: false })` بدلاً من ذلك عندما
 يحتاج العمل إلى أدوات، أو حالة، أو إمكانية التدقيق، أو توجيه المستخدم، أو الخطوات المتعددة
 الاستدلال.
+
+## ما التالي {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — ثبّت `<AgentSidebar>` و`<AgentPanel>` مع شرح إرشادي يبدأ بالبرنامج التعليمي
+- [**Native Chat UI**](/docs/native-chat-ui) — عقد نتيجة الإجراء وراء عناصر واجهة البيانات وأدوات العرض المخصصة
+- [**Actions**](/docs/actions) — ‏`defineAction()` والمخططات وسطح الإجراءات الذي تستدعيه هذه المكونات
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — تفاصيل ربط التعاون ومكونات الحضور
+- [**Sharing**](/docs/sharing) — توصيل `<ShareButton>` و`<ShareDialog>` للموارد القابلة للامتلاك

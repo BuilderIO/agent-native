@@ -24,6 +24,33 @@ export {
   type PromptComposerSubmitOptions,
 } from "./PromptComposer.js";
 export {
+  RealtimeVoiceModeDock,
+  RealtimeVoiceModeEntry,
+  type RealtimeVoiceModeCopy,
+  type RealtimeVoiceModeDockProps,
+  type RealtimeVoiceModeEntryProps,
+  type RealtimeVoiceModeInlineSettings,
+  type RealtimeVoiceModeSelectSetting,
+  type RealtimeVoiceModeSettingOption,
+  type RealtimeVoiceModeState,
+} from "./RealtimeVoiceMode.js";
+export {
+  createRealtimeVoiceSession,
+  createRealtimeVoiceSessionWithCapability,
+  executeRealtimeVoiceTool,
+  extractRealtimeVoiceFunctionCalls,
+  readRealtimeVoiceContext,
+  RealtimeVoiceModeBoundary,
+  RealtimeVoiceModeProvider,
+  useRealtimeVoiceMode,
+  useRealtimeVoiceModeCopy,
+  useRealtimeVoiceModeOptional,
+  type RealtimeVoiceModeApi,
+  type RealtimeVoiceModeProviderProps,
+  type RealtimeVoiceSessionAnswer,
+  type RealtimeVoiceToolResult,
+} from "./useRealtimeVoiceMode.js";
+export {
   AGENT_PROMPT_MAX_INLINE_IMAGE_BYTES,
   AGENT_PROMPT_MAX_INLINE_TEXT_CHARS,
   escapePromptAttachmentAttribute,

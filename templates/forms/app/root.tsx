@@ -13,7 +13,7 @@ import {
   setClientAppState,
   useT,
 } from "@agent-native/core/client";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useEffect, useState } from "react";
@@ -28,6 +28,7 @@ import {
 } from "react-router";
 import type { LinksFunction } from "react-router";
 
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import { formsRoutePath } from "@/lib/form-builder-tabs";
 import { TAB_ID } from "@/lib/tab-id";
@@ -234,6 +235,7 @@ function FormsCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -245,6 +247,10 @@ function FormsCommandMenu({
         <CommandMenu.Item onSelect={() => {}}>
           {t("root.searchForms")}
         </CommandMenu.Item>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconBrain size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
       </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.appearance")}>
         <ThemeToggleItem />
@@ -253,19 +259,47 @@ function FormsCommandMenu({
   );
 }
 
-export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+function PrivateAppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
-    <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+    <>
       <DbSyncSetup />
       <NavigationStateSync />
       <UrlStateSync />
       <OpenLinkInterceptor />
       <FormsCommandMenu open={cmdkOpen} onOpenChange={setCmdkOpen} />
       <Outlet />
-    </AppProviders>
+    </>
+  );
+}
+
+export default function Root() {
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const location = useLocation();
+  const isPublicPath =
+    location.pathname === "/f" || location.pathname.startsWith("/f/");
+
+  if (isPublicPath) {
+    return (
+      <AppToolkitProvider>
+        <AppProviders
+          queryClient={queryClient}
+          isPublicPath
+          i18n={{ catalog: i18nCatalog }}
+        >
+          <Outlet />
+        </AppProviders>
+      </AppToolkitProvider>
+    );
+  }
+
+  return (
+    <AppToolkitProvider>
+      <AppProviders queryClient={queryClient} i18n={{ catalog: i18nCatalog }}>
+        <PrivateAppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

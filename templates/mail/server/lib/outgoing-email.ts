@@ -17,6 +17,7 @@ import {
 import { getStoredUpload } from "./upload-store.js";
 
 const UPLOADS_DIR = path.resolve("data/uploads");
+const MAX_ATTACHMENT_FETCH_BYTES = 15 * 1024 * 1024;
 
 export type ResolvedComposeAttachment = ComposeAttachment & {
   data: Buffer;
@@ -30,6 +31,22 @@ type ResolveComposeAttachmentOptions = {
 
 function stripCrlf(value: string): string {
   return value.replace(/[\r\n]+/g, " ").trim();
+}
+
+async function fetchStoredUpload(url: string): Promise<Buffer> {
+  const response = await fetch(url);
+  if (!response.ok) {
+    throw new Error(`Stored upload fetch failed: ${response.status}`);
+  }
+  const contentLength = Number(response.headers.get("content-length") || "0");
+  if (contentLength > MAX_ATTACHMENT_FETCH_BYTES) {
+    throw new Error("Stored upload is too large to attach");
+  }
+  const bytes = Buffer.from(await response.arrayBuffer());
+  if (bytes.byteLength > MAX_ATTACHMENT_FETCH_BYTES) {
+    throw new Error("Stored upload is too large to attach");
+  }
+  return bytes;
 }
 
 function safeHeaderParam(value: string): string {
@@ -181,8 +198,17 @@ export async function resolveComposeAttachments(
   const resolved: ResolvedComposeAttachment[] = [];
   for (const raw of attachments) {
     const att = raw as Partial<ComposeAttachment>;
-    if (!att.filename || typeof att.filename !== "string") continue;
-    if (att.filename.includes("/") || att.filename.includes("..")) continue;
+    // Every other failure branch below throws and is surfaced to the user as
+    // "One or more attachments could not be read" by the send/save callers.
+    // A malformed entry must fail the same way instead of being silently
+    // dropped; otherwise the user believes the file was attached when the
+    // sent email has fewer attachments than they added.
+    if (!att.filename || typeof att.filename !== "string") {
+      throw new Error("Attachment is missing a filename and could not be read");
+    }
+    if (att.filename.includes("/") || att.filename.includes("..")) {
+      throw new Error(`Attachment filename is invalid: ${att.filename}`);
+    }
 
     if (att.source === "gmail" || att.gmailMessageId || att.gmailAttachmentId) {
       if (
@@ -218,7 +244,13 @@ export async function resolveComposeAttachments(
       if (!ownerEmail) throw error;
       const stored = await getStoredUpload(ownerEmail, att.filename);
       if (!stored) throw error;
-      data = Buffer.from(stored.dataBase64, "base64");
+      if (stored.url) {
+        data = await fetchStoredUpload(stored.url);
+      } else if (stored.dataBase64) {
+        data = Buffer.from(stored.dataBase64, "base64");
+      } else {
+        throw error;
+      }
       att.originalName = att.originalName || stored.originalName;
       att.mimeType = att.mimeType || stored.mimeType;
       att.size = att.size || stored.size;

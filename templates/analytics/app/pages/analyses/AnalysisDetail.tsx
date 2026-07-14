@@ -12,12 +12,17 @@ import {
   IconClock,
   IconArrowLeft,
   IconDatabase,
+  IconHistory,
+  IconLock,
+  IconUsersGroup,
+  IconWorld,
 } from "@tabler/icons-react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useParams } from "react-router";
 import { Link, useNavigate } from "react-router";
 
+import { AnalysisHistoryPanel } from "@/components/analysis/AnalysisHistoryPanel";
 import {
   useSetPageTitle,
   useSetHeaderActions,
@@ -101,6 +106,7 @@ export default function AnalysisDetail() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const { send, isGenerating, codeRequiredDialog } = useSendToAgentChat();
+  const [historyOpen, setHistoryOpen] = useState(false);
 
   const analysesSync = useChangeVersions(["analyses", "action"]);
   const { data: analysis, isLoading } = useQuery({
@@ -179,6 +185,14 @@ export default function AnalysisDetail() {
           resourceTitle={analysis.name}
           variant="compact"
         />
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setHistoryOpen(true)}
+        >
+          <IconHistory className="h-4 w-4" />
+          {t("analyses.historyTitle")}
+        </Button>
         {canEdit ? (
           <Tooltip>
             <TooltipTrigger asChild>
@@ -251,6 +265,12 @@ export default function AnalysisDetail() {
   return (
     <>
       {codeRequiredDialog}
+      <AnalysisHistoryPanel
+        analysisId={analysis.id}
+        open={historyOpen}
+        onOpenChange={setHistoryOpen}
+        canRestore={canEdit}
+      />
       <div
         className={cn(
           "space-y-6",
@@ -288,24 +308,14 @@ export default function AnalysisDetail() {
             {analysis.author && (
               <span>{t("analyses.byAuthor", { author: analysis.author })}</span>
             )}
-            <span
-              className={`flex items-center gap-1.5 font-medium ${
-                analysis.visibility === "public"
-                  ? "text-green-600"
-                  : analysis.visibility === "org"
-                    ? "text-blue-600"
-                    : "text-yellow-600"
-              }`}
-            >
-              <span
-                className={`h-1.5 w-1.5 rounded-full ${
-                  analysis.visibility === "public"
-                    ? "bg-green-500"
-                    : analysis.visibility === "org"
-                      ? "bg-blue-500"
-                      : "bg-yellow-500"
-                }`}
-              />
+            <span className="flex items-center gap-1.5">
+              {analysis.visibility === "public" ? (
+                <IconWorld className="h-3 w-3" />
+              ) : analysis.visibility === "org" ? (
+                <IconUsersGroup className="h-3 w-3" />
+              ) : (
+                <IconLock className="h-3 w-3" />
+              )}
               {analysis.visibility === "public"
                 ? t("analyses.public")
                 : analysis.visibility === "org"

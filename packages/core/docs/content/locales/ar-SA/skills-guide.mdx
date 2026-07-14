@@ -5,7 +5,7 @@ description: "كيفية عمل skills في الوكيل الأصلي: إطار 
 
 # دليل Skills
 
-Skills هي ملفات Markdown التي تمنح الوكيل معرفة عميقة حول أنماط ومسارات عمل محددة.
+المهارات هي ملفات Markdown تمنح الوكيل معرفة عميقة بأنماط وسير عمل محددين. وبدلاً من حشد كل قاعدة في مطالبة نظام واحدة، تقسّم المعرفة إلى ملفات مركّزة لا يحمّلها الوكيل إلا عندما تحتاج المهمة إليها فعلاً — فيظل السياق الافتراضي صغيراً مع تمكين الوكيل من التعمق عند الطلب.
 
 ## ما هي skills {#what-are-skills}
 
@@ -118,13 +118,13 @@ Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إر
 
 ## skills المدعوم بالتطبيق {#app-backed-skills}
 
-تشمل skills المدعومة بالتطبيق حاليا `visual-plan` و`visual-recap` من Plan،
-و`visual-edit` من Design، و`assets` من Assets، و`content` لتحرير docs/blog/MDX
-من المستودع.
+تشمل skills المدعومة بالتطبيق حاليًا `visual-plan` و`visual-recap` و`visualize-repo` من Plan، و`visual-edit` من Design، و`assets` من Assets، و`content` لتحرير docs/blog/MDX المدعوم بالمستودع.
 
-تحزم skills المدعومة بالتطبيق تطبيقًا أصليًا للوكيل باعتباره قطعة أثرية في سوق المهارات. يمكن أن تتضمن الحزمة تعليمات الوكيل، وبيانات تعريف موصل skills المصدرة، وتعليمات التشغيل المستضافة/المحلية، وأسطح UI مثل تطبيقات MCP.
+<Callout tone="info">
 
-> **التفاصيل الكاملة أدناه:** يتم تغطية آليات skills المدعومة بالتطبيق (تنسيق البيان، وأوامر CLI، ومحولات السوق، وتجزئة التحديث التلقائي) في [App-backed skills — full details](#app-backed-skills-full).
+**التفاصيل الكاملة أدناه:** يتم تغطية آليات skills المدعومة بالتطبيق (تنسيق البيان، وأوامر CLI، ومحولات السوق، وتجزئة التحديث التلقائي) في [App-backed skills — full details](#app-backed-skills-full).
+
+</Callout>
 
 ## إنشاء skills مخصص {#creating-skills}
 
@@ -179,7 +179,11 @@ Skills موجود في `.agents/skills/<name>/SKILL.md` ويحتوي على إر
 
 احفظ الملف في `.agents/skills/my-skill/SKILL.md`. يجب أن يتطابق اسم الدليل مع `name` في المادة الأمامية.
 
-> **راجع أيضًا:** [Writing Agent Instructions](/docs/writing-agent-instructions) للتعرف على كيفية صياغة أوصاف المهارات، وتطبيق الكشف التدريجي، والحفاظ على `AGENTS.md`. تستخدم كلتا الصفحتين مهارة `project-imports` كمثال عملي.
+<Callout tone="info">
+
+**راجع أيضًا:** [Writing Agent Instructions](/docs/writing-agent-instructions) للتعرف على كيفية صياغة أوصاف المهارات، وتطبيق الكشف التدريجي، والحفاظ على `AGENTS.md`. تستخدم كلتا الصفحتين مهارة `project-imports` كمثال عملي.
+
+</Callout>
 
 ## نطاق المهارة: وقت التشغيل مقابل التطوير {#skill-scope}
 
@@ -269,33 +273,37 @@ scope: dev
 
 </Diagram>
 
-> **راجع أيضًا:** [Writing Agent Instructions](/docs/writing-agent-instructions) للتعرف على كيفية صياغة أوصاف المهارات، وتطبيق الإفصاح التدريجي، والحفاظ على `AGENTS.md`.
-
 ## Skills مقابل AGENTS.md {#skills-vs-agents-md}
 
-> **AGENTS.md** — النظرة العامة. يسرد كافة البرامج النصية، ويصف نموذج البيانات، ويشرح بنية التطبيق. يقرأ الوكيل هذا أولاً لفهم التطبيق.
->
-> **Skills** — الغوص العميق. تركز كل مهارة على نمط واحد يحتوي على قواعد تفصيلية، وأمثلة للتعليمات البرمجية، وقوائم المهام/المحظورات. يقرأ الوكيل هذه العناصر عندما يحتاج إلى اتباع نمط معين.
+<Callout tone="info">
+
+**AGENTS.md** — النظرة العامة. يسرد كافة البرامج النصية، ويصف نموذج البيانات، ويشرح بنية التطبيق. يقرأ الوكيل هذا أولاً لفهم التطبيق.
+
+**Skills** — الغوص العميق. تركز كل مهارة على نمط واحد يحتوي على قواعد تفصيلية، وأمثلة للتعليمات البرمجية، وقوائم المهام/المحظورات. يقرأ الوكيل هذه العناصر عندما يحتاج إلى اتباع نمط معين.
+
+</Callout>
 
 يخبر `AGENTS.md` الوكيل _ما_ يفعله التطبيق. Skills أخبر الوكيل بكيفية القيام بأشياء محددة بشكل صحيح. كلاهما مطلوب — `AGENTS.md` للتوجيه، وskills للتنفيذ.
 
 ## Skills مقابل الذاكرة {#skills-vs-memory}
 
-> **Skills** — أدلة إرشادية مؤلفة وقابلة لإعادة الاستخدام. تنطبق على كل مستخدم، ويتم استدعاؤها عند الطلب عندما تتطابق المهمة.
->
-> **الذاكرة (`LEARNINGS.md` / `memory/MEMORY.md`)** — يتم تحميل الدروس المستفادة من المشروعات المشتركة والذاكرة المنظمة الشخصية في كل دورة.
+<Callout tone="info">
+
+**Skills** — أدلة إرشادية مؤلفة وقابلة لإعادة الاستخدام. تنطبق على كل مستخدم، ويتم استدعاؤها عند الطلب عندما تتطابق المهمة.
+
+**الذاكرة (`LEARNINGS.md` / `memory/MEMORY.md`)** — يتم تحميل الدروس المستفادة من المشروعات المشتركة والذاكرة المنظمة الشخصية في كل دورة.
+
+</Callout>
 
 إذا كانت المعرفة تنطبق على _جميع_ الأشخاص\_ الذين يعملون في التطبيق ("يفضلون دائمًا CTEs على الاستعلامات الفرعية")، فهي مهارة أو `LEARNINGS.md` مشتركة. إذا كان الأمر يتعلق بهذا المستخدم تحديدًا ("يحب ستيف الإجابات المختصرة")، فهو ينتمي إلى `memory/MEMORY.md`. راجع [Workspace Memory](/docs/workspace#memory) للحصول على العلاج الكامل.
 
----
+## المهارات مقابل موارد SQL {#skills-vs-resources}
 
-# متقدم
+تعرض هذه الصفحة المهارة كملف في `.agents/skills/<name>/SKILL.md`. وتعرض [مساحة العمل](/docs/workspace#skills) المهارة نفسها كمورد SQL في المسار `skills/<slug>/SKILL.md`، بنطاق مساحة العمل أو النطاق المشترك أو الشخصي. وهما المفهوم نفسه من زاويتين: يقرأ وضع Code الملف ويكتبه مباشرةً؛ بينما يخزّنه وضع App كسجل مورد ليعمل من دون نظام ملفات. اكتب المحتوى بتنسيق هذه الصفحة في الحالتين.
 
 ## skills المدعوم بالتطبيق - التفاصيل الكاملة {#app-backed-skills-full}
 
-يحزم skills المدعوم بالتطبيق تطبيقًا أصليًا للوكيل باعتباره أحد عناصر سوق المهارات.
-يمكن أن تتضمن الحزمة تعليمات الوكيل، وموصل skills، وموصل MCP المُصدر
-البيانات الوصفية وتعليمات التشغيل المستضافة/المحلية وأسطح UI مثل تطبيقات MCP.
+التفاصيل الكاملة لتنسيق البيان وأوامر CLI ومحولات السوق وتجزئة التحديث التلقائي وراء [المهارات المدعومة بالتطبيق](#app-backed-skills):
 
 تبدأ كل مهارة مدعومة بالتطبيق بـ `agent-native.app-skill.json` في جذر التطبيق:
 
@@ -305,7 +313,7 @@ scope: dev
   "id": "assets",
   "hosted": {
     "url": "https://assets.agent-native.com",
-    "mcpUrl": "https://assets.agent-native.com/_agent-native/mcp"
+    "mcpUrl": "https://assets.agent-native.com/mcp"
   },
   "mcp": { "serverName": "agent-native-assets" },
   "skills": [
@@ -332,6 +340,7 @@ scope: dev
 ```bash
 # المسار السعيد: التعليمات المصدرة بالإضافة إلى موصل MCP المستضاف.
 npx @agent-native/core@latest skills add visual-plan
+npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
 npx @agent-native/core@latest skills add assets
 
@@ -411,3 +420,10 @@ npx @agent-native/core@latest skills update scaffold --project
 يظل `AGENTS.md` و`.agents/skills` أساسيين. يقوم أمر التحديث أيضًا بإصلاح
 روابط التوافق Claude (`CLAUDE.md` و`.claude/skills`) حتى يرى رمز Claude
 نفس التعليمات دون الاحتفاظ بنسخة ثانية.
+
+## الخطوة التالية {#whats-next}
+
+- [**كتابة تعليمات الوكيل**](/docs/writing-agent-instructions) — صياغة أوصاف المهارات وتوزيع الإرشادات بين AGENTS.md والمهارات والذاكرة
+- [**مساحة العمل**](/docs/workspace#skills) — موضع المهارات كموارد SQL في وضع App
+- [**إشارات الوكيل**](/docs/agent-mentions) — مشغّل أوامر `/` الذي يستدعي مهارة في الدردشة
+- [**إضافة Plan والسوق**](/docs/plan-plugin) — تثبيت مهارة حقيقية مدعومة بالتطبيق وتحديثها التلقائي من البداية إلى النهاية

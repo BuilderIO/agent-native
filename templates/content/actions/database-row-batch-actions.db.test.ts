@@ -16,6 +16,7 @@ let getDb: () => any;
 let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
+let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -29,6 +30,7 @@ beforeAll(async () => {
     .default;
   deleteDatabaseItemsAction = (await import("./delete-database-items.js"))
     .default;
+  addDatabaseItemAction = (await import("./add-database-item.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
 }, 60000);
@@ -223,10 +225,17 @@ describe("database row batch actions", () => {
           result.duplicatedDocumentIds ?? [],
         ),
       );
-    expect(copiedValues.map((value) => JSON.parse(value.valueJson))).toEqual([
-      "Review",
-      "Ready",
-    ]);
+    const copiedValuesByDocumentId = new Map(
+      copiedValues.map((value) => [
+        value.documentId,
+        JSON.parse(value.valueJson) as unknown,
+      ]),
+    );
+    expect(
+      (result.duplicatedDocumentIds ?? []).map((documentId) =>
+        copiedValuesByDocumentId.get(documentId),
+      ),
+    ).toEqual(["Review", "Ready"]);
 
     const inheritedShares = await db
       .select()
@@ -369,5 +378,50 @@ describe("database row batch actions", () => {
     ).rejects.toThrow("Database row batch is limited to 100 rows.");
 
     expect(await orderedRows(databaseId)).toHaveLength(1);
+  });
+
+  it("assigns distinct positions when items are added to the same database concurrently", async () => {
+    const { databaseId, databaseDocumentId } = await createDatabaseWithRows(0);
+
+    const concurrentAdds = 6;
+    const results = await Promise.all(
+      Array.from({ length: concurrentAdds }, (_, index) =>
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          addDatabaseItemAction.run({
+            databaseId,
+            title: `Concurrent ${index}`,
+          }),
+        ),
+      ),
+    );
+
+    expect(results).toHaveLength(concurrentAdds);
+    const createdItemIds = results.map((result) => result.createdItemId);
+    expect(new Set(createdItemIds).size).toBe(concurrentAdds);
+
+    const rows = await orderedRows(databaseId);
+    expect(rows).toHaveLength(concurrentAdds);
+    // Every row's database-item position and backing document position must
+    // be unique — two concurrent adds reading the same MAX(position) would
+    // otherwise collide on the same value.
+    expect(new Set(rows.map((row) => row.itemPosition)).size).toBe(
+      concurrentAdds,
+    );
+    expect(new Set(rows.map((row) => row.documentPosition)).size).toBe(
+      concurrentAdds,
+    );
+    expect(rows.map((row) => row.itemPosition).sort((a, b) => a - b)).toEqual(
+      Array.from({ length: concurrentAdds }, (_, index) => index),
+    );
+
+    const siblingDocPositions = await getDb()
+      .select({ position: schema.documents.position })
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, databaseDocumentId));
+    expect(
+      siblingDocPositions
+        .map((row: { position: number }) => row.position)
+        .sort((a: number, b: number) => a - b),
+    ).toEqual(Array.from({ length: concurrentAdds }, (_, index) => index));
   });
 });

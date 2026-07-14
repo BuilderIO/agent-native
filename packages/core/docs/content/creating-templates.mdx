@@ -7,6 +7,13 @@ description: "How to create and publish your own agent-native app templates."
 
 Templates are complete, forkable agent-native apps that solve a real workflow. The first-party templates are built with the same framework surface you use: React routes for the UI, Drizzle SQL for data, actions for operations, workspace resources for agent behavior, and polling sync so the agent and UI stay aligned.
 
+Use `@agent-native/core` for the runtime contract: actions, server plugins,
+database helpers, app state, routing helpers, and agent chat. Use
+`@agent-native/toolkit` for reusable app-building UI and helpers such as shared
+shadcn-style primitives, toast/mobile hooks, date pickers, and simple app shell
+slots. Keep template-specific variants local when they encode product behavior
+or visual identity.
+
 A good template:
 
 - Solves one workflow end-to-end, with useful seed data or an empty-state flow.
@@ -42,7 +49,6 @@ Every template follows the same broad layout:
 <FileTree
   id="doc-block-1pqnp29"
   title="Template project layout"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -168,8 +174,7 @@ The four areas of every template wire together through one shared action surface
 
 Define domain tables with the framework Drizzle helpers so schemas stay portable across SQLite, Postgres, D1, Turso, Supabase, Neon, and other supported backends:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -200,8 +205,7 @@ Schema changes must be additive. Add tables and columns through `runMigrations()
 
 For app reads and writes, use Drizzle's query builder and portable operators from `drizzle-orm`. Do not write product code with raw SQL when Drizzle can express the query, and do not import from `drizzle-orm/sqlite-core` or `drizzle-orm/pg-core` in templates.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -345,8 +349,7 @@ For app navigation, prefer one `navigate` command that includes a same-origin
 `path` when the URL is known. Do not also write `__set_url__` for the same move;
 that key is reserved for the framework URL tools and URL-only filter changes.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
@@ -440,8 +443,7 @@ Store template skills in `.agents/skills/<name>/SKILL.md`. If users should be ab
 
 If a template needs an API key, OAuth connection, or provider account, register an onboarding step instead of burying the requirement in a README.
 
-```ts
-// server/plugins/onboarding.ts
+```ts filename="server/plugins/onboarding.ts"
 import { defineNitroPlugin } from "@agent-native/core/server";
 import { registerOnboardingStep } from "@agent-native/core/onboarding";
 
@@ -516,3 +518,14 @@ The generated workspace links the local `@agent-native/core` and
 behavior, or first-party templates can be tested before publishing. The package
 `prepack` scripts build `dist` before linking, which keeps the generated
 workspace pointed at current build output.
+
+## What's next
+
+- [**Writing Agent Instructions**](/docs/writing-agent-instructions) — how to
+  keep `AGENTS.md` and skills skimmable as the template grows.
+- [**Agent-Native Toolkit**](/docs/agent-native-toolkit) — reusable sharing,
+  settings, history, and review surfaces instead of rebuilding them per app.
+- [**Multi-App Workspace**](/docs/multi-app-workspace) — make the template fit
+  naturally alongside sibling apps and Dispatch.
+- [**Templates**](/docs/cloneable-saas) — turn a template into a
+  publishable product you can share and deploy.

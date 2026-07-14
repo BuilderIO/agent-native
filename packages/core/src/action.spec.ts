@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { z } from "zod";
 
 import {
@@ -280,6 +280,33 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     expect("$schema" in (action.tool.parameters as any)).toBe(false);
   });
 
+  it("strips propertyNames (from z.record) so OpenAI/Gemini function schemas are not rejected", () => {
+    const action = defineAction({
+      description: "with a record field",
+      schema: z.object({
+        styleBrief: z.record(z.string(), z.unknown()).optional(),
+      }),
+      run: async () => "ok",
+    });
+    const json = JSON.stringify(action.tool.parameters);
+    expect(json).not.toContain("propertyNames");
+  });
+
+  it("preserves a `propertyNames` data key inside a default value while stripping the schema keyword", () => {
+    const action = defineAction({
+      description: "record with a default object",
+      schema: z.object({
+        cfg: z.record(z.string(), z.string()).default({ propertyNames: "x" }),
+      }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    // The structural `propertyNames` keyword on the record is stripped…
+    expect("propertyNames" in params.properties.cfg).toBe(false);
+    // …but the identically-named key inside the default *data* survives.
+    expect(params.properties.cfg.default).toEqual({ propertyNames: "x" });
+  });
+
   it("stores the original schema on the entry for downstream re-validation", () => {
     const schema = z.object({ x: z.string() });
     const action = defineAction({
@@ -288,6 +315,97 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       run: async () => "ok",
     });
     expect(action.schema).toBe(schema);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agentInputSchema — advertised-only schema override. Lets an action swap in
+// a compact JSON Schema for the tool definition shown to the model/MCP/A2A
+// listings while runtime validation keeps enforcing the full `schema`.
+// ---------------------------------------------------------------------------
+describe("defineAction schema mode — agentInputSchema (advertised-only override)", () => {
+  it("advertises the compact schema instead of the full schema", () => {
+    const action = defineAction({
+      description: "create widget",
+      schema: z.object({
+        title: z.string(),
+        // Pretend this is a deep block-type union like the plan actions.
+        blocks: z.array(
+          z.discriminatedUnion("type", [
+            z.object({
+              type: z.literal("a"),
+              data: z.object({ a: z.string() }),
+            }),
+            z.object({
+              type: z.literal("b"),
+              data: z.object({ b: z.number() }),
+            }),
+          ]),
+        ),
+      }),
+      agentInputSchema: z.object({
+        title: z.string(),
+        blocks: z
+          .array(
+            z.object({
+              type: z
+                .enum(["a", "b"])
+                .describe(
+                  "Block type — call get-blocks for full field shapes.",
+                ),
+            }),
+          )
+          .describe("Call get-blocks before authoring blocks."),
+      }),
+      run: async () => "ok",
+    });
+
+    const params = action.tool.parameters as any;
+    // Top-level shape survives (both fields still present, title required).
+    expect(params.required).toEqual(["title", "blocks"]);
+    // The advertised `blocks` items only carry `type`, not the full union's
+    // nested `data` fields — this is what keeps the request small.
+    const blockItemProps = params.properties.blocks.items.properties;
+    expect(Object.keys(blockItemProps)).toEqual(["type"]);
+    expect(blockItemProps.type.enum).toEqual(["a", "b"]);
+  });
+
+  it("still runs full validation against `schema`, ignoring the compact override", async () => {
+    const run = vi.fn(async (args: any) => args);
+    const action = defineAction({
+      description: "create widget",
+      schema: z.object({
+        title: z.string(),
+        count: z.number().int().min(1),
+      }),
+      agentInputSchema: z.object({
+        title: z.string(),
+        // Compact override omits `count` entirely from what's advertised…
+      }),
+      run,
+    });
+
+    // …but a call missing `count` still fails full-schema validation.
+    await expect(action.run({ title: "x" } as any)).rejects.toThrow(
+      /Missing required parameter.*count/s,
+    );
+    expect(run).not.toHaveBeenCalled();
+
+    // A call satisfying the full schema still succeeds and reaches run().
+    await expect(action.run({ title: "x", count: 2 } as any)).resolves.toEqual({
+      title: "x",
+      count: 2,
+    });
+  });
+
+  it("falls back to the full schema when agentInputSchema is not set", () => {
+    const action = defineAction({
+      description: "create widget",
+      schema: z.object({ title: z.string(), count: z.number() }),
+      run: async () => "ok",
+    });
+    const params = action.tool.parameters as any;
+    expect(Object.keys(params.properties)).toEqual(["title", "count"]);
   });
 });
 

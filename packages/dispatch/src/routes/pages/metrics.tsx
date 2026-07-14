@@ -11,12 +11,12 @@ import {
 } from "@tabler/icons-react";
 import { useMemo, useState, type ReactNode } from "react";
 
-import { DispatchShell } from "@/components/dispatch-shell";
-import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Skeleton } from "@/components/ui/skeleton";
-import { cn } from "@/lib/utils";
+import { DispatchShell } from "../../components/dispatch-shell";
+import { Alert, AlertDescription, AlertTitle } from "../../components/ui/alert";
+import { Badge } from "../../components/ui/badge";
+import { Button } from "../../components/ui/button";
+import { Skeleton } from "../../components/ui/skeleton";
+import { cn } from "../../lib/utils";
 
 export function meta() {
   return [{ title: "Metrics — Dispatch" }];
@@ -643,7 +643,6 @@ export default function MetricsRoute() {
   const { data, isLoading, error } = useActionQuery(
     "list-dispatch-usage-metrics",
     { sinceDays },
-    { refetchInterval: 30_000 },
   );
   const metrics = data as DispatchUsageMetrics | undefined;
   const billing = metrics?.billing ?? USD_BILLING;

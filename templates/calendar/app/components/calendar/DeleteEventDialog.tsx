@@ -1,6 +1,6 @@
 import { useT } from "@agent-native/core/client";
 import type { CalendarEvent, DeleteEventScope } from "@shared/api";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { getGuestAttendeeCount } from "@/components/calendar/GuestNotificationDialog";
 import {
@@ -36,6 +36,8 @@ export function DeleteEventDialog({
   onConfirm,
 }: DeleteEventDialogProps) {
   const t = useT();
+  const confirmButtonRef = useRef<HTMLButtonElement>(null);
+  const dontNotifyButtonRef = useRef<HTMLButtonElement>(null);
   const [scope, setScope] = useState<DeleteEventScope>("single");
   const [message, setMessage] = useState("");
 
@@ -108,7 +110,19 @@ export function DeleteEventDialog({
 
   return (
     <AlertDialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-      <AlertDialogContent className="max-w-[420px]" onKeyDown={handleKeyDown}>
+      <AlertDialogContent
+        className="max-w-[420px]"
+        onKeyDown={handleKeyDown}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault();
+          // For events with guests, Enter should default to the reversible,
+          // no-email path instead of immediately sending a cancellation.
+          (canNotifyGuests
+            ? dontNotifyButtonRef.current
+            : confirmButtonRef.current
+          )?.focus();
+        }}
+      >
         <AlertDialogHeader>
           <AlertDialogTitle className="text-sm">{copy.title}</AlertDialogTitle>
           <AlertDialogDescription>{copy.description}</AlertDialogDescription>
@@ -169,11 +183,16 @@ export function DeleteEventDialog({
             {t("deleteEvent.cancel")}
           </AlertDialogCancel>
           {canNotifyGuests && (
-            <Button variant="outline" onClick={() => handleConfirm("none")}>
+            <Button
+              ref={dontNotifyButtonRef}
+              variant="outline"
+              onClick={() => handleConfirm("none")}
+            >
               {t("deleteEvent.dontNotify")}
             </Button>
           )}
           <Button
+            ref={confirmButtonRef}
             variant="destructive"
             onClick={() => handleConfirm(canNotifyGuests ? "all" : "none")}
           >

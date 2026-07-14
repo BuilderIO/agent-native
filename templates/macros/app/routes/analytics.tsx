@@ -1,4 +1,5 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
 import { IconCalendar } from "@tabler/icons-react";
 import { subDays } from "date-fns";
 import { useState } from "react";
@@ -13,7 +14,7 @@ import {
   ReferenceLine,
 } from "recharts";
 
-import { useSetHeaderActions } from "@/components/layout/HeaderActions";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import {
   Select,
@@ -77,16 +78,19 @@ export default function AnalyticsPage() {
   const endDate = formatLocalDate(new Date());
   const startDate = getStartDate(timeRange);
 
-  const { data: rawHistory, isLoading } = useActionQuery("meals-history", {
+  const historyQuery = useActionQuery("meals-history", {
     startDate,
     endDate,
   });
+  const { data: rawHistory, isLoading } = historyQuery;
   const history = Array.isArray(rawHistory) ? rawHistory : [];
 
-  const { data: rawWeightHistory, isLoading: weightLoading } = useActionQuery(
-    "weights-history",
-    { startDate, endDate },
-  );
+  const weightHistoryQuery = useActionQuery("weights-history", {
+    startDate,
+    endDate,
+  });
+  const { data: rawWeightHistory, isLoading: weightLoading } =
+    weightHistoryQuery;
   const weightHistory = Array.isArray(rawWeightHistory) ? rawWeightHistory : [];
 
   const weightStats = {
@@ -207,6 +211,11 @@ export default function AnalyticsPage() {
                 <TabsContent key={tab} value={tab} className="mt-0">
                   {isLoading ? (
                     <Skeleton className="h-[250px] w-full rounded-xl" />
+                  ) : historyQuery.isError ? (
+                    <QueryErrorState
+                      compact
+                      onRetry={() => void historyQuery.refetch()}
+                    />
                   ) : history.length > 0 ? (
                     <ResponsiveContainer width="100%" height={250}>
                       <LineChart
@@ -307,11 +316,18 @@ export default function AnalyticsPage() {
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <WeeklyCaloriesChart
-              history={history}
-              isLoading={isLoading}
-              dailyGoal={GOAL_CALORIES}
-            />
+            {historyQuery.isError ? (
+              <QueryErrorState
+                compact
+                onRetry={() => void historyQuery.refetch()}
+              />
+            ) : (
+              <WeeklyCaloriesChart
+                history={history}
+                isLoading={isLoading}
+                dailyGoal={GOAL_CALORIES}
+              />
+            )}
           </CardContent>
         </Card>
 
@@ -379,6 +395,11 @@ export default function AnalyticsPage() {
                 <TabsContent key={tab} value={tab} className="mt-0">
                   {weightLoading ? (
                     <Skeleton className="h-[250px] w-full rounded-xl" />
+                  ) : weightHistoryQuery.isError ? (
+                    <QueryErrorState
+                      compact
+                      onRetry={() => void weightHistoryQuery.refetch()}
+                    />
                   ) : weightHistory.length > 0 ? (
                     <div className="space-y-2">
                       {tab === "trend" && (

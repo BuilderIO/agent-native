@@ -1,4 +1,8 @@
-import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
+import {
+  deleteOAuthTokens,
+  listOAuthAccountsByOwner,
+} from "@agent-native/core/oauth-tokens";
+import { getOAuthAccounts } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -7,7 +11,7 @@ import {
   gmailListMessages as gmailListMessagesApi,
   gmailListThreads,
 } from "./google-api.js";
-import { listGmailMessages } from "./google-auth.js";
+import { getClientsWithErrors, listGmailMessages } from "./google-auth.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
@@ -111,6 +115,52 @@ describe("listGmailMessages", () => {
       "connected@example.com": "next-thread-page",
     });
     expect(result.resultSizeEstimate).toBe(12);
+  });
+
+  it("keeps a four-account metadata inventory to eight provider reads", async () => {
+    const accounts = ["a", "b", "c", "d"].map((name) => ({
+      accountId: `${name}@example.com`,
+      owner: "owner@example.com",
+      tokens: {
+        access_token: `${name}-token`,
+        refresh_token: `${name}-refresh`,
+        expiry_date: Date.now() + 60 * 60 * 1000,
+      },
+    }));
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue(accounts as any);
+    vi.mocked(gmailListThreads).mockImplementation(async (token: string) => ({
+      threads: [{ id: `${token}-thread` }],
+    }));
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: { messages: [{ id: `${id}-message`, threadId: id }] },
+        })) as any,
+    );
+
+    const result = await listGmailMessages(
+      "in:inbox",
+      10,
+      "owner@example.com",
+      undefined,
+      {
+        mode: "threads",
+        threadFormat: "metadata",
+        accountEmails: accounts.map((account) => account.accountId),
+      },
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.messages).toHaveLength(4);
+    expect(gmailListThreads).toHaveBeenCalledTimes(4);
+    expect(gmailBatchGetThreads).toHaveBeenCalledTimes(4);
+    expect(
+      vi
+        .mocked(gmailBatchGetThreads)
+        .mock.calls.every(([, , format]) => format === "metadata"),
+    ).toBe(true);
+    expect(gmailListMessagesApi).not.toHaveBeenCalled();
   });
 
   it("uses recent message candidates so old inbox threads with fresh replies can lead normal pages", async () => {
@@ -423,6 +473,32 @@ describe("listGmailMessages", () => {
     expect(result.messages.map((m) => m.id)).toEqual(["refilled"]);
   });
 
+  it("marks an account failed when missing thread metadata cannot be refilled", async () => {
+    vi.mocked(gmailListThreads).mockResolvedValue({
+      threads: [{ id: "thread-missing" }],
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      { id: "thread-missing", data: null, error: "No response part" },
+    ] as any);
+    vi.mocked(gmailGetThread).mockRejectedValue(new Error("still missing"));
+
+    const result = await listGmailMessages(
+      "missing-case",
+      1,
+      "owner@example.com",
+      undefined,
+      { mode: "threads", threadFormat: "metadata" },
+    );
+
+    expect(result.messages).toEqual([]);
+    expect(result.errors).toEqual([
+      {
+        email: "connected@example.com",
+        error: "Gmail thread metadata response was incomplete",
+      },
+    ]);
+  });
+
   it("keeps default inbox and explicit all-mail thread pages separate in the list cache", async () => {
     vi.mocked(gmailListThreads).mockResolvedValue({
       threads: [],
@@ -452,6 +528,118 @@ describe("listGmailMessages", () => {
       q: "",
       maxResults: 3,
       pageToken: undefined,
+    });
+  });
+});
+
+describe("getClientsWithErrors with unusable token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("surfaces a reconnect error without deleting the row when a record parses to an empty object", async () => {
+    // A stored oauth_tokens row that fails to decrypt (key rotation / wrong
+    // key) parses to `{}` in core's parseStoredTokens. The account must fail
+    // with a reconnect-style error — but the row must NOT be deleted, because
+    // this process may simply hold the wrong key while the row is still
+    // decryptable by a correctly configured deployment.
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "connected@example.com",
+        owner: "owner@example.com",
+        tokens: {},
+      },
+    ] as any);
+
+    const { clients, errors } = await getClientsWithErrors("owner@example.com");
+
+    expect(clients).toEqual([]);
+    expect(errors).toEqual([
+      {
+        email: "connected@example.com",
+        error: expect.stringContaining("please reconnect"),
+      },
+    ]);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("filters selected accounts before token validation or refresh", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "unrelated@example.com",
+        owner: "owner@example.com",
+        tokens: {},
+      },
+      {
+        accountId: "selected@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "selected-token",
+          refresh_token: "selected-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    const result = await getClientsWithErrors("owner@example.com", [
+      "SELECTED@example.com",
+    ]);
+
+    expect(result).toEqual({
+      clients: [
+        {
+          email: "selected@example.com",
+          accessToken: "selected-token",
+          refreshToken: "selected-refresh",
+        },
+      ],
+      errors: [],
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+});
+
+describe("getAuthStatus with unusable token records", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("does not report decrypt-failed OAuth rows as connected", async () => {
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {},
+      },
+    ] as any);
+
+    await expect(getAuthStatus("owner@example.com")).resolves.toEqual({
+      connected: false,
+      accounts: [],
+    });
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("keeps valid accounts connected when another row is unreadable", async () => {
+    const { getAuthStatus } = await import("./google-auth.js");
+    vi.mocked(getOAuthAccounts).mockResolvedValue([
+      {
+        accountId: "broken@example.com",
+        tokens: {},
+      },
+      {
+        accountId: "connected@example.com",
+        displayName: "Connected User",
+        tokens: {
+          access_token: "access-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    await expect(getAuthStatus("owner@example.com")).resolves.toMatchObject({
+      connected: true,
+      accounts: [{ email: "connected@example.com" }],
     });
   });
 });

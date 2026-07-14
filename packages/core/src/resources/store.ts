@@ -30,6 +30,38 @@ import { emitResourceChange, emitResourceDelete } from "./emitter.js";
 
 export const SHARED_OWNER = "__shared__";
 export const WORKSPACE_OWNER = "__workspace__";
+const ORGANIZATION_OWNER_PREFIX = "__organization__:";
+
+/**
+ * Encode an organization id into the existing resource owner key. This keeps
+ * organization resources isolated without a destructive resources-table
+ * migration, while preserving the legacy `__shared__` owner as the app-wide
+ * default/fallback used by older deployments and solo mode.
+ */
+export function organizationResourceOwner(orgId: string): string {
+  const normalized = orgId.trim();
+  if (!normalized) {
+    throw new Error("organizationResourceOwner requires a non-empty orgId");
+  }
+  return `${ORGANIZATION_OWNER_PREFIX}${encodeURIComponent(normalized)}`;
+}
+
+export function organizationIdFromResourceOwner(owner: string): string | null {
+  if (!owner.startsWith(ORGANIZATION_OWNER_PREFIX)) return null;
+  const encoded = owner.slice(ORGANIZATION_OWNER_PREFIX.length);
+  if (!encoded) return null;
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return null;
+  }
+}
+
+/** Active organization scope, with the legacy app-shared owner as solo fallback. */
+export function sharedResourceOwner(orgId?: string | null): string {
+  const activeOrgId = orgId === undefined ? (getRequestOrgId() ?? null) : orgId;
+  return activeOrgId ? organizationResourceOwner(activeOrgId) : SHARED_OWNER;
+}
 
 function escapeLike(value: string): string {
   return value.replace(/[!%_]/g, (char) => `!${char}`);
@@ -142,6 +174,31 @@ Keep this file tidy — revise, consolidate, and remove outdated entries. Don't 
 
 ## Patterns
 `;
+
+/**
+ * Read the project-root learnings seed file for the shared LEARNINGS.md
+ * resource. Prefers `learnings.md` (scaffolded by `create.ts`, possibly
+ * customized locally), then the checked-in `learnings.defaults.md` — the
+ * scaffolded copy is gitignored, so production deploys built from git only
+ * carry the defaults file. Returns null when neither file is present, both
+ * are empty, or fs is unavailable (e.g. edge runtimes) so seeding falls back
+ * to the built-in default. Only consulted on first insert (INSERT OR IGNORE),
+ * so an existing LEARNINGS.md resource is never overwritten.
+ */
+async function readProjectRootLearningsSeed(): Promise<string | null> {
+  try {
+    const [fs, path] = await Promise.all([import("fs"), import("path")]);
+    for (const name of ["learnings.md", "learnings.defaults.md"]) {
+      const filePath = path.resolve(process.cwd(), name);
+      if (!fs.existsSync(filePath)) continue;
+      const content = fs.readFileSync(filePath, "utf-8");
+      if (content.trim()) return content;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
 
 const DEFAULT_LEARNINGS_PERSONAL_MD = `# My Learnings
 
@@ -849,15 +906,21 @@ async function _doEnsureTable(): Promise<void> {
     ],
   });
 
-  // LEARNINGS.md — shared learnings (preferences, corrections, patterns)
-  const learningsSize = Buffer.byteLength(DEFAULT_LEARNINGS_SHARED_MD, "utf8");
+  // LEARNINGS.md — shared learnings (preferences, corrections, patterns).
+  // Prefer the project-root learnings.md (scaffolded from the template's
+  // learnings.defaults.md) so template-authored defaults reach the prompt
+  // without a manual migrate-learnings step. INSERT OR IGNORE means this only
+  // applies on first seed — existing LEARNINGS.md content is never overwritten.
+  const learningsSeedContent =
+    (await readProjectRootLearningsSeed()) ?? DEFAULT_LEARNINGS_SHARED_MD;
+  const learningsSize = Buffer.byteLength(learningsSeedContent, "utf8");
   await client.execute({
     sql: seedSql,
     args: [
       crypto.randomUUID(),
       "LEARNINGS.md",
       SHARED_OWNER,
-      DEFAULT_LEARNINGS_SHARED_MD,
+      learningsSeedContent,
       "text/markdown",
       learningsSize,
       now,
@@ -1399,59 +1462,28 @@ export async function resourceListAccessible(
   pathPrefix?: string,
   options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
-  await ensureTable();
-  const client = getDbExec();
-  await cleanupExpiredAgentScratchResources(client);
-  const visibilitySql = scratchFilterSql(options);
-
-  if (pathPrefix) {
-    const { rows } = await client.execute({
-      sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}
-            UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}
-            UNION
-            SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ? AND path LIKE ? ESCAPE '!'${visibilitySql}`,
-      args: [
-        userEmail,
-        prefixLike(pathPrefix),
-        SHARED_OWNER,
-        prefixLike(pathPrefix),
-        WORKSPACE_OWNER,
-        prefixLike(pathPrefix),
-      ],
-    });
-    const resources = rows.map(rowToMeta);
-    const local = await localWorkspaceResourceMetas(pathPrefix);
-    const granted = await grantedWorkspaceResources({
-      pathPrefix,
-      workspaceAppId: options?.workspaceAppId,
+  const organizationOwner = sharedResourceOwner(options?.orgId);
+  const [personal, organization, legacyShared, workspace] = await Promise.all([
+    resourceList(userEmail, pathPrefix, options),
+    organizationOwner === SHARED_OWNER
+      ? Promise.resolve([])
+      : resourceList(organizationOwner, pathPrefix, options),
+    resourceList(SHARED_OWNER, pathPrefix, options),
+    resourceList(WORKSPACE_OWNER, pathPrefix, {
+      ...options,
       userEmail,
-      orgId: options?.orgId,
-    });
-    return mergeResourceMetas(
-      local,
-      mergeResourceMetas(resources, granted.map(resourceToMeta)),
-    );
-  }
+    }),
+  ]);
 
-  const { rows } = await client.execute({
-    sql: `SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
-          UNION
-          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}
-          UNION
-          SELECT ${RESOURCE_META_SELECT} FROM resources WHERE owner = ?${visibilitySql}`,
-    args: [userEmail, SHARED_OWNER, WORKSPACE_OWNER],
-  });
-  const resources = rows.map(rowToMeta);
-  const local = await localWorkspaceResourceMetas();
-  const granted = await grantedWorkspaceResources({
-    workspaceAppId: options?.workspaceAppId,
-    userEmail,
-    orgId: options?.orgId,
-  });
+  // Later layers are inherited fallbacks. A personal resource wins over an
+  // organization resource, which wins over the legacy app-shared default,
+  // which wins over the workspace default.
   return mergeResourceMetas(
-    local,
-    mergeResourceMetas(resources, granted.map(resourceToMeta)),
+    personal,
+    mergeResourceMetas(
+      organization,
+      mergeResourceMetas(legacyShared, workspace),
+    ),
   );
 }
 
@@ -1466,7 +1498,13 @@ export async function resourceEffectiveContext(
     ...options,
     userEmail,
   });
-  const shared = await resourceGetByPath(SHARED_OWNER, path);
+  const organizationOwner = sharedResourceOwner(options?.orgId);
+  const organization =
+    organizationOwner === SHARED_OWNER
+      ? null
+      : await resourceGetByPath(organizationOwner, path);
+  const legacyShared = await resourceGetByPath(SHARED_OWNER, path);
+  const shared = organization ?? legacyShared;
   const personal = await resourceGetByPath(userEmail, path);
   const effective = personal ?? shared ?? workspace ?? null;
   const effectiveScope: ResourceInheritanceScope | null = personal
@@ -1494,7 +1532,7 @@ export async function resourceEffectiveContext(
     {
       scope: "shared",
       label: "Organization/app override",
-      owner: SHARED_OWNER,
+      owner: organizationOwner,
       resource: shared,
       canWrite: true,
     },

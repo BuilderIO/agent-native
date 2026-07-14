@@ -104,6 +104,10 @@ Die Naht befindet sich im Kern bei `packages/core/src/coding-tools/sandbox/` –
       note: "Auswahl: getSandboxAdapter() / registerSandboxAdapter()",
     },
     {
+      path: "background.ts",
+      note: "Marker für die dauerhafte Warteschlange und Lebenszyklus der Hintergrundausführung",
+    },
+    {
       path: "local-child-process-adapter.ts",
       note: "Das Standard-Backend: gesperrter Node-Child-Prozess",
     },
@@ -183,11 +187,16 @@ registerSandboxAdapter(adapter)  →  AGENT_NATIVE_SANDBOX  →  local default
 
 ### `AGENT_NATIVE_SANDBOX` Umgebungsvariable {#env}
 
-Wählt einen integrierten Adapter anhand der ID aus. Derzeit ist nur `local` (Standard) verkabelt; Bei unbekannten Werten wird auf lokal zurückgegriffen, anstatt dass die Ausführung fehlschlägt.
+Wählt einen integrierten Adapter anhand der ID aus. Sowohl `local` (Standard) als auch `background` sind eingebunden; unbekannte Werte fallen auf `local` zurück, statt die Ausführung fehlschlagen zu lassen.
 
 ```bash
-AGENT_NATIVE_SANDBOX=local   # die Standardeinstellung – explizit
+AGENT_NATIVE_SANDBOX=local        # die Standardeinstellung – explizit
+AGENT_NATIVE_SANDBOX=background   # jeden run-code-Aufruf dauerhaft einreihen
 ```
+
+`background` speichert den Rohcode in `sandbox_executions` und gibt sofort eine `executionId` mit `status: "queued"` zurück. Ein signierter Self-Dispatch startet einen neuen Serverless-Aufruf; langlebiges Node startet abgekoppelte Arbeit im Prozess; Statusabfragen und der periodische Sweep treiben verlorene Dispatches oder abgelaufene Leases erneut an. Das gespeicherte Ergebnis wird später durch Abfragen der Ausführung gelesen.
+
+`BackgroundQueueAdapter` ist ein Marker für die dauerhafte Warteschlange, nicht der Executor. Eingereihte Arbeit verwendet einen registrierten, nicht warteschlangenbasierten Ausführungsadapter, falls vorhanden; andernfalls fällt sie auf den lokalen Child-Prozess zurück. `background` allein bietet keine Remote- oder Container-Isolation und macht eine Edge-Laufzeit nicht mit `node:child_process` kompatibel.
 
 ### `registerSandboxAdapter()` {#register}
 
@@ -213,13 +222,15 @@ registerSandboxAdapter(new RemoteSandboxAdapter());
 
 ## Die Naht für einen langlebigen Läufer {#durable}
 
-Diese Schnittstelle ist bewusst die Nahtstelle für eine zukünftige Remote-/dauerhafte Sandbox. Ein Remote- oder dauerhafter Adapter (Docker, ein Läufer im Vercel-Sandbox-Stil oder ein Hintergrundarbeiter in der Warteschlange) würde:
+Der integrierte Adapter `background` bietet bereits dauerhafte Einreihung und ein neues Ausführungsbudget, während die eigentliche Ausführung weiterhin einen nicht warteschlangenbasierten Adapter oder den lokalen Child-Prozess als Fallback verwendet. Ein separat registrierter Remote- oder isolierter Adapter (Docker oder ein Vercel-Sandbox-artiger Runner) kann eine andere Ausführungsgrenze bereitstellen und auch Hintergrundarbeit pro Aufruf ausführen.
 
-1. Implementieren Sie `SandboxAdapter.run` gegen eine Out-of-Process-Laufzeit.
-2. Tunnel die Loopback-Brücke (oder Proxy-Bridge-Aufrufe zurück zum übergeordneten Element).
-3. Große Datenaufträge können unabhängig vom Anforderungslebenszyklus bis zum Abschluss ausgeführt werden – wobei die gehostete Code-Exec-Obergrenze von ca. 40 Sekunden überschritten wird, die den lokalen untergeordneten Prozessadapter begrenzt.
+Ein solcher Adapter würde:
 
-Registrieren Sie es unter einem neuen `AGENT_NATIVE_SANDBOX`-Wert (z. B. `remote`) und/oder über `registerSandboxAdapter()`. Die Agentenschleife und `run-code.ts` ändern sich nie.
+1. `SandboxAdapter.run` gegen eine Out-of-Process-Laufzeit implementieren.
+2. Die Loopback-Brücke tunneln oder Bridge-Aufrufe zum übergeordneten Prozess zurückleiten.
+3. Remote- oder Container-Isolation unabhängig vom ausgelieferten dauerhaften Warteschlangenlebenszyklus bereitstellen.
+
+Registrieren Sie ihn programmgesteuert über `registerSandboxAdapter()`. Die Agentenschleife und `run-code.ts` müssen sich nicht ändern.
 
 > [!TIP]
 > Der `agent-native add sandbox docker`-Blueprint liefert ein vollständiges, eigenständiges Rezept für die Implementierung eines Docker-Adapters gegen diese Naht. Siehe [Blueprint Installer](/docs/blueprint-installer).

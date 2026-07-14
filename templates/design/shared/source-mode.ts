@@ -97,6 +97,7 @@ export const DESIGN_BRIDGE_OPERATIONS = [
   "writeFile",
   "captureSnapshot",
   "captureState",
+  "listFiles",
 ] as const;
 
 export type DesignBridgeOperation = (typeof DESIGN_BRIDGE_OPERATIONS)[number];
@@ -365,11 +366,74 @@ export function normalizeDesignSourceType(
   return null;
 }
 
+/**
+ * Resolve the source tier stored in a design's JSON data blob.
+ *
+ * `sourceType` is the canonical field. Early localhost/fusion writers used
+ * `sourceMode`, though, and those persisted designs must not silently fall
+ * back to inline editing. Accepting both here gives actions and workspace
+ * providers one migration-safe gate instead of open-coding subtly different
+ * JSON parsing at every call site.
+ */
+export function designSourceTypeFromData(
+  value: unknown,
+  fallback: DesignSourceType = "inline",
+): DesignSourceType {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    const direct = normalizeDesignSourceType(parsed);
+    if (direct) return direct;
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return fallback;
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return fallback;
+  }
+  const data = parsed as Record<string, unknown>;
+  return (
+    normalizeDesignSourceType(data.sourceType) ??
+    normalizeDesignSourceType(data.sourceMode) ??
+    fallback
+  );
+}
+
+export function designConnectionIdFromData(value: unknown): string | undefined {
+  let parsed = value;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed) as unknown;
+    } catch {
+      return undefined;
+    }
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+    return undefined;
+  }
+  const data = parsed as Record<string, unknown>;
+  if (typeof data.connectionId === "string" && data.connectionId) {
+    return data.connectionId;
+  }
+  for (const metadataKey of ["screenMetadata", "localhostScreens"] as const) {
+    const metadata = data[metadataKey];
+    if (!metadata || typeof metadata !== "object" || Array.isArray(metadata)) {
+      continue;
+    }
+    for (const entry of Object.values(metadata as Record<string, unknown>)) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) continue;
+      const connectionId = (entry as Record<string, unknown>).connectionId;
+      if (typeof connectionId === "string" && connectionId) {
+        return connectionId;
+      }
+    }
+  }
+  return undefined;
+}
+
 export function makeLocalhostRouteId(path: string): string {
   const normalized = path.trim() || "/";
-  if (normalized === "/") return "route-root";
-  // Pure wildcard routes ("/*", "/**") collapse to a single id.
-  if (/^\/\*+$/.test(normalized)) return "route-wildcard";
   // Encode structural characters distinctly BEFORE collapsing non-alphanumerics,
   // otherwise paths like "/design/:id" and "/design-id", or "/users" and
   // "/users/*", produce identical ids and silently overwrite each other in the
@@ -382,7 +446,24 @@ export function makeLocalhostRouteId(path: string): string {
     .replace(/[^a-zA-Z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "")
     .toLowerCase();
-  return slug ? `route-${slug}` : "route-wildcard";
+  // Slugs are readable but lossy. Hash every normalized path so separators,
+  // reserved words, router syntax, and query-state variants remain distinct.
+  const readable =
+    normalized === "/"
+      ? "root"
+      : /^\/\*+$/.test(normalized) || !slug
+        ? "wildcard"
+        : slug;
+  return `route-${readable}-${stableRoutePathHash(normalized)}`;
+}
+
+function stableRoutePathHash(value: string): string {
+  let hash = 0xcbf29ce484222325n;
+  for (const character of value) {
+    hash ^= BigInt(character.codePointAt(0)!);
+    hash = BigInt.asUintN(64, hash * 0x100000001b3n);
+  }
+  return hash.toString(36);
 }
 
 export function titleFromRoutePath(path: string): string {

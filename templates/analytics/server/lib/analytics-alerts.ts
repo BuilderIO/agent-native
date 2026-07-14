@@ -1,8 +1,20 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 
-import { notify } from "@agent-native/core/notifications";
+import { notifyWithDelivery } from "@agent-native/core/notifications";
 import { recordChange } from "@agent-native/core/server";
-import { and, asc, desc, eq, gte, isNull, lte, sql } from "drizzle-orm";
+import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -21,7 +33,12 @@ export interface AnalyticsAlertFilter {
 
 export type AnalyticsAlertThresholdMode = "event_count" | "distinct_count";
 export type AnalyticsAlertSeverity = "warning" | "critical";
-export type AnalyticsAlertStatus = "ok" | "triggered" | "cooldown" | "error";
+export type AnalyticsAlertStatus =
+  | "ok"
+  | "triggered"
+  | "cooldown"
+  | "error"
+  | "running";
 
 export interface AnalyticsAlertRuleInput {
   id?: string;
@@ -37,7 +54,13 @@ export interface AnalyticsAlertRuleInput {
   severity?: AnalyticsAlertSeverity;
   channels?: string[];
   emailRecipients?: string[];
+  slackWebhookUrl?: string | null;
+  webhookUrl?: string | null;
   enabled?: boolean;
+}
+
+export interface AnalyticsAlertRuleDefaults {
+  emailRecipients: string[];
 }
 
 export interface AnalyticsAlertRule {
@@ -54,6 +77,8 @@ export interface AnalyticsAlertRule {
   severity: AnalyticsAlertSeverity;
   channels: string[];
   emailRecipients: string[];
+  slackWebhookUrl: string | null;
+  webhookUrl: string | null;
   enabled: boolean;
   lastEvaluatedAt: string | null;
   lastTriggeredAt: string | null;
@@ -108,6 +133,10 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
+const ALERT_RULE_RUNNING_STALE_MS = 15 * 60 * 1000;
+const DEFAULT_HTTP_5XX_ALERT_ID_PREFIX = "default-http-5xx-spike";
+const ALERT_RULE_DEFAULTS_KEY = "analytics-alert-rule-defaults";
+
 function safeJsonParse<T>(raw: unknown, fallback: T): T {
   if (typeof raw !== "string" || !raw.trim()) return fallback;
   try {
@@ -122,6 +151,10 @@ function normalizeName(name: string): string {
   const normalized = name.trim();
   if (!normalized) throw new Error("Alert name is required");
   return normalized.slice(0, 120);
+}
+
+function badRequest(message: string): Error {
+  return Object.assign(new Error(message), { statusCode: 400 });
 }
 
 function normalizeNullableText(
@@ -184,6 +217,134 @@ function normalizeEmailRecipients(recipients: string[] | undefined): string[] {
   return normalized;
 }
 
+function alertRuleDefaultsKey(ctx: AccessCtx): string {
+  return `${ALERT_RULE_DEFAULTS_KEY}:${ctx.orgId ?? "personal"}`;
+}
+
+function settingStringArray(value: unknown): string[] {
+  return Array.isArray(value)
+    ? value.filter((item): item is string => typeof item === "string")
+    : [];
+}
+
+export async function getAnalyticsAlertRuleDefaults(
+  ctx: AccessCtx,
+): Promise<AnalyticsAlertRuleDefaults> {
+  const stored = await getUserSetting(ctx.email, alertRuleDefaultsKey(ctx));
+  return {
+    emailRecipients: normalizeEmailRecipients(
+      settingStringArray(stored?.emailRecipients),
+    ),
+  };
+}
+
+export async function rememberAnalyticsAlertRuleDefaults(
+  input: Pick<AnalyticsAlertRuleInput, "emailRecipients">,
+  ctx: AccessCtx,
+): Promise<void> {
+  const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
+  if (emailRecipients.length === 0) return;
+  try {
+    await putUserSetting(ctx.email, alertRuleDefaultsKey(ctx), {
+      emailRecipients,
+      updatedAt: nowIso(),
+    });
+  } catch (error) {
+    console.warn("Failed to persist analytics alert rule defaults", error);
+  }
+}
+
+function normalizeOptionalHttpUrl(
+  value: string | null | undefined,
+  label: string,
+): string | null {
+  const trimmed = typeof value === "string" ? value.trim() : "";
+  if (!trimmed) return null;
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+    throw badRequest(`${label} must be an absolute http(s) URL`);
+  }
+  return trimmed;
+}
+
+function boolEnv(name: string): boolean | null {
+  const raw = process.env[name]?.trim().toLowerCase();
+  if (!raw) return null;
+  if (["1", "true", "yes", "on"].includes(raw)) return true;
+  if (["0", "false", "no", "off"].includes(raw)) return false;
+  return null;
+}
+
+function currentDeployHostname(): string {
+  const raw = process.env.URL || process.env.DEPLOY_URL || "";
+  if (!raw) return "";
+  try {
+    return new URL(raw).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function defaultHttp5xxAlertEnabled(): boolean {
+  const configured = boolEnv("ANALYTICS_DEFAULT_HTTP_5XX_ALERT_ENABLED");
+  if (configured !== null) return configured;
+  return currentDeployHostname() === "analytics.agent-native.com";
+}
+
+function envInt(name: string, fallback: number, min: number, max: number) {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+  const parsed = Number.parseInt(raw, 10);
+  return Number.isFinite(parsed)
+    ? Math.max(min, Math.min(max, parsed))
+    : fallback;
+}
+
+function defaultHttp5xxAlertId(ownerEmail: string, orgId: string | null) {
+  const hash = createHash("sha256")
+    .update(`${ownerEmail.toLowerCase()}|${orgId ?? ""}`)
+    .digest("hex")
+    .slice(0, 10);
+  return `${DEFAULT_HTTP_5XX_ALERT_ID_PREFIX}-${hash}`;
+}
+
+async function defaultHttp5xxAlertScopes(): Promise<AccessCtx[]> {
+  const ownerEmail = process.env.ANALYTICS_DEFAULT_ALERT_OWNER_EMAIL?.trim();
+  const orgId = process.env.ANALYTICS_DEFAULT_ALERT_ORG_ID?.trim() || null;
+  if (ownerEmail) return [{ email: ownerEmail, orgId }];
+
+  const db = getDb() as any;
+  const rows = await db
+    .select({
+      ownerEmail: schema.analyticsPublicKeys.ownerEmail,
+      orgId: schema.analyticsPublicKeys.orgId,
+    })
+    .from(schema.analyticsPublicKeys)
+    .where(isNull(schema.analyticsPublicKeys.revokedAt))
+    .limit(1000);
+
+  const seen = new Set<string>();
+  const scopes: AccessCtx[] = [];
+  for (const row of rows) {
+    const email = String(row.ownerEmail ?? "").trim();
+    if (!email) continue;
+    const scopeOrgId =
+      typeof row.orgId === "string" && row.orgId.trim()
+        ? row.orgId.trim()
+        : null;
+    const key = `${email.toLowerCase()}|${scopeOrgId ?? ""}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    scopes.push({ email, orgId: scopeOrgId });
+  }
+  return scopes;
+}
+
 function rowToRule(row: any): AnalyticsAlertRule {
   return {
     id: row.id,
@@ -200,6 +361,8 @@ function rowToRule(row: any): AnalyticsAlertRule {
     severity: row.severity === "critical" ? "critical" : "warning",
     channels: safeJsonParse<string[]>(row.channels, ["inbox"]),
     emailRecipients: safeJsonParse<string[]>(row.emailRecipients, []),
+    slackWebhookUrl: row.slackWebhookUrl?.trim() || null,
+    webhookUrl: row.webhookUrl?.trim() || null,
     enabled: row.enabled === true || row.enabled === 1,
     lastEvaluatedAt: row.lastEvaluatedAt ?? null,
     lastTriggeredAt: row.lastTriggeredAt ?? null,
@@ -268,6 +431,11 @@ export async function saveAnalyticsAlertRule(
   const severity = input.severity === "critical" ? "critical" : "warning";
   const emailRecipients = normalizeEmailRecipients(input.emailRecipients);
   const channels = normalizeChannels(input.channels, emailRecipients);
+  const slackWebhookUrl = normalizeOptionalHttpUrl(
+    input.slackWebhookUrl,
+    "Slack webhook URL",
+  );
+  const webhookUrl = normalizeOptionalHttpUrl(input.webhookUrl, "Webhook URL");
   const enabled = input.enabled ?? true;
   const db = getDb() as any;
 
@@ -293,6 +461,8 @@ export async function saveAnalyticsAlertRule(
         severity,
         channels: JSON.stringify(channels),
         emailRecipients: JSON.stringify(emailRecipients),
+        slackWebhookUrl,
+        webhookUrl,
         enabled,
         updatedAt,
         lastError: null,
@@ -313,6 +483,8 @@ export async function saveAnalyticsAlertRule(
       severity,
       channels: JSON.stringify(channels),
       emailRecipients: JSON.stringify(emailRecipients),
+      slackWebhookUrl,
+      webhookUrl,
       enabled,
       createdAt: updatedAt,
       updatedAt,
@@ -323,6 +495,7 @@ export async function saveAnalyticsAlertRule(
 
   const saved = await getAnalyticsAlertRule(id, ctx);
   if (!saved) throw new Error("Failed to save analytics alert rule");
+  await rememberAnalyticsAlertRuleDefaults({ emailRecipients }, ctx);
   recordChange({
     source: "analytics-alert-rules",
     type: "change",
@@ -354,6 +527,107 @@ export async function deleteAnalyticsAlertRule(
   });
 }
 
+const DEFAULT_ALERT_SEED_CHUNK_SIZE = 500;
+
+function chunkArray<T>(items: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let i = 0; i < items.length; i += size) {
+    chunks.push(items.slice(i, i + size));
+  }
+  return chunks;
+}
+
+export async function ensureDefaultHttp5xxSpikeAlertRules(): Promise<{
+  checked: number;
+  created: number;
+}> {
+  if (!defaultHttp5xxAlertEnabled()) return { checked: 0, created: 0 };
+
+  const scopes = await defaultHttp5xxAlertScopes();
+  if (!scopes.length) return { checked: 0, created: 0 };
+
+  const db = getDb() as any;
+  const threshold = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_THRESHOLD",
+    5,
+    1,
+    1000,
+  );
+  const windowMinutes = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_WINDOW_MINUTES",
+    5,
+    1,
+    60,
+  );
+  const cooldownMinutes = envInt(
+    "ANALYTICS_DEFAULT_HTTP_5XX_ALERT_COOLDOWN_MINUTES",
+    30,
+    0,
+    24 * 60,
+  );
+
+  const scopesById = new Map<string, AccessCtx>();
+  for (const scope of scopes) {
+    scopesById.set(defaultHttp5xxAlertId(scope.email, scope.orgId), scope);
+  }
+  const allIds = Array.from(scopesById.keys());
+
+  const existingIds = new Set<string>();
+  for (const idChunk of chunkArray(allIds, DEFAULT_ALERT_SEED_CHUNK_SIZE)) {
+    const rows = await db
+      .select({ id: schema.analyticsAlertRules.id })
+      .from(schema.analyticsAlertRules)
+      .where(inArray(schema.analyticsAlertRules.id, idChunk));
+    for (const row of rows) existingIds.add(row.id);
+  }
+
+  const missingIds = allIds.filter((id) => !existingIds.has(id));
+  if (!missingIds.length) return { checked: scopes.length, created: 0 };
+
+  const now = nowIso();
+  const rowsToInsert = missingIds.map((id) => {
+    const scope = scopesById.get(id)!;
+    return {
+      id,
+      name: "Hosted app HTTP 5xx spike",
+      description:
+        "Default Agent Native alert for a spike in server responses with 5xx status codes.",
+      eventName: "http.response",
+      filters: JSON.stringify([
+        { field: "properties.status_class", value: "5xx" },
+      ]),
+      thresholdMode: "event_count" as const,
+      distinctBy: null,
+      threshold,
+      windowMinutes,
+      cooldownMinutes,
+      severity: "critical" as const,
+      channels: JSON.stringify(["inbox"]),
+      emailRecipients: JSON.stringify([]),
+      enabled: true,
+      createdAt: now,
+      updatedAt: now,
+      ownerEmail: scope.email,
+      orgId: scope.orgId,
+    };
+  });
+
+  let created = 0;
+  for (const rowChunk of chunkArray(
+    rowsToInsert,
+    DEFAULT_ALERT_SEED_CHUNK_SIZE,
+  )) {
+    const inserted = await db
+      .insert(schema.analyticsAlertRules)
+      .values(rowChunk)
+      .onConflictDoNothing()
+      .returning({ id: schema.analyticsAlertRules.id });
+    created += inserted.length;
+  }
+
+  return { checked: scopes.length, created };
+}
+
 export async function listEnabledAnalyticsAlertRules(options: {
   limit: number;
   ownerEmail?: string;
@@ -372,6 +646,7 @@ export async function listEnabledAnalyticsAlertRules(options: {
       options.orgId ? eq(table.orgId, options.orgId) : isNull(table.orgId),
     );
   }
+  clauses.push(alertRuleNotRunningWhere(new Date()));
   const rows = await db
     .select()
     .from(table)
@@ -383,6 +658,52 @@ export async function listEnabledAnalyticsAlertRules(options: {
     )
     .limit(clampInt(options.limit, 1, 500));
   return rows.map(rowToRule);
+}
+
+function alertRuleNotRunningWhere(now: Date) {
+  const table = schema.analyticsAlertRules;
+  const staleRunningBefore = new Date(
+    now.getTime() - ALERT_RULE_RUNNING_STALE_MS,
+  ).toISOString();
+  return or(
+    isNull(table.lastStatus),
+    sql`${table.lastStatus} <> 'running'`,
+    isNull(table.lastEvaluatedAt),
+    lte(table.lastEvaluatedAt, staleRunningBefore),
+  );
+}
+
+function alertRulePreviousEvaluationWhere(rule: AnalyticsAlertRule) {
+  const table = schema.analyticsAlertRules;
+  return rule.lastEvaluatedAt
+    ? eq(table.lastEvaluatedAt, rule.lastEvaluatedAt)
+    : isNull(table.lastEvaluatedAt);
+}
+
+export async function claimAnalyticsAlertRuleEvaluation(
+  rule: AnalyticsAlertRule,
+  now: Date = new Date(),
+): Promise<boolean> {
+  const db = getDb() as any;
+  const table = schema.analyticsAlertRules;
+  const claimedAt = now.toISOString();
+  const rows = await db
+    .update(table)
+    .set({
+      lastEvaluatedAt: claimedAt,
+      lastStatus: "running",
+      lastError: null,
+    })
+    .where(
+      and(
+        eq(table.id, rule.id),
+        eq(table.enabled, true),
+        alertRuleNotRunningWhere(now),
+        alertRulePreviousEvaluationWhere(rule),
+      ),
+    )
+    .returning({ id: table.id });
+  return rows.length > 0;
 }
 
 export async function evaluateAndNotifyAnalyticsAlertRule(
@@ -416,12 +737,14 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
   }
 
   const body = alertBody(rule, evaluation);
-  const stored = await notify(
+  const channels = ensureInboxNotificationChannel(rule.channels);
+  const deliveryMetadata = alertNotifyDeliveryMetadata(rule);
+  const delivery = await notifyWithDelivery(
     {
       severity: rule.severity,
       title: `Analytics alert: ${rule.name}`,
       body,
-      channels: rule.channels,
+      channels,
       metadata: {
         kind: "analytics_alert",
         ruleId: rule.id,
@@ -438,13 +761,23 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
         filters: rule.filters,
         sampleEvents: evaluation.sampleEvents,
         emailRecipients: rule.emailRecipients,
+        requestedChannels: rule.channels,
+        ...(deliveryMetadata ? { delivery: deliveryMetadata } : {}),
       },
     },
     { owner: rule.ownerEmail },
   );
+  if (delivery.deliveredChannels.length === 0) {
+    await markRuleStatus(rule.id, {
+      lastEvaluatedAt: evaluatedAt,
+      lastStatus: "error",
+      lastError: "Analytics alert notification was not delivered.",
+    });
+    return { ruleId: rule.id, status: "error", ...evaluation };
+  }
 
   await recordIncident(rule, {
-    notificationId: stored?.id,
+    notificationId: delivery.notification?.id,
     triggeredAt: evaluatedAt,
     windowStart,
     windowEnd,
@@ -459,9 +792,23 @@ export async function evaluateAndNotifyAnalyticsAlertRule(
   return {
     ruleId: rule.id,
     status: "triggered",
-    notificationId: stored?.id,
+    notificationId: delivery.notification?.id,
     ...evaluation,
   };
+}
+
+function ensureInboxNotificationChannel(channels: string[]): string[] {
+  const normalized = channels.map((channel) => channel.trim()).filter(Boolean);
+  return normalized.includes("inbox") ? normalized : ["inbox", ...normalized];
+}
+
+function alertNotifyDeliveryMetadata(
+  rule: AnalyticsAlertRule,
+): Record<string, string> | undefined {
+  const delivery: Record<string, string> = {};
+  if (rule.slackWebhookUrl) delivery.slackWebhookUrl = rule.slackWebhookUrl;
+  if (rule.webhookUrl) delivery.webhookUrl = rule.webhookUrl;
+  return Object.keys(delivery).length > 0 ? delivery : undefined;
 }
 
 export async function markAnalyticsAlertRuleError(

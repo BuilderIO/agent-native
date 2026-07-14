@@ -42,6 +42,8 @@ const messages = {
       placeholder: "Search...",
       clear: "Clear search (Esc)",
       noMatches: "No matches",
+      localResults: "In this inbox",
+      searchingGmail: "Searching Gmail...",
     },
     tabSettings: {
       views: "Views",
@@ -134,6 +136,7 @@ const messages = {
       blocks: "Blocks",
       media: "Media",
       ai: "AI",
+      snippets: "Snippets",
     },
     mobileActions: {
       archive: "Archive",
@@ -267,6 +270,7 @@ const messages = {
       scheduledCancelled: "Scheduled email cancelled.",
       scheduledCancelFailed: "Failed to cancel scheduled email",
       failedToAttachFile: "Failed to attach file",
+      failedToUploadImage: "Failed to upload image",
       failedToSendEmail: "Failed to send email",
       failedToScheduleEmailDraftKeptOpen:
         "Failed to schedule email - draft kept open",
@@ -509,9 +513,10 @@ const messages = {
     slackUpdateFailed: "Failed to update Slack intake",
     slackConfigured: "Slack credentials are configured.",
     slackNeedsCredentials:
-      "Add SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET to enable Slack intake.",
-    slackIntake: "Slack Intake",
-    slackDescription: "Let organization members queue email drafts from Slack.",
+      "Legacy custom intake requires SLACK_BOT_TOKEN and SLACK_SIGNING_SECRET. For new Slack messaging automations, connect a workspace in Settings > Messaging.",
+    slackIntake: "Slack Intake (legacy)",
+    slackDescription:
+      "Legacy custom integration that lets organization members queue email drafts from Slack.",
     enabled: "Enabled",
     disable: "Disable",
     enable: "Enable",
@@ -530,6 +535,19 @@ const messages = {
     whatsNew: "What's new",
     whatsNewDescription: "Recent user-facing changes to Agent-Native Mail.",
     drafting: "Drafting",
+    snippets: "Snippets",
+    snippetsDescription:
+      "Saved replies you can insert into a compose draft by typing / and the snippet name.",
+    newSnippet: "New snippet",
+    noSnippets: "No snippets yet. Create one to get started.",
+    snippetName: "Snippet name",
+    snippetNamePlaceholder: "e.g. Pricing follow-up",
+    snippetBody: "Snippet body",
+    snippetBodyPlaceholder: "Text inserted when this snippet is used...",
+    editSnippet: "Edit snippet",
+    deleteSnippet: "Delete snippet",
+    deleteSnippetDescription:
+      'Delete snippet "{{name}}"? This cannot be undone.',
     automations: "Automations",
     gmailFilters: "Gmail Filters",
     aliases: "Aliases",

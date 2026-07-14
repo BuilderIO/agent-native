@@ -17,7 +17,7 @@ Eine App, die alles festhält: Bildschirmaufzeichnungen, Besprechungsnotizen aus
   />
 </WireframeBlock>
 
-Denken Sie an Loom + Granola + Wispr Flow in einer App – aber der Agent ist ein erstklassiger Redakteur auf allen Oberflächen, und die Aufzeichnungen, Besprechungen und Diktate gehören Ihnen und nicht denen eines SaaS-Anbieters. Clips macht freigegebene Aufzeichnungen auch für Agenten lesbar: Fügen Sie einen normalen Clips-Freigabelink in einen Agenten ein, und dieser kann das Transkript als Text „hören“ und zeitgestempelte Bildschirmbilder als Bilder „sehen“ – es ist kein Rohvideo erforderlich. Frame-Viewing funktioniert in jedem bildfähigen Agenten (ChatGPT, Claude Code, Cursor, Codex); Nur-Text-Webchats erhalten weiterhin das vollständige Transkript und können einen von Ihnen hochgeladenen Frame übernehmen.
+Asynchrone Bildschirmaufzeichnungen, mit dem Kalender synchronisierte Besprechungsnotizen und Push-to-Talk-Diktate in einer App – der Agent ist auf jeder Oberfläche ein erstklassiger Editor, und die Aufzeichnungen, Besprechungen und Diktate gehören Ihnen, nicht einem SaaS-Anbieter. Clips macht freigegebene Aufzeichnungen außerdem für Agenten lesbar: Fügen Sie einen öffentlichen Clips-Freigabelink oder einen temporären **Für Agent kopieren**-Link in einen Agenten ein. Er kann das Transkript als Text „hören“ und mit Zeitstempeln versehene Bildschirmframes als Bilder „sehen“ – ganz ohne Rohvideo. Die Frame-Anzeige funktioniert in jedem bildfähigen Agenten (ChatGPT, Claude Code, Cursor, Codex); reine Text-Webchats erhalten weiterhin das vollständige Transkript und können einen von Ihnen hochgeladenen Frame verwenden.
 
 <Diagram id="doc-block-1j41dwq" title="Erfassen, transkribieren, wiederverwenden" summary={"Drei Eroberungsarten landen in einer Bibliothek; Der Agent transkribiert, betitelt und fasst zusammen, dann ist jedes Transkript durchsuchbar und kann geteilt werden."}>
 
@@ -77,12 +77,13 @@ Denken Sie an Loom + Granola + Wispr Flow in einer App – aber der Agent ist ei
 ## Was Sie damit machen können
 
 - **Nehmen Sie Ihren Bildschirm auf** mit integriertem Rekorder, Webcam-Overlay, Audioaufnahme und Pause/Zuschneiden.
+- **Importieren Sie öffentliche Loom-Videos.** Wählen Sie im Web **Aufzeichnen → Loom importieren** und fügen Sie dann eine Loom-Freigabe- oder Einbettungs-URL ein. Clips speichert eine Kopie in Ihrer Bibliothek und importiert das öffentliche Transkript, sofern eines verfügbar ist.
 - **Erfassen Sie Besprechungen aus Ihrem Kalender.** Verbinden Sie Google Calendar, sehen Sie sich bevorstehende Besprechungen in der Seitenleiste an und klicken Sie bei einer beliebigen Besprechung auf „Aufzeichnen“. Sobald es endet, erhalten Sie ein Live-Transkript sowie eine KI-Zusammenfassung, Aufzählungszeichen und Aktionspunkte.
 - **Push-to-Talk-Diktat.** Halten Sie Fn auf Ihrem Gerät gedrückt, sprechen Sie, und der bereinigte Text wird in die von Ihnen verwendete App verschoben. Jedes Diktat wird in einem durchsuchbaren Verlauf mit Originalen und KI-bereinigten Versionen nebeneinander gespeichert.
 - **Erhalten Sie einen automatisch generierten Titel, eine Zusammenfassung und Kapitelmarkierungen** für jede Aufnahme – der Agent füllt sie aus und hält sie auf dem neuesten Stand.
 - **Durchsuchen Sie alle Transkripte** – Bildschirmaufzeichnungen, Besprechungen und Diktate in einer Bibliothek. „Hier finden Sie den Clip, in dem wir den Einführungsplan besprochen haben.“
 - **Clips teilen** mit Berechtigungen pro Clip (öffentlich, Team, privat). Link-Tracking und Thread-Kommentare funktionieren ebenfalls.
-- **Vorschau öffentlicher Clips in Slack** mit einer spielbaren Fortsetzung im Loom-Stil nach dem
+- **Vorschau öffentlicher Clips in Slack** mit einer abspielbaren Video-Vorschau, nachdem
   workspace installiert Ihre Clips Slack-App.
 - **Erfassen Sie Browserprotokolle mit der Chrome-Erweiterung.** Browseraufzeichnungen können
   hängen Sie geschwärzte Konsolenprotokolle an und fetch/XHR-Metadaten, was hilfreich ist für
@@ -130,6 +131,15 @@ Agent.
 | `/api/agent-context.json?id=<recordingId>`        | Clip-Metadaten, Transkriptstatus, Kapitel, CTAs, empfohlene Frames und Links zu den Transkripten/Frames APIs               |
 | `/api/agent-transcript.json?id=<recordingId>`     | Transkriptsegmente mit Zeitstempel mit `startMs`, `endMs`, lesbaren Zeitstempeln, Text und optionalen Quellenbezeichnungen |
 | `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | Ein JPEG-Frame, der mit einem Originalvideo-Zeitstempel aus dem Video extrahiert wurde                                     |
+
+Temporary private agent links are also supported: the Share dialog can mint a two-hour `agent_access` URL for any recording the viewer can access. Agents use that token with the share page and JSON APIs, and the clip does not become public.
+
+Implementation note: use the shared core agent-access helpers
+(`createScopedAgentAccessGrant`, `verifyScopedAgentAccessToken`,
+`buildAgentAccessUrl`, and `buildAgentAccessApiUrl`) for the SSR/bot-visible
+URL contract. Keep Clips-specific visibility checks, transcript/frame payloads,
+and player UI local. New links use `agent_access`; routes should continue
+accepting the legacy `t` query where existing agent API URLs may already use it.
 
 Die Endpunkte folgen denselben öffentlichen/Passwort-/Ablaufregeln wie die Freigabeseite.
 Passwortgeschützte Clips erfordern das einmalige Passwort; Erfolgreiche Antworten werden zurückgegeben
@@ -498,7 +508,7 @@ Routen im UI leben unter `templates/clips/app/routes/` – die authentifizierte 
 
 ### Schlüssel actions
 
-Jeder vom Agenten aufrufbare Vorgang ist eine TypeScript-Datei in `templates/clips/actions/`, die automatisch bei `POST /_agent-native/actions/:name` gemountet wird und vom CLI als `pnpm action <name>` ausgeführt werden kann. Es gibt ~80 actions; die nützlichen Gruppierungen:
+Jeder vom Agenten aufrufbare Vorgang ist eine TypeScript-Datei in `templates/clips/actions/`, die automatisch bei `POST /_agent-native/actions/:name` gemountet wird und vom CLI als `pnpm action <name>` ausgeführt werden kann. Es gibt etwa 100 Aktionen; die nützlichen Gruppierungen:
 
 - **Aufzeichnungslebenszyklus** – `create-recording`, `finalize-recording`, `update-recording`, `set-thumbnail`, `archive-recording` / `restore-recording` / `trash-recording` / `delete-recording-permanent`, `move-recording`, `tag-recording`.
 - **Transkript & KI** – `request-transcript`, `cleanup-transcript`, `regenerate-title` / `regenerate-summary` / `regenerate-chapters`, `set-chapters`, `generate-workflow`. (`cleanup-transcript` und `finalize-meeting` sind serverseitige Medien-Pipeline-Aufrufe; die meisten anderen KI-Funktionen delegieren an den Agenten-Chat.)

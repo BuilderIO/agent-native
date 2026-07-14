@@ -41,6 +41,12 @@ function daysAgo(n: number): string {
   return d.toISOString().slice(0, 10);
 }
 
+// Keep the legacy "all" date-range sentinel out of provider queries. Analytics
+// data cannot predate the Unix epoch, so this is equivalent to an unbounded
+// lower date while remaining valid for BigQuery DATE/TIMESTAMP expressions.
+const ALL_TIME_START = "1970-01-01";
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
 /** Date-valued filters whose default may use the "Nd" / "today" shorthand. */
 const DATE_FILTER_TYPES: ReadonlySet<FilterType> = new Set([
   "date",
@@ -70,6 +76,18 @@ function resolveDefault(raw: string | undefined, type: FilterType): string {
   return raw;
 }
 
+function resolveDateValue(
+  raw: string | undefined,
+  allTimeValue: string,
+): string {
+  const value = raw?.trim();
+  if (!value) return "";
+  if (value.toLowerCase() === "all") return allTimeValue;
+
+  const resolved = resolveDefault(value, "date");
+  return ISO_DATE_RE.test(resolved) ? resolved : "";
+}
+
 export function resolveFilterVars(
   filters: DashboardFilter[],
   getParam: (key: string) => string,
@@ -79,17 +97,27 @@ export function resolveFilterVars(
     if (f.type === "date-range") {
       const startKey = `${f.id}Start`;
       const endKey = `${f.id}End`;
-      out[startKey] = getParam(startKey) || resolveDefault(f.default, f.type);
-      out[endKey] = getParam(endKey) || daysAgo(0);
+      out[startKey] =
+        resolveDateValue(getParam(startKey), ALL_TIME_START) ||
+        resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START);
+      out[endKey] =
+        resolveDateValue(getParam(endKey), daysAgo(0)) || daysAgo(0);
     } else if (f.type === "toggle" || f.type === "toggle-date") {
       // Toggles have no "off value" default — if the user hasn't opted in
       // via the URL, the SQL-side conditional block ({{?id}}...{{/id}})
       // must see an empty value so it doesn't emit. Otherwise the filter
       // looks "off" in the UI but still filters the data.
-      out[f.id] = getParam(f.id);
+      out[f.id] =
+        f.type === "toggle-date"
+          ? resolveDateValue(getParam(f.id), ALL_TIME_START)
+          : getParam(f.id);
     } else {
       const v = getParam(f.id);
-      out[f.id] = v || resolveDefault(f.default, f.type);
+      out[f.id] =
+        f.type === "date"
+          ? resolveDateValue(v, ALL_TIME_START) ||
+            resolveDateValue(resolveDefault(f.default, f.type), ALL_TIME_START)
+          : v || resolveDefault(f.default, f.type);
     }
   }
   return out;

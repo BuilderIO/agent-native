@@ -14,9 +14,11 @@ import {
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   type ActionEntry,
 } from "../agent/production-agent.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import type { AgentChatEvent } from "../agent/types.js";
 import { createThread } from "../chat-threads/store.js";
 import { subscribe, unsubscribe } from "../event-bus/index.js";
@@ -152,6 +154,13 @@ export function buildTriggerContent(
 export interface TriggerDispatcherDeps {
   getActions: () => Record<string, ActionEntry>;
   getSystemPrompt: (owner: string) => Promise<string>;
+  /**
+   * Tool names to expose on the FIRST engine request for a trigger run. See
+   * `SchedulerDeps.getInitialToolNames` (`jobs/scheduler.ts`) — same
+   * semantics. Omit to keep the full `getActions()` set visible up front
+   * (current behavior).
+   */
+  getInitialToolNames?: () => string[] | undefined;
   apiKey?: string;
   model?: string;
   /** App/template id used for org-scoped per-app model defaults. */
@@ -401,9 +410,20 @@ async function dispatchAgentic(
     { userEmail: jobUserEmail, orgId: jobOrgId },
     async () => {
       try {
-        const actions = _deps!.getActions();
+        const baseActions = _deps!.getActions();
         const systemPrompt = await _deps!.getSystemPrompt(jobUserEmail);
-        const tools = actionsToEngineTools(actions);
+        const initialToolNames = _deps!.getInitialToolNames?.();
+        // Only attach tool-search (and pay its schema cost) when the caller
+        // actually supplied an initial subset to filter down to — otherwise
+        // this is byte-for-byte the prior unfiltered behavior.
+        const actions = initialToolNames
+          ? attachToolSearch({ ...baseActions })
+          : baseActions;
+        const availableTools = actionsToEngineTools(actions);
+        const tools = filterInitialEngineTools(
+          availableTools,
+          initialToolNames,
+        );
 
         const engine = await resolveEngine({
           apiKey,
@@ -414,7 +434,7 @@ async function dispatchAgentic(
           (await getStoredModelForEngine(engine, { appId: _deps!.appId })) ??
           engine.defaultModel;
         const model = normalizeModelForEngine(engine, modelCandidate);
-        await createThread(jobUserEmail, {
+        const thread = await createThread(jobUserEmail, {
           title: `Trigger: ${triggerName} — ${now.toLocaleDateString()}`,
         });
 
@@ -448,20 +468,49 @@ ${body}`;
         const timeout = setTimeout(() => controller.abort(), 5 * 60 * 1000);
 
         const events: AgentChatEvent[] = [];
+        let triggerUsage: Awaited<ReturnType<typeof runAgentLoop>> | null =
+          null;
 
         try {
-          await runAgentLoop({
+          triggerUsage = await runAgentLoop({
             engine,
             model,
             systemPrompt,
             tools,
+            availableTools,
             messages,
             actions,
             send: (event) => events.push(event),
             signal: controller.signal,
+            threadId: thread.id,
           });
         } finally {
           clearTimeout(timeout);
+        }
+
+        if (
+          triggerUsage &&
+          (triggerUsage.inputTokens > 0 ||
+            triggerUsage.outputTokens > 0 ||
+            triggerUsage.cacheReadTokens > 0 ||
+            triggerUsage.cacheWriteTokens > 0)
+        ) {
+          try {
+            const { recordUsage } = await import("../usage/store.js");
+            await recordUsage({
+              ownerEmail: jobUserEmail,
+              inputTokens: triggerUsage.inputTokens,
+              outputTokens: triggerUsage.outputTokens,
+              cacheReadTokens: triggerUsage.cacheReadTokens,
+              cacheWriteTokens: triggerUsage.cacheWriteTokens,
+              model: triggerUsage.model,
+              label: `automation:${triggerName}`,
+              app: _deps!.appId,
+              refId: eventMeta.eventId,
+            });
+          } catch {
+            // Usage attribution must not break automation dispatch.
+          }
         }
 
         meta.lastStatus = "success";

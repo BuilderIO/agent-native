@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   claimDueDashboardReportSubscriptions: vi.fn(),
+  dashboardReportRetryAt: vi.fn(),
   markDashboardReportResult: vi.fn(),
   runWithRequestContext: vi.fn(),
   sendDashboardReportSubscription: vi.fn(),
@@ -18,6 +19,7 @@ vi.mock("../lib/dashboard-report", () => ({
 vi.mock("../lib/dashboard-report-subscriptions", () => ({
   claimDueDashboardReportSubscriptions:
     mocks.claimDueDashboardReportSubscriptions,
+  dashboardReportRetryAt: mocks.dashboardReportRetryAt,
   markDashboardReportResult: mocks.markDashboardReportResult,
 }));
 
@@ -50,6 +52,8 @@ describe("dashboard report sweep", () => {
   beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => {});
     mocks.claimDueDashboardReportSubscriptions.mockReset();
+    mocks.dashboardReportRetryAt.mockReset();
+    mocks.dashboardReportRetryAt.mockReturnValue(null);
     mocks.markDashboardReportResult.mockReset();
     mocks.runWithRequestContext.mockImplementation(
       async (_ctx, run: () => Promise<unknown>) => run(),
@@ -57,7 +61,7 @@ describe("dashboard report sweep", () => {
     mocks.sendDashboardReportSubscription.mockReset();
   });
 
-  it("marks an unexpected no-screenshot result as degraded", async () => {
+  it("marks a screenshotless delivery failed while preserving its diagnostic", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockResolvedValue({
@@ -66,14 +70,19 @@ describe("dashboard report sweep", () => {
       screenshotAttached: false,
       screenshotMode: "none",
       screenshotError: "dashboard render timed out",
+      emailsSent: true,
     });
 
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      requireScreenshot: true,
+      skipEmailWithoutScreenshot: false,
     });
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 sent without a screenshot:",
+      "Dashboard screenshot unavailable: dashboard render timed out",
+    );
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
       "error",
@@ -81,23 +90,85 @@ describe("dashboard report sweep", () => {
     );
   });
 
-  it("requires a screenshot for scheduled report delivery", async () => {
+  it("marks delivery as failed when the email send throws", async () => {
     const sub = subscription();
     mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
     mocks.sendDashboardReportSubscription.mockRejectedValue(
-      new Error("Dashboard screenshot unavailable: chromium died"),
+      new Error("Email provider rejected the message"),
     );
 
     const result = await runDashboardReportsOnce();
 
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
-      requireScreenshot: true,
+      skipEmailWithoutScreenshot: false,
     });
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
       "error",
-      "Dashboard screenshot unavailable: chromium died",
+      "Email provider rejected the message",
+    );
+  });
+
+  it("skips the fallback email and reschedules a retry within the retry window", async () => {
+    const sub = subscription();
+    const retryAt = "2026-07-13T11:16:00.000Z";
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
+    mocks.sendDashboardReportSubscription.mockResolvedValue({
+      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+      recipientCount: 1,
+      screenshotAttached: false,
+      screenshotMode: "none",
+      screenshotError: "dashboard render timed out",
+      emailsSent: false,
+    });
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
+      skipEmailWithoutScreenshot: true,
+    });
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 skipped sending without a screenshot, will retry:",
+      "Dashboard screenshot unavailable: dashboard render timed out",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "Dashboard screenshot unavailable: dashboard render timed out (retry scheduled)",
+      { nextRunAt: retryAt },
+    );
+  });
+
+  it("falls back to the no-screenshot email once the retry window has elapsed", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(null);
+    mocks.sendDashboardReportSubscription.mockResolvedValue({
+      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+      recipientCount: 1,
+      screenshotAttached: false,
+      screenshotMode: "none",
+      screenshotError: "dashboard render timed out",
+      emailsSent: true,
+    });
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
+      skipEmailWithoutScreenshot: false,
+    });
+    expect(console.error).toHaveBeenCalledWith(
+      "[dashboard-report] Subscription sub_1 sent without a screenshot:",
+      "Dashboard screenshot unavailable: dashboard render timed out",
+    );
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "error",
+      "Dashboard screenshot unavailable: dashboard render timed out",
     );
   });
 });

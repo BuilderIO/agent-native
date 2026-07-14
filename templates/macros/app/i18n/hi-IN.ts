@@ -58,6 +58,8 @@ const messages = {
     optional: "वैकल्पिक",
     saveChanges: "बदलाव सहेजें",
     saving: "सहेजा जा रहा है...",
+    loadFailed: "यह डेटा लोड नहीं हो सका",
+    retry: "फिर कोशिश करें",
   },
   seo: {
     homeTitle: "Agent-Native Macros - ओपन सोर्स AI कैलोरी और मैक्रो ट्रैकर",

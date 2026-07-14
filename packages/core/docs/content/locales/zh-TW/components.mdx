@@ -25,6 +25,24 @@ import { ResourcesPanel } from "@agent-native/core/client/resources";
 `@agent-native/core/client` 或聚焦的 `@agent-native/core/client/*` 子路徑
 因此捆綁商選取瀏覽器安全的條目。
 
+將 `@agent-native/toolkit` 用於不屬於基礎執行階段合約的可重用應用程式建構部件：shadcn 風格 UI primitives、共享 hooks、簡單應用程式 shell helpers，以及其他範本組合模組。遷移期間 Core 會保留相容 re-export。
+
+可重用套件可以直接匯入 Toolkit 模組：
+
+```tsx
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Toaster } from "@agent-native/toolkit/ui/sonner";
+import { useToast } from "@agent-native/toolkit/hooks/use-toast";
+import { useSetHeaderActions } from "@agent-native/toolkit/app-shell";
+```
+
+在範本應用程式中，請優先使用 app-local adapter，讓團隊只替換一次 primitive，就能讓所有重用的 Toolkit surface 採用本地實作：
+
+```tsx
+import { Button } from "@/components/ui/button";
+import { useToast } from "@/hooks/use-toast";
+```
+
 <Diagram id="doc-block-174p2n3" title={"下拉一層，不脫離框架"} summary={"每個層都保持相同的執行時 - 操作、對話串狀態和 SQL-backed 同步 - 同時讓您更好地控制鑲邊。"}>
 
 ```html
@@ -426,15 +444,16 @@ function WorkspaceResources() {
 
 ## 其他公開 UI {#other-ui}
 
-| 區域         | APIs                                                  | 匯入路徑                                  |
-| ------------ | ----------------------------------------------------- | ----------------------------------------- |
-| 分享         | `<ShareButton>`, `<ShareDialog>`, `<VisibilityBadge>` | `@agent-native/core/client/sharing`       |
-| 通知         | `<NotificationsBell>`                                 | `@agent-native/core/client/notifications` |
-| 進度         | `<RunsTray>`，進度掛鉤和型別                          | `@agent-native/core/client/progress`      |
-| 入職         | `useOnboarding()`，入門面板掛鉤                       | `@agent-native/core/client/onboarding`    |
-| 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>`        | `@agent-native/core/client/observability` |
-| 資源         | `<ResourcesPanel>`、`<ResourceTree>`、資源掛鉤        | `@agent-native/core/client/resources`     |
-| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤            | `@agent-native/core/client/editor`        |
+| 區域         | APIs                                           | 匯入路徑                                  |
+| ------------ | ---------------------------------------------- | ----------------------------------------- |
+| 分享         | `<ShareButton>`, `<ShareDialog>`               | `@agent-native/core/client/sharing`       |
+| Sharing UI   | `<VisibilityBadge>`                            | `@agent-native/toolkit/sharing`           |
+| 通知         | `<NotificationsBell>`                          | `@agent-native/core/client/notifications` |
+| 進度         | `<RunsTray>`，進度掛鉤和型別                   | `@agent-native/core/client/progress`      |
+| 入職         | `useOnboarding()`，入門面板掛鉤                | `@agent-native/core/client/onboarding`    |
+| 可觀察性     | `<ObservabilityDashboard>`, `<ThumbsFeedback>` | `@agent-native/core/client/observability` |
+| 資源         | `<ResourcesPanel>`、`<ResourceTree>`、資源掛鉤 | `@agent-native/core/client/resources`     |
+| 豐富的編輯器 | `<SharedRichEditor>`，斜杠指令，塊節點掛鉤     | `@agent-native/core/client/editor`        |
 
 ## 一次性文字完成 {#one-off-text-completion}
 
@@ -451,10 +470,12 @@ function WorkspaceResources() {
 ```ts
 import { defineAction } from "@agent-native/core/action";
 import { completeText } from "@agent-native/core/server";
+import { z } from "zod";
 
 export default defineAction({
   description: "Classify a short message",
-  run: async ({ body }: { body: string }) => {
+  schema: z.object({ body: z.string() }),
+  run: async ({ body }) => {
     const result = await completeText({
       systemPrompt: "Return exactly one label.",
       input: body,
@@ -469,3 +490,11 @@ export default defineAction({
 使用 `sendToAgentChat({ background: true, openSidebar: false })` 代替
 工作需要工具、狀態、可審計性、使用者指導或多步驟
 推理。
+
+## 下一步 {#whats-next}
+
+- [**Drop-in Agent**](/docs/drop-in-agent) — 透過教學優先的引導掛載 `<AgentSidebar>` 和 `<AgentPanel>`
+- [**Native Chat UI**](/docs/native-chat-ui) — 資料小工具和自訂轉譯器背後的操作結果契約
+- [**Actions**](/docs/actions) — `defineAction()`、結構描述以及這些元件呼叫的操作介面
+- [**Real-Time Collaboration**](/docs/real-time-collaboration) — 深入了解協作掛鉤和在線狀態元件
+- [**Sharing**](/docs/sharing) — 為可擁有資源連接 `<ShareButton>` 和 `<ShareDialog>`

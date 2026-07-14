@@ -9,6 +9,12 @@ Jede agentennative App verfügt über ein Mikrofon im Chat Verfassenr. Klicken S
 
 Das Framework erledigt das alles automatisch. Mit Builder verbundene Benutzer erhalten standardmäßig das von Builder gehostete Gemini Flash-Lite. Andernfalls können Benutzer ihren eigenen Anbieterschlüssel mitbringen oder auf die Spracherkennung des Browsers zurückgreifen.
 
+## Sprachmodus in Echtzeit {#realtime-speech-mode}
+
+Beim Öffnen des Mikrofons kannst du in einem Popover zwischen **Echtzeitgespräch** und **bearbeitbarem Diktat** wählen. Der Echtzeitmodus benötigt einen benutzerbezogenen `OPENAI_API_KEY` und verbindet den Browser über WebRTC mit `gpt-realtime-2.1`. Der Chat wird zu einer Sprachkugel unten rechts minimiert; mit einem Klick auf die Kugel lässt sich der Chat ein- oder ausblenden, ohne das Gespräch zu beenden. Die Kugel bleibt auch dann über dem Chat sichtbar, wenn sich der Chat automatisch öffnet; eine kompakte Wellenform reagiert auf deine Stimme und die Stimme des Assistenten.
+
+Das Sprachmodell verwendet dieselben authentifizierten Agent-Native-Werkzeuge wie der Chat. So kann es während des Gesprächs durch die App navigieren und Aktionen aufrufen. Genehmigungspflichtige Aktionen bleiben angehalten, bis du sie freigibst. Nur abgeschlossene Textäußerungen von dir und dem Assistenten werden an den ursprünglichen Chat-Thread angehängt. Beim Beenden des Sprachmodus wird der Chat geöffnet, damit du per Text fortfahren kannst; Audio und vorläufige Transkriptteile werden nicht gespeichert. Eine Echtzeitsitzung dauert höchstens 60 Minuten.
+
 ## Wie es funktioniert {#how-it-works}
 
 Die Sprachtaste des Komponisten zeichnet Audio im Browser auf und wählt dann einen Anbieter aus:

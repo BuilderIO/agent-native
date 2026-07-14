@@ -151,11 +151,13 @@ Generated UI can see and update the app through the standard extension bridge:
 - `extensionData` stores per-extension data. Transient inline UIs get a local
   chat-scoped adapter; persisted extensions use the normal authenticated
   database-backed extension data API.
-- `dbQuery`, `dbExec`, and `extensionFetch` are available with the same role and
-  route gates as saved extensions.
+- `dbQuery` and `extensionFetch` are available with the same role and route
+  gates as saved extensions; `dbQuery` is read-only. Saved extensions still
+  expose legacy `dbExec` for trusted editor/admin contexts, but generated UI
+  should use actions for app data writes.
 
 Prefer `appAction` for domain data. Actions carry validation, access checks, and
-business rules; raw SQL is for cases where no action exists.
+business rules, and app data writes should go through actions.
 
 For transient UIs, `extensionData` is intentionally local to the browser. It is
 stored in host `localStorage`, is not visible to the agent or backend, does not
@@ -254,7 +256,7 @@ Do not put provider tokens, private data, or internal secrets directly in the
 generated HTML. Use `extensionFetch()` with `${keys.NAME}` placeholders or
 template actions that resolve credentials server-side.
 
-## Related docs {#related}
+## What's next {#whats-next}
 
 - [Extensions](/docs/extensions) — saved sandboxed mini-apps and the bridge API.
 - [Native Chat UI](/docs/native-chat-ui) — typed first-party React widgets for

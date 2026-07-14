@@ -32,10 +32,19 @@ interface RuntimeEventContext {
   runId?: string;
 }
 
+type MessageContentState =
+  | { type: "text"; text: string; id?: string }
+  | {
+      type: "reasoning";
+      text: string;
+      id?: string;
+      signature?: string;
+    };
+
 interface MessageState {
   id: AgentChatRuntimeMessageId;
   role: "assistant" | "user" | "system" | "tool";
-  text: string;
+  content: MessageContentState[];
   started: boolean;
   done: boolean;
 }
@@ -51,6 +60,7 @@ interface ToolState {
 interface ConnectorTurnState {
   fallbackMessageId: string;
   activeMessageId?: string;
+  activeReasoningMessageId?: string;
   messages: Map<string, MessageState>;
   tools: Map<string, ToolState>;
   contentBlocks: Map<
@@ -58,6 +68,7 @@ interface ConnectorTurnState {
     {
       messageId?: string;
       toolId?: string;
+      partId?: string;
       type?: string;
     }
   >;
@@ -112,6 +123,18 @@ function recordString(
   return undefined;
 }
 
+function recordText(
+  record: Record<string, unknown> | null,
+  ...keys: string[]
+): string | undefined {
+  if (!record) return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "string") return value;
+  }
+  return undefined;
+}
+
 function recordKey(
   record: Record<string, unknown> | null,
   ...keys: string[]
@@ -157,7 +180,7 @@ function ensureMessage(
     message = {
       id: messageId,
       role,
-      text: "",
+      content: [],
       started: false,
       done: false,
     };
@@ -170,20 +193,23 @@ function messageFromState(message: MessageState): AgentChatRuntimeMessage {
   return {
     id: message.id,
     role: message.role,
-    content: message.text ? [{ type: "text", text: message.text }] : [],
+    content: message.content.map((part) => ({ ...part })),
   };
 }
 
-function appendTextEvents(
+function appendContentEvents(
   context: RuntimeEventContext,
   state: ConnectorTurnState,
   input: {
     messageId?: string;
     role?: MessageState["role"];
+    type: "text" | "reasoning";
     text: string;
+    partId?: string;
+    signature?: string;
   },
 ): AgentChatRuntimeKnownEvent[] {
-  if (!input.text) return [];
+  if (!input.text && !input.signature) return [];
   const message = ensureMessage(state, input.messageId, input.role);
   const events: AgentChatRuntimeKnownEvent[] = [];
   if (!message.started) {
@@ -194,14 +220,91 @@ function appendTextEvents(
       message: messageFromState(message),
     });
   }
-  message.text += input.text;
+
+  const last = message.content.at(-1);
+  let part = input.partId
+    ? message.content.find(
+        (candidate) =>
+          candidate.type === input.type && candidate.id === input.partId,
+      )
+    : last?.type === input.type && !last.id
+      ? last
+      : undefined;
+  if (!part) {
+    const nextPart: MessageContentState =
+      input.type === "reasoning"
+        ? {
+            type: "reasoning",
+            text: "",
+            ...(input.partId ? { id: input.partId } : {}),
+          }
+        : {
+            type: "text",
+            text: "",
+            ...(input.partId ? { id: input.partId } : {}),
+          };
+    message.content.push(nextPart);
+    part = nextPart;
+  }
+  part.text += input.text;
+  if (part.type === "reasoning" && input.signature) {
+    part.signature = input.signature;
+  }
   events.push({
     type: "message-delta",
     ...baseEvent(context),
     messageId: message.id,
-    delta: { type: "text", text: input.text },
+    delta:
+      input.type === "reasoning"
+        ? {
+            type: "reasoning",
+            text: input.text,
+            partId: input.partId,
+            signature: input.signature,
+          }
+        : { type: "text", text: input.text, partId: input.partId },
   });
   return events;
+}
+
+function appendTextEvents(
+  context: RuntimeEventContext,
+  state: ConnectorTurnState,
+  input: {
+    messageId?: string;
+    role?: MessageState["role"];
+    text: string;
+    partId?: string;
+  },
+): AgentChatRuntimeKnownEvent[] {
+  return appendContentEvents(context, state, { ...input, type: "text" });
+}
+
+function appendReasoningEvents(
+  context: RuntimeEventContext,
+  state: ConnectorTurnState,
+  input: {
+    messageId?: string;
+    text: string;
+    partId?: string;
+    signature?: string;
+  },
+): AgentChatRuntimeKnownEvent[] {
+  return appendContentEvents(context, state, {
+    ...input,
+    type: "reasoning",
+  });
+}
+
+function messageHasContent(
+  message: MessageState | undefined,
+  type?: "text" | "reasoning",
+): boolean {
+  return (
+    message?.content.some(
+      (part) => (!type || part.type === type) && Boolean(part.text),
+    ) ?? false
+  );
 }
 
 function finishMessageEvents(
@@ -466,14 +569,36 @@ function mapClaudeContentBlocks(
   const events: AgentChatRuntimeKnownEvent[] = [];
   if (!Array.isArray(content)) return events;
 
-  for (const value of content) {
+  for (const [index, value] of content.entries()) {
     const block = asRecord(value);
     const blockType = normalizeContentBlockType(block);
     if (blockType === "TEXT") {
-      const text = recordString(block, "text");
+      const text = recordText(block, "text");
       const existing = state.messages.get(messageId);
-      if (text && !existing?.text) {
-        events.push(...appendTextEvents(context, state, { messageId, text }));
+      if (text && !messageHasContent(existing, "text")) {
+        events.push(
+          ...appendTextEvents(context, state, {
+            messageId,
+            text,
+            partId: `${messageId}:content:${index}`,
+          }),
+        );
+      }
+      continue;
+    }
+
+    if (blockType === "THINKING") {
+      const text = recordText(block, "thinking", "text") ?? "";
+      const signature = recordString(block, "signature");
+      if (text || signature) {
+        events.push(
+          ...appendReasoningEvents(context, state, {
+            messageId,
+            text,
+            partId: `${messageId}:content:${index}`,
+            signature,
+          }),
+        );
       }
       continue;
     }
@@ -556,14 +681,18 @@ function mapClaudeAgentEvent(
     const block = nestedRecord(event, "content_block", "contentBlock");
     const blockKey = recordKey(event, "index") ?? extractToolId(block);
     const blockType = normalizeContentBlockType(block);
+    const messageId = state.activeMessageId;
     const toolId =
       blockType === "TOOL_USE"
         ? (extractToolId(block) ?? (blockKey ? `tool-${blockKey}` : undefined))
         : undefined;
+    const partId =
+      blockKey && messageId ? `${messageId}:content:${blockKey}` : undefined;
     if (blockKey) {
       state.contentBlocks.set(blockKey, {
-        messageId: state.activeMessageId,
+        messageId,
         toolId,
+        partId,
         type: blockType,
       });
     }
@@ -573,6 +702,18 @@ function mapClaudeAgentEvent(
         name: extractToolName(block),
         input: block?.input,
       });
+    }
+    if (blockType === "THINKING") {
+      const text = recordText(block, "thinking", "text") ?? "";
+      const signature = recordString(block, "signature");
+      if (text || signature) {
+        return appendReasoningEvents(context, state, {
+          messageId,
+          text,
+          partId,
+          signature,
+        });
+      }
     }
     return [];
   }
@@ -584,7 +725,23 @@ function mapClaudeAgentEvent(
     if (deltaType === "TEXT_DELTA") {
       return appendTextEvents(context, state, {
         messageId: blockRef?.messageId ?? state.activeMessageId,
-        text: recordString(delta, "text") ?? "",
+        text: recordText(delta, "text") ?? "",
+        partId: blockRef?.partId,
+      });
+    }
+    if (deltaType === "THINKING_DELTA") {
+      return appendReasoningEvents(context, state, {
+        messageId: blockRef?.messageId ?? state.activeMessageId,
+        text: recordText(delta, "thinking", "text") ?? "",
+        partId: blockRef?.partId,
+      });
+    }
+    if (deltaType === "SIGNATURE_DELTA") {
+      return appendReasoningEvents(context, state, {
+        messageId: blockRef?.messageId ?? state.activeMessageId,
+        text: "",
+        partId: blockRef?.partId,
+        signature: recordString(delta, "signature"),
       });
     }
     if (deltaType === "INPUT_JSON_DELTA") {
@@ -680,6 +837,60 @@ function mapOpenAIResponsesEvent(
   const base = baseEvent(context);
   if (!event || !type) return [];
 
+  if (
+    type === "RESPONSE_REASONING_SUMMARY_TEXT_DELTA" ||
+    type === "REASONING_SUMMARY_TEXT_DELTA" ||
+    type === "RESPONSE_REASONING_TEXT_DELTA" ||
+    type === "REASONING_TEXT_DELTA"
+  ) {
+    const messageId = recordString(event, "item_id", "itemId", "messageId");
+    const index = recordKey(
+      event,
+      "summary_index",
+      "summaryIndex",
+      "content_index",
+      "contentIndex",
+    );
+    const partKind = type.includes("SUMMARY") ? "summary" : "content";
+    return appendReasoningEvents(context, state, {
+      messageId,
+      text: stringValue(event.delta) ?? "",
+      partId: messageId
+        ? `${messageId}:${partKind}:${index ?? "0"}`
+        : undefined,
+    });
+  }
+
+  if (
+    type === "RESPONSE_REASONING_SUMMARY_TEXT_DONE" ||
+    type === "REASONING_SUMMARY_TEXT_DONE" ||
+    type === "RESPONSE_REASONING_TEXT_DONE" ||
+    type === "REASONING_TEXT_DONE"
+  ) {
+    const messageId = recordString(event, "item_id", "itemId", "messageId");
+    const index = recordKey(
+      event,
+      "summary_index",
+      "summaryIndex",
+      "content_index",
+      "contentIndex",
+    );
+    const partKind = type.includes("SUMMARY") ? "summary" : "content";
+    const partId = messageId
+      ? `${messageId}:${partKind}:${index ?? "0"}`
+      : undefined;
+    const existing = state.messages
+      .get(messageId ?? state.fallbackMessageId)
+      ?.content.find((part) => part.type === "reasoning" && part.id === partId);
+    return existing?.text
+      ? []
+      : appendReasoningEvents(context, state, {
+          messageId,
+          text: stringValue(event.text) ?? "",
+          partId,
+        });
+  }
+
   if (type === "RESPONSE_OUTPUT_TEXT_DELTA" || type === "OUTPUT_TEXT_DELTA") {
     return appendTextEvents(context, state, {
       messageId: recordString(event, "item_id", "itemId", "messageId"),
@@ -690,7 +901,10 @@ function mapOpenAIResponsesEvent(
   if (type === "RESPONSE_OUTPUT_TEXT_DONE" || type === "OUTPUT_TEXT_DONE") {
     const text = stringValue(event.text);
     return [
-      ...(text && ![...state.messages.values()].some((message) => message.text)
+      ...(text &&
+      ![...state.messages.values()].some((message) =>
+        messageHasContent(message, "text"),
+      )
         ? appendTextEvents(context, state, {
             messageId: recordString(event, "item_id", "itemId", "messageId"),
             text,
@@ -742,8 +956,14 @@ function mapOpenAIResponsesEvent(
         resultText: recordString(item, "arguments", "output"),
       });
     }
+    if (itemType === "REASONING") return [];
     const text = extractText(item);
-    if (text && ![...state.messages.values()].some((message) => message.text)) {
+    if (
+      text &&
+      ![...state.messages.values()].some((message) =>
+        messageHasContent(message, "text"),
+      )
+    ) {
       return [
         ...appendTextEvents(context, state, {
           messageId: recordString(item, "id"),
@@ -812,7 +1032,9 @@ function mapOpenAIAgentsEvent(
       const text = extractText(item);
       if (
         !text ||
-        [...state.messages.values()].some((message) => message.text)
+        [...state.messages.values()].some((message) =>
+          messageHasContent(message, "text"),
+        )
       ) {
         return [];
       }
@@ -921,7 +1143,7 @@ function mapVercelAiEvent(
     ];
   }
 
-  if (type === "TEXT_START") {
+  if (type === "TEXT_START" || type === "REASONING_START") {
     const messageId = vercelMessageId;
     state.activeMessageId = messageId;
     const message = ensureMessage(state, messageId);
@@ -939,22 +1161,21 @@ function mapVercelAiEvent(
   if (type === "TEXT_DELTA") {
     return appendTextEvents(context, state, {
       messageId: vercelMessageId,
-      text: recordString(event, "delta", "text") ?? "",
+      text: recordText(event, "delta", "text") ?? "",
+      partId: recordString(event, "id"),
     });
   }
 
-  if (type === "TEXT_END") {
+  if (type === "TEXT_END" || type === "REASONING_END") {
     return [];
   }
 
   if (type === "REASONING_DELTA") {
-    return [
-      {
-        type: "status",
-        ...base,
-        message: recordString(event, "delta", "text") ?? "Reasoning",
-      },
-    ];
+    return appendReasoningEvents(context, state, {
+      messageId: vercelMessageId,
+      text: recordText(event, "delta", "text") ?? "",
+      partId: recordString(event, "id"),
+    });
   }
 
   if (type === "TOOL_INPUT_START") {
@@ -1137,9 +1358,11 @@ function mapAgUiEvent(
   }
 
   if (type === "TEXT_MESSAGE_START") {
+    const messageId = recordString(event, "messageId", "message_id");
+    state.activeMessageId = messageId ?? state.activeMessageId;
     const message = ensureMessage(
       state,
-      recordString(event, "messageId", "message_id"),
+      messageId,
       (recordString(event, "role") as MessageState["role"]) ?? "assistant",
     );
     if (message.started) return [];
@@ -1201,13 +1424,54 @@ function mapAgUiEvent(
   }
 
   if (type === "REASONING_MESSAGE_CONTENT") {
+    const messageId =
+      recordString(event, "messageId", "message_id") ??
+      state.activeReasoningMessageId ??
+      state.activeMessageId;
+    state.activeReasoningMessageId = messageId;
+    return appendReasoningEvents(context, state, {
+      messageId,
+      text: stringValue(event.delta) ?? "",
+      partId: messageId,
+    });
+  }
+
+  if (type === "REASONING_MESSAGE_START") {
+    const messageId = recordString(event, "messageId", "message_id");
+    state.activeReasoningMessageId = messageId;
+    const message = ensureMessage(state, messageId);
+    if (message.started) return [];
+    message.started = true;
     return [
       {
-        type: "status",
+        type: "message-start",
         ...base,
-        message: stringValue(event.delta) ?? "Reasoning",
+        message: messageFromState(message),
       },
     ];
+  }
+
+  if (type === "REASONING_MESSAGE_END" || type === "REASONING_END") {
+    const messageId =
+      recordString(event, "messageId", "message_id") ??
+      state.activeReasoningMessageId;
+    state.activeReasoningMessageId = undefined;
+    return finishMessageEvents(context, state, messageId);
+  }
+
+  if (type === "REASONING_MESSAGE_CHUNK") {
+    const messageId =
+      recordString(event, "messageId", "message_id") ??
+      state.activeReasoningMessageId;
+    state.activeReasoningMessageId = messageId;
+    const delta = stringValue(event.delta) ?? "";
+    return delta
+      ? appendReasoningEvents(context, state, {
+          messageId,
+          text: delta,
+          partId: messageId,
+        })
+      : finishMessageEvents(context, state, messageId);
   }
 
   return [];

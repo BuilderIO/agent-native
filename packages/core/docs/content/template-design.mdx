@@ -11,7 +11,7 @@ Design is an agent-native HTML prototyping studio. Instead of a layered drawing 
   <Screen
     surface="desktop"
     html={
-      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;align-items:center;justify-content:center;min-height:230px'><strong>Generated HTML prototype</strong></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
+      "<div style='display:flex;flex-direction:column;gap:14px;padding:18px;min-height:520px;box-sizing:border-box'><div style='display:flex;align-items:center;gap:10px'><h1 style='margin:0'>Product launch page</h1><span class='wf-pill accent'>Desktop</span><span class='wf-pill'>Tablet</span><span class='wf-pill'>Mobile</span><div style='flex:1'></div><button>Preview</button><button class='primary'>Export code</button></div><div class='wf-card' style='flex:1;display:grid;grid-template-rows:auto 1fr auto;gap:12px'><div style='display:flex;gap:8px'><span class='wf-pill accent'>Hero</span><span class='wf-pill'>Pricing</span><span class='wf-pill'>FAQ</span></div><div class='wf-box' style='display:flex;flex-direction:column;gap:12px;min-height:230px;padding:20px'><div style='display:flex;flex-direction:column;align-items:center;gap:8px;text-align:center'><strong style='font-size:22px'>Launch faster with Agent-Native</strong><span class='wf-muted' style='max-width:70%'>Generate a working prototype from a prompt, then refine it in place.</span><button class='primary'>Get started</button></div><div style='display:grid;grid-template-columns:repeat(3,1fr);gap:10px;flex:1'><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div><div class='wf-card' style='min-height:56px'></div></div></div><div class='wf-card' style='display:flex;align-items:center;gap:10px'><span class='wf-muted'>Make the hero denser and the CTA clearer.</span><div style='flex:1'></div><button class='primary'>Apply revision</button></div></div></div>"
     }
   />
 </WireframeBlock>
@@ -89,6 +89,7 @@ When you open the app, the generated prototype is the center of the workspace, w
 ## What you can do with it
 
 - **Generate complete prototypes.** Describe the screen or page you need and the agent creates a working HTML document with Tailwind styling and Alpine interactions.
+- **Start from reusable templates.** Choose a sized starter for ads, one-pagers, landing pages, and more, or save any inline design as a template. A prompt refines the copied design while locked logo, background, and other fixed layers stay unchanged.
 - **Compare variants.** Start with multiple directions, pick the strongest one, then continue refining.
 - **Tweak visually.** Use the built-in tweak controls for common changes, or ask the agent for copy, layout, color, spacing, and interaction updates.
 - **Apply design systems.** Save and reuse design-system preferences so generated work stays closer to your brand.
@@ -133,10 +134,15 @@ pnpm dev
 
 All data lives in SQL via Drizzle ORM. Schema: `templates/design/server/db/schema.ts`. Designs and design systems carry the standard `ownableColumns` and a matching framework shares table, so they slot into the per-user / per-org sharing model.
 
+The table below covers the core ownable resources — designs, files, templates, versions, and design systems. Seven more tables in the same schema back features described elsewhere in this doc rather than the core resource model: `design_localhost_connections` and `design_localhost_write_grants` (localhost source mode), `component_index` (component indexing), `motion_timeline` (motion), `design_state` (editor state snapshots), `design_fusion_edits` (full-app fusion mode), and `design_review_snapshot` (review snapshots).
+
 | Table                                    | What it holds                                                                                                                                    |
 | ---------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `designs`                                | A design project — `title`, `description`, `project_type` (`prototype` / `other`), the `data` JSON blob, and an optional `design_system_id` link |
 | `design_files`                           | Individual files belonging to a design (`filename`, `content`, `file_type` defaulting to `html`)                                                 |
+| `design_templates`                       | Reusable template metadata, dimensions, defaults, source design reference, and locked-layer count                                                |
+| `design_template_files`                  | Snapshotted template files copied into a normal editable design when a user starts from a template                                               |
+| `design_template_shares`                 | Framework shares table for private, org, explicitly shared, and public template discovery                                                        |
 | `design_versions`                        | Point-in-time `snapshot`s of a design with an optional `label`, for history and rollback                                                         |
 | `design_systems`                         | Reusable brand tokens — `data` (colors/typography/spacing), `assets`, `custom_instructions`, and an `is_default` flag                            |
 | `design_shares` / `design_system_shares` | Framework shares tables mapping principals (users or orgs) to roles (viewer, editor, admin)                                                      |
@@ -360,6 +366,22 @@ Single-screen mode is for scrolling, interacting with prototype behavior, and
 editing the DOM/code layers inside one rendered file. The layers panel reflects
 that split: screens are top-level frames, with nested DOM/code layers for the
 active screen.
+
+### Tweaks
+
+Tweaks are named controls for quickly changing the most useful visual properties
+of a design without editing its source. A design can expose color swatches,
+segmented choices, sliders, and toggles for properties such as accent color,
+corner radius, spacing, density, or visibility. Each control is connected to a
+CSS custom property used by the rendered design, so the preview updates as you
+adjust it.
+
+Tweaks follow the editor's cascade. A value set on the base design is inherited
+by its responsive breakpoints and states. Changing a tweak while a breakpoint or
+state is active creates an override for that context; resetting the control
+removes the override and returns to the inherited value. Saved tweak values stay
+with the design. Use **Add tweak controls** or ask the agent to expose another
+visual property when the panel does not include the control you need.
 
 Install `/visual-edit` when a coding agent should open a running local app in
 Design instead of generating standalone prototype HTML:

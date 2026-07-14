@@ -170,11 +170,11 @@ Options:
   --dry-run                   Print intended writes without changing files
   --json                      Print the result as JSON
 
-App-backed skills (visual-plan, visual-recap, content) register their hosted MCP
-server in your agent config by default so the agent can actually use them. Use
---no-mcp to skip that and copy the files only.
-For visual-plan/visual-recap/content, choose --mode local-files for local-file
-workflows, or --mode self-hosted --mcp-url <url> for your own app.
+App-backed skills (visual-plan, visual-recap, visualize-repo, content) register
+their hosted MCP server in your agent config by default so the agent can
+actually use them. Use --no-mcp to skip that and copy the files only.
+For visual-plan/visual-recap/visualize-repo/content, choose --mode local-files
+for local-file workflows, or --mode self-hosted --mcp-url <url> for your own app.
 
 Examples:
   npx @agent-native/skills@latest add
@@ -874,12 +874,12 @@ async function resolvePlanModeForSkills(
   const modeAwareApp = selectedModeAwareApp(skillNames);
   if (options.planMode && !modeAwareApp) {
     throw new Error(
-      "--mode only applies to visual-plan / visual-recap / content.",
+      "--mode only applies to visual-plan / visual-recap / visualize-repo / content.",
     );
   }
   if (options.mcpUrl && !modeAwareApp) {
     throw new Error(
-      "--mcp-url only applies to visual-plan / visual-recap / content.",
+      "--mcp-url only applies to visual-plan / visual-recap / visualize-repo / content.",
     );
   }
   if (!modeAwareApp) return undefined;
@@ -902,14 +902,18 @@ function resolvePlanMcpUrlOverride(input: string): {
   if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
     throw new Error("--mcp-url must use http:// or https://.");
   }
-  const mcpSuffix = "/_agent-native/mcp";
+  const publicMcpSuffix = "/mcp";
+  const legacyMcpSuffix = "/_agent-native/mcp";
   const trimmedPath = parsed.pathname.replace(/\/+$/, "");
-  const appPath = trimmedPath.endsWith(mcpSuffix)
+  const mcpSuffix = trimmedPath.endsWith(legacyMcpSuffix)
+    ? legacyMcpSuffix
+    : trimmedPath.endsWith(publicMcpSuffix)
+      ? publicMcpSuffix
+      : undefined;
+  const appPath = mcpSuffix
     ? trimmedPath.slice(0, -mcpSuffix.length)
     : trimmedPath;
-  const mcpPath = trimmedPath.endsWith(mcpSuffix)
-    ? trimmedPath
-    : `${trimmedPath || ""}${mcpSuffix}`;
+  const mcpPath = `${appPath || ""}${publicMcpSuffix}`;
   return {
     hostedUrl: `${parsed.origin}${appPath}`,
     mcpUrl: `${parsed.origin}${mcpPath}`,
@@ -1161,7 +1165,7 @@ async function printInstallResult(
   if (
     result.planMode === "local-files" &&
     result.skills.some((skill) =>
-      ["visual-plan", "visual-recap"].includes(skill),
+      ["visual-plan", "visual-recap", "visualize-repo"].includes(skill),
     )
   ) {
     clack.note(
@@ -1439,6 +1443,9 @@ function instructionContentForSkill(skillName: string): string | null {
   if (skillName === "visual-recap") {
     return "When a PR, branch, commit, or diff needs an interactive visual recap, use the /visual-recap skill always.";
   }
+  if (skillName === "visualize-repo") {
+    return "When a repository needs local visual docs or a navigable Plan-backed repo viewer, use the /visualize-repo skill always.";
+  }
   return null;
 }
 
@@ -1631,6 +1638,8 @@ jobs:
     uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@main
     with:
       skill-source: repo
+      runs-on: \${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: \${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
     secrets:
       PLAN_RECAP_TOKEN: \${{ secrets.PLAN_RECAP_TOKEN }}
       ANTHROPIC_API_KEY: \${{ secrets.ANTHROPIC_API_KEY }}

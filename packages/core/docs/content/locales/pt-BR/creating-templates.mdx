@@ -7,6 +7,8 @@ description: "Como criar e publicar seus próprios modelos de aplicativos nativo
 
 Os modelos são aplicativos nativos do agente completos e bifurcáveis que resolvem um fluxo de trabalho real. Os modelos primários são criados com a mesma superfície de estrutura que você usa: rotas React para UI, Drizzle SQL para dados, actions para operações, recursos de espaço de trabalho para comportamento do agente e sincronização de sondagem para que o agente e UI permaneçam alinhados.
 
+Use `@agent-native/core` para o contrato de runtime: actions, plugins de servidor, helpers de banco de dados, estado do app, helpers de rotas e chat do agente. Use `@agent-native/toolkit` para UI reutilizável e helpers de construção de apps, como primitivas compartilhadas, hooks de toast/mobile, seletores de data e slots simples de shell do app. Mantenha variantes específicas do template locais quando elas codificarem comportamento de produto ou identidade visual.
+
 Um bom modelo:
 
 - Resolve um fluxo de trabalho de ponta a ponta, com dados iniciais úteis ou um fluxo de estado vazio.
@@ -42,7 +44,6 @@ Cada modelo segue o mesmo layout amplo:
 <FileTree
   id="doc-block-1mjrrpg"
   title="Layout do projeto de template"
-  title="my-template/"
   entries={[
     {
       path: "app/",
@@ -170,8 +171,7 @@ As quatro áreas de cada modelo se conectam por meio de uma superfície de açã
 
 Defina tabelas de domínio com os auxiliares da estrutura Drizzle para que os esquemas permaneçam portáveis em SQLite, Postgres, D1, Turso, Supabase, Neon e outros back-ends suportados:
 
-```ts
-// server/db/schema.ts
+```ts filename="server/db/schema.ts"
 import {
   table,
   text,
@@ -202,8 +202,7 @@ As alterações de esquema devem ser aditivas. Adicione tabelas e colunas atrav�
 
 Para leituras e gravações de aplicativos, use o construtor de consultas do Drizzle e os operadores portáteis do `drizzle-orm`. Não escreva o código do produto com SQL bruto quando Drizzle puder expressar a consulta e não importe de `drizzle-orm/sqlite-core` ou `drizzle-orm/pg-core` em modelos.
 
-```ts
-// server/plugins/db.ts
+```ts filename="server/plugins/db.ts"
 import { runMigrations } from "@agent-native/core/db";
 
 export default runMigrations(
@@ -347,8 +346,7 @@ Para navegação no aplicativo, prefira um comando `navigate` que inclua uma mes
 `path` quando o URL é conhecido. Não escreva também `__set_url__` para o mesmo movimento;
 essa chave é reservada para as ferramentas da estrutura URL e alterações de filtro somente URL.
 
-```ts
-// actions/navigate.ts
+```ts filename="actions/navigate.ts"
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { z } from "zod";

@@ -3,8 +3,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockGetSession = vi.hoisted(() => vi.fn());
-const mockSignShortLivedToken = vi.hoisted(() => vi.fn());
-const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
+const mockSignScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const mockRecordings = vi.hoisted(() => ({ rows: [] as any[] }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -17,9 +17,10 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 
 vi.mock("@agent-native/core/server", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
-  signShortLivedToken: (...args: unknown[]) => mockSignShortLivedToken(...args),
-  verifyShortLivedToken: (...args: unknown[]) =>
-    mockVerifyShortLivedToken(...args),
+  signScopedAgentAccessToken: (...args: unknown[]) =>
+    mockSignScopedAgentAccessToken(...args),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -58,6 +59,7 @@ vi.mock("./share-password.js", () => ({
 
 import {
   buildPublicAgentContext,
+  CLIPS_AGENT_ACCESS_TTL_SECONDS,
   loadPublicAgentAccess,
   loadRecordingMediaBytes,
   RecordingMediaFetchError,
@@ -99,8 +101,8 @@ describe("public agent context access", () => {
     vi.clearAllMocks();
     mockRecordings.rows = [];
     mockGetSession.mockResolvedValue(null);
-    mockSignShortLivedToken.mockReturnValue("signed-token");
-    mockVerifyShortLivedToken.mockReturnValue({ ok: false });
+    mockSignScopedAgentAccessToken.mockReturnValue("signed-token");
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
   });
 
   it("mints a short-lived API token for owners sharing password-protected public clips", async () => {
@@ -117,9 +119,52 @@ describe("public agent context access", () => {
     if (result.ok) {
       expect(result.access.apiToken).toBe("signed-token");
     }
-    expect(mockSignShortLivedToken).toHaveBeenCalledWith({
+    expect(mockSignScopedAgentAccessToken).toHaveBeenCalledWith({
+      resourceKind: "clip-agent-context",
       resourceId: "rec-1",
+      ttlSeconds: CLIPS_AGENT_ACCESS_TTL_SECONDS,
     });
+  });
+
+  it("allows a scoped agent token to read private clips without making them public", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+      }),
+    ];
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: true });
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1", {
+      token: "agent-token",
+    });
+
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.access.apiToken).toBe("agent-token");
+      expect(result.access.recording.visibility).toBe("private");
+    }
+    expect(mockVerifyScopedAgentAccessToken).toHaveBeenCalledWith(
+      "agent-token",
+      {
+        resourceKind: "clip-agent-context",
+        resourceId: "rec-1",
+      },
+    );
+  });
+
+  it("keeps private clips hidden from callers without a scoped agent token", async () => {
+    mockRecordings.rows = [
+      makeRecording({
+        visibility: "private",
+      }),
+    ];
+
+    const result = await loadPublicAgentAccess({} as any, "rec-1");
+
+    expect(result.ok).toBe(false);
+    if (!result.ok) {
+      expect(result.failure.status).toBe(404);
+    }
   });
 });
 

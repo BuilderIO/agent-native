@@ -15,6 +15,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import {
   appendFinalTranscript,
   onFinalTranscript,
+  resetTranscriptionTimeline,
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
@@ -45,6 +46,8 @@ export interface TranscriptionCapture {
   pause(): Promise<void>;
   /** Restart the audio engine after a `pause()`. */
   resume(): Promise<void>;
+  /** Rebase timestamped segments to the actual recording start. */
+  resetTimeline(): Promise<void>;
 }
 
 interface SpeechRecognitionResultLike {
@@ -275,6 +278,9 @@ async function startBrowserTranscriptionCapture(): Promise<TranscriptionCapture 
         );
       }
     },
+    async resetTimeline() {
+      // Web Speech does not emit timestamped segments.
+    },
   };
 }
 
@@ -286,6 +292,9 @@ export async function startTranscriptionCapture(
     label?: string | null;
   },
   captureSystem: boolean = true,
+  opts?: {
+    voiceProcessing?: boolean;
+  },
 ): Promise<TranscriptionCapture | null> {
   const lines: string[] = [];
   const segments: SourcedTranscriptSegment[] = [];
@@ -324,7 +333,15 @@ export async function startTranscriptionCapture(
       }),
     );
 
-    engine = await startTranscriptionEngine({ mic, captureSystem });
+    engine = await startTranscriptionEngine({
+      mic,
+      captureSystem,
+      voiceProcessing: opts?.voiceProcessing,
+      // Recordings only persist final segments. Meetings use the same engine
+      // directly and retain live partials, but repeatedly inferring partials
+      // here burns CPU without any recording UI consuming them.
+      emitPartials: false,
+    });
     console.log(
       `[clips-recorder] transcription started (${engine} mic${captureSystem ? "+system" : ""})`,
     );
@@ -350,7 +367,12 @@ export async function startTranscriptionCapture(
         pauseFinalsSettleUntil = Date.now() + WHISPER_STOP_SETTLE_MS;
         console.log(`[clips-recorder] transcription paused (${engine})`);
       } else {
-        engine = await startTranscriptionEngine({ mic, captureSystem });
+        engine = await startTranscriptionEngine({
+          mic,
+          captureSystem,
+          voiceProcessing: opts?.voiceProcessing,
+          emitPartials: false,
+        });
         // stop()/cancel() can run during the await above; if it did, the new
         // engine would leak (mic/system capture stays live). Tear it down.
         if (disposed) {
@@ -420,6 +442,9 @@ export async function startTranscriptionCapture(
       if (disposed) return;
       desiredPaused = false;
       await applyAudioState();
+    },
+    async resetTimeline() {
+      await resetTranscriptionTimeline(engine);
     },
   };
 }

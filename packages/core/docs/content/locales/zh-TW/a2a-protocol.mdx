@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 簽名為 JWT 不記名代幣。僅將 `apiKeyEnv` 用於舊版外部對等點
 需要靜態不記名權杖。使用本機actions而不是自己呼叫。
 
+## CLI：agent-native invoke {#cli-invoke}
+
+`agent-native invoke` 是一個薄的 CLI 包裝器，架構在與 `agentNative.invoke()` 相同的解析並呼叫的基本操作之上。使用它可以從 shell 腳本、CI 工作、cron 項目，或任何可以執行外部指令的系統觸發應用程式的代理——相當於手動向 `/_agent-native/a2a` 發送 POST 請求的 CLI 版本。
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# 在工作區註冊表中解析 "analytics" 並等待回覆
+agent-native invoke analytics "Summarize signups by source this month"
+
+# 直接透過 URL 呼叫已部署的應用程式，從環境變數讀取不記名權杖
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# 強制使用一次阻塞式 message/send，而非預設的非同步+輪詢
+agent-native invoke analytics "Quick lookup" --sync
+
+# 為腳本編寫提供機器可讀輸出
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| 選項                      | 描述                                                      |
+| ------------------------- | --------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 目標代理（位置參數 `<app-or-url>` 的別名）                |
+| `--message <text>`        | 提示（位置參數 `"prompt"` 的別名）                        |
+| `--api-key-env <name>`    | 從環境變數讀取不記名權杖                                  |
+| `--api-key <token>`       | 直接內嵌傳入的不記名權杖值                                |
+| `--context-id <id>`       | A2A `contextId`，用於延續現有工作的對話                   |
+| `--self-app-id <id>`      | 目前應用程式 ID，用於防止自我呼叫                         |
+| `--self-url <url>`        | 目前應用程式 URL，用於防止自我呼叫                        |
+| `--timeout-ms <n>`        | 非同步輪詢逾時時間                                        |
+| `--poll-interval-ms <n>`  | 非同步輪詢間隔                                            |
+| `--sync`                  | 使用一次阻塞式 `message/send` 請求，取代預設的非同步+輪詢 |
+| `--no-hint`               | 按原樣傳送提示，不加入跨應用程式呼叫提示                  |
+| `--json`                  | 以 JSON 格式輸出目標中繼資料與回應文字                    |
+
+與 `callAgent()` 一樣，此 CLI 預設使用非同步+輪詢（底層是 `invokeAgent` → `callAgent`），這是針對託管/無伺服器目標的安全選擇——請參閱上方的[無伺服器 webhook 與閘道逾時](#json-rpc-methods)。只有在確定目標不在具有短執行限制的閘道之後時，才傳入 `--sync`。
+
+目標的解析方式與 `agentNative.invoke()` 相同：透過工作區應用程式 ID、應用程式名稱，或完整 URL——因此同一指令在多應用程式工作區中的同級應用程式，或其他地方的任意 A2A 對等點上都能運作。
+
 ## 工作生命週期 {#task-lifecycle}
 
 每條訊息都會建立一個在以下狀態之間移動的工作：
@@ -435,6 +477,18 @@ const client = new A2AClient(url, process.env.A2A_API_KEY);
 此邊界很重要，因為代理迴圈接受來自遠端呼叫者的自由格式輸入。將不記名檢查放入迴圈內，或依靠工具來強制執行它，將使提示注入或有問題的處理常式繞過驗證。將其保持在 HTTP 邊界意味著權杖故障會在任何 LLM 呼叫之前短路。
 
 JWT 驗證（`server.ts` 中的 `verifyA2AToken`）接受使用全域 `A2A_SECRET` 或透過權杖的 `org_domain` 聲明從 SQL 尋找的組織範圍秘密簽名的權杖，並在存在時強制執行權杖自己的 `aud`/`iss` 聲明。
+
+### 組織密鑰同步 {#organization-secret-sync}
+
+**組織 → 跨應用程式驗證**設定會管理組織範圍的密鑰，用來驗證同一組織中個別部署的應用程式之間的委派。它不是使用者登入或 Cross-App SSO 設定。此密鑰補充部署的 `A2A_SECRET`：具有 `org_domain` 宣告的 A2A JWT 可使用相符組織的密鑰驗證。
+
+組織擁有者應為每個參與的應用程式提供相同的允許電子郵件網域與相同的組織範圍密鑰：
+
+1. 在第一個應用程式中，從**組織 → 跨應用程式驗證**產生或顯示密鑰。
+2. 在每個其他應用程式中，選擇**從另一個應用程式貼上密鑰**並貼上該值。首次連線必須進行這個手動步驟：尚未擁有該密鑰的應用程式無法驗證遠端同步要求。
+3. 應用程式共用此密鑰後，使用**同步到應用程式**將後續更新推送至已連線且已探索到的應用程式。結果會回報無法更新的應用程式。
+
+當您**重新產生**密鑰時，設定 UI 會立即同步它，並使用先前的密鑰簽署更新，讓已連線的應用程式可以驗證變更。如果某個應用程式錯過該同步，請在其中手動貼上新密鑰，然後再次同步。請像對待其他憑證一樣對待此密鑰：不要將它放入用戶端程式碼、日誌或第三方用戶端設定中。
 
 ## 繼續 {#continuations}
 

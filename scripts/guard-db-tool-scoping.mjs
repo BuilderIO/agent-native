@@ -63,6 +63,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "clips:recording_events": "audit/event rows scoped through recordings",
   "clips:recording_reactions": "child rows scoped through recordings",
   "clips:recording_tags": "child rows scoped through recordings",
+  "clips:recording_views": "append-only child rows scoped through recordings",
   "clips:recording_viewers": "viewer link rows scoped through recordings",
   "clips:space_members": "membership join rows scoped through spaces",
   "clips:spaces": "workspace child rows scoped through workspaces",
@@ -74,6 +75,7 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "plan:plan_reports": "moderation reports scoped through plans/action",
   "plan:plan_sections": "child rows scoped through plans",
   "design:design_files": "child rows scoped through designs",
+  "design:design_template_files": "child rows scoped through design templates",
   "design:design_versions": "version rows scoped through designs",
   "forms:responses": "public submissions scoped through forms",
   "assets:asset_folders": "child rows scoped through libraries",
@@ -86,7 +88,6 @@ const INTENTIONAL_RAW_DB_DENYLIST = {
   "mail:email_link_tracking": "tracking rows scoped through owning draft/job",
   "slides:deck_share_links": "public share-token rows scoped through decks",
   "slides:slide_comments": "child rows scoped through decks",
-  "videos:folder_memberships": "membership join rows scoped through folders",
 };
 
 async function* walk(dir) {

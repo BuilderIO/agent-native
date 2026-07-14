@@ -1,18 +1,58 @@
 import { useActionQuery, useActionMutation } from "@agent-native/core/client";
 import type {
+  ContentDatabaseItem,
   Document,
   DocumentCreateRequest,
+  DocumentPropertiesResponse,
   DocumentUpdateRequest,
   DocumentUpdateResponse,
   DocumentMoveRequest,
   DocumentTreeNode,
 } from "@shared/api";
+import type { QueryClient } from "@tanstack/react-query";
 import { useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 
+import { databaseItemBodyHydrationIsPending } from "@/components/editor/body-hydration";
+import { isEffectivelyEmptyDocumentContent } from "@/components/editor/body-hydration";
+
+import type { DocumentUpdateConflictResponse } from "../../actions/update-document";
 import { useRestoreContentDatabase } from "./use-content-database";
 
+export type { DocumentUpdateConflictResponse };
+
 const LIST_DOCUMENTS_QUERY_KEY = ["action", "list-documents", undefined];
+
+export function documentQueryKey(documentId: string) {
+  return ["action", "get-document", { id: documentId }] as const;
+}
+
+export function documentPropertiesQueryKey(documentId: string) {
+  return ["action", "list-document-properties", { documentId }] as const;
+}
+
+// Extends the shared request/response shapes with the optional
+// compare-and-swap fields the action supports but shared/api.ts does not
+// (yet) declare. See actions/update-document.ts for the CAS contract.
+export type DocumentUpdateRequestWithCas = DocumentUpdateRequest & {
+  id: string;
+  /** updatedAt of the snapshot this save is based on; enables CAS for content saves. */
+  baseUpdatedAt?: string;
+};
+
+export type DocumentUpdateResult =
+  | DocumentUpdateResponse
+  | DocumentUpdateConflictResponse;
+
+// Accepts anything `persistDocumentUpdates`/`updateDocument.mutateAsync` can
+// resolve with — including a bare `Document` from the local-file-source
+// fallback path, which never CAS-conflicts but shares this call site's
+// narrowing.
+export function isDocumentUpdateConflict(
+  result: Document | DocumentUpdateResult,
+): result is DocumentUpdateConflictResponse {
+  return (result as DocumentUpdateConflictResponse)?.conflict === true;
+}
 
 export function mergeDocumentIntoDocumentCache(
   old: unknown,
@@ -42,6 +82,45 @@ export function mergeDocumentIntoListDocumentsCache(
   return { ...(old as object), documents: nextDocuments };
 }
 
+export function seedDatabaseItemDocumentCaches(
+  queryClient: Pick<QueryClient, "getQueryData" | "setQueryData">,
+  item: ContentDatabaseItem,
+) {
+  const sourceBackedEmptyBody =
+    (!!item.bodyHydration || !!item.document.databaseMembership?.sourceId) &&
+    isEffectivelyEmptyDocumentContent(item.document.content);
+  // Seed only cold caches. Overwriting an existing entry would bump its
+  // freshness with possibly older table-snapshot data (a background database
+  // refetch can lag a just-saved document edit) and suppress the correcting
+  // refetch for the whole staleTime window. Rows whose Builder body has not
+  // hydrated yet, or whose source-backed list snapshot intentionally omits the
+  // body, are never seeded: their empty table-snapshot `content` would render as
+  // an authoritative empty document.
+  if (
+    !databaseItemBodyHydrationIsPending(item) &&
+    !sourceBackedEmptyBody &&
+    queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
+  ) {
+    queryClient.setQueryData<Document>(documentQueryKey(item.document.id), {
+      ...item.document,
+      properties: item.properties,
+    });
+  }
+  if (
+    queryClient.getQueryData(documentPropertiesQueryKey(item.document.id)) ===
+    undefined
+  ) {
+    queryClient.setQueryData<DocumentPropertiesResponse>(
+      documentPropertiesQueryKey(item.document.id),
+      {
+        documentId: item.document.id,
+        databaseId: item.databaseId,
+        properties: item.properties,
+      },
+    );
+  }
+}
+
 export function useDocuments() {
   return useActionQuery<Document[]>("list-documents", undefined, {
     select: (data: any) => {
@@ -67,47 +146,73 @@ export function useCreateDocument() {
 export function useUpdateDocument() {
   const queryClient = useQueryClient();
   const restoreContentDatabase = useRestoreContentDatabase();
-  return useActionMutation<
-    DocumentUpdateResponse,
-    DocumentUpdateRequest & { id: string }
-  >("update-document", {
-    onSuccess: (data, variables) => {
-      queryClient.setQueryData(
-        ["action", "get-document", { id: variables.id }],
-        (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
-      );
-      queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
-        mergeDocumentIntoListDocumentsCache(old, data),
-      );
-      queryClient.invalidateQueries({
-        queryKey: ["action", "get-document", { id: variables.id }],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["action", "list-documents"],
-      });
+  return useActionMutation<DocumentUpdateResult, DocumentUpdateRequestWithCas>(
+    "update-document",
+    {
+      onSuccess: (data, variables) => {
+        // A CAS conflict is a normal (non-thrown) result, not a successful
+        // save — converge the caches to the returned server document (so the
+        // UI immediately reflects the write that actually won) but skip the
+        // save-specific side effects below, which assume `data` describes the
+        // just-applied write.
+        if (isDocumentUpdateConflict(data)) {
+          const serverDocument = data.document;
+          queryClient.setQueryData(
+            ["action", "get-document", { id: variables.id }],
+            (old: unknown) =>
+              mergeDocumentIntoDocumentCache(old, serverDocument),
+          );
+          queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+            mergeDocumentIntoListDocumentsCache(old, serverDocument),
+          );
+          queryClient.invalidateQueries({
+            queryKey: ["action", "get-document", { id: variables.id }],
+          });
+          queryClient.invalidateQueries({
+            queryKey: ["action", "list-documents"],
+          });
+          return;
+        }
 
-      if (data.softDeletedDatabaseIds.length > 0) {
-        const databaseIds = data.softDeletedDatabaseIds;
-        toast("Database deleted", {
-          action: {
-            label: "Undo",
-            onClick: () => {
-              void Promise.all(
-                databaseIds.map((databaseId) =>
-                  restoreContentDatabase.mutateAsync({ databaseId }),
-                ),
-              ).catch((err) => {
-                toast.error("Failed to restore database", {
-                  description:
-                    err instanceof Error ? err.message : "Something went wrong",
-                });
-              });
-            },
-          },
+        queryClient.setQueryData(
+          ["action", "get-document", { id: variables.id }],
+          (old: unknown) => mergeDocumentIntoDocumentCache(old, data),
+        );
+        queryClient.setQueryData(LIST_DOCUMENTS_QUERY_KEY, (old: unknown) =>
+          mergeDocumentIntoListDocumentsCache(old, data),
+        );
+        queryClient.invalidateQueries({
+          queryKey: ["action", "get-document", { id: variables.id }],
         });
-      }
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+
+        if (data.softDeletedDatabaseIds.length > 0) {
+          const databaseIds = data.softDeletedDatabaseIds;
+          toast("Database deleted", {
+            action: {
+              label: "Undo",
+              onClick: () => {
+                void Promise.all(
+                  databaseIds.map((databaseId) =>
+                    restoreContentDatabase.mutateAsync({ databaseId }),
+                  ),
+                ).catch((err) => {
+                  toast.error("Failed to restore database", {
+                    description:
+                      err instanceof Error
+                        ? err.message
+                        : "Something went wrong",
+                  });
+                });
+              },
+            },
+          });
+        }
+      },
     },
-  });
+  );
 }
 
 export function useDeleteDocument() {

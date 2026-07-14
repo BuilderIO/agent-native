@@ -1,13 +1,13 @@
 ---
 title: "Compartir y privacidad"
-description: "Compartir al estilo Google Docs, integrado en el marco. Cada recurso creado por el usuario (documentos, paneles, diseños, presentaciones, clips, grabaciones, formularios) obtiene el mismo modelo privado de forma predeterminada con un recurso compartido constante UI."
+description: "Uso compartido familiar y coherente, integrado en el framework. Cada recurso creado por el usuario —documentos, paneles, diseños, presentaciones, clips, grabaciones y formularios— obtiene el mismo modelo privado de forma predeterminada con una interfaz de uso compartido coherente."
 ---
 
 # Compartir y privacidad
 
-Cada recurso que un usuario crea en una aplicación nativa del agente (un documento, un panel, un diseño, una presentación, una edición de vídeo, una grabación de pantalla, una transcripción de una reunión, un formulario, un enlace de reserva) es **privado para el creador de forma predeterminada**. Otras personas solo lo ven cuando el creador lo comparte explícitamente o cambia su visibilidad a `org` o `public`.
+Cada recurso que un usuario crea en una aplicación nativa del agente (un documento, un panel, un diseño, una presentación, una grabación de pantalla, una transcripción de una reunión, un formulario, un enlace de reserva) es **privado para el creador de forma predeterminada**. Otras personas solo lo ven cuando el creador lo comparte explícitamente o cambia su visibilidad a `org` o `public`.
 
-Se ve y funciona como Google Docs. El mismo botón para compartir, el mismo cuadro de diálogo, el mismo modelo de visibilidad de tres niveles, las mismas subvenciones por usuario/por organización, en todas las plantillas, sin reinvención por aplicación.
+Es un modelo de uso compartido familiar en todas partes: el mismo botón, el mismo cuadro de diálogo, el mismo modelo de visibilidad de tres niveles y las mismas concesiones por usuario y organización, en todas las plantillas y sin reinventarlo para cada aplicación.
 
 ## Por qué un modelo {#why}
 
@@ -92,11 +92,11 @@ Cada plantilla que almacena trabajos escritos por usuarios utiliza este modelo. 
 - **Contenido** — documentos
 - **Diapositivas**: presentaciones
 - **Diseño**: diseños y recursos
-- **Vídeo** — composiciones
-- **Clips**: grabaciones de pantalla (estilo Loom)
+- **Clips**: grabaciones de pantalla
+- **Plan** — visual plans and PR recaps
 - **Formularios**: definiciones de formulario
 - **Calendario**: enlaces a eventos y reservas
-- **Analytics**: paneles (en implementación; consulte el `AGENTS.md` de la plantilla de análisis)
+- **Analytics**: dashboards, saved analyses, and tokenized session replays
 - **Extensiones**: miniaplicaciones en espacio aislado (consulte [Extensions](/docs/extensions#sharing))
 
 Cada uno de estos utiliza el mismo asistente de esquema `ownableColumns()`, la misma acción `share-resource` y el mismo `<ShareButton>` UI. Pase de una plantilla a otra y el cuadro de diálogo para compartir se verá idéntico.
@@ -115,7 +115,7 @@ Cada recurso que se puede compartir tiene un botón para compartir en su encabez
 
 - Selector de visibilidad (`Private` / `Organization` / `Public link`).
 - Autocompletar "Agregar personas o equipos": busque usuarios en la organización o pegue un correo electrónico.
-- Una casilla de verificación `Notificar people` al estilo de Google Docs para concesiones de correo electrónico individuales.
+- Una casilla de verificación `Notificar a las personas` para concesiones individuales por correo electrónico.
 - Una lista de concesiones actuales con selectores de roles y un control de eliminación.
 - Un botón de copiar-enlace que respeta la visibilidad actual.
 
@@ -137,14 +137,21 @@ Para las listas, coloque un `<VisibilityBadge visibility={row.visibility} />` al
 
 El marco monta automáticamente estos actions en cada plantilla: el agente los llama como herramientas y el UI los llama a través de `useActionQuery`/`useActionMutation`:
 
-| Acción                    | Qué hace                                                                                                                                       |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`          | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico. |
-| `unshare-resource`        | Revocar el acceso a un usuario u organización.                                                                                                 |
-| `list-resource-shares`    | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                              |
-| `set-resource-visibility` | Cambiar a `private`, `org` o `public`.                                                                                                         |
+| Acción                       | Qué hace                                                                                                                                       |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | Otorgar acceso a un usuario u organización en una función específica. El `notify` opcional controla las notificaciones por correo electrónico. |
+| `unshare-resource`           | Revocar el acceso a un usuario u organización.                                                                                                 |
+| `list-resource-shares`       | Mostrar visibilidad actual más todas las subvenciones explícitas.                                                                              |
+| `set-resource-visibility`    | Cambiar a `private`, `org` o `public`.                                                                                                         |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                        |
 
 Dígale al agente "comparta este diseño con el equipo de marketing como editores" y llamará a `share-resource` contra el mismo punto final que utiliza UI. El resultado aparece en el cuadro de diálogo para compartir en el siguiente renderizado.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## Construyéndolo en una nueva plantilla {#building}
 
@@ -263,7 +270,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 Una llamada de registro en `server/db/index.ts`:
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -308,9 +315,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 Compartir se basa en el modelo de alcance de datos más amplio del marco: el acceso de lista/lectura/escritura a tablas propias pasa por `accessFilter()` / `resolveAccess()` / `assertAccess()`, y los recursos etiquetados con `org_id` son invisibles en todas las organizaciones. Consulte [Security → Data Scoping](/docs/security#data-scoping) para conocer el proceso completo, la protección de CI y la superficie de amenazas.
 
-## Ver también {#see-also}
+## Qué sigue {#see-also}
 
-- [Security & Data Scoping](/docs/security): el filtro de acceso y el modelo de propiedad en el que se basa el uso compartido.
-- [Authentication](/docs/authentication): sesiones, organizaciones y cómo la identidad fluye en el contexto de la solicitud.
-- [Extensions](/docs/extensions#sharing): compartir en la superficie de la miniaplicación en espacio aislado.
-- [Creating Templates](/docs/creating-templates): conectar `ownableColumns` al esquema de una nueva plantilla.
+- [**Seguridad — Ámbito de datos**](/docs/security#data-scoping) — el modelo de filtro de acceso y propiedad en el que se basa el uso compartido
+- [**Autenticación**](/docs/authentication) — sesiones, organizaciones y cómo fluye la identidad al contexto de la solicitud
+- [**Extensiones**](/docs/extensions#sharing) — uso compartido en la superficie de miniaplicaciones aisladas
+- [**Creación de plantillas**](/docs/creating-templates) — conexión de `ownableColumns` al esquema de una plantilla nueva

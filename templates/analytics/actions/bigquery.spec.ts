@@ -4,7 +4,8 @@ import { describe, expect, it, vi, beforeEach } from "vitest";
 const runQuery = vi.fn();
 
 vi.mock("../server/lib/bigquery", () => ({
-  runQuery: (sql: string) => runQuery(sql),
+  runQuery: (sql: string, options?: { signal?: AbortSignal }) =>
+    runQuery(sql, options),
 }));
 
 // Imported after the mock is registered so the action picks up the stub.
@@ -66,5 +67,31 @@ describe("bigquery action error handling", () => {
     const result = await bigquery.run({ sql: "SELECT 1" });
 
     expect(result).toEqual([{ week: "2026-05-11", signups: 42 }]);
+  });
+
+  it("forwards the agent run signal and stops cleanly when the run is cancelled", async () => {
+    const controller = new AbortController();
+    const aborted = new DOMException("BigQuery query aborted", "AbortError");
+    controller.abort();
+    runQuery.mockRejectedValue(aborted);
+
+    await expect(
+      bigquery.run(
+        { sql: "SELECT 1" },
+        { caller: "tool", signal: controller.signal },
+      ),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!isAgentActionStopError(err)) return false;
+      expect(err.errorCode).toBe("run_cancelled");
+      expect(err.message).toBe(
+        "The BigQuery query was cancelled because the agent run ended before it could finish.",
+      );
+      expect(err.toolResult).toContain('"recoverable": false');
+      return true;
+    });
+
+    expect(runQuery).toHaveBeenCalledWith("SELECT 1", {
+      signal: controller.signal,
+    });
   });
 });

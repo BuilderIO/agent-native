@@ -15,7 +15,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { IconSun, IconMoon } from "@tabler/icons-react";
+import { IconBrain, IconSun, IconMoon } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -25,12 +25,15 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
+  useNavigate,
   useLoaderData,
   useLocation,
   useRouteLoaderData,
 } from "react-router";
 import type { LinksFunction, LoaderFunctionArgs } from "react-router";
 import { Toaster } from "sonner";
+
+import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { i18nCatalog } from "./i18n";
@@ -195,6 +198,7 @@ function isPublicBookingPath(pathname: string): boolean {
 
 function AppContent() {
   const [cmdkOpen, setCmdkOpen] = useState(false);
+  const navigate = useNavigate();
   const t = useT();
   useCommandMenuShortcut(useCallback(() => setCmdkOpen(true), []));
   return (
@@ -209,6 +213,20 @@ function AppContent() {
         <CommandMenu.Group heading={t("root.commandActions")}>
           <CommandMenu.Item onSelect={() => {}}>
             {t("root.commandSearch")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={[
+              "agent",
+              "context",
+              "files",
+              "connections",
+              "jobs",
+              "access",
+            ]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
@@ -228,6 +246,7 @@ export default function Root() {
           // Calendar aggressively refetches on focus because external
           // calendar events can change without a DB sync event (e.g. Google
           // Calendar webhooks with a processing delay).
+          // request-storm-allow: one user-driven focus refresh for provider data.
           refetchOnWindowFocus: true,
           // Flat retry: calendar data fetches don't need the auth-aware
           // retry function — auth errors surface through the booking flow.
@@ -241,21 +260,23 @@ export default function Root() {
   const isPublicPath = isPublicBookingPath(location.pathname);
 
   return (
-    <AppProviders
-      queryClient={queryClient}
-      isPublicPath={isPublicPath}
-      clientOnlyFallback={<DefaultSpinner />}
-      toaster={<Toaster richColors position="bottom-center" />}
-      i18n={{
-        catalog: i18nCatalog,
-        initialLocale: loaderData.locale,
-        initialPreference: loaderData.preference,
-        initialMessages: loaderData.messages,
-        persistPreference: !isPublicPath,
-      }}
-    >
-      <AppContent />
-    </AppProviders>
+    <AppToolkitProvider>
+      <AppProviders
+        queryClient={queryClient}
+        isPublicPath={isPublicPath}
+        clientOnlyFallback={<DefaultSpinner />}
+        toaster={<Toaster richColors position="bottom-center" />}
+        i18n={{
+          catalog: i18nCatalog,
+          initialLocale: loaderData.locale,
+          initialPreference: loaderData.preference,
+          initialMessages: loaderData.messages,
+          persistPreference: !isPublicPath,
+        }}
+      >
+        <AppContent />
+      </AppProviders>
+    </AppToolkitProvider>
   );
 }
 

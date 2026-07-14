@@ -5,7 +5,10 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import type { BlockRenderContext } from "../types.js";
-import { HTML_ROUGH_SELECTOR } from "./wireframe-kit.js";
+import {
+  hasDrawableRoughBounds,
+  HTML_ROUGH_SELECTOR,
+} from "./wireframe-kit.js";
 import type { WireframeData } from "./wireframe.config.js";
 import { WireframeBlock } from "./wireframe.js";
 
@@ -26,12 +29,12 @@ import { WireframeBlock } from "./wireframe.js";
 
 const ctx = {} as unknown as BlockRenderContext;
 
-function render(data: WireframeData): string {
+function render(data: WireframeData, renderCtx = ctx): string {
   return renderToStaticMarkup(
     createElement(WireframeBlock, {
       data,
       blockId: "wf-1",
-      ctx,
+      ctx: renderCtx,
     }),
   );
 }
@@ -47,6 +50,14 @@ function artboardStyle(html: string): string {
     return tag.match(/style="([^"]*)"/)?.[1] ?? "";
   }
   return match[1];
+}
+
+function classStyle(html: string, className: string): string {
+  const tag =
+    html.match(
+      new RegExp(`<div[^>]*class="[^"]*\\b${className}\\b[^"]*"[^>]*>`),
+    )?.[0] ?? "";
+  return tag.match(/\sstyle="([^"]*)"/)?.[1] ?? "";
 }
 
 /** Pull the inline `style` attribute of the scale-reservation wrapper. */
@@ -82,16 +93,31 @@ function roughScopeInnerHtml(html: string): string {
 }
 
 describe("wireframe auto-height frame", () => {
-  it("keeps broad helper containers out of the default rough.js target set", () => {
+  it("skips degenerate rough paths after applying their inset", () => {
+    expect(hasDrawableRoughBounds(4, 20, 2)).toBe(false);
+    expect(hasDrawableRoughBounds(20, 4, 2)).toBe(false);
+    expect(hasDrawableRoughBounds(2, 20, 1)).toBe(false);
+    expect(hasDrawableRoughBounds(Number.NaN, 20, 1)).toBe(false);
+    expect(hasDrawableRoughBounds(5, 5, 2)).toBe(true);
+    expect(hasDrawableRoughBounds(3, 3, 1)).toBe(true);
+  });
+
+  it("roughens standard wireframe primitives by default", () => {
     expect(HTML_ROUGH_SELECTOR).toContain("[data-rough]");
     expect(HTML_ROUGH_SELECTOR).toContain("button");
     expect(HTML_ROUGH_SELECTOR).toContain("input");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-card");
-    expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-box");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-btn");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-card");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-box");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-pill");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-chip");
+    expect(HTML_ROUGH_SELECTOR).toContain(".wf-icon-fallback");
+    expect(HTML_ROUGH_SELECTOR).toContain("[style*='border:']");
+    expect(HTML_ROUGH_SELECTOR).toContain("[style*='border-bottom:']");
     expect(HTML_ROUGH_SELECTOR).not.toContain(".wf-frame-target");
   });
 
-  it("keeps helper container borders visible after rough.js is ready", () => {
+  it("hides standard primitive borders after rough.js redraws them", () => {
     const css = readFileSync("src/styles/blocks.css", "utf8");
     const hideRule =
       css.match(
@@ -99,9 +125,33 @@ describe("wireframe auto-height frame", () => {
       )?.[0] ?? "";
 
     expect(hideRule).toContain("button");
-    expect(hideRule).toContain('[data-rough]:not([data-rough="none"])');
-    expect(hideRule).not.toContain(".wf-card");
-    expect(hideRule).not.toContain(".wf-box");
+    expect(hideRule).toContain("[data-rough]");
+    expect(hideRule).toContain(".wf-btn");
+    expect(hideRule).toContain(".wf-card");
+    expect(hideRule).toContain(".wf-box");
+    expect(hideRule).toContain(".wf-pill");
+    expect(hideRule).toContain(".wf-chip");
+    expect(hideRule).toContain(".wf-icon-fallback");
+    expect(hideRule).toContain('[style*="border:"]');
+    expect(hideRule).toContain('[style*="border-bottom:"]');
+    expect(hideRule).toContain(':not([data-rough="none"])');
+  });
+
+  it("styles wf-row as a label/value row primitive", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const rowRule =
+      css.match(
+        /\.plan-html-frame:not\(\[data-render-mode="design"\]\) \.wf-row\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+    const valueRule =
+      css.match(
+        /\.plan-html-frame:not\(\[data-render-mode="design"\]\) \.wf-row > :last-child\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+
+    expect(rowRule).toContain("display: flex");
+    expect(rowRule).toContain("justify-content: space-between");
+    expect(valueRule).toContain("margin-inline-start: auto");
+    expect(valueRule).toContain("text-align: end");
   });
 
   it("strips theme-breaking Tailwind color and shadow classes from wireframes", () => {
@@ -131,6 +181,64 @@ describe("wireframe auto-height frame", () => {
     expect(html).toContain("bg-white");
     expect(html).toContain("text-zinc-950");
     expect(html).toContain("shadow-xl");
+  });
+
+  it("shows the surface frame by default", () => {
+    const html = render({
+      surface: "browser",
+      html: "<div>Framed by default</div>",
+    });
+
+    expect(html).toContain('data-frame="show"');
+  });
+
+  it("lets host context hide the surface frame by default", () => {
+    const html = render(
+      {
+        surface: "browser",
+        html: "<div>Docs-style borderless mockup</div>",
+      },
+      { visualFrame: "hide" },
+    );
+
+    expect(html).toContain('data-frame="hide"');
+  });
+
+  it("lets explicit block data override the host frame default", () => {
+    const html = render(
+      {
+        surface: "browser",
+        frame: "show",
+        html: "<div>Docs block that wants containment</div>",
+      },
+      { visualFrame: "hide" },
+    );
+
+    expect(html).toContain('data-frame="show"');
+  });
+
+  it("removes root HTML padding when the outer frame is hidden", () => {
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const borderlessRootRule =
+      css.match(
+        /\.plan-html-frame\[data-frame="hide"\][^{]*>\s*:first-child\s*\{[^}]*\}/s,
+      )?.[0] ?? "";
+
+    expect(borderlessRootRule).toContain("margin: 0 !important");
+    expect(borderlessRootRule).toContain("padding: 0 !important");
+  });
+
+  it("removes root kit padding when the outer frame is hidden", () => {
+    const html = render(
+      {
+        surface: "browser",
+        screen: [{ el: "title", text: "Hi" }],
+      },
+      { visualFrame: "hide" },
+    );
+    const style = classStyle(html, "plan-wf");
+
+    expect(style).toMatch(/padding\s*:\s*0/);
   });
 
   it("floors the artboard with min-height and sets no fixed height (kit tree)", () => {
@@ -197,6 +305,48 @@ describe("wireframe auto-height frame", () => {
     const style = artboardStyle(html);
 
     expect(style).not.toMatch(/box-shadow/i);
+  });
+
+  it("does not paint a default artboard or root screen backdrop", () => {
+    const kitHtml = render({
+      surface: "browser",
+      screen: [
+        {
+          el: "card",
+          children: [{ el: "text", text: "Preserved card fill" }],
+        },
+      ],
+    });
+    const css = readFileSync("src/styles/blocks.css", "utf8");
+    const htmlFrameRule =
+      css.match(/\.plan-html-frame\s*\{[^}]*\}/s)?.[0] ?? "";
+
+    expect(artboardStyle(kitHtml)).not.toMatch(/(^|;)\s*background\s*:/);
+    expect(classStyle(kitHtml, "plan-wf")).toMatch(
+      /background\s*:\s*transparent/,
+    );
+    expect(kitHtml).toContain("background:var(--card)");
+    expect(htmlFrameRule).toContain("background: transparent");
+    expect(htmlFrameRule).not.toContain("background: var(--wf-paper)");
+  });
+
+  it("renders the static outer artboard border only when the frame is shown", () => {
+    const html = render({
+      surface: "browser",
+      skeleton: true,
+      html: "<div>Skeleton mockup</div>",
+    });
+    const borderlessHtml = render({
+      surface: "browser",
+      frame: "hide",
+      skeleton: true,
+      html: "<div>Skeleton mockup</div>",
+    });
+
+    expect(roughScopeInnerHtml(html)).toContain("border:1.5px solid");
+    expect(roughScopeInnerHtml(borderlessHtml)).not.toContain(
+      "border:1.5px solid",
+    );
   });
 
   it("renders a contextual visual style toggle", () => {

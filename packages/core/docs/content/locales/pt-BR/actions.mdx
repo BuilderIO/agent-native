@@ -11,7 +11,7 @@ Actions são a única fonte de verdade para tudo o que seu aplicativo faz. Defin
 - **Ganchos Typesafe React** — `useActionQuery("name")` e `useActionMutation("name")` no frontend, tipos inferidos do esquema.
 - **Chamadas de cliente imperativas** — `callAction("name", params)` quando um gancho não cabe.
 - **Transporte de estrutura** — montado automaticamente pela estrutura por trás desses ganchos e disponível para clientes HTTP externos.
-- **Uma ferramenta MCP** — exposta a aplicativos Claude ChatGPT personalizados MCP, Claude Desktop/Code, Cursor, Codex e qualquer outro cliente MCP.
+- **Uma ferramenta MCP** — exposta a aplicativos Claude ChatGPT personalizados MCP, Claude Desktop/Code, Cursor, Codex e qualquer outro host MCP.
 - **Uma ferramenta A2A** — chamada por outros aplicativos nativos do agente em A2A.
 - **Um comando CLI** — `pnpm action <name>` para scripts e loops de desenvolvimento.
 
@@ -540,7 +540,7 @@ Se seu aplicativo for um par [A2A](/docs/a2a-protocol), outros aplicativos nativ
 
 ## Expondo-o sobre MCP {#mcp}
 
-Com MCP ativado, seu actions aparece no servidor MCP da estrutura em `/_agent-native/mcp`. Cada chamador recebe um catálogo compacto por padrão – recursos integrados voltados para o aplicativo mais o aplicativo declarado por modelo actions – e o `tool-search` está sempre presente para que qualquer outra ferramenta permaneça acessível sob demanda. A superfície de ação completa é veiculada apenas com aceitação explícita (token `--full-catalog` ou `AGENT_NATIVE_MCP_FULL_CATALOG=1`), e `publicAgent.expose` opta por uma ferramenta de leitura/ingestão segura na superfície pública. Consulte [MCP Protocol](/docs/mcp-protocol) para níveis de catálogo, autenticação e detalhes do recurso `mcpApp`.
+Com MCP ativado, seu actions aparece no servidor MCP da estrutura em `/mcp`. Cada chamador recebe um catálogo compacto por padrão – recursos integrados voltados para o aplicativo mais o aplicativo declarado por modelo actions – e o `tool-search` está sempre presente para que qualquer outra ferramenta permaneça acessível sob demanda. A superfície de ação completa é veiculada apenas com aceitação explícita (token `--full-catalog` ou `AGENT_NATIVE_MCP_FULL_CATALOG=1`), e `publicAgent.expose` opta por uma ferramenta de leitura/ingestão segura na superfície pública. Consulte [MCP Protocol](/docs/mcp-protocol) para níveis de catálogo, autenticação e detalhes do recurso `mcpApp`.
 
 Para hosts MCP compatíveis com UI, uma ação pode declarar um recurso opcional de aplicativos MCP por meio do campo `mcpApp` (mais um `link` correspondente) para que hosts compatíveis renderizem o resultado in-line. Quando `link` e `mcpApp` devem apontar para a mesma rota, `embedRoute()` constrói ambos a partir de um construtor de caminho puro:
 
@@ -562,7 +562,7 @@ export default defineAction({
 });
 ```
 
-Mantenha `link` como substituto para clientes CLI e não UI MCP; é também o alvo de lançamento da incorporação. A ponte de incorporação (a sessão de início de incorporação assinada, transplante vs. renderização de quadro controlado, a ponte de host `ui/*`, CSP e fixação de altura) é propriedade de [External Agents](/docs/external-agents#mcp-app-bridge).
+Mantenha `link` como substituto para a CLI e hosts MCP sem interface de usuário; é também o alvo de lançamento da incorporação. A ponte de incorporação (a sessão de início de incorporação assinada, transplante vs. renderização de quadro controlado, a ponte de host `ui/*`, CSP e fixação de altura) é propriedade de [External Agents](/docs/external-agents#mcp-app-bridge).
 
 ## actions padrão {#standard-actions}
 

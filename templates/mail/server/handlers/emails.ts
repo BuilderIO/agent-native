@@ -37,10 +37,7 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
-import {
-  buildGmailEmailSearchQuery,
-  filterInboxScopedThreadMessages,
-} from "../lib/gmail-query.js";
+import { filterInboxScopedThreadMessages } from "../lib/gmail-query.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -57,7 +54,6 @@ import {
 } from "../lib/google-api.js";
 import {
   isConnected,
-  DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT,
   invalidateListCacheForOwner,
   listGmailMessages,
   gmailToEmailMessage,
@@ -66,6 +62,7 @@ import {
   setAccountDisplayName,
 } from "../lib/google-auth.js";
 import { getSyntheticEmailsForView, getSnoozedThreadIds } from "../lib/jobs.js";
+import { listInboxEmails } from "../lib/list-inbox-emails.js";
 import {
   bodyToHtml as outgoingBodyToHtml,
   buildRawEmail as buildOutgoingRawEmail,
@@ -404,25 +401,6 @@ function recomputeUnreadCounts(
   });
 }
 
-function isGmailQuotaError(message: string): boolean {
-  return /\b(?:429|quota|rate limit|rateLimitExceeded|userRateLimitExceeded)\b/i.test(
-    message,
-  );
-}
-
-function retryAfterSecondsFromErrors(errors: Array<{ error: string }>): number {
-  let retryAfter = 60;
-  for (const { error } of errors) {
-    const match = error.match(/retry in\s+(\d+)s/i);
-    if (!match) continue;
-    const seconds = Number(match[1]);
-    if (Number.isFinite(seconds) && seconds > retryAfter) {
-      retryAfter = seconds;
-    }
-  }
-  return Math.min(retryAfter, 5 * 60);
-}
-
 function parseEmailPageLimit(value: string | undefined): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n <= 0) return 50;
@@ -476,61 +454,39 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
         }
       }
 
-      const searchQuery = buildGmailEmailSearchQuery({ view, q, label });
-
       // Fetch label name mapping from all accounts (cached)
       const accountTokens = await getAccountTokens(email);
-      const connectedEmails = new Set(
-        accountTokens.map((account) => account.email.toLowerCase()),
-      );
       const labelMap = await getCachedLabelMap(accountTokens);
-      const { messages, errors, nextPageTokens, resultSizeEstimate } =
-        await listGmailMessages(searchQuery, pageLimit, email, pageTokens, {
-          mode: "threads",
-          threadFormat: view === "drafts" ? "full" : "metadata",
-          threadCandidateLimit: q ? 80 : undefined,
-          threadRecentMessageCandidateLimit:
-            !q && (view === "inbox" || view === "unread")
-              ? DEFAULT_THREAD_RECENT_MESSAGE_CANDIDATE_LIMIT
-              : undefined,
-        });
-      if (messages.length === 0 && errors.length > 0) {
+
+      const listResult = await listInboxEmails({
+        ownerEmail: email,
+        view,
+        q,
+        label,
+        limit: pageLimit,
+        pageTokens,
+        threadFormat: view === "drafts" ? "full" : "metadata",
+        threadCandidateLimit: q ? 80 : undefined,
+        accountTokens,
+        labelMap,
+      });
+
+      if (!listResult.ok) {
         // All accounts failed — surface as error
-        if (errors.every((e) => isGmailQuotaError(e.error))) {
-          const retryAfter = retryAfterSecondsFromErrors(errors);
+        if (listResult.isQuotaError) {
           setResponseStatus(event, 429);
-          setResponseHeader(event, "Retry-After", String(retryAfter));
+          setResponseHeader(
+            event,
+            "Retry-After",
+            String(listResult.retryAfterSeconds),
+          );
         } else {
           setResponseStatus(event, 502);
         }
-        return {
-          error: errors.map((e) => `${e.email}: ${e.error}`).join("; "),
-        };
+        return { error: listResult.message };
       }
-      let emails = messages.map((m) =>
-        gmailToEmailMessage(m, undefined, labelMap),
-      );
-      emails = filterInboxScopedThreadMessages(
-        emails,
-        view,
-        label,
-        connectedEmails,
-      );
-      emails.sort(
-        (a: any, b: any) =>
-          new Date(b.date).getTime() - new Date(a.date).getTime(),
-      );
 
-      // Filter out snoozed emails (they may linger in Gmail due to eventual consistency).
-      // Skip when searching — the user wants to find snoozed emails too.
-      if (!q && (view === "inbox" || view === "unread")) {
-        const snoozedIds = await getSnoozedThreadIds(email);
-        if (snoozedIds.size > 0) {
-          emails = emails.filter(
-            (e) => !snoozedIds.has(e.threadId) && !snoozedIds.has(e.id),
-          );
-        }
-      }
+      const { emails, errors, nextPageTokens, resultSizeEstimate } = listResult;
 
       // If some accounts failed but others succeeded, add warning header.
       // HTTP headers must be ByteString (code points <= 255), so strip any
@@ -637,7 +593,26 @@ export const listEmails = defineEventHandler(async (event: H3Event) => {
     (a, b) => new Date(b.date).getTime() - new Date(a.date).getTime(),
   );
 
-  return { emails };
+  // Paginate the same way the Gmail-connected branch above does, so local/demo
+  // mode doesn't load the entire filtered list in one unbounded response and
+  // infinite scroll (which relies on nextPageToken) actually has a next page.
+  const { pageToken: localPageToken } = getQuery(event) as {
+    pageToken?: string;
+  };
+  const offset = (() => {
+    const n = Number(localPageToken);
+    return Number.isFinite(n) && n > 0 ? Math.floor(n) : 0;
+  })();
+  const page = emails.slice(offset, offset + pageLimit);
+  const nextOffset = offset + pageLimit;
+  const nextPageToken =
+    nextOffset < emails.length ? String(nextOffset) : undefined;
+
+  return {
+    emails: page,
+    ...(nextPageToken && { nextPageToken }),
+    totalEstimate: emails.length,
+  };
 });
 
 // ─── Thread messages ─────────────────────────────────────────────────────────

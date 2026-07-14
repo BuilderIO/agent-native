@@ -5,7 +5,11 @@ description: "Dispatch é o plano de controle do espaço de trabalho: caixa de e
 
 # Envio
 
-> **Veja também:** para uma visão geral conceitual do que o Dispatch faz e quando você deseja, consulte [Dispatch](/docs/dispatch). Esta página é a referência específica do modelo.
+<Callout tone="info">
+
+**Veja também:** para uma visão geral conceitual do que o Dispatch faz e quando você deseja, consulte [Dispatch](/docs/dispatch). Esta página é a referência específica do modelo.
+
+</Callout>
 
 Dispatch é o **plano de controle do espaço de trabalho**. Enquanto outros modelos são aplicativos de domínio (Mail, Calendar, Analytics, Brain), o Dispatch é o aplicativo que você executa _juntamente_ com eles para coordenar tudo: uma caixa de entrada central, um cofre de segredos, trabalhos agendados, integração Slack/Telegram e um agente orquestrador que delega o trabalho do domínio ao aplicativo especializado certo por meio de [A2A](/docs/a2a-protocol).
 
@@ -119,7 +123,7 @@ No dia a dia, o Dispatch é o lugar onde os administradores e o pessoal de opera
   Acesso de despacho sem copiar segredos brutos. Fonte específica do aplicativo
   a configuração permanece no aplicativo que usa o provedor.
 - **Exponha um conector MCP.** Adicione
-  `https://dispatch.agent-native.com/_agent-native/mcp` em Claude, ChatGPT,
+  `https://dispatch.agent-native.com/mcp` em Claude, ChatGPT,
   Codex, Cursor ou outro host MCP e escolha quais aplicativos de espaço de trabalho serão
   pode ser acessado na página **Agentes** do Dispatch. Use um aplicativo direto URL
   somente quando esse host deve ser isolado para um aplicativo.
@@ -300,7 +304,7 @@ _Como funciona nos bastidores (para desenvolvedores)._
   ]}
 />
 
-- **Modo hub MCP.** O Dispatch ainda pode atuar como o [MCP hub](/docs/mcp-clients#hub) do espaço de trabalho para que todos os outros aplicativos no espaço de trabalho extraiam a mesma lista de servidores MCP de escopo organizacional. Separadamente, o endpoint `/_agent-native/mcp` do próprio Dispatch é o conector MCP externo recomendado para Claude, ChatGPT e outros hosts que devem alcançar vários aplicativos de espaço de trabalho.
+- **Modo hub MCP.** O Dispatch ainda pode atuar como o [MCP hub](/docs/mcp-clients#hub) do espaço de trabalho para que todos os outros aplicativos no espaço de trabalho extraiam a mesma lista de servidores MCP de escopo organizacional. Separadamente, o endpoint `/mcp` do próprio Dispatch é o conector MCP externo recomendado para Claude, ChatGPT e outros hosts que devem alcançar vários aplicativos de espaço de trabalho.
 
 ## Sonhos {#dreams}
 

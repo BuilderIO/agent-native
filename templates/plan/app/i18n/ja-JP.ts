@@ -443,6 +443,16 @@ const messages = {
       title: "ローカルプランが見つかりません",
       message: "ローカル プラン フォルダー「{{slug}}」を読み取れませんでした。",
     },
+    localPlanConnection: {
+      promptTitle: "このローカルプランに接続",
+      promptMessage:
+        "このプランはコンピューター上に保存されています。ローカルブリッジから読み取るには、Plan にブラウザーの許可が必要です。",
+      deniedTitle: "ローカルネットワークへのアクセスがブロックされています",
+      deniedMessage:
+        "ブラウザーで Plan のサイト設定を開き、ローカルネットワークへのアクセスを許可してから、もう一度確認してください。",
+      connect: "ローカルプランに接続",
+      checkAgain: "もう一度確認",
+    },
     overview: {
       title: "计划",
       documentCount_other: "{{count}} 个文档",
@@ -626,6 +636,10 @@ const messages = {
       signIn: "登录",
       haveAccount: "我已有账户",
       retry: "重试",
+      sendFeedback: "フィードバックを送信",
+      feedbackPlaceholder:
+        "このプランエラーの直前に起きたことを説明してください。",
+      openGitHubIssue: "GitHub issue を開く",
       joinedOrg: "已加入 {{orgName}}。正在打开计划...",
       acceptingInvite: "正在接受邀请",
       joiningOrg: "正在加入组织",

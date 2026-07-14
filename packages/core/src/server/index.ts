@@ -3,6 +3,13 @@ export {
   type CreateServerOptions,
   type EnvKeyConfig,
 } from "./create-server.js";
+export {
+  AGENT_BACKGROUND_PROCESSOR_FIELD,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE,
+  AGENT_BACKGROUND_PROCESSOR_ROUTE_FIELD,
+  dispatchPathTargetsNetlifyBackgroundFunction,
+  resolveDurableBackgroundDispatchPath,
+} from "../agent/durable-background.js";
 
 export {
   readBody,
@@ -107,9 +114,25 @@ export {
 } from "../agent/index.js";
 export {
   actionsToEngineTools,
+  executeAgentToolCall,
   getOwnerActiveApiKey,
   runAgentLoop,
+  type AgentToolCallExecutionResult,
+  type ExecuteAgentToolCallOptions,
 } from "../agent/production-agent.js";
+export {
+  mountRealtimeVoiceRoutes,
+  realtimeVoiceSafetyIdentifier,
+  REALTIME_VOICE_MAX_SDP_BYTES,
+  REALTIME_VOICE_MAX_TOOL_BODY_BYTES,
+  REALTIME_VOICE_MAX_TOOL_OUTPUT_CHARS,
+  REALTIME_VOICE_SESSION_PATH,
+  REALTIME_VOICE_TOOL_PATH,
+  type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceRequestContext,
+  type RealtimeVoiceToolExecutionRequest,
+  type RealtimeVoiceToolExecutionResult,
+} from "./realtime-voice.js";
 export {
   getStoredModelForEngine,
   resolveEngine,
@@ -218,6 +241,7 @@ export {
   renderAgentNativeOgImageSvg,
   type AgentNativeOgImageInput,
 } from "./social-og-image.js";
+export { resolveOgFontFiles } from "./og-fonts.js";
 export {
   createBrowserSessionActionEntries,
   type CreateBrowserSessionActionEntriesOptions,
@@ -297,7 +321,14 @@ export {
 export {
   mountActionRoutes,
   type MountActionRoutesOptions,
+  type ActionRouteAuthAdapter,
+  type ActionRouteResolvedCaller,
 } from "./action-routes.js";
+export {
+  AGENT_RUN_OWNER_CONTEXT_KEY,
+  seedAgentRunOwnerContext,
+  type AgentRunOwnerContext,
+} from "./agent-run-context.js";
 export {
   runWithRequestContext,
   hasRequestContext,
@@ -339,12 +370,31 @@ export {
   slackAdapter,
   telegramAdapter,
   whatsappAdapter,
+  discordAdapter,
+  microsoftTeamsAdapter,
   emailAdapter,
+  assertPlatformCapability,
   type PlatformAdapter,
   type IncomingMessage,
   type OutgoingMessage,
+  type PlatformAdapterCapabilities,
+  type ImmediateWebhookResponse,
   type IntegrationStatus,
   type IntegrationsPluginOptions,
+  type IntegrationExecutionContext,
+  BUILT_IN_INTEGRATION_CATALOG,
+  INTEGRATION_CATEGORIES,
+  getIntegrationCatalogEntry,
+  listBuiltInChannelIntegrations,
+  listIntegrationCatalog,
+  type BuiltInChannelId,
+  type ChannelCapabilities,
+  type IntegrationAvailability,
+  type IntegrationCatalogEntry,
+  type IntegrationCategory,
+  type IntegrationCredentialRequirement,
+  type IntegrationIconKey,
+  type IntegrationSupportMaturity,
 } from "../integrations/index.js";
 
 export {
@@ -388,11 +438,26 @@ export {
 } from "./credential-provider.js";
 export {
   builderDesignSystemUrl,
+  buildBuilderDesignSystemIndexFiles,
+  createBuilderDesignSystemProxyFields,
+  fetchBuilderDesignSystemDocs,
   getBuilderDesignSystemsBaseUrl,
+  hydrateBuilderDesignSystemReference,
+  localBuilderDesignSystemId,
+  mimeTypeForBuilderDesignSystemFilename,
+  parseBuilderDesignSystemProxyReference,
   startBuilderDesignSystemIndex,
+  type BuildBuilderDesignSystemIndexFilesOptions,
+  type BuilderDesignSystemCodeFileInput,
+  type BuilderDesignSystemDocsOptions,
+  type BuilderDesignSystemDocument,
+  type BuilderDesignSystemHydratedReference,
   type BuilderDesignSystemIndexFile,
   type BuilderDesignSystemIndexOptions,
   type BuilderDesignSystemIndexResult,
+  type BuilderDesignSystemProxyFields,
+  type BuilderDesignSystemProxyFieldsOptions,
+  type BuilderDesignSystemProxyReference,
 } from "./builder-design-systems.js";
 export {
   getBuilderBranchProjectId,
@@ -402,6 +467,19 @@ export {
   runBuilderAgent,
   type RunBuilderAgentResult,
 } from "./builder-browser.js";
+export {
+  ensureFusionContainer,
+  sendFusionBranchMessage,
+  pushFusionBranch,
+  reserveFusionHostingSlug,
+  deployFusionProject,
+  getFusionDeploys,
+  getFusionBranchEditorUrl,
+  getFusionHostingUrl,
+  type FusionBranchRef,
+  type EnsureFusionContainerResult,
+  type SendFusionMessageResult,
+} from "./fusion-app.js";
 
 export {
   sendEmail,
@@ -431,6 +509,34 @@ export {
   type ShortLivedTokenClaims,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
+export {
+  AGENT_ACCESS_PARAM,
+  DEFAULT_AGENT_ACCESS_TTL_SECONDS,
+  appendAgentAccessParam,
+  buildAgentAccessApiUrl,
+  buildAgentAccessUrl,
+  createScopedAgentAccessGrant,
+  normalizeAgentAccessBasePath,
+  normalizeAgentAccessOrigin,
+  scopedAgentAccessResourceId,
+  signScopedAgentAccessToken,
+  toAgentAccessUrl,
+  verifyScopedAgentAccessToken,
+  type AgentAccessApiUrlOptions,
+  type AgentAccessResourceScope,
+  type AgentAccessUrlOptions,
+  type ScopedAgentAccessGrant,
+  type ScopedAgentAccessTokenOptions,
+} from "./agent-access.js";
+export {
+  AGENT_READABLE_RESOURCE_PAYLOAD_TYPE,
+  AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
+  buildAgentReadableResourceDiscovery,
+  renderAgentReadableResourceDiscoveryScript,
+  safeJsonForHtml,
+  type AgentReadableResourceDiscovery,
+  type BuildAgentReadableResourceDiscoveryOptions,
+} from "../shared/agent-readable-resource.js";
 
 // SSR handler is NOT re-exported here — it uses a virtual module
 // (virtual:react-router/server-build) that only exists at Vite dev/build time.

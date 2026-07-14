@@ -96,6 +96,11 @@ export interface AgentChatMessage {
    * focusing it or opening the sidebar. The message runs silently.
    */
   background?: boolean;
+  /**
+   * Stable id used to deduplicate a submit and correlate it with
+   * {@link AGENT_CHAT_SUBMIT_RESULT_EVENT}. Auto-generated if omitted.
+   */
+  submitMessageId?: string;
 }
 
 export interface AgentChatContextItem {
@@ -129,6 +134,32 @@ export interface AgentChatContextState {
   items: AgentChatContextItem[];
   updatedAt: number;
 }
+
+export interface AgentChatOpenThreadRequest {
+  threadId: string;
+  newThread?: boolean;
+  /**
+   * Open only while this thread is still active (or no thread is active).
+   * This lets transient surfaces restore their own chat without stealing a
+   * thread the user selected in the meantime.
+   */
+  onlyIfActiveThreadId?: string;
+  openRequestId?: string;
+}
+
+export interface AgentChatOpenTaskRequest {
+  threadId: string;
+  parentThreadId?: string;
+  description?: string;
+  name?: string;
+  openRequestId?: string;
+}
+
+export type BufferedAgentChatOpenRequest = {
+  id: string;
+  eventType: "agent-chat:open-thread" | "agent-task-open";
+  detail: AgentChatOpenThreadRequest | AgentChatOpenTaskRequest;
+};
 
 export interface AgentComposerReference {
   label: string;
@@ -190,6 +221,45 @@ export const AGENT_CHAT_INSERT_REFERENCE_EVENT =
   "agentNative:insert-composer-reference";
 const AGENT_PANEL_PREPARE_EVENT = "agent-panel:prepare";
 
+/**
+ * Fired once a submitted turn's fate is known: `delivered: true` once the
+ * receiving AssistantChat has actually committed the turn (added it to the
+ * visible thread, independent of whether the agent's response later
+ * succeeds), or `delivered: false` when it was rejected before ever
+ * appearing — e.g. no LLM/agent engine configured. Callers that must know
+ * whether their submit truly landed (rather than fire-and-forget) should use
+ * {@link sendToAgentChatAndConfirm} instead of listening for this directly.
+ */
+export const AGENT_CHAT_SUBMIT_RESULT_EVENT = "agentNative.chatSubmitResult";
+
+export interface AgentChatSubmitResult {
+  submitMessageId: string;
+  delivered: boolean;
+  reason?: string;
+}
+
+/** Report a submit's definitive outcome so `sendToAgentChatAndConfirm` (or any
+ * other correlated listener) can resolve. No-ops without a submitMessageId or
+ * a window (SSR). */
+export function reportAgentChatSubmitResult(
+  submitMessageId: string | undefined,
+  delivered: boolean,
+  reason?: string,
+): void {
+  if (
+    !submitMessageId ||
+    cancelledSubmitIds.has(submitMessageId) ||
+    typeof window === "undefined"
+  ) {
+    return;
+  }
+  window.dispatchEvent(
+    new CustomEvent<AgentChatSubmitResult>(AGENT_CHAT_SUBMIT_RESULT_EVENT, {
+      detail: { submitMessageId, delivered, reason },
+    }),
+  );
+}
+
 let agentChatContextState: AgentChatContextState = {
   items: [],
   updatedAt: 0,
@@ -242,6 +312,15 @@ interface BufferedSelfSubmit {
 const SELF_SUBMIT_BUFFER_TTL_MS = 8000;
 const bufferedSelfSubmits: BufferedSelfSubmit[] = [];
 const claimedSubmitIds = new Set<string>();
+const cancelledSubmitIds = new Set<string>();
+
+interface BufferedOpenRequest extends BufferedAgentChatOpenRequest {
+  at: number;
+}
+
+const OPEN_REQUEST_BUFFER_TTL_MS = 8000;
+const bufferedOpenRequests: BufferedOpenRequest[] = [];
+const claimedOpenRequestIds = new Set<string>();
 
 function pruneSelfSubmitBuffer(now: number): void {
   for (let i = bufferedSelfSubmits.length - 1; i >= 0; i -= 1) {
@@ -261,6 +340,54 @@ function bufferSelfSubmit(data: Record<string, unknown>): void {
   bufferedSelfSubmits.push({ id, data, at: now });
 }
 
+/**
+ * Permanently tombstone a submit for this page lifetime and remove its
+ * cold-start replay. A confirmation timeout must be terminal: callers may
+ * retry while preserving their own state, so the original submit cannot be
+ * allowed to appear later when a lazy panel or thread ref finally mounts.
+ */
+export function cancelAgentChatSubmit(id: string | undefined): void {
+  if (!id) return;
+  cancelledSubmitIds.add(id);
+  claimedSubmitIds.add(id);
+  for (let index = bufferedSelfSubmits.length - 1; index >= 0; index -= 1) {
+    if (bufferedSelfSubmits[index]?.id === id) {
+      bufferedSelfSubmits.splice(index, 1);
+    }
+  }
+}
+
+/** Whether a confirmed-submit timeout has made this delivery terminal. */
+export function isAgentChatSubmitCancelled(id: string | undefined): boolean {
+  return Boolean(id && cancelledSubmitIds.has(id));
+}
+
+function pruneOpenRequestBuffer(now: number): void {
+  for (let i = bufferedOpenRequests.length - 1; i >= 0; i -= 1) {
+    if (now - bufferedOpenRequests[i].at > OPEN_REQUEST_BUFFER_TTL_MS) {
+      const [removed] = bufferedOpenRequests.splice(i, 1);
+      if (removed) claimedOpenRequestIds.delete(removed.id);
+    }
+  }
+}
+
+function bufferOpenRequest(
+  eventType: BufferedAgentChatOpenRequest["eventType"],
+  detail: AgentChatOpenThreadRequest | AgentChatOpenTaskRequest,
+): BufferedOpenRequest {
+  const now = Date.now();
+  pruneOpenRequestBuffer(now);
+  const id = `open-${now}-${Math.random().toString(36).slice(2, 8)}`;
+  const entry: BufferedOpenRequest = {
+    id,
+    eventType,
+    detail: { ...detail, openRequestId: id },
+    at: now,
+  };
+  bufferedOpenRequests.push(entry);
+  return entry;
+}
+
 /** Unclaimed self-submit payloads, for the panel to replay once it mounts. */
 export function drainBufferedAgentChatSubmits(): Array<
   Record<string, unknown>
@@ -274,8 +401,25 @@ export function drainBufferedAgentChatSubmits(): Array<
 /** Claim a submit; false if already handled. Idless submits always pass. */
 export function claimAgentChatSubmit(id: string | undefined): boolean {
   if (!id) return true;
+  if (cancelledSubmitIds.has(id)) return false;
   if (claimedSubmitIds.has(id)) return false;
   claimedSubmitIds.add(id);
+  return true;
+}
+
+/** Unclaimed open-thread/task requests, for the panel to replay once it mounts. */
+export function drainBufferedAgentChatOpenRequests(): BufferedAgentChatOpenRequest[] {
+  pruneOpenRequestBuffer(Date.now());
+  return bufferedOpenRequests
+    .filter((entry) => !claimedOpenRequestIds.has(entry.id))
+    .map(({ id, eventType, detail }) => ({ id, eventType, detail }));
+}
+
+/** Claim an open-thread/task request; false if already handled. Idless events pass. */
+export function claimAgentChatOpenRequest(id: unknown): boolean {
+  if (typeof id !== "string" || !id) return true;
+  if (claimedOpenRequestIds.has(id)) return false;
+  claimedOpenRequestIds.add(id);
   return true;
 }
 
@@ -283,6 +427,9 @@ export function claimAgentChatSubmit(id: string | undefined): boolean {
 export function _resetAgentChatSubmitBufferForTests(): void {
   bufferedSelfSubmits.length = 0;
   claimedSubmitIds.clear();
+  cancelledSubmitIds.clear();
+  bufferedOpenRequests.length = 0;
+  claimedOpenRequestIds.clear();
 }
 
 export function normalizeAgentChatContextItem(
@@ -638,6 +785,52 @@ function postAgentChatReferenceMessage(
   }
 }
 
+function openAgentPanelForChat(): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent("agent-panel:set-mode", {
+      detail: { mode: "chat" },
+    }),
+  );
+  window.dispatchEvent(new CustomEvent("agent-panel:open"));
+}
+
+function dispatchBufferedOpenRequest(entry: BufferedOpenRequest): void {
+  if (typeof window === "undefined") return;
+  const dispatch = () => {
+    window.dispatchEvent(
+      new CustomEvent(entry.eventType, { detail: entry.detail }),
+    );
+  };
+  setTimeout(dispatch, 0);
+}
+
+export function requestAgentChatThreadOpen(
+  detail: AgentChatOpenThreadRequest,
+): void {
+  if (typeof window === "undefined" || !detail.threadId.trim()) return;
+  openAgentPanelForChat();
+  dispatchBufferedOpenRequest(
+    bufferOpenRequest("agent-chat:open-thread", {
+      ...detail,
+      threadId: detail.threadId.trim(),
+    }),
+  );
+}
+
+export function requestAgentTaskOpen(detail: AgentChatOpenTaskRequest): void {
+  if (typeof window === "undefined" || !detail.threadId.trim()) return;
+  openAgentPanelForChat();
+  const parentThreadId = detail.parentThreadId?.trim();
+  dispatchBufferedOpenRequest(
+    bufferOpenRequest("agent-task-open", {
+      ...detail,
+      threadId: detail.threadId.trim(),
+      ...(parentThreadId ? { parentThreadId } : {}),
+    }),
+  );
+}
+
 function isMcpAppChatBridgeEnabled(): boolean {
   if (typeof window === "undefined" || window.parent === window) return false;
   if (readEmbedMcpChatBridgeFlagFromUrl()) markEmbedMcpChatBridgeActive();
@@ -778,7 +971,7 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     return tabId;
   }
 
-  const submitMessageId = generateSubmitMessageId();
+  const submitMessageId = opts.submitMessageId ?? generateSubmitMessageId();
   const payload = {
     type: AGENT_CHAT_MESSAGE_TYPE,
     data: {
@@ -857,6 +1050,101 @@ export function sendToAgentChat(opts: AgentChatMessage): string {
     postToTarget();
   }
   return tabId;
+}
+
+// Must exceed SELF_SUBMIT_BUFFER_TTL_MS. Otherwise confirmation can time out
+// while its replay is still eligible to mount and deliver later.
+const DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS = SELF_SUBMIT_BUFFER_TTL_MS + 2000;
+
+export interface SendToAgentChatAndConfirmResult {
+  tabId: string;
+  /** True once the message actually became a visible turn in the chat. */
+  delivered: boolean;
+  /** Set when `delivered` is false: "missing-engine", "timeout", etc. */
+  reason?: string;
+}
+
+/**
+ * Like {@link sendToAgentChat}, but resolves once the submit's fate is known
+ * instead of firing and forgetting. Use this whenever the caller must decide
+ * whether to keep/restore its own state on failure (e.g. a draw/annotate
+ * overlay that should not discard the user's work unless the message actually
+ * reached the chat) — see the `AGENT_CHAT_SUBMIT_RESULT_EVENT` contract.
+ * This acknowledgement is intentionally limited to submitted, non-code
+ * messages with `chatTarget: "local"`; parent-frame and MCP host chats use
+ * different delivery protocols and return `unsupported-target` here.
+ *
+ * Resolves `delivered: false` if the receiving chat explicitly rejects the
+ * submit (e.g. no LLM/agent engine configured) OR if no result arrives within
+ * `timeoutMs` — a silently-stuck submit (panel never mounts, thread never
+ * gets a ref, message type not handled by this build) must fail the same way
+ * an explicit rejection does, since the caller cannot otherwise tell the
+ * difference between "still in flight" and "dropped."
+ */
+export function sendToAgentChatAndConfirm(
+  opts: Omit<AgentChatMessage, "submitMessageId">,
+  options?: { timeoutMs?: number },
+): Promise<SendToAgentChatAndConfirmResult> {
+  const tabId = opts.tabId ?? generateTabId();
+  if (typeof window === "undefined") {
+    return Promise.resolve({ tabId, delivered: false, reason: "no-window" });
+  }
+  // Confirmation is deliberately a same-window/local-chat contract. Parent
+  // frames, Builder code chat, and MCP host relays have independent protocols
+  // and cannot answer this window-local CustomEvent acknowledgement.
+  if (
+    opts.chatTarget !== "local" ||
+    opts.type === "code" ||
+    opts.requiresCode === true ||
+    opts.submit === false
+  ) {
+    return Promise.resolve({
+      tabId,
+      delivered: false,
+      reason: "unsupported-target",
+    });
+  }
+
+  const submitMessageId = generateSubmitMessageId();
+  const timeoutMs = Math.max(
+    0,
+    options?.timeoutMs ?? DEFAULT_SUBMIT_CONFIRM_TIMEOUT_MS,
+  );
+
+  return new Promise<SendToAgentChatAndConfirmResult>((resolve) => {
+    let settled = false;
+    let timer: number | undefined;
+    const cleanup = () => {
+      window.removeEventListener(
+        AGENT_CHAT_SUBMIT_RESULT_EVENT,
+        onResult as EventListener,
+      );
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+    const finish = (delivered: boolean, reason?: string, cancel = false) => {
+      if (settled) return;
+      settled = true;
+      if (cancel) cancelAgentChatSubmit(submitMessageId);
+      cleanup();
+      resolve({ tabId, delivered, reason });
+    };
+    const onResult = (event: Event) => {
+      const detail = (event as CustomEvent<AgentChatSubmitResult>).detail;
+      if (!detail || detail.submitMessageId !== submitMessageId) return;
+      finish(detail.delivered, detail.reason);
+    };
+
+    window.addEventListener(
+      AGENT_CHAT_SUBMIT_RESULT_EVENT,
+      onResult as EventListener,
+    );
+    timer = window.setTimeout(() => finish(false, "timeout", true), timeoutMs);
+    try {
+      sendToAgentChat({ ...opts, tabId, submitMessageId });
+    } catch {
+      finish(false, "send-failed", true);
+    }
+  });
 }
 
 /**

@@ -2,12 +2,13 @@ import { Buffer } from "node:buffer";
 
 import { readAppSecret, writeAppSecret } from "@agent-native/core/secrets";
 import { resolveAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import {
   detectPlatform,
   getEvent,
+  isPermanentRefreshFailure,
   pickJoinUrl,
   resolveGoogleOAuthCredentialCandidates,
   refreshAccessTokenWithFallback,
@@ -118,17 +119,13 @@ export async function resolveCalendarAccessToken(
       refreshToken: refreshSecret.value,
       credentials: credentialCandidates,
     });
-  } catch {
-    // TODO(needs-reauth classification): a transient refresh failure (network
-    // error / 5xx / timeout) is indistinguishable here from a permanent one
-    // (invalid_grant / invalid_token / unauthorized): both surface to the
-    // caller as a bare `null`, which the caller translates to
-    // `new Error("Token refresh failed")` -> shouldMarkNeedsReauth -> the
-    // account is flagged "needs-reauth" even on a blip. Distinguishing the two
-    // safely would require either changing this function's return contract or
-    // moving error recording out of the callers (a caller-contract change),
-    // both of which are out of scope, so we leave the existing behavior intact.
-    return null;
+  } catch (err) {
+    // Only a permanent failure (dead refresh token / bad OAuth client) means
+    // "needs-reauth" — collapse those to `null` as before. A transient
+    // failure (network error, 429, 5xx, timeout) is rethrown so callers can
+    // record it as a soft sync error without flipping account status.
+    if (isPermanentRefreshFailure(err)) return null;
+    throw err;
   }
   if (!refreshed.access_token) return null;
   if (account.accessTokenSecretRef) {
@@ -291,7 +288,15 @@ export async function fetchLiveCalendarEventFromId(virtualId: string) {
     .limit(1);
   if (!account || account.provider !== "google") return null;
 
-  const accessToken = await resolveCalendarAccessToken(account);
+  let accessToken: string | null;
+  try {
+    accessToken = await resolveCalendarAccessToken(account);
+  } catch (err) {
+    // Transient refresh failure — record the real error (won't match
+    // shouldMarkNeedsReauth) instead of a permanent needs-reauth marker.
+    await recordCalendarFetchError(account, err);
+    return null;
+  }
   if (!accessToken) {
     await recordCalendarFetchError(account, new Error("Token refresh failed"));
     return null;
@@ -408,52 +413,98 @@ export async function materializeCalendarMeetingFromVirtualId(
   const joinUrl = pickJoinUrl(live.event);
   const meetingId = nanoid();
   const nowIso = new Date().toISOString();
-  await db.insert(schema.meetings).values({
-    id: meetingId,
-    organizationId: orgId ?? live.account.orgId ?? null,
-    title: live.event.summary || "Untitled meeting",
-    scheduledStart: eventStartIso(live.event),
-    scheduledEnd: eventEndIso(live.event),
-    actualStart: null,
-    actualEnd: null,
-    platform: detectPlatform(joinUrl),
-    joinUrl: joinUrl ?? null,
-    calendarEventId: snapshot.id,
-    recordingId: null,
-    transcriptStatus: "idle",
-    summaryMd: "",
-    bulletsJson: "[]",
-    actionItemsJson: "[]",
-    source: "calendar",
-    reminderFiredAt: null,
-    createdAt: nowIso,
-    updatedAt: nowIso,
-    ownerEmail,
-    orgId,
-    visibility: "private",
-  } as any);
 
-  const participants = calendarEventParticipants(live.event).filter(
-    (p) => p.email,
-  );
-  if (participants.length) {
-    await db.insert(schema.meetingParticipants).values(
-      participants.map((p) => ({
-        id: nanoid(),
-        meetingId,
-        email: p.email,
-        name: p.name ?? null,
-        isOrganizer: !!p.isOrganizer,
-        attendedAt: null,
-        createdAt: nowIso,
-      })) as any,
-    );
-  }
-
-  await db
+  // Claim the calendar_events row atomically before inserting the meeting
+  // row, so two concurrent materialize calls for the same event can't both
+  // insert a `meetings` row (check-then-act TOCTOU). Only the caller whose
+  // UPDATE actually matched a row (meetingId still NULL) proceeds to insert;
+  // the loser re-reads and returns the winner's meeting instead.
+  const claimed = await db
     .update(schema.calendarEvents)
     .set({ meetingId, updatedAt: nowIso })
-    .where(eq(schema.calendarEvents.id, snapshot.id));
+    .where(
+      and(
+        eq(schema.calendarEvents.id, snapshot.id),
+        isNull(schema.calendarEvents.meetingId),
+      ),
+    )
+    .returning({ id: schema.calendarEvents.id });
+
+  if (!claimed.length) {
+    // Someone else claimed it first — re-read and return their meeting.
+    const [winnerEvent] = await db
+      .select({ meetingId: schema.calendarEvents.meetingId })
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.id, snapshot.id))
+      .limit(1);
+    if (winnerEvent?.meetingId) {
+      const [winnerMeeting] = await db
+        .select()
+        .from(schema.meetings)
+        .where(eq(schema.meetings.id, winnerEvent.meetingId))
+        .limit(1);
+      if (winnerMeeting) return { meeting: winnerMeeting, created: false };
+    }
+    return null;
+  }
+
+  try {
+    await db.insert(schema.meetings).values({
+      id: meetingId,
+      organizationId: orgId ?? live.account.orgId ?? null,
+      title: live.event.summary || "Untitled meeting",
+      scheduledStart: eventStartIso(live.event),
+      scheduledEnd: eventEndIso(live.event),
+      actualStart: null,
+      actualEnd: null,
+      platform: detectPlatform(joinUrl),
+      joinUrl: joinUrl ?? null,
+      calendarEventId: snapshot.id,
+      recordingId: null,
+      transcriptStatus: "idle",
+      summaryMd: "",
+      bulletsJson: "[]",
+      actionItemsJson: "[]",
+      source: "calendar",
+      reminderFiredAt: null,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      ownerEmail,
+      orgId,
+      visibility: "private",
+    } as any);
+
+    const participants = calendarEventParticipants(live.event).filter(
+      (p) => p.email,
+    );
+    if (participants.length) {
+      await db.insert(schema.meetingParticipants).values(
+        participants.map((p) => ({
+          id: nanoid(),
+          meetingId,
+          email: p.email,
+          name: p.name ?? null,
+          isOrganizer: !!p.isOrganizer,
+          attendedAt: null,
+          createdAt: nowIso,
+        })) as any,
+      );
+    }
+  } catch (err) {
+    // Roll back the claim so a future call can retry — but only if it still
+    // points at our own meetingId (don't clobber a legitimate later claim).
+    await db
+      .update(schema.calendarEvents)
+      .set({ meetingId: null, updatedAt: new Date().toISOString() })
+      .where(
+        and(
+          eq(schema.calendarEvents.id, snapshot.id),
+          eq(schema.calendarEvents.meetingId, meetingId),
+        ),
+      )
+      .catch(() => {});
+    throw err;
+  }
 
   const [meeting] = await db
     .select()

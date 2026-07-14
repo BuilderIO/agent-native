@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/pinpoint",
-  "version": "0.1.10",
+  "version": "0.1.13",
   "description": "Visual feedback and annotation tool for agent-native web applications",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -51,7 +51,7 @@
   "scripts": {
     "build": "tsup",
     "dev": "tsup --watch",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "tsc --noEmit",
     "test": "vitest --run --passWithNoTests"
   },
   "dependencies": {
@@ -67,12 +67,12 @@
     "@types/express": "^5.0.3",
     "@types/node": "^24.2.1",
     "@types/react": "^19.2.14",
-    "@typescript/native-preview": "catalog:",
     "babel-preset-solid": "^1.9.10",
     "esbuild-plugin-solid": "^0.6.0",
     "express": "^5.1.0",
     "tsup": "^8.4.0",
-    "typescript": "^6.0.3",
+    "typescript": "catalog:",
+    "typescript-7": "catalog:",
     "vite-plugin-solid": "^2.11.0",
     "vitest": "^4.1.5"
   },

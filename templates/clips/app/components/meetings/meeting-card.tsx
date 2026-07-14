@@ -95,7 +95,7 @@ export function MeetingCard({ meeting }: { meeting: MeetingCardData }) {
     >
       <Card
         className={cn(
-          "cursor-pointer transition-all duration-150",
+          "cursor-pointer transition-[transform,box-shadow,border-color] duration-150",
           "hover:border-foreground/20 hover:shadow-sm hover:-translate-y-px",
           "bg-background",
         )}
@@ -209,7 +209,7 @@ function relativeStartLabel(
 /**
  * <UpcomingMeetingCard /> — a not-yet-recorded calendar event (Granola-style).
  * Recording is a native Clips desktop-app gesture, so the card just opens the
- * meeting's notes ("Open") and links out to the call ("Join"). Buttons are
+ * meeting's notes ("Open notes") and links out to the call ("Join"). Buttons are
  * NavLink/<a> siblings (never nested anchors) so the markup stays valid.
  */
 export function UpcomingMeetingCard({
@@ -228,7 +228,7 @@ export function UpcomingMeetingCard({
   return (
     <Card
       className={cn(
-        "transition-all duration-150 hover:border-foreground/20 hover:shadow-sm",
+        "transition-[transform,box-shadow,border-color] duration-150 hover:border-foreground/20 hover:shadow-sm",
         joinable && "border-foreground/25",
       )}
     >
@@ -272,6 +272,11 @@ export function UpcomingMeetingCard({
               <span>– {formatTime(meeting.scheduledEnd)}</span>
             )}
           </div>
+          <p className="mt-1.5 text-[11px] leading-snug text-muted-foreground">
+            {soon || isLive
+              ? t("meetingCard.startFromDesktopNow")
+              : t("meetingCard.startFromDesktopLater")}
+          </p>
         </NavLink>
 
         <div className="flex items-center justify-between gap-2 pt-1">
@@ -302,7 +307,7 @@ export function UpcomingMeetingCard({
               className="h-7 gap-1 px-2.5 text-xs cursor-pointer"
             >
               <NavLink to={`/meetings/${meeting.id}`}>
-                {isLive ? t("meetingCard.openNotes") : t("meetingCard.open")}
+                {t("meetingCard.openNotes")}
               </NavLink>
             </Button>
           </div>

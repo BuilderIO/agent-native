@@ -14,6 +14,9 @@
 //!  * **Call-end heuristic** — best-effort: if a known video-conferencing
 //!    bundle id (Zoom, Google Meet wrapper, MS Teams) goes from frontmost
 //!    to background for >2 minutes, emit `meetings:call-ended`.
+//!  * **Calendar end** — when the scheduled meeting end has passed and both
+//!    audio sources have been quiet for the call-end window, emit the same
+//!    event even if the conferencing app remains frontmost.
 //!
 //! Renderer-side responsibility: subscribe via `silence-events.ts`, dispatch
 //! the `stop-meeting-recording` action when any of the events fire.
@@ -40,7 +43,7 @@
 //! trick is equivalent and uses constant memory.
 
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Listener, Manager};
@@ -66,6 +69,10 @@ pub struct SilenceConfig {
     /// Whether to enable the call-ended heuristic.
     #[serde(default = "default_true")]
     pub watch_call_ended: bool,
+    /// Unix epoch milliseconds for the calendar event's scheduled end.
+    /// Calendar-end stopping still requires quiet audio as confirmation.
+    #[serde(default)]
+    pub scheduled_end_ms: Option<u64>,
 }
 
 fn default_threshold() -> f32 {
@@ -108,6 +115,8 @@ struct DetectorInner {
     system: Option<SourceState>,
     /// Already fired the silence-stop event in this session?
     silence_fired: bool,
+    /// Calendar event end for the active session, if one is known.
+    scheduled_end_ms: Option<u64>,
 }
 
 pub struct DetectorState {
@@ -142,6 +151,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
         call_ended_ms: default_call_ended_ms(),
         watch_sleep: true,
         watch_call_ended: true,
+        scheduled_end_ms: None,
     });
 
     // Install the audio-level listener exactly once for the process.
@@ -185,6 +195,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
         g.active = true;
         g.silence_fired = false;
         g.config = Some(cfg.clone());
+        g.scheduled_end_ms = cfg.scheduled_end_ms;
         // Seed both buckets with `now()` so we don't insta-fire on start
         // before any audio has streamed in yet.
         g.mic = Some(SourceState::fresh());
@@ -198,9 +209,10 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
     let inner_for_supervisor = state.inner.clone();
     let app_for_supervisor = app.clone();
     let silence_window = Duration::from_millis(cfg.silence_ms);
+    let calendar_end_quiet_window = Duration::from_millis(cfg.call_ended_ms);
     std::thread::spawn(move || loop {
         std::thread::sleep(Duration::from_secs(5));
-        let should_fire = {
+        let stop_reason = {
             let g = match inner_for_supervisor.lock() {
                 Ok(g) => g,
                 Err(_) => return,
@@ -209,7 +221,7 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
                 return; // session ended or replaced — exit
             }
             if g.silence_fired {
-                false
+                None
             } else {
                 let now = Instant::now();
                 let mic_silent = g
@@ -222,14 +234,39 @@ pub fn silence_detector_start(app: AppHandle, config: Option<SilenceConfig>) -> 
                     .as_ref()
                     .map(|s| now.duration_since(s.last_loud_at) >= silence_window)
                     .unwrap_or(false);
-                mic_silent && system_silent
+                let mic_quiet_for_calendar_end = g
+                    .mic
+                    .as_ref()
+                    .map(|s| now.duration_since(s.last_loud_at) >= calendar_end_quiet_window)
+                    .unwrap_or(false);
+                let system_quiet_for_calendar_end = g
+                    .system
+                    .as_ref()
+                    .map(|s| now.duration_since(s.last_loud_at) >= calendar_end_quiet_window)
+                    .unwrap_or(false);
+                if calendar_end_stop_ready(
+                    g.scheduled_end_ms,
+                    unix_now_ms(),
+                    mic_quiet_for_calendar_end && system_quiet_for_calendar_end,
+                ) {
+                    Some("calendar")
+                } else if mic_silent && system_silent {
+                    Some("silence")
+                } else {
+                    None
+                }
             }
         };
-        if should_fire {
+        if let Some(reason) = stop_reason {
             if let Ok(mut g) = inner_for_supervisor.lock() {
                 g.silence_fired = true;
             }
-            let _ = app_for_supervisor.emit("meetings:silence-stop", ());
+            let event = if reason == "calendar" {
+                "meetings:call-ended"
+            } else {
+                "meetings:silence-stop"
+            };
+            let _ = app_for_supervisor.emit(event, ());
         }
     });
 
@@ -255,6 +292,7 @@ pub fn silence_detector_stop(app: AppHandle) -> Result<(), String> {
     g.silence_fired = false;
     g.mic = None;
     g.system = None;
+    g.scheduled_end_ms = None;
     Ok(())
 }
 
@@ -307,17 +345,31 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
             // If it was front during this session and has been background for
             // > threshold_ms, fire `meetings:call-ended`. On the first session
             // tick we just record state and wait.
-            let known_vc_bundles: &[&str] = &[
+            // Native VC clients are a strong signal on their own: a Zoom/Teams
+            // window backgrounding for a while means the user almost
+            // certainly left the call. Generic browsers are NOT included
+            // here — Meet/Zoom-web/Teams-web all run inside Chrome/Arc, so
+            // "Chrome was frontmost" just means the user was in some tab, not
+            // that any call ended. Browser-hosted calls fall back to
+            // `strong_vc_bundles` below only when corroborated by the
+            // mic+system silence tracking this same detector already keeps
+            // (DetectorInner.mic/system), never on the frontmost-app poll
+            // alone — matching the granola-ux.md "transcript length +
+            // calendar times" model instead of raw frontmost tracking.
+            let strong_vc_bundles: &[&str] = &[
                 "us.zoom.xos",
                 "us.zoom.ZoomClips",
                 "com.microsoft.teams2",
                 "com.microsoft.teams",
-                "com.google.Chrome", // meet runs inside Chrome; weak signal
+            ];
+            let generic_browser_bundles: &[&str] = &[
+                "com.google.Chrome",
                 "company.thebrowser.Browser", // Arc
             ];
             let mut ever_seen_front = false;
             let mut last_front_at: Option<Instant> = None;
             let mut fired = false;
+            let mut last_front_was_generic_browser = false;
             loop {
                 std::thread::sleep(Duration::from_secs(10));
                 let state = app.state::<DetectorState>();
@@ -326,24 +378,43 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
                     ever_seen_front = false;
                     last_front_at = None;
                     fired = false;
+                    last_front_was_generic_browser = false;
                     continue;
                 }
-                let front = frontmost_bundle_id();
-                let is_vc = front
+                let front = crate::util::frontmost_bundle_id();
+                let is_strong_vc = front
                     .as_ref()
-                    .map(|b| known_vc_bundles.iter().any(|k| k == b))
+                    .map(|b| strong_vc_bundles.iter().any(|k| k == b))
                     .unwrap_or(false);
-                if is_vc {
+                let is_generic_browser = front
+                    .as_ref()
+                    .map(|b| generic_browser_bundles.iter().any(|k| k == b))
+                    .unwrap_or(false);
+                if is_strong_vc || is_generic_browser {
                     ever_seen_front = true;
                     last_front_at = Some(Instant::now());
+                    last_front_was_generic_browser = is_generic_browser;
                 }
-                if ever_seen_front && !fired {
-                    if let Some(t) = last_front_at {
-                        if Instant::now().duration_since(t).as_millis() as u64 >= threshold_ms {
-                            let _ = app.emit("meetings:call-ended", ());
-                            fired = true;
-                        }
-                    }
+                if fired {
+                    continue;
+                }
+
+                let frontmost_call_ended = ever_seen_front
+                    && last_front_at
+                        .map(|t| {
+                            Instant::now().duration_since(t).as_millis() as u64 >= threshold_ms
+                        })
+                        .unwrap_or(false)
+                    // Require audio corroboration for browser-hosted calls:
+                    // backgrounding Chrome/Arc alone does not prove that the
+                    // Meet tab ended. Use the last known conference app, not
+                    // the unrelated app now in front.
+                    && (!last_front_was_generic_browser
+                        || audio_recently_silent(&state, threshold_ms));
+
+                if frontmost_call_ended {
+                    let _ = app.emit("meetings:call-ended", ());
+                    fired = true;
                 }
             }
         });
@@ -353,26 +424,66 @@ fn install_call_ended_watcher(app: &AppHandle, threshold_ms: u64) {
 #[cfg(not(target_os = "macos"))]
 fn install_call_ended_watcher(_app: &AppHandle, _threshold_ms: u64) {}
 
+fn scheduled_end_reached(scheduled_end_ms: Option<u64>, now_ms: u64) -> bool {
+    scheduled_end_ms
+        .map(|end_ms| now_ms >= end_ms)
+        .unwrap_or(false)
+}
+
+fn calendar_end_stop_ready(scheduled_end_ms: Option<u64>, now_ms: u64, audio_quiet: bool) -> bool {
+    scheduled_end_reached(scheduled_end_ms, now_ms) && audio_quiet
+}
+
+fn unix_now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis() as u64
+}
+
+/// Corroboration check for the generic-browser call-ended signal: true only
+/// if BOTH mic and system audio have been quiet for at least `threshold_ms`.
+/// Reuses the same per-source `last_loud_at` tracking the silence-stop
+/// supervisor already maintains — no new subsystem, no new lock ordering
+/// beyond the existing `DetectorState.inner` mutex. Missing/never-seen
+/// sources count as "not corroborating" (conservative — when in doubt, keep
+/// recording rather than auto-stop).
 #[cfg(target_os = "macos")]
-fn frontmost_bundle_id() -> Option<String> {
-    // Lightweight shell-out to avoid extra crates: AppleScript via `osascript`
-    // returns the bundle id of the frontmost app. This avoids pulling in a
-    // full objc2 dependency just for one read.
-    use std::process::Command;
-    let out = Command::new("osascript")
-        .args([
-            "-e",
-            "tell application \"System Events\" to get bundle identifier of (first process whose frontmost is true)",
-        ])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        return None;
+fn audio_recently_silent(state: &tauri::State<'_, DetectorState>, threshold_ms: u64) -> bool {
+    let Ok(g) = state.inner.lock() else {
+        return false;
+    };
+    let window = Duration::from_millis(threshold_ms);
+    let now = Instant::now();
+    let mic_silent = g
+        .mic
+        .as_ref()
+        .map(|s| now.duration_since(s.last_loud_at) >= window)
+        .unwrap_or(false);
+    let system_silent = g
+        .system
+        .as_ref()
+        .map(|s| now.duration_since(s.last_loud_at) >= window)
+        .unwrap_or(false);
+    mic_silent && system_silent
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{calendar_end_stop_ready, scheduled_end_reached};
+
+    #[test]
+    fn calendar_end_requires_a_known_end_and_allows_the_exact_boundary() {
+        assert!(!scheduled_end_reached(None, 10_000));
+        assert!(!scheduled_end_reached(Some(10_001), 10_000));
+        assert!(scheduled_end_reached(Some(10_000), 10_000));
+        assert!(scheduled_end_reached(Some(9_999), 10_000));
     }
-    let s = String::from_utf8(out.stdout).ok()?.trim().to_string();
-    if s.is_empty() {
-        None
-    } else {
-        Some(s)
+
+    #[test]
+    fn calendar_end_stop_also_requires_quiet_audio() {
+        assert!(!calendar_end_stop_ready(Some(9_999), 10_000, false));
+        assert!(calendar_end_stop_ready(Some(9_999), 10_000, true));
+        assert!(!calendar_end_stop_ready(Some(10_001), 10_000, true));
     }
 }

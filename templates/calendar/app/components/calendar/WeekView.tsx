@@ -1,5 +1,11 @@
+import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
+import {
+  IconAlertTriangleFilled,
+  IconBuilding,
+  IconHome,
+  IconMapPin,
+} from "@tabler/icons-react";
 import {
   startOfWeek,
   endOfWeek,
@@ -16,21 +22,38 @@ import {
   addMinutes,
   min,
 } from "date-fns";
-import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback, memo } from "react";
 
-import { useCalendarContext } from "@/components/layout/AppLayout";
+import { useCalendarSetters } from "@/components/layout/AppLayout";
 import {
   Tooltip,
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { useEventDrag } from "@/hooks/use-event-drag";
+import { useGridCreateDrag } from "@/hooks/use-grid-create-drag";
 import { useIsMobile } from "@/hooks/use-mobile";
-import { useViewPreferences } from "@/hooks/use-view-preferences";
+import {
+  useViewPreferences,
+  type ViewPreferences,
+} from "@/hooks/use-view-preferences";
+import {
+  groupAdjacentAllDayPlacements,
+  layoutAllDayEvents,
+  partitionAllDayEvents,
+} from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { shouldSuppressAfterPopoverClose } from "@/lib/popover-click-guard";
+import {
+  shouldSuppressAfterPopoverClose,
+  shouldSuppressCreatePointerDown,
+} from "@/lib/popover-click-guard";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
+import {
+  createWorkingLocationDisplayLabels,
+  getWorkingLocationChipLabel,
+  getWorkingLocationTitle,
+} from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
@@ -41,10 +64,19 @@ interface WeekViewProps {
   onDateSelect: (date: Date) => void;
   onDeleteEvent: (eventId: string) => void;
   onEventTimeChange?: (eventId: string, newStart: Date, newEnd: Date) => void;
-  onClickTimeSlot?: (date: Date, startTime: string, endTime: string) => void;
+  onClickTimeSlot?: (
+    date: Date,
+    startTime: string,
+    endTime: string,
+    options?: { explicitDuration?: boolean },
+  ) => void;
   quickEditEventId?: string | null;
-  onQuickEditSave?: (eventId: string, title: string) => void;
-  onQuickEditCancel?: (eventId: string) => void;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
   draftEventIds?: string[];
   onDraftUpdate?: (
     eventId: string,
@@ -91,6 +123,23 @@ const END_HOUR = 24;
 const HOUR_HEIGHT = 60;
 const DESKTOP_GUTTER_WIDTH = 60;
 const MOBILE_GUTTER_WIDTH = 40;
+
+/** Convert minutes-from-START_HOUR on a given day into a zero-padded "HH:mm" string, clamped to 23:59 */
+function minutesToTimeString(totalMinutes: number): string {
+  const clamped = Math.min(totalMinutes, 24 * 60 - 1);
+  const h = Math.min(23, Math.floor(clamped / 60));
+  const m = clamped % 60;
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${pad(h)}:${pad(m)}`;
+}
+
+/** Convert minutes-from-START_HOUR on a given day into a Date, for ghost label formatting */
+function minutesToDate(day: Date, totalMinutes: number): Date {
+  return addMinutes(
+    set(startOfDay(day), { hours: START_HOUR, minutes: 0, seconds: 0 }),
+    totalMinutes,
+  );
+}
 
 /** Format an event's time range in compact Notion style: "8–10:30 AM" or "9 AM" */
 function formatEventTime(start: Date, end: Date): string {
@@ -176,32 +225,374 @@ function computeLayout(
   return result;
 }
 
-/** Determine which day columns an all-day event spans within a given week */
-function getAllDaySpan(
-  event: CalendarEvent,
-  days: Date[],
-): { startCol: number; endCol: number } | null {
+function getSegmentStyle(event: CalendarEvent, day: Date) {
   const evStart = parseISO(event.start);
-  const evEnd = event.end ? parseISO(event.end) : addDays(evStart, 1);
-
-  let startCol = -1;
-  let endCol = -1;
-
-  for (let i = 0; i < days.length; i++) {
-    const dayStart = startOfDay(days[i]);
-    const dayEnd = addDays(dayStart, 1);
-    // Event overlaps this day if it starts before day ends and ends after day starts
-    if (evStart < dayEnd && evEnd > dayStart) {
-      if (startCol === -1) startCol = i;
-      endCol = i;
-    }
-  }
-
-  if (startCol === -1) return null;
-  return { startCol, endCol };
+  const evEnd = parseISO(event.end);
+  const dayBase = set(startOfDay(day), { hours: START_HOUR });
+  const dayEnd = addDays(dayBase, 1);
+  const segStart = evStart > dayBase ? evStart : dayBase;
+  const segEnd = min([evEnd, dayEnd]);
+  const topMinutes = Math.max(0, differenceInMinutes(segStart, dayBase));
+  const durationMinutes = Math.max(15, differenceInMinutes(segEnd, segStart));
+  return {
+    top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
+    height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
+  };
 }
 
-export function WeekView({
+interface WeekEventCardProps {
+  event: CalendarEvent;
+  day: Date;
+  dayIndex: number;
+  layout: Map<string, LayoutInfo>;
+  now: Date;
+  prefs: ViewPreferences;
+  focusedEventId: string | null;
+  isBeingDragged: boolean;
+  isDragging: boolean;
+  isDraggedIntoThisColumn: boolean;
+  /** Drag overrides flattened to primitives — only the dragged event gets non-null values, so untouched events keep an all-null (referentially trivial) prop shape every frame. */
+  overrideTop: number | null;
+  overrideHeight: number | null;
+  overrideDayIndex: number | null;
+  canDrag: boolean;
+  onPointerDownEvent: (
+    e: React.PointerEvent,
+    event: CalendarEvent,
+    isStart: boolean,
+    dayIndex: number,
+  ) => void;
+  onResizeTopPointerDown: (
+    e: React.PointerEvent,
+    eventId: string,
+    dayIndex: number,
+  ) => void;
+  onResizeBottomPointerDown: (
+    e: React.PointerEvent,
+    eventId: string,
+    dayIndex: number,
+  ) => void;
+  shouldSuppressClick: () => boolean;
+  onDeleteEvent: (eventId: string) => void;
+  isDraft: boolean;
+  defaultOpen: boolean;
+  onQuickEditSave?: (
+    eventId: string,
+    title: string,
+    accountEmail?: string,
+  ) => void;
+  onQuickEditCancel?: (eventId: string, accountEmail?: string) => void;
+  onDraftUpdate?: WeekViewProps["onDraftUpdate"];
+  onDraftCreate?: WeekViewProps["onDraftCreate"];
+  onDraftDiscard?: WeekViewProps["onDraftDiscard"];
+}
+
+/**
+ * A single event's rendered segment within a day column. Memoized so that
+ * during a drag/resize (which updates overrideTop/overrideHeight every
+ * frame only for the dragged event's own card), every other event's card
+ * bails out of re-rendering via the default shallow prop comparison.
+ */
+const WeekEventCard = memo(function WeekEventCard({
+  event,
+  day,
+  dayIndex,
+  layout,
+  now,
+  prefs,
+  focusedEventId,
+  isBeingDragged,
+  isDragging,
+  isDraggedIntoThisColumn,
+  overrideTop,
+  overrideHeight,
+  overrideDayIndex,
+  canDrag,
+  onPointerDownEvent,
+  onResizeTopPointerDown,
+  onResizeBottomPointerDown,
+  shouldSuppressClick,
+  onDeleteEvent,
+  isDraft,
+  defaultOpen,
+  onQuickEditSave,
+  onQuickEditCancel,
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
+}: WeekEventCardProps) {
+  const t = useT();
+  const li = layout.get(event.id) ?? {
+    left: 0,
+    width: 0,
+    col: 0,
+    totalCols: 1,
+  };
+  const overrides =
+    overrideTop !== null && overrideHeight !== null && overrideDayIndex !== null
+      ? { top: overrideTop, height: overrideHeight, dayIndex: overrideDayIndex }
+      : null;
+  const start = parseISO(event.start);
+  const end = parseISO(event.end);
+  const dayBase = startOfDay(day);
+  const segDayEnd = addDays(dayBase, 1);
+  const isStart = isSameDay(start, day);
+  const isEnd = end <= segDayEnd;
+  const isDragPreviewSegment =
+    isBeingDragged && overrides?.dayIndex === dayIndex;
+  const segmentStartsHere = isStart || isDragPreviewSegment;
+
+  // Hide from original column if dragged to a different day
+  if (
+    isBeingDragged &&
+    overrides &&
+    overrides.dayIndex !== dayIndex &&
+    !isDraggedIntoThisColumn
+  ) {
+    return null;
+  }
+  // Hide continuation segments during active drag to avoid ghost overlap
+  if (
+    !shouldRenderWeekDragSegment({
+      isBeingDragged,
+      isDragging,
+      isStart,
+      overrideDayIndex: overrides?.dayIndex,
+      dayIndex,
+    })
+  ) {
+    return null;
+  }
+
+  const style = overrides
+    ? {
+        top: `${overrides.top}px`,
+        height: `${overrides.height}px`,
+      }
+    : getSegmentStyle(event, day);
+  const color = getEventDisplayColor(event, prefs);
+  const segStart = isStart ? start : dayBase;
+  const segEnd = min([end, segDayEnd]);
+  const durationMin = overrides
+    ? (overrides.height / HOUR_HEIGHT) * 60
+    : differenceInMinutes(segEnd, segStart);
+  // Compute display times (use drag overrides if active)
+  const displayStart = overrides
+    ? addMinutes(
+        set(startOfDay(day), {
+          hours: START_HOUR,
+          minutes: 0,
+          seconds: 0,
+        }),
+        (overrides.top / HOUR_HEIGHT) * 60,
+      )
+    : start;
+  const displayEnd = overrides ? addMinutes(displayStart, durationMin) : end;
+  const isPast = end < now;
+  const isDeclined = event.responseStatus === "declined";
+  const allOthersOut = allOtherDeclined(event);
+
+  const eventButton = (
+    <button
+      onPointerDown={(e) => onPointerDownEvent(e, event, isStart, dayIndex)}
+      onClick={(e) => {
+        if (shouldSuppressClick()) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
+      }}
+      className={cn(
+        "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
+        segmentStartsHere ? "rounded-t-md" : "rounded-t-none",
+        isEnd ? "rounded-b-md" : "rounded-b-none",
+        durationMin <= 30 ? "justify-center" : "justify-start",
+        isDeclined && "saturate-[0.3]",
+        isBeingDragged && isDragging && "shadow-lg z-[100]",
+        isBeingDragged && isDragging && "ring-2 ring-primary/40",
+        canDrag && segmentStartsHere && "cursor-grab",
+        isBeingDragged && isDragging && "cursor-grabbing",
+        event.ownerColor && "pr-4",
+      )}
+      aria-label={
+        event.ownerName || event.overlayEmail
+          ? `${event.title}, ${
+              event.ownerName || event.overlayEmail
+            }'s calendar`
+          : event.title
+      }
+      style={{
+        ...style,
+        left: `${li.left}px`,
+        width: `calc(min(85%, 100% - ${li.left + 2}px))`,
+        zIndex:
+          isBeingDragged && isDragging
+            ? 100
+            : focusedEventId === event.id
+              ? 50
+              : li.col + 1,
+        backgroundColor: color
+          ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
+          : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
+        borderLeft: `3px solid ${
+          isPast || isDeclined
+            ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+            : (color ?? "hsl(var(--primary))")
+        }`,
+        borderTop: !segmentStartsHere
+          ? `2px dashed ${
+              isPast || isDeclined
+                ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
+                : `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 60%, transparent)`
+            }`
+          : undefined,
+        opacity: isBeingDragged && isDragging ? 0.9 : undefined,
+      }}
+    >
+      {event.ownerColor && (
+        <span
+          aria-hidden="true"
+          className="absolute right-1.5 top-1.5 size-1.5 rounded-full ring-1 ring-background/70"
+          style={{ backgroundColor: event.ownerColor }}
+        />
+      )}
+      {durationMin <= 30 ? (
+        <div className="flex items-baseline gap-1 truncate">
+          {allOthersOut && (
+            <IconAlertTriangleFilled
+              size={10}
+              className="shrink-0 text-current opacity-70 relative top-[1px]"
+            />
+          )}
+          <EventStatusIcon
+            event={event}
+            className="relative top-[1px] shrink-0"
+          />
+          <span
+            className={cn(
+              "truncate leading-tight",
+              isPast || isDeclined
+                ? "text-muted-foreground"
+                : "text-foreground",
+              isDeclined && "line-through",
+              !isPast && !isDeclined && "font-semibold",
+            )}
+          >
+            {event.title}
+          </span>
+        </div>
+      ) : (
+        <>
+          <div
+            className={cn(
+              "mt-0.5 flex items-center gap-1 truncate leading-tight",
+              isPast || isDeclined
+                ? "text-muted-foreground"
+                : "text-foreground",
+              isDeclined && "line-through",
+              !isPast && !isDeclined && "font-semibold",
+            )}
+          >
+            {allOthersOut && (
+              <IconAlertTriangleFilled
+                size={10}
+                className="shrink-0 text-current opacity-70"
+              />
+            )}
+            <EventStatusIcon event={event} className="shrink-0" />
+            <span className="truncate">{event.title}</span>
+          </div>
+          {segmentStartsHere && (
+            <div
+              className={cn(
+                "mt-0.5 truncate text-[9px] leading-tight",
+                isPast || isDeclined
+                  ? "text-muted-foreground/50"
+                  : "text-foreground/60",
+              )}
+            >
+              {formatEventTime(displayStart, displayEnd)}
+            </div>
+          )}
+        </>
+      )}
+      {/* Top resize handle */}
+      {canDrag && isStart && (
+        <div
+          data-resize-handle="true"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onResizeTopPointerDown(e, event.id, dayIndex);
+          }}
+          className="absolute left-0 right-0 top-0 h-2 cursor-n-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
+      {/* Bottom resize handle — only on single-day segments; multi-day end segments need segment-aware drag math */}
+      {canDrag && isEnd && isStart && (
+        <div
+          data-resize-handle="true"
+          onPointerDown={(e) => {
+            e.stopPropagation();
+            onResizeBottomPointerDown(e, event.id, dayIndex);
+          }}
+          className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize"
+          style={{ touchAction: "none" }}
+        />
+      )}
+    </button>
+  );
+
+  // Don't wrap in popover while dragging
+  if (isBeingDragged && isDragging) {
+    return <div className="contents">{eventButton}</div>;
+  }
+
+  return (
+    <EventDetailPopover
+      event={event}
+      onDelete={onDeleteEvent}
+      isDraft={isDraft}
+      defaultOpen={defaultOpen}
+      onTitleSave={onQuickEditSave}
+      onDismissNew={onQuickEditCancel}
+      onDraftUpdate={onDraftUpdate}
+      onDraftCreate={onDraftCreate}
+      onDraftDiscard={onDraftDiscard}
+    >
+      {eventButton}
+    </EventDetailPopover>
+  );
+});
+
+interface WeekCreateGhostProps {
+  top: number;
+  height: number;
+  label: string;
+}
+
+/**
+ * Isolated ghost layer for an in-progress drag-to-create. Rendered as its own
+ * memoized component so the rAF-driven position updates never touch the
+ * surrounding day column's render output.
+ */
+const WeekCreateGhost = memo(function WeekCreateGhost({
+  top,
+  height,
+  label,
+}: WeekCreateGhostProps) {
+  return (
+    <div
+      className="pointer-events-none absolute inset-x-0.5 z-[90] rounded-md border-2 border-primary bg-primary/15 px-1.5 py-0.5"
+      style={{ top: `${top}px`, height: `${height}px` }}
+    >
+      <span className="truncate text-[11px] font-semibold text-primary">
+        {label}
+      </span>
+    </div>
+  );
+});
+
+export const WeekView = memo(function WeekView({
   events,
   selectedDate,
   onDateSelect,
@@ -217,7 +608,12 @@ export function WeekView({
   onDraftDiscard,
   isLoading = false,
 }: WeekViewProps) {
-  const { setFocusedEvent } = useCalendarContext();
+  const t = useT();
+  const workingLocationLabels = useMemo(
+    () => createWorkingLocationDisplayLabels(t),
+    [t],
+  );
+  const { setFocusedEvent } = useCalendarSetters();
   const isMobile = useIsMobile();
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
   const [now, setNow] = useState(new Date());
@@ -256,34 +652,58 @@ export function WeekView({
   }, []);
 
   const { prefs } = useViewPreferences();
-  const weekStart = startOfWeek(selectedDate);
-  const weekEnd = endOfWeek(selectedDate);
-  const fullWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
-  const days = prefs.hideWeekends
-    ? fullWeek.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
-    : fullWeek;
-  const hours = eachHourOfInterval({
-    start: set(weekStart, { hours: START_HOUR, minutes: 0 }),
-    end: set(weekStart, { hours: END_HOUR - 1, minutes: 0 }),
-  });
+  const weekStart = useMemo(() => startOfWeek(selectedDate), [selectedDate]);
+  const weekEnd = useMemo(() => endOfWeek(selectedDate), [selectedDate]);
+  // Stable day/hour arrays — recomputed only when the week or weekend
+  // visibility actually changes, so memoized children (event buttons) don't
+  // see a new array identity on every drag/focus re-render.
+  const days = useMemo(() => {
+    const fullWeek = eachDayOfInterval({ start: weekStart, end: weekEnd });
+    return prefs.hideWeekends
+      ? fullWeek.filter((d) => d.getDay() !== 0 && d.getDay() !== 6)
+      : fullWeek;
+  }, [weekStart, weekEnd, prefs.hideWeekends]);
+  const hours = useMemo(
+    () =>
+      eachHourOfInterval({
+        start: set(weekStart, { hours: START_HOUR, minutes: 0 }),
+        end: set(weekStart, { hours: END_HOUR - 1, minutes: 0 }),
+      }),
+    [weekStart],
+  );
 
   // Separate all-day and timed events
   const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
 
   const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
 
-  // Pre-compute all-day event spans
-  const allDaySpans = useMemo(() => {
-    const spans: { event: CalendarEvent; startCol: number; endCol: number }[] =
-      [];
-    for (const ev of allDayEvents) {
-      const span = getAllDaySpan(ev, days);
-      if (span) {
-        spans.push({ event: ev, ...span });
-      }
-    }
-    return spans;
-  }, [allDayEvents, days]);
+  const { workingLocations, regularEvents } = useMemo(
+    () => partitionAllDayEvents(allDayEvents),
+    [allDayEvents],
+  );
+  const workingLocationLayout = useMemo(
+    () => layoutAllDayEvents(workingLocations, days),
+    [days, workingLocations],
+  );
+  const workingLocationGroups = useMemo(
+    () =>
+      groupAdjacentAllDayPlacements(
+        workingLocationLayout.placements,
+        ({ event }) =>
+          [
+            event.accountEmail,
+            event.overlayEmail,
+            event.ownerColor,
+            getEventDisplayColor(event, prefs),
+            getWorkingLocationChipLabel(event, workingLocationLabels),
+            JSON.stringify(event.workingLocationProperties ?? {}),
+          ].join(":"),
+      ),
+    [prefs, workingLocationLabels, workingLocationLayout.placements],
+  );
+  const regularAllDayLayout = useMemo(() => {
+    return layoutAllDayEvents(regularEvents, days);
+  }, [days, regularEvents]);
 
   // Pre-compute timed events per day with layout — include events spanning into this day
   const dayData = useMemo(() => {
@@ -300,89 +720,29 @@ export function WeekView({
     });
   }, [days, timedEvents]);
 
-  function getSegmentStyle(event: CalendarEvent, day: Date) {
-    const evStart = parseISO(event.start);
-    const evEnd = parseISO(event.end);
-    const dayBase = set(startOfDay(day), { hours: START_HOUR });
-    const dayEnd = addDays(dayBase, 1);
-    const segStart = evStart > dayBase ? evStart : dayBase;
-    const segEnd = min([evEnd, dayEnd]);
-    const topMinutes = Math.max(0, differenceInMinutes(segStart, dayBase));
-    const durationMinutes = Math.max(15, differenceInMinutes(segEnd, segStart));
-    return {
-      top: `${(topMinutes / 60) * HOUR_HEIGHT}px`,
-      height: `${(durationMinutes / 60) * HOUR_HEIGHT}px`,
-    };
-  }
-
   // Current time indicator
   const nowMinutes = (now.getHours() - START_HOUR) * 60 + now.getMinutes();
   const nowTop = (nowMinutes / 60) * HOUR_HEIGHT;
   const showNowIndicator =
     nowMinutes >= 0 && nowMinutes <= (END_HOUR - START_HOUR) * 60;
 
-  const hasAnyAllDay = allDaySpans.length > 0;
-
-  // Compute the number of "rows" needed for all-day events (to handle stacking)
-  const allDayRows = useMemo(() => {
-    if (allDaySpans.length === 0) return 0;
-    // Simple row-packing algorithm
-    const rows: { startCol: number; endCol: number }[][] = [];
-    for (const span of allDaySpans) {
-      let placed = false;
-      for (const row of rows) {
-        // i18n-ignore scanner false positive for layout property access
-        const hasConflict = row.some(
-          (existing) =>
-            /* i18n-ignore scanner false positive */ span.startCol <=
-              existing.endCol && span.endCol >= existing.startCol,
-        );
-        if (!hasConflict) {
-          row.push(span);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        rows.push([span]);
-      }
-    }
-    return rows.length;
-  }, [allDaySpans]);
-
-  // Assign row index to each all-day span
-  const allDayRowAssignments = useMemo(() => {
-    const assignments = new Map<string, number>();
-    if (allDaySpans.length === 0) return assignments;
-    const rows: { startCol: number; endCol: number; id: string }[][] = [];
-    for (const span of allDaySpans) {
-      let placed = false;
-      for (let r = 0; r < rows.length; r++) {
-        // i18n-ignore scanner false positive for layout property access
-        const hasConflict = rows[r].some(
-          (existing) =>
-            /* i18n-ignore scanner false positive */ span.startCol <=
-              existing.endCol && span.endCol >= existing.startCol,
-        );
-        if (!hasConflict) {
-          rows[r].push({ ...span, id: span.event.id });
-          assignments.set(span.event.id, r);
-          placed = true;
-          break;
-        }
-      }
-      if (!placed) {
-        rows.push([{ ...span, id: span.event.id }]);
-        assignments.set(span.event.id, rows.length - 1);
-      }
-    }
-    return assignments;
-  }, [allDaySpans]);
-
+  const hasWorkingLocations = workingLocationLayout.rowCount > 0;
+  const hasRegularAllDayEvents = regularAllDayLayout.rowCount > 0;
+  const hasAnyAllDay = hasWorkingLocations || hasRegularAllDayEvents;
+  const workingLocationRowHeight = 16;
   const allDayRowHeight = 20;
-  const allDaySectionHeight = hasAnyAllDay
-    ? allDayRows * allDayRowHeight + 6
+  const workingLocationLaneHeight = hasWorkingLocations
+    ? workingLocationLayout.rowCount * workingLocationRowHeight + 2
     : 0;
+  const laneSeparatorHeight =
+    hasWorkingLocations && hasRegularAllDayEvents ? 1 : 0;
+  const regularAllDayLaneOffset =
+    workingLocationLaneHeight + laneSeparatorHeight;
+  const regularAllDayLaneHeight = hasRegularAllDayEvents
+    ? regularAllDayLayout.rowCount * allDayRowHeight + 6
+    : 0;
+  const allDaySectionHeight =
+    workingLocationLaneHeight + laneSeparatorHeight + regularAllDayLaneHeight;
   const allDayHeaderSpacerWidth = Math.max(
     0,
     timeGridScrollbarWidth - allDayScrollbarWidth,
@@ -487,6 +847,68 @@ export function WeekView({
     events,
   });
 
+  const canDrag = !!onEventTimeChange;
+
+  const handleEventPointerDown = useCallback(
+    (
+      e: React.PointerEvent,
+      event: CalendarEvent,
+      isStart: boolean,
+      dayIndex: number,
+    ) => {
+      setFocusedEventId(event.id);
+      setFocusedEvent(event);
+      if (
+        isStart &&
+        canDrag &&
+        !(e.target as HTMLElement).dataset.resizeHandle
+      ) {
+        startDrag(e, event.id, "move", dayIndex);
+      }
+    },
+    [canDrag, setFocusedEvent, startDrag],
+  );
+
+  const handleResizeTopPointerDown = useCallback(
+    (e: React.PointerEvent, eventId: string, dayIndex: number) => {
+      startDrag(e, eventId, "resize-top", dayIndex);
+    },
+    [startDrag],
+  );
+
+  const handleResizeBottomPointerDown = useCallback(
+    (e: React.PointerEvent, eventId: string, dayIndex: number) => {
+      startDrag(e, eventId, "resize", dayIndex);
+    },
+    [startDrag],
+  );
+
+  // Drag-to-create: pointer-down-drag-up on empty grid background
+  const handleCreateDrag = useCallback(
+    (dayIndex: number, startMinutes: number, endMinutes: number) => {
+      const day = days[dayIndex];
+      if (!day || !onClickTimeSlot) return;
+      onClickTimeSlot(
+        day,
+        minutesToTimeString(startMinutes),
+        minutesToTimeString(endMinutes),
+        { explicitDuration: true },
+      );
+    },
+    [days, onClickTimeSlot],
+  );
+
+  const {
+    startCreateDrag,
+    ghost: createGhost,
+    shouldSuppressClick: shouldSuppressCreateClick,
+  } = useGridCreateDrag({
+    hourHeight: HOUR_HEIGHT,
+    startHour: START_HOUR,
+    scrollContainerRef,
+    onCreate: handleCreateDrag,
+  });
+
   return (
     <div className="flex h-full flex-col overflow-hidden">
       {/* Sticky day headers */}
@@ -555,10 +977,17 @@ export function WeekView({
           >
             {/* Gutter label */}
             <div
-              className="flex shrink-0 items-start justify-end border-r border-border pr-2 pt-1"
+              className="relative shrink-0 border-r border-border"
               style={{ width: `${GUTTER_WIDTH}px` }}
             >
-              <span className="text-[10px] text-muted-foreground">all day</span>
+              {hasRegularAllDayEvents && (
+                <span
+                  className="absolute right-2 text-[10px] text-muted-foreground"
+                  style={{ top: `${regularAllDayLaneOffset + 4}px` }}
+                >
+                  {t("eventForm.allDay")}
+                </span>
+              )}
             </div>
 
             {/* All-day columns container (relative, for absolute-positioned spans) */}
@@ -574,70 +1003,207 @@ export function WeekView({
                 />
               ))}
 
-              {/* Spanning all-day event bars */}
-              {allDaySpans.map(({ event, startCol, endCol }) => {
-                const color = getEventDisplayColor(event, prefs);
-                const rowIdx = allDayRowAssignments.get(event.id) ?? 0;
-                const colCount = days.length;
-                const leftPct = (startCol / colCount) * 100;
-                const widthPct = ((endCol - startCol + 1) / colCount) * 100;
+              {laneSeparatorHeight > 0 && (
+                <div
+                  aria-hidden="true"
+                  className="absolute inset-x-0 border-t border-border/60"
+                  style={{ top: `${workingLocationLaneHeight}px` }}
+                />
+              )}
 
-                return (
-                  <EventDetailPopover
-                    key={event.id}
-                    event={event}
-                    onDelete={onDeleteEvent}
-                    isDraft={draftEventIds.includes(event.id)}
-                    defaultOpen={quickEditEventId === event.id}
-                    onTitleSave={onQuickEditSave}
-                    onDismissNew={onQuickEditCancel}
-                    onDraftUpdate={onDraftUpdate}
-                    onDraftCreate={onDraftCreate}
-                    onDraftDiscard={onDraftDiscard}
-                  >
-                    <button
-                      className={cn(
-                        "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
-                        event.ownerColor && "pr-3.5",
-                      )}
-                      aria-label={
-                        event.ownerName || event.overlayEmail
-                          ? `${event.title}, ${
-                              event.ownerName || event.overlayEmail
-                            }'s calendar`
-                          : event.title
-                      }
-                      style={{
-                        top: `${rowIdx * allDayRowHeight + 4}px`,
-                        left: `${leftPct}%`,
-                        width: `calc(${widthPct}% - 4px)`,
-                        height: `${allDayRowHeight - 4}px`,
-                        backgroundColor: color
-                          ? `${color}30`
-                          : "hsl(var(--primary) / 0.15)",
-                        borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
-                        marginLeft: "2px",
-                      }}
-                    >
-                      {allOtherDeclined(event) && (
-                        <IconAlertTriangleFilled
-                          size={10}
-                          className="shrink-0 text-current opacity-70"
-                        />
-                      )}
-                      <EventStatusIcon event={event} className="shrink-0" />
-                      <span className="truncate">{event.title}</span>
-                      {event.ownerColor && (
-                        <span
-                          aria-hidden="true"
-                          className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
-                          style={{ backgroundColor: event.ownerColor }}
-                        />
-                      )}
-                    </button>
-                  </EventDetailPopover>
-                );
-              })}
+              <div data-working-location-lane className="contents">
+                {workingLocationGroups.map((group) => {
+                  const firstPlacement = group[0];
+                  const lastPlacement = group[group.length - 1];
+                  const groupKey = group.map(({ event }) => event.id).join(":");
+                  const colCount = days.length;
+                  const groupLeftPct =
+                    (firstPlacement.startCol / colCount) * 100;
+                  const groupWidthPct =
+                    ((lastPlacement.endCol - firstPlacement.startCol + 1) /
+                      colCount) *
+                    100;
+                  const groupColor = getEventDisplayColor(
+                    firstPlacement.event,
+                    prefs,
+                  );
+
+                  return (
+                    <div key={groupKey} className="contents">
+                      <div
+                        aria-hidden="true"
+                        className="pointer-events-none absolute rounded-full opacity-35"
+                        style={{
+                          top: `${firstPlacement.row * workingLocationRowHeight + 7}px`,
+                          left: `calc(${groupLeftPct}% + 4px)`,
+                          width: `calc(${groupWidthPct}% - 8px)`,
+                          height: "3px",
+                          backgroundColor: groupColor,
+                        }}
+                      />
+                      {group.map(({ event, startCol, endCol, row }, index) => {
+                        const colCount = days.length;
+                        const leftPct = (startCol / colCount) * 100;
+                        const widthPct =
+                          ((endCol - startCol + 1) / colCount) * 100;
+                        const title = getWorkingLocationChipLabel(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const ariaTitle = getWorkingLocationTitle(
+                          event,
+                          workingLocationLabels,
+                        );
+                        const WorkingLocationIcon =
+                          event.workingLocationProperties?.type === "homeOffice"
+                            ? IconHome
+                            : event.workingLocationProperties?.type ===
+                                "officeLocation"
+                              ? IconBuilding
+                              : IconMapPin;
+
+                        return (
+                          <EventDetailPopover
+                            key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                            event={event}
+                            onDelete={onDeleteEvent}
+                            isDraft={draftEventIds.includes(event.id)}
+                            defaultOpen={quickEditEventId === event.id}
+                            onTitleSave={onQuickEditSave}
+                            onDismissNew={onQuickEditCancel}
+                            onDraftUpdate={onDraftUpdate}
+                            onDraftCreate={onDraftCreate}
+                            onDraftDiscard={onDraftDiscard}
+                          >
+                            <button
+                              className={cn(
+                                "group/working-location-day absolute z-10 flex items-center px-1 text-left outline-none focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1",
+                              )}
+                              aria-label={
+                                event.ownerName || event.overlayEmail
+                                  ? `${ariaTitle}, ${
+                                      event.ownerName || event.overlayEmail
+                                    }'s calendar`
+                                  : ariaTitle
+                              }
+                              style={{
+                                top: `${row * workingLocationRowHeight + 1}px`,
+                                left: `${leftPct}%`,
+                                width: `${widthPct}%`,
+                                height: `${workingLocationRowHeight - 2}px`,
+                              }}
+                            >
+                              <span
+                                aria-hidden="true"
+                                className="pointer-events-none absolute inset-x-0.5 inset-y-0 rounded-sm opacity-0 transition-opacity group-hover/working-location-day:opacity-100"
+                                style={{
+                                  backgroundColor: `color-mix(in srgb, ${groupColor} 14%, transparent)`,
+                                  boxShadow: `inset 0 0 0 1px color-mix(in srgb, ${groupColor} 22%, transparent)`,
+                                }}
+                              />
+                              {index === 0 && (
+                                <span
+                                  className="relative inline-flex h-3.5 max-w-full items-center gap-0.5 rounded-sm px-1 text-[10px] font-medium leading-none text-foreground"
+                                  style={{
+                                    backgroundColor: `color-mix(in srgb, ${groupColor} 18%, hsl(var(--background)))`,
+                                    boxShadow: `0 0 0 1px color-mix(in srgb, ${groupColor} 28%, transparent)`,
+                                  }}
+                                >
+                                  <WorkingLocationIcon
+                                    aria-hidden="true"
+                                    className="size-2.5 shrink-0"
+                                    style={{ color: groupColor }}
+                                  />
+                                  <span className="truncate">{title}</span>
+                                </span>
+                              )}
+                            </button>
+                          </EventDetailPopover>
+                        );
+                      })}
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div data-all-day-event-lane className="contents">
+                {regularAllDayLayout.placements.map(
+                  ({ event, startCol, endCol, row }) => {
+                    const color = getEventDisplayColor(event, prefs);
+                    const colCount = days.length;
+                    const leftPct = (startCol / colCount) * 100;
+                    const widthPct = ((endCol - startCol + 1) / colCount) * 100;
+                    const title = getWorkingLocationChipLabel(
+                      event,
+                      workingLocationLabels,
+                    );
+                    const ariaTitle = getWorkingLocationTitle(
+                      event,
+                      workingLocationLabels,
+                    );
+
+                    return (
+                      <EventDetailPopover
+                        key={`${event.overlayEmail ?? event.accountEmail ?? "primary"}:${event.id}`}
+                        event={event}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={quickEditEventId === event.id}
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                      >
+                        <button
+                          className={cn(
+                            "absolute flex items-center gap-1 truncate rounded px-1.5 text-left text-[11px] font-medium text-foreground transition-opacity hover:opacity-80",
+                            event.ownerColor && "pr-3.5",
+                          )}
+                          aria-label={
+                            event.ownerName || event.overlayEmail
+                              ? `${ariaTitle}, ${
+                                  event.ownerName || event.overlayEmail
+                                }'s calendar`
+                              : ariaTitle
+                          }
+                          style={{
+                            top: `${
+                              regularAllDayLaneOffset +
+                              row * allDayRowHeight +
+                              4
+                            }px`,
+                            left: `${leftPct}%`,
+                            width: `calc(${widthPct}% - 4px)`,
+                            height: `${allDayRowHeight - 4}px`,
+                            backgroundColor: color
+                              ? `${color}30`
+                              : "hsl(var(--primary) / 0.15)",
+                            borderLeft: `3px solid ${color ?? "hsl(var(--primary))"}`,
+                            marginLeft: "2px",
+                          }}
+                        >
+                          {allOtherDeclined(event) && (
+                            <IconAlertTriangleFilled
+                              size={10}
+                              className="shrink-0 text-current opacity-70"
+                            />
+                          )}
+                          <EventStatusIcon event={event} className="shrink-0" />
+                          <span className="truncate">{title}</span>
+                          {event.ownerColor && (
+                            <span
+                              aria-hidden="true"
+                              className="absolute right-1 top-1/2 size-1.5 -translate-y-1/2 rounded-full ring-1 ring-background/70"
+                              style={{ backgroundColor: event.ownerColor }}
+                            />
+                          )}
+                        </button>
+                      </EventDetailPopover>
+                    );
+                  },
+                )}
+              </div>
             </div>
             {allDayHeaderSpacerWidth > 0 && (
               <div
@@ -699,10 +1265,22 @@ export function WeekView({
             return (
               <div
                 key={day.toISOString()}
+                data-calendar-create-surface="true"
                 className={cn(
                   "relative flex-1 border-r border-border last:border-r-0",
                   isCurrentDay && "bg-primary/[0.02]",
                 )}
+                onPointerDown={(e) => {
+                  // Only start a create-drag from empty space, not on an event or its resize handles
+                  if ((e.target as HTMLElement).closest("button")) return;
+                  if (
+                    !onClickTimeSlot ||
+                    e.button !== 0 ||
+                    shouldSuppressCreatePointerDown()
+                  )
+                    return;
+                  startCreateDrag(e, dayIndex);
+                }}
                 onClick={(e) => {
                   // Only fire on empty space (not on event buttons or after drags)
                   if ((e.target as HTMLElement).closest("button")) return;
@@ -710,6 +1288,7 @@ export function WeekView({
                     !onClickTimeSlot ||
                     isDragging ||
                     shouldSuppressClick() ||
+                    shouldSuppressCreateClick() ||
                     shouldSuppressAfterPopoverClose()
                   )
                     return;
@@ -718,16 +1297,11 @@ export function WeekView({
                   const totalMinutes =
                     Math.floor(((y / HOUR_HEIGHT) * 60) / 15) * 15 +
                     START_HOUR * 60;
-                  const startH = Math.floor(totalMinutes / 60);
-                  const startM = totalMinutes % 60;
                   const endMinutes = totalMinutes + 60;
-                  const endH = Math.min(Math.floor(endMinutes / 60), 23);
-                  const endM = endMinutes % 60;
-                  const pad = (n: number) => String(n).padStart(2, "0");
                   onClickTimeSlot(
                     day,
-                    `${pad(startH)}:${pad(startM)}`,
-                    `${pad(endH)}:${pad(endM)}`,
+                    minutesToTimeString(totalMinutes),
+                    minutesToTimeString(endMinutes),
                   );
                 }}
               >
@@ -739,6 +1313,18 @@ export function WeekView({
                     style={{ height: `${HOUR_HEIGHT}px` }}
                   />
                 ))}
+
+                {/* Live drag-to-create ghost */}
+                {createGhost && createGhost.dayIndex === dayIndex && (
+                  <WeekCreateGhost
+                    top={createGhost.top}
+                    height={createGhost.height}
+                    label={formatEventTime(
+                      minutesToDate(day, createGhost.startMinutes),
+                      minutesToDate(day, createGhost.endMinutes),
+                    )}
+                  />
+                )}
 
                 {/* Current time indicator */}
                 {isCurrentDay && showNowIndicator && (
@@ -781,269 +1367,42 @@ export function WeekView({
                 {/* Timed events */}
                 {!isLoading &&
                   [...dayEvents, ...draggedInEvents].map((event) => {
-                    const li = layout.get(event.id) ?? {
-                      left: 0,
-                      width: 0,
-                      col: 0,
-                      totalCols: 1,
-                    };
-                    const overrides = getDragOverrides(event.id);
                     const isBeingDragged = dragEventId === event.id;
-                    const start = parseISO(event.start);
-                    const end = parseISO(event.end);
-                    const dayBase = startOfDay(day);
-                    const segDayEnd = addDays(dayBase, 1);
-                    const isStart = isSameDay(start, day);
-                    const isEnd = end <= segDayEnd;
-                    const isDragPreviewSegment =
-                      isBeingDragged && overrides?.dayIndex === dayIndex;
-                    const segmentStartsHere = isStart || isDragPreviewSegment;
-
-                    // Hide from original column if dragged to a different day
-                    if (
-                      isBeingDragged &&
-                      overrides &&
-                      overrides.dayIndex !== dayIndex &&
-                      !draggedInEvents.includes(event)
-                    ) {
-                      return null;
-                    }
-                    // Hide continuation segments during active drag to avoid ghost overlap
-                    if (
-                      !shouldRenderWeekDragSegment({
-                        isBeingDragged,
-                        isDragging,
-                        isStart,
-                        overrideDayIndex: overrides?.dayIndex,
-                        dayIndex,
-                      })
-                    ) {
-                      return null;
-                    }
-
-                    const style = overrides
-                      ? {
-                          top: `${overrides.top}px`,
-                          height: `${overrides.height}px`,
-                        }
-                      : getSegmentStyle(event, day);
-                    const color = getEventDisplayColor(event, prefs);
-                    const segStart = isStart ? start : dayBase;
-                    const segEnd = min([end, segDayEnd]);
-                    const durationMin = overrides
-                      ? (overrides.height / HOUR_HEIGHT) * 60
-                      : differenceInMinutes(segEnd, segStart);
-                    // Compute display times (use drag overrides if active)
-                    const displayStart = overrides
-                      ? addMinutes(
-                          set(startOfDay(day), {
-                            hours: START_HOUR,
-                            minutes: 0,
-                            seconds: 0,
-                          }),
-                          (overrides.top / HOUR_HEIGHT) * 60,
-                        )
-                      : start;
-                    const displayEnd = overrides
-                      ? addMinutes(displayStart, durationMin)
-                      : end;
-                    const isPast = end < now;
-                    const isDeclined = event.responseStatus === "declined";
-                    const allOthersOut = allOtherDeclined(event);
-                    const canDrag = !!onEventTimeChange;
-
-                    const eventButton = (
-                      <button
-                        onPointerDown={(e) => {
-                          setFocusedEventId(event.id);
-                          setFocusedEvent(event);
-                          if (
-                            isStart &&
-                            canDrag &&
-                            !(e.target as HTMLElement).dataset.resizeHandle
-                          ) {
-                            startDrag(e, event.id, "move", dayIndex);
-                          }
-                        }}
-                        onClick={(e) => {
-                          if (shouldSuppressClick()) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                          }
-                        }}
-                        className={cn(
-                          "absolute overflow-hidden px-1.5 py-0.5 text-left text-[11px] flex flex-col hover:brightness-110 hover:shadow-md group",
-                          segmentStartsHere ? "rounded-t-md" : "rounded-t-none",
-                          isEnd ? "rounded-b-md" : "rounded-b-none",
-                          durationMin <= 30
-                            ? "justify-center"
-                            : "justify-start",
-                          isDeclined && "saturate-[0.3]",
-                          isBeingDragged && isDragging && "shadow-lg z-[100]",
-                          isBeingDragged &&
-                            isDragging &&
-                            "ring-2 ring-primary/40",
-                          canDrag && segmentStartsHere && "cursor-grab",
-                          isBeingDragged && isDragging && "cursor-grabbing",
-                          event.ownerColor && "pr-4",
-                        )}
-                        aria-label={
-                          event.ownerName || event.overlayEmail
-                            ? `${event.title}, ${
-                                event.ownerName || event.overlayEmail
-                              }'s calendar`
-                            : event.title
-                        }
-                        style={{
-                          ...style,
-                          left: `${li.left}px`,
-                          width: `calc(min(85%, 100% - ${li.left + 2}px))`,
-                          zIndex:
-                            isBeingDragged && isDragging
-                              ? 100
-                              : focusedEventId === event.id
-                                ? 50
-                                : li.col + 1,
-                          backgroundColor: color
-                            ? `color-mix(in srgb, ${color} ${isPast || isDeclined ? 8 : 18}%, hsl(var(--background)))`
-                            : `color-mix(in srgb, hsl(var(--primary)) ${isPast || isDeclined ? 5 : 12}%, hsl(var(--background)))`,
-                          borderLeft: `3px solid ${
-                            isPast || isDeclined
-                              ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
-                              : (color ?? "hsl(var(--primary))")
-                          }`,
-                          borderTop: !segmentStartsHere
-                            ? `2px dashed ${
-                                isPast || isDeclined
-                                  ? `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 30%, transparent)`
-                                  : `color-mix(in srgb, ${color ?? "hsl(var(--primary))"} 60%, transparent)`
-                              }`
-                            : undefined,
-                          opacity:
-                            isBeingDragged && isDragging ? 0.9 : undefined,
-                        }}
-                      >
-                        {event.ownerColor && (
-                          <span
-                            aria-hidden="true"
-                            className="absolute right-1.5 top-1.5 size-1.5 rounded-full ring-1 ring-background/70"
-                            style={{ backgroundColor: event.ownerColor }}
-                          />
-                        )}
-                        {durationMin <= 30 ? (
-                          <div className="flex items-baseline gap-1 truncate">
-                            {allOthersOut && (
-                              <IconAlertTriangleFilled
-                                size={10}
-                                className="shrink-0 text-current opacity-70 relative top-[1px]"
-                              />
-                            )}
-                            <EventStatusIcon
-                              event={event}
-                              className="relative top-[1px] shrink-0"
-                            />
-                            <span
-                              className={cn(
-                                "truncate leading-tight",
-                                isPast || isDeclined
-                                  ? "text-muted-foreground"
-                                  : "text-foreground",
-                                isDeclined && "line-through",
-                                !isPast && !isDeclined && "font-semibold",
-                              )}
-                            >
-                              {event.title}
-                            </span>
-                          </div>
-                        ) : (
-                          <>
-                            <div
-                              className={cn(
-                                "mt-0.5 flex items-center gap-1 truncate leading-tight",
-                                isPast || isDeclined
-                                  ? "text-muted-foreground"
-                                  : "text-foreground",
-                                isDeclined && "line-through",
-                                !isPast && !isDeclined && "font-semibold",
-                              )}
-                            >
-                              {allOthersOut && (
-                                <IconAlertTriangleFilled
-                                  size={10}
-                                  className="shrink-0 text-current opacity-70"
-                                />
-                              )}
-                              <EventStatusIcon
-                                event={event}
-                                className="shrink-0"
-                              />
-                              <span className="truncate">{event.title}</span>
-                            </div>
-                            {segmentStartsHere && (
-                              <div
-                                className={cn(
-                                  "mt-0.5 truncate text-[9px] leading-tight",
-                                  isPast || isDeclined
-                                    ? "text-muted-foreground/50"
-                                    : "text-foreground/60",
-                                )}
-                              >
-                                {formatEventTime(displayStart, displayEnd)}
-                              </div>
-                            )}
-                          </>
-                        )}
-                        {/* Top resize handle */}
-                        {canDrag && isStart && (
-                          <div
-                            data-resize-handle="true"
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              startDrag(e, event.id, "resize-top", dayIndex);
-                            }}
-                            className="absolute left-0 right-0 top-0 h-2 cursor-n-resize"
-                            style={{ touchAction: "none" }}
-                          />
-                        )}
-                        {/* Bottom resize handle — only on single-day segments; multi-day end segments need segment-aware drag math */}
-                        {canDrag && isEnd && isStart && (
-                          <div
-                            data-resize-handle="true"
-                            onPointerDown={(e) => {
-                              e.stopPropagation();
-                              startDrag(e, event.id, "resize", dayIndex);
-                            }}
-                            className="absolute bottom-0 left-0 right-0 h-2 cursor-s-resize"
-                            style={{ touchAction: "none" }}
-                          />
-                        )}
-                      </button>
-                    );
-
-                    // Don't wrap in popover while dragging
-                    if (isBeingDragged && isDragging) {
-                      return (
-                        <div key={event.id} className="contents">
-                          {eventButton}
-                        </div>
-                      );
-                    }
-
+                    const overrides = getDragOverrides(event.id);
                     return (
-                      <EventDetailPopover
+                      <WeekEventCard
                         key={event._tempId ?? event.id}
                         event={event}
-                        onDelete={onDeleteEvent}
+                        day={day}
+                        dayIndex={dayIndex}
+                        layout={layout}
+                        now={now}
+                        prefs={prefs}
+                        focusedEventId={focusedEventId}
+                        isBeingDragged={isBeingDragged}
+                        isDragging={isDragging}
+                        isDraggedIntoThisColumn={draggedInEvents.includes(
+                          event,
+                        )}
+                        overrideTop={overrides?.top ?? null}
+                        overrideHeight={overrides?.height ?? null}
+                        overrideDayIndex={overrides?.dayIndex ?? null}
+                        canDrag={canDrag}
+                        onPointerDownEvent={handleEventPointerDown}
+                        onResizeTopPointerDown={handleResizeTopPointerDown}
+                        onResizeBottomPointerDown={
+                          handleResizeBottomPointerDown
+                        }
+                        shouldSuppressClick={shouldSuppressClick}
+                        onDeleteEvent={onDeleteEvent}
                         isDraft={draftEventIds.includes(event.id)}
                         defaultOpen={quickEditEventId === event.id}
-                        onTitleSave={onQuickEditSave}
-                        onDismissNew={onQuickEditCancel}
+                        onQuickEditSave={onQuickEditSave}
+                        onQuickEditCancel={onQuickEditCancel}
                         onDraftUpdate={onDraftUpdate}
                         onDraftCreate={onDraftCreate}
                         onDraftDiscard={onDraftDiscard}
-                      >
-                        {eventButton}
-                      </EventDetailPopover>
+                      />
                     );
                   })}
               </div>
@@ -1053,4 +1412,4 @@ export function WeekView({
       </div>
     </div>
   );
-}
+});

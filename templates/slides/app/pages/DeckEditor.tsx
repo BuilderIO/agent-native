@@ -20,9 +20,9 @@ import {
 } from "@dnd-kit/core";
 import {
   IconArrowLeft,
-  IconBuilding,
   IconLock,
   IconRefresh,
+  IconUsersGroup,
 } from "@tabler/icons-react";
 import { nanoid } from "nanoid";
 import {
@@ -35,6 +35,7 @@ import {
 } from "react";
 import type { ComponentType } from "react";
 import { useParams, useSearchParams, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 import { SlideCommentsPanel } from "@/components/comments/SlideCommentsPanel";
 import { AnimationsPanel } from "@/components/editor/AnimationsPanel";
@@ -51,7 +52,6 @@ import { QuestionFlow } from "@/components/editor/QuestionFlow";
 import SlideEditor from "@/components/editor/SlideEditor";
 import { TweaksPanel } from "@/components/editor/TweaksPanel";
 import { Button } from "@/components/ui/button";
-import { ToastAction } from "@/components/ui/toast";
 import { useDecks } from "@/context/DeckContext";
 import { useAgentGenerating } from "@/hooks/use-agent-generating";
 import { useDeckDesignSystem } from "@/hooks/use-deck-design-system";
@@ -61,7 +61,6 @@ import {
   useSlideComments,
   type CommentThread,
 } from "@/hooks/use-slide-comments";
-import { toast } from "@/hooks/use-toast";
 import type { AspectRatio } from "@/lib/aspect-ratios";
 import { getPreset } from "@/lib/design-systems";
 import { exportDeckAsPdf } from "@/lib/export-pdf-client";
@@ -70,6 +69,7 @@ import {
   shouldClearNewDeckGeneratingState,
   shouldShowNewDeckGeneratingOverlay,
 } from "@/lib/generation-state";
+import { isMissingUploadProviderError } from "@/lib/image-drop-to-agent";
 import { imageFileLooksSupported } from "@/lib/slide-image-replacement";
 import { replaceImageTargetInSlideHtml } from "@/lib/slide-image-replacement";
 import { TAB_ID } from "@/lib/tab-id";
@@ -98,7 +98,7 @@ function MissingDeckAccessPane({
 }) {
   const t = useT();
   const Icon =
-    hasTeamJoinOption || orgLoading || orgError ? IconBuilding : IconLock;
+    hasTeamJoinOption || orgLoading || orgError ? IconUsersGroup : IconLock;
   const title = orgLoading
     ? t("deckEditor.lookingForDeck")
     : orgError
@@ -174,7 +174,6 @@ export default function DeckEditor() {
   // Track new-deck-creation intent: set once on mount if ?generating=1.
   // The editor reveals partial slides as soon as the first one lands.
   const wasNewDeckCreation = useRef(searchParams.get("generating") === "1");
-  const [activeTab, setActiveTab] = useState<"visual" | "code">("visual");
   const [sidebarOpen, setSidebarOpen] = useState(
     () => typeof window !== "undefined" && window.innerWidth >= 768,
   );
@@ -324,19 +323,27 @@ export default function DeckEditor() {
     [deck, id, reorderSlides],
   );
 
-  const uploadImageAsset = useCallback(async (file: File): Promise<string> => {
-    const form = new FormData();
-    form.append("file", file);
-    const res = await fetch(`${appBasePath()}/api/assets/upload`, {
-      method: "POST",
-      body: form,
-    });
-    const data = await res.json().catch(() => null);
-    if (!res.ok || !data?.url) {
-      throw new Error(data?.error || t("deckEditor.imageUploadFailed"));
-    }
-    return data.url as string;
-  }, []);
+  const uploadImageAsset = useCallback(
+    async (file: File): Promise<string> => {
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch(`${appBasePath()}/api/assets/upload`, {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json().catch(() => null);
+      if (!res.ok || !data?.url) {
+        const serverError =
+          typeof data?.error === "string" ? data.error : undefined;
+        if (isMissingUploadProviderError(res.status, serverError)) {
+          throw new Error(t("deckEditor.imageUploadNeedsBuilder"));
+        }
+        throw new Error(serverError || t("deckEditor.imageUploadFailed"));
+      }
+      return data.url as string;
+    },
+    [t],
+  );
 
   // Replace an image or placeholder in the current slide's HTML content.
   const replaceImageInSlide = useCallback(
@@ -388,18 +395,15 @@ export default function DeckEditor() {
         if (updatedContent !== targetSlide.content) {
           updateSlide(id, targetSlide.id, { content: updatedContent });
         }
-        toast({
-          title: t("deckEditor.imageAdded"),
+        toast.success(t("deckEditor.imageAdded"), {
           description: file.name,
         });
       } catch (error) {
-        toast({
-          title: t("deckEditor.imageUploadFailed"),
+        toast.error(t("deckEditor.imageUploadFailed"), {
           description:
             error instanceof Error
               ? error.message
               : t("deckEditor.imageUploadError"),
-          variant: "destructive",
         });
       }
     },
@@ -474,25 +478,14 @@ export default function DeckEditor() {
         );
       })();
       deleteSlide(deckId, slideId);
-      const t = toast({
-        title: `${slideTitle} deleted`,
+      toast(`${slideTitle} deleted`, {
         description: `Press ${shortcutLabel("cmd+z")} or click Undo to restore.`,
-        action: (
-          <ToastAction
-            altText="Undo delete"
-            data-undo-button
-            onClick={() => {
-              undo();
-              t.dismiss();
-            }}
-          >
-            Undo
-          </ToastAction>
-        ),
+        duration: 6000,
+        action: {
+          label: "Undo",
+          onClick: () => undo(),
+        },
       });
-      // Auto-dismiss after 6 seconds (shadcn toast's TOAST_REMOVE_DELAY is
-      // intentionally enormous, so we trigger it manually).
-      setTimeout(() => t.dismiss(), 6000);
     },
     [deck, deleteSlide, undo],
   );
@@ -681,29 +674,45 @@ export default function DeckEditor() {
       }
     : undefined;
 
-  // Slide-level collab: one Yjs doc per slide.
+  // Slide-level collab: one Yjs doc per slide. This tracks HUMAN collaborators
+  // editing the active slide's content (slideActiveUsers) and any agent edits
+  // that flow through the slide-content Yjs doc.
   // Uses activeSlideId (state) so it's stable before deck loads.
   // useCollaborativeDoc handles null docId gracefully (returns empty state).
   const slideDocId =
     id && activeSlideId ? `deck-${id}-slide-${activeSlideId}` : null;
   const {
-    ydoc,
-    awareness,
     activeUsers: slideActiveUsers,
-    agentActive,
-    agentPresent,
+    agentActive: slideAgentActive,
+    agentPresent: slideAgentPresent,
   } = useCollaborativeDoc({
     docId: slideDocId,
     requestSource: TAB_ID,
     user: currentUser,
   });
 
-  // Deck-level presence: tracks which slide each user is viewing
-  const { slidePresence } = useDeckPresence({
+  // Deck-level presence: which slide each participant (human OR agent) is on.
+  // The slide-editing actions write agent presence + lingering "AI edited"
+  // highlights to THIS doc (`deck-<id>`) via agentTouchDocument, so the agent's
+  // per-slide presence and recent edits come from here.
+  const {
+    slidePresence,
+    agentPresent: deckAgentPresent,
+    agentActive: deckAgentActive,
+    agentSlideId,
+    recentEdits: deckRecentEdits,
+    awareness: deckPresenceAwareness,
+  } = useDeckPresence({
     deckId: id ?? null,
     activeSlideId: activeSlideId,
     user: currentUser,
   });
+
+  // The agent is "present"/"active" if EITHER the deck presence doc (action
+  // edits) or the slide-content doc (Yjs edits) says so — a single unified
+  // signal for the toolbar/slide chips.
+  const agentPresent = deckAgentPresent || slideAgentPresent;
+  const agentActive = deckAgentActive || slideAgentActive;
 
   // Comments for the current slide (for badge count)
   const currentSlideCommentsQuery = useSlideComments(id ?? null, activeSlideId);
@@ -761,7 +770,7 @@ export default function DeckEditor() {
 
   return (
     <div
-      className="flex-1 flex flex-col overflow-hidden bg-background"
+      className="flex h-full min-h-0 flex-1 flex-col overflow-hidden bg-background"
       onDragOver={editorDragOver}
       onDrop={editorDrop}
     >
@@ -771,8 +780,6 @@ export default function DeckEditor() {
         deckTitle={deck.title}
         canEdit={canEdit}
         onTitleChange={(title) => updateDeck(id, { title })}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
         slideCount={deck.slides.length}
         currentSlideIndex={currentIndex >= 0 ? currentIndex : 0}
         sidebarOpen={sidebarOpen}
@@ -819,23 +826,19 @@ export default function DeckEditor() {
           try {
             const slideIds = deck.slides.map((s) => s.id);
             if (slideIds.length === 0) {
-              toast({
-                title: t("deckEditor.exportFailed"),
+              toast.error(t("deckEditor.exportFailed"), {
                 description: t("deckEditor.deckHasNoSlides"),
-                variant: "destructive",
               });
               return;
             }
             await exportDeckAsPdf(deck.title, slideIds, deck.aspectRatio);
           } catch (err) {
             console.error("[pdf-export] failed:", err);
-            toast({
-              title: t("deckEditor.exportFailed"),
+            toast.error(t("deckEditor.exportFailed"), {
               description:
                 err instanceof Error
                   ? err.message
                   : t("deckEditor.pdfRenderFailed"),
-              variant: "destructive",
             });
           }
         }}
@@ -865,14 +868,14 @@ export default function DeckEditor() {
         }}
       />
 
-      <div className="flex-1 flex overflow-hidden relative">
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {sidebarOpen && (
           <>
             <div
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute md:relative z-40 h-full">
+            <div className="absolute z-40 h-full min-h-0 md:relative">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}
@@ -907,6 +910,7 @@ export default function DeckEditor() {
                     if (nextSlide) setActiveSlideId(nextSlide.id);
                   }}
                   slidePresence={slidePresence}
+                  recentEdits={deckRecentEdits}
                   aspectRatio={deck.aspectRatio}
                 />
               </DndContext>
@@ -951,7 +955,6 @@ export default function DeckEditor() {
                 updateSlide(id, slideIdOverride ?? currentSlide.id, updates)
               }
               onInlineEditStart={() => markDeckDirty(id)}
-              activeTab={activeTab}
               onGenerateImage={() => setImageGenOpen(true)}
               onOpenAssetLibrary={(src) => {
                 setReplaceImageSrc(src);
@@ -975,14 +978,13 @@ export default function DeckEditor() {
               slideCount={deck.slides.length}
               designSystem={designSystem}
               aspectRatio={deck.aspectRatio}
-              ydoc={ydoc}
-              awareness={awareness}
               collabUser={
                 currentUser
                   ? { name: currentUser.name, color: currentUser.color }
                   : undefined
               }
               agentActive={agentActive}
+              recentEdits={deckRecentEdits}
               onComment={(quotedText) => {
                 setPendingComment({ quotedText });
                 setCommentsOpen(true);

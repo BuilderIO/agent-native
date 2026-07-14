@@ -102,6 +102,20 @@ export interface EngineToolCallPart {
   input: unknown;
 }
 
+/**
+ * A vision image attached to a tool result (screenshot, chart preview, …).
+ * Exactly one of `url` (public https URL the provider fetches) or `data`
+ * (base64 without a `data:` prefix, `mediaType` required) is set. These live
+ * only on the in-memory turn — they are never persisted to the run ledger.
+ */
+export interface EngineToolResultImagePart {
+  url?: string;
+  data?: string;
+  mediaType?: "image/jpeg" | "image/png" | "image/gif" | "image/webp";
+  /** Short label tying the image to the text result (e.g. "dashboard tab"). */
+  label?: string;
+}
+
 export interface EngineToolResultPart {
   type: "tool-result";
   toolCallId: string;
@@ -111,6 +125,8 @@ export interface EngineToolResultPart {
   toolInput: string;
   content: string;
   isError?: boolean;
+  /** Vision images shown to the model alongside `content` (engines that can). */
+  images?: EngineToolResultImagePart[];
 }
 
 export interface EngineThinkingPart {
@@ -281,6 +297,8 @@ export interface AgentEngine {
   readonly defaultModel: string;
   /** Models this engine supports */
   readonly supportedModels: readonly string[];
+  /** Whether the configured endpoint accepts provider-defined model ids. */
+  readonly preserveCustomModels?: boolean;
   /** Capability flags used to gate provider-specific features */
   readonly capabilities: EngineCapabilities;
 

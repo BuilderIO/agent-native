@@ -1,13 +1,13 @@
 ---
 title: "Partage et confidentialité"
-description: "Partage de style Google Docs, intégré au framework. Chaque ressource créée par l'utilisateur (documents, tableaux de bord, conceptions, présentations, clips, enregistrements, formulaires) obtient le même modèle privé par défaut avec un partage cohérent UI."
+description: "Un partage familier et cohérent, intégré au framework. Chaque ressource créée par l’utilisateur — documents, tableaux de bord, conceptions, présentations, clips, enregistrements et formulaires — bénéficie du même modèle privé par défaut avec une interface de partage cohérente."
 ---
 
 # Partage et confidentialité
 
-Chaque ressource qu'un utilisateur crée dans une application native d'agent (un document, un tableau de bord, une conception, une présentation, un montage vidéo, un enregistrement d'écran, une transcription de réunion, un formulaire, un lien de réservation) est **privée par défaut pour le créateur**. Les autres personnes ne le voient que lorsque le créateur le partage explicitement ou modifie sa visibilité en `org` ou `public`.
+Chaque ressource qu'un utilisateur crée dans une application native d'agent (un document, un tableau de bord, une conception, une présentation, un enregistrement d'écran, une transcription de réunion, un formulaire, un lien de réservation) est **privée par défaut pour le créateur**. Les autres personnes ne le voient que lorsque le créateur le partage explicitement ou modifie sa visibilité en `org` ou `public`.
 
-Il ressemble et fonctionne comme Google Docs. Le même bouton de partage, la même boîte de dialogue, le même modèle de visibilité à trois niveaux, les mêmes subventions par utilisateur/par organisation, dans chaque modèle, sans réinvention par application.
+C'est un modèle de partage familier partout : le même bouton de partage, la même boîte de dialogue, le même modèle de visibilité à trois niveaux et les mêmes autorisations par utilisateur et par organisation, dans chaque modèle, sans réinvention par application.
 
 ## Pourquoi un modèle {#why}
 
@@ -92,11 +92,11 @@ Chaque modèle qui stocke le travail créé par l'utilisateur utilise ce modèle
 - **Contenu** — documents
 - **Diapositives** — présentations
 - **Conception** – conceptions et éléments
-- **Vidéo** — compositions
-- **Clips** – enregistrements d'écran (style Loom)
+- **Clips** – enregistrements d'écran
+- **Plan** — visual plans and PR recaps
 - **Formulaires** — définitions de formulaire
 - **Calendrier** — événements et liens de réservation
-- **Analytics** — tableaux de bord (déploiement — voir `AGENTS.md` du modèle d'analyse)
+- **Analytics** — dashboards, saved analyses, and tokenized session replays
 - **Extensions** – mini-applications en bac à sable (voir [Extensions](/docs/extensions#sharing))
 
 Chacun d'entre eux utilise le même assistant de schéma `ownableColumns()`, la même action `share-resource` et la même `<ShareButton>` UI. Passez d'un modèle à un autre et la boîte de dialogue de partage semble identique.
@@ -115,7 +115,7 @@ Chaque ressource partageable reçoit un bouton de partage dans son en-tête. Cli
 
 - Sélecteur de visibilité (`Private` / `Organization` / `Public link`).
 - Saisie automatique « Ajouter des personnes ou des équipes » : recherchez des utilisateurs dans l'organisation ou collez un e-mail.
-- Une case à cocher `Notifier people` de style Google Docs pour les autorisations individuelles par e-mail.
+- Une case à cocher `Notifier les personnes` pour les autorisations individuelles par e-mail.
 - Une liste des subventions actuelles avec des sélecteurs de rôles et un contrôle de suppression.
 - Un bouton copier-lien qui respecte la visibilité actuelle.
 
@@ -137,14 +137,21 @@ Pour les listes, déposez un `<VisibilityBadge visibility={row.visibility} />` �
 
 Le framework monte automatiquement ces actions dans chaque modèle : l'agent les appelle en tant qu'outils et le UI les appelle via `useActionQuery` / `useActionMutation` :
 
-| Actions                   | Ce qu'il fait                                                                                                                              |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
-| `share-resource`          | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail. |
-| `unshare-resource`        | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                   |
-| `list-resource-shares`    | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                             |
-| `set-resource-visibility` | Passez à `private`, `org` ou `public`.                                                                                                     |
+| Actions                      | Ce qu'il fait                                                                                                                              |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| `share-resource`             | Accorder à un utilisateur ou à une organisation l'accès à un rôle spécifique. Le `notify` en option contrôle les notifications par e-mail. |
+| `unshare-resource`           | Révoquer l'accès d'un utilisateur ou d'une organisation.                                                                                   |
+| `list-resource-shares`       | Afficher la visibilité actuelle ainsi que toutes les autorisations explicites.                                                             |
+| `set-resource-visibility`    | Passez à `private`, `org` ou `public`.                                                                                                     |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                    |
 
 Dites à l'agent "Partagez cette conception avec l'équipe marketing en tant qu'éditeurs" et il appellera `share-resource` sur le même point de terminaison que celui utilisé par UI. Le résultat apparaît dans la boîte de dialogue de partage lors du prochain rendu.
+
+## Agent-readable share links {#agent-readable-links}
+
+Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
+
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
 
 ## L'intégrer dans un nouveau modèle {#building}
 
@@ -263,7 +270,7 @@ export const deckShares = createSharesTable("deck_shares");
 
 Un appel d'inscription dans `server/db/index.ts` :
 
-```ts
+```ts filename="server/db/index.ts"
 import { registerShareableResource } from "@agent-native/core/sharing";
 
 registerShareableResource({
@@ -308,9 +315,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 
 Le partage s'appuie sur le modèle de portée des données plus large du framework : l'accès en liste/lecture/écriture aux tables propriétaires passe par `accessFilter()` / `resolveAccess()` / `assertAccess()`, et les ressources marquées `org_id` sont invisibles dans les organisations. Voir [Security → Data Scoping](/docs/security#data-scoping) pour le pipeline complet, la protection CI et la surface des menaces.
 
-## Voir aussi {#see-also}
+## Et ensuite {#see-also}
 
-- [Security & Data Scoping](/docs/security) : le modèle de filtre d'accès et de propriété sur lequel repose le partage.
-- [Authentication](/docs/authentication) : sessions, organisations et manière dont l'identité circule dans le contexte de la demande.
-- [Extensions](/docs/extensions#sharing) : partage dans la surface de la mini-application en bac à sable.
-- [Creating Templates](/docs/creating-templates) — câblage de `ownableColumns` dans le schéma d'un nouveau modèle.
+- [**Sécurité — Portée des données**](/docs/security#data-scoping) — le modèle de filtre d'accès et de propriété sur lequel repose le partage
+- [**Authentification**](/docs/authentication) — les sessions, les organisations et la manière dont l'identité alimente le contexte de la requête
+- [**Extensions**](/docs/extensions#sharing) — le partage dans la surface de mini-application en bac à sable
+- [**Création de modèles**](/docs/creating-templates) — l'intégration de `ownableColumns` au schéma d'un nouveau modèle

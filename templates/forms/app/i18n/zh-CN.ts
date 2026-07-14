@@ -4,6 +4,7 @@ const messages = {
     searchForms: "搜索表单",
     appearance: "外观",
     toggleTheme: "切换主题",
+    openAgent: "打开代理",
   },
   header: {
     settings: "设置",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "询问表单",
     allForms: "所有表单",
     team: "团队",
+    agent: "代理",
   },
   settings: {
     title: "设置",
@@ -178,6 +180,11 @@ const messages = {
       successMessage: "成功消息",
       defaultSuccessMessage: "谢谢！你的回复已记录。",
       redirectUrl: "重定向 URL（可选）",
+      anonymousResponses: "匿名回复",
+      anonymousResponsesDescription: "不保留 IP 地址、回复者身份或来源元数据。",
+      emailNewResponses: "有新回复时通过电子邮件通知我",
+      emailNewResponsesDescription:
+        "每当有人提交回复时，向表单所有者账户的电子邮件地址发送通知。",
       saveSettings: "保存设置",
     },
     integrations: {

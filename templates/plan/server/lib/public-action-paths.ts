@@ -9,8 +9,6 @@ export const PUBLIC_PLAN_ACTION_PATHS = [
   "/_agent-native/actions/get-plan-blocks",
   "/_agent-native/actions/validate-local-plan-source",
   "/_agent-native/actions/read-visual-plan-source",
-  "/_agent-native/actions/get-plan-version",
-  "/_agent-native/actions/list-plan-versions",
   // Write — comments/patches from public reviewers, local-mode authoring
   "/_agent-native/actions/update-visual-plan",
   "/_agent-native/actions/patch-visual-plan-source",

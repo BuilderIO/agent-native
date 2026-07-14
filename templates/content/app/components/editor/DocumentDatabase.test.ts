@@ -17,6 +17,7 @@ import {
   addDatabaseView,
   appendDatabaseFilter,
   applyDatabaseView,
+  applyPersonalDatabaseViewOverrides,
   activeDatabaseConstraintCount,
   boardGroupValueForProperty,
   calendarDateKey,
@@ -65,9 +66,12 @@ import {
   databaseTimelineDays,
   databaseTimelineItemSpans,
   databaseViewGroupableProperties,
+  databaseViewConfigWithSavedQueryState,
+  databaseViewHasPersonalQueryChanges,
   databaseVisibleItemSummaries,
   databaseVisibleGroups,
   databaseGridColumns,
+  databaseInlineFilterLabel,
   databaseViewSummaries,
   databaseViewItemGroups,
   databaseResultCountLabel,
@@ -100,6 +104,7 @@ import {
   upsertDatabaseSort,
   type DatabaseFilter,
   type DatabaseSort,
+  PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
 } from "./DocumentDatabase";
 
 function document(id: string, title: string): Document {
@@ -343,6 +348,15 @@ describe("database property picker", () => {
       ),
     ).toEqual(["number", "checkbox", "date", "end"]);
   });
+
+  it("can omit fields that already have active filters", () => {
+    expect(
+      databasePropertyPickerItems(properties, "", {
+        includeName: true,
+        excludeKeys: new Set(["checkbox", "name"]),
+      }).map((item) => item.key),
+    ).toEqual(["number", "date", "end"]);
+  });
 });
 
 describe("database view filtering", () => {
@@ -386,6 +400,33 @@ describe("database view filtering", () => {
         value: "2026-05-28",
       }),
     ).toEqual(["Alpha", "Beta"]);
+    expect(
+      filter({
+        key: "date",
+        label: "Publish date",
+        operator: "between",
+        value: JSON.stringify(["2026-05-20", "2026-05-26"]),
+      }),
+    ).toEqual(["Alpha", "Beta"]);
+    expect(
+      filter({
+        key: "date",
+        label: "Publish date",
+        operator: "between",
+        value: JSON.stringify(["2026-05-26", "2026-05-20"]),
+      }),
+    ).toEqual(["Alpha", "Beta"]);
+    expect(
+      databaseInlineFilterLabel(
+        {
+          key: "date",
+          label: "Publish date",
+          operator: "between",
+          value: JSON.stringify(["2026-05-20", "2026-05-26"]),
+        },
+        properties,
+      ),
+    ).toBe("Publish date: 2026-05-20 to 2026-05-26");
   });
 
   it("supports option-backed select filters by stable id and label", () => {
@@ -459,6 +500,291 @@ describe("database view filtering", () => {
     ).toEqual(["Beta"]);
   });
 
+  it("supports multi-select filters with one or more selected values", () => {
+    const pillarOptions = {
+      options: [
+        { id: "team", name: "Team", color: "green" as const },
+        { id: "design", name: "Design Systems", color: "blue" as const },
+        { id: "devrel", name: "DevRel", color: "purple" as const },
+      ],
+    };
+    const pillarProperty = property(
+      "pillar",
+      "Content pillar",
+      "multi_select",
+      null,
+      pillarOptions,
+    );
+    const rows = [
+      {
+        ...item("alpha", "Alpha", {}),
+        properties: [
+          property(
+            "pillar",
+            "Content pillar",
+            "multi_select",
+            ["team"],
+            pillarOptions,
+          ),
+        ],
+      },
+      {
+        ...item("beta", "Beta", {}),
+        properties: [
+          property(
+            "pillar",
+            "Content pillar",
+            "multi_select",
+            ["design", "devrel"],
+            pillarOptions,
+          ),
+        ],
+      },
+      {
+        ...item("gamma", "Gamma", {}),
+        properties: [
+          property(
+            "pillar",
+            "Content pillar",
+            "multi_select",
+            [],
+            pillarOptions,
+          ),
+        ],
+      },
+    ];
+
+    expect(
+      applyDatabaseView(
+        rows,
+        [pillarProperty],
+        "",
+        [
+          {
+            key: "pillar",
+            label: "Content pillar",
+            operator: "contains",
+            value: JSON.stringify(["team", "design"]),
+          },
+        ],
+        [],
+      ).map((row) => row.document.title),
+    ).toEqual(["Alpha", "Beta"]);
+    expect(
+      applyDatabaseView(
+        rows,
+        [pillarProperty],
+        "",
+        [
+          {
+            key: "pillar",
+            label: "Content pillar",
+            operator: "does_not_equal",
+            value: JSON.stringify(["team", "design"]),
+          },
+        ],
+        [],
+      ).map((row) => row.document.title),
+    ).toEqual(["Gamma"]);
+  });
+
+  it("supports select filters with one or more selected values", () => {
+    const authorOptions = {
+      options: [
+        { id: "apoorva", name: "Apoorva", color: "purple" as const },
+        { id: "alice", name: "Alice", color: "pink" as const },
+        { id: "dev", name: "Dev", color: "gray" as const },
+      ],
+    };
+    const authorProperty = property(
+      "author",
+      "Author",
+      "select",
+      null,
+      authorOptions,
+    );
+    const rows = [
+      {
+        ...item("alpha", "Alpha", {}),
+        properties: [
+          property("author", "Author", "select", "apoorva", authorOptions),
+        ],
+      },
+      {
+        ...item("beta", "Beta", {}),
+        properties: [
+          property("author", "Author", "select", "alice", authorOptions),
+        ],
+      },
+      {
+        ...item("gamma", "Gamma", {}),
+        properties: [
+          property("author", "Author", "select", "dev", authorOptions),
+        ],
+      },
+    ];
+
+    expect(
+      applyDatabaseView(
+        rows,
+        [authorProperty],
+        "",
+        [
+          {
+            key: "author",
+            label: "Author",
+            operator: "contains",
+            value: JSON.stringify(["apoorva", "alice"]),
+          },
+        ],
+        [],
+      ).map((row) => row.document.title),
+    ).toEqual(["Alpha", "Beta"]);
+    expect(
+      applyDatabaseView(
+        rows,
+        [authorProperty],
+        "",
+        [
+          {
+            key: "author",
+            label: "Author",
+            operator: "does_not_equal",
+            value: JSON.stringify(["apoorva", "alice"]),
+          },
+        ],
+        [],
+      ).map((row) => row.document.title),
+    ).toEqual(["Gamma"]);
+  });
+
+  it("supports person filters with row-derived people choices", () => {
+    const ownerProperty = property("owner", "Owner", "person");
+    const rows = [
+      {
+        ...item("alpha", "Alpha", {}),
+        properties: [
+          property("owner", "Owner", "person", [
+            "alice@example.com",
+            "Apoorva V",
+          ]),
+        ],
+      },
+      {
+        ...item("beta", "Beta", {}),
+        properties: [
+          property("owner", "Owner", "person", ["Alice Moore", "Dev"]),
+        ],
+      },
+      {
+        ...item("gamma", "Gamma", {}),
+        properties: [property("owner", "Owner", "person", [])],
+      },
+    ];
+
+    expect(databaseFilterOptionChoices("owner", [ownerProperty], rows)).toEqual(
+      [
+        { id: "alice@example.com", name: "Alice", color: "gray" },
+        { id: "Apoorva V", name: "Apoorva V", color: "gray" },
+        { id: "Alice Moore", name: "Alice Moore", color: "gray" },
+        { id: "Dev", name: "Dev", color: "gray" },
+      ],
+    );
+    expect(
+      databaseFilterOptionChoices(
+        "owner",
+        [ownerProperty],
+        rows,
+        "alice@example.com",
+      ),
+    ).toEqual([
+      {
+        id: "__current_user__:alice@example.com",
+        name: "Me",
+        color: "gray",
+        filterValue: "alice@example.com",
+      },
+      { id: "alice@example.com", name: "Alice", color: "gray" },
+      { id: "Apoorva V", name: "Apoorva V", color: "gray" },
+      { id: "Alice Moore", name: "Alice Moore", color: "gray" },
+      { id: "Dev", name: "Dev", color: "gray" },
+    ]);
+    expect(
+      databaseFilterOptionPropertyForKey("owner", [ownerProperty])?.definition
+        .name,
+    ).toBe("Owner");
+    expect(
+      applyDatabaseView(
+        rows,
+        [ownerProperty],
+        "",
+        [
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: JSON.stringify(["Apoorva V", "Alice Moore"]),
+          },
+        ],
+        [],
+      ).map((row) => row.document.title),
+    ).toEqual(["Alpha", "Beta"]);
+    expect(
+      applyDatabaseView(
+        rows,
+        [ownerProperty],
+        "",
+        [
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "does_not_equal",
+            value: JSON.stringify(["Apoorva V", "Alice Moore"]),
+          },
+        ],
+        [],
+      ).map((row) => row.document.title),
+    ).toEqual(["Gamma"]);
+  });
+
+  it("summarizes inline filter chips with selected values", () => {
+    const ownerProperty = property("owner", "Owner", "person");
+
+    expect(
+      databaseInlineFilterLabel(
+        {
+          key: "owner",
+          label: "Owner",
+          operator: "contains",
+          value: "Alice Moore",
+        },
+        [ownerProperty],
+      ),
+    ).toBe("Owner: Alice Moore");
+    expect(
+      databaseInlineFilterLabel(
+        {
+          key: "owner",
+          label: "Owner",
+          operator: "contains",
+          value: "",
+        },
+        [ownerProperty],
+      ),
+    ).toBe("Owner");
+    expect(
+      databaseInlineFilterLabel(
+        {
+          key: "owner",
+          label: "Owner",
+          operator: "is_empty",
+          value: "",
+        },
+        [ownerProperty],
+      ),
+    ).toBe("Owner: Is empty");
+  });
+
   it("can match any active filter instead of requiring every filter", () => {
     const filters: DatabaseFilter[] = [
       {
@@ -489,6 +815,49 @@ describe("database view filtering", () => {
         "or",
       ).map((row) => row.document.title),
     ).toEqual(["Beta", "Gamma"]);
+  });
+
+  it("matches nested filter groups as grouped saved-view conditions", () => {
+    const filters: DatabaseFilter[] = [
+      {
+        key: "number",
+        label: "Priority",
+        operator: "less_than",
+        value: "8",
+        filterGroupId: "advanced",
+      },
+      {
+        key: "checkbox",
+        label: "Done",
+        operator: "is_checked",
+        value: "",
+        filterGroupId: "advanced-nested",
+        parentFilterGroupId: "advanced",
+      },
+      {
+        key: "name",
+        label: "Name",
+        operator: "contains",
+        value: "a",
+        filterGroupId: "advanced-nested",
+        parentFilterGroupId: "advanced",
+      },
+    ];
+
+    expect(
+      applyDatabaseView(
+        [
+          item("alpha", "Alpha", { number: 1, checkbox: false }),
+          item("beta", "Beta", { number: 5, checkbox: true }),
+          item("gamma", "Gamma", { number: 10, checkbox: false }),
+        ],
+        properties,
+        "",
+        filters,
+        [],
+        "and",
+      ).map((row) => row.document.title),
+    ).toEqual(["Beta"]);
   });
 });
 
@@ -880,6 +1249,58 @@ describe("new database item defaults", () => {
     });
   });
 
+  it("copies multi-select contains filters with multiple selected options into new rows", () => {
+    const options = {
+      options: [
+        { id: "team", name: "Team", color: "green" as const },
+        { id: "design", name: "Design Systems", color: "blue" as const },
+      ],
+    };
+    const pillarProperty = property(
+      "pillar",
+      "Content pillar",
+      "multi_select",
+      null,
+      options,
+    );
+
+    expect(
+      databasePropertyValuesForNewItem(
+        [
+          {
+            key: "pillar",
+            label: "Content pillar",
+            operator: "contains",
+            value: JSON.stringify(["Team", "design"]),
+          },
+        ],
+        [pillarProperty],
+      ),
+    ).toEqual({
+      pillar: ["team", "design"],
+    });
+  });
+
+  it("copies person contains filters with multiple selected people into new rows", () => {
+    const ownerProperty = property("owner", "Owner", "person");
+
+    expect(
+      databasePropertyValuesForNewItem(
+        [
+          {
+            key: "owner",
+            label: "Owner",
+            operator: "contains",
+            value: JSON.stringify(["Alice Moore", "apoorva@example.com"]),
+          },
+        ],
+        [ownerProperty],
+      ),
+    ).toEqual({
+      owner: ["Alice Moore", "apoorva@example.com"],
+    });
+  });
+
   it("copies checkbox filters into new row property values", () => {
     const doneProperty = property("done", "Done", "checkbox");
 
@@ -979,7 +1400,7 @@ describe("database column sizing", () => {
         name: 300,
         number: 220,
       }),
-    ).toBe("300px 220px 180px 180px 180px 48px");
+    ).toBe("300px 220px 180px 180px 180px 36px");
   });
 });
 
@@ -1191,6 +1612,10 @@ describe("database item preview", () => {
       documentId: "database-doc",
       title: "Content calendar",
       databaseId: "database",
+      databaseDocumentId: "database-doc",
+      databaseHostDocumentId: "database-doc",
+      databaseRenderMode: "page",
+      databaseNavigationInstanceId: "database-doc:database",
       databaseSourceType: undefined,
       databaseSourceName: undefined,
       databaseSourceTable: undefined,
@@ -1602,6 +2027,10 @@ describe("database item preview", () => {
       documentId: "database-doc",
       title: "Content calendar",
       databaseId: "database",
+      databaseDocumentId: "database-doc",
+      databaseHostDocumentId: "database-doc",
+      databaseRenderMode: "page",
+      databaseNavigationInstanceId: "database-doc:database",
       databaseSourceType: undefined,
       databaseSourceName: undefined,
       databaseSourceTable: undefined,
@@ -1845,6 +2274,343 @@ describe("database saved views", () => {
     expect(viewConfig.views[0]?.collapsedGroupIds).toEqual(["status:todo"]);
     expect(viewConfig.views[0]?.hideEmptyGroups).toBe(true);
     expect(viewConfig.views[1]?.rowDensity).toBe("default");
+  });
+
+  it("keeps personal filters, sorts, and active view out of shared auto-saves", () => {
+    const savedViewConfig = normalizeClientDatabaseViewConfig({
+      activeViewId: "calendar",
+      views: [
+        {
+          id: "default",
+          name: "Editorial",
+          type: "table",
+          sorts: [{ key: "date", label: "Publish date", direction: "desc" }],
+          filters: [
+            {
+              key: "status",
+              label: "Status",
+              operator: "equals",
+              value: "Draft",
+            },
+          ],
+          filterMode: "and",
+          columnWidths: { name: 260 },
+          hiddenPropertyIds: ["internal-notes"],
+          rowDensity: "default",
+        },
+        {
+          id: "calendar",
+          name: "Calendar",
+          type: "calendar",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          columnWidths: {},
+          datePropertyId: "date",
+        },
+      ],
+    });
+    const personalViewConfig = normalizeClientDatabaseViewConfig({
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          name: "Editorial",
+          type: "table",
+          sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          filters: [
+            {
+              key: "author",
+              label: "Author",
+              operator: "contains",
+              value: "Alice",
+            },
+          ],
+          filterMode: "or",
+          columnWidths: { name: 320 },
+          hiddenPropertyIds: ["seo-score"],
+          rowDensity: "comfortable",
+        },
+        {
+          id: "calendar",
+          name: "Calendar",
+          type: "calendar",
+          sorts: [{ key: "name", label: "Name", direction: "desc" }],
+          filters: [
+            {
+              key: "author",
+              label: "Author",
+              operator: "contains",
+              value: "Alice",
+            },
+          ],
+          filterMode: "or",
+          columnWidths: {},
+          datePropertyId: "date",
+        },
+      ],
+    });
+
+    const sharedSaveConfig = databaseViewConfigWithSavedQueryState(
+      personalViewConfig,
+      savedViewConfig,
+    );
+
+    expect(
+      databaseViewHasPersonalQueryChanges(personalViewConfig, savedViewConfig),
+    ).toBe(true);
+    expect(sharedSaveConfig.activeViewId).toBe("calendar");
+    expect(sharedSaveConfig.views[0]).toMatchObject({
+      sorts: [{ key: "date", label: "Publish date", direction: "desc" }],
+      filters: [
+        {
+          key: "status",
+          label: "Status",
+          operator: "equals",
+          value: "Draft",
+        },
+      ],
+      filterMode: "and",
+      columnWidths: { name: 320 },
+      hiddenPropertyIds: ["seo-score"],
+      rowDensity: "comfortable",
+    });
+    expect(sharedSaveConfig.views[1]).toMatchObject({
+      sorts: [],
+      filters: [],
+      filterMode: "and",
+      datePropertyId: "date",
+    });
+  });
+
+  it("applies personal query overrides without replacing saved view settings", () => {
+    const savedViewConfig = normalizeClientDatabaseViewConfig({
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          name: "Editorial",
+          type: "table",
+          sorts: [{ key: "date", label: "Publish date", direction: "desc" }],
+          filters: [
+            {
+              key: "status",
+              label: "Status",
+              operator: "equals",
+              value: "Draft",
+            },
+          ],
+          filterMode: "and",
+          columnWidths: { name: 280 },
+          hiddenPropertyIds: ["internal-notes"],
+          rowDensity: "compact",
+        },
+        {
+          id: "calendar",
+          name: "Calendar",
+          type: "calendar",
+          sorts: [],
+          filters: [],
+          columnWidths: {},
+          datePropertyId: "date",
+        },
+      ],
+    });
+
+    const merged = applyPersonalDatabaseViewOverrides(savedViewConfig, {
+      version: PERSONAL_DATABASE_VIEW_OVERRIDES_VERSION,
+      activeViewId: "calendar",
+      views: [
+        {
+          id: "default",
+          sorts: [{ key: "name", label: "Name", direction: "asc" }],
+          filters: [
+            {
+              key: "author",
+              label: "Author",
+              operator: "contains",
+              value: "Alice",
+            },
+          ],
+          filterMode: "or",
+        },
+        {
+          id: "missing",
+          sorts: [{ key: "name", label: "Name", direction: "desc" }],
+          filters: [],
+          filterMode: "and",
+        },
+      ],
+    });
+
+    expect(merged.activeViewId).toBe("calendar");
+    expect(merged.views[0]).toMatchObject({
+      sorts: [{ key: "name", label: "Name", direction: "asc" }],
+      filters: [
+        {
+          key: "author",
+          label: "Author",
+          operator: "contains",
+          value: "Alice",
+        },
+      ],
+      filterMode: "or",
+      columnWidths: { name: 280 },
+      hiddenPropertyIds: ["internal-notes"],
+      rowDensity: "compact",
+    });
+    expect(merged.views[1]).toMatchObject({
+      id: "calendar",
+      sorts: [],
+      filters: [],
+      datePropertyId: "date",
+    });
+    expect(databaseViewHasPersonalQueryChanges(merged, savedViewConfig)).toBe(
+      true,
+    );
+  });
+
+  it("resets query state back to saved filters when filters were saved for everyone", () => {
+    const savedViewConfig = normalizeClientDatabaseViewConfig({
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          name: "Editorial",
+          type: "table",
+          sorts: [{ key: "date", label: "Publish date", direction: "desc" }],
+          filters: [
+            {
+              key: "author",
+              label: "Author",
+              operator: "contains",
+              value: JSON.stringify(["apoorva", "alice"]),
+            },
+          ],
+          filterMode: "or",
+          columnWidths: { name: 280 },
+        },
+        {
+          id: "calendar",
+          name: "Calendar",
+          type: "calendar",
+          sorts: [],
+          filters: [
+            {
+              key: "status",
+              label: "Status",
+              operator: "equals",
+              value: "Draft",
+            },
+          ],
+          filterMode: "and",
+          columnWidths: {},
+          datePropertyId: "date",
+        },
+      ],
+    });
+    const personalViewConfig = normalizeClientDatabaseViewConfig({
+      ...savedViewConfig,
+      views: savedViewConfig.views.map((view) =>
+        view.id === "default"
+          ? {
+              ...view,
+              sorts: [{ key: "name", label: "Name", direction: "asc" }],
+              filters: [
+                {
+                  key: "status",
+                  label: "Status",
+                  operator: "equals",
+                  value: "Published",
+                },
+              ],
+              filterMode: "and",
+            }
+          : view,
+      ),
+    });
+
+    const resetViewConfig = databaseViewConfigWithSavedQueryState(
+      personalViewConfig,
+      savedViewConfig,
+    );
+
+    expect(resetViewConfig.activeViewId).toBe("default");
+    expect(resetViewConfig.views[0]).toMatchObject({
+      sorts: [{ key: "date", label: "Publish date", direction: "desc" }],
+      filters: [
+        {
+          key: "author",
+          label: "Author",
+          operator: "contains",
+          value: JSON.stringify(["apoorva", "alice"]),
+        },
+      ],
+      filterMode: "or",
+      columnWidths: { name: 280 },
+    });
+    expect(resetViewConfig.views[1]).toMatchObject({
+      id: "calendar",
+      filters: [
+        {
+          key: "status",
+          label: "Status",
+          operator: "equals",
+          value: "Draft",
+        },
+      ],
+    });
+    expect(
+      databaseViewHasPersonalQueryChanges(resetViewConfig, savedViewConfig),
+    ).toBe(false);
+  });
+
+  it("resets query state to clear filters when no filters were saved for everyone", () => {
+    const savedViewConfig = normalizeClientDatabaseViewConfig({
+      activeViewId: "default",
+      views: [
+        {
+          id: "default",
+          name: "Editorial",
+          type: "table",
+          sorts: [],
+          filters: [],
+          filterMode: "and",
+          columnWidths: { name: 280 },
+        },
+      ],
+    });
+    const personalViewConfig = normalizeClientDatabaseViewConfig({
+      ...savedViewConfig,
+      views: [
+        {
+          ...savedViewConfig.views[0],
+          filters: [
+            {
+              key: "author",
+              label: "Author",
+              operator: "contains",
+              value: JSON.stringify(["apoorva", "alice"]),
+            },
+          ],
+          filterMode: "or",
+        },
+      ],
+    });
+
+    const resetViewConfig = databaseViewConfigWithSavedQueryState(
+      personalViewConfig,
+      savedViewConfig,
+    );
+
+    expect(resetViewConfig.views[0]).toMatchObject({
+      filters: [],
+      filterMode: "and",
+      columnWidths: { name: 280 },
+    });
+    expect(
+      databaseViewHasPersonalQueryChanges(resetViewConfig, savedViewConfig),
+    ).toBe(false);
   });
 
   it("adds, selects, renames, duplicates, and deletes table views", () => {

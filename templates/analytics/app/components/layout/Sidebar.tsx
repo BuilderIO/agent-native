@@ -14,15 +14,20 @@ import {
   IconReportAnalytics,
   IconSearch,
   IconArchive,
-  IconBuilding,
+  IconActivity,
+  IconHeartbeat,
+  IconPin,
+  IconPlus,
   IconLock,
   IconLink,
   IconMessageCircle,
+  IconUsersGroup,
   IconEye,
   IconEyeOff,
   IconPlayerPlay,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconBrain,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -38,11 +43,13 @@ import {
   useRef,
   useMemo,
   Fragment,
+  type FormEvent,
 } from "react";
 import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { getIdToken } from "@/lib/auth";
+import { ANALYTICS_CHAT_STORAGE_KEY } from "@/lib/chat-handoff";
 import { cn, shortcutModifierLabel } from "@/lib/utils";
 import {
   dashboards,
@@ -62,6 +69,20 @@ type SidebarDashboard = {
   /** Id of the dashboard this one nests under in the sidebar, if any. */
   parentId?: string;
 };
+
+const SIDEBAR_SYNC_SETTLE_MS = 500;
+
+function useSettledSyncVersion(version: number): number {
+  const [settledVersion, setSettledVersion] = useState(version);
+  useEffect(() => {
+    const timeout = window.setTimeout(
+      () => setSettledVersion(version),
+      SIDEBAR_SYNC_SETTLE_MS,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [version]);
+  return settledVersion;
+}
 import {
   DevDatabaseLink,
   FeedbackButton,
@@ -70,9 +91,11 @@ import {
   callAction,
   appPath,
   navigateWithAgentChatViewTransition,
+  useChatThreads,
   useActionMutation,
   useChangeVersions,
   useT,
+  type ChatThreadSummary,
 } from "@agent-native/core/client";
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
@@ -94,6 +117,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Input } from "@/components/ui/input";
 import {
   Popover,
   PopoverTrigger,
@@ -124,10 +148,12 @@ import type { ResourceAccess } from "@/lib/resource-access";
 
 import { NewAnalysisDialog } from "./NewAnalysisDialog";
 import { NewDashboardDialog } from "./NewDashboardDialog";
+import { SidebarLoadError } from "./SidebarLoadError";
 
 type AnalysisHiddenFilter = "visible" | "hidden";
 
 const SIDEBAR_PREVIEW_COUNT = 5;
+const ASK_OPEN_KEY = "analytics-sidebar-ask-open";
 const DASHBOARD_SORT_MODE_KEY = "dashboard-sort-mode";
 const ANALYSIS_SORT_MODE_KEY = "analysis-sort-mode";
 const DASHBOARDS_OPEN_KEY = "analytics-sidebar-dashboards-open";
@@ -137,6 +163,7 @@ const SIDEBAR_SKELETON_CLASS =
   "bg-sidebar-foreground/12 dark:bg-sidebar-foreground/10";
 
 type SidebarSortMode = "most-used" | "alphabetical" | "manual";
+type SidebarVisibilityFilter = "all" | "private" | "shared";
 
 import {
   DndContext,
@@ -157,15 +184,20 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
+  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
-function getStoredBoolean(key: string, fallback: boolean): boolean {
-  if (typeof window === "undefined") return fallback;
-  const raw = window.localStorage.getItem(key);
-  if (raw === "true") return true;
-  if (raw === "false") return false;
-  return fallback;
+function getStoredBooleanPreference(key: string): boolean | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.localStorage.getItem(key);
+    if (raw === "true") return true;
+    if (raw === "false") return false;
+  } catch {
+    // localStorage unavailable — ignore, section state is best-effort.
+  }
+  return null;
 }
 
 function setStoredBoolean(key: string, value: boolean): void {
@@ -223,25 +255,38 @@ function applyOrder<T extends { id: string }>(
   return ordered;
 }
 
+function matchesVisibilityFilter(
+  item: { visibility?: Visibility },
+  filter: SidebarVisibilityFilter,
+): boolean {
+  if (filter === "all") return true;
+  if (filter === "private") {
+    return item.visibility !== "org" && item.visibility !== "public";
+  }
+  return item.visibility === "org" || item.visibility === "public";
+}
+
 function SidebarSectionSettingsPopover({
   label,
   sortMode,
   onSortModeChange,
-  sharedOnly,
-  onSharedOnlyChange,
+  visibilityFilter,
+  onVisibilityFilterChange,
   showHidden,
   onShowHiddenChange,
 }: {
   label: string;
   sortMode: SidebarSortMode;
   onSortModeChange: (value: SidebarSortMode) => void;
-  sharedOnly: boolean;
-  onSharedOnlyChange: (value: boolean) => void;
+  visibilityFilter: SidebarVisibilityFilter;
+  onVisibilityFilterChange: (value: SidebarVisibilityFilter) => void;
   showHidden?: boolean;
   onShowHiddenChange?: (value: boolean) => void;
 }) {
   const t = useT();
   const settingsLabel = t("sidebar.sectionSettings", { label });
+  const segmentedItemClass =
+    "h-7 rounded px-2 text-[11px] text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground data-[state=on]:bg-sidebar-accent data-[state=on]:text-foreground data-[state=on]:shadow-sm";
   return (
     <Popover>
       <Tooltip>
@@ -249,7 +294,7 @@ function SidebarSectionSettingsPopover({
           <PopoverTrigger asChild>
             <button
               type="button"
-              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-all hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
+              className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 opacity-0 transition-[opacity,color,background-color] hover:bg-sidebar-accent hover:text-foreground focus:opacity-100 focus:outline-none focus:ring-2 focus:ring-ring group-hover/section:opacity-100 data-[state=open]:opacity-100"
               aria-label={settingsLabel}
             >
               <IconFilter className="h-3.5 w-3.5" />
@@ -258,11 +303,55 @@ function SidebarSectionSettingsPopover({
         </TooltipTrigger>
         <TooltipContent side="right">{settingsLabel}</TooltipContent>
       </Tooltip>
-      <PopoverContent side="right" align="start" className="w-60 p-2">
+      <PopoverContent side="right" align="start" className="w-64 p-2">
         <div className="px-2 pb-2">
           <p className="text-xs font-medium text-foreground">{label}</p>
         </div>
         <div className="grid gap-3">
+          <div className="grid gap-1.5">
+            <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+              {t("sidebar.show")}
+            </p>
+            <ToggleGroup
+              type="single"
+              value={visibilityFilter}
+              onValueChange={(next) => {
+                if (next === "all" || next === "private" || next === "shared") {
+                  onVisibilityFilterChange(next);
+                }
+              }}
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
+            >
+              <ToggleGroupItem
+                value="all"
+                aria-label={t("sidebar.visibilityAllDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityAll")}
+              </ToggleGroupItem>
+              <ToggleGroupItem
+                value="private"
+                aria-label={t("sidebar.visibilityPrivateOnlyDescription")}
+                className={segmentedItemClass}
+              >
+                {t("sidebar.visibilityPrivateOnly")}
+              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="shared"
+                    aria-label={t("sidebar.visibilitySharedOnlyDescription")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.visibilitySharedOnly")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.visibilitySharedOnlyDescription")}
+                </TooltipContent>
+              </Tooltip>
+            </ToggleGroup>
+          </div>
           <div className="grid gap-1.5">
             <p className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {t("sidebar.sortBy")}
@@ -279,46 +368,39 @@ function SidebarSectionSettingsPopover({
                   onSortModeChange(next);
                 }
               }}
-              className="grid grid-cols-3 gap-1 rounded-md bg-muted/40 p-1"
+              className="grid grid-cols-3 gap-1 rounded-lg border border-border/60 bg-background/50 p-1"
             >
-              <ToggleGroupItem
-                value="most-used"
-                aria-label={t("sidebar.sortMostUsed")}
-                className="h-7 px-2 text-[11px]"
-              >
-                {t("sidebar.used")}
-              </ToggleGroupItem>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <ToggleGroupItem
+                    value="most-used"
+                    aria-label={t("sidebar.sortMostUsedPersonal")}
+                    className={segmentedItemClass}
+                  >
+                    {t("sidebar.used")}
+                  </ToggleGroupItem>
+                </TooltipTrigger>
+                <TooltipContent side="bottom">
+                  {t("sidebar.usedExplainer")}
+                </TooltipContent>
+              </Tooltip>
               <ToggleGroupItem
                 value="alphabetical"
                 aria-label={t("sidebar.sortAlphabetically")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.alphabetical")}
               </ToggleGroupItem>
               <ToggleGroupItem
                 value="manual"
                 aria-label={t("sidebar.sortManually")}
-                className="h-7 px-2 text-[11px]"
+                className={segmentedItemClass}
               >
                 {t("sidebar.manual")}
               </ToggleGroupItem>
             </ToggleGroup>
           </div>
           <div className="grid gap-1">
-            <label
-              htmlFor={`${label.toLowerCase()}-shared-filter`}
-              className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-xs text-foreground hover:bg-sidebar-accent/60"
-            >
-              <span className="min-w-0 truncate">
-                {t("sidebar.orgSharedOnly")}
-              </span>
-              <Switch
-                id={`${label.toLowerCase()}-shared-filter`}
-                checked={sharedOnly}
-                onCheckedChange={onSharedOnlyChange}
-                aria-label={`${label} ${t("sidebar.orgSharedOnly")}`}
-              />
-            </label>
             {onShowHiddenChange && showHidden !== undefined && (
               <label
                 htmlFor={`${label.toLowerCase()}-hidden-filter`}
@@ -535,8 +617,8 @@ function SortableRow({
     <div ref={setNodeRef} style={style} className="group/item relative min-w-0">
       <button
         type="button"
-        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-colors hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
-        aria-label={t("sidebar.dragItem", { name })}
+        className="absolute -start-4 top-1/2 z-10 -translate-y-1/2 cursor-grab rounded p-1 text-muted-foreground/30 opacity-0 transition-[opacity,color] hover:text-muted-foreground/60 group-hover/item:opacity-100 active:cursor-grabbing"
+        aria-label={t("sidebar.dragItemPersonal", { name })}
         {...attributes}
         {...listeners}
       >
@@ -594,14 +676,18 @@ function SortableRow({
                     : "text-muted-foreground/50 hover:text-yellow-500",
                 )}
                 aria-label={
-                  isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")
+                  isFav
+                    ? t("sidebar.unfavoritePersonal")
+                    : t("sidebar.favoritePersonal")
                 }
               >
                 <IconStar className={cn("h-3 w-3", isFav && "fill-current")} />
               </button>
             </TooltipTrigger>
             <TooltipContent side="right">
-              {isFav ? t("sidebar.unfavorite") : t("sidebar.favorite")}
+              {isFav
+                ? t("sidebar.unfavoritePersonal")
+                : t("sidebar.favoritePersonal")}
             </TooltipContent>
           </Tooltip>
           <DropdownMenu open={menuOpen} onOpenChange={setMenuOpen}>
@@ -641,7 +727,7 @@ function SortableRow({
                   }}
                 >
                   {visibility === "private" ? (
-                    <IconBuilding className="me-2 h-3.5 w-3.5" />
+                    <IconUsersGroup className="me-2 h-3.5 w-3.5" />
                   ) : (
                     <IconLock className="me-2 h-3.5 w-3.5" />
                   )}
@@ -697,7 +783,7 @@ function SortableRow({
                     className="text-destructive focus:text-destructive"
                   >
                     <IconTrash className="me-2 h-3.5 w-3.5" />
-                    {t("sidebar.deletePermanently")}
+                    {t("sidebar.delete")}
                   </DropdownMenuItem>
                 </>
               ) : (
@@ -847,7 +933,7 @@ function SortableDashboardItem({
               <div
                 key={sv.id}
                 className={cn(
-                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-all",
+                  "group/sv flex items-center gap-1 rounded-md pe-1 transition-[opacity,color,background-color]",
                   isSubviewActive
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground/70 hover:bg-sidebar-accent/50 hover:text-primary",
@@ -864,6 +950,7 @@ function SortableDashboardItem({
                     <Tooltip>
                       <TooltipTrigger asChild>
                         <button
+                          type="button"
                           onClick={(e) => {
                             e.preventDefault();
                             e.stopPropagation();
@@ -875,6 +962,11 @@ function SortableDashboardItem({
                               ? "text-yellow-500 opacity-100"
                               : "opacity-0 group-hover/sv:opacity-100 text-muted-foreground/50 hover:text-yellow-500",
                           )}
+                          aria-label={
+                            favoriteIds.has(`view:${d.id}:${sv.id}`)
+                              ? t("sidebar.unfavoritePersonal")
+                              : t("sidebar.favoritePersonal")
+                          }
                         >
                           <IconStar
                             className={cn(
@@ -887,8 +979,8 @@ function SortableDashboardItem({
                       </TooltipTrigger>
                       <TooltipContent side="right">
                         {favoriteIds.has(`view:${d.id}:${sv.id}`)
-                          ? t("sidebar.unfavorite")
-                          : t("sidebar.favorite")}
+                          ? t("sidebar.unfavoritePersonal")
+                          : t("sidebar.favoritePersonal")}
                       </TooltipContent>
                     </Tooltip>
                     <Popover
@@ -900,7 +992,7 @@ function SortableDashboardItem({
                       <Tooltip>
                         <TooltipTrigger asChild>
                           <PopoverTrigger asChild>
-                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-all shrink-0">
+                            <button className="opacity-0 group-hover/sv:opacity-100 p-0.5 rounded text-muted-foreground/50 hover:text-foreground transition-[opacity,color,background-color] shrink-0">
                               <IconTrash className="h-2.5 w-2.5" />
                             </button>
                           </PopoverTrigger>
@@ -1042,28 +1134,24 @@ type SqlDashboardListItem = {
 async function fetchSqlDashboards(
   t: (key: string) => string,
 ): Promise<SqlDashboardListItem[]> {
-  try {
-    const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
-    return (Array.isArray(rows) ? rows : [])
-      .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
-      .map((d: any) => ({
-        id: d.id,
-        name:
-          typeof d.name === "string" && d.name.trim().length > 0
-            ? d.name
-            : t("sidebar.untitledDashboard"),
-        visibility:
-          d.visibility === "org" || d.visibility === "public"
-            ? (d.visibility as Visibility)
-            : ("private" as Visibility),
-        parentId:
-          typeof d.parentId === "string" && d.parentId.trim().length > 0
-            ? d.parentId
-            : undefined,
-      }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction("list-sql-dashboards", {}, { method: "GET" });
+  return (Array.isArray(rows) ? rows : [])
+    .filter((d: any) => d && typeof d.id === "string" && d.id.length > 0)
+    .map((d: any) => ({
+      id: d.id,
+      name:
+        typeof d.name === "string" && d.name.trim().length > 0
+          ? d.name
+          : t("sidebar.untitledDashboard"),
+      visibility:
+        d.visibility === "org" || d.visibility === "public"
+          ? (d.visibility as Visibility)
+          : ("private" as Visibility),
+      parentId:
+        typeof d.parentId === "string" && d.parentId.trim().length > 0
+          ? d.parentId
+          : undefined,
+    }));
 }
 
 async function fetchSidebarAnalyses(
@@ -1077,31 +1165,27 @@ async function fetchSidebarAnalyses(
     hiddenAt: string | null;
   }[]
 > {
-  try {
-    const rows = await callAction(
-      "list-analyses",
-      {
-        ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
-      } as Record<string, unknown>,
-      { method: "GET" },
-    );
-    return (Array.isArray(rows) ? rows : [])
-      .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
-      .map((a: any) => ({
-        id: a.id,
-        name:
-          typeof a.name === "string" && a.name.trim().length > 0
-            ? a.name
-            : t("sidebar.untitledAnalysis"),
-        visibility:
-          a.visibility === "org" || a.visibility === "public"
-            ? a.visibility
-            : ("private" as Visibility),
-        hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
-      }));
-  } catch {
-    return [];
-  }
+  const rows = await callAction(
+    "list-analyses",
+    {
+      ...(hidden === "hidden" ? { hidden: "hidden" } : {}),
+    } as Record<string, unknown>,
+    { method: "GET" },
+  );
+  return (Array.isArray(rows) ? rows : [])
+    .filter((a: any) => a && typeof a.id === "string" && a.id.length > 0)
+    .map((a: any) => ({
+      id: a.id,
+      name:
+        typeof a.name === "string" && a.name.trim().length > 0
+          ? a.name
+          : t("sidebar.untitledAnalysis"),
+      visibility:
+        a.visibility === "org" || a.visibility === "public"
+          ? a.visibility
+          : ("private" as Visibility),
+      hiddenAt: typeof a.hiddenAt === "string" ? a.hiddenAt : null,
+    }));
 }
 
 type PrefetchedSqlDashboard = {
@@ -1175,6 +1259,322 @@ async function fetchAnalysisDetailForPrefetch(id: string): Promise<unknown> {
   }
 }
 
+const ANALYTICS_ACTIVE_THREAD_KEY = `agent-chat-active-thread:${ANALYTICS_CHAT_STORAGE_KEY}`;
+
+function formatThreadAge(updatedAt: number) {
+  const diffMs = Math.max(0, Date.now() - updatedAt);
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return "now";
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  return new Date(updatedAt).toLocaleDateString([], {
+    month: "short",
+    day: "numeric",
+  });
+}
+
+function threadTitle(thread: ChatThreadSummary, untitledLabel: string) {
+  return thread.title || thread.preview || untitledLabel;
+}
+
+function threadUpdatedAt(thread: ChatThreadSummary) {
+  return Number.isFinite(thread.updatedAt)
+    ? thread.updatedAt
+    : Number.isFinite(thread.createdAt)
+      ? thread.createdAt
+      : 0;
+}
+
+function compareThreads(a: ChatThreadSummary, b: ChatThreadSummary) {
+  const aPinned = a.pinnedAt ?? 0;
+  const bPinned = b.pinnedAt ?? 0;
+  if (aPinned || bPinned) return bPinned - aPinned;
+  return threadUpdatedAt(b) - threadUpdatedAt(a);
+}
+
+function persistedAnalyticsThreadId() {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage.getItem(ANALYTICS_ACTIVE_THREAD_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function AnalyticsChatsSection({ isAskRoute }: { isAskRoute: boolean }) {
+  const navigate = useNavigate();
+  const t = useT();
+  const {
+    threads,
+    activeThreadId,
+    isLoading: chatsLoading,
+    createThread,
+    switchThread,
+    pinThread,
+    archiveThread,
+    renameThread,
+    refreshThreads,
+  } = useChatThreads(undefined, ANALYTICS_CHAT_STORAGE_KEY, undefined, {
+    autoCreate: false,
+    restoreActiveThread: false,
+  });
+  const [renamingThreadId, setRenamingThreadId] = useState<string | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  const committingRenameRef = useRef(false);
+
+  const visibleThreads = useMemo(
+    () =>
+      threads
+        .filter((thread) => thread.messageCount > 0 && !thread.archivedAt)
+        .sort(compareThreads)
+        .slice(0, SIDEBAR_PREVIEW_COUNT),
+    [threads],
+  );
+
+  useEffect(() => {
+    const refresh = () => refreshThreads();
+    const handleRunning = (event: Event) => {
+      const detail = (event as CustomEvent).detail as
+        | { isRunning?: unknown }
+        | undefined;
+      if (typeof detail?.isRunning === "boolean") refreshThreads();
+    };
+
+    window.addEventListener("agent-chat:threads-updated", refresh);
+    window.addEventListener("agentNative.chatRunning", handleRunning);
+    window.addEventListener("focus", refresh);
+    return () => {
+      window.removeEventListener("agent-chat:threads-updated", refresh);
+      window.removeEventListener("agentNative.chatRunning", handleRunning);
+      window.removeEventListener("focus", refresh);
+    };
+  }, [refreshThreads]);
+
+  useEffect(() => {
+    if (!renamingThreadId) return;
+    requestAnimationFrame(() => {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    });
+  }, [renamingThreadId]);
+
+  function openThread(threadId: string, options?: { isNew?: boolean }) {
+    switchThread(threadId);
+    navigateWithAgentChatViewTransition(navigate, "/ask");
+    window.requestAnimationFrame(() => {
+      window.dispatchEvent(
+        new CustomEvent("agent-chat:open-thread", {
+          detail: { threadId, newThread: options?.isNew === true },
+        }),
+      );
+    });
+  }
+
+  async function handleNewChat() {
+    const threadId = await createThread();
+    if (threadId) openThread(threadId, { isNew: true });
+  }
+
+  async function handleArchiveThread(threadId: string) {
+    const wasActive =
+      threadId === activeThreadId || threadId === persistedAnalyticsThreadId();
+    const archived = await archiveThread(threadId);
+    if (!archived) {
+      toast.error(t("chat.archiveFailed"));
+      return;
+    }
+    if (wasActive) {
+      await handleNewChat();
+    }
+  }
+
+  function startRenameThread(thread: ChatThreadSummary) {
+    committingRenameRef.current = false;
+    setRenameDraft(threadTitle(thread, t("chat.untitledChat")));
+    setRenamingThreadId(thread.id);
+  }
+
+  function cancelRenameThread() {
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+  }
+
+  async function commitRenameThread() {
+    if (committingRenameRef.current) return;
+    const threadId = renamingThreadId;
+    const title = renameDraft.trim();
+    if (!threadId) return;
+    committingRenameRef.current = true;
+    setRenamingThreadId(null);
+    setRenameDraft("");
+    if (title) {
+      const renamed = await renameThread(threadId, title);
+      if (!renamed) toast.error(t("chat.renameFailed"));
+    }
+    committingRenameRef.current = false;
+  }
+
+  function handleRenameSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    void commitRenameThread();
+  }
+
+  return (
+    <div className="ms-4 min-w-0 space-y-0.5">
+      {chatsLoading &&
+        visibleThreads.length === 0 &&
+        Array.from({ length: 3 }).map((_, i) => (
+          <div
+            key={`chat-skeleton-${i}`}
+            className="flex items-center gap-2 px-3 py-1"
+          >
+            <Skeleton
+              className={cn(
+                "h-3.5 w-3.5 shrink-0 rounded-sm",
+                SIDEBAR_SKELETON_CLASS,
+              )}
+            />
+            <Skeleton
+              className={cn("h-3 rounded", SIDEBAR_SKELETON_CLASS)}
+              style={{ width: `${60 + ((i * 17) % 30)}%` }}
+            />
+          </div>
+        ))}
+      {visibleThreads.map((thread) => {
+        const title = threadTitle(thread, t("chat.untitledChat"));
+        const isActive =
+          isAskRoute &&
+          (thread.id === activeThreadId ||
+            thread.id === persistedAnalyticsThreadId());
+        const isRenaming = thread.id === renamingThreadId;
+        return (
+          <div
+            key={thread.id}
+            className={cn(
+              "group/item relative flex min-w-0 items-center rounded-lg transition-colors",
+              isActive
+                ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                : "text-muted-foreground hover:bg-sidebar-accent/50 hover:text-primary",
+            )}
+          >
+            {isRenaming ? (
+              <form
+                onSubmit={handleRenameSubmit}
+                className="flex min-w-0 flex-1 items-center px-1"
+              >
+                <Input
+                  ref={renameInputRef}
+                  value={renameDraft}
+                  onChange={(event) => setRenameDraft(event.target.value)}
+                  onBlur={() => void commitRenameThread()}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") {
+                      event.preventDefault();
+                      cancelRenameThread();
+                    }
+                  }}
+                  maxLength={160}
+                  aria-label={t("chat.renameThread", { title })}
+                  className="h-6 min-w-0 rounded-sm border-sidebar-border bg-background px-1.5 text-xs"
+                />
+              </form>
+            ) : (
+              <>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      onClick={() => openThread(thread.id)}
+                      className="min-w-0 flex-1 px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    >
+                      <span className="flex min-w-0 items-center gap-1.5">
+                        {thread.pinnedAt ? (
+                          <IconPin
+                            aria-hidden="true"
+                            className="size-3 shrink-0 text-current opacity-60"
+                          />
+                        ) : null}
+                        <span className="block min-w-0 truncate">{title}</span>
+                      </span>
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent side="right">{title}</TooltipContent>
+                </Tooltip>
+                <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+                  <span className="pointer-events-none pe-1 text-[11px] text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
+                    {isActive ? "" : formatThreadAge(threadUpdatedAt(thread))}
+                  </span>
+                  <DropdownMenu>
+                    <Tooltip>
+                      <TooltipTrigger asChild>
+                        <DropdownMenuTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={t("chat.optionsFor", { title })}
+                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-[opacity,color,background-color] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
+                          >
+                            <IconDots className="h-3 w-3" />
+                          </button>
+                        </DropdownMenuTrigger>
+                      </TooltipTrigger>
+                      <TooltipContent side="right">
+                        {t("chat.optionsFor", { title })}
+                      </TooltipContent>
+                    </Tooltip>
+                    <DropdownMenuContent
+                      side="right"
+                      align="start"
+                      className="w-44"
+                    >
+                      <DropdownMenuItem
+                        onSelect={() => startRenameThread(thread)}
+                      >
+                        <IconPencil className="me-2 h-3.5 w-3.5" />
+                        {t("chat.renameChat")}
+                      </DropdownMenuItem>
+                      <DropdownMenuItem
+                        onSelect={() =>
+                          void pinThread(thread.id, !thread.pinnedAt)
+                        }
+                      >
+                        <IconPin className="me-2 h-3.5 w-3.5" />
+                        {thread.pinnedAt
+                          ? t("chat.unpinChat")
+                          : t("chat.pinChat")}
+                      </DropdownMenuItem>
+                      <DropdownMenuSeparator />
+                      <DropdownMenuItem
+                        onSelect={() => void handleArchiveThread(thread.id)}
+                        className="text-destructive focus:text-destructive"
+                      >
+                        <IconArchive className="me-2 h-3.5 w-3.5" />
+                        {t("chat.archiveChat")}
+                      </DropdownMenuItem>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
+                </div>
+              </>
+            )}
+          </div>
+        );
+      })}
+      <button
+        type="button"
+        onClick={() => void handleNewChat()}
+        className="flex w-full cursor-pointer items-center gap-2 rounded-lg px-3 py-1.5 text-xs text-muted-foreground/60 hover:bg-sidebar-accent/50 hover:text-primary"
+      >
+        <IconPlus className="h-3 w-3" />
+        {t("chat.newChat")}
+      </button>
+    </div>
+  );
+}
+
 function getQuerySnapshots<T>(queryClient: QueryClient, queryKey: QueryKey) {
   return queryClient.getQueriesData<T>({ queryKey });
 }
@@ -1197,16 +1597,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { setTheme } = useTheme();
 
-  const [dashOpen, setDashOpen] = useState(() =>
-    getStoredBoolean(DASHBOARDS_OPEN_KEY, true),
+  const isAskRoute = location.pathname === "/ask";
+  const activeDashboardId = useMemo(() => {
+    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
+    if (!match?.[1]) return null;
+    return new URLSearchParams(location.search).get("id") || match[1];
+  }, [location.pathname, location.search]);
+  const activeAnalysisId = useMemo(() => {
+    const match = location.pathname.match(/^\/analyses\/([^/]+)/);
+    return match?.[1] ?? null;
+  }, [location.pathname]);
+  const [askOpen, setAskOpen] = useState(
+    () => getStoredBooleanPreference(ASK_OPEN_KEY) ?? isAskRoute,
+  );
+  const [dashOpen, setDashOpen] = useState(
+    () =>
+      getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) ??
+      activeDashboardId !== null,
   );
   const [dashShowAll, setDashShowAll] = useState(false);
-  const [dashFilter, setDashFilter] = useState<"all" | "org">("all");
-  const [analysesOpen, setAnalysesOpen] = useState(() =>
-    getStoredBoolean(ANALYSES_OPEN_KEY, true),
+  const [dashFilter, setDashFilter] = useState<SidebarVisibilityFilter>("all");
+  const [analysesOpen, setAnalysesOpen] = useState(
+    () =>
+      getStoredBooleanPreference(ANALYSES_OPEN_KEY) ??
+      activeAnalysisId !== null,
   );
   const [analysesShowAll, setAnalysesShowAll] = useState(false);
-  const [analysisFilter, setAnalysisFilter] = useState<"all" | "org">("all");
+  const [analysisFilter, setAnalysisFilter] =
+    useState<SidebarVisibilityFilter>("all");
   const [analysisHiddenFilter, setAnalysisHiddenFilter] =
     useState<AnalysisHiddenFilter>("visible");
   const [dashboardSortMode, setDashboardSortModeState] =
@@ -1304,6 +1722,32 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
     setAnalysisSortModeState(mode);
   }, []);
 
+  useEffect(() => {
+    if (getStoredBooleanPreference(ASK_OPEN_KEY) === null) {
+      setAskOpen(isAskRoute);
+    }
+  }, [isAskRoute]);
+
+  useEffect(() => {
+    if (getStoredBooleanPreference(DASHBOARDS_OPEN_KEY) === null) {
+      setDashOpen(activeDashboardId !== null);
+    }
+  }, [activeDashboardId]);
+
+  useEffect(() => {
+    if (getStoredBooleanPreference(ANALYSES_OPEN_KEY) === null) {
+      setAnalysesOpen(activeAnalysisId !== null);
+    }
+  }, [activeAnalysisId]);
+
+  const toggleAskOpen = useCallback(() => {
+    setAskOpen((current) => {
+      const next = !current;
+      setStoredBoolean(ASK_OPEN_KEY, next);
+      return next;
+    });
+  }, []);
+
   const toggleDashOpen = useCallback(() => {
     setDashOpen((current) => {
       const next = !current;
@@ -1322,26 +1766,36 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   // Fold per-source counters into sidebar list query keys so agent-driven
   // create/rename/archive/delete shows up without a manual refresh. We
-  // depend on `action` too because the agent runner emits an `action`
-  // event for every successful tool call — even when the matching
-  // resource-table emit (`dashboards` / `analyses`) is missed (e.g. event
-  // batching). See `use-change-version.ts` in @agent-native/core.
-  const dashboardsSync = useChangeVersions(["dashboards", "action"]);
-  const analysesSync = useChangeVersions(["analyses", "action"]);
+  // Domain counters keep these lists targeted. Folding the generic `action`
+  // counter into the keys makes unrelated background work cancel and restart
+  // both sidebar reads.
+  const dashboardsSync = useSettledSyncVersion(
+    useChangeVersions(["dashboards"]),
+  );
+  const analysesSync = useSettledSyncVersion(useChangeVersions(["analyses"]));
   const dashboardsSyncRef = useRef(dashboardsSync);
   const analysesSyncRef = useRef(analysesSync);
   dashboardsSyncRef.current = dashboardsSync;
   analysesSyncRef.current = analysesSync;
 
-  const { data: sqlDashboards = [], isLoading: sqlDashboardsLoading } =
-    useQuery({
-      queryKey: ["sql-dashboards-sidebar", dashboardsSync],
-      queryFn: () => fetchSqlDashboards(t),
-      staleTime: 30_000,
-      placeholderData: (prev) => prev,
-    });
+  const {
+    data: sqlDashboards = [],
+    isLoading: sqlDashboardsLoading,
+    isError: sqlDashboardsError,
+    refetch: refetchSqlDashboards,
+  } = useQuery({
+    queryKey: ["sql-dashboards-sidebar", dashboardsSync],
+    queryFn: () => fetchSqlDashboards(t),
+    staleTime: 30_000,
+    placeholderData: (prev) => prev,
+  });
 
-  const { data: analysesList = [], isLoading: analysesLoading } = useQuery({
+  const {
+    data: analysesList = [],
+    isLoading: analysesLoading,
+    isError: analysesError,
+    refetch: refetchAnalyses,
+  } = useQuery({
     queryKey: ["analyses-sidebar", analysesSync, analysisHiddenFilter],
     queryFn: () => fetchSidebarAnalyses(t, analysisHiddenFilter),
     staleTime: 30_000,
@@ -1374,11 +1828,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredAnalyses = useMemo(
     () =>
-      analysisFilter === "org"
-        ? sortedAnalyses.filter(
-            (a) => a.visibility === "org" || a.visibility === "public",
-          )
-        : sortedAnalyses,
+      sortedAnalyses.filter((analysis) =>
+        matchesVisibilityFilter(analysis, analysisFilter),
+      ),
     [sortedAnalyses, analysisFilter],
   );
 
@@ -1389,12 +1841,6 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
         : filteredAnalyses.slice(0, SIDEBAR_PREVIEW_COUNT),
     [filteredAnalyses, analysesShowAll],
   );
-
-  const activeDashboardId = useMemo(() => {
-    const match = location.pathname.match(/^\/(?:adhoc|dashboards)\/([^/]+)/);
-    if (!match?.[1]) return null;
-    return new URLSearchParams(location.search).get("id") || match[1];
-  }, [location.pathname, location.search]);
 
   // Only the active dashboard can display saved views in the sidebar, so avoid
   // issuing one request per dashboard on every sidebar mount.
@@ -1490,11 +1936,9 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   const filteredDashboards = useMemo(
     () =>
-      dashFilter === "org"
-        ? visibleDashboards.filter(
-            (d) => d.visibility === "org" || d.visibility === "public",
-          )
-        : visibleDashboards,
+      visibleDashboards.filter((dashboard) =>
+        matchesVisibilityFilter(dashboard, dashFilter),
+      ),
     [visibleDashboards, dashFilter],
   );
 
@@ -1962,10 +2406,34 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       },
     },
     {
+      icon: IconChartBar,
+      label: t("navigation.dashboards"),
+      href: "/dashboards",
+      active: isAdhocActive,
+    },
+    {
+      icon: IconReportAnalytics,
+      label: t("navigation.analyses"),
+      href: "/analyses",
+      active: location.pathname.startsWith("/analyses"),
+    },
+    {
       icon: IconPlayerPlay,
       label: t("navigation.sessions"),
       href: "/sessions",
       active: location.pathname.startsWith("/sessions"),
+    },
+    {
+      icon: IconHeartbeat,
+      label: t("navigation.monitoring"),
+      href: "/monitoring",
+      active: location.pathname.startsWith("/monitoring"),
+    },
+    {
+      icon: IconActivity,
+      label: t("navigation.agents"),
+      href: "/agents",
+      active: location.pathname.startsWith("/agents"),
     },
     {
       icon: IconDatabase,
@@ -1980,16 +2448,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       active: location.pathname.startsWith("/data-dictionary"),
     },
     {
-      icon: IconChartBar,
-      label: t("navigation.dashboards"),
-      href: "/dashboards",
-      active: isAdhocActive,
-    },
-    {
-      icon: IconReportAnalytics,
-      label: t("navigation.analyses"),
-      href: "/analyses",
-      active: location.pathname.startsWith("/analyses"),
+      icon: IconBrain,
+      label: t("settings.agentTitle"),
+      href: "/agent",
+      active: location.pathname === "/agent",
     },
     {
       icon: IconSettings,
@@ -2001,7 +2463,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
 
   return (
     <div
-      className="relative flex h-screen min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
+      className="relative flex h-full min-w-0 flex-col overflow-hidden border-r border-border bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out"
       style={
         mobile ? undefined : { width: effectiveCollapsed ? 48 : sidebarWidth }
       }
@@ -2101,37 +2563,64 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
           </div>
           <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden py-2">
             <nav className="grid min-w-0 items-start px-2 text-sm font-medium lg:px-4 space-y-1">
-              {/* Ask link */}
-              <Link
-                to="/ask"
-                onClick={(event) => {
-                  if (
-                    location.pathname !== "/ask" &&
-                    !event.metaKey &&
-                    !event.ctrlKey &&
-                    !event.shiftKey &&
-                    !event.altKey
-                  ) {
-                    event.preventDefault();
-                    navigateWithAgentChatViewTransition(navigate, "/ask");
-                  }
-                }}
-                className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
-                  location.pathname === "/ask"
-                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
-                    : "text-muted-foreground hover:bg-sidebar-accent/50",
-                )}
-              >
-                <IconMessageCircle className="h-4 w-4" />
-                {t("navigation.ask")}
-              </Link>
+              {/* Ask section */}
+              <div className="order-1 group/section min-w-0 space-y-1">
+                <div
+                  className={cn(
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
+                    isAskRoute
+                      ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                      : "text-muted-foreground hover:bg-sidebar-accent/50",
+                  )}
+                >
+                  <Link
+                    to="/ask"
+                    onClick={(event) => {
+                      if (
+                        !isAskRoute &&
+                        !event.metaKey &&
+                        !event.ctrlKey &&
+                        !event.shiftKey &&
+                        !event.altKey
+                      ) {
+                        event.preventDefault();
+                        navigateWithAgentChatViewTransition(navigate, "/ask");
+                      }
+                    }}
+                    className="flex min-w-0 flex-1 items-center gap-3 px-3 py-2"
+                  >
+                    <IconMessageCircle className="h-4 w-4 shrink-0" />
+                    <span className="min-w-0 flex-1 truncate">
+                      {t("navigation.ask")}
+                    </span>
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={toggleAskOpen}
+                    className="me-1 flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground/70 hover:bg-sidebar-accent hover:text-foreground"
+                    aria-label={
+                      askOpen
+                        ? t("sidebar.collapseAsk")
+                        : t("sidebar.expandAsk")
+                    }
+                    aria-expanded={askOpen}
+                  >
+                    <IconChevronDown
+                      className={cn(
+                        "h-3.5 w-3.5 shrink-0 transition-transform",
+                        !askOpen && "-rotate-90",
+                      )}
+                    />
+                  </button>
+                </div>
+                {askOpen && <AnalyticsChatsSection isAskRoute={isAskRoute} />}
+              </div>
 
               {/* Sessions link */}
               <Link
                 to="/sessions"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-4 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/sessions")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2141,11 +2630,39 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                 {t("navigation.sessions")}
               </Link>
 
+              {/* Monitoring link */}
+              <Link
+                to="/monitoring"
+                className={cn(
+                  "order-5 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  location.pathname.startsWith("/monitoring")
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconHeartbeat className="h-4 w-4" />
+                {t("navigation.monitoring")}
+              </Link>
+
+              {/* Agents link */}
+              <Link
+                to="/agents"
+                className={cn(
+                  "order-6 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
+                  location.pathname.startsWith("/agents")
+                    ? "bg-sidebar-accent text-sidebar-accent-foreground"
+                    : "text-muted-foreground hover:bg-sidebar-accent/50",
+                )}
+              >
+                <IconActivity className="h-4 w-4" />
+                {t("navigation.agents")}
+              </Link>
+
               {/* Data Sources link */}
               <Link
                 to="/data-sources"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-7 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname === "/data-sources"
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2159,7 +2676,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               <Link
                 to="/data-dictionary"
                 className={cn(
-                  "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                  "order-8 flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                   location.pathname.startsWith("/data-dictionary")
                     ? "bg-sidebar-accent text-sidebar-accent-foreground"
                     : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2170,10 +2687,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </Link>
 
               {/* Dashboards section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-2 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     isAdhocActive
                       ? "text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2194,10 +2711,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.dashboards")}
                     sortMode={dashboardSortMode}
                     onSortModeChange={setDashboardSortMode}
-                    sharedOnly={dashFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setDashFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={dashFilter}
+                    onVisibilityFilterChange={setDashFilter}
                   />
                   <button
                     type="button"
@@ -2310,6 +2825,13 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
+                        {sqlDashboardsError && sqlDashboards.length === 0 && (
+                          <SidebarLoadError
+                            message={t("sidebar.dashboardsLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchSqlDashboards()}
+                          />
+                        )}
                         <NewDashboardDialog />
                       </div>
                     </SortableContext>
@@ -2318,10 +2840,10 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
               </div>
 
               {/* Analyses section */}
-              <div className="group/section min-w-0 space-y-1">
+              <div className="order-3 group/section min-w-0 space-y-1">
                 <div
                   className={cn(
-                    "flex w-full min-w-0 items-center rounded-lg transition-all hover:text-primary",
+                    "flex w-full min-w-0 items-center rounded-lg transition-colors hover:text-primary",
                     location.pathname.startsWith("/analyses")
                       ? "text-sidebar-accent-foreground"
                       : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2342,10 +2864,8 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                     label={t("navigation.analyses")}
                     sortMode={analysisSortMode}
                     onSortModeChange={setAnalysisSortMode}
-                    sharedOnly={analysisFilter === "org"}
-                    onSharedOnlyChange={(checked) =>
-                      setAnalysisFilter(checked ? "org" : "all")
-                    }
+                    visibilityFilter={analysisFilter}
+                    onVisibilityFilterChange={setAnalysisFilter}
                     showHidden={analysisHiddenFilter === "hidden"}
                     onShowHiddenChange={(checked) =>
                       setAnalysisHiddenFilter(checked ? "hidden" : "visible")
@@ -2447,11 +2967,20 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               />
                             </div>
                           ))}
-                        {!analysesLoading && sortedAnalyses.length === 0 && (
-                          <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
-                            {t("sidebar.noAnalysesYet")}
-                          </p>
+                        {analysesError && sortedAnalyses.length === 0 && (
+                          <SidebarLoadError
+                            message={t("sidebar.analysesLoadFailed")}
+                            retryLabel={t("sidebar.retry")}
+                            onRetry={() => void refetchAnalyses()}
+                          />
                         )}
+                        {!analysesLoading &&
+                          !analysesError &&
+                          sortedAnalyses.length === 0 && (
+                            <p className="px-3 py-1 text-[11px] text-muted-foreground/60">
+                              {t("sidebar.noAnalysesYet")}
+                            </p>
+                          )}
                         <NewAnalysisDialog />
                       </div>
                     </SortableContext>
@@ -2470,7 +2999,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                       key={item.href}
                       to={item.href}
                       className={cn(
-                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-all hover:text-primary",
+                        "flex items-center gap-3 rounded-lg px-3 py-2 transition-colors hover:text-primary",
                         isActive
                           ? "bg-sidebar-accent text-sidebar-accent-foreground"
                           : "text-muted-foreground hover:bg-sidebar-accent/50",
@@ -2505,7 +3034,7 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
                               )
                             }
                             aria-label={t("sidebar.search")}
-                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-all hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
+                            className="flex items-center justify-center rounded-lg p-2 text-muted-foreground transition-colors hover:text-primary cursor-pointer hover:bg-sidebar-accent/50"
                           >
                             <IconSearch className="h-4 w-4" />
                           </button>

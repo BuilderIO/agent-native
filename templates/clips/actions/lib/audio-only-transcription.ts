@@ -5,7 +5,10 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const AUDIO_EXTRACTION_TIMEOUT_MS = 30_000;
+const AUDIO_EXTRACTION_MIN_TIMEOUT_MS = 30_000;
+const AUDIO_EXTRACTION_MAX_TIMEOUT_MS = 90_000;
+const AUDIO_EXTRACTION_BASE_TIMEOUT_MS = 25_000;
+const AUDIO_EXTRACTION_PER_50MB_MS = 10_000;
 const SILENCE_MAX_VOLUME_DB = -60;
 const STDERR_LIMIT = 16 * 1024;
 const requireFromThisFile = createRequire(import.meta.url);
@@ -15,7 +18,8 @@ export type AudioOnlyExtractionErrorCode =
   | "NO_AUDIO_TRACK"
   | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
-  | "EXTRACTION_FAILED";
+  | "EXTRACTION_FAILED"
+  | "TIMEOUT";
 
 export class AudioOnlyExtractionError extends Error {
   code: AudioOnlyExtractionErrorCode;
@@ -81,6 +85,16 @@ export function isFfmpegUnavailableError(err: unknown): boolean {
   );
 }
 
+/**
+ * True for extraction failures that are worth an automatic retry — an
+ * ffmpeg timeout is almost always transient (system under load, a slow
+ * disk/network read of the source media), unlike a permanently unusable
+ * input (no audio track, silent audio, ffmpeg missing from the runtime).
+ */
+export function isTransientExtractionError(err: unknown): boolean {
+  return err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT";
+}
+
 export function audioExtensionForMimeType(
   mimeType: string | null | undefined,
 ): string {
@@ -102,6 +116,36 @@ export function audioExtensionForMimeType(
     default:
       return "webm";
   }
+}
+
+function clampAudioExtractionTimeoutMs(value: number): number {
+  return Math.max(
+    AUDIO_EXTRACTION_MIN_TIMEOUT_MS,
+    Math.min(AUDIO_EXTRACTION_MAX_TIMEOUT_MS, Math.floor(value)),
+  );
+}
+
+export function audioExtractionTimeoutMs(
+  mediaByteLength: number | null | undefined,
+): number {
+  const override = Number(process.env.CLIPS_AUDIO_EXTRACTION_TIMEOUT_MS);
+  if (Number.isFinite(override) && override > 0) {
+    return clampAudioExtractionTimeoutMs(override);
+  }
+
+  if (
+    typeof mediaByteLength !== "number" ||
+    !Number.isFinite(mediaByteLength) ||
+    mediaByteLength <= 0
+  ) {
+    return AUDIO_EXTRACTION_MIN_TIMEOUT_MS;
+  }
+
+  const fiftyMbUnits = Math.ceil(mediaByteLength / (50 * 1024 * 1024));
+  return clampAudioExtractionTimeoutMs(
+    AUDIO_EXTRACTION_BASE_TIMEOUT_MS +
+      fiftyMbUnits * AUDIO_EXTRACTION_PER_50MB_MS,
+  );
 }
 
 function mediaExtensionForMimeType(mimeType: string): string {
@@ -226,13 +270,19 @@ function mapFfmpegError(err: unknown): AudioOnlyExtractionError {
       "No speech was detected because this recording has no audio track.",
     );
   }
+  if (/ffmpeg timed out/i.test(message)) {
+    return new AudioOnlyExtractionError(
+      "TIMEOUT",
+      "ffmpeg timed out extracting audio for transcription.",
+    );
+  }
   return new AudioOnlyExtractionError(
     "EXTRACTION_FAILED",
     `Failed to extract audio-only media for transcription: ${message}`,
   );
 }
 
-async function runFfmpeg(args: string[]): Promise<void> {
+async function runFfmpeg(args: string[], timeoutMs: number): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn(ffmpegCommand(), args, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -241,7 +291,7 @@ async function runFfmpeg(args: string[]): Promise<void> {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new FfmpegRunError("ffmpeg timed out", stderr));
-    }, AUDIO_EXTRACTION_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
@@ -261,7 +311,10 @@ async function runFfmpeg(args: string[]): Promise<void> {
   });
 }
 
-async function runFfmpegForStderr(args: string[]): Promise<string> {
+async function runFfmpegForStderr(
+  args: string[],
+  timeoutMs: number,
+): Promise<string> {
   return await new Promise<string>((resolve, reject) => {
     const child = spawn(ffmpegCommand(), args, {
       stdio: ["ignore", "ignore", "pipe"],
@@ -270,7 +323,7 @@ async function runFfmpegForStderr(args: string[]): Promise<string> {
     const timeout = setTimeout(() => {
       child.kill("SIGKILL");
       reject(new FfmpegRunError("ffmpeg timed out", stderr));
-    }, AUDIO_EXTRACTION_TIMEOUT_MS);
+    }, timeoutMs);
 
     child.stderr?.on("data", (chunk: Buffer) => {
       stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
@@ -314,21 +367,25 @@ export async function analyzeAudioSignal({
 
   const dir = await mkdtemp(join(tmpdir(), "clips-transcription-"));
   const inputPath = join(dir, `input.${audioExtensionForMimeType(mimeType)}`);
+  const timeoutMs = audioExtractionTimeoutMs(audioBytes.byteLength);
 
   try {
     await writeFile(inputPath, audioBytes);
-    const stderr = await runFfmpegForStderr([
-      "-hide_banner",
-      "-nostdin",
-      "-i",
-      inputPath,
-      "-vn",
-      "-af",
-      "volumedetect",
-      "-f",
-      "null",
-      "-",
-    ]).catch((err) => {
+    const stderr = await runFfmpegForStderr(
+      [
+        "-hide_banner",
+        "-nostdin",
+        "-i",
+        inputPath,
+        "-vn",
+        "-af",
+        "volumedetect",
+        "-f",
+        "null",
+        "-",
+      ],
+      timeoutMs,
+    ).catch((err) => {
       throw mapFfmpegError(err);
     });
 
@@ -344,6 +401,10 @@ export async function analyzeAudioSignal({
 export async function assertAudioHasAudibleSignal(
   media: AudioOnlyTranscriptionMedia,
 ): Promise<void> {
+  if (media.source === "raw-media-fallback") {
+    return;
+  }
+
   let signal: { meanVolumeDb: number | null; maxVolumeDb: number | null };
   try {
     signal = await analyzeAudioSignal(media);
@@ -385,17 +446,15 @@ export async function extractAudioOnlyWithFfmpeg({
   const output = outputForSourceMimeType(mimeType);
   const outputPath = join(dir, `audio.${output.extension}`);
   const baseArgs = ["-hide_banner", "-loglevel", "error", "-nostdin", "-y"];
+  const timeoutMs = audioExtractionTimeoutMs(mediaBytes.byteLength);
 
   try {
     await writeFile(inputPath, mediaBytes);
     try {
-      await runFfmpeg([
-        ...baseArgs,
-        "-i",
-        inputPath,
-        ...output.copyArgs,
-        outputPath,
-      ]);
+      await runFfmpeg(
+        [...baseArgs, "-i", inputPath, ...output.copyArgs, outputPath],
+        timeoutMs,
+      );
     } catch (copyErr) {
       if (
         copyErr instanceof FfmpegRunError &&
@@ -403,13 +462,10 @@ export async function extractAudioOnlyWithFfmpeg({
       ) {
         throw copyErr;
       }
-      await runFfmpeg([
-        ...baseArgs,
-        "-i",
-        inputPath,
-        ...output.transcodeArgs,
-        outputPath,
-      ]).catch((transcodeErr) => {
+      await runFfmpeg(
+        [...baseArgs, "-i", inputPath, ...output.transcodeArgs, outputPath],
+        timeoutMs,
+      ).catch((transcodeErr) => {
         throw mapFfmpegError(transcodeErr);
       });
     }
@@ -474,13 +530,16 @@ export async function prepareAudioOnlyTranscriptionMedia({
       recordingId,
     });
   } catch (err) {
-    // No ffmpeg to strip the audio track. Rather than fail outright, hand the
-    // original media to the transcription provider — Gemini/Builder accepts
-    // video containers directly. (Whisper-style providers may reject it, in
-    // which case the normal provider error path takes over.)
-    if (isFfmpegUnavailableError(err)) {
+    // If ffmpeg is unavailable or too slow for this clip, hand the original
+    // media to the transcription provider. Gemini/Builder accepts video
+    // containers directly; Whisper-style providers may reject them, in which
+    // case the normal provider error path takes over.
+    if (
+      isFfmpegUnavailableError(err) ||
+      (err instanceof AudioOnlyExtractionError && err.code === "TIMEOUT")
+    ) {
       console.warn(
-        "[clips] ffmpeg unavailable; sending original media to the transcription provider without audio extraction.",
+        "[clips] ffmpeg could not prepare audio-only media; sending original media to the transcription provider.",
       );
       return {
         audioBytes: mediaBytes,

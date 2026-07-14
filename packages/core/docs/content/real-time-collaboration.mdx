@@ -15,11 +15,10 @@ agent-native collaboration model.
 ## Vision {#vision}
 
 Editing alongside the agent feels like working in a collaborative editor with
-a coworker who is both instant and tireless:
-
-If you just need the UI to refresh when the agent or another user writes to SQL, you don't need any of this — use [`useDbSync`](/docs/client). This page is for character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
-
-This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-free merging), **TipTap** (rich text editor), and **polling-based sync** (works in all deployment environments including serverless and edge).
+a coworker who is both instant and tireless. This is built on three
+battle-tested technologies: **Yjs** (CRDT for conflict-free merging),
+**TipTap** (rich text editor), and **polling-based sync** (works in all
+deployment environments including serverless and edge).
 
 - **CRDT merging** — Concurrent edits from humans and agents merge without
   conflicts. You type in one paragraph; the agent rewrites another; both
@@ -31,6 +30,12 @@ This is built on three battle-tested technologies: **Yjs** (CRDT for conflict-fr
   positions, selections, or the undo stack.
 - **Works everywhere** — Any SQL database Drizzle supports (SQLite, Postgres).
   Any hosting target Nitro supports, including serverless and edge.
+
+<Callout tone="info">
+
+**Just need the UI to refresh, not character-level co-editing?** Use [`useDbSync`](/docs/client#usedbsync) instead — it's for reacting to SQL writes from the agent or other users. This page covers real-time character-level co-editing of a single rich-text document (shared cursors, conflict-free merging). Both ride the same `/_agent-native/poll` channel.
+
+</Callout>
 
 ## Architecture {#architecture}
 
@@ -126,21 +131,18 @@ Collab update events travel via two paths:
 
 - **SSE fast-path** — The client subscribes to `/_agent-native/poll-events`
   (the same `EventSource` used by `useDbSync`). Collab update events arrive
-  push-style, typically in tens of milliseconds. While SSE is healthy the
-  poll loop relaxes to a slow cadence (~12 s by default).
-- **Polling fallback** — `/_agent-native/poll?since=N` is polled every 2 s
-  when SSE is unavailable. This makes collaboration work on any deployment
-  target — including serverless functions where persistent connections are
-  impossible and different invocations can handle different requests.
+  push-style, and the poll loop relaxes to a slow cadence while SSE is healthy.
+- **Polling fallback** — `/_agent-native/poll?since=N` is polled on a fixed
+  interval when SSE is unavailable. This makes collaboration work on any
+  deployment target — including serverless functions where persistent
+  connections are impossible and different invocations can handle different
+  requests.
 
-Local Yjs updates are debounced and coalesced with `Y.mergeUpdates` (~80 ms)
-before being sent to the server, reducing keystroke-level network traffic.
-The batch is flushed immediately on `visibilitychange` or `pagehide`. A
-state-vector diff (`GET /:docId/state?stateVector=…`) is fetched only on
-reconnect, ring-buffer overflow, or every 15th poll cycle — not on every
-cycle.
-
-Network errors use exponential backoff with jitter, capped at ~15 s.
+Local Yjs updates are debounced and coalesced with `Y.mergeUpdates` before
+being sent to the server, reducing keystroke-level network traffic, and the
+batch is flushed immediately on `visibilitychange` or `pagehide`. See
+[Transport and performance](#transport) for the exact intervals, state-vector
+refetch cadence, and backoff values.
 
 <Diagram id="doc-block-1h873p8" title="Two edit paths, one merge" summary={"Human keystrokes flow Y.Doc → server → SSE. Agent edits go through SQL: the action bumps updatedAt, the lead client reconciles, then the change re-enters Yjs."}>
 
@@ -258,11 +260,8 @@ export default createCollabPlugin({
 ### 4. Use the client hook
 
 ```ts
-import {
-  useCollaborativeDoc,
-  emailToColor,
-  emailToName,
-} from "@agent-native/core/client";
+import { generateTabId, useCollaborativeDoc } from "@agent-native/core/client";
+import { emailToColor, emailToName } from "@agent-native/toolkit/collab-ui";
 
 const TAB_ID = generateTabId(); // or Math.random().toString(36)
 
@@ -319,25 +318,14 @@ User identity is derived from the session email. The framework provides `emailTo
 Templates can add a comments system with threaded discussions on documents. The content template's comments system includes a full implementation with:
 
 - `document_comments` SQL table (threads, replies, resolved status)
-- The content template's REST routes for update/delete at `/api/comments/:id`; create and list run through the `add-comment` / `list-comments` actions. Custom templates implement their own equivalent endpoints against the core `POST /_agent-native/collab/:docId/search-replace` route.
+- Comment create and list run through the `add-comment` / `list-comments` actions; the content template also exposes REST routes for update/delete at `/api/comments/:id`. Custom templates can implement their own equivalent endpoints, and comment anchors resolve against the document body through the core `POST /_agent-native/collab/:docId/search-replace` route.
 - Comments sidebar with threaded view and reply UI
 - Resolve/unresolve threads
 - **Send to AI** button — sends the comment thread context to the agent chat via `sendToAgentChat()`
 - Agent actions: `list-comments`, `add-comment`
 - Notion comment sync: `sync-notion-comments` action for bidirectional pull/push
 
-## Collab routes {#collab-routes}
-
-All collab routes are auto-mounted under `/_agent-native/collab/` by the collab plugin:
-
-| Route                         | Purpose                                  |
-| ----------------------------- | ---------------------------------------- |
-| `GET /:docId/state`           | Fetch full Y.Doc state (base64)          |
-| `POST /:docId/update`         | Apply client Yjs update                  |
-| `POST /:docId/text`           | Apply full text replacement (diff-based) |
-| `POST /:docId/search-replace` | Surgical find/replace in Y.XmlFragment   |
-| `POST /:docId/awareness`      | Sync cursor/presence state               |
-| `GET /:docId/users`           | List active users on a document          |
+All collab routes are auto-mounted under `/_agent-native/collab/` — see the [route table](#routes) for the full list.
 
 ## Agent edit action {#edit-document}
 
@@ -354,22 +342,22 @@ pnpm action edit-document --id doc123 --edits '[{"find":"old","replace":"new"}]'
 pnpm action edit-document --id doc123 --find "delete me" --replace ""
 ```
 
----
-
 ## Presence Kit {#presence-kit}
 
-The presence kit provides Liveblocks/collaboration-grade live-cursor and selection primitives on top of the existing awareness layer.
+The presence kit provides Liveblocks/collaboration-grade live-cursor and selection primitives on top of the existing awareness layer. Finer-grained presence — such as which users are viewing a given slide in a deck — layers on top of the same awareness state using the same hooks below.
 
 Import client-side presence and editor UI from the focused browser subpath:
 
 ```ts
 import {
-  PresenceBar,
-  LiveCursorOverlay,
-  RemoteSelectionRings,
   useCollaborativeDoc,
   usePresence,
 } from "@agent-native/core/client/collab";
+import {
+  PresenceBar,
+  LiveCursorOverlay,
+  RemoteSelectionRings,
+} from "@agent-native/toolkit/collab-ui";
 ```
 
 Server-side agent presence helpers stay in the lower-level collab package:
@@ -422,7 +410,7 @@ import {
 
 ### Fast awareness {#fast-awareness}
 
-Awareness state changes now propagate at ~150ms instead of the 2s poll cycle:
+Awareness state changes propagate at ~150ms instead of waiting for the full poll cycle:
 
 - **Client → server**: any call to `setPresence()` or `awareness.setLocalStateField()` triggers a throttled POST to `/_agent-native/collab/:docId/awareness` within 150ms, coalescing rapid changes into one request.
 - **Server → clients**: the `postAwareness` handler emits an `AWARENESS_CHANGE_EVENT` after storing. The `/_agent-native/poll-events` SSE stream forwards these events push-style to connected peers. Polling-only deployments continue to work — cursors degrade to poll cadence without errors.
@@ -455,7 +443,7 @@ The agent (AGENT_CLIENT_ID) appears as a first-class participant with `isAgent: 
 Renders remote cursors as absolutely-positioned labels over a container element:
 
 ```tsx
-import { LiveCursorOverlay } from "@agent-native/core/client";
+import { LiveCursorOverlay } from "@agent-native/toolkit/collab-ui";
 
 // cursor positions stored as { x, y } normalized 0–1 under presence.cursor
 <div ref={containerRef} style={{ position: "relative" }}>
@@ -468,14 +456,14 @@ import { LiveCursorOverlay } from "@agent-native/core/client";
 </div>;
 ```
 
-The agent's cursor renders distinctly with a sparkle icon. Cursors fade out after 10s of inactivity with smooth CSS transitions at 120ms.
+The agent's cursor renders with a distinct style so it's clear at a glance which cursor is the agent's. Cursors fade out after 10s of inactivity with smooth CSS transitions at 120ms.
 
 ### `RemoteSelectionRings` {#remote-selection-rings}
 
 Renders colored outline rings + name tags over remotely-selected elements:
 
 ```tsx
-import { RemoteSelectionRings } from "@agent-native/core/client";
+import { RemoteSelectionRings } from "@agent-native/toolkit/collab-ui";
 
 <div ref={containerRef} style={{ position: "relative" }}>
   {content}
@@ -512,7 +500,7 @@ Participants publish their viewport with `setPresence({ viewport: { fileId, zoom
 
 ### `PresenceBar` follow-mode props {#presence-bar-follow}
 
-The `PresenceBar` component now accepts optional follow-mode props:
+The `PresenceBar` component accepts optional follow-mode props:
 
 ```tsx
 <PresenceBar
@@ -568,8 +556,6 @@ try {
 ```
 
 The selection metadata flows through `usePresence` on connected clients as `other.presence.selection`.
-
----
 
 ## Route table {#routes}
 
@@ -724,11 +710,6 @@ Key properties:
 
 </Callout>
 
-- **Same-region simultaneous rewrite is LWW** — If the agent rewrites a
-  passage and a human has unsaved edits in the exact same region, the
-  lead-client snapshot can overwrite the human's in-flight changes. Edits in
-  different regions merge correctly via the CRDT. Granular server-side merge
-  (see above) avoids this for structured documents.
 - **In-process write locks on serverless** — The `_writeLocks` map is
   process-local. Concurrent requests landing on different serverless
   invocations serialize at the SQL CAS layer (optimistic concurrency) rather
@@ -739,26 +720,7 @@ Key properties:
   state per invocation. Clients still receive full awareness snapshots on each
   poll cycle, so presence indicators update within one poll interval.
 
-## Presence {#presence}
-
-The `useCollaborativeDoc` hook returns:
-
-- `activeUsers` — array of `CollabUser` (name, email, color) for all peers
-  currently in the document (sourced from awareness).
-- `agentActive` — `true` briefly after the agent makes an edit (use for a
-  transient visual indicator).
-- `agentPresent` — `true` while the agent has an active awareness entry
-  (durable presence heartbeat).
-
-Use `emailToColor(email)` and `emailToName(email)` from
-`@agent-native/core/client` to generate consistent cursor colors and display
-names from email addresses.
-
-A `PresenceBar` rendered with `activeUsers` shows live human and agent
-collaborators. Per-slide presence (which users are viewing a given slide)
-layers on top of the same awareness state.
-
-## Related docs {#related}
+## What's next {#whats-next}
 
 - [Real-Time Sync](/docs/client#usedbsync) — the `useDbSync` + `useChangeVersion`
   system that delivers the `updatedAt` bump driving editor reconciliation.

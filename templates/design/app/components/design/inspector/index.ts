@@ -8,8 +8,15 @@ export {
   type DistributionAxis,
 } from "./AlignmentMatrix";
 export {
+  BreakpointOverrideIndicator,
+  type BreakpointOverrideIndicatorProps,
+} from "./BreakpointOverrideIndicator";
+export {
   AutoLayoutMatrix,
   type AutoLayoutDirection,
+  type AutoLayoutFlow,
+  type AutoLayoutGridTrackSizing,
+  type AutoLayoutGridValue,
   type AutoLayoutMatrixLabels,
   type AutoLayoutMatrixProps,
   type AutoLayoutMatrixValue,
@@ -38,7 +45,12 @@ export {
   type ExportSettingsValue,
 } from "./ExportSettingsPanel";
 export {
+  beginEyedropperPick,
   DesignColorPicker,
+  endPointerGesture,
+  hasEyeDropperSupport,
+  POINTER_GESTURE_IDLE,
+  startPointerGesture,
   type DesignColorMode,
   type DesignColorPickerLabels,
   type DesignColorPickerProps,
@@ -49,7 +61,15 @@ export {
   type DesignGradientStopPatch,
   type DesignGradientType,
   type DesignPaintType,
+  type PointerGestureState,
 } from "./DesignColorPicker";
+export {
+  allFrameSizePresets,
+  FRAME_SIZE_PRESET_CATEGORIES,
+  type FrameSizePreset,
+  type FrameSizePresetCategory,
+  type FrameSizePresetCategoryKey,
+} from "./frame-size-presets";
 export {
   GradientEditor,
   defaultGradient,
@@ -70,6 +90,19 @@ export {
   type ImageFitMode,
 } from "./ImageFillControls";
 export {
+  InteractionStateOverrideIndicator,
+  InteractionStatePanel,
+  type ActiveInteractionState,
+  type InteractionState,
+  type InteractionStatePanelProps,
+} from "./InteractionStatePanel";
+export {
+  MotionKeyframeDiamond,
+  motionPropertyHasKeyframe,
+  type MotionKeyframeCssProperty,
+  type MotionKeyframeDiamondProps,
+} from "./MotionKeyframeDiamond";
+export {
   ShaderFillsPanel,
   descriptorFromPreset,
   shaderDescriptorToCss,
@@ -85,6 +118,11 @@ export {
   getScrubStepFromEvent,
   normalizeScrubNumber,
   parseScrubExpression,
+  SCRUB_DRAG_THRESHOLD_PX,
+  startScrubDrag,
+  updateScrubDrag,
   type ParsedScrubExpression,
+  type ScrubDragState,
+  type ScrubDragTick,
   type ScrubExpressionOptions,
 } from "./scrub-input-utils";

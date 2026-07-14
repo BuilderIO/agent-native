@@ -113,6 +113,7 @@ await notify(
 | `inbox`   | `notifications` 테이블에 유지됩니다. 종 UI를 운전 | 항상 켜짐 — 기본 요소의 일부.                                   |
 | `webhook` | POST JSON를 구성된 URL로                          | 시작 시 `NOTIFICATIONS_WEBHOOK_URL` 환경 변수가 설정되었습니다. |
 
+이메일, Slack, webhook은 받은 편지함과 함께 항상 등록됩니다. 전송 시 알림별 메타데이터의 URL/수신자를 우선 사용하고, 그다음 일치하는 환경 변수로 대체합니다. 둘 다 설정되지 않으면 해당 채널은 알림 전송 시 아무 작업도 하지 않습니다.
 웹훅 채널은 소유자의 임시 [secrets](/docs/security)에 대해 URL 및 `NOTIFICATIONS_WEBHOOK_AUTH` 모두에서 `${keys.NAME}` 참조를 확인하므로 원시 값이 에이전트의 컨텍스트에 입력되지 않습니다. 키별 URL 허용 목록이 시행됩니다. 이는 자동화 `web-request` 도구에서 사용하는 것과 동일한 규칙입니다.
 
 <Diagram id="doc-block-1lw1rdr" title={"채널 및 심각도"} summary={"받은 편지함은 항상 켜져 있습니다. 웹훅에는 환경 변수가 필요합니다. 맞춤 채널은 시작 시 등록됩니다. 심각도는 배지 스타일을 결정하고 모든 채널에 전달됩니다."}>
@@ -203,7 +204,7 @@ await notify(
 
 모든 서버 플러그인에서 맞춤 채널을 등록하세요.
 
-```ts
+```ts filename="server/plugins/notifications-slack-ops.ts"
 import { registerNotificationChannel } from "@agent-native/core/notifications";
 
 registerNotificationChannel({
@@ -274,15 +275,15 @@ interface NotificationMeta {
 
 core-routes 플러그인에 의해 `/_agent-native/notifications/*`에 마운트되었습니다. 모든 경로의 범위는 인증된 세션의 이메일로 지정됩니다.
 
-| 방법     | 경로                                                |
-| -------- | --------------------------------------------------- |
-| `GET`    | `/_agent-native/notifications?unread=true&limit=50` |
-| `GET`    | `/_agent-native/notifications/count`                |
-| `POST`   | `/_agent-native/notifications/:id/read`             |
-| `POST`   | `/_agent-native/notifications/read-all`             |
-| `DELETE` | `/_agent-native/notifications/:id`                  |
+| 방법     | 경로                                                           |
+| -------- | -------------------------------------------------------------- |
+| `GET`    | `/_agent-native/notifications?unread=true&limit=50&before=ISO` |
+| `GET`    | `/_agent-native/notifications/count`                           |
+| `POST`   | `/_agent-native/notifications/:id/read`                        |
+| `POST`   | `/_agent-native/notifications/read-all`                        |
+| `DELETE` | `/_agent-native/notifications/:id`                             |
 
-<Endpoint id="doc-block-1232thx" title={"알림 나열"} summary={"The route behind listNotifications() — scoped to the authenticated session's email."} method="GET" path={"/_agent-native/notifications?unread=true&limit=50"} summary={"현재 사용자에 대한 최근 알림 나열"} auth={"Authenticated session; results are scoped to the session's email."} params={[
+<Endpoint id="doc-block-1232thx" title={"알림 나열"} method="GET" path={"/_agent-native/notifications?unread=true&limit=50&before=ISO"} summary={"현재 사용자에 대한 최근 알림 나열"} auth={"Authenticated session; results are scoped to the session's email."} params={[
   {
     "name": "unread",
     "in": "query",
@@ -296,6 +297,13 @@ core-routes 플러그인에 의해 `/_agent-native/notifications/*`에 마운트
     "type": "number",
     "required": false,
     "description": "Max rows to return."
+  },
+  {
+    "name": "before",
+    "in": "query",
+    "type": "string",
+    "required": false,
+    "description": "ISO 타임스탬프 커서 — 페이지네이션을 위해 이 시간 전에 생성된 알림을 반환합니다."
   }
 ]} responses={[
   {
@@ -308,7 +316,7 @@ core-routes 플러그인에 의해 `/_agent-native/notifications/*`에 마운트
 
 ## UI 구성 요소 {#ui}
 
-```tsx
+```tsx filename="app/components/HeaderBar.tsx"
 import { NotificationsBell } from "@agent-native/core/client/notifications";
 
 export function HeaderBar() {

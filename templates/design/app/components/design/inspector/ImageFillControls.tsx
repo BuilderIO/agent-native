@@ -1,3 +1,4 @@
+import { callAction, useT } from "@agent-native/core/client";
 import { IconPhotoPlus, IconX } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
@@ -32,6 +33,11 @@ export interface ImageFillBackgroundStyles {
   backgroundPosition?: string;
 }
 
+type UploadImageResult = {
+  url?: string;
+  error?: string;
+};
+
 const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
   { mode: "fill", label: "Fill" }, // i18n-ignore image fit mode
   { mode: "fit", label: "Fit" }, // i18n-ignore image fit mode
@@ -49,6 +55,19 @@ const FIT_MODES: Array<{ mode: ImageFitMode; label: string }> = [
  */
 function escapeForQuotedUrl(url: string): string {
   return url.replace(/\\/g, "\\\\").replace(/"/g, "%22").replace(/\r?\n/g, "");
+}
+
+function readFileAsDataUrl(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () =>
+      typeof reader.result === "string"
+        ? resolve(reader.result)
+        : reject(new Error("Image upload did not produce a data URL"));
+    reader.onerror = () =>
+      reject(reader.error ?? new Error("Image read failed"));
+    reader.readAsDataURL(file);
+  });
 }
 
 const CHECKER_A = "#d4d4d4";
@@ -261,33 +280,59 @@ export function ImageFillControls({
   disabled = false,
   className,
 }: ImageFillControlsProps) {
+  const t = useT();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [urlDraft, setUrlDraft] = useState(value.url);
   const urlDraftRef = useRef(value.url);
+  const [uploadingImage, setUploadingImage] = useState(false);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  // Guard re-syncing the draft from an external value change while the field
+  // is focused (mirrors ScrubInput's `focused` pattern): without this, an
+  // incoming prop update while the user is mid-typing a URL — e.g. a
+  // selection-driven re-render, or another control committing a sibling
+  // style in the same patch — clobbers their in-progress keystrokes.
+  const [focused, setFocused] = useState(false);
 
   useEffect(() => {
+    if (focused) return;
     urlDraftRef.current = value.url;
     setUrlDraft(value.url);
-  }, [value.url]);
+  }, [focused, value.url]);
 
   const commitUrl = () => {
     onChange({ ...value, url: urlDraftRef.current.trim() });
   };
 
-  const handleFilePick = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFilePick = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const dataUrl = typeof reader.result === "string" ? reader.result : "";
-      if (dataUrl) {
-        setUrlDraft(dataUrl);
-        onChange({ ...value, url: dataUrl });
+    setUploadingImage(true);
+    setUploadError(null);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const result = (await callAction("upload-image", {
+        data: dataUrl,
+        filename: file.name,
+      })) as UploadImageResult;
+      if (result.url) {
+        urlDraftRef.current = result.url;
+        setUrlDraft(result.url);
+        onChange({ ...value, url: result.url });
+      } else {
+        setUploadError(
+          result.error ||
+            "File storage is not configured. Connect an upload provider before using local images.",
+        );
       }
-    };
-    reader.readAsDataURL(file);
-    // Allow re-selecting the same file later.
-    event.target.value = "";
+    } catch (error) {
+      setUploadError(
+        error instanceof Error ? error.message : t("common.genericError"),
+      );
+    } finally {
+      setUploadingImage(false);
+      // Allow re-selecting the same file later.
+      event.target.value = "";
+    }
   };
 
   return (
@@ -352,7 +397,11 @@ export function ImageFillControls({
             urlDraftRef.current = event.target.value;
             setUrlDraft(event.target.value);
           }}
-          onBlur={commitUrl}
+          onFocus={() => setFocused(true)}
+          onBlur={() => {
+            setFocused(false);
+            commitUrl();
+          }}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
               event.preventDefault();
@@ -365,13 +414,14 @@ export function ImageFillControls({
           <TooltipTrigger asChild>
             <button
               type="button"
-              disabled={disabled}
+              disabled={disabled || uploadingImage}
               aria-label={"Upload image" /* i18n-ignore */}
               onClick={() => fileInputRef.current?.click()}
               className={cn(
                 "flex size-6 shrink-0 items-center justify-center rounded-md border border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] text-muted-foreground hover:text-foreground",
                 "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
-                disabled && "pointer-events-none opacity-40",
+                (disabled || uploadingImage) &&
+                  "pointer-events-none opacity-40",
               )}
             >
               <IconPhotoPlus className="size-3.5" />
@@ -387,6 +437,11 @@ export function ImageFillControls({
           onChange={handleFilePick}
         />
       </div>
+      {uploadError && (
+        <p className="text-[10px] leading-snug text-destructive">
+          {uploadError}
+        </p>
+      )}
 
       {/* ── Fit mode dropdown ─────────────────────────────────────────────── */}
       <Select

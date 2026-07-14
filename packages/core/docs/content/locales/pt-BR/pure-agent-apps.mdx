@@ -1,16 +1,11 @@
 ---
-title: "Aplicativos de agente puro"
-description: "Aplicativos em que o agente é o produto completo: o loop app-agent é a porta de entrada e UI é adicionado apenas quando humanos precisam dele."
+title: "Automation-First Apps"
+description: "Apps Agent-Native sem navegador para scheduled jobs, filas, scripts, integration workers e agents externos."
 ---
 
-# Aplicativos de agente puro
+# Automation-First Apps
 
-Um aplicativo de agente puro é o fim mínimo do agente nativo: o loop app-agent é o
-produto, não um painel. Você envia uma solicitação do terminal, Slack, email, um
-trabalho agendado, outro agente ou bate-papo — "resumir meus e-mails não lidos", "postar o
-métricas diárias para Slack" — e o agente atua e retorna o resultado onde quer que esteja
-pertence. Ainda é um aplicativo real: actions, sessões, estado do aplicativo, histórico,
-configurações, credenciais e registros de compartilhamento, todos ativos em SQL.
+Uma automation-first app é uma app Agent-Native sem navegador para scheduled jobs, filas, scripts, integration workers e agents externos. Não é o caminho padrão de Getting Started, mas é útil quando o workflow ainda não precisa de uma página. Ainda é uma app real: actions, sessions, application state, run history, settings, credentials e registros de compartilhamento vivem em SQL.
 
 <Diagram id="doc-block-8brd1i" title={"O loop app-agent é a porta de entrada"} summary={"Muitos pontos de entrada alcançam um loop de agente sobre ações e estados SQL-backed; os resultados retornam para o local de origem da solicitação. A IU é adicionada apenas quando humanos precisam supervisionar."}>
 
@@ -72,6 +67,10 @@ Este é o formato do produto **sem cabeça**. O guia de decisão completo, o que
 a caixa, o scaffold, o acesso ao repositório e o compartilhamento de execução agora estão em um só lugar:
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
+
+## Adicione chat depois {#add-chat-later}
+
+`--headless` escolhe somente o scaffold inicial; não há um comando `agent-native` que converta no lugar um projeto existente apenas com actions em um app de chat. Quando as pessoas precisarem de uma conversa no navegador, use o [template Chat](/docs/template-chat) como referência de migração: mantenha as actions, os dados SQL, as instructions e as skills e adicione o shell do navegador, os server plugins, `<AgentChatSurface>` e um chat plugin que carregue as actions existentes. Verifique `pnpm typecheck` e um turno de chat que chame uma action existente. `agent-native add` é para integration blueprints, não para essa conversão.
 
 ## O que vem a seguir
 

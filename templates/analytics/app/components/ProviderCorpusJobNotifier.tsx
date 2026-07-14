@@ -4,6 +4,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { useAuth } from "@/components/auth/AuthProvider";
+import { subscribeProviderCorpusJobSync } from "@/lib/provider-corpus-job-sync";
 
 type ProviderCorpusJobStatus =
   | "running"
@@ -41,22 +42,38 @@ type ProviderCorpusJobsResponse = {
 
 const STORAGE_KEY = "analytics.providerCorpusJobNotifier.seen.v1";
 const RECENT_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const ACTIVE_JOB_POLL_MS = 15_000;
+
+export function providerCorpusJobsRefetchInterval(query: {
+  state: { data?: unknown };
+}): number | false {
+  const jobs = (query.state.data as ProviderCorpusJobsResponse | undefined)
+    ?.jobs;
+  return jobs?.some((entry) => entry.job.status === "running")
+    ? ACTIVE_JOB_POLL_MS
+    : false;
+}
 
 export function ProviderCorpusJobNotifier() {
   const { auth, isLoading } = useAuth();
   const t = useT();
   const navigate = useNavigate();
   const seenRef = useRef<Record<string, string> | null>(null);
-  const { data } = useActionQuery(
+  const { data, refetch } = useActionQuery(
     "provider-corpus-jobs",
     { operation: "list", limit: 20 },
     {
       enabled: Boolean(auth) && !isLoading,
-      refetchInterval: 15_000,
-      refetchIntervalInBackground: true,
+      refetchInterval: providerCorpusJobsRefetchInterval,
+      refetchIntervalInBackground: false,
       retry: false,
     },
   );
+
+  useEffect(() => {
+    if (!auth || isLoading) return;
+    return subscribeProviderCorpusJobSync(() => void refetch());
+  }, [auth, isLoading, refetch]);
 
   useEffect(() => {
     const jobs = (data as ProviderCorpusJobsResponse | undefined)?.jobs ?? [];

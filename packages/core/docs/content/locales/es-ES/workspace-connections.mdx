@@ -264,7 +264,7 @@ Los identificadores de proveedor iniciales son:
 | `google_drive` | buscar, importar, documentos            | cerebro, contenido, diapositivas             |
 | `hubspot`      | buscar, importar, crm                   | análisis, cerebro, correo                    |
 | `granola`      | buscar, importar, reuniones, documentos | cerebro, calendario, despacho                |
-| `clips`        | buscar, importar, reuniones             | cerebro, clips, vídeos                       |
+| `clips`        | buscar, importar, reuniones             | cerebro, clips                               |
 | `generic`      | buscar, importar, documentos            | webhooks personalizado y entrega de archivos |
 
 Las claves de credenciales son solo nombres, como `SLACK_BOT_TOKEN` o `GITHUB_TOKEN`. Los metadatos del proveedor nunca deben incluir valores de credenciales reales.
@@ -425,10 +425,9 @@ No duplique OAuth/almacenamiento de tokens en cada aplicación. El registro de c
 
 ### Configuración del plano de control de despacho
 
-Dispatch expone el plano de control actions que escribe las mismas funciones de tienda compartida que una aplicación podría llamar directamente:
+Dispatch expone acciones del plano de control que escriben mediante las mismas funciones del almacén compartido que una aplicación podría llamar directamente: su acción `upsert-workspace-connection` valida la entrada frente al catálogo de proveedores y después delega en la misma `upsertWorkspaceConnection()` que se muestra en esta página:
 
 ```ts
-// templates/dispatch/actions/upsert-workspace-connection.ts delegates to this.
 await upsertWorkspaceConnection({
   id: "team-slack",
   provider: "slack",
@@ -493,3 +492,11 @@ El catálogo de proveedores y el almacén de subvenciones son la base de una cap
 Mantenga los límites estrictos: es seguro mostrar los metadatos del proveedor; los valores de credenciales permanecen en la bóveda.
 
 </details>
+
+## Qué sigue {#whats-next}
+
+- [**Dispatch**](/docs/dispatch) — la aplicación que suele administrar la configuración de conexiones del espacio de trabajo y la bóveda
+- [**Seguridad**](/docs/security) — la bóveda de credenciales, el alcance de secretos y el modelo de acceso al que apuntan las conexiones
+- [**Incorporación**](/docs/onboarding#checking-workspace-connections-in-onboarding) — comprobar la preparación de conexiones desde la lista de configuración de una plantilla
+- [**Clientes MCP**](/docs/mcp-clients) — compartir credenciales de servidores MCP en el espacio de trabajo como patrón relacionado de configuración reutilizable
+- [**Brain**](/docs/template-brain) — la implementación de referencia de una página de fuentes de proveedores basada en este modelo
