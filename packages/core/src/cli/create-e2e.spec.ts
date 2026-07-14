@@ -586,6 +586,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
+      expect(workspaceYaml).toContain("/packages/recap-cli");
       expect(workspaceYaml).not.toContain("packages:");
     } finally {
       if (previous === undefined) {
@@ -617,6 +619,8 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
       expect(workspaceYaml).toContain("overrides:");
       expect(workspaceYaml).toContain('"@agent-native/toolkit": "file://');
       expect(workspaceYaml).toContain("/packages/toolkit");
+      expect(workspaceYaml).toContain('"@agent-native/recap-cli": "file://');
+      expect(workspaceYaml).toContain("/packages/recap-cli");
     } finally {
       if (previous === undefined) {
         delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;

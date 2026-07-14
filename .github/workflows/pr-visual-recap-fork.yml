@@ -393,7 +393,10 @@ jobs:
 
       - name: Install workspace (local source only)
         if: steps.cli.outputs.local == 'true'
-        run: pnpm install --frozen-lockfile --ignore-scripts
+        run: |
+          set -euo pipefail
+          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm --filter @agent-native/recap-cli build
 
       - name: Install published recap CLI
         if: steps.cli.outputs.local != 'true'

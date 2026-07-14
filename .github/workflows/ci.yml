@@ -392,11 +392,11 @@ jobs:
       # control the exact build order and avoid redundant parallel builds.
       - run: pnpm install --frozen-lockfile --ignore-scripts
 
-      # Build core and its package dependency so the deploy build's CLI and
-      # compatibility shims are available, then produce the real serverless
-      # bundle.
-      - name: Build toolkit and core
+      # Build the extracted recap CLI before core so its compatibility shim is
+      # available to source imports, then produce the real serverless bundle.
+      - name: Build recap CLI, toolkit, and core
         run: |
+          pnpm --filter @agent-native/recap-cli build
           pnpm --filter @agent-native/toolkit build
           pnpm --filter @agent-native/core build
 
@@ -440,6 +440,11 @@ jobs:
       # Guard scripts only need dependencies and should not depend on package
       # lifecycle builds; skipping scripts avoids native optional builds here.
       - run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Source-backed guards import core's compatibility seam, which resolves
+      # the extracted recap package's published-style dist entrypoint.
+      - name: Build recap CLI for source-backed guards
+        run: pnpm --filter @agent-native/recap-cli build
 
       - name: Run security guards
         run: pnpm guards

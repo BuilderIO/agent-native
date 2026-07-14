@@ -481,14 +481,20 @@ async function scaffoldWorkspaceRoot(
   }
 
   const localToolkit = localToolkitOverride();
-  if (localToolkit) {
+  const localRecapCli = localRecapCliOverride();
+  if (localToolkit || localRecapCli) {
     const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
     const existing = fs.existsSync(wsPath)
       ? fs.readFileSync(wsPath, "utf-8")
       : "";
     const updated = mergeWorkspaceYamlSections(existing, {
       overrides: {
-        '"@agent-native/toolkit"': JSON.stringify(localToolkit),
+        ...(localToolkit
+          ? { '"@agent-native/toolkit"': JSON.stringify(localToolkit) }
+          : {}),
+        ...(localRecapCli
+          ? { '"@agent-native/recap-cli"': JSON.stringify(localRecapCli) }
+          : {}),
       },
     });
     if (updated !== existing) {
@@ -1101,6 +1107,12 @@ function postProcessStandalone(
       sections.overrides['"@agent-native/toolkit"'] =
         JSON.stringify(localToolkit);
     }
+    const localRecapCli = localRecapCliOverride();
+    if (localRecapCli) {
+      sections.overrides ??= {};
+      sections.overrides['"@agent-native/recap-cli"'] =
+        JSON.stringify(localRecapCli);
+    }
     let updated = mergeWorkspaceYamlSections(existing, sections);
     updated = mergeWorkspaceYamlListItems(
       updated,
@@ -1658,6 +1670,12 @@ function localToolkitOverride(): string | null {
   if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
   const localToolkit = findLocalPackage("toolkit");
   return localToolkit ? pathToFileURL(localToolkit).href : null;
+}
+
+function localRecapCliOverride(): string | null {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
+  const localRecapCli = findLocalPackage("recap-cli");
+  return localRecapCli ? pathToFileURL(localRecapCli).href : null;
 }
 
 function getCorePackageVersion(): string | undefined {
