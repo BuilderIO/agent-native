@@ -134,6 +134,7 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
   handleSharedThreadRequest,
@@ -322,6 +323,41 @@ const generateTitleRateLimit = new Map<string, number[]>();
 /** Only sweep drained rate-limit entries once the map grows past this size,
  * so the common small-map case stays O(1). */
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
+
+/**
+ * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
+ * the agent fetch tool.
+ *
+ * SECURITY (audit 05 H2 alignment): the allowlist check must stay
+ * consistent with the scope a key actually resolved at (see the
+ * `getKeyAllowlist` docstring in secrets/substitution.ts). Since the fetch
+ * tool now resolves keys via `resolveKeyReferencesWithRequestScopes` — which
+ * cascades user → org → workspace scope — a plain user-scope-only allowlist
+ * lookup would silently miss an allowlist configured on the org/workspace
+ * row that actually supplied the value. When `resolvedKeys` reports which
+ * scope a key resolved at, look up the allowlist there; only fall back to
+ * the legacy user-scope lookup for a key the resolver didn't report (should
+ * not normally happen — every key the cascade resolves reports a ref).
+ */
+export async function resolveFetchToolKeyAllowlist(
+  keyName: string,
+  resolvedKeys: ResolvedKeyReference[] | undefined,
+  owner: string,
+  deps: {
+    getKeyAllowlist: (
+      name: string,
+      scope: "user",
+      scopeId: string,
+    ) => Promise<string[] | null>;
+    getResolvedKeyAllowlist: (
+      ref: ResolvedKeyReference,
+    ) => Promise<string[] | null>;
+  },
+): Promise<string[] | null> {
+  const ref = resolvedKeys?.find((candidate) => candidate.name === keyName);
+  if (ref) return deps.getResolvedKeyAllowlist(ref);
+  return deps.getKeyAllowlist(keyName, "user", owner);
+}
 
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
@@ -793,21 +829,38 @@ export function createAgentChatPlugin(
       try {
         const { createFetchToolEntry } =
           await import("../extensions/fetch-tool.js");
-        const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
-          await import("../secrets/substitution.js");
+        // Resolve `${keys.NAME}` through the same request-scope cascade
+        // already used by extension fetches (extensions/routes.ts) and
+        // automation connector headers (automation/index.ts): user scope
+        // first (personal overrides win), then the active org scope (the
+        // Dispatch vault syncs workspace secrets here), then workspace
+        // scope. Org/workspace vault rows are write-gated (org-admin +
+        // Dispatch vault UI), so this is safe to read by default — unlike
+        // the opt-in-only user→workspace fallback in resolveKeyReferences
+        // (see audit 05 H2 in secrets/substitution.ts), which stays off.
+        // Previously this tool only looked at scope "user", so a
+        // ${keys.NAME} reference to a key synced into the org/workspace
+        // vault could never resolve here even though the same key already
+        // worked for extension fetches and automations.
+        const {
+          resolveKeyReferencesWithRequestScopes,
+          validateUrlAllowlist,
+          getKeyAllowlist,
+          getResolvedKeyAllowlist,
+        } = await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
           resolveKeys: async (text) =>
-            resolveKeyReferences(
+            resolveKeyReferencesWithRequestScopes(
               text,
-              "user",
               requireCurrentRunOwner("resolve key references"),
             ),
-          validateUrl: async (url, usedKeys) => {
+          validateUrl: async (url, usedKeys, resolvedKeys) => {
             for (const keyName of usedKeys) {
-              const allowlist = await getKeyAllowlist(
+              const allowlist = await resolveFetchToolKeyAllowlist(
                 keyName,
-                "user",
+                resolvedKeys,
                 requireCurrentRunOwner("validate URL allowlist"),
+                { getKeyAllowlist, getResolvedKeyAllowlist },
               );
               if (allowlist && !validateUrlAllowlist(url, allowlist)) {
                 return false;
