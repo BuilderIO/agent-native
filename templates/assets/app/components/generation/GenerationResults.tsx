@@ -299,6 +299,7 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
         prompt={variants.prompt}
         libraryTitle={libraryTitle}
         isSaving={saveGenerated.isPending}
+        isDismissing={dismissSlot.isPending}
         onOpenChange={(open) => {
           if (!open) setPreviewSlotId(null);
         }}
@@ -308,6 +309,9 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
           refineSlot(slot, variantNumber);
           setPreviewSlotId(null);
         }}
+        onDismiss={(slot) =>
+          dismissSlotById(slot, () => setPreviewSlotId(null))
+        }
       />
 
       <section className="mx-auto mb-4 w-full max-w-[760px] px-4">
@@ -490,7 +494,7 @@ function GenerationDraftCard({
               event.stopPropagation();
               onDismiss();
             }}
-            className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-muted-foreground opacity-0 shadow-sm transition hover:bg-destructive hover:text-destructive-foreground focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 disabled:opacity-60"
+            className="absolute right-2 top-2 z-10 inline-flex h-8 w-8 items-center justify-center rounded-full bg-background/90 text-muted-foreground shadow-sm transition hover:bg-destructive hover:text-destructive-foreground focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-60"
           >
             <IconTrash className="h-4 w-4" />
           </button>
@@ -509,20 +513,24 @@ function GenerationPreviewDialog({
   prompt,
   libraryTitle,
   isSaving,
+  isDismissing,
   onOpenChange,
   onSelect,
   onSave,
   onRefine,
+  onDismiss,
 }: {
   slot: VariantSlot | null;
   slots: VariantSlot[];
   prompt: string;
   libraryTitle: string | null;
   isSaving: boolean;
+  isDismissing: boolean;
   onOpenChange: (open: boolean) => void;
   onSelect: (slotId: string) => void;
   onSave: (slot: VariantSlot) => void;
   onRefine: (slot: VariantSlot, variantNumber: number) => void;
+  onDismiss: (slot: VariantSlot) => void;
 }) {
   const t = useT();
   const previewableSlots = useMemo(
@@ -590,11 +598,28 @@ function GenerationPreviewDialog({
               </Button>
               {slot.assetId ? (
                 <Button asChild variant="outline" size="sm">
-                  <Link to={`/asset/${encodeURIComponent(slot.assetId)}`}>
+                  <Link
+                    to={`/asset/${encodeURIComponent(slot.assetId)}`}
+                    onClick={() => onOpenChange(false)}
+                  >
                     {t("library.viewDetails")}
                   </Link>
                 </Button>
               ) : null}
+              <Button
+                variant="outline"
+                size="icon"
+                className="h-8 w-8 text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                disabled={isDismissing}
+                onClick={() => onDismiss(slot)}
+                aria-label={t("library.deleteCandidate")}
+              >
+                {isDismissing ? (
+                  <Spinner className="h-4 w-4" />
+                ) : (
+                  <IconTrash className="h-4 w-4" />
+                )}
+              </Button>
               <DialogClose
                 aria-label={t("library.closePreview")}
                 className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition hover:bg-accent hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
