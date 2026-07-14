@@ -160,6 +160,7 @@ export interface CodeAgentsHost {
   openTerminal?(
     request?: CodeAgentTerminalRequest,
   ): Promise<CodeAgentTerminalResult>;
+  openCodexLogin?(): Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus?(): Promise<CodeAgentRemoteConnectorStatus>;
   setRemoteConnectorEnabled?(
     enabled: boolean,
@@ -734,6 +735,67 @@ export default function CodeAgentsApp({
     selectedRun,
     transcriptEvents,
   ]);
+
+  const connectLocalRuntime = useCallback(
+    async (engine: string) => {
+      if (engine !== "codex-cli") return;
+      if (!host.openCodexLogin) {
+        toast("Local sign-in is only available in Agent Native Desktop", {
+          description: "Open Settings to manage hosted providers instead.",
+        });
+        onOpenSettings?.();
+        return;
+      }
+      try {
+        const result = await host.openCodexLogin();
+        if (!result.ok) {
+          toast("Codex sign-in was not opened", {
+            description: result.error,
+          });
+          return;
+        }
+        toast("Codex sign-in opened", {
+          description:
+            "Finish the ChatGPT sign-in in Terminal. The runtime picker will refresh when it is ready.",
+          duration: 4800,
+        });
+
+        let attempts = 0;
+        const refresh = async (): Promise<void> => {
+          const modelResult = await host.listModels?.();
+          if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+            setModelOptions(modelResult.models);
+            if (modelResult.selected) {
+              setModelSelection((current) =>
+                current.model && current.model !== "auto"
+                  ? current
+                  : { ...modelResult.selected!, effort: current.effort },
+              );
+            }
+            if (
+              modelResult.models.some(
+                (option) =>
+                  option.engine === "codex-cli" && option.configured === true,
+              )
+            ) {
+              toast("ChatGPT subscription connected", {
+                description: "This computer is ready for local Agent tasks.",
+              });
+              return;
+            }
+          }
+          attempts += 1;
+          if (attempts < 30) window.setTimeout(() => void refresh(), 2_000);
+        };
+        void refresh();
+      } catch (err) {
+        toast("Codex sign-in was not opened", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [host, onOpenSettings],
+  );
 
   useEffect(() => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
@@ -1689,6 +1751,7 @@ export default function CodeAgentsApp({
                         onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
                         onConnectProvider={connectBuilderProvider}
+                        onConnectLocalRuntime={connectLocalRuntime}
                       />
                     ) : (
                       <div className="code-agents-start">
@@ -1718,6 +1781,7 @@ export default function CodeAgentsApp({
                           onSlashCommand={handleSlashCommand}
                           onSubmit={createRunFromPrompt}
                           onConnectProvider={connectBuilderProvider}
+                          onConnectLocalRuntime={connectLocalRuntime}
                         />
                         {(projects.length > 0 || canChooseProjectFolder) && (
                           <ProjectFolderPicker
@@ -2128,6 +2192,7 @@ function NewSessionComposer({
   onSlashCommand,
   onSubmit,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   prompt: string;
   promptSeed: number;
@@ -2147,6 +2212,7 @@ function NewSessionComposer({
     attachments: CodeAgentPromptAttachment[],
   ) => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   return (
     <CodeAgentComposer
@@ -2167,6 +2233,7 @@ function NewSessionComposer({
       onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
+      onConnectLocalRuntime={onConnectLocalRuntime}
     />
   );
 }
@@ -2191,6 +2258,7 @@ function CodeAgentComposer({
   onSubmit,
   onStop,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   prompt: string;
   promptSeed?: string | number;
@@ -2215,6 +2283,7 @@ function CodeAgentComposer({
   ) => void;
   onStop?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
@@ -2297,6 +2366,7 @@ function CodeAgentComposer({
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}
+      onConnectLocalRuntime={onConnectLocalRuntime}
     />
   );
 }
@@ -3281,6 +3351,7 @@ function RunDetailCard({
   onConnectBuilder,
   onOpenSettings,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -3304,6 +3375,7 @@ function RunDetailCard({
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
 
@@ -3427,6 +3499,7 @@ function RunDetailCard({
         onDeny={onDeny}
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
+        onConnectLocalRuntime={onConnectLocalRuntime}
       />
     </div>
   );
@@ -3450,6 +3523,7 @@ function TranscriptPanel({
   onDeny,
   onApproveAlways,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -3470,6 +3544,7 @@ function TranscriptPanel({
   /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const selectedModel = normalizedModel.model ?? "auto";
@@ -3596,6 +3671,7 @@ function TranscriptPanel({
             runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
           }
           onConnectProvider={onConnectProvider}
+          onConnectLocalRuntime={onConnectLocalRuntime}
         />
       )}
     </div>

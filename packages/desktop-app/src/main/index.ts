@@ -136,6 +136,7 @@ import {
 import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
+import { getCodexLoginLaunchSpec } from "./codex-login-launcher.js";
 import {
   ComputerControlBroker,
   DesktopComputerMcpBridge,
@@ -6758,6 +6759,13 @@ function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
   };
 }
 
+function openCodexLoginTerminal(): CodeAgentTerminalResult {
+  const cwd = getHomeDirectory();
+  const launch = getCodexLoginLaunchSpec(process.platform);
+  if (!launch.ok) return { ok: false, cwd, error: launch.error };
+  return spawnDetached(launch.command, launch.args, cwd);
+}
+
 function readPackageMetadata(packagePath: string): {
   name?: string;
   version?: string;
@@ -7054,7 +7062,7 @@ function withLocalCodexProviderStatus(
   if (!codex.available) return settings;
   const provider = {
     id: "codex" as const,
-    label: "Codex CLI",
+    label: "ChatGPT subscription",
     configured: codex.authenticated,
     configuredKeys: [] as CodeAgentProviderCredentialKey[],
     missingKeys: [] as CodeAgentProviderCredentialKey[],
@@ -7180,11 +7188,11 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
       if (codex.available) {
         models.push({
           engine: CODEX_CLI_ENGINE_NAME,
-          engineLabel: "Codex",
+          engineLabel: "This computer",
           model: CODEX_CLI_DEFAULT_MODEL,
           label: "Codex CLI default",
           description:
-            "Use the local Codex CLI and its signed-in ChatGPT/API auth.",
+            "Run locally through your signed-in ChatGPT subscription.",
           configured: codex.authenticated,
         });
       }
@@ -7591,6 +7599,7 @@ registerCodeAgentsIpc({
   readCodeAgentProjectsState,
   chooseCodeAgentProject,
   openTerminalForCodeAgents,
+  openCodeAgentCodexLogin: openCodexLoginTerminal,
   getRemoteConnectorStatus,
   setRemoteConnectorEnabled,
   pairRemoteCodeAgentConnector,

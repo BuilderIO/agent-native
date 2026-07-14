@@ -628,6 +628,8 @@ export interface TiptapComposerProps {
    * Used by the Electron desktop app to route through the native IPC handler.
    */
   onConnectProvider?: () => void;
+  /** Route local runtime setup through the host's native bridge. */
+  onConnectLocalRuntime?: (engine: string) => void;
   /**
    * Optional secondary model menu (e.g. an image-generation model) rendered as
    * an extra section inside the model picker. Opt-in; omit for chat-only apps.
@@ -807,6 +809,7 @@ function ModeSelector({
 
 const FRIENDLY_MODEL_NAMES: Record<string, string> = {
   auto: "Default model",
+  "codex-cli": "ChatGPT subscription",
   "claude-fable-5": "Fable 5",
   "kimi-k2-5": "Kimi K2.5",
   "deepseek-v3-1": "DeepSeek v3.1",
@@ -949,6 +952,7 @@ function ModelSelector({
   onEffortChange,
   providerConnectStatusEnabled = true,
   onConnectProvider,
+  onConnectLocalRuntime,
   imageModel,
 }: {
   model: string;
@@ -963,6 +967,7 @@ function ModelSelector({
   onEffortChange?: (effort: ReasoningEffort) => void;
   providerConnectStatusEnabled?: boolean;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
   imageModel?: ComposerImageModelMenu;
 }) {
   const [open, setOpen] = useState(false);
@@ -1050,6 +1055,13 @@ function ModelSelector({
     window.dispatchEvent(new CustomEvent("agent-panel:open-settings"));
     setOpen(false);
   }, []);
+  const connectLocalRuntime = useCallback(
+    (engine: string) => {
+      onConnectLocalRuntime?.(engine);
+      setOpen(false);
+    },
+    [onConnectLocalRuntime],
+  );
 
   return (
     <Popover open={open} onOpenChange={setOpen}>
@@ -1207,9 +1219,15 @@ function ModelSelector({
                   <button
                     type="button"
                     className="text-[10px] text-muted-foreground/60 hover:text-foreground cursor-pointer pe-3 py-1.5"
-                    onClick={openLlmSettings}
+                    onClick={() =>
+                      group.engine === "codex-cli" && onConnectLocalRuntime
+                        ? connectLocalRuntime(group.engine)
+                        : openLlmSettings()
+                    }
                   >
-                    needs API key
+                    {group.engine === "codex-cli" && onConnectLocalRuntime
+                      ? "sign in"
+                      : "needs API key"}
                   </button>
                 )}
               </div>
@@ -1220,7 +1238,14 @@ function ModelSelector({
                     type="button"
                     onClick={() => {
                       if (!group.configured) {
-                        openLlmSettings();
+                        if (
+                          group.engine === "codex-cli" &&
+                          onConnectLocalRuntime
+                        ) {
+                          connectLocalRuntime(group.engine);
+                        } else {
+                          openLlmSettings();
+                        }
                         return;
                       }
                       onChange(m, group.engine);
@@ -1339,6 +1364,7 @@ export function TiptapComposer({
   onEffortChange,
   providerConnectStatusEnabled,
   onConnectProvider,
+  onConnectLocalRuntime,
   imageModelMenu,
   draftScope,
   contextItems = [],
@@ -2740,6 +2766,7 @@ export function TiptapComposer({
             onEffortChange={onEffortChange}
             providerConnectStatusEnabled={providerConnectStatusEnabled}
             onConnectProvider={onConnectProvider}
+            onConnectLocalRuntime={onConnectLocalRuntime}
             imageModel={imageModelMenu}
           />
         )}

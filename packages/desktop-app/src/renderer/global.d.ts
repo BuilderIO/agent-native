@@ -735,6 +735,7 @@ interface ElectronAPI {
     openTerminal(
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult>;
+    openCodexLogin(): Promise<CodeAgentTerminalResult>;
     getRemoteConnectorStatus(): Promise<CodeAgentRemoteConnectorStatus>;
     setRemoteConnectorEnabled(
       enabled: boolean,
