@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.100.4
+
+### Patch Changes
+
+- f2ed084: Add public-safe review reads and client gating, root-thread agent routing, durable resolution notes, and capability-aware review panels.
+
 ## 0.100.3
 
 ### Patch Changes
