@@ -120,3 +120,18 @@ describe("DesignExtensionsPanel source — postMessage origin/source hygiene", (
     expect(source).not.toMatch(/addEventListener\(\s*["']message["']/);
   });
 });
+
+describe("AssetLibraryPanel source — screen-local drop coordinates", () => {
+  it("receives the DesignEditor screen-point resolver", () => {
+    const source = readFileSync(
+      path.join(
+        path.dirname(fileURLToPath(import.meta.url)),
+        "../../pages/DesignEditor.tsx",
+      ),
+      "utf8",
+    );
+    expect(source).toMatch(
+      /<AssetLibraryPanel[\s\S]*?resolveScreenPoint=\{resolveAssetScreenPoint\}/,
+    );
+  });
+});
