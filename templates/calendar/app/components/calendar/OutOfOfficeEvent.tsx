@@ -1,0 +1,113 @@
+import type { CalendarEvent } from "@shared/api";
+import { IconCalendarOff } from "@tabler/icons-react";
+
+import { getOutOfOfficeSegment } from "@/lib/out-of-office";
+
+import { EventDetailPopover } from "./EventDetailPopover";
+
+interface OutOfOfficeEventProps {
+  event: CalendarEvent;
+  day: Date;
+  hourHeight: number;
+  color: string;
+  label: string;
+  markerIndex?: number;
+  onDelete: (eventId: string) => void;
+  isDraft: boolean;
+  defaultOpen: boolean;
+  onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
+  onDismissNew?: (eventId: string, accountEmail?: string) => void;
+  onDraftUpdate?: (
+    eventId: string,
+    updates: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+      workingLocationType?: "homeOffice" | "officeLocation" | "customLocation";
+      workingLocationLabel?: string;
+    },
+  ) => void;
+  onDraftCreate?: (
+    eventId: string,
+    updates?: Partial<CalendarEvent> & {
+      addGoogleMeet?: boolean;
+      addZoom?: boolean;
+    },
+  ) => void;
+  onDraftDiscard?: (eventId: string) => void;
+  onOpenChange?: (open: boolean) => void;
+}
+
+export function OutOfOfficeEvent({
+  event,
+  day,
+  hourHeight,
+  color,
+  label,
+  markerIndex = 0,
+  onDelete,
+  isDraft,
+  defaultOpen,
+  onTitleSave,
+  onDismissNew,
+  onDraftUpdate,
+  onDraftCreate,
+  onDraftDiscard,
+  onOpenChange,
+}: OutOfOfficeEventProps) {
+  const segment = getOutOfOfficeSegment(event, day);
+  if (!segment) return null;
+
+  const top = (segment.topMinutes / 60) * hourHeight;
+  const height = (segment.durationMinutes / 60) * hourHeight;
+  const title = event.title || label;
+
+  return (
+    <div
+      data-out-of-office-event={event.id}
+      className="pointer-events-none absolute inset-x-0 z-0"
+      style={{ top: `${top}px`, height: `${height}px` }}
+    >
+      <div
+        aria-hidden="true"
+        className="absolute inset-0"
+        style={{
+          backgroundColor: `color-mix(in srgb, ${color} 7%, transparent)`,
+          boxShadow: `inset 2px 0 0 color-mix(in srgb, ${color} 28%, transparent)`,
+        }}
+      />
+      <div
+        className="pointer-events-auto absolute right-1 top-1 z-10"
+        style={{ left: `${4 + markerIndex * 12}px` }}
+      >
+        <EventDetailPopover
+          event={event}
+          onDelete={onDelete}
+          isDraft={isDraft}
+          defaultOpen={defaultOpen}
+          onTitleSave={onTitleSave}
+          onDismissNew={onDismissNew}
+          onDraftUpdate={onDraftUpdate}
+          onDraftCreate={onDraftCreate}
+          onDraftDiscard={onDraftDiscard}
+          onOpenChange={onOpenChange}
+        >
+          <button
+            className="flex h-5 max-w-full items-center gap-1 truncate rounded-sm px-1.5 text-left text-[10px] font-medium text-foreground outline-none transition-[filter,box-shadow] hover:brightness-110 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1"
+            aria-label={`${label}: ${title}`}
+            style={{
+              backgroundColor: `color-mix(in srgb, ${color} 20%, hsl(var(--background)))`,
+              boxShadow: `0 0 0 1px color-mix(in srgb, ${color} 34%, transparent)`,
+            }}
+          >
+            <IconCalendarOff
+              aria-hidden="true"
+              className="size-3 shrink-0"
+              style={{ color }}
+            />
+            <span className="truncate">{title}</span>
+          </button>
+        </EventDetailPopover>
+      </div>
+    </div>
+  );
+}
