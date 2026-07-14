@@ -2,6 +2,7 @@ import { defineEventHandler, getHeader, getMethod } from "h3";
 import type { EventHandler, H3Event } from "h3";
 
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
+import { isMcpPublicPath } from "../mcp/route-paths.js";
 import { track } from "../tracking/index.js";
 import { getAppName } from "./app-name.js";
 
@@ -74,7 +75,11 @@ function statusClass(statusCode: number): string {
 }
 
 function routeKind(pathname: string): string {
-  if (pathname === "/_agent-native" || pathname.startsWith("/_agent-native/")) {
+  if (
+    isMcpPublicPath(pathname) ||
+    pathname === "/_agent-native" ||
+    pathname.startsWith("/_agent-native/")
+  ) {
     return "framework";
   }
   if (pathname === "/api" || pathname.startsWith("/api/")) return "api";

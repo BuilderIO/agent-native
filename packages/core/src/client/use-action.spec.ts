@@ -63,6 +63,9 @@ describe("callAction", () => {
         signal: expect.any(AbortSignal),
       }),
     );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "X-Request-Source",
+    );
   });
 
   it("serializes GET params for imperative reads", async () => {
@@ -85,6 +88,9 @@ describe("callAction", () => {
         cache: "no-store",
         signal: expect.any(AbortSignal),
       }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).not.toHaveProperty(
+      "X-Request-Source",
     );
   });
 

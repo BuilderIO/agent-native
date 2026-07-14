@@ -110,7 +110,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 如果您使用的是直接接受 MCP 連線器 URL 的基於聊天的主機
 （而不是 CLI 設定的用戶端），連線託管計畫連線器
-`https://plan.agent-native.com/_agent-native/mcp` — 請參閱 [MCP Clients](/docs/mcp-clients) 以了解特定於用戶端的設定。
+`https://plan.agent-native.com/mcp` — 請參閱 [MCP Clients](/docs/mcp-clients) 以了解特定於用戶端的設定。
 
 驗證是在設定時進行一次性瀏覽器登入 - 這是有意為之的
 是讓代理持續存在並共用其產生的計畫的原因。授權是什麼
@@ -208,6 +208,13 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
 **開放式問題**表格位於同一計畫的底部。接聽並傳送
 它向代理啟動針對現有計畫的修訂。
 
+## 成本和模型選擇
+
+產生計畫或回顧會對你的編碼代理的 LLM 執行一次完整的代理式工作階段，而不是輕量級的範本填充，因此成本會隨 diff 或計畫的大小以及你選擇的模型而變化。
+
+- 應用程式自身的預設聊天模型是 Sonnet 5；你可以隨時在 **設定** 中變更它。Haiku 是較便宜的 Claude 選項，Luna 是 GPT-5.6 系列中較便宜的選項。
+- 來自 GitHub Action 的自動化 PR 回顧與互動式應用程式分開執行，擁有自己的模型和成本調整項 — 關於 `VISUAL_RECAP_MODEL`、`VISUAL_RECAP_AGENT` 和 `VISUAL_RECAP_REASONING`，請參見[PR Visual Recap](/docs/pr-visual-recap)。
+
 ## 你可以用它做什麼
 
 - **實施前審查。** React 到圖表、線框圖、選項分頁，
@@ -249,7 +256,7 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
   跨設備或團隊審核）需要登入。Google 登入會在以下情況出現
   標準 Google OAuth 環境變數已設定。
 
-託管計畫連線器位於 `https://plan.agent-native.com/_agent-native/mcp`。
+託管計畫連線器位於 `https://plan.agent-native.com/mcp`。
 切勿將共用機密放入技能檔案中。
 
 ## 本機檔案隱私模式 {#local-files}
@@ -286,7 +293,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 橋梁 URL 看起來像
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 該頁面是普通的計畫檢視器，但瀏覽器取得 `plan.mdx`，
 `canvas.mdx`、`prototype.mdx`、`.plan-state.json` 以及來自
 本機主機橋。計畫內容不會寫入託管資料庫，而是
@@ -447,7 +454,7 @@ pnpm dev
 託管應用程式支援的技能使用：
 
 - 應用程式：`https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 當您開發計畫本身、測試本機持久性或執行完全自託管的審核介面時，本機範本非常有用。
 

@@ -58,13 +58,10 @@ export function SignInPromptDialog({
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
             {t("signInPrompt.notNow")}
           </Button>
-          <Button
-            onClick={() => {
-              onSignIn?.();
-              window.location.href = buildSignInHref(returnTo);
-            }}
-          >
-            {t("signInPrompt.signIn")}
+          <Button asChild>
+            <a href={buildSignInHref(returnTo)} onClick={() => onSignIn?.()}>
+              {t("signInPrompt.signIn")}
+            </a>
           </Button>
         </DialogFooter>
       </DialogContent>

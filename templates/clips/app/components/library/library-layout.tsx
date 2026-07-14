@@ -29,6 +29,7 @@ import {
   IconLayoutSidebarLeftExpand,
   IconPlus,
   IconShare,
+  IconBrain,
   IconSettings,
 } from "@tabler/icons-react";
 import { ReactNode, useEffect, useMemo, useState } from "react";
@@ -154,6 +155,9 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   );
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   const showCollapsedSidebar = sidebarCollapsed && !isMobile;
+  const sidebarHasNewRecordingAction = isMobile
+    ? sidebarOpen
+    : !sidebarCollapsed;
 
   // Routes whose page renders its own h-12 toolbar. Layout still mounts Sidebar
   // + AgentSidebar, but skips its own header so there's no double-header.
@@ -236,6 +240,12 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
       label: t("navigation.trash"),
       icon: IconTrash,
       match: (p) => p.startsWith("/trash"),
+    },
+    {
+      to: "/agent",
+      label: t("navigation.agent"),
+      icon: IconBrain,
+      match: (p) => p.startsWith("/agent"),
     },
     {
       to: "/settings",
@@ -514,7 +524,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           <>
             <div className="shrink-0 space-y-1.5 px-2 py-1.5">
               {shouldShowSidebarLink && (
-                <CaptureInstallInlineLink className="flex items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60">
+                <CaptureInstallInlineLink className="flex w-full items-center gap-2 rounded px-2 py-1.5 text-xs text-foreground hover:bg-accent/60">
                   <IconAppWindow className="h-4 w-4" />
                   {t("navigation.desktopCta")}
                 </CaptureInstallInlineLink>
@@ -544,6 +554,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
           t("navigation.agentSuggestionPricing"),
           t("navigation.agentSuggestionFiller"),
         ]}
+        agentPageHref="/agent"
         scope={recordingScope}
         browserTabId={getBrowserTabId()}
       >
@@ -603,7 +614,10 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
             </div>
           )}
           <main className="agent-native-app-main flex min-h-0 flex-1 flex-col overflow-y-auto">
-            <PageHeaderSlotProvider slot={headerSlot}>
+            <PageHeaderSlotProvider
+              slot={headerSlot}
+              sidebarHasNewRecordingAction={sidebarHasNewRecordingAction}
+            >
               {children}
             </PageHeaderSlotProvider>
           </main>

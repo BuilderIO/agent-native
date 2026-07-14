@@ -30,7 +30,7 @@ vi.mock("../db/index.js", async () => {
       import("node:module"),
       import("drizzle-orm/better-sqlite3"),
       import("drizzle-orm/sqlite-core"),
-      import("../../../../packages/core/src/db/create-get-db.js"),
+      import("@agent-native/core/testing"),
     ]);
 
   const designs = sqliteCore.sqliteTable("designs", {

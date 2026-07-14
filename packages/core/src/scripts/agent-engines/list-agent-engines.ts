@@ -89,7 +89,6 @@ export async function run(args: Record<string, string> = {}): Promise<string> {
           currentModelCandidate ?? currentEntry.defaultModel,
         )
       : (currentModelCandidate ?? DEFAULT_MODEL);
-
   const result = {
     engines: engines.map((e) => ({
       name: e.name,

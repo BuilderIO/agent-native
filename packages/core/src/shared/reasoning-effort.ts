@@ -170,6 +170,41 @@ function isClaudeReasoningModel(model: string) {
   return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
 }
 
+/**
+ * Anthropic's adaptive-thinking API is only available on the newer Claude
+ * model families. Claude Haiku 4.5 is reasoning-capable, but it still
+ * requires the legacy manual `budget_tokens` configuration.
+ */
+export function supportsClaudeAdaptiveThinking(model: string | undefined) {
+  if (!model) return false;
+  const id = model.toLowerCase().replace(/^anthropic\//, "");
+  if (id.includes("fable-5") || id.includes("mythos-5")) return true;
+  if (id.includes("sonnet-5") || id.includes("sonnet-4-6")) return true;
+  const opusMatch = id.match(/opus-4[-.](\d+)/);
+  return opusMatch ? parseInt(opusMatch[1], 10) >= 6 : false;
+}
+
+/**
+ * Map the shared reasoning ladder to Anthropic's manual thinking budgets for
+ * models that do not support adaptive thinking (currently Claude Haiku 4.5).
+ */
+export function anthropicManualThinkingBudget(effort: ReasoningEffort) {
+  switch (effort) {
+    case "low":
+      return 1_024;
+    case "medium":
+      return 4_096;
+    case "high":
+      return 8_000;
+    case "xhigh":
+      return 16_000;
+    case "max":
+      return 32_000;
+    default:
+      return 4_096;
+  }
+}
+
 function supportsClaudeXHigh(model: string) {
   const id = model.toLowerCase().replace(/^anthropic\//, "");
   // Models that support the xhigh effort tier (built-in extended thinking via

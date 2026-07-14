@@ -119,6 +119,7 @@ const queueDb = {
 };
 vi.mock("../db/client.js", () => ({
   getDbExec: () => queueDb,
+  getDialect: () => "sqlite",
   intType: () => "INTEGER",
   isPostgres: () => false,
   retryOnDdlRace: (fn: () => unknown) => fn(),
@@ -234,10 +235,59 @@ vi.mock("../agent/run-store.js", () => ({
 }));
 
 // ── production-agent: scripted agent loop ─────────────────────────────────
+const actionsToEngineToolsMock = vi.fn(() => [] as Array<{ name: string }>);
+
+// `filterInitialEngineTools`'s own filtering semantics are covered directly
+// (unmocked) by production-agent.spec.ts. Re-implemented minimally here
+// rather than via `vi.importActual` on the real module, which would pull in
+// production-agent.ts's full module graph (e.g. its module-scope
+// `registerBuiltinEngines()` call) that this file's narrower mocks don't
+// support. This only needs to prove agent-teams.ts WIRES the filter with the
+// right inputs, not re-prove the filter's own correctness.
+function fakeFilterInitialEngineTools(
+  tools: Array<{ name: string }>,
+  initialToolNames?: string[],
+): Array<{ name: string }> {
+  if (!initialToolNames) return tools;
+  const defaultNames = new Set([
+    "resources",
+    "docs-search",
+    "get-framework-context",
+    "read-attachment",
+  ]);
+  const names = new Set(initialToolNames);
+  names.add("tool-search");
+  for (const tool of tools) {
+    if (defaultNames.has(tool.name)) names.add(tool.name);
+  }
+  return tools.filter((tool) => names.has(tool.name));
+}
+
 vi.mock("../agent/production-agent.js", () => ({
-  actionsToEngineTools: () => [],
+  actionsToEngineTools: (actions: any) => actionsToEngineToolsMock(actions),
+  filterInitialEngineTools: fakeFilterInitialEngineTools,
+  resolveAgentRequestReasoningEffort: ({ model }: { model: string }) =>
+    model === "gpt-5.6" ? "medium" : undefined,
+  resolveMainChatMaxOutputTokens: (model: string) =>
+    model === "gpt-5.6" ? 32_000 : 4_096,
   appendAgentLoopContinuation: vi.fn(),
   runAgentLoop: (opts: any) => runAgentLoopMock(opts),
+}));
+
+// Real `attachToolSearch` transitively imports the mcp-client/secrets/db
+// schema chain (for MCP tool visibility checks), which this file's minimal
+// `../db/client.js` mock doesn't support. Only the shape used by
+// agent-teams.ts matters here: stamp a `tool-search` entry onto the given
+// registry and return it.
+vi.mock("../agent/tool-search.js", () => ({
+  TOOL_SEARCH_ACTION_NAME: "tool-search",
+  attachToolSearch: (registry: Record<string, unknown>) => {
+    registry["tool-search"] = {
+      tool: { description: "Discover callable tools.", parameters: {} },
+      run: async () => "{}",
+    };
+    return registry;
+  },
 }));
 
 // ── progress registry: no-op writes ──────────────────────────────────────
@@ -253,6 +303,7 @@ vi.mock("../org/context.js", () => ({
 
 vi.mock("./request-context.js", () => ({
   getRequestUserEmail: () => activeRequestContext?.userEmail,
+  getRequestRunContext: () => undefined,
   runWithRequestContext: (ctx: any, fn: () => any) => {
     const previous = activeRequestContext;
     activeRequestContext = ctx;
@@ -320,7 +371,7 @@ function resolveConfig() {
     baseSystemPrompt: "base",
     actions: {},
     engine: { name: "test", defaultModel: "m" } as any,
-    model: "m",
+    model: "gpt-5.6",
   };
 }
 
@@ -359,6 +410,10 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     });
     expect(res.ok).toBe(true);
     expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    expect(runAgentLoopMock.mock.calls[0]?.[0]).toMatchObject({
+      maxOutputTokens: 32_000,
+      reasoningEffort: "medium",
+    });
     expect(requestContexts.some((ctx) => ctx.userEmail === OWNER)).toBe(true);
 
     const task = appState.get("agent-task:t1");
@@ -369,6 +424,61 @@ describe("processAgentTeamRun (durable serverless execution)", () => {
     );
     // thread_data persisted with the assistant turn
     expect(threadData.get("thread-1")).toContain("the result");
+  }, 20_000);
+
+  it("defers framework-added tools behind tool-search on the first sub-agent request when an initial tool list is supplied", async () => {
+    actionsToEngineToolsMock.mockImplementation(
+      (actionsMap: Record<string, { tool: { description: string } }>) =>
+        Object.keys(actionsMap).map((name) => ({
+          name,
+          description: actionsMap[name].tool.description,
+          inputSchema: { type: "object", properties: {} },
+        })),
+    );
+    const noopTool = (description: string) => ({
+      tool: { description, parameters: { type: "object", properties: {} } },
+      run: async () => "ok",
+    });
+    runAgentLoopMock.mockImplementation(async (opts: any) => {
+      opts.send({ type: "text", text: "the result" });
+    });
+    await seedTask("t-tool-filter");
+
+    const res = await processAgentTeamRun({
+      taskId: "t-tool-filter",
+      mode: "start",
+      resolveConfig: async () => ({
+        baseSystemPrompt: "base",
+        actions: {
+          "template-team-action": noopTool("A team-relevant app action"),
+          "list-integration-memory": noopTool("Framework addition"),
+        },
+        initialToolNames: ["template-team-action"],
+        engine: { name: "test", defaultModel: "m" } as any,
+        model: "m",
+      }),
+    });
+
+    expect(res.ok).toBe(true);
+    expect(runAgentLoopMock).toHaveBeenCalledTimes(1);
+    const call = runAgentLoopMock.mock.calls[0]?.[0];
+    const firstRequestToolNames = call.tools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+    const availableToolNames = call.availableTools
+      .map((tool: { name: string }) => tool.name)
+      .sort();
+
+    expect(firstRequestToolNames).toEqual([
+      "template-team-action",
+      "tool-search",
+    ]);
+    expect(firstRequestToolNames).not.toContain("list-integration-memory");
+    expect(availableToolNames).toEqual([
+      "list-integration-memory",
+      "template-team-action",
+      "tool-search",
+    ]);
   }, 20_000);
 
   it("is idempotent: a duplicate dispatch does not re-run the agent", async () => {

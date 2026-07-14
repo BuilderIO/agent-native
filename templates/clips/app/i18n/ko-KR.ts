@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "작업",
     commandSearch: "검색",
+    openAgent: "에이전트 열기",
     commandAppearance: "화면 표시",
     toggleTheme: "테마 전환",
     extensionSignedInTitle: "로그인됨",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "받아쓰기",
     archive: "보관함",
     trash: "휴지통",
+    agent: "에이전트",
     settings: "설정",
     notifications: "알림",
     insights: "인사이트",
@@ -880,15 +882,6 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     removeDescription:
       "{{email}}은 이 조직에 대한 액세스 권한을 잃습니다. 언제든 다시 초대할 수 있습니다.",
     remove: "제거",
-  },
-  slackShareHint: {
-    playsInline: "Slack에서 인라인 재생",
-    connectedDescription:
-      "이 링크를 연결된 워크스페이스에 붙여넣으면 인라인으로 재생됩니다.",
-    makeInline: "Slack에서 인라인 재생하기",
-    connectDescription:
-      "워크스페이스를 연결하면 이 링크가 동영상으로 펼쳐집니다.",
-    connect: "연결",
   },
   commentsPanel: {
     disabled: "이 녹화에서는 댓글이 비활성화되어 있습니다.",

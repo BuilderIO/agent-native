@@ -455,6 +455,12 @@ export function MessagingSetupPanel() {
               ));
           const enabled = !!status?.enabled;
           const envKeys = platform.credentialRequirements;
+          const primaryEnvKeys = envKeys.filter(
+            (envKey) => envKey.key !== "SLACK_BOT_TOKEN",
+          );
+          const legacyEnvKeys = envKeys.filter(
+            (envKey) => envKey.key === "SLACK_BOT_TOKEN",
+          );
           const missingRequiredCredentials = hasMissingRequiredCredentials(
             envKeys,
             envStatusByKey,
@@ -789,7 +795,7 @@ export function MessagingSetupPanel() {
                   ) : null}
                 </div>
                 <div className="space-y-3">
-                  {envKeys.map((envKey) => {
+                  {primaryEnvKeys.map((envKey) => {
                     const envStatus = envStatusByKey.get(envKey.key);
                     const isConfigured = !!envStatus?.configured;
                     const helpText = envKey.helpText ?? envStatus?.helpText;
@@ -847,6 +853,80 @@ export function MessagingSetupPanel() {
                     );
                   })}
                 </div>
+                {legacyEnvKeys.length ? (
+                  <Collapsible>
+                    <CollapsibleTrigger className="group flex w-full cursor-pointer items-center gap-1.5 text-xs font-medium text-muted-foreground hover:text-foreground">
+                      <IconChevronRight className="h-3.5 w-3.5 transition-transform group-data-[state=open]:rotate-90" />
+                      <span>{legacyEnvKeys[0]?.label}</span>
+                    </CollapsibleTrigger>
+                    <CollapsibleContent>
+                      <div className="mt-2 space-y-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-4">
+                        <p className="text-xs text-muted-foreground">
+                          {legacyEnvKeys[0]?.helpText}
+                        </p>
+                        {legacyEnvKeys.map((envKey) => {
+                          const envStatus = envStatusByKey.get(envKey.key);
+                          const isConfigured = !!envStatus?.configured;
+                          const helpText =
+                            envKey.helpText ?? envStatus?.helpText;
+                          const label =
+                            envKey.label || envStatus?.label || envKey.key;
+                          return (
+                            <div key={envKey.key} className="space-y-1.5">
+                              <div className="flex items-center justify-between gap-3">
+                                <div className="flex items-center gap-1.5">
+                                  <label className="text-xs font-medium text-foreground">
+                                    {label}
+                                  </label>
+                                  {helpText ? (
+                                    <HelpTooltip content={helpText} />
+                                  ) : null}
+                                </div>
+                                <StatusPill
+                                  tone={isConfigured ? "success" : "neutral"}
+                                  label={isConfigured ? "Saved" : "Not set"}
+                                />
+                              </div>
+                              {!isConfigured ? (
+                                <Input
+                                  type="password"
+                                  value={envValues[envKey.key] || ""}
+                                  onChange={(event) =>
+                                    setEnvValues((current) => ({
+                                      ...current,
+                                      [envKey.key]: event.target.value,
+                                    }))
+                                  }
+                                  placeholder={`Enter ${label}`}
+                                  autoComplete="off"
+                                />
+                              ) : null}
+                            </div>
+                          );
+                        })}
+                        {legacyEnvKeys.some(
+                          (envKey) =>
+                            !envStatusByKey.get(envKey.key)?.configured,
+                        ) ? (
+                          <Button
+                            variant="outline"
+                            onClick={() =>
+                              saveEnvKeys(
+                                platform,
+                                legacyEnvKeys.map((envKey) => envKey.key),
+                              )
+                            }
+                            disabled={savingKeysFor === platform.id}
+                          >
+                            {savingKeysFor === platform.id
+                              ? "Saving..."
+                              : "Save credentials"}
+                          </Button>
+                        ) : null}
+                      </div>
+                    </CollapsibleContent>
+                  </Collapsible>
+                ) : null}
                 {missingRequiredCredentials ? (
                   <Button
                     variant="outline"

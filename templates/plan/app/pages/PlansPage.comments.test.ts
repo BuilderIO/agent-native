@@ -5,6 +5,10 @@ import type { PlanBundle } from "@shared/types";
 import { describe, expect, it, vi } from "vitest";
 
 import { planBundleQueryKey } from "@/hooks/use-plans";
+import {
+  type LocalPlanBundle,
+  mergeLocalBridgeComments,
+} from "@/lib/plan-local-bridge";
 
 import {
   addPlanCommentToBundle,
@@ -158,6 +162,17 @@ describe("plan comment thread UI model", () => {
       "get-visual-plan",
       { id: "plan_1", includeMdx: false, includeHtml: true },
     ]);
+  });
+
+  it("preserves a bridge bundle when both comment sources are empty", () => {
+    const bundle = {
+      ...bundleWithComments([]),
+      localOnly: true,
+      slug: "local-plan",
+      folder: "local-plan",
+    } as LocalPlanBundle;
+
+    expect(mergeLocalBridgeComments(bundle, [])).toBe(bundle);
   });
 
   it("updates the bundle immediately for optimistic comment markers", () => {

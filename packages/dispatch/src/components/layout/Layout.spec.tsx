@@ -5,7 +5,7 @@ import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "../ui/tooltip";
-import { NavContent } from "./Layout";
+import { formatThreadAge, NavContent } from "./Layout";
 
 const clientState = vi.hoisted(() => ({
   createThread: vi.fn<() => Promise<string | null>>(),
@@ -66,6 +66,20 @@ vi.mock("@agent-native/core/client/org", () => ({
   OrgSwitcher: () => <div>Organization</div>,
 }));
 
+describe("formatThreadAge", () => {
+  const now = 2_000_000_000_000;
+
+  it.each([
+    [0, "now"],
+    [2 * 60 * 60_000, "2h"],
+    [7 * 24 * 60 * 60_000, "7d"],
+    [21 * 24 * 60 * 60_000, "3w"],
+    [365 * 24 * 60 * 60_000, "1y"],
+  ])("formats %i milliseconds as %s", (elapsed, expected) => {
+    expect(formatThreadAge(now - elapsed, now)).toBe(expected);
+  });
+});
+
 describe("Dispatch NavContent", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -105,6 +119,46 @@ describe("Dispatch NavContent", () => {
     vi.unstubAllGlobals();
   });
 
+  it("puts Overview before Chat in the primary navigation", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const primaryLabels = [...container.querySelectorAll("nav a")].map((link) =>
+      link.textContent?.trim(),
+    );
+    expect(primaryLabels.indexOf("Overview")).toBeLessThan(
+      primaryLabels.indexOf("Chat"),
+    );
+  });
+
+  it("keeps collapsed navigation compact and preserves section spacing", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/overview"]}>
+          <TooltipProvider>
+            <NavContent collapsed />
+          </TooltipProvider>
+        </MemoryRouter>,
+      );
+    });
+
+    const lists = [...container.querySelectorAll("nav > ul")];
+    expect(lists).toHaveLength(3);
+    expect(lists[0].className).toContain("gap-1");
+    expect(lists[1].className).toContain("mt-5");
+    expect(lists[1].className).toContain("gap-1");
+    expect(lists[2].className).toContain("mt-3");
+    expect(lists[2].className).toContain("gap-1");
+    expect(lists[0].querySelector("a")?.className).toContain("h-8 w-8");
+  });
+
   it("uses the quieter Analytics-style chat history and retains thread actions", async () => {
     await act(async () => {
       root.render(
@@ -121,6 +175,13 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).toContain("Earlier Dispatch work");
     expect(container.textContent).toContain("New chat");
     expect(container.textContent).toContain("5m");
+    const age = [...container.querySelectorAll("time")].find(
+      (element) => element.textContent === "5m",
+    );
+    expect(age?.className).toContain("w-8");
+    expect(age?.className).toContain("shrink-0");
+    expect(age?.className).toContain("whitespace-nowrap");
+    expect(age?.className).toContain("tabular-nums");
     expect(
       [...container.querySelectorAll("div")].some((element) =>
         element.className.includes("group/item"),
@@ -133,7 +194,7 @@ describe("Dispatch NavContent", () => {
     expect(container.textContent).not.toContain("Workspace control plane");
 
     const threadButton = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "Earlier Dispatch work",
+      (button) => button.textContent?.includes("Earlier Dispatch work"),
     );
     expect(threadButton).toBeDefined();
     await act(async () => {

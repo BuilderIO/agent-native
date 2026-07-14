@@ -108,8 +108,18 @@ export function RecordingPill() {
           meetingId: ev.payload?.meetingId ?? null,
           mode: ev.payload?.mode ?? "clip",
         };
+        const prev = ctxRef.current;
+        const isSameSession =
+          prev.meetingId === next.meetingId && prev.mode === next.mode;
         ctxRef.current = next;
         setCtx(next);
+        // The Rust side re-shows (and re-emits this event for) the same pill
+        // window whenever the tray icon re-triggers `recording_pill_show`
+        // (e.g. toggling the popover) while a meeting is already in progress.
+        // Only reset session state below when the meeting/mode actually
+        // changed — otherwise an in-progress meeting's timer, transcript, and
+        // notes would wipe out on every tray click.
+        if (isSameSession) return;
         // Reset timer on new context.
         startedAtRef.current = Date.now();
         setElapsed(0);
@@ -352,9 +362,18 @@ export function RecordingPill() {
     );
 
     const startMs = Date.now();
+    let lastDrawMs = 0;
+    // A bar meter reads the same to the eye well below display refresh rate
+    // (60-120Hz); cap the actual draw work to ~20fps while still scheduling
+    // via rAF every frame so the loop still pauses when the pill is hidden.
+    const FRAME_INTERVAL_MS = 1000 / 20;
     const tick = () => {
+      rafRef.current = requestAnimationFrame(tick);
+      const nowMs = Date.now();
+      if (nowMs - lastDrawMs < FRAME_INTERVAL_MS) return;
+      lastDrawMs = nowMs;
       // Modulo prevents float precision loss on long recordings.
-      const t = (Date.now() - startMs) % 1_000_000;
+      const t = (nowMs - startMs) % 1_000_000;
       for (const s of setups) {
         const target = Math.min(1, s.levelRef.current * s.gain);
 
@@ -385,7 +404,6 @@ export function RecordingPill() {
         }
         s.ctx2d.shadowBlur = 0;
       }
-      rafRef.current = requestAnimationFrame(tick);
     };
     tick();
     return () => {

@@ -107,7 +107,7 @@ function defaultFrameSettings(): FrameSettings {
 
 function defaultRemoteConnectorSettings(): RemoteConnectorSettings {
   return {
-    enabled: true,
+    enabled: false,
   };
 }
 
@@ -367,16 +367,6 @@ function hasStoredProviderSecretBlob(
   return Boolean(secret?.value);
 }
 
-function canReadStoredProviderSecret(
-  secret: StoredSecret | undefined,
-): boolean {
-  if (!secret?.value) return false;
-  if (secret.encoding === "local-file-v1" || secret.encoding === "plain") {
-    return true;
-  }
-  return Boolean(decryptProviderSecret(secret));
-}
-
 export function loadCodeAgentProviderCredentials(): Partial<
   Record<CodeAgentProviderCredentialKey, string>
 > {
@@ -446,7 +436,7 @@ export function getCodeAgentProviderSettingsStatus(): CodeAgentProviderSettings 
   const store = loadCodeAgentProviderStore();
   const providers = CODE_AGENT_PROVIDER_DEFINITIONS.map((provider) => {
     const savedKeys = provider.keys.filter((key) =>
-      canReadStoredProviderSecret(store.credentials[key]),
+      hasStoredProviderSecretBlob(store.credentials[key]),
     );
     const envKeys = provider.keys.filter((key) => Boolean(process.env[key]));
     const configuredKeys = provider.keys.filter(

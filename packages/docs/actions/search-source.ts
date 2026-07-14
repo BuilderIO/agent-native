@@ -39,6 +39,7 @@ export default defineAction({
       ),
   }),
   http: false,
+  readOnly: true,
   run: async ({ query, directory }) => {
     const index = await loadSourceIndex();
     if (index.length === 0) {

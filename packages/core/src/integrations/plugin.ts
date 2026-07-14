@@ -54,6 +54,10 @@ import {
   handlePushNotification,
 } from "./google-docs-poller.js";
 import {
+  IntegrationIdentityDeclinedError,
+  resolveDefaultIntegrationExecutionContext,
+} from "./identity.js";
+import {
   disconnectIntegrationInstallation,
   listIntegrationInstallations,
   resolveIntegrationTokenBundle,
@@ -76,6 +80,7 @@ import {
   claimPendingTask,
   getNextPendingTaskIdForThread,
   insertPendingTask,
+  isDuplicateEventError,
   MAX_PENDING_TASK_ATTEMPTS,
   markTaskCompleted,
   markTaskFailed,
@@ -136,6 +141,7 @@ import type {
   IntegrationsPluginOptions,
   IntegrationStatus,
   IntegrationExecutionContext,
+  IncomingMessage,
 } from "./types.js";
 import {
   listIntegrationUsageBudgets,
@@ -250,6 +256,28 @@ type IntegrationCredentialContext = {
 };
 
 const REMOTE_DEVICE_ONLINE_MS = 90_000;
+
+// One decline reply per sender + decline reason per window: during a Slack
+// API outage every message would otherwise get another identical "try again"
+// reply. Short enough that a persistent condition still reminds the sender.
+const DECLINE_NOTICE_DEDUPE_TTL_MS = 5 * 60 * 1_000;
+const SYSTEM_NOTICE_DEDUPE_TTL_MS = 24 * 60 * 60 * 1_000;
+
+type IntegrationSystemNoticeTaskPayload = {
+  kind: "system-notice";
+  incoming: IncomingMessage;
+  text: string;
+  dedupeKey?: string;
+  dedupeTtlMs?: number;
+};
+
+function systemNoticeEventKey(
+  dedupeKey: string,
+  ttlMs: number,
+  now = Date.now(),
+): string {
+  return `system-notice:${dedupeKey}:${Math.floor(now / ttlMs)}`;
+}
 
 export async function enqueueRemoteCommand(
   envelope: RemoteCodeCommandEnvelope,
@@ -617,9 +645,76 @@ export function createIntegrationsPlugin(
       ...localActions,
       ...callAgentEntry,
     } as typeof localActions;
+    // Keep the app's own actions visible on the first request to the model;
+    // defer the framework additions merged in above (integration memory,
+    // call-agent) behind the tool-search entry `handleWebhook` /
+    // `startGoogleDocsPoller` attach to `actions`. The run loop's mid-run
+    // tool expansion still lets the model discover and call them after a
+    // search — see `filterInitialEngineTools` / `expandActiveTools`.
+    const initialToolNames = Object.keys(localActions);
 
     const h3 = getH3App(nitroApp);
     const P = `${FRAMEWORK_ROUTE_PREFIX}/integrations`;
+
+    async function enqueueSystemNotice(
+      event: any,
+      incoming: IncomingMessage,
+      text: string,
+      opts?: { dedupeKey?: string; dedupeTtlMs?: number },
+    ): Promise<void> {
+      if (!text.trim()) return;
+      const taskId = `notice-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      const dedupeTtlMs = Math.max(
+        1,
+        opts?.dedupeTtlMs ?? SYSTEM_NOTICE_DEDUPE_TTL_MS,
+      );
+      const noticeThreadId = `system-notice:${taskId}`;
+      const payload: IntegrationSystemNoticeTaskPayload = {
+        kind: "system-notice",
+        incoming,
+        text,
+        ...(opts?.dedupeKey ? { dedupeKey: opts.dedupeKey } : {}),
+        ...(opts?.dedupeTtlMs ? { dedupeTtlMs: opts.dedupeTtlMs } : {}),
+      };
+      try {
+        await insertPendingTask({
+          id: taskId,
+          platform: incoming.platform,
+          // System notices are auxiliary delivery work, not the user's agent
+          // run. Give each notice its own queue lane so a retrying notice cannot
+          // block the real message task for this Slack/Telegram thread.
+          externalThreadId: noticeThreadId,
+          payload: JSON.stringify(payload),
+          ownerEmail: `integration@${incoming.platform}`,
+          externalEventKey: opts?.dedupeKey
+            ? systemNoticeEventKey(opts.dedupeKey, dedupeTtlMs)
+            : undefined,
+        });
+      } catch (err) {
+        if (isDuplicateEventError(err)) return;
+        throw err;
+      }
+
+      // The SQL row is the durable source of truth. This best-effort self-call
+      // only reduces latency; the recurring pending-task sweep retries a row
+      // if the serverless host freezes this webhook execution immediately.
+      let token: string | undefined;
+      try {
+        token = signInternalToken(taskId);
+      } catch (err) {
+        if (process.env.NODE_ENV === "production") throw err;
+      }
+      void fetch(`${getBaseUrl(event)}${P}/process-task`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ taskId }),
+      }).catch((err) => {
+        console.warn("[integrations] System notice dispatch failed:", err);
+      });
+    }
 
     async function requireSession(event: any): Promise<boolean> {
       const session = await getSession(event).catch(() => null);
@@ -1534,6 +1629,34 @@ export function createIntegrationsPlugin(
               isIntegrationCaller: true,
             },
             async () => {
+              const taskPayload = JSON.parse(task.payload) as
+                | IntegrationSystemNoticeTaskPayload
+                | { kind?: undefined };
+              if (taskPayload.kind === "system-notice") {
+                if (!adapter.sendSystemNotice) {
+                  throw new Error(
+                    `Platform ${task.platform} cannot deliver system notices`,
+                  );
+                }
+                const config = await getIntegrationConfig(task.platform);
+                const credentialContext =
+                  await credentialContextForIntegrationConfig(config);
+                await withCredentialContext(credentialContext, () =>
+                  adapter.sendSystemNotice!(
+                    taskPayload.incoming,
+                    taskPayload.text,
+                    {
+                      ...(taskPayload.dedupeKey
+                        ? { dedupeKey: taskPayload.dedupeKey }
+                        : {}),
+                      ...(taskPayload.dedupeTtlMs
+                        ? { dedupeTtlMs: taskPayload.dedupeTtlMs }
+                        : {}),
+                    },
+                  ),
+                );
+                return;
+              }
               const resources = await loadResourcesForPrompt(
                 task.ownerEmail,
                 true,
@@ -1544,6 +1667,7 @@ export function createIntegrationsPlugin(
                 adapter,
                 systemPrompt: baseSystemPrompt + resources,
                 actions,
+                initialToolNames,
                 model,
                 apiKey: getApiKey(),
                 engine: options?.engine,
@@ -2335,12 +2459,84 @@ export function createIntegrationsPlugin(
             return { error: `Integration ${platform} is not enabled` };
           }
 
-          const incoming = await withCredentialContext(credentialContext, () =>
+          let incoming = await withCredentialContext(credentialContext, () =>
             adapter.parseIncomingMessage(event),
           );
           if (!incoming) {
             setResponseStatus(event, 200);
             return "ok";
+          }
+          if (adapter.hydrateIncomingIdentity) {
+            try {
+              incoming = await withCredentialContext(credentialContext, () =>
+                adapter.hydrateIncomingIdentity!(incoming!),
+              );
+            } catch (err) {
+              // Identity hydration is best-effort for platforms that have an
+              // app-specific resolver. Slack's default DM resolver below will
+              // still fail closed when the identity is absent or unverified.
+              console.warn(
+                `[integrations] Could not hydrate ${platform} sender identity:`,
+                err instanceof Error ? err.message : err,
+              );
+            }
+          }
+          let defaultExecutionContext: IntegrationExecutionContext | null =
+            null;
+          if (
+            incoming.platform === "slack" &&
+            incoming.conversationType === "dm" &&
+            !options?.resolveExecutionContext
+          ) {
+            try {
+              defaultExecutionContext = await withCredentialContext(
+                credentialContext,
+                () => resolveDefaultIntegrationExecutionContext(incoming!),
+              );
+            } catch (err) {
+              // The legacy owner-only resolver predates org-bound identities
+              // and must not turn a rejected Slack DM into an authenticated
+              // owner run. Custom resolveExecutionContext is checked above and
+              // skips this default ladder entirely so apps can fully own auth
+              // without framework membership checks or identity side effects.
+              const declined =
+                err instanceof IntegrationIdentityDeclinedError ? err : null;
+              if (declined) {
+                console.warn(
+                  `[integrations] default Slack DM identity declined message:`,
+                  declined.message,
+                );
+                if (adapter.sendSystemNotice) {
+                  try {
+                    await enqueueSystemNotice(
+                      event,
+                      incoming!,
+                      declined.userFacingMessage,
+                      {
+                        dedupeKey: `decline:${incoming!.tenantId ?? "unknown"}:${incoming!.senderId ?? "unknown"}:${declined.reason}`,
+                        dedupeTtlMs: DECLINE_NOTICE_DEDUPE_TTL_MS,
+                      },
+                    );
+                  } catch (noticeErr) {
+                    console.warn(
+                      `[integrations] could not persist decline notice:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                    setResponseStatus(event, 500);
+                    return { error: "notice enqueue failed" };
+                  }
+                }
+              } else {
+                console.error(
+                  `[integrations] default Slack DM identity denied message:`,
+                  err,
+                );
+              }
+              setResponseStatus(event, 200);
+              return "ok";
+            }
           }
           let executionContext: IntegrationExecutionContext = {
             ownerEmail: `integration@${platform}`,
@@ -2362,6 +2558,68 @@ export function createIntegrationsPlugin(
               setResponseStatus(event, 200);
               return "ok";
             }
+          } else if (defaultExecutionContext) {
+            executionContext = defaultExecutionContext;
+            if (defaultExecutionContext.anonymousMember) {
+              if (!options?.allowAnonymousOrgScopedSlackDm) {
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `I couldn't match your Slack account to an organization member, so I can't run this request. Ask an organization admin to add ${senderEmail}, then try again.`
+                  : "I couldn't verify your Slack account email, so I can't run this request. Ask an organization admin to reconnect Slack with the users:read.email scope, then try again.";
+                if (adapter.sendSystemNotice) {
+                  try {
+                    await enqueueSystemNotice(event, incoming, noticeText, {
+                      dedupeKey: `anonymous-tier-disabled:${incoming.tenantId ?? "unknown"}:${incoming.senderId ?? "unknown"}`,
+                    });
+                  } catch (noticeErr) {
+                    console.warn(
+                      `[integrations] could not persist unlinked-member notice:`,
+                      noticeErr instanceof Error
+                        ? noticeErr.message
+                        : noticeErr,
+                    );
+                    setResponseStatus(event, 500);
+                    return { error: "notice enqueue failed" };
+                  }
+                }
+                setResponseStatus(event, 200);
+                return "ok";
+              }
+              // The anonymous tier must never be silent. (1) The agent run
+              // can tell: the note rides the serialized `incoming` into the
+              // queued task and surfaces via <integration-context>.
+              incoming.identityNote =
+                "Caller is an unlinked Slack workspace member running with organization-wide visibility only; personal or privately-shared data is not accessible. They can get personal access by having an admin add their Slack email to the organization (or by reconnecting Slack with the users:read.email scope).";
+              // (2) The sender gets a one-time heads-up through the same
+              // durable SQL queue as agent work. The self-dispatch is only a
+              // latency optimization; the retry sweep guarantees delivery.
+              if (adapter.sendSystemNotice) {
+                const senderEmail =
+                  typeof incoming.senderEmail === "string" &&
+                  incoming.senderEmail.trim()
+                    ? incoming.senderEmail.trim()
+                    : null;
+                const noticeText = senderEmail
+                  ? `Heads up: I couldn't match your Slack account to an organization member, so I can only use org-wide data. Ask an admin to add ${senderEmail} to the organization for personal access.`
+                  : "Heads up: I couldn't verify your Slack account's email, so I can only use org-wide data. Ask an admin to update the Slack connection with the users:read.email scope for personal access.";
+                try {
+                  await enqueueSystemNotice(event, incoming, noticeText, {
+                    dedupeKey: `anonymous-tier:${incoming.tenantId ?? "unknown"}:${incoming.senderId ?? "unknown"}`,
+                  });
+                } catch (noticeErr) {
+                  console.warn(
+                    `[integrations] could not persist anonymous-tier notice:`,
+                    noticeErr instanceof Error ? noticeErr.message : noticeErr,
+                  );
+                  setResponseStatus(event, 500);
+                  return { error: "notice enqueue failed" };
+                }
+              }
+            }
           } else if (options?.resolveOwner) {
             try {
               executionContext.ownerEmail = await withCredentialContext(
@@ -2374,6 +2632,20 @@ export function createIntegrationsPlugin(
                 err,
               );
             }
+          } else {
+            try {
+              executionContext = await withCredentialContext(
+                credentialContext,
+                () => resolveDefaultIntegrationExecutionContext(incoming!),
+              );
+            } catch (err) {
+              console.error(
+                `[integrations] default execution identity denied message:`,
+                err,
+              );
+              setResponseStatus(event, 200);
+              return "ok";
+            }
           }
           if (executionContext.scopeId) {
             incoming.integrationScopeId = executionContext.scopeId;
@@ -2385,6 +2657,7 @@ export function createIntegrationsPlugin(
             // where providers such as Discord enforce a 3-second deadline.
             systemPrompt: baseSystemPrompt,
             actions,
+            initialToolNames,
             model,
             apiKey: getApiKey(),
             engine: options?.engine,
@@ -2509,6 +2782,7 @@ export function createIntegrationsPlugin(
         void startGoogleDocsPoller({
           systemPrompt: baseSystemPrompt,
           actions,
+          initialToolNames,
           model: model ?? "",
           apiKey: getApiKey(),
           ownerEmail: "integration@google-docs",

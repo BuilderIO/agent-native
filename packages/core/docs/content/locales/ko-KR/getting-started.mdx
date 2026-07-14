@@ -163,7 +163,13 @@ export const responseInsights = table("response_insights", {
   />
 </WireframeBlock>
 
-`view-screen`과 `navigate`를 확장해 agent가 현재 route를 알고 `/response-insights`를 열 수 있게 합니다. 결과에 `href: "/response-insights"`를 넣으면 채팅에 "응답 인사이트 열기" 버튼을 표시할 수 있습니다.
+## 6. agent가 탐색하게 하기 {#agent-navigation}
+
+Chat 템플릿에는 `view-screen`과 `navigate` action이 포함되어 있습니다. 앱이 성장함에 따라 이를 확장하세요:
+
+- `view-screen`은 application state를 읽어 현재 route, 선택된 insight, 활성 필터, agent에게 필요한 간결한 페이지 컨텍스트를 반환해야 합니다.
+- `navigate`는 agent가 사용자에게 결과를 시각적으로 확인시켜야 한다고 판단할 때 `/response-insights`와 같은 same-origin 경로를 기록해야 합니다.
+- action 결과에는 `href: "/response-insights"` 같은 링크를 포함할 수 있어, chat이 명시적인 "응답 인사이트 열기" 버튼을 제공할 수 있습니다.
 
 전체 페이지 chat에서 app 페이지를 열 때는 [Agent Surfaces](/docs/agent-surfaces#rich-chat)의 `AgentChatSurface`, `AgentSidebar`, `useAgentChatHomeHandoff`, `useAgentChatHomeHandoffLinks`, `chatViewTransition`을 사용해 같은 thread를 유지한 채 chat을 사이드바로 이동시킵니다.
 

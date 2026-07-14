@@ -23,7 +23,7 @@ MCP is the standard protocol for connecting AI tools to external capabilities. W
 
 Key concepts:
 
-- **Auto-mounted** — every app gets `/_agent-native/mcp` for free, no setup required
+- **Auto-mounted** — every app gets `/mcp` for free, no setup required
 - **Streamable HTTP** — uses the modern MCP transport over standard HTTP (POST + SSE)
 - **Same actions** — the exact same action registry that powers agent chat and A2A
 - **`ask-agent` tool** — a meta-tool that delegates to the full agent loop for complex tasks
@@ -42,7 +42,7 @@ Key concepts:
   </div>
   <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
   <div class="diagram-panel">
-    <span class="diagram-pill accent">POST /_agent-native/mcp</span
+    <span class="diagram-pill accent">POST /mcp</span
     ><small class="diagram-muted">Streamable HTTP</small
     ><small class="diagram-muted"
       >initialize &rarr; tools/list &rarr; tools/call</small
@@ -95,7 +95,7 @@ Both protocols are auto-mounted. Use whichever fits your use case:
 | **Best for**       | External tools calling your app                                          | Agent-to-agent communication                 |
 | **Protocol**       | MCP Streamable HTTP                                                      | JSON-RPC 2.0                                 |
 | **Tool discovery** | `tools/list`                                                             | Agent card at `/.well-known/agent-card.json` |
-| **Endpoint**       | `/_agent-native/mcp`                                                     | `/_agent-native/a2a`                         |
+| **Endpoint**       | `/mcp`                                                                   | `/_agent-native/a2a`                         |
 | **Supported by**   | Claude, ChatGPT, Claude Code, Cursor, Codex, Cowork, and other MCP hosts | Other agent-native apps                      |
 | **Execution**      | Direct tool calls (no extra LLM)                                         | Full agent loop (LLM reasoning)              |
 
@@ -106,7 +106,7 @@ You can also use the `ask-agent` MCP tool to get the best of both worlds — cal
 For the recommended one-command setup, use [External Agents](/docs/external-agents). If you are hand-writing MCP config for an OAuth-capable host, add your app as a remote MCP server with no static headers:
 
 ```bash
-claude mcp add --transport http mail https://mail.example.com/_agent-native/mcp
+claude mcp add --transport http mail https://mail.example.com/mcp
 ```
 
 Or write the entry by hand in `.mcp.json` (project scope) or `~/.claude.json` (user scope):
@@ -117,7 +117,7 @@ Or write the entry by hand in `.mcp.json` (project scope) or `~/.claude.json` (u
   "mcpServers": {
     "mail": {
       "type": "http",
-      "url": "https://mail.example.com/_agent-native/mcp",
+      "url": "https://mail.example.com/mcp",
     },
   },
 }
@@ -136,12 +136,12 @@ Claude Code calls: draft-email(to: "john@example.com", subject: "Q3 Report", bod
 Any MCP host that supports Streamable HTTP transport can connect. The endpoint is:
 
 ```
-POST https://your-app.example.com/_agent-native/mcp
+POST https://your-app.example.com/mcp
 ```
 
 The server supports the standard MCP handshake: `initialize` → `initialized` → `tools/list` → `tools/call`.
 
-<Endpoint id="doc-block-86ic5g" title="MCP endpoint" summary="The auto-mounted Streamable HTTP endpoint every agent-native app exposes." method="POST" path="/_agent-native/mcp" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
+<Endpoint id="doc-block-86ic5g" title="MCP endpoint" summary="The auto-mounted Streamable HTTP endpoint every agent-native app exposes." method="POST" path="/mcp" auth="Standard remote MCP OAuth (Bearer access token), connect-minted JWT, or static ACCESS_TOKEN/ACCESS_TOKENS" params={[
   {
     "name": "Authorization",
     "in": "header",
@@ -211,18 +211,38 @@ When `mcpApp` is present, the tool entry also includes `_meta.ui.resourceUri`, `
 
 In addition to individual action tools, every MCP server includes an `ask-agent` meta-tool. This sends a natural-language message to the app's AI agent and returns the response.
 
+Hosted MCP requests use a bounded inline wait so a long agent loop does not
+keep one `tools/call` open until a client or gateway timeout. The optional
+`async` argument starts the durable task and returns immediately; without it,
+the server waits briefly for a fast completion and then returns a task handle
+when more work remains. The hosted wait is capped at 25 seconds.
+
 Use `ask-agent` for complex tasks that benefit from the agent's reasoning and context:
 
 ```json
 {
   "name": "ask-agent",
   "arguments": {
-    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed"
+    "message": "Draft a follow-up email to the Q3 planning thread with John, summarizing the action items we discussed",
+    "async": true
   }
 }
 ```
 
-The agent runs the same loop as the interactive chat — it can call multiple tools, reason about context, and produce a thoughtful response.
+The agent runs the same loop as the interactive chat — it can call multiple tools, reason about context, and produce a thoughtful response. A task that is not finished returns JSON containing `taskId`, `status`, `pollAfterMs`, and:
+
+```json
+{
+  "poll": {
+    "tool": "ask_app_status",
+    "arguments": { "app": "mail", "taskId": "task_123" }
+  }
+}
+```
+
+Call `ask_app_status` with those arguments until the task reaches a terminal
+state. Dispatch's app-owned `ask_app` uses the same durable task and status
+contract, with the selected-app grant checked on both submission and polling.
 
 ## Authentication {#authentication}
 
@@ -240,14 +260,14 @@ The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-tok
 For OAuth-capable MCP hosts, configure the remote server URL with no static headers:
 
 ```bash
-claude mcp add --transport http agent-native https://dispatch.agent-native.com/_agent-native/mcp
+claude mcp add --transport http agent-native https://dispatch.agent-native.com/mcp
 ```
 
 The first unauthenticated MCP request receives:
 
 ```http
 HTTP/1.1 401 Unauthorized
-WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps"
+WWW-Authenticate: Bearer resource_metadata="https://dispatch.agent-native.com/.well-known/oauth-protected-resource", scope="mcp:read mcp:write mcp:apps offline_access"
 ```
 
 Discovery endpoints:
@@ -256,9 +276,9 @@ Discovery endpoints:
 | ----------------------------------------- | ------------------------------------------- |
 | `/.well-known/oauth-protected-resource`   | RFC 9728 protected-resource metadata        |
 | `/.well-known/oauth-authorization-server` | OAuth authorization server metadata         |
-| `/_agent-native/mcp/oauth/register`       | Dynamic public-client registration          |
-| `/_agent-native/mcp/oauth/authorize`      | Browser authorization + consent             |
-| `/_agent-native/mcp/oauth/token`          | Authorization-code and refresh-token grants |
+| `/mcp/oauth/register`                     | Dynamic public-client registration          |
+| `/mcp/oauth/authorize`                    | Browser authorization + consent             |
+| `/mcp/oauth/token`                        | Authorization-code and refresh-token grants |
 
 <Diagram id="doc-block-79kjly" title="OAuth discovery flow" summary={"A 401 kicks off discovery, registration, and a PKCE authorize → token exchange. The Bearer token is audience-bound and scoped."}>
 
@@ -358,7 +378,7 @@ export default defineNitroPlugin(async (nitro) => {
 You have a deployed analytics app at `analytics.example.com`. From Claude Code:
 
 ```bash
-claude mcp add --transport http analytics https://analytics.example.com/_agent-native/mcp
+claude mcp add --transport http analytics https://analytics.example.com/mcp
 ```
 
 Or add it by hand in `.mcp.json`:
@@ -369,7 +389,7 @@ Or add it by hand in `.mcp.json`:
   "mcpServers": {
     "analytics": {
       "type": "http",
-      "url": "https://analytics.example.com/_agent-native/mcp",
+      "url": "https://analytics.example.com/mcp",
     },
   },
 }

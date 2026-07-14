@@ -215,6 +215,8 @@ describe("createH3SSRHandler", () => {
         headers: {
           "cache-control": "private, no-store",
           "content-type": "text/html; charset=utf-8",
+          "set-cookie": "viewer=private; Path=/",
+          vary: "Cookie, Accept-Encoding, Authorization",
         },
       }),
     );
@@ -222,6 +224,31 @@ describe("createH3SSRHandler", () => {
 
     const response = await handler(createEvent("/private-html"));
 
+    expectDefaultSsrCacheHeaders(response);
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("vary")).toBe("Accept-Encoding");
+  });
+
+  it("strips credential headers before React Router renders the public shell", async () => {
+    mocks.requestHandler.mockImplementationOnce(
+      async (request: Request) =>
+        new Response(
+          `<html><head></head><body>${request.headers.get("cookie") ?? "no-cookie"}:${request.headers.get("authorization") ?? "no-auth"}</body></html>`,
+          { headers: { "content-type": "text/html; charset=utf-8" } },
+        ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(
+      createEvent("/private", "GET", {
+        headers: {
+          cookie: "an_session=active",
+          authorization: "Bearer private-token",
+        },
+      }),
+    );
+
+    expect(await response.text()).toContain("no-cookie:no-auth");
     expectDefaultSsrCacheHeaders(response);
   });
 
@@ -685,6 +712,25 @@ describe("createH3SSRHandler", () => {
     expect(html).toContain('src="/docs/logo.svg"');
     expect(html).toContain('action="/docs/api/search"');
     expect(html).toContain('src="/docs/app.js"');
+  });
+
+  it("uses APP_BASE_PATH in React Router's mounted hydration context", async () => {
+    process.env.APP_BASE_PATH = "/analytics";
+    mocks.requestHandler.mockResolvedValueOnce(
+      new Response(
+        '<html><body><script>window.__reactRouterContext = {"basename":"/","future":{},"ssr":true};</script></body></html>',
+        { headers: { "content-type": "text/html; charset=utf-8" } },
+      ),
+    );
+    const handler = createH3SSRHandler(() => ({})) as any;
+
+    const response = await handler(createEvent("/analytics"));
+    const html = await response.text();
+
+    expect(html).toContain(
+      'window.__reactRouterContext = {"basename":"/analytics"',
+    );
+    expect(html).not.toContain('window.__reactRouterContext = {"basename":"/"');
   });
 
   it("injects runtime browser Sentry config into SSR HTML", async () => {

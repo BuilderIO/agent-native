@@ -139,6 +139,7 @@ export function useComposeState() {
       return merged;
     },
     staleTime: 1_000,
+    // request-storm-allow: one focus refresh reconciles bounded compose drafts across tabs.
     refetchOnWindowFocus: true,
   });
 

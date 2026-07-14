@@ -374,6 +374,7 @@ describe("action discovery", () => {
       "consume-review-feedback",
       "get-review-feedback",
       "set-review-status",
+      "send-review-thread-to-agent",
     ]) {
       expect(registry[name], `${name} should be merged`).toBeDefined();
     }

@@ -15,6 +15,7 @@ import {
   IconMenu2,
   IconX,
   IconMessageCircle,
+  IconBrain,
   IconSettings,
   IconForms,
   IconLayoutSidebarLeftCollapse,
@@ -131,7 +132,7 @@ export function Sidebar() {
 
   const newFormButton = (
     <PopoverTrigger asChild>
-      <button className="flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-md px-3 py-2 text-sm text-muted-foreground transition-all hover:bg-accent/50 hover:text-foreground">
+      <button className="forms-sidebar-nav-item flex min-h-[44px] w-full cursor-pointer items-center gap-2.5 rounded-lg px-3 py-2 text-sm text-muted-foreground active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-foreground">
         <IconPlus className="h-4 w-4 shrink-0" />
         <span>{t("sidebar.newForm")}</span>
       </button>
@@ -143,7 +144,7 @@ export function Sidebar() {
       side="right"
       align="start"
       sideOffset={8}
-      className="w-80 p-0 rounded-xl"
+      className="forms-new-form-popover w-80 rounded-2xl p-0"
     >
       <div className="p-4 pb-3">
         <p className="text-sm font-semibold">{t("sidebar.newForm")}</p>
@@ -168,7 +169,7 @@ export function Sidebar() {
           <Button
             variant="link"
             size="sm"
-            className="h-auto p-0 text-xs text-muted-foreground"
+            className="min-h-10 px-2 text-xs text-muted-foreground active:scale-[0.96] transition-[background-color,color,transform]"
             onClick={handleSkip}
           >
             {t("sidebar.skipPrompt")}
@@ -180,7 +181,7 @@ export function Sidebar() {
           <Button
             variant="secondary"
             size="icon"
-            className="h-7 w-7"
+            className="size-10 rounded-lg transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={handleSubmitPrompt}
             disabled={!prompt.trim() || promptRun.isActivePrompt(prompt)}
             aria-label={t("sidebar.sendPrompt")}
@@ -200,7 +201,7 @@ export function Sidebar() {
             <button
               type="button"
               onClick={() => setCollapsed(false)}
-              className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground/55 transition-colors hover:bg-accent/50 hover:text-muted-foreground"
+              className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground/55 transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-accent/50 hover:text-muted-foreground active:scale-[0.96] motion-reduce:active:scale-100"
               aria-label={t("sidebar.expandSidebar")}
             >
               <IconLayoutSidebarLeftExpand className="h-4 w-4 rtl:-scale-x-100" />
@@ -219,7 +220,7 @@ export function Sidebar() {
                 onClick={navigateHomeChat}
                 aria-label={t("navigation.askForms")}
                 className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
                   location.pathname === "/ask" || location.pathname === "/"
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -239,7 +240,7 @@ export function Sidebar() {
                 to="/forms"
                 aria-label={t("navigation.allForms")}
                 className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
                   location.pathname.startsWith("/forms")
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -260,7 +261,7 @@ export function Sidebar() {
                   <button
                     type="button"
                     aria-label={t("sidebar.newForm")}
-                    className="flex h-10 w-10 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/50 hover:text-foreground"
+                    className="forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg text-muted-foreground transition-[background-color,box-shadow,color,transform] duration-150 ease-out hover:bg-accent/50 hover:text-foreground active:scale-[0.96] motion-reduce:active:scale-100"
                   >
                     <IconPlus className="h-4 w-4" />
                   </button>
@@ -276,10 +277,30 @@ export function Sidebar() {
           <Tooltip>
             <TooltipTrigger asChild>
               <Link
+                to="/agent"
+                aria-label={t("navigation.agent")}
+                className={cn(
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+                  location.pathname.startsWith("/agent")
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                )}
+              >
+                <IconBrain className="h-4 w-4" />
+              </Link>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {t("navigation.agent")}
+            </TooltipContent>
+          </Tooltip>
+
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Link
                 to="/settings"
                 aria-label={t("navigation.settings")}
                 className={cn(
-                  "flex h-10 w-10 items-center justify-center rounded-md transition-colors",
+                  "forms-sidebar-nav-item flex size-10 items-center justify-center rounded-lg active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
                   location.pathname === "/settings"
                     ? "bg-accent text-accent-foreground"
                     : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -310,7 +331,7 @@ export function Sidebar() {
               <button
                 type="button"
                 aria-label={t("sidebar.openAskFullScreen")}
-                className="flex min-w-0 items-center gap-2 rounded-md text-base font-semibold tracking-tight text-muted-foreground/80 transition-colors hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                className="flex min-h-10 min-w-0 items-center gap-2 rounded-lg px-2 text-base font-semibold tracking-tight text-muted-foreground/80 active:scale-[0.96] transition-[color,transform] hover:text-foreground/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 onClick={toggleLogoView}
               >
                 <img
@@ -337,7 +358,7 @@ export function Sidebar() {
           <Button
             variant="ghost"
             size="icon"
-            className="h-8 w-8"
+            className="size-10 transition-[background-color,box-shadow,transform] active:scale-[0.96] motion-reduce:active:scale-100"
             onClick={() => setMobileOpen(false)}
           >
             <IconX size={18} />
@@ -349,7 +370,7 @@ export function Sidebar() {
               <Button
                 variant="ghost"
                 size="icon"
-                className="h-8 w-8 text-muted-foreground/55 hover:bg-accent/50 hover:text-muted-foreground"
+                className="size-10 text-muted-foreground/55 transition-[background-color,box-shadow,color,transform] hover:bg-accent/50 hover:text-muted-foreground active:scale-[0.96] motion-reduce:active:scale-100"
                 onClick={() => setCollapsed(true)}
                 aria-label={t("sidebar.collapseSidebar")}
               >
@@ -374,7 +395,7 @@ export function Sidebar() {
             to="/ask"
             onClick={navigateHomeChat}
             className={cn(
-              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-all hover:text-primary",
+              "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
               location.pathname === "/ask" || location.pathname === "/"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -390,7 +411,7 @@ export function Sidebar() {
             to="/forms"
             onClick={() => isMobile && setMobileOpen(false)}
             className={cn(
-              "flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-md px-3 py-2 text-sm transition-all hover:text-primary",
+              "forms-sidebar-nav-item flex min-h-[44px] w-full min-w-0 max-w-full items-center gap-2.5 overflow-hidden rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform] hover:text-primary",
               location.pathname.startsWith("/forms")
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -412,10 +433,24 @@ export function Sidebar() {
       {/* Pinned nav + footer */}
       <div className="shrink-0 px-3 py-1.5">
         <Link
+          to="/agent"
+          onClick={() => isMobile && setMobileOpen(false)}
+          className={cn(
+            "forms-sidebar-nav-item flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
+            location.pathname.startsWith("/agent")
+              ? "bg-accent text-accent-foreground"
+              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+          )}
+        >
+          <IconBrain size={14} className="shrink-0" />
+          <span>{t("navigation.agent")}</span>
+        </Link>
+
+        <Link
           to="/settings"
           onClick={() => isMobile && setMobileOpen(false)}
           className={cn(
-            "flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-sm min-h-[44px]",
+            "forms-sidebar-nav-item flex min-h-[44px] w-full items-center gap-2.5 rounded-lg px-3 py-2 text-sm active:scale-[0.96] transition-[background-color,box-shadow,color,transform]",
             location.pathname === "/settings"
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -449,7 +484,7 @@ export function Sidebar() {
         <Button
           variant="ghost"
           size="icon"
-          className="fixed top-2 start-2 z-40 h-10 w-10 md:hidden"
+          className="fixed top-2 start-2 z-40 size-10 active:scale-[0.96] transition-[background-color,box-shadow,transform] md:hidden"
           onClick={() => setMobileOpen(true)}
           aria-label={t("sidebar.openSidebar")}
         >

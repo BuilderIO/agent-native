@@ -5,7 +5,7 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { upsertAnalysis } from "../server/lib/dashboards-store";
+import { upsertAnalysisWithRetry } from "../server/lib/dashboards-store";
 
 function resolveScope() {
   const orgId = getRequestOrgId() || null;
@@ -25,7 +25,13 @@ export default defineAction({
     if (!name) throw new Error("name is required");
 
     const ctx = resolveScope();
-    const analysis = await upsertAnalysis(args.id, { name }, ctx);
+    // Fenced through the retry helper: the patch below only ever touches
+    // `name`, so a concurrent edit (e.g. save-analysis re-running with fresh
+    // results) racing this rename is never silently overwritten — a lost
+    // race just re-reads the freshest record and reapplies the rename.
+    const analysis = await upsertAnalysisWithRetry(args.id, ctx, () => ({
+      name,
+    }));
     return { id: analysis.id, name: analysis.name };
   },
 });

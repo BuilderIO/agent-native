@@ -219,7 +219,7 @@ A configuração dessas variáveis ​​nunca renderiza uma página de login de
 O endpoint MCP de cada aplicativo pode atuar como um recurso MCP protegido padrão. Clientes compatíveis com OAuth podem ser configurados apenas com o MCP remoto URL:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 Solicitações MCP não autenticadas retornam um desafio `WWW-Authenticate` apontando para `/.well-known/oauth-protected-resource`. O cliente então descobre os metadados OAuth do aplicativo, registra dinamicamente um cliente público, abre a página de autorização do aplicativo e troca um código de autorização com PKCE para tokens de acesso e atualização.
@@ -381,7 +381,7 @@ Modelos com **páginas públicas** (compartilhar links, incorporações, página
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-Quando um visualizador anônimo acessa este URL, a página de login do framework é exibida. Após um login bem-sucedido (qualquer fluxo – token, e-mail/senha ou Google OAuth), o visualizador é direcionado para 302 para `return`.
+Quando um visualizador anônimo acessa este URL, a página de login do framework é exibida. Após um login bem-sucedido (qualquer fluxo – token, e-mail/senha ou Google OAuth), o navegador retorna a `return`.
 
 O parâmetro `return` é validado como um **caminho de mesma origem**. Referências de caminho de rede (`//evil.com/...`), URLs absolutos, esquemas `data:`/`javascript:` e caracteres de controle incorporados retornam para `/`. O caminho validado é reconstruído a partir do analisador URL, e não retornado da entrada.
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### Caminhos privados marcados
 
-Quando um usuário anônimo navega diretamente para um caminho privado como `/dashboard`, a estrutura já serve a página de login nesse URL — após o login bem-sucedido, a página é recarregada e o usuário chega ao `/dashboard`. Não é necessário nenhum tratamento especial; isso funciona para token, e-mail/senha **e** Google OAuth.
+As páginas normais do aplicativo usam um único shell SSR impessoal e armazenável em cache público para todos os visitantes. O `AppProviders` verifica a sessão no cliente; em um caminho privado como `/dashboard`, ele redireciona o visitante anônimo para `/_agent-native/sign-in?return=%2Fdashboard` antes de montar a interface privada. Após o login, o visitante retorna a `/dashboard`. Use `isPublicPath` para rotas públicas/SEO ou `sessionBypass` para uma superfície autenticada por outro mecanismo limitado, como um token de incorporação MCP.
 
 ### Nos bastidores: Google OAuth
 

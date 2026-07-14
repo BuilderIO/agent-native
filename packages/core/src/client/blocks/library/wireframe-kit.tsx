@@ -1511,6 +1511,20 @@ function roundedRectPath(
   ].join(" ");
 }
 
+/** Rough.js cannot safely render paths whose inset consumes the whole box. */
+export function hasDrawableRoughBounds(
+  width: number,
+  height: number,
+  inset: number,
+): boolean {
+  return (
+    Number.isFinite(width) &&
+    Number.isFinite(height) &&
+    width > inset * 2 &&
+    height > inset * 2
+  );
+}
+
 function elementStroke(node: Element, fallback: string): string {
   const explicit = readVar(node, "--rough-stroke");
   if (explicit) return explicit;
@@ -1623,7 +1637,7 @@ function build(
     preserveVertices: true,
   });
 
-  if (opts.drawFrame) {
+  if (opts.drawFrame && hasDrawableRoughBounds(layoutW, layoutH, 2)) {
     const sw = 2;
     push(
       gen.path(
@@ -1647,7 +1661,7 @@ function build(
     const y = (r.top - base.top) / zoom;
     const w = r.width / zoom;
     const h = r.height / zoom;
-    if (w < 2 || h < 2) return;
+    if (!hasDrawableRoughBounds(w, h, 1)) return;
     const kind = inferRoughKind(node);
     const rawStroke = elementStroke(node, sketch);
     const stroke =

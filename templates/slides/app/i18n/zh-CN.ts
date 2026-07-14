@@ -325,6 +325,8 @@ const messages = {
     hideResolved: "隐藏已解决",
     showResolved: "显示 {{count}} 条已解决",
     noCommentsYet: "还没有评论",
+    loadFailed: "无法加载评论",
+    retry: "重试",
     clickToAddComment: "点击添加评论",
     selectSlideToAdd: "选择幻灯片以添加评论",
   },
@@ -531,6 +533,9 @@ const messages = {
     chooseAnotherFile: "选择其他文件",
   },
   home: {
+    loadFailed: "无法加载内容",
+    loadFailedDescription: "您保存的内容仍然可用。请检查连接并重试。",
+    retry: "重试",
     decksTitle: "幻灯片",
     newDeck: "新建幻灯片",
     deckLengthQuestion: "这份幻灯片需要多长？",

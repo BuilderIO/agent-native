@@ -7,6 +7,18 @@ updates mail state through actions and application state.
 Detailed draft, queue, and contact-resolution patterns live in
 `.agents/skills/`.
 
+## Coverage-aware inventory reads
+
+`list-emails` remains the compatibility list action for the UI and internal
+callers. External MCP callers receive its structured inventory envelope by
+default (or pass `format: "inventory"`). Inventory reads use `accountEmails`
+for an explicit set; the legacy singular `account` alias cannot be combined
+with it. The response reports each account's success, empty result, exhaustion
+or bounded error, so partial coverage must never be described as complete.
+Inventory items are intentionally compact metadata only — use `get-email` or
+`get-thread` only after selecting a specific result when body content is
+needed.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no
@@ -61,7 +73,9 @@ Detailed draft, queue, and contact-resolution patterns live in
   (`draft-queue` skill), not `send-email` directly. The requester and reviewer
   must both be members of the active organization; Slack intake resolves the
   sender's real email via `users.info` (requires `users:read.email` bot scope)
-  before it will queue anything.
+  before it will queue anything. Managed installs request that scope through
+  the generated OAuth manifest; reconnect an existing Slack install after
+  granting it. Legacy bot-token installs must add the scope in Slack manually.
 - Never edit the email store to change a draft the user is currently composing;
   use `manage-draft` or the `compose-{id}` application-state key described in
   `email-drafts`.

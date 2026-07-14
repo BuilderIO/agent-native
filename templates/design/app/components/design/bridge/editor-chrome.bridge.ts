@@ -63,6 +63,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     Number(__DESIGN_CANVAS_CONTENT_OFFSET_Y__) || 0;
   var runtimeLayerSnapshotEnabled = !!__RUNTIME_LAYER_SNAPSHOT_ENABLED__;
   var scaleToolEnabled = false;
+
   // Interaction-state forced preview (phase 2 — see shared/interaction-states.ts's
   // "Forced-preview mechanism" doc comment). Keep the actual element rather
   // than only its node id: localhost React layers can resolve through runtime
@@ -100,6 +101,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       "",
     );
     chromeTransitionStyle.textContent =
+      "html{overflow:clip}" /* prevent negative-offset handles from expanding the iframe */ +
       '[data-agent-native-edit-overlay="selection"]{transition:border-width 150ms ease-out}' +
       '[data-agent-native-empty-text-editing="true"] [data-agent-native-edit-overlay="selection"]{display:none!important}' +
       "[data-agent-native-text-editing]{outline:none!important;outline-offset:0!important}" +
@@ -910,10 +912,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
   function selectionTargetForHit(hit: Element | null): Element | null {
     if (!hit || isDocumentRootElement(hit)) return hit;
-    if (selectedEl && hit !== selectedEl && selectedEl.contains(hit))
-      return hit;
-    if (hasStableOwnSource(hit)) return hit;
-    return closestStableSourceElement(hit) || hit;
+    // Select the deepest element under the pointer on the first click. The
+    // bridge can mint a pending node id and build a source-equivalent selector
+    // for id-less descendants, so climbing to the nearest tagged ancestor is
+    // no longer necessary and makes ordinary list labels select their parent
+    // container instead.
+    return hit;
   }
 
   function freshRuntimeNodeId(prefix: string): string {
@@ -1842,17 +1846,46 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     }
     selectionOverlay.appendChild(handle);
   });
-  ["nw", "ne", "se", "sw"].forEach(function (pos) {
-    var rotate = document.createElement("span");
-    rotate.setAttribute("data-agent-native-rotate-handle", pos);
-    rotate.style.cssText =
-      "position:absolute;width:18px;height:18px;border-radius:999px;pointer-events:auto;cursor:grab;";
-    if (pos.indexOf("n") !== -1) rotate.style.top = "-26px";
-    if (pos.indexOf("s") !== -1) rotate.style.bottom = "-26px";
-    if (pos.indexOf("w") !== -1) rotate.style.left = "-26px";
-    if (pos.indexOf("e") !== -1) rotate.style.right = "-26px";
-    selectionOverlay.appendChild(rotate);
-  });
+  (function () {
+    var baseAngles = { nw: 270, ne: 0, se: 90, sw: 180 };
+    function rotateCursorUri(angleDeg) {
+      var svg =
+        '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">' +
+        '<g transform="rotate(' +
+        angleDeg +
+        ' 10 10)" fill="none" stroke="black" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">' +
+        '<path d="M 4 8 A 7 7 0 0 1 16 8" stroke="white" stroke-width="3.5"/>' +
+        '<path d="M 4 8 A 7 7 0 0 1 16 8"/>' +
+        '<path d="M 12.5 3.5 L 16 8 L 11 8.5" fill="white" stroke="white" stroke-width="3.5" stroke-linejoin="round"/>' +
+        '<path d="M 12.5 3.5 L 16 8 L 11 8.5" fill="black"/>' +
+        "</g></svg>";
+      return (
+        'url("data:image/svg+xml,' + encodeURIComponent(svg) + '") 10 10, grab'
+      );
+    }
+    ["nw", "ne", "se", "sw"].forEach(function (pos) {
+      var handle = document.createElement("span");
+      handle.setAttribute("data-agent-native-rotate-handle", pos);
+      handle.style.cssText =
+        "position:absolute;width:28px;height:28px;border-radius:999px;pointer-events:auto;";
+      handle.style.cursor = rotateCursorUri(baseAngles[pos]);
+      if (pos.indexOf("n") !== -1) handle.style.top = "-34px";
+      if (pos.indexOf("s") !== -1) handle.style.bottom = "-34px";
+      if (pos.indexOf("w") !== -1) handle.style.left = "-34px";
+      if (pos.indexOf("e") !== -1) handle.style.right = "-34px";
+      selectionOverlay.appendChild(handle);
+    });
+    var button = document.createElement("span");
+    button.setAttribute("data-agent-native-rotate-handle", "top-center");
+    button.style.cssText =
+      "position:absolute;left:50%;transform:translateX(-50%);top:-22px;" +
+      "width:16px;height:16px;pointer-events:auto;" +
+      "display:flex;align-items:center;justify-content:center;" +
+      "border-radius:999px;background:white;box-shadow:0 1px 3px rgba(0,0,0,0.3);" +
+      "cursor:grab;user-select:none;font-size:10px;line-height:1;color:#333;";
+    button.textContent = "↻";
+    selectionOverlay.appendChild(button);
+  })();
   var spacingOverlay = document.createElement("div");
   spacingOverlay.setAttribute("data-agent-native-spacing-overlay", "");
   spacingOverlay.style.cssText =
@@ -1929,7 +1962,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   var transformBadge = document.createElement("div");
   transformBadge.setAttribute("data-agent-native-transform-badge", "");
   transformBadge.style.cssText =
-    "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid hsl(var(--border));border-radius:4px;background:hsl(var(--background) / 0.96);color:hsl(var(--foreground));font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px color-mix(in srgb, hsl(var(--foreground)) 16%, transparent);";
+    "position:fixed;z-index:100000;display:none;pointer-events:none;border:1px solid rgba(255,255,255,0.16);border-radius:4px;background:rgba(24,24,27,0.96);color:rgba(255,255,255,0.96);font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace;padding:3px 5px;box-shadow:0 8px 20px rgba(0,0,0,0.28);";
   document.body.appendChild(transformBadge);
 
   var spacingBadge = document.createElement("div");
@@ -1965,6 +1998,12 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
 
   var measurementOverlay = document.createElement("div");
   measurementOverlay.setAttribute("data-agent-native-measurement-overlay", "");
+  // Tag as an edit overlay so the content-replacement path preserves it (only
+  // [data-agent-native-edit-overlay] nodes survive a body rebuild).
+  measurementOverlay.setAttribute(
+    "data-agent-native-edit-overlay",
+    "measurement",
+  );
   measurementOverlay.style.cssText =
     "position:fixed;inset:0;z-index:100001;display:none;pointer-events:none;color:var(--design-editor-measure-color);font:11px/1.2 ui-monospace,SFMono-Regular,Menlo,monospace;";
   document.body.appendChild(measurementOverlay);
@@ -3843,50 +3882,44 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       .querySelectorAll("[data-agent-native-rotate-handle]")
       .forEach(function (handle) {
         var pos = handle.getAttribute("data-agent-native-rotate-handle") || "";
-        handle.style.width = 18 * sx + "px";
-        handle.style.height = 18 * sy + "px";
-        if (pos.indexOf("n") !== -1) handle.style.top = -26 * sy + "px";
-        if (pos.indexOf("s") !== -1) handle.style.bottom = -26 * sy + "px";
-        if (pos.indexOf("w") !== -1) handle.style.left = -26 * sx + "px";
-        if (pos.indexOf("e") !== -1) handle.style.right = -26 * sx + "px";
+        if (pos === "top-center") {
+          var buttonScale = Math.min(sx, sy);
+          handle.style.width = 16 * buttonScale + "px";
+          handle.style.height = 16 * buttonScale + "px";
+          handle.style.fontSize = 10 * buttonScale + "px";
+          handle.style.top = -22 * sy + "px";
+          return;
+        }
+        var size = Math.min(sx, sy);
+        handle.style.width = 28 * size + "px";
+        handle.style.height = 28 * size + "px";
+        if (pos.indexOf("n") !== -1) handle.style.top = -34 * sy + "px";
+        if (pos.indexOf("s") !== -1) handle.style.bottom = -34 * sy + "px";
+        if (pos.indexOf("w") !== -1) handle.style.left = -34 * sx + "px";
+        if (pos.indexOf("e") !== -1) handle.style.right = -34 * sx + "px";
       });
   }
 
-  // Rotation-aware local-box placement shared by selectionOverlay, the hover
-  // highlightOverlay, and the passive multi-selection overlays: prefer the CSS
-  // box + rotation transform so the outline hugs the rotated element rather
-  // than its inflated axis-aligned bounding box. Returns true when it placed
-  // the overlay (caller should skip the AABB fallback), false when the element
-  // has no usable local box (falls back to getBoundingClientRect).
+  // Returns true when the overlay was placed with the element's rotated CSS box.
   function positionOverlayForRotatedLocalBox(
     overlay: HTMLElement,
     el: Element,
   ): boolean {
     var elCs = window.getComputedStyle(el);
-    var elLeft = readFinitePx(el.style.left || elCs.left);
-    var elTop = readFinitePx(el.style.top || elCs.top);
-    var elW = readFinitePx(el.style.width || elCs.width);
-    var elH = readFinitePx(el.style.height || elCs.height);
+    var elW = readFinitePx((el as HTMLElement).style.width || elCs.width);
+    var elH = readFinitePx((el as HTMLElement).style.height || elCs.height);
     var elRot = currentRotation(el);
-    var canUseLocalBox =
-      Math.abs(elRot) > 0.01 &&
-      elLeft !== null &&
-      elTop !== null &&
-      elW !== null &&
-      elH !== null;
-    if (!canUseLocalBox) return false;
-    // Convert element-local left/top to viewport coords by walking to the
-    // nearest positioned ancestor (same reference frame as getBoundingClientRect).
-    var parentRect = (
-      (el as HTMLElement).offsetParent || document.documentElement
-    ).getBoundingClientRect();
+    if (Math.abs(elRot) < 0.01 || elW === null || elH === null) return false;
+    var rect = (el as HTMLElement).getBoundingClientRect();
+    var cx = rect.left + rect.width / 2;
+    var cy = rect.top + rect.height / 2;
     overlay.style.display = "block";
-    overlay.style.left = parentRect.left + elLeft + "px";
-    overlay.style.top = parentRect.top + elTop + "px";
+    overlay.style.left = cx - elW / 2 + "px";
+    overlay.style.top = cy - elH / 2 + "px";
     overlay.style.width = elW + "px";
     overlay.style.height = elH + "px";
     overlay.style.transform = "rotate(" + elRot + "deg)";
-    overlay.style.transformOrigin = "0 0";
+    overlay.style.transformOrigin = "50% 50%";
     return true;
   }
 
@@ -4210,6 +4243,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     }
     var selectedRect = a.getBoundingClientRect();
     var hoverRect = b.getBoundingClientRect();
+    // A content re-render can rebuild document.body and drop this overlay;
+    // re-attach it before drawing so the lines always render.
+    if (!measurementOverlay.isConnected) {
+      document.body.appendChild(measurementOverlay);
+    }
     measurementOverlay.innerHTML = "";
     measurementOverlay.style.display = "block";
 
@@ -5629,32 +5667,66 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     },
   );
 
-  function currentRotation(el) {
-    var transform =
-      el.style.transform || window.getComputedStyle(el).transform || "";
-    var match = transform.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/);
+  function rotationFromTransform(transform) {
+    var match = transform.match(/rotate(?:Z)?\((-?\d+(?:\.\d+)?)deg\)/i);
     if (match) return parseFloat(match[1]) || 0;
     if (transform && transform !== "none" && window.DOMMatrixReadOnly) {
       try {
         var matrix = new DOMMatrixReadOnly(transform);
-        return Math.round((Math.atan2(matrix.b, matrix.a) * 180) / Math.PI);
+        return (Math.atan2(matrix.b, matrix.a) * 180) / Math.PI;
       } catch (err) {}
     }
     return 0;
   }
 
-  function mergeRotation(el, degrees) {
-    var inline = el.style.transform || "";
-    var next = inline.match(/rotate\((-?\d+(?:\.\d+)?)deg\)/)
-      ? inline.replace(
-          /rotate\((-?\d+(?:\.\d+)?)deg\)/,
-          "rotate(" + degrees + "deg)",
-        )
-      : (inline && inline !== "none" ? inline + " " : "") +
-        "rotate(" +
-        degrees +
-        "deg)";
-    return next.trim();
+  function independentRotation(rotate) {
+    var match = rotate.match(
+      /^(?:z\s+)?(-?\d+(?:\.\d+)?)(deg|grad|rad|turn)$/i,
+    );
+    if (!match) return 0;
+    var value = parseFloat(match[1]) || 0;
+    var unit = match[2].toLowerCase();
+    if (unit === "grad") return value * 0.9;
+    if (unit === "rad") return (value * 180) / Math.PI;
+    if (unit === "turn") return value * 360;
+    return value;
+  }
+
+  function currentRotation(el) {
+    var computed = window.getComputedStyle(el);
+    return (
+      rotationFromTransform(computed.transform || "") +
+      independentRotation(computed.rotate || "")
+    );
+  }
+
+  // Merge an ABSOLUTE rotation value (degrees) into a transform string.
+  // When the string already has a rotate/rotateZ(), replace it in place.
+  // When the transform is a matrix() (e.g. computed from a class rule), strip
+  // the rotation component and append the new absolute rotate() so the inline
+  // value only adds what the class doesn't already own as non-rotation parts.
+  // When the string has non-rotation functions (translate, scale, etc.) without
+  // an explicit rotate(), append rotate() so other transforms are preserved.
+  function mergeAbsoluteRotation(transform, degrees) {
+    var rotatePattern = /rotate(?:Z)?\((-?\d+(?:\.\d+)?)deg\)/i;
+    if (rotatePattern.test(transform)) {
+      return transform
+        .replace(rotatePattern, "rotate(" + degrees + "deg)")
+        .trim();
+    }
+    // matrix() is the computed form of a class-rule transform; writing it
+    // inline would hard-pin every property from that rule. Instead start fresh
+    // with just the target rotation so the class still owns everything else.
+    if (/^matrix(?:3d)?\(/i.test(transform.trim())) {
+      return "rotate(" + degrees + "deg)";
+    }
+    // transform string with other functions but no existing rotate: append.
+    return (
+      (transform && transform !== "none" ? transform + " " : "") +
+      "rotate(" +
+      degrees +
+      "deg)"
+    ).trim();
   }
 
   function ensurePositionable(el) {
@@ -9113,6 +9185,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     // null-deref in onMove/onUp.
     var rotateEl = selectedEl;
     var originalInlineTransform = rotateEl.style.transform;
+    var originalComputedTransform = window.getComputedStyle(rotateEl).transform;
+    var baseTransform =
+      originalInlineTransform && originalInlineTransform !== "none"
+        ? originalInlineTransform
+        : originalComputedTransform;
     function onMove(ev) {
       if (!rotateEl) return;
       var pointerAngle =
@@ -9121,7 +9198,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       var next = originRotation + pointerAngle - originAngle;
       if (ev.shiftKey) next = Math.round(next / 15) * 15;
       next = Math.round(next);
-      rotateEl.style.transform = mergeRotation(rotateEl, next);
+      rotateEl.style.transform = mergeAbsoluteRotation(baseTransform, next);
       showTransformBadge(next + "deg", ev.clientX, ev.clientY);
       refreshOverlays();
     }
@@ -10301,7 +10378,11 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       } else {
         hideMeasurements();
       }
-      if (hoveredEl !== lastHoverInfoPostedEl) {
+      // While Alt is held (measurement mode) keep hover local: posting it would
+      // update the host's hoveredSelector, re-run replayIframeEditorState, and
+      // echo selection/hover back every move — a loop that jitters selection
+      // and flickers the measurement lines.
+      if (!e.altKey && hoveredEl !== lastHoverInfoPostedEl) {
         lastHoverInfoPostedEl = hoveredEl;
         var info = getLightElementInfo(hoveredEl);
         (window.parent as Window).postMessage(
@@ -10363,7 +10444,19 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
   window.addEventListener(
     "keyup",
     function (e) {
-      if (e.key === "Alt") hideMeasurements();
+      if (e.key === "Alt") {
+        hideMeasurements();
+        // Re-sync the hover suppressed during measurement so the host isn't
+        // left on a stale element until the next pointermove.
+        lastHoverInfoPostedEl = hoveredEl;
+        (window.parent as Window).postMessage(
+          {
+            type: "element-hover",
+            payload: hoveredEl ? getLightElementInfo(hoveredEl) : null,
+          },
+          "*",
+        );
+      }
     },
     true,
   );
@@ -10804,7 +10897,9 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
       // changes only — the `selectionChangedByHost` guard above already
       // keeps this a no-op on the ~1-2s poll-tick replay so it can't turn
       // into a message-spam loop.
-      if (selectionChangedByHost) postElementSelect(target);
+      if (selectionChangedByHost) {
+        postElementSelect(target);
+      }
       return;
     }
     if (e.data.type === "hover-element") {

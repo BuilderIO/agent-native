@@ -139,7 +139,7 @@ import {
   type PointerEvent as ReactPointerEvent,
   type ReactNode,
 } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
@@ -159,6 +159,7 @@ import {
   useDuplicateDatabaseItems,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
+  useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
@@ -233,6 +234,9 @@ import {
 } from "../previewDocumentSaveRegistry";
 import { VisualEditor } from "../VisualEditor";
 import { DatabaseFormView } from "./FormView";
+import { DatabaseGalleryView } from "./GalleryView";
+import { DatabaseListView } from "./ListView";
+import { DatabaseTimelineView } from "./TimelineView";
 
 export interface DatabaseViewProps {
   databaseId: string;
@@ -287,7 +291,7 @@ export type PersonalDatabaseViewOverrides =
 
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
-function dbText(
+export function dbText(
   key: DatabaseMessageKey,
   values?: Record<string, string | number>,
 ): string {
@@ -306,7 +310,7 @@ function dbText(
   );
 }
 
-type CreateDatabaseRowHandler = (
+export type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
 type DatabaseDragPreviewState =
@@ -437,7 +441,7 @@ export function databaseItemPageIconText(
   return icon ? icon : null;
 }
 
-function DatabaseItemPageIcon({
+export function DatabaseItemPageIcon({
   document,
   className,
   fallbackClassName,
@@ -1067,12 +1071,21 @@ function DatabaseTable({
       ...databasePropertyValuesForNewItem(filters, properties, filterMode),
       ...propertyValueOverrides,
     };
-    const response = await addItem.mutateAsync({
-      databaseId,
-      title,
-      propertyValues:
-        Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
-    });
+    let response;
+    try {
+      response = await addItem.mutateAsync({
+        databaseId,
+        title,
+        propertyValues:
+          Object.keys(propertyValues).length > 0 ? propertyValues : undefined,
+      });
+    } catch (err) {
+      toast.error(dbText("failedToCreateRow"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+      return null;
+    }
     const createdItem = response.items.find(
       (item) => item.id === response.createdItemId,
     );
@@ -1657,14 +1670,16 @@ function DatabaseTable({
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
+                  asChild
                   type="button"
                   variant="ghost"
                   size="sm"
                   aria-label={dbText("openAsFullPage")}
                   className={databaseToolbarIconButtonClass()}
-                  onClick={() => navigate(`/page/${databaseDocumentId}`)}
                 >
-                  <IconArrowsDiagonal className="size-3.5" />
+                  <Link to={`/page/${databaseDocumentId}`}>
+                    <IconArrowsDiagonal className="size-3.5" />
+                  </Link>
                 </Button>
               </TooltipTrigger>
               <TooltipContent>{dbText("openAsFullPage")}</TooltipContent>
@@ -5365,7 +5380,7 @@ type DatabaseSettingsPanel =
 // the leaf can attach without re-fetching.
 // A second source being added, awaiting the canonical-key confirm step.
 type PendingSourceCandidate = {
-  sourceType: "mock-local" | "builder-cms" | "local-table";
+  sourceType: "mock-local" | "builder-cms" | "local-table" | "notion-database";
   sourceName: string;
   sourceTable: string;
   displayName: string;
@@ -5983,6 +5998,7 @@ function DatabaseSettingsSourcePanel({
         onOpenBuilder={() =>
           onNavPush({ kind: "provider", providerId: "builder" })
         }
+        onOpenNotion={() => onNavPush({ kind: "addSource" })}
         onOpenSecondary={(secondary) =>
           onNavPush({
             kind: "secondarySource",
@@ -6018,6 +6034,17 @@ function DatabaseSettingsSourcePanel({
               sourceName: table.title,
               sourceTable: table.databaseId,
               displayName: table.title,
+            },
+          })
+        }
+        onPickNotionDatabase={(notionSource) =>
+          onNavPush({
+            kind: "keyConfirm",
+            candidate: {
+              sourceType: "notion-database",
+              sourceName: notionSource.name,
+              sourceTable: notionSource.id,
+              displayName: notionSource.name,
             },
           })
         }
@@ -6241,8 +6268,17 @@ function DatabaseSettingsSourcePanel({
               size="sm"
               disabled={!canEdit || sourceActionPending}
               onClick={async () => {
-                await onAttachBuilderSource(model);
-                onNavReplace([]);
+                try {
+                  await onAttachBuilderSource(model);
+                  onNavReplace([]);
+                } catch (err) {
+                  toast.error(dbText("failedToAttachSource"), {
+                    description:
+                      err instanceof Error
+                        ? err.message
+                        : dbText("somethingWentWrong"),
+                  });
+                }
               }}
             >
               {sourceActionPending ? (
@@ -6484,6 +6520,7 @@ function SourcesListView({
   builderSpaceLabel,
   reviewableCount,
   onOpenBuilder,
+  onOpenNotion,
   onOpenSecondary,
   onAddSource,
 }: {
@@ -6493,6 +6530,7 @@ function SourcesListView({
   builderSpaceLabel: string | null;
   reviewableCount: number;
   onOpenBuilder: () => void;
+  onOpenNotion: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
 }) {
@@ -6562,8 +6600,14 @@ function SourcesListView({
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"
-          value="Coming soon"
-          disabled
+          value={
+            connectedSources.some(
+              (connected) => connected.sourceType === "notion-database",
+            )
+              ? dbText("connected")
+              : undefined
+          }
+          onClick={onOpenNotion}
         />
       </div>
       <div className="grid min-w-0 gap-1.5">
@@ -6776,6 +6820,7 @@ function AddSourceView({
   excludeDatabaseIds,
   canEdit,
   onPickLocalTable,
+  onPickNotionDatabase,
 }: {
   excludeDatabaseIds: string[];
   canEdit: boolean;
@@ -6784,8 +6829,10 @@ function AddSourceView({
     documentId: string;
     title: string;
   }) => void;
+  onPickNotionDatabase: (source: { id: string; name: string }) => void;
 }) {
   const query = useContentDatabases({ enabled: true, excludeDatabaseIds });
+  const notion = useNotionDatabaseSources(true);
   // Exclude this database (no self-reference) and any table already federated
   // onto it — those live in the "Connected sources" group above.
   const excluded = new Set(excludeDatabaseIds);
@@ -6826,9 +6873,28 @@ function AddSourceView({
         <DatabaseSettingsRow
           icon={<NotionLogoMark className="size-4" />}
           label="Notion"
-          value="Coming soon"
-          disabled
+          value={
+            notion.isLoading
+              ? dbText("loadingTables")
+              : notion.data?.connected
+                ? (notion.data.workspaceName ?? "Notion")
+                : dbText("connectNotionFirst")
+          }
+          disabled={!notion.data?.connected}
         />
+        {notion.data?.connected
+          ? notion.data.sources.map((source) => (
+              <DatabaseSettingsRow
+                key={source.id}
+                icon={<NotionLogoMark className="size-4" />}
+                label={source.name}
+                onClick={
+                  canEdit ? () => onPickNotionDatabase(source) : undefined
+                }
+                disabled={!canEdit}
+              />
+            ))
+          : null}
       </div>
     </div>
   );
@@ -6884,6 +6950,7 @@ function SecondarySourceLeaf({
       </div>
       <SourceRoleCard
         source={source}
+        canAddItems={source.sourceType === "builder-cms"}
         canEdit={canEdit}
         pending={pending}
         onAddDetails={onAddDetails}
@@ -7037,6 +7104,7 @@ function SourceRelationshipChoice({
 function SourceRoleCard({
   source,
   canAddDetails = true,
+  canAddItems = true,
   canEdit,
   pending,
   onAddDetails,
@@ -7045,6 +7113,7 @@ function SourceRoleCard({
 }: {
   source: ContentDatabaseSource;
   canAddDetails?: boolean;
+  canAddItems?: boolean;
   canEdit: boolean;
   pending: boolean;
   onAddDetails: () => void;
@@ -7079,16 +7148,18 @@ function SourceRoleCard({
             >
               {dbText("chooseFields")}
             </Button>
-            <Button
-              type="button"
-              size="sm"
-              variant="outline"
-              className="h-8 text-xs"
-              disabled={!canEdit || pending}
-              onClick={onAddItems}
-            >
-              {dbText("addAsItems")}
-            </Button>
+            {canAddItems ? (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="h-8 text-xs"
+                disabled={!canEdit || pending}
+                onClick={onAddItems}
+              >
+                {dbText("addAsItems")}
+              </Button>
+            ) : null}
           </>
         ) : canAddDetails ? (
           <Button
@@ -9401,7 +9472,7 @@ export function databaseViewHasNoMatchingPages(
   return visibleCount === 0 && (hasSearch || activeFilterCount > 0);
 }
 
-function DatabaseNoMatchingPages({
+export function DatabaseNoMatchingPages({
   label = "No pages match this view",
   className,
   onClear,
@@ -9456,203 +9527,7 @@ function DatabaseConstraintChip({
   );
 }
 
-function DatabaseListView({
-  properties,
-  groupableProperties,
-  items,
-  databaseDocumentId,
-  canEdit,
-  isLoading,
-  isCreating,
-  activeFilters,
-  hasSearch,
-  rowsAreManuallyOrdered,
-  groupByPropertyId,
-  collapsedGroupIds,
-  hideEmptyGroups,
-  onClearResultConstraints,
-  onCreateRow,
-  onCreateGroupedRow,
-  onGroupCollapsedChange,
-  onPreview,
-  onDeletedPreviewItem,
-  onOpenPage,
-}: {
-  properties: DocumentProperty[];
-  groupableProperties: DocumentProperty[];
-  items: ContentDatabaseItem[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  isLoading: boolean;
-  isCreating: boolean;
-  activeFilters: DatabaseFilter[];
-  hasSearch: boolean;
-  rowsAreManuallyOrdered: boolean;
-  groupByPropertyId: string | null;
-  collapsedGroupIds: string[];
-  hideEmptyGroups: boolean;
-  onClearResultConstraints: () => void;
-  onCreateRow: CreateDatabaseRowHandler;
-  onCreateGroupedRow: (
-    group: DatabaseBoardGroup,
-    title?: string,
-  ) => Promise<ContentDatabaseItem | null>;
-  onGroupCollapsedChange: (groupId: string, collapsed: boolean) => void;
-  onPreview: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onOpenPage: (item: ContentDatabaseItem) => void;
-}) {
-  const groups = databaseVisibleGroups(
-    databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
-    hideEmptyGroups,
-  );
-  const grouped = !!databaseViewGroupingProperty(
-    { type: "list", groupByPropertyId },
-    groupableProperties,
-  );
-
-  return (
-    <div className="border-b border-border">
-      <div className="flex min-h-9 items-center gap-2 border-t border-border px-1 text-xs text-muted-foreground">
-        <IconList className="size-4 shrink-0" />
-        <span>List</span>
-      </div>
-      {isLoading ? (
-        <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          {dbText("loadingList")}
-        </div>
-      ) : (
-        <div className="grid">
-          {databaseViewHasNoMatchingPages(
-            items.length,
-            hasSearch,
-            activeFilters.length,
-          ) ? (
-            <DatabaseNoMatchingPages onClear={onClearResultConstraints} />
-          ) : null}
-          {grouped
-            ? groups.map((group) => (
-                <DatabaseGroupedListSection
-                  key={group.id}
-                  group={group}
-                  properties={properties}
-                  databaseDocumentId={databaseDocumentId}
-                  canEdit={canEdit}
-                  isCreating={isCreating}
-                  collapsed={databaseGroupIsCollapsed(
-                    collapsedGroupIds,
-                    group.id,
-                  )}
-                  onCreateRow={onCreateGroupedRow}
-                  onCollapsedChange={(collapsed) =>
-                    onGroupCollapsedChange(group.id, collapsed)
-                  }
-                  onPreview={onPreview}
-                  onDeletedPreviewItem={onDeletedPreviewItem}
-                  onOpenPage={onOpenPage}
-                />
-              ))
-            : items.map((item, index) => (
-                <DatabaseListRow
-                  key={item.id}
-                  item={item}
-                  properties={properties}
-                  databaseDocumentId={databaseDocumentId}
-                  canEdit={canEdit}
-                  rowIndex={index}
-                  canReorder={rowsAreManuallyOrdered}
-                  canMoveUp={rowsAreManuallyOrdered && index > 0}
-                  canMoveDown={
-                    rowsAreManuallyOrdered && index < items.length - 1
-                  }
-                  onPreviewItem={onPreview}
-                  onDeletedPreviewItem={onDeletedPreviewItem}
-                  onPreview={() => onPreview(item)}
-                  onOpenPage={() => onOpenPage(item)}
-                />
-              ))}
-          {canEdit && !grouped ? (
-            <NewListRow
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={onCreateRow}
-            />
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DatabaseGroupedListSection({
-  group,
-  properties,
-  databaseDocumentId,
-  canEdit,
-  isCreating,
-  collapsed,
-  onCreateRow,
-  onCollapsedChange,
-  onPreview,
-  onDeletedPreviewItem,
-  onOpenPage,
-}: {
-  group: DatabaseBoardGroup;
-  properties: DocumentProperty[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  isCreating: boolean;
-  collapsed: boolean;
-  onCreateRow: (
-    group: DatabaseBoardGroup,
-    title?: string,
-  ) => Promise<ContentDatabaseItem | null>;
-  onCollapsedChange: (collapsed: boolean) => void;
-  onPreview: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onOpenPage: (item: ContentDatabaseItem) => void;
-}) {
-  return (
-    <section>
-      <DatabaseGroupHeader
-        group={group}
-        collapsed={collapsed}
-        onCollapsedChange={onCollapsedChange}
-      />
-      {!collapsed ? (
-        <>
-          {group.items.map((item, index) => (
-            <DatabaseListRow
-              key={`${group.id}-${item.id}`}
-              item={item}
-              properties={properties}
-              databaseDocumentId={databaseDocumentId}
-              canEdit={canEdit}
-              rowIndex={index}
-              canReorder={false}
-              canMoveUp={false}
-              canMoveDown={false}
-              onPreviewItem={onPreview}
-              onDeletedPreviewItem={onDeletedPreviewItem}
-              onPreview={() => onPreview(item)}
-              onOpenPage={() => onOpenPage(item)}
-            />
-          ))}
-          {canEdit ? (
-            <NewListRow
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={(title) => onCreateRow(group, title)}
-            />
-          ) : null}
-        </>
-      ) : null}
-    </section>
-  );
-}
-
-function DatabaseGroupHeader({
+export function DatabaseGroupHeader({
   group,
   collapsed,
   onCollapsedChange,
@@ -9681,489 +9556,6 @@ function DatabaseGroupHeader({
         {group.items.length}
       </span>
     </button>
-  );
-}
-
-function DatabaseListRow({
-  item,
-  properties,
-  databaseDocumentId,
-  canEdit,
-  rowIndex,
-  canReorder,
-  canMoveUp,
-  canMoveDown,
-  onPreviewItem,
-  onDeletedPreviewItem,
-  onPreview,
-  onOpenPage,
-}: {
-  item: ContentDatabaseItem;
-  properties: DocumentProperty[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  rowIndex: number;
-  canReorder: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onPreviewItem: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onPreview: () => void;
-  onOpenPage: () => void;
-}) {
-  const visibleProperties = properties.slice(0, 4);
-
-  return (
-    <div className="group flex min-h-10 items-center gap-2 border-t border-border px-1 py-1 hover:bg-muted/40">
-      <button
-        type="button"
-        className="flex min-w-0 flex-1 items-center gap-2 rounded px-1.5 py-1 text-left hover:bg-accent/60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onPreview}
-      >
-        <DatabaseItemPageIcon
-          document={item.document}
-          className="size-4 text-sm"
-          fallbackClassName="size-4"
-        />
-        <span className="min-w-0 truncate text-sm font-medium">
-          {item.document.title || "Untitled"}
-        </span>
-        {visibleProperties.length > 0 ? (
-          <span className="ml-2 hidden min-w-0 flex-wrap items-center gap-1 md:flex">
-            {visibleProperties.map((property) => {
-              const itemProperty =
-                item.properties.find(
-                  (candidate) =>
-                    candidate.definition.id === property.definition.id,
-                ) ?? property;
-              return (
-                <span
-                  key={property.definition.id}
-                  className="max-w-36 truncate rounded bg-muted px-1.5 py-0.5 text-xs font-normal text-muted-foreground"
-                >
-                  {displayValue(itemProperty)}
-                </span>
-              );
-            })}
-          </span>
-        ) : null}
-      </button>
-      {canEdit ? (
-        <RowActionsCell
-          item={item}
-          databaseDocumentId={databaseDocumentId}
-          rowIndex={rowIndex}
-          canReorder={canReorder}
-          canMoveUp={canMoveUp}
-          canMoveDown={canMoveDown}
-          onPreviewItem={onPreviewItem}
-          onDeletedPreviewItem={onDeletedPreviewItem}
-          onOpenPage={onOpenPage}
-        />
-      ) : null}
-    </div>
-  );
-}
-
-function NewListRow({
-  disabled,
-  isPending,
-  onCreate,
-}: {
-  disabled: boolean;
-  isPending: boolean;
-  onCreate: CreateDatabaseRowHandler;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-
-  async function submitNewRow() {
-    if (disabled) return;
-    const createdItem = await onCreate(title.trim());
-    setTitle("");
-    if (!createdItem) inputRef.current?.focus();
-  }
-
-  return (
-    <form
-      className="flex h-10 items-center gap-2 border-t border-border px-2 text-sm text-muted-foreground hover:bg-muted/40 focus-within:bg-muted/40 focus-within:text-foreground"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submitNewRow();
-      }}
-    >
-      {isPending ? (
-        <Spinner className="size-4 shrink-0" />
-      ) : (
-        <IconPlus className="size-4 shrink-0" />
-      )}
-      <input
-        ref={inputRef}
-        value={title}
-        disabled={disabled}
-        aria-label={dbText("newDatabaseListItemTitle")}
-        placeholder={dbText("newPage")}
-        onChange={(event) => setTitle(event.target.value)}
-        onKeyDown={(event) => {
-          if (event.key === "Enter") {
-            event.preventDefault();
-            void submitNewRow();
-          }
-          if (event.key === "Escape") {
-            setTitle("");
-            event.currentTarget.blur();
-          }
-        }}
-        className="h-7 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground focus:placeholder:text-muted-foreground/70"
-      />
-    </form>
-  );
-}
-
-function DatabaseGalleryView({
-  properties,
-  groupableProperties,
-  items,
-  databaseDocumentId,
-  canEdit,
-  isLoading,
-  isCreating,
-  activeFilters,
-  hasSearch,
-  rowsAreManuallyOrdered,
-  groupByPropertyId,
-  collapsedGroupIds,
-  hideEmptyGroups,
-  onClearResultConstraints,
-  onCreateRow,
-  onCreateGroupedRow,
-  onGroupCollapsedChange,
-  onPreview,
-  onDeletedPreviewItem,
-  onOpenPage,
-}: {
-  properties: DocumentProperty[];
-  groupableProperties: DocumentProperty[];
-  items: ContentDatabaseItem[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  isLoading: boolean;
-  isCreating: boolean;
-  activeFilters: DatabaseFilter[];
-  hasSearch: boolean;
-  rowsAreManuallyOrdered: boolean;
-  groupByPropertyId: string | null;
-  collapsedGroupIds: string[];
-  hideEmptyGroups: boolean;
-  onClearResultConstraints: () => void;
-  onCreateRow: CreateDatabaseRowHandler;
-  onCreateGroupedRow: (
-    group: DatabaseBoardGroup,
-    title?: string,
-  ) => Promise<ContentDatabaseItem | null>;
-  onGroupCollapsedChange: (groupId: string, collapsed: boolean) => void;
-  onPreview: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onOpenPage: (item: ContentDatabaseItem) => void;
-}) {
-  const groups = databaseVisibleGroups(
-    databaseViewItemGroups(items, groupableProperties, groupByPropertyId),
-    hideEmptyGroups,
-  );
-  const grouped = !!databaseViewGroupingProperty(
-    { type: "gallery", groupByPropertyId },
-    groupableProperties,
-  );
-
-  return (
-    <div className="border-b border-border">
-      <div className="flex min-h-9 items-center gap-2 border-t border-border px-1 text-xs text-muted-foreground">
-        <IconLayoutGrid className="size-4 shrink-0" />
-        <span>Gallery</span>
-      </div>
-      {isLoading ? (
-        <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          {dbText("loadingGallery")}
-        </div>
-      ) : (
-        <div className="content-database-gallery-grid grid gap-3 px-1 py-3">
-          {databaseViewHasNoMatchingPages(
-            items.length,
-            hasSearch,
-            activeFilters.length,
-          ) ? (
-            <DatabaseNoMatchingPages
-              className="col-span-full"
-              onClear={onClearResultConstraints}
-            />
-          ) : null}
-          {grouped
-            ? groups.map((group) => (
-                <DatabaseGroupedGallerySection
-                  key={group.id}
-                  group={group}
-                  properties={properties}
-                  databaseDocumentId={databaseDocumentId}
-                  canEdit={canEdit}
-                  isCreating={isCreating}
-                  collapsed={databaseGroupIsCollapsed(
-                    collapsedGroupIds,
-                    group.id,
-                  )}
-                  onCreateRow={onCreateGroupedRow}
-                  onCollapsedChange={(collapsed) =>
-                    onGroupCollapsedChange(group.id, collapsed)
-                  }
-                  onPreview={onPreview}
-                  onDeletedPreviewItem={onDeletedPreviewItem}
-                  onOpenPage={onOpenPage}
-                />
-              ))
-            : items.map((item, index) => (
-                <DatabaseGalleryCard
-                  key={item.id}
-                  item={item}
-                  properties={properties}
-                  databaseDocumentId={databaseDocumentId}
-                  canEdit={canEdit}
-                  rowIndex={index}
-                  canReorder={rowsAreManuallyOrdered}
-                  canMoveUp={rowsAreManuallyOrdered && index > 0}
-                  canMoveDown={
-                    rowsAreManuallyOrdered && index < items.length - 1
-                  }
-                  onPreviewItem={onPreview}
-                  onDeletedPreviewItem={onDeletedPreviewItem}
-                  onPreview={() => onPreview(item)}
-                  onOpenPage={() => onOpenPage(item)}
-                />
-              ))}
-          {canEdit && !grouped ? (
-            <NewGalleryCard
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={onCreateRow}
-            />
-          ) : null}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function DatabaseGroupedGallerySection({
-  group,
-  properties,
-  databaseDocumentId,
-  canEdit,
-  isCreating,
-  collapsed,
-  onCreateRow,
-  onCollapsedChange,
-  onPreview,
-  onDeletedPreviewItem,
-  onOpenPage,
-}: {
-  group: DatabaseBoardGroup;
-  properties: DocumentProperty[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  isCreating: boolean;
-  collapsed: boolean;
-  onCreateRow: (
-    group: DatabaseBoardGroup,
-    title?: string,
-  ) => Promise<ContentDatabaseItem | null>;
-  onCollapsedChange: (collapsed: boolean) => void;
-  onPreview: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onOpenPage: (item: ContentDatabaseItem) => void;
-}) {
-  return (
-    <section className="col-span-full grid gap-3">
-      <DatabaseGroupHeader
-        group={group}
-        collapsed={collapsed}
-        onCollapsedChange={onCollapsedChange}
-      />
-      {!collapsed ? (
-        <div className="content-database-gallery-grid grid gap-3">
-          {group.items.map((item, index) => (
-            <DatabaseGalleryCard
-              key={`${group.id}-${item.id}`}
-              item={item}
-              properties={properties}
-              databaseDocumentId={databaseDocumentId}
-              canEdit={canEdit}
-              rowIndex={index}
-              canReorder={false}
-              canMoveUp={false}
-              canMoveDown={false}
-              onPreviewItem={onPreview}
-              onDeletedPreviewItem={onDeletedPreviewItem}
-              onPreview={() => onPreview(item)}
-              onOpenPage={() => onOpenPage(item)}
-            />
-          ))}
-          {canEdit ? (
-            <NewGalleryCard
-              disabled={isCreating}
-              isPending={isCreating}
-              onCreate={(title) => onCreateRow(group, title)}
-            />
-          ) : null}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-function DatabaseGalleryCard({
-  item,
-  properties,
-  databaseDocumentId,
-  canEdit,
-  rowIndex,
-  canReorder,
-  canMoveUp,
-  canMoveDown,
-  onPreviewItem,
-  onDeletedPreviewItem,
-  onPreview,
-  onOpenPage,
-}: {
-  item: ContentDatabaseItem;
-  properties: DocumentProperty[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  rowIndex: number;
-  canReorder: boolean;
-  canMoveUp: boolean;
-  canMoveDown: boolean;
-  onPreviewItem: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onPreview: () => void;
-  onOpenPage: () => void;
-}) {
-  const visibleProperties = properties.slice(0, 4);
-
-  return (
-    <div className="group overflow-hidden rounded-md border border-border bg-background shadow-sm transition-colors hover:bg-accent/40">
-      <button
-        type="button"
-        className="block w-full text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-        onClick={onPreview}
-      >
-        <div className="flex aspect-[5/3] items-center justify-center border-b border-border bg-muted/45">
-          <DatabaseItemPageIcon
-            document={item.document}
-            className="size-10 text-4xl"
-            fallbackClassName="size-8 text-muted-foreground/70"
-          />
-        </div>
-        <div className="grid gap-2 p-3">
-          <span className="min-w-0 truncate text-sm font-medium">
-            {item.document.title || "Untitled"}
-          </span>
-          {visibleProperties.length > 0 ? (
-            <span className="grid gap-1">
-              {visibleProperties.map((property) => {
-                const itemProperty =
-                  item.properties.find(
-                    (candidate) =>
-                      candidate.definition.id === property.definition.id,
-                  ) ?? property;
-                const Icon = TYPE_ICONS[property.definition.type];
-                return (
-                  <span
-                    key={property.definition.id}
-                    className="flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground"
-                  >
-                    <Icon className="size-3.5 shrink-0" />
-                    <span className="truncate">
-                      {displayValue(itemProperty)}
-                    </span>
-                  </span>
-                );
-              })}
-            </span>
-          ) : null}
-        </div>
-      </button>
-      {canEdit ? (
-        <div className="flex justify-end border-t border-border/70 px-2 py-1">
-          <RowActionsCell
-            item={item}
-            databaseDocumentId={databaseDocumentId}
-            rowIndex={rowIndex}
-            canReorder={canReorder}
-            canMoveUp={canMoveUp}
-            canMoveDown={canMoveDown}
-            onPreviewItem={onPreviewItem}
-            onDeletedPreviewItem={onDeletedPreviewItem}
-            onOpenPage={onOpenPage}
-          />
-        </div>
-      ) : null}
-    </div>
-  );
-}
-
-function NewGalleryCard({
-  disabled,
-  isPending,
-  onCreate,
-}: {
-  disabled: boolean;
-  isPending: boolean;
-  onCreate: CreateDatabaseRowHandler;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-
-  async function submitNewCard() {
-    if (disabled) return;
-    const createdItem = await onCreate(title.trim());
-    setTitle("");
-    if (!createdItem) inputRef.current?.focus();
-  }
-
-  return (
-    <form
-      className="flex min-h-40 flex-col justify-between rounded-md border border-dashed border-border bg-muted/20 p-3 text-sm text-muted-foreground hover:bg-muted/35 focus-within:bg-muted/35"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submitNewCard();
-      }}
-    >
-      <div className="flex items-center gap-2">
-        {isPending ? (
-          <Spinner className="size-4 shrink-0" />
-        ) : (
-          <IconPlus className="size-4 shrink-0" />
-        )}
-        <input
-          ref={inputRef}
-          value={title}
-          disabled={disabled}
-          aria-label={dbText("newDatabaseGalleryCardTitle")}
-          placeholder={dbText("newPage")}
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void submitNewCard();
-            }
-            if (event.key === "Escape") {
-              setTitle("");
-              event.currentTarget.blur();
-            }
-          }}
-          className="h-7 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground focus:placeholder:text-muted-foreground/70"
-        />
-      </div>
-    </form>
   );
 }
 
@@ -10439,7 +9831,7 @@ function DatabaseCalendarView({
   );
 }
 
-function DatabaseDateViewNoDateSection({
+export function DatabaseDateViewNoDateSection({
   items,
   databaseDocumentId,
   properties,
@@ -10602,540 +9994,6 @@ function NewCalendarCard({
         <IconPlus className="size-3.5" />
       )}
     </button>
-  );
-}
-
-function DatabaseTimelineView({
-  activeView,
-  properties,
-  items,
-  databaseDocumentId,
-  canEdit,
-  isLoading,
-  isCreating,
-  activeFilters,
-  hasSearch,
-  dateProperty,
-  month,
-  onClearResultConstraints,
-  onMonthChange,
-  onDatePropertyChange,
-  onEndDatePropertyChange,
-  onCreateCard,
-  onPreview,
-  onDeletedPreviewItem,
-  onOpenPage,
-}: {
-  activeView: ContentDatabaseView;
-  properties: DocumentProperty[];
-  items: ContentDatabaseItem[];
-  databaseDocumentId: string;
-  canEdit: boolean;
-  isLoading: boolean;
-  isCreating: boolean;
-  activeFilters: DatabaseFilter[];
-  hasSearch: boolean;
-  dateProperty: DocumentProperty | null;
-  month: Date;
-  onClearResultConstraints: () => void;
-  onMonthChange: (month: Date) => void;
-  onDatePropertyChange: (propertyId: string | null) => void;
-  onEndDatePropertyChange: (propertyId: string | null) => void;
-  onCreateCard: (
-    dateKey: string,
-    title?: string,
-  ) => Promise<ContentDatabaseItem | null>;
-  onPreview: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onOpenPage: (item: ContentDatabaseItem) => void;
-}) {
-  const dateProperties = databaseCalendarDateProperties(properties);
-  const timelineDays = databaseTimelineDays(month);
-  const endDateProperty = databaseTimelineEndDateProperty(
-    activeView,
-    properties,
-    dateProperty?.definition.id ?? null,
-  );
-  const timelineSpans = databaseTimelineItemSpans(
-    items,
-    properties,
-    dateProperty?.definition.id ?? null,
-    endDateProperty?.definition.id ?? null,
-    timelineDays,
-  );
-  const noDateItems = databaseItemsWithoutDateValue(
-    items,
-    properties,
-    dateProperty?.definition.id ?? null,
-  );
-  const visibleProperties = properties
-    .filter((property) =>
-      isDatabasePropertyVisibleInView(property, items, activeView),
-    )
-    .filter(
-      (property) =>
-        property.definition.id !== dateProperty?.definition.id &&
-        property.definition.id !== endDateProperty?.definition.id,
-    );
-  const canCreateOnDay =
-    canEdit &&
-    dateProperty?.editable &&
-    dateProperty.definition.type === "date";
-  const rangeLabel = databaseTimelineRangeLabel(timelineDays);
-
-  function changeMonth(offset: number) {
-    onMonthChange(
-      startOfMonth(new Date(month.getFullYear(), month.getMonth() + offset)),
-    );
-  }
-
-  return (
-    <div className="border-b border-border">
-      <div className="flex min-h-9 flex-wrap items-center justify-between gap-2 border-t border-border px-1 py-1">
-        <div className="flex min-w-0 items-center gap-2 text-xs text-muted-foreground">
-          <IconTimeline className="size-4 shrink-0" />
-          <span className="truncate">{rangeLabel}</span>
-        </div>
-        <div className="flex min-w-0 items-center gap-1">
-          {dateProperties.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 max-w-48 gap-1.5 px-2 text-xs text-muted-foreground"
-                >
-                  <IconCalendarDue className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    {dateProperty?.definition.name ?? "Date"}
-                  </span>
-                  <IconChevronDown className="size-3.5 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {dbText("startDate")}
-                </DropdownMenuLabel>
-                {dateProperties.map((property) => {
-                  const Icon = TYPE_ICONS[property.definition.type];
-                  return (
-                    <DropdownMenuItem
-                      key={property.definition.id}
-                      onSelect={(event) => {
-                        event.preventDefault();
-                        onDatePropertyChange(property.definition.id);
-                      }}
-                    >
-                      <Icon className="mr-2 size-4 text-muted-foreground" />
-                      <span className="min-w-0 flex-1 truncate">
-                        {property.definition.name}
-                      </span>
-                      {dateProperty?.definition.id ===
-                      property.definition.id ? (
-                        <IconCheck className="size-4 text-muted-foreground" />
-                      ) : null}
-                    </DropdownMenuItem>
-                  );
-                })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          {dateProperties.length > 0 ? (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  className="h-7 max-w-48 gap-1.5 px-2 text-xs text-muted-foreground"
-                >
-                  <IconTimeline className="size-3.5 shrink-0" />
-                  <span className="truncate">
-                    End: {endDateProperty?.definition.name ?? "None"}
-                  </span>
-                  <IconChevronDown className="size-3.5 shrink-0" />
-                </Button>
-              </DropdownMenuTrigger>
-              <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
-                  {dbText("endDate")}
-                </DropdownMenuLabel>
-                <DropdownMenuItem
-                  onSelect={(event) => {
-                    event.preventDefault();
-                    onEndDatePropertyChange(null);
-                  }}
-                >
-                  <span className="min-w-0 flex-1 truncate">
-                    {dbText("noEndDate")}
-                  </span>
-                  {!endDateProperty ? (
-                    <IconCheck className="size-4 text-muted-foreground" />
-                  ) : null}
-                </DropdownMenuItem>
-                {dateProperties
-                  .filter(
-                    (property) =>
-                      property.definition.id !== dateProperty?.definition.id,
-                  )
-                  .map((property) => {
-                    const Icon = TYPE_ICONS[property.definition.type];
-                    return (
-                      <DropdownMenuItem
-                        key={property.definition.id}
-                        onSelect={(event) => {
-                          event.preventDefault();
-                          onEndDatePropertyChange(property.definition.id);
-                        }}
-                      >
-                        <Icon className="mr-2 size-4 text-muted-foreground" />
-                        <span className="min-w-0 flex-1 truncate">
-                          {property.definition.name}
-                        </span>
-                        {endDateProperty?.definition.id ===
-                        property.definition.id ? (
-                          <IconCheck className="size-4 text-muted-foreground" />
-                        ) : null}
-                      </DropdownMenuItem>
-                    );
-                  })}
-              </DropdownMenuContent>
-            </DropdownMenu>
-          ) : null}
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            className="h-7 px-2 text-xs text-muted-foreground"
-            onClick={() => onMonthChange(startOfMonth(new Date()))}
-          >
-            <IconCalendarEvent className="mr-1 size-3.5" />
-            Today
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            aria-label={dbText("previousTimelineRange")}
-            onClick={() => changeMonth(-1)}
-          >
-            <IconArrowUp className="size-3.5 -rotate-90" />
-          </Button>
-          <Button
-            type="button"
-            variant="ghost"
-            size="icon"
-            className="size-7 text-muted-foreground"
-            aria-label={dbText("nextTimelineRange")}
-            onClick={() => changeMonth(1)}
-          >
-            <IconArrowUp className="size-3.5 rotate-90" />
-          </Button>
-        </div>
-      </div>
-
-      {isLoading ? (
-        <div className="flex h-16 items-center gap-2 px-2 text-sm text-muted-foreground">
-          <Spinner className="size-4" />
-          {dbText("loadingTimeline")}
-        </div>
-      ) : dateProperties.length === 0 ? (
-        <div className="flex min-h-24 items-center justify-between gap-3 px-2 py-4 text-sm text-muted-foreground">
-          <span>{dbText("addADatePropertyToUseTimelineView")}</span>
-          {canEdit ? <AddProperty documentId={databaseDocumentId} /> : null}
-        </div>
-      ) : (
-        <>
-          <div className="overflow-x-auto border-t border-border">
-            <div
-              className="grid min-w-max"
-              style={{
-                gridTemplateColumns: `repeat(${timelineDays.length}, minmax(8rem, 1fr))`,
-                gridTemplateRows: `auto repeat(${Math.max(timelineSpans.length, 1)}, minmax(3.25rem, auto)) auto minmax(0.75rem, auto)`,
-              }}
-            >
-              {timelineDays.map((day, index) => {
-                const dateKey = calendarDateKey(day);
-                const inMonth = day.getMonth() === month.getMonth();
-                return (
-                  <div
-                    key={dateKey}
-                    className={cn(
-                      "border-r border-border bg-background last:border-r-0",
-                      !inMonth && "bg-muted/25",
-                    )}
-                    style={{
-                      gridColumn: index + 1,
-                      gridRow: `1 / ${Math.max(timelineSpans.length, 1) + 4}`,
-                    }}
-                    aria-label={`${dateKey} timeline day`}
-                  />
-                );
-              })}
-              {timelineDays.map((day, index) => {
-                const dateKey = calendarDateKey(day);
-                const inMonth = day.getMonth() === month.getMonth();
-                return (
-                  <div
-                    key={`${dateKey}-header`}
-                    className={cn(
-                      "sticky top-0 z-10 grid gap-0.5 border-r border-b border-border bg-background px-2 py-2 last:border-r-0",
-                      !inMonth && "bg-muted/70",
-                    )}
-                    style={{ gridColumn: index + 1, gridRow: 1 }}
-                  >
-                    <span className="text-[11px] uppercase text-muted-foreground">
-                      {day.toLocaleDateString(undefined, { weekday: "short" })}
-                    </span>
-                    <span
-                      className={cn(
-                        "w-fit rounded px-1.5 py-0.5 text-sm font-medium",
-                        dateKey === calendarDateKey(new Date()) &&
-                          "bg-foreground text-background",
-                      )}
-                    >
-                      {day.toLocaleDateString(undefined, {
-                        month: "short",
-                        day: "numeric",
-                      })}
-                    </span>
-                  </div>
-                );
-              })}
-              {timelineSpans.map((span, index) => (
-                <div
-                  key={span.item.id}
-                  className="z-[1] p-1.5"
-                  style={{
-                    gridColumn: `${span.startIndex + 1} / ${span.endIndex + 2}`,
-                    gridRow: index + 2,
-                  }}
-                >
-                  <DatabaseTimelineCard
-                    item={span.item}
-                    databaseDocumentId={databaseDocumentId}
-                    dateLabel={span.label}
-                    properties={visibleProperties}
-                    canEdit={canEdit}
-                    onPreviewItem={onPreview}
-                    onDeletedPreviewItem={onDeletedPreviewItem}
-                    onPreview={() => onPreview(span.item)}
-                    onOpenPage={() => onOpenPage(span.item)}
-                  />
-                </div>
-              ))}
-              {databaseViewHasNoMatchingPages(
-                items.length,
-                hasSearch,
-                activeFilters.length,
-              ) ? (
-                <div
-                  className="z-[1] m-1.5"
-                  style={{
-                    gridColumn: `1 / ${timelineDays.length + 1}`,
-                    gridRow: 2,
-                  }}
-                >
-                  <DatabaseNoMatchingPages
-                    className="rounded border border-dashed border-border/70 bg-background/80"
-                    onClear={onClearResultConstraints}
-                  />
-                </div>
-              ) : null}
-              {canCreateOnDay
-                ? timelineDays.map((day, index) => {
-                    const dateKey = calendarDateKey(day);
-                    return (
-                      <div
-                        key={`${dateKey}-new`}
-                        className="z-[1] p-1.5"
-                        style={{
-                          gridColumn: index + 1,
-                          gridRow: Math.max(timelineSpans.length, 1) + 2,
-                        }}
-                      >
-                        <NewTimelineCard
-                          dateKey={dateKey}
-                          disabled={isCreating}
-                          isPending={isCreating}
-                          onCreate={onCreateCard}
-                        />
-                      </div>
-                    );
-                  })
-                : null}
-              <div
-                className="min-h-3"
-                style={{
-                  gridColumn: `1 / ${timelineDays.length + 1}`,
-                  gridRow: Math.max(timelineSpans.length, 1) + 3,
-                }}
-              />
-            </div>
-          </div>
-          <DatabaseDateViewNoDateSection
-            items={noDateItems}
-            databaseDocumentId={databaseDocumentId}
-            properties={visibleProperties}
-            canEdit={canEdit}
-            onPreview={onPreview}
-            onDeletedPreviewItem={onDeletedPreviewItem}
-            onOpenPage={onOpenPage}
-          />
-        </>
-      )}
-    </div>
-  );
-}
-
-function DatabaseTimelineCard({
-  item,
-  databaseDocumentId,
-  dateLabel,
-  properties,
-  canEdit,
-  onPreviewItem,
-  onDeletedPreviewItem,
-  onPreview,
-  onOpenPage,
-}: {
-  item: ContentDatabaseItem;
-  databaseDocumentId: string;
-  dateLabel: string;
-  properties: DocumentProperty[];
-  canEdit: boolean;
-  onPreviewItem: (item: ContentDatabaseItem) => void;
-  onDeletedPreviewItem: (item: ContentDatabaseItem) => boolean;
-  onPreview: () => void;
-  onOpenPage: () => void;
-}) {
-  const visibleProperties = properties.slice(0, 2);
-
-  return (
-    <div className="group/card rounded-md border border-border bg-background px-2 py-2 text-xs shadow-sm transition-colors hover:bg-accent/60">
-      <div className="flex min-w-0 items-start gap-1">
-        <button
-          type="button"
-          className="grid min-w-0 flex-1 gap-1 rounded text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          onClick={onPreview}
-        >
-          <span className="flex min-w-0 items-center gap-1.5 font-medium">
-            <DatabaseItemPageIcon
-              document={item.document}
-              className="size-3.5 text-xs"
-              fallbackClassName="size-3.5"
-            />
-            <span className="truncate">
-              {item.document.title || "Untitled"}
-            </span>
-          </span>
-          <span className="truncate text-[11px] text-muted-foreground">
-            {dateLabel}
-          </span>
-          {visibleProperties.length > 0 ? (
-            <span className="grid gap-0.5">
-              {visibleProperties.map((property) => {
-                const itemProperty =
-                  item.properties.find(
-                    (candidate) =>
-                      candidate.definition.id === property.definition.id,
-                  ) ?? property;
-                const Icon = TYPE_ICONS[property.definition.type];
-                return (
-                  <span
-                    key={property.definition.id}
-                    className="flex min-w-0 items-center gap-1 text-muted-foreground"
-                  >
-                    <Icon className="size-3 shrink-0" />
-                    <span className="truncate">
-                      {displayValue(itemProperty)}
-                    </span>
-                  </span>
-                );
-              })}
-            </span>
-          ) : null}
-        </button>
-        {canEdit ? (
-          <RowActionsCell
-            item={item}
-            databaseDocumentId={databaseDocumentId}
-            rowIndex={0}
-            canReorder={false}
-            canMoveUp={false}
-            canMoveDown={false}
-            showReorderActions={false}
-            onPreviewItem={onPreviewItem}
-            onDeletedPreviewItem={onDeletedPreviewItem}
-            onOpenPage={onOpenPage}
-          />
-        ) : null}
-      </div>
-    </div>
-  );
-}
-
-function NewTimelineCard({
-  dateKey,
-  disabled,
-  isPending,
-  onCreate,
-}: {
-  dateKey: string;
-  disabled: boolean;
-  isPending: boolean;
-  onCreate: (
-    dateKey: string,
-    title?: string,
-  ) => Promise<ContentDatabaseItem | null>;
-}) {
-  const inputRef = useRef<HTMLInputElement>(null);
-  const [title, setTitle] = useState("");
-
-  async function submitNewCard() {
-    if (disabled) return;
-    const createdItem = await onCreate(dateKey, title.trim());
-    setTitle("");
-    if (!createdItem) inputRef.current?.focus();
-  }
-
-  return (
-    <form
-      className="rounded border border-dashed border-transparent bg-transparent transition-colors focus-within:border-border focus-within:bg-background/80 hover:bg-background/60"
-      onSubmit={(event) => {
-        event.preventDefault();
-        void submitNewCard();
-      }}
-    >
-      <label className="flex h-7 min-w-0 items-center gap-1.5 px-1 text-xs text-muted-foreground">
-        {isPending ? (
-          <Spinner className="size-3.5 shrink-0" />
-        ) : (
-          <IconPlus className="size-3.5 shrink-0" />
-        )}
-        <input
-          ref={inputRef}
-          value={title}
-          disabled={disabled}
-          aria-label={`New ${dateKey} timeline card title`}
-          placeholder={dbText("newPage")}
-          onChange={(event) => setTitle(event.target.value)}
-          onKeyDown={(event) => {
-            if (event.key === "Enter") {
-              event.preventDefault();
-              void submitNewCard();
-            }
-            if (event.key === "Escape") {
-              setTitle("");
-              event.currentTarget.blur();
-            }
-          }}
-          className="h-6 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground focus:placeholder:text-muted-foreground/70"
-        />
-      </label>
-    </form>
   );
 }
 
@@ -12921,7 +11779,7 @@ function databaseBoardGroupingProperty(
   );
 }
 
-function databaseViewGroupingProperty(
+export function databaseViewGroupingProperty(
   view: Pick<ContentDatabaseView, "groupByPropertyId" | "type">,
   properties: DocumentProperty[],
 ) {
@@ -13036,7 +11894,7 @@ export function databaseTimelineDays(anchorDate: Date) {
   return databaseCalendarMonthDays(anchorDate);
 }
 
-function databaseTimelineEndDateProperty(
+export function databaseTimelineEndDateProperty(
   view: Pick<ContentDatabaseView, "endDatePropertyId">,
   properties: DocumentProperty[],
   startPropertyId?: string | null,
@@ -13276,7 +12134,7 @@ export function databaseBulkMultiSelectFilteredOptions(
   );
 }
 
-function databaseTimelineRangeLabel(days: Date[]) {
+export function databaseTimelineRangeLabel(days: Date[]) {
   const first = days[0] ?? new Date();
   const last = days[days.length - 1] ?? first;
   const sameYear = first.getFullYear() === last.getFullYear();
@@ -13409,7 +12267,7 @@ export function databaseItemsWithoutDateValue(
   });
 }
 
-function startOfMonth(date: Date) {
+export function startOfMonth(date: Date) {
   return new Date(date.getFullYear(), date.getMonth(), 1);
 }
 
@@ -17167,7 +16025,7 @@ function DatabaseTableRow({
   );
 }
 
-function RowActionsCell({
+export function RowActionsCell({
   item,
   databaseDocumentId,
   onPreviewItem,

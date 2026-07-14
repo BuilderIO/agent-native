@@ -734,7 +734,7 @@ export default function SettingsIndexRoute() {
     builderStatus.loading ||
     !builderConnect.hasFetchedStatus;
   const s3Configured = activeProviderId === "s3";
-  const s3Collapsed = builderConnected && !s3Expanded;
+  const s3Collapsed = !s3Expanded;
   const configuredApiKeyCount = AI_PROVIDER_FIELDS.filter(
     (field) => apiKeyStatus[field.key],
   ).length;
@@ -908,7 +908,7 @@ export default function SettingsIndexRoute() {
                   </div>
 
                   <Collapsible
-                    open={builderConnected ? !s3Collapsed : true}
+                    open={!s3Collapsed}
                     onOpenChange={(open) => setS3Expanded(open)}
                   >
                     <div className="rounded-md border border-border">
@@ -939,26 +939,24 @@ export default function SettingsIndexRoute() {
                                 : t("settings.s3OwnBucketDescription")}
                           </p>
                         </div>
-                        {builderConnected ? (
-                          <CollapsibleTrigger asChild>
-                            <Button
-                              type="button"
-                              variant="ghost"
-                              size="sm"
-                              className="shrink-0"
-                            >
-                              {s3Collapsed
-                                ? t("settings.configureS3")
-                                : t("settings.hideS3")}
-                              <IconChevronDown
-                                className={cn(
-                                  "h-4 w-4 transition-transform",
-                                  !s3Collapsed && "rotate-180",
-                                )}
-                              />
-                            </Button>
-                          </CollapsibleTrigger>
-                        ) : null}
+                        <CollapsibleTrigger asChild>
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                          >
+                            {s3Collapsed
+                              ? t("settings.configureS3")
+                              : t("settings.hideS3")}
+                            <IconChevronDown
+                              className={cn(
+                                "h-4 w-4 transition-transform",
+                                !s3Collapsed && "rotate-180",
+                              )}
+                            />
+                          </Button>
+                        </CollapsibleTrigger>
                       </div>
 
                       <CollapsibleContent>

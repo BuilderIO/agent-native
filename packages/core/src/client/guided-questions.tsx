@@ -4,7 +4,11 @@ import {
   IconUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  keepPreviousData,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 import { sendToAgentChat } from "./agent-chat.js";
@@ -955,6 +959,8 @@ function normalizeBrowserTabId(browserTabId?: string): string | undefined {
 }
 
 export interface UseGuidedQuestionFlowOptions {
+  /** Disable application-state reads for signed-out or otherwise inactive surfaces. */
+  enabled?: boolean;
   stateKey?: string;
   /**
    * The current browser tab id. Agent actions that write the guided-questions
@@ -976,6 +982,7 @@ export interface UseGuidedQuestionFlowOptions {
 }
 
 export function useGuidedQuestionFlow({
+  enabled = true,
   stateKey = "show-questions",
   browserTabId,
   queryKey = ["show-questions"],
@@ -1026,6 +1033,7 @@ export function useGuidedQuestionFlow({
 
   const { data } = useQuery({
     queryKey: resolvedQueryKey,
+    enabled,
     queryFn: async () => {
       const read = async (key: string) => {
         const res = await fetch(endpointFor(key));
@@ -1051,6 +1059,10 @@ export function useGuidedQuestionFlow({
     },
     refetchInterval: resolvedRefetchInterval,
     structuralSharing: false,
+    // A matching app-state event changes the query key. Preserve the existing
+    // payload while the replacement read is in flight so full-canvas question
+    // forms do not unmount and flash during routine sync updates.
+    placeholderData: keepPreviousData,
   });
 
   useEffect(() => {
@@ -1059,7 +1071,8 @@ export function useGuidedQuestionFlow({
         if (
           prev &&
           guidedQuestionsFingerprint(prev.questions) ===
-            guidedQuestionsFingerprint(data.questions)
+            guidedQuestionsFingerprint(data.questions) &&
+          prev.clientResolveId === data.clientResolveId
         ) {
           return prev;
         }

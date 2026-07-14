@@ -1,11 +1,31 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  hasDownloadedDesktopApp,
+  markDesktopAppDownloaded,
   resolveClipsChromeExtensionEnabled,
   supportsPublishedClipsChromeExtensionHost,
 } from "./capture-install-options";
 
 describe("capture install options", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("remembers when the desktop installer is downloaded", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+
+    expect(hasDownloadedDesktopApp()).toBe(false);
+    markDesktopAppDownloaded();
+    expect(hasDownloadedDesktopApp()).toBe(true);
+  });
+
   it("enables the published Chrome extension on supported first-party/local hosts", () => {
     expect(
       supportsPublishedClipsChromeExtensionHost("clips.agent-native.com"),

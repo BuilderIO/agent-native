@@ -8,6 +8,7 @@ import {
 
 describe("desktop external navigation", () => {
   for (const url of [
+    "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility",
     "x-apple.systempreferences:com.apple.preference.security?Privacy_ScreenCapture",
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Camera",
     "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone",

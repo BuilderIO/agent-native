@@ -954,9 +954,11 @@ function firstPartyMcpAudienceForUrl(rawUrl: string): string | undefined {
   try {
     const url = new URL(rawUrl);
     const pathname = url.pathname.replace(/\/+$/, "");
-    url.pathname = pathname.endsWith("/_agent-native/mcp")
-      ? pathname
-      : `${pathname}/_agent-native/mcp`;
+    if (pathname.endsWith("/_agent-native/mcp")) {
+      url.pathname = `${pathname.slice(0, -"/_agent-native/mcp".length)}/mcp`;
+    } else {
+      url.pathname = pathname.endsWith("/mcp") ? pathname : `${pathname}/mcp`;
+    }
     url.search = "";
     url.hash = "";
     return url.toString().replace(/\/+$/, "");

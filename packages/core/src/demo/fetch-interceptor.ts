@@ -1,4 +1,3 @@
-import { agentNativePath } from "../client/api-path.js";
 /**
  * Client-side demo-mode redaction.
  *
@@ -14,8 +13,8 @@ import { agentNativePath } from "../client/api-path.js";
  * can only ever post-process JSON the app already parses for display, so it
  * physically cannot break auth, SSE streams, SSR HTML, or binary downloads.
  *
- * The agent is handled separately and in-process (its action tool results are
- * redacted in `production-agent.ts`), so it doesn't depend on this at all.
+ * The agent transport is intentionally skipped because it carries the real
+ * backend results; this interceptor is only a browser presentation transform.
  *
  * Scope intentionally narrow:
  *   - Only same-document `GET` requests are redacted. Mutation responses
@@ -23,20 +22,18 @@ import { agentNativePath } from "../client/api-path.js";
  *     typed isn't echoed back as fake data mid-demo.
  *   - Only `application/json` 2xx bodies. Streams (`text/event-stream`),
  *     HTML, and binary are skipped by content-type.
- *   - Framework infra endpoints (poll, events, the demo-status endpoint
- *     itself) are skipped — no PII and avoids self-recursion.
+ *   - Framework infra endpoints (poll and events) are skipped.
  *   - Any error during interception falls back to the original response.
  */
+import { getBrowserDemoModeEnabled } from "./browser-state.js";
 import { redactDemoData } from "./redact.js";
 
-const STATUS_PATH = agentNativePath("/_agent-native/demo/status");
 const SKIP_SUBSTRINGS = [
-  "/_agent-native/demo/status",
   "/_agent-native/poll",
   "/_agent-native/events",
-  // Never touch agent transport. The agent already gets in-process
-  // redaction of its tool results; faking its own transcript adds no demo
-  // value and must stay clear of the tool_use/tool_result protocol. Covers
+  // Never touch agent transport. The agent receives real tool results; faking
+  // its own transcript adds no demo value and must stay clear of the
+  // tool_use/tool_result protocol. Covers
   // "/_agent-native/agent" (stream) and "/_agent-native/agent-chat"
   // (thread history) and any sub-paths.
   "/_agent-native/agent",
@@ -46,17 +43,33 @@ const SKIP_SUBSTRINGS = [
   "/_agent-native/runs",
 ];
 
-let installed = false;
-let demoEnabled = false;
-let originalFetch: typeof fetch | null = null;
-let refreshPromise: Promise<void> | null = null;
+// Raw rrweb payloads are playback data, not ordinary app UI records. Skipping
+// these is not just a perf optimization that avoids walking/cloning huge
+// DOM/event trees on the main thread: demo number
+// redaction previously ran over this exact raw replay JSON and faked any
+// integer >= 1000 it found — Meta/ViewportResize widths, pointer x/y
+// coordinates, and numeric values inside `_cssText` and SVG attributes. That
+// was the root cause of the 2026-07 "ultra-wide replay" bugs (stages
+// rendered thousands of pixels wide, frozen/teleporting cursors, giant
+// icons) even though every stored recording was always geometrically sane —
+// the corruption happened at *view* time, not at capture/storage time. Small
+// list/summary/manifest responses stay eligible so rendered visitor identities
+// are still anonymized. NEVER remove the raw payload skips or broaden them to
+// metadata endpoints that the UI renders directly.
+const RAW_REPLAY_PAYLOAD_RE =
+  /\/api\/session-replay\/recordings\/[^/?#]+\/(?:chunks(?:\/[^/?#]+)?|events)(?:[/?#]|$)/;
+const RAW_AGENT_REPLAY_EVENTS_RE =
+  /\/api\/session-replay\/agent-events\.json(?:[?#]|$)/;
 
-// Set once the first demo-status check completes. We DO NOT block requests on
-// it — if status isn't known yet a response is simply passed through
-// un-redacted (a brief first-paint window) rather than delaying transport.
-// Injecting latency into early GETs previously risked the agent's streaming
-// reconnect logic; transport safety wins over redacting the first paint.
-let firstStatusDone = false;
+export function shouldSkipDemoResponseRedaction(url: string): boolean {
+  return (
+    SKIP_SUBSTRINGS.some((substring) => url.includes(substring)) ||
+    RAW_REPLAY_PAYLOAD_RE.test(url) ||
+    RAW_AGENT_REPLAY_EVENTS_RE.test(url)
+  );
+}
+
+let installed = false;
 
 /** Reject after `ms` so a misclassified streaming body can never hang. */
 function withTimeout<T>(p: Promise<T>, ms: number): Promise<T> {
@@ -88,49 +101,17 @@ function methodOf(input: RequestInfo | URL, init?: RequestInit): string {
   return m.toUpperCase();
 }
 
-async function refreshDemoFlag(): Promise<void> {
-  const f = originalFetch ?? fetch;
-  try {
-    const res = await f(STATUS_PATH, { credentials: "same-origin" });
-    if (!res.ok) return;
-    const json = (await res.json()) as {
-      enabled?: boolean;
-      forced?: boolean;
-    } | null;
-    demoEnabled = json?.enabled === true || json?.forced === true;
-  } catch {
-    // Status endpoint unreachable — leave the last known value.
-  } finally {
-    firstStatusDone = true;
-  }
-}
-
-/** Refresh demo mode after the shared DB-sync stream reports a real change. */
-export function refreshDemoModeFetchInterceptor(): Promise<void> {
-  if (!installed) return Promise.resolve();
-  if (!refreshPromise) {
-    refreshPromise = refreshDemoFlag().finally(() => {
-      refreshPromise = null;
-    });
-  }
-  return refreshPromise;
-}
-
 /**
- * Install the demo-mode fetch interceptor and read demo status once. Later
- * changes are driven by the shared DB-sync transport instead of a separate
- * fixed polling loop.
+ * Install the browser-local demo-mode fetch interceptor.
  * Idempotent and browser-only — safe to call from any hook that runs in
- * every template root (we call it from `useDbSync`). A no-op until demo
- * mode is actually on.
+ * every template root (we call it from `useDbSync`).
  */
 export function ensureDemoModeFetchInterceptor(): void {
   if (typeof window === "undefined") return;
   if (installed) return;
   installed = true;
 
-  originalFetch = window.fetch.bind(window);
-  const base = originalFetch;
+  const base = window.fetch.bind(window);
 
   window.fetch = async function patchedFetch(
     input: RequestInfo | URL,
@@ -138,17 +119,17 @@ export function ensureDemoModeFetchInterceptor(): void {
   ): Promise<Response> {
     const res = await base(input, init);
 
-    // Fast path: anything that isn't a demo-enabled, plain GET returns the
+    // Fast path: anything that isn't a browser-local-demo, plain GET returns the
     // ORIGINAL response with zero body work and zero extra awaits — when
     // demo mode is off this wrapper is byte-for-byte native fetch, so it
     // cannot influence agent/run/stream transport.
-    if (!demoEnabled || !firstStatusDone) return res;
+    if (!getBrowserDemoModeEnabled()) return res;
     if (methodOf(input, init) !== "GET") return res;
     if (!res.ok) return res;
 
     try {
       const url = urlOf(input);
-      if (SKIP_SUBSTRINGS.some((s) => url.includes(s))) return res;
+      if (shouldSkipDemoResponseRedaction(url)) return res;
 
       // Only buffered, finite JSON. SSE / streaming / chunked-forever bodies
       // never reach `redactDemoData`: streaming content-types are excluded,
@@ -167,7 +148,13 @@ export function ensureDemoModeFetchInterceptor(): void {
       if (res.bodyUsed) return res;
 
       const data = await withTimeout(res.clone().json(), 3_000);
-      const redacted = redactDemoData(data);
+      // Frontend reads only need identity privacy. Dashboard charts apply
+      // their purpose-built demo trend transform at render time, so mutating
+      // every numeric field in every JSON response is unnecessary work.
+      const redacted = redactDemoData(data, {
+        redactNumbers: false,
+        redactProtectedEmails: true,
+      });
 
       const headers = new Headers(res.headers);
       // Body is re-serialized — these would be wrong now.
@@ -185,6 +172,4 @@ export function ensureDemoModeFetchInterceptor(): void {
       return res;
     }
   };
-
-  void refreshDemoModeFetchInterceptor();
 }

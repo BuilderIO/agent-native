@@ -332,7 +332,14 @@ describe("present-design-variants", () => {
     expect(data.canvasFrames).toMatchObject({
       "file-a": { x: 0, y: 0, width: 390, height: 844 },
       "file-b": { x: 486, y: 0, width: 390, height: 844 },
-      "file-c": { x: 972, y: 0, width: 1280, height: 900 },
+      "file-c": { x: 972, y: 0, width: 1440, height: 1024 },
+    });
+    expect(data.breakpointSet).toMatchObject({
+      breakpoints: [
+        expect.objectContaining({ label: "Mobile", widthPx: 390 }),
+        expect.objectContaining({ label: "Tablet", widthPx: 768 }),
+        expect.objectContaining({ label: "Desktop", widthPx: 1440 }),
+      ],
     });
     expect(data.screenMetadata["file-a"]).toMatchObject({
       title: "Pure White",

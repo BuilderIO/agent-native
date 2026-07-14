@@ -33,6 +33,12 @@ patterns live in `.agents/skills/`.
   tool. The action schema is the source of truth for parameters.
 - Call `view-screen` before editing a specific design if the current design or
   selected file is not already clear from context.
+- For shared prototype feedback, use the persisted review actions
+  (`list-review-comments`, `get-review-feedback`, `create-review-comment`,
+  `reply-review-comment`, `resolve-review-thread`, `consume-review-feedback`,
+  `send-review-thread-to-agent`, and `set-review-status`). Work one thread at a time, prefer its stable node
+  anchor, verify saved edits before resolving, and read
+  `.agents/skills/design-review-feedback/SKILL.md` for the full loop.
 - Generated files must be complete, standalone HTML unless the user asks for a
   different export format. They should render in the iframe without a build step.
 - For design generation, ground the work in a concrete audience, primary job,
@@ -269,6 +275,14 @@ patterns live in `.agents/skills/`.
   layers: text, classes, styles, attributes, source order, and small structural
   changes. Use it for selected-element edits before falling back to full
   `update-design` / `generate-design` rewrites.
+- For localhost JSX/TSX, `apply-visual-edit` also supports a narrow deterministic
+  slice: single-instance leaf text, literal `className`/`class`, and flat literal
+  `style={{ ... }}` properties. Pass `source.kind: "local-file"`, `designId`,
+  `connectionId`, the verified project-relative `path`, and
+  `intent.target.sourceAnchor`. Call once without `persist` and inspect
+  `proposedDiff`; call again with `persist: true` only when it is exact. The
+  action reads the current bridge version and writes through `write-local-file`,
+  so human consent and compare-and-swap remain mandatory.
 - For localhost React/TSX screens, treat compiler/debug metadata (project-relative
   source file, line, column, component, and runtime multiplicity) as evidence
   for locating source, not as permission to run a generic AST transform.
@@ -288,8 +302,10 @@ patterns live in `.agents/skills/`.
   persist by updating that attribute.
 - Inline/Alpine screens continue to use deterministic HTML code-layer edits.
   Localhost React/TSX screens use the semantic coding-agent handoff above;
-  deterministic direct React writes remain intentionally limited to narrowly
-  proven literal edits and never include generic structural transforms.
+  deterministic direct React writes remain intentionally limited to the leaf
+  literal slice above and never include generic structural transforms,
+  breakpoint writes, dynamic expressions, repeated renders, shared component
+  definitions, generated/out-of-root paths, or remote URLs.
 
 ## Code Workspace
 

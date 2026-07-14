@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Rechercher des formulaires",
     appearance: "Apparence",
     toggleTheme: "Changer de theme",
+    openAgent: "Ouvrir l’agent",
   },
   header: {
     settings: "Paramètres",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Demander a Forms",
     allForms: "Tous les formulaires",
     team: "Equipe",
+    agent: "Agent",
   },
   settings: {
     title: "Paramètres",
@@ -196,6 +198,9 @@ const messages = {
       anonymousResponses: "Réponses anonymes",
       anonymousResponsesDescription:
         "Ne pas conserver les adresses IP, l’identité du répondant ni les métadonnées de provenance.",
+      emailNewResponses: "M'envoyer un e-mail pour les nouvelles réponses",
+      emailNewResponsesDescription:
+        "Envoyer une notification à l'adresse e-mail du compte propriétaire du formulaire à chaque réponse.",
       saveSettings: "Enregistrer les paramètres",
     },
     integrations: {

@@ -34,8 +34,40 @@ await putSetting("observability-config", {
   captureToolArgs: true,    // capture action input args
   captureToolResults: false,
   evalSampleRate: 0.05,     // 5% of runs get LLM-as-judge eval
+  inferredSentimentEnabled: false,
+  inferredSentimentSampleRate: 0,
+  inferredSentimentModel: "gpt-5-6-luna",
 });
 ```
+
+#### Optional inferred sentiment
+
+Self-hosted apps default to no inferred sentiment. First-party apps hosted on
+`agent-native.com` automatically classify 100% of eligible user replies with
+`gpt-5-6-luna`; an explicit stored `inferredSentimentEnabled: false` remains an
+opt-out. Deployment overrides are `AGENT_NATIVE_INFERRED_SENTIMENT=on|off`,
+`AGENT_NATIVE_INFERRED_SENTIMENT_SAMPLE_RATE=0..1`, and
+`AGENT_NATIVE_INFERRED_SENTIMENT_MODEL=<model>`; `off` is always the emergency
+kill switch.
+
+Classification uses only the original visible user text, capped at 2,000
+characters, with no tools, temperature 0, an eight-token output, and a five
+second timeout. It skips attachment-only turns, internal continuations, chained
+background chunks, and first turns that have no preceding response to
+attribute. The managed Builder engine runs the classifier after the main
+response has streamed, so it does not contend with the user's response.
+
+Successful classifications emit a content-free `$ai_sentiment` tracking event:
+
+- `sentiment`: `positive`, `negative`, or `neutral`
+- `method`: `llm`
+- `model` / `$ai_model`: model that generated the preceding assistant response
+- `run_id` / `$ai_trace_id`: preceding response run
+- `thread_id` / `$ai_session_id`: conversation
+- `classification_trigger_run_id`: run started by the classified user reply
+- `classifier_model` and `classifier_engine`: classifier attribution
+
+No raw message, prompt, or response text is persisted or tracked.
 
 ### 2. Feedback
 
@@ -125,6 +157,11 @@ await updateExperiment(exp.id, { status: "running" });
 The agent loop reads active experiments via `resolveActiveExperimentConfig()` and applies the variant's `model` override automatically. Assignment uses consistent hashing — same user always gets the same variant.
 
 Compute results with `POST /_agent-native/observability/experiments/:id/results`.
+
+In production, experiment management routes require the caller's email in the
+comma-separated `AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS` allowlist. This gate is
+separate from normal app/org admin roles because an experiment affects every
+user in that deployment.
 
 ### 5. Dashboard
 

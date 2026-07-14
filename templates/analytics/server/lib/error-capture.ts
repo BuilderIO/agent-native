@@ -25,6 +25,7 @@ import {
   and,
   desc,
   eq,
+  exists,
   inArray,
   isNull,
   notInArray,
@@ -545,6 +546,27 @@ export interface RawExceptionInput {
   breadcrumbs: unknown[];
 }
 
+/**
+ * Browser request cancellation is expected during navigation and query
+ * invalidation. Keep the first-party issue store aligned with the client
+ * Sentry filter, while preserving other AbortError failures for triage.
+ */
+export function isBenignBrowserAbortException(
+  input: Pick<RawExceptionInput, "type" | "message">,
+): boolean {
+  const exceptionType = input.type.trim().toLowerCase();
+  const exceptionValue = input.message.trim().toLowerCase();
+  return (
+    exceptionValue === "the user aborted a request." ||
+    exceptionValue === "signal is aborted without reason" ||
+    exceptionValue === "aborterror: the user aborted a request." ||
+    exceptionValue === "aborterror: signal is aborted without reason" ||
+    (exceptionType === "aborterror" &&
+      (exceptionValue.includes("the user aborted a request") ||
+        exceptionValue.includes("signal is aborted without reason")))
+  );
+}
+
 function nowIso(): string {
   return new Date().toISOString();
 }
@@ -928,11 +950,9 @@ export async function ingestAnalyticsExceptionEvents(
   let ingested = 0;
   for (const item of events) {
     try {
-      await ingestException(
-        scope,
-        extractExceptionInput(item.properties),
-        item.derived,
-      );
+      const raw = extractExceptionInput(item.properties);
+      if (isBenignBrowserAbortException(raw)) continue;
+      await ingestException(scope, raw, item.derived);
       ingested += 1;
     } catch (error) {
       console.warn("[error-capture] Failed to ingest exception event:", error);
@@ -1072,6 +1092,8 @@ export interface ListErrorIssuesFilters {
   status?: IssueStatus | "all";
   query?: string;
   app?: string;
+  sessionRecordingId?: string;
+  userId?: string;
   sort?: "lastSeen" | "eventCount" | "firstSeen";
   limit?: number;
 }
@@ -1158,6 +1180,41 @@ export async function listErrorIssues(
     conditions.push(eq(schema.errorIssues.status, filters.status));
   }
   if (filters.app) conditions.push(eq(schema.errorIssues.app, filters.app));
+  const sessionRecordingId = filters.sessionRecordingId?.trim();
+  const userId = filters.userId?.trim();
+  if (sessionRecordingId || userId) {
+    const occurrenceConditions: any[] = [
+      eq(schema.errorEvents.issueId, schema.errorIssues.id),
+      // Keep the child occurrence in the same tenant as its parent issue even
+      // when the issue is visible through an org share.
+      eq(schema.errorEvents.ownerEmail, schema.errorIssues.ownerEmail),
+      or(
+        eq(schema.errorEvents.orgId, schema.errorIssues.orgId),
+        and(isNull(schema.errorEvents.orgId), isNull(schema.errorIssues.orgId)),
+      ),
+    ];
+    if (sessionRecordingId) {
+      occurrenceConditions.push(
+        eq(schema.errorEvents.sessionRecordingId, sessionRecordingId),
+      );
+    }
+    if (userId) {
+      occurrenceConditions.push(
+        or(
+          eq(schema.errorEvents.userId, userId),
+          eq(schema.errorEvents.userKey, userId),
+        ),
+      );
+    }
+    conditions.push(
+      exists(
+        db
+          .select({ id: schema.errorEvents.id })
+          .from(schema.errorEvents)
+          .where(and(...occurrenceConditions)),
+      ),
+    );
+  }
   const query = filters.query?.trim();
   if (query) {
     conditions.push(
@@ -1184,7 +1241,7 @@ export async function listErrorIssues(
     .limit(limit);
 
   const sparklines = await sparklinesForIssues(rows.map((row: any) => row.id));
-  return rows.map((row: any) => ({
+  const issues = rows.map((row: any) => ({
     id: row.id,
     fingerprint: row.fingerprint,
     type: row.type,
@@ -1203,6 +1260,7 @@ export async function listErrorIssues(
     template: row.template ?? null,
     sparkline: sparklines.get(row.id) ?? new Array(SPARKLINE_DAYS).fill(0),
   }));
+  return issues;
 }
 
 export interface ErrorEventDetail {
@@ -1419,7 +1477,11 @@ export async function getErrorIssue(
     sparkline: sparklines.get(issueId) ?? new Array(SPARKLINE_DAYS).fill(0),
   };
 
-  return { issue, events, sessions: Array.from(sessions.values()) };
+  return {
+    issue,
+    events,
+    sessions: Array.from(sessions.values()),
+  };
 }
 
 export interface UpdateErrorIssueInput {

@@ -238,6 +238,8 @@ VITE_AGENT_NATIVE_SESSION_REPLAY_SAMPLE_RATE=1
 - URL 會使用瀏覽器分析所用的同一個 `scrubUrl()` 輔助函式進行清理。
 - 重播擷取僅限於網頁，且為選擇加入；它不會錄製原生桌面畫面。
 
+由框架管理的 iframe（包括擴充功能與轉譯後的電子郵件內容）會納入重播擷取。錄製的 frame 內同樣套用遮罩與封鎖選擇器。第三方跨來源 iframe 會維持不透明，除非其本身的文件執行相容的 rrweb 記錄器並啟用跨來源 iframe 錄製；父頁面無法繞過瀏覽器的來源界線。
+
 在錄製期間，工作階段重播還會擷取瀏覽器主控台輸出（`log`、`info`、`warn`、`error`、`debug`，以及視窗的 `error`/`unhandledrejection`）與網路請求元資料（`fetch` 與 XHR），並以帶標籤的 rrweb 自訂事件形式儲存，讓代理與重播檢視器能夠偵錯使用者回報的問題。啟用重播後，擷取功能預設為開啟；可透過 `sessionReplay.console` 與 `sessionReplay.network` 選項進行調整或停用，這兩個選項都接受布林值或選項物件（`{ maxEvents?: number }`，其中 `network` 另外還可接受 `captureErrorBodies` 與 `maxErrorBodyLength`）。請求主體與標頭永遠不會被擷取；回應主體僅在 5xx（伺服器錯誤）回應時才會被擷取，且僅擷取一段有邊界、經過遮蔽處理的片段（`captureErrorBodies`，預設為 `true`，上限為 `maxErrorBodyLength` 個字元，預設 2048）——非 5xx 及網路失敗（狀態碼 0）的回應永遠不會帶有主體。URL 會被清理，訊息會被截斷，記錄器自身的擷取/追蹤流量會被排除，且每個工作階段的預算（1000 個主控台事件／2000 個網路事件）在超過時會加上截斷提示。
 
 Analytics 範本將重播中繼資料儲存在 SQL（`session_recordings`）中，並透過私有 blob 參照（`session_replay_chunks`）儲存區塊。瀏覽器與代理永遠不會收到提供者 URL。播放透過範圍受限的伺服器路由進行，且預設代理工具傳回摘要或範圍受限的重播事件，而非原始區塊資料表存取權。

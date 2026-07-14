@@ -114,6 +114,15 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
     }
   });
 
+  it("lets an explicit app opt-out override a stale deploy-wide flag", () => {
+    makeHosted();
+    process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_CHAT_DURABLE_BACKGROUND = "true";
+    expect(isAgentChatDurableBackgroundEnabled({ appOptIn: false })).toBe(
+      false,
+    );
+  });
+
   it("is OFF for falsy, unrecognized, or empty flag values (default-off)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
@@ -165,31 +174,40 @@ describe("isAgentChatDurableBackgroundEnabled (default-off opt-in gate)", () => 
   });
 });
 
-describe("isAgentChatForegroundSelfChainEnabled (default-on opt-out gate)", () => {
+describe("isAgentChatForegroundSelfChainEnabled (default-off opt-in gate)", () => {
   it("is OFF with nothing configured", () => {
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
   });
 
-  it("is ON BY DEFAULT when hosted + secret are present", () => {
+  it("stays OFF by default when hosted + secret are present", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
     delete process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN;
-    expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
+    expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
   });
 
-  it("stays ON for truthy, empty, or unrecognized flag values (hosted + secret)", () => {
+  it("is ON for explicit truthy flag values (hosted + secret)", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["1", "true", "yes", "on", " TRUE ", "", "maybe"]) {
+    for (const val of ["1", "true", "yes", "on", " TRUE "]) {
       process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
       expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     }
   });
 
-  it("is OFF for explicit falsy flag values", () => {
+  it("is OFF for falsy, empty, or unrecognized flag values", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
-    for (const val of ["0", "false", "no", "off", "FALSE", " Off "]) {
+    for (const val of [
+      "0",
+      "false",
+      "no",
+      "off",
+      "FALSE",
+      " Off ",
+      "",
+      "maybe",
+    ]) {
       process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = val;
       expect(isAgentChatForegroundSelfChainEnabled()).toBe(false);
     }
@@ -210,6 +228,7 @@ describe("isAgentChatForegroundSelfChainEnabled (default-on opt-out gate)", () =
   it("can be explicitly disabled independently of AGENT_CHAT_DURABLE_BACKGROUND", () => {
     makeHosted();
     process.env.A2A_SECRET = "shhh";
+    process.env.AGENT_CHAT_FOREGROUND_SELF_CHAIN = "true";
     expect(isAgentChatForegroundSelfChainEnabled()).toBe(true);
     expect(isAgentChatDurableBackgroundEnabled()).toBe(false);
 
@@ -534,13 +553,27 @@ describe("prepareProcessRunRequest (_process-run auth + marker prep)", () => {
 
     it("allows an unsigned dispatch in local dev (SQL claim is the guard)", () => {
       // No production env vars set in beforeEach's cleared environment.
+      // Simulates the route handler seeing a loopback (127.0.0.1/::1) peer —
+      // the real local-dev self-dispatch signal.
       const r = prepareProcessRunRequest(
         { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
         undefined,
+        true,
       );
       expect(r.ok).toBe(true);
       if (!r.ok) throw new Error("expected ok");
       expect(r.runId).toBe(RUN_ID);
+    });
+
+    it("refuses an unsigned dispatch that is NOT from loopback (fail closed)", () => {
+      // No production env vars set, but the caller can't/doesn't establish
+      // loopback — e.g. a non-loopback peer address, or a caller with no h3
+      // `event` to check (loopback omitted, defaults to false).
+      const r = prepareProcessRunRequest(
+        { [AGENT_CHAT_BACKGROUND_RUN_FIELD]: { runId: RUN_ID } },
+        undefined,
+      );
+      expect(r).toMatchObject({ ok: false, status: 503, runId: RUN_ID });
     });
   });
 });

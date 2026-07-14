@@ -131,6 +131,11 @@ Transcription takes an audio file and returns text + segments. That's not a prom
 2. **Cloud fallback — Builder.io managed (Gemini).** When a Builder account is connected (`BUILDER_PRIVATE_KEY` or per-user OAuth, no separate API key needed), `request-transcript` calls `transcribeWithBuilder()`, which routes audio to Builder.io's managed Gemini transcription. Returns text plus timestamped segments. Retry a failed transcript with `force: true`; pass `regenerate: true` to replace an existing ready transcript from the stored recording media. Regeneration keeps the prior ready transcript available if the new provider attempt fails.
 3. **Cloud fallback — Groq Whisper.** `GROQ_API_KEY` → `https://api.groq.com/openai/v1/audio/transcriptions`, model `whisper-large-v3-turbo`. Fast (~$0.04/hour of audio) Whisper-compatible speech-to-text used when Builder is unavailable.
 
+The transcript included by `view-screen` is only a bounded preview. When its
+`previewTruncated` field is true, the preview may end mid-sentence and does not
+show where transcription ended. Call `get-recording-player-data` before
+judging completeness or quoting the full transcript.
+
 Clips never routes recording/meeting audio to OpenAI for transcription. (Groq's endpoint is OpenAI-_compatible_ in request shape only — the audio goes to Groq, not OpenAI.)
 
 If no native transcript exists and no cloud fallback is available (no Builder connection and no Groq key), the action writes `status="failed"` so the UI can show a friendly prompt.

@@ -81,6 +81,7 @@ export function Layout({ children }: LayoutProps) {
     ? `show-questions:${designScope.id}`
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
+    enabled: hasSession,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -149,6 +150,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           storageKey={DESIGN_CHAT_STORAGE_KEY}
+          agentPageHref="/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionLandingPage"),
@@ -176,7 +178,7 @@ export function Layout({ children }: LayoutProps) {
             {!isDesignEditor && (
               <div
                 className={cn(
-                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none",
+                  "agent-layout-left-drawer fixed inset-y-0 start-0 z-50 transition-transform duration-200 ease-out md:static md:z-auto md:transition-none motion-reduce:transition-none",
                   mobileSidebarOpen
                     ? "translate-x-0"
                     : "-translate-x-full rtl:translate-x-full md:translate-x-0 md:rtl:translate-x-0",

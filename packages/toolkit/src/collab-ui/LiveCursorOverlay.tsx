@@ -92,13 +92,14 @@ const CursorLabel = memo(function CursorLabel({
       aria-label={`${label} cursor`}
       style={{
         position: "absolute",
-        left: x,
-        top: y,
+        left: 0,
+        top: 0,
         pointerEvents: "none",
         userSelect: "none",
-        transform: "translate(-2px, -2px)",
+        transform: `translate3d(${x - 2}px, ${y - 2}px, 0)`,
         zIndex: 9999,
-        transition: "left 120ms linear, top 120ms linear",
+        transition: "transform 80ms linear",
+        willChange: "transform",
         width: 0,
         height: 0,
       }}

@@ -102,13 +102,13 @@ PR Visual Recap هو إجراء GitHub يحول كل طلب سحب إلى **مر
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-يؤدي ذلك إلى تثبيت مهارة `visual-plan` (والتي تتضمن مهارة `visual-recap` التي يتم تشغيلها) ويكتب `.github/workflows/pr-visual-recap.yml` في الريبو الخاص بك. يستدعي سير العمل **الأوامر الفرعية CLI المنشورة** من خلال `npx @agent-native/core@latest recap <subcommand>` — بما في ذلك `gate` و`collect-diff` و`block-reference` و`scan` و`build-prompt` و`publish` و`shot` و`comment` و`check` و `usage` - لذلك لا يتم نسخ أي شيء إلى الريبو الخاص بك كنصوص برمجية مساعدة. `setup` و`doctor` هما المساعدان التفاعليان اللذان تقومان بتشغيلهما محليًا؛ `gate` هي خطوة بوابة الأمان التي يتم تشغيلها في سير العمل قبل كل ملخص.
+يؤدي ذلك إلى تثبيت مهارة `visual-plan` (والتي تتضمن مهارة `visual-recap` التي يتم تشغيلها) ويكتب `.github/workflows/pr-visual-recap.yml` في الريبو الخاص بك. يستدعي سير العمل **الأوامر الفرعية CLI المنشورة** من خلال `npx @agent-native/recap-cli@latest recap <subcommand>` — بما في ذلك `gate` و`collect-diff` و`block-reference` و`scan` و`build-prompt` و`publish` و`shot` و`comment` و`check` و `usage` - لذلك لا يتم نسخ أي شيء إلى الريبو الخاص بك كنصوص برمجية مساعدة. `setup` و`doctor` هما المساعدان التفاعليان اللذان تقومان بتشغيلهما محليًا؛ `gate` هي خطوة بوابة الأمان التي يتم تشغيلها في سير العمل قبل كل ملخص.
 
 ثم قم بتشغيل مساعد الإعداد الموجه:
 
 ```bash
-npx @agent-native/core@latest recap setup
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 يقوم `recap setup` بتحديث سير العمل، ويستخدم `gh` لتعيين GitHub Actions
@@ -118,10 +118,32 @@ npx @agent-native/core@latest recap doctor
 ملف سير العمل الذي تم إنشاؤه وافتح PR لمشاهدته قيد التشغيل.
 
 افتراضيًا، ينشئ سير العمل موجه الوكيل الخاص به من أحدث حزمة
-إرشادات `visual-recap` في `@agent-native/core@latest`، بما في ذلك أي شقيق
+إرشادات `visual-recap` في `@agent-native/recap-cli@latest`، بما في ذلك أي شقيق
 الملفات المرجعية التي تأتي معها المهارة. إذا تم تخصيص الريبو الخاص بك عن قصد و
 يثبت مجلد `visual-recap` المخصص له، ويضبط متغير المستودع
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
+
+## اختيار المشغّل
+
+يعمل سير العمل افتراضيًا على مشغّلات `ubuntu-latest` المستضافة من GitHub. لاستخدام مشغّل مستضاف آخر أو مشغّل ذاتي الاستضافة، اضبط متغير المستودع أو المؤسسة `VISUAL_RECAP_RUNS_ON` على سلسلة JSON صالحة أو مصفوفة JSON من تسميات المشغّل:
+
+```text
+"ubuntu-latest"
+["self-hosted", "linux", "x64", "visual-recap"]
+```
+
+علامات الاقتباس في JSON مطلوبة. تحدد هذه القيمة مشغّل مهمة `recap` الكاملة. لتكوينه أثناء الإعداد الموجّه، مرّر قيمة JSON نفسها إلى `--runs-on`، ثم تحقق من سير العمل وتوفر المشغّل باستخدام `doctor`:
+
+```bash
+npx @agent-native/recap-cli@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/recap-cli@latest recap doctor
+```
+
+تستخدم بوابة الأمان الخفيفة `ubuntu-latest` بشكل منفصل. يمكن للمستودعات التي تعطل مشغّلات GitHub المستضافة ضبط `VISUAL_RECAP_GATE_RUNS_ON` على تسمية نصية واحدة بلا JSON، أو استخدام `--gate-runs-on visual-recap-gate`. تُستخدم التسمية المخصصة فقط لمؤلفي `OWNER` أو `MEMBER` أو `COLLABORATOR` من المستودع نفسه؛ تُفرض `ubuntu-latest` على الفروع والمؤلفين الآخرين وقد تبقى عملياتهم بلا جدولة عند تعطيل مشغّلات GitHub المستضافة. استخدم مشغّلًا مخصصًا ويفضل أن يكون مؤقتًا؛ لا تسحب البوابة القياسية شجرة PR وتقيّم منطق سير العمل وبيانات PR الوصفية.
+
+يرفض `recap doctor` بيانات JSON غير الصالحة أو غير المدعومة، ويبلغ عندما لا يعرض GitHub مشغّلًا متصلًا يطابق جميع التسميات المكوّنة. يظل تسجيل المشغّل وتثبيته وترقياته وسعته وصيانته من مسؤوليتك؛ يحدد Agent Native التسميات ولكنه لا يوفر المشغّل ولا يديره.
+
+**الأمان:** يُفضّل استخدام مشغّلات ذاتية الاستضافة مؤقتة. يجب أن تخدم المشغّلات الدائمة ذاتية الاستضافة المستودعات الخاصة التي يقتصر المساهمون فيها على أشخاص موثوق بهم. يُغلق سير العمل بأمان قبل جدولة عمل ذاتي الاستضافة لمؤلفي PR غير الموثوق بهم في المستودعات العامة أو المتفرعة، لكن الجهاز الدائم يظل محتفظًا بحالة مساحة العمل والعمليات بين المهام. لا تضعف هذه البوابة ولا توجه مساهمات غير موثوقة إلى مشغّل دائم.
 
 ## تحديد الخلفية
 
@@ -138,11 +160,29 @@ npx @agent-native/core@latest recap doctor
 
 خارج الواجهة الخلفية، يوجد متغيران في المستودع يضبطان _كيف_ يعمل الوكيل:
 
-- **`VISUAL_RECAP_MODEL`** يثبت النموذج الذي تم تمريره إلى CLI (`--model`) — على سبيل المثال `gpt-5.6-sol` لـ Codex، أو معرف نموذج Claude. اتركه بدون ضبط لاستخدام النموذج الافتراضي الخاص بـ CLI.
+- **`VISUAL_RECAP_MODEL`** يثبت النموذج الذي يتم تمريره إلى CLI (`--model`) — على سبيل المثال `gpt-5.6-luna` لـ Codex، أو معرف نموذج Claude، أو `deepseek-chat` لـ DeepSeek. وهو مطلوب لـ `openai-compatible`. بالنسبة للواجهة الخلفية **Claude**، فإن تركه بدون ضبط يستخدم الآن `claude-sonnet-5` افتراضيًا؛ اضبط المتغير صراحةً لاستخدام نموذج Claude مختلف، مثل `claude-haiku-4-5` الأرخص. بالنسبة للواجهة الخلفية **Codex**، فإن تركه بدون ضبط يستخدم النموذج الافتراضي الخاص بـ Codex CLI.
 - **`VISUAL_RECAP_REASONING`** يضبط عمق الاستدلال: `none` أو `minimal` أو `low` أو `medium` أو `high` أو `xhigh`. وينطبق ذلك على الواجهة الخلفية Codex؛ يعتمد منطق Claude على النموذج، لذلك يتم تجاهل هذا المتغير هناك.
 - **`VISUAL_RECAP_SKILL_SOURCE`** يتحكم في الحداثة السريعة: يستخدم `auto`/unset أحدث توجيهات المهارات المجمعة، بينما يتم تثبيت `repo` في مجلد مهارات `visual-recap` المحلي المخصص.
 
 على سبيل المثال، لتشغيل الملخص على Codex باستخدام GPT-5.6 Sol عند المنطق العالي، قم بتعيين متغيرات المستودع `VISUAL_RECAP_AGENT=codex`، و`VISUAL_RECAP_MODEL=gpt-5.6-sol`، و`VISUAL_RECAP_REASONING=high`.
+
+## التكلفة
+
+كل تشغيل للملخّص هو جلسة كاملة لوكيل ترميز يقرأ فرقًا حقيقيًا (diff)، وليس ملخصًا رخيصًا بقالب جاهز، لذا تتبع تكلفته اختيار النموذج وعدد مرات تشغيله:
+
+- **جلسة كاملة لكل دفعة (push) على طلب السحب.** يعمل المُشغّل الافتراضي عند `synchronize`، لذا فإن طلب سحب (PR) تم دفعه عشر مرات يشغّل الوكيل عشر مرات.
+- **طلب السحب بأكمله في كل مرة**، وليس فقط الالتزامات (commits) منذ آخر تشغيل — تتناسب التكلفة مع الحجم الإجمالي لطلب السحب، وليس مع حجم الفرق التزايدي.
+- **إدخال الفرق محدود بحوالي 600 كيلوبايت.** هذا يحدّ من أسوأ الحالات لكل تشغيل، لكن الفروقات الكبيرة لا تزال تكلف أكثر بشكل ملحوظ من الصغيرة.
+- **إعادة محاولة تلقائية واحدة عند الفشل**، والتي يمكن أن تضاعف تقريبًا تكلفة التشغيل الذي يفشل بشكل عابر.
+
+لتقليل التكلفة:
+
+- **ثبّت نموذجًا أرخص.** بالنسبة لـ Claude، اضبط `VISUAL_RECAP_MODEL=claude-haiku-4-5` للمستودعات البسيطة أو الصغيرة — إنه أرخص فئة من Claude؛ `claude-sonnet-5` (الافتراضي) هو الفئة المتوازنة.
+- **انتقل إلى Codex بنموذج أرخص.** اضبط `VISUAL_RECAP_AGENT=codex` مع `VISUAL_RECAP_MODEL=gpt-5.6-luna` (أرخص فئة من GPT-5.6) أو `gpt-5.6-terra` (فئة متوسطة)، واضبط `VISUAL_RECAP_REASONING=low` لخفض إنفاق رموز الاستدلال أكثر. يُطبَّق عمق الاستدلال على Codex فقط.
+- **وجّهه إلى مزود متوافق مع OpenAI أرخص.** اضبط `VISUAL_RECAP_AGENT=openai-compatible` مع `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` مستهدفًا DeepSeek أو Kimi أو أي نقطة نهاية أخرى متوافقة مع OpenAI.
+- **قلّل من تكرار الملخصات.** عدّل `on.pull_request.types` في سير العمل المثبّت من `[opened, synchronize, reopened, ready_for_review, closed]` إلى `[opened, ready_for_review, closed]` بحيث يتم إنشاء الملخّص فقط عند فتح طلب السحب وعند دمجه، بدلاً من كل دفعة.
+
+يسجّل كل تشغيل ما أنفقه فعليًا: تُرفق خطوة `recap usage` في سير العمل استخدام الرموز والتكلفة بالخطة المنشورة، حتى تتمكن من الاطلاع على الإنفاق الفعلي لكل تشغيل بدلاً من التخمين.
 
 ## الأسرار والمتغيرات
 
@@ -174,11 +214,11 @@ npx @agent-native/core@latest connect https://plan.agent-native.com --service-to
 
 **Solo: رمز شخصي لا يزال يعمل.** اصنعه باستخدام `npx @agent-native/core@latest connect`
 مقابل تطبيق الخطط الخاص بك. بالنسبة للتطبيق المستضاف، يقوم هذا أيضًا بكتابة محلي
-ملف رمز النشر المميز الذي يستطيع `npx @agent-native/core@latest recap setup` قراءته:
+ملف رمز النشر المميز الذي يستطيع `npx @agent-native/recap-cli@latest recap setup` قراءته:
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
-npx @agent-native/core@latest recap setup
+npx @agent-native/recap-cli@latest recap setup
 ```
 
 إذا كنت تفضل الإعداد اليدوي، فالصق الرمز المميز في سر GitHub. استخدم
@@ -187,16 +227,16 @@ npx @agent-native/core@latest recap setup
 
 ### اختياري (فقط في حالة تغيير الإعدادات الافتراضية)
 
-| سري/متغير                | الافتراضي                       | عندما تحتاج إليه                                                                                                                                           |
-| ------------------------ | ------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | سرية. اضبطه مع `VISUAL_RECAP_AGENT=codex` لتشغيل الخلاصة باستخدام Codex بدلاً من ذلك.                                                                      |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | متغير. يحدد الواجهة الخلفية لعامل التشفير (`claude` أو `codex`).                                                                                           |
-| `VISUAL_RECAP_MODEL`     | كل CLI الافتراضي                | متغير. دبابيس النموذج - على سبيل المثال. `gpt-5.6-sol` لـ Codex، أو معرف طراز Claude. يستخدم Unset الإعداد الافتراضي الخاص بـ CLI.                         |
-| `VISUAL_RECAP_REASONING` | الإعداد الافتراضي لكل نموذج     | متغير. عمق الاستدلال: `none`، أو `minimal`، أو `low`، أو `medium`، أو `high`، أو `xhigh`. ينطبق على الواجهة الخلفية Codex.                                 |
-| `RECAP_CLI_VERSION`      | `latest`                        | متغير. تثبيت إصدار `@agent-native/core` CLI الذي يقوم سير العمل بتثبيته - على سبيل المثال. `1.5.0`. انظر [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | سرية. فقط عند الاستضافة الذاتية لتطبيق الخطط على مصدر مختلف.                                                                                               |
+| سري/متغير                | الافتراضي                                                    | عندما تحتاج إليه                                                                                                                                                                                                                                                                         |
+| ------------------------ | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                            | سرية. اضبطه مع `VISUAL_RECAP_AGENT=codex` لتشغيل الخلاصة باستخدام Codex بدلاً من ذلك.                                                                                                                                                                                                    |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                     | متغير. يحدد الواجهة الخلفية لعامل التشفير (`claude` أو `codex`).                                                                                                                                                                                                                         |
+| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` لـ Claude؛ مطلوب للواجهة الخلفية المتوافقة | متغير. معرف نموذج المزوّد للواجهات الخلفية المتوافقة مع OpenAI (مطلوب هناك). بالنسبة لـ Claude، تركه بدون ضبط يستخدم الآن `claude-sonnet-5` افتراضيًا — اضبطه لتجاوز ذلك، مثل `claude-haiku-4-5` لأرخص فئة. بالنسبة لـ Codex، تركه بدون ضبط يستخدم الإعداد الافتراضي الخاص بـ Codex CLI. |
+| `VISUAL_RECAP_REASONING` | الإعداد الافتراضي لكل نموذج                                  | متغير. عمق الاستدلال: `none`، أو `minimal`، أو `low`، أو `medium`، أو `high`، أو `xhigh`. ينطبق على الواجهة الخلفية Codex.                                                                                                                                                               |
+| `RECAP_CLI_VERSION`      | `latest`                                                     | متغير. تثبيت إصدار `@agent-native/recap-cli` CLI الذي يقوم سير العمل بتثبيته - على سبيل المثال. `1.5.0`. انظر [Version pinning](#version-pinning-copy-variant).                                                                                                                          |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                              | سرية. فقط عند الاستضافة الذاتية لتطبيق الخطط على مصدر مختلف.                                                                                                                                                                                                                             |
 
-يكتشف سير العمل تلقائيًا كيفية استدعاء مساعده CLI (المصدر المحلي داخل هذا monorepo، `@agent-native/core` المنشور في مكان آخر)، لذا لا يوجد متغير `RECAP_CLI` لتعيينه.
+يكتشف سير العمل تلقائيًا كيفية استدعاء مساعده CLI (المصدر المحلي داخل هذا monorepo، `@agent-native/recap-cli` المنشور في مكان آخر)، لذا لا يوجد متغير `RECAP_CLI` لتعيينه.
 
 ## لقطة شاشة مضمنة في التعليق
 
@@ -337,9 +377,9 @@ npx @agent-native/core@latest recap setup
 يتدفق نفس المساعد محليًا في وضع الملفات المحلية بدلاً من ذلك:
 
 ```bash
-npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
-npx @agent-native/core@latest recap scan --diff recap.diff
-npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+npx @agent-native/recap-cli@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/recap-cli@latest recap scan --diff recap.diff
+npx @agent-native/recap-cli@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
 أعط `recap-prompt.md` الذي تم إنشاؤه إلى وكيل الترميز الخاص بك. في وضع الملفات المحلية
@@ -369,7 +409,7 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 
 ## تثبيت الإصدار (متغير النسخ) {#version-pinning-copy-variant}
 
-افتراضيًا، يقوم سير عمل النسخ المتغير بتثبيت `@agent-native/core@latest` في وقت التشغيل، لذا فإن كل عملية تلخيص تلتقط تلقائيًا أحدث CLI. إذا كان CI الخاص بك يحتاج إلى أدوات قابلة للتكرار، فقم بتعيين متغير المستودع **`RECAP_CLI_VERSION`** لتثبيت الإصدار المثبت:
+افتراضيًا، يقوم سير عمل النسخ المتغير بتثبيت `@agent-native/recap-cli@latest` في وقت التشغيل، لذا فإن كل عملية تلخيص تلتقط تلقائيًا أحدث CLI. إذا كان CI الخاص بك يحتاج إلى أدوات قابلة للتكرار، فقم بتعيين متغير المستودع **`RECAP_CLI_VERSION`** لتثبيت الإصدار المثبت:
 
 1. انتقل إلى الريبو الخاص بك **الإعدادات → الأسرار والمتغيرات → Actions → المتغيرات**.
 2. قم بإنشاء متغير باسم `RECAP_CLI_VERSION` بقيمة مثل `1.5.0`.
@@ -380,7 +420,7 @@ npx @agent-native/core@latest plan local serve --dir plans/pr-123-visual-recap -
 
 ## القائمة المسموح بها للفحص السري
 
-قبل نشر الملخّص، يقوم سير العمل بتشغيل `npx @agent-native/core@latest recap scan` لاكتشاف الأسرار المحتملة في الفرق. يتم حظر أي علاقات عامة يتطابق فرقها مع نمط سري معروف بتعليق توضيحي - لا يتم نشر الملخص، ولا يتم إرسال أي محتوى فرق إلى وكيل الترميز.
+قبل نشر الملخّص، يقوم سير العمل بتشغيل `npx @agent-native/recap-cli@latest recap scan` لاكتشاف الأسرار المحتملة في الفرق. يتم حظر أي علاقات عامة يتطابق فرقها مع نمط سري معروف بتعليق توضيحي - لا يتم نشر الملخص، ولا يتم إرسال أي محتوى فرق إلى وكيل الترميز.
 
 في حالات نادرة، يحتوي الريبو على تركيبات اختبار متعمدة أو سلاسل غير سرية تشبه بشكل سطحي الأنماط السرية (على سبيل المثال، مفتاح التثبيت في ملف اختبار). لمنع النتيجة الإيجابية الخاطئة، قم بإنشاء `.github/recap-scan-allowlist` في جذر المستودع الخاص بك.
 
@@ -414,7 +454,7 @@ EXAMPLE_API_KEY=placeholder-value
 
 ### لماذا نستخدم المتغير القابل لإعادة الاستخدام؟
 
-يقوم المثبت الافتراضي بنسخ سير العمل YAML الكامل ~360 سطرًا إلى الريبو الخاص بك (خيار **النسخ**). هذا هو الاختيار الصحيح لعمليات إعادة الشراء أو عمليات إعادة الشراء التي تحتاج إلى مراجعة كل سطر مما يتم تشغيله. الجانب السلبي هو أن إصلاحات الأخطاء والتحسينات لا تصل إليك أبدًا — تحتاج إلى إعادة تشغيل `npx @agent-native/core@latest recap setup` يدويًا بعد كل إصدار.
+يقوم المثبت الافتراضي بنسخ سير العمل YAML الكامل ~360 سطرًا إلى الريبو الخاص بك (خيار **النسخ**). هذا هو الاختيار الصحيح لعمليات إعادة الشراء أو عمليات إعادة الشراء التي تحتاج إلى مراجعة كل سطر مما يتم تشغيله. الجانب السلبي هو أن إصلاحات الأخطاء والتحسينات لا تصل إليك أبدًا — تحتاج إلى إعادة تشغيل `npx @agent-native/recap-cli@latest recap setup` يدويًا بعد كل إصدار.
 
 يقوم الخيار **القابل لإعادة الاستخدام** بكتابة متصل رفيع يصل إلى 20 سطرًا بدلاً من ذلك. يقوم بالتفويض إلى `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` عبر `uses:`. يلتقط كل متصل تلقائيًا أحدث المنطق عند تشغيل سير العمل، دون الحاجة إلى تحديث محلي.
 
@@ -427,7 +467,7 @@ EXAMPLE_API_KEY=placeholder-value
 
 ### مقتطف المتصل
 
-هذا ما يكتبه `npx @agent-native/core@latest recap setup --reusable` (أو يمكنك لصقه يدويًا):
+هذا ما يكتبه `npx @agent-native/recap-cli@latest recap setup --reusable` (أو يمكنك لصقه يدويًا):
 
 ```yaml
 name: PR Visual Recap
@@ -460,24 +500,26 @@ jobs:
       model: ${{ vars.VISUAL_RECAP_MODEL || '' }}
       reasoning: ${{ vars.VISUAL_RECAP_REASONING || '' }}
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
-      # cli-version: "latest"  # pin to a specific @agent-native/core version
+      runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
+      gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
+      # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
-تنطبق نفس الأسرار والمتغيرات الموضحة في [Secrets and variables](#secrets-and-variables) - قم بتعيينها في إعدادات الريبو الخاصة بك بنفس الطريقة كما في متغير النسخ.
+تنطبق الأسرار والمتغيرات نفسها الموضحة في [Secrets and variables](#secrets-and-variables). يمرر المتصل القابل لإعادة الاستخدام `VISUAL_RECAP_RUNS_ON` كـ `runs-on` للمهمة الكاملة، و`VISUAL_RECAP_GATE_RUNS_ON` كتسمية مفردة `gate-runs-on` للبوابة. يستخدم كلاهما `ubuntu-latest` عند الحذف.
 
 ### التثبيت عبر CLI
 
 ```bash
 # اكتب المتصل الرقيق بدلاً من النسخة الكاملة:
-npx @agent-native/core@latest recap setup --reusable
+npx @agent-native/recap-cli@latest recap setup --reusable
 
 # أو مع مرجع مثبت لقابلية التكرار:
-npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+npx @agent-native/recap-cli@latest recap setup --reusable --ref v1.2.3
 ```
 
 يقوم كلا الخيارين بكتابة سير العمل إلى `.github/workflows/pr-visual-recap.yml`. إذا كان سير العمل موجودًا بالفعل ومختلفًا، فسيرفض الأمر ويطلب منك تمرير `--force` للكتابة فوقه.
 
-بعد الكتابة، قم بتشغيل `npx @agent-native/core@latest recap doctor` كالمعتاد للتأكد من تكوين الأسرار.
+بعد الكتابة، قم بتشغيل `npx @agent-native/recap-cli@latest recap doctor` كالمعتاد للتأكد من تكوين الأسرار.
 
 ### تثبيت الإصدار
 
@@ -487,7 +529,7 @@ npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
 uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
 ```
 
-يتحكم إدخال `cli-version` في إصدار `@agent-native/core` CLI الذي يتم تشغيله داخل سير العمل - اتركه في `"latest"` لتتبع الإصدار الأحدث، أو قم بتثبيته في سلسلة إصدار (على سبيل المثال، `"1.5.0"`) للحصول على إمكانية تكرار نتائج كاملة.
+يتحكم إدخال `cli-version` في إصدار `@agent-native/recap-cli` CLI الذي يتم تشغيله داخل سير العمل - اتركه في `"latest"` لتتبع الإصدار الأحدث، أو قم بتثبيته في سلسلة إصدار (على سبيل المثال، `"1.5.0"`) للحصول على إمكانية تكرار نتائج كاملة.
 
 ### سياق حدث Workflow_call
 

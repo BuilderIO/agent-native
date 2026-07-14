@@ -20,7 +20,6 @@
 import {
   defineEventHandler,
   getMethod,
-  getRequestHeader,
   readMultipartFormData,
   setResponseStatus,
   type H3Event,
@@ -43,6 +42,7 @@ import {
   resolveSecret,
 } from "./credential-provider.js";
 import { runWithRequestContext } from "./request-context.js";
+import { isSameOriginRequest } from "./request-origin.js";
 
 const WHISPER_URL = "https://api.openai.com/v1/audio/transcriptions";
 const GROQ_URL = "https://api.groq.com/openai/v1/audio/transcriptions";
@@ -74,55 +74,6 @@ const BUILDER_GEMINI_TRANSCRIPTION_MODEL = "gemini-3-1-flash-lite";
 // managed provider above handles the newer Gemini 3.1 Flash-Lite preview.
 const GEMINI_MODEL = "gemini-2.0-flash-lite";
 const GEMINI_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent`;
-
-/**
- * Reject cross-site POSTs. Cookies are `SameSite=None; Secure` over HTTPS so
- * the browser would otherwise attach the session to a forged form submission
- * from evil.com, causing us to spend OpenAI credits on the user's behalf.
- * Same-origin browsers always send `Origin` on POST; if it's missing we fall
- * back to `Sec-Fetch-Site` so Safari's fetch-spec behavior still works.
- */
-function isSameOriginRequest(event: H3Event): boolean {
-  const host = getRequestHeader(event, "host");
-  const origin = getRequestHeader(event, "origin");
-  if (origin && host) {
-    try {
-      const parsed = new URL(origin);
-      if (parsed.host === host) return true;
-      // Tauri desktop dev serves the tray WebView from localhost:1420 while
-      // the app server lives on the template dev port. Production Tauri
-      // WebViews can also send a tauri://localhost origin. Treat only those
-      // desktop origins as trusted cross-origin callers; arbitrary websites
-      // still fail the CSRF check.
-      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
-        return true;
-      }
-      if (
-        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
-        parsed.hostname === "tauri.localhost" &&
-        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
-      ) {
-        return true;
-      }
-      if (
-        parsed.protocol === "http:" &&
-        (parsed.hostname === "localhost" || parsed.hostname === "127.0.0.1") &&
-        parsed.port === "1420" &&
-        (host.startsWith("localhost:") || host.startsWith("127.0.0.1:"))
-      ) {
-        return true;
-      }
-      return false;
-    } catch {
-      return false;
-    }
-  }
-  const fetchSite = getRequestHeader(event, "sec-fetch-site");
-  if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
-  // No Origin and no Sec-Fetch-Site: likely a non-browser client (curl,
-  // server-side) — safe to allow, CSRF requires a browser with ambient cookies.
-  return true;
-}
 
 /**
  * Derive an AbortSignal that fires when the client disconnects mid-request

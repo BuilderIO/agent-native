@@ -79,7 +79,7 @@ const MultiTabAssistantChatLazy = lazy(() =>
   })),
 );
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 
 import type { AgentChatSurfaceKind } from "./agent-chat-adapter.js";
 import {
@@ -127,6 +127,7 @@ const AGENT_PANEL_OPEN_SETTINGS_EVENT = "agent-panel:open-settings";
 
 function settingsRouteHashForSection(section?: string | null): string {
   const normalized = section?.replace(/^#/, "").toLowerCase() ?? "";
+  if (normalized === "voice") return "#voice";
   if (
     normalized.startsWith("secrets") ||
     normalized.includes("api") ||
@@ -349,28 +350,30 @@ function ChatLoadingSkeleton({
             </div>
           </div>
           {composerSlot}
-          <div
-            className={cn(
-              "agent-composer-area shrink-0 px-3 py-2",
-              composerLayoutVariant !== "default" &&
-                `agent-composer-area--${composerLayoutVariant}`,
-              composerAreaClassName,
-            )}
-          >
+          <div className="agent-composer-stack">
             <div
               className={cn(
-                "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                "agent-composer-area shrink-0 px-3 py-2",
                 composerLayoutVariant !== "default" &&
-                  `agent-composer-root--${composerLayoutVariant}`,
+                  `agent-composer-area--${composerLayoutVariant}`,
+                composerAreaClassName,
               )}
             >
-              <div className="px-3 pt-3">
-                <div className="h-5 w-3/5 rounded bg-muted animate-pulse" />
-              </div>
-              <div className="mt-auto flex items-center gap-2 px-3 py-2">
-                <div className="h-5 w-5 rounded bg-muted animate-pulse" />
-                <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse" />
-                <div className="h-7 w-7 rounded-md bg-muted animate-pulse" />
+              <div
+                className={cn(
+                  "agent-composer-root flex flex-col rounded-lg border border-input bg-muted/45 transition-colors",
+                  composerLayoutVariant !== "default" &&
+                    `agent-composer-root--${composerLayoutVariant}`,
+                )}
+              >
+                <div className="px-3 pt-3">
+                  <div className="h-5 w-3/5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                </div>
+                <div className="mt-auto flex items-center gap-2 px-3 py-2">
+                  <div className="h-5 w-5 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                  <div className="ml-auto h-4 w-28 rounded bg-muted animate-pulse motion-reduce:animate-none" />
+                  <div className="h-7 w-7 rounded-md bg-muted animate-pulse motion-reduce:animate-none" />
+                </div>
               </div>
             </div>
           </div>
@@ -383,7 +386,7 @@ function ChatLoadingSkeleton({
       {renderHeader ? renderHeader(stubProps) : null}
       {/* Composer-shaped placeholder keeps layout stable during chunk load */}
       <div className="mt-auto shrink-0 border-t border-border p-3">
-        <div className="h-16 rounded-xl bg-muted/40 animate-pulse" />
+        <div className="h-16 rounded-xl bg-muted/40 animate-pulse motion-reduce:animate-none" />
       </div>
     </div>
   );
@@ -594,6 +597,8 @@ export interface AgentPanelProps extends Omit<
   showPageNewChatButton?: boolean;
   /** Allow the sidebar settings view to render inside this panel. Default: true. */
   allowSettingsMode?: boolean;
+  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  agentPageHref?: string;
   /** Capability gate for source edits and CLI access. */
   codeAccess?: AgentPanelCodeAccess;
 }
@@ -744,6 +749,7 @@ function AgentPanelInner({
   showTabBar = true,
   showPageNewChatButton = false,
   allowSettingsMode = true,
+  agentPageHref,
   codeAccess,
   ...assistantChatProps
 }: AgentPanelProps) {
@@ -1270,7 +1276,7 @@ function AgentPanelInner({
             )}
             {mode === "chat" && (
               <RunsTrayMenuItem
-                pollMs={2000}
+                pollMs={0}
                 limit={12}
                 showRecent={true}
                 onOpenThread={openRunThread}
@@ -1458,32 +1464,39 @@ function AgentPanelInner({
         activeTab && (activeTabMessageCount > 0 || activeTab.status !== "idle");
 
       return (
-        <div className="pointer-events-none absolute inset-x-0 top-3 z-[60] flex justify-end px-3 sm:top-4 sm:px-4">
-          <div className="pointer-events-auto flex items-center gap-1">
-            {canShareActiveTab ? (
-              <ShareButton
-                resourceType="chat_thread"
-                resourceId={activeTab.id}
-                resourceTitle={activeTab.label || "Chat"}
-                shareUrl={getChatThreadShareUrl(activeTab.id)}
-                trigger="icon"
-                triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
-              />
-            ) : null}
-            <button
-              type="button"
-              data-agent-page-new-chat=""
-              aria-label={t("agentPanel.newChat")}
-              onClick={() => {
-                addTab();
-              }}
-              className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              <IconPlus size={14} />
-              <span>{t("agentPanel.newChat")}</span>
-            </button>
+        <>
+          <div
+            aria-hidden="true"
+            data-agent-page-chat-fade=""
+            className="pointer-events-none absolute inset-x-0 top-0 z-50 h-16 bg-gradient-to-b from-background via-background/90 to-transparent opacity-0 transition-opacity duration-150"
+          />
+          <div className="pointer-events-none absolute inset-x-0 top-3 z-[60] flex justify-end px-3 sm:top-4 sm:px-4">
+            <div className="pointer-events-auto flex items-center gap-1">
+              {canShareActiveTab ? (
+                <ShareButton
+                  resourceType="chat_thread"
+                  resourceId={activeTab.id}
+                  resourceTitle={activeTab.label || "Chat"}
+                  shareUrl={getChatThreadShareUrl(activeTab.id)}
+                  trigger="icon"
+                  triggerClassName="h-8 w-8 border border-border bg-background/95 shadow-sm backdrop-blur hover:bg-accent"
+                />
+              ) : null}
+              <button
+                type="button"
+                data-agent-page-new-chat=""
+                aria-label={t("agentPanel.newChat")}
+                onClick={() => {
+                  addTab();
+                }}
+                className="inline-flex h-8 items-center gap-1.5 rounded-md border border-border bg-background/95 px-2.5 text-xs font-medium text-foreground shadow-sm backdrop-blur transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              >
+                <IconPlus size={14} />
+                <span>{t("agentPanel.newChat")}</span>
+              </button>
+            </div>
           </div>
-        </div>
+        </>
       );
     },
     [getChatThreadShareUrl, t],
@@ -1798,10 +1811,12 @@ function AgentPanelInner({
             ".agent-tabs-scroll{scrollbar-width:none;-ms-overflow-style:none;}" +
             ".agent-tabs-scroll::-webkit-scrollbar{display:none;}" +
             `[data-agent-fullscreen='true'] .agent-thread-content,` +
-            `[data-agent-fullscreen='true'] .agent-running-activity,` +
+            `[data-agent-fullscreen='true'] .agent-running-activity{` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
+            `margin-left:auto;margin-right:auto;width:100%;}` +
             `[data-agent-fullscreen='true'] .agent-composer-area,` +
             `[data-agent-fullscreen='true'] .agent-plan-mode-callout{` +
-            `max-width:${FULLSCREEN_CONTENT_MAX_PX}px;` +
+            `max-width:${FULLSCREEN_CHAT_COLUMN_MAX_PX}px;` +
             `margin-left:auto;margin-right:auto;width:100%;}`,
         }}
       />
@@ -1923,7 +1938,18 @@ function AgentPanelInner({
 
       {/* Resources view */}
       {mode === "resources" && (
-        <div className="flex-1 min-h-0">
+        <div className="flex flex-1 flex-col min-h-0">
+          {agentPageHref && (
+            <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5">
+              <Link
+                to={agentPageHref}
+                className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                {t("agentPanel.openFullView")}
+                <IconExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          )}
           <Suspense
             fallback={
               <div className="flex h-full flex-col min-h-0">
@@ -1944,6 +1970,17 @@ function AgentPanelInner({
       {/* Settings / Setup view */}
       {mode === "settings" && (
         <div className="flex flex-col flex-1 min-h-0">
+          {agentPageHref && (
+            <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5">
+              <Link
+                to={agentPageHref}
+                className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+              >
+                {t("agentPanel.openFullView")}
+                <IconExternalLink className="h-3 w-3" />
+              </Link>
+            </div>
+          )}
           <Suspense
             fallback={
               <div className="p-3 space-y-2">
@@ -1977,8 +2014,8 @@ const SIDEBAR_MAX = 700;
 const SIDEBAR_ANIMATION_MS = 260;
 const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_FULLSCREEN_Z_INDEX = 90;
-/** Max width of the centered chat column in fullscreen mode (Claude-style). */
-const FULLSCREEN_CONTENT_MAX_PX = 760;
+/** Shared max width of the centered fullscreen chat column and composer. */
+const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
 
 function ResizeHandle({
   position,
@@ -2186,7 +2223,6 @@ function URLSync({ browserTabId }: { browserTabId?: string }) {
         return null;
       }
     },
-    refetchInterval: 2_000,
     retry: false,
   });
 
@@ -2583,6 +2619,8 @@ export interface AgentSidebarProps {
   browserTabId?: string;
   /** Keep chat thread selection in URL state. */
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
+  /** Optional link shown in Resources and Settings modes for the full Agent page. */
+  agentPageHref?: string;
 }
 
 /**
@@ -2613,6 +2651,7 @@ export function AgentSidebar({
   showScopeBadge,
   browserTabId,
   threadUrlSync,
+  agentPageHref,
 }: AgentSidebarProps) {
   const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
   const [open, setOpen] = useState(
@@ -3149,6 +3188,7 @@ export function AgentSidebar({
             showScopeBadge={showScopeBadge}
             browserTabId={browserTabId}
             threadUrlSync={threadUrlSync}
+            agentPageHref={agentPageHref}
             allowSettingsMode={false}
           />
         </div>

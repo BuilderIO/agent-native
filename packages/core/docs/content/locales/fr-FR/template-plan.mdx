@@ -114,7 +114,7 @@ La commande installe trois commandes : `/visual-plan`, `/visual-recap` et `/visu
 
 Si vous utilisez un hôte basé sur le chat qui accepte directement les connecteurs MCP URL
 (plutôt qu'un client configuré avec CLI), connectez le connecteur Plans hébergés à
-`https://plan.agent-native.com/_agent-native/mcp` : voir [MCP Clients](/docs/mcp-clients) pour la configuration spécifique au client.
+`https://plan.agent-native.com/mcp` : voir [MCP Clients](/docs/mcp-clients) pour la configuration spécifique au client.
 
 L'authentification consiste en une connexion unique au navigateur lors de la configuration : c'est prévu, et c'est le cas
 est ce qui permet à l'agent de persister et de partager les plans qu'il génère. Quelle est l'authentification
@@ -212,6 +212,13 @@ Si le premier passage comporte encore des décisions responsables, l'agent peut 
 **Formulaire de questions ouvertes** au bas du même plan. Y répondre et envoyer
 l'agent démarre un tour de révision par rapport au plan existant.
 
+## Coût et choix du modèle
+
+Générer un plan ou un récapitulatif exécute une session agentique complète contre le LLM de votre agent de codage, et non un simple remplissage de modèle léger ; le coût dépend donc de la taille du diff ou du plan et du modèle choisi.
+
+- Le modèle de chat par défaut de l'application est Sonnet 5 ; changez-le à tout moment dans les **Paramètres**. Haiku est l'option Claude moins chère, et Luna est l'option moins chère de la famille GPT-5.6.
+- Les récapitulatifs de PR automatisés depuis l'action GitHub s'exécutent séparément de l'application interactive et ont leurs propres réglages de modèle et de coût — voir [PR Visual Recap](/docs/pr-visual-recap) pour `VISUAL_RECAP_MODEL`, `VISUAL_RECAP_AGENT` et `VISUAL_RECAP_REASONING`.
+
 ## Ce que vous pouvez en faire
 
 - **Révision avant mise en œuvre.** React vers les diagrammes, les wireframes, les onglets d'options,
@@ -253,7 +260,7 @@ Le partage et les commentaires sont les workflows qui nécessitent un compte :
   examen multi-appareils ou d'équipe) nécessite une connexion. La connexion à Google apparaît lorsque
   les variables d'environnement Google OAuth standard sont configurées.
 
-Le connecteur Plans hébergé se trouve sur `https://plan.agent-native.com/_agent-native/mcp`.
+Le connecteur Plans hébergé se trouve sur `https://plan.agent-native.com/mcp`.
 Ne mettez jamais de secrets partagés dans les fichiers de compétences.
 
 ## Mode de confidentialité des fichiers locaux {#local-files}
@@ -290,7 +297,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 Le pont URL ressemble à
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 La page est la visionneuse de plan normale, mais le navigateur récupère `plan.mdx`,
 `canvas.mdx`, `prototype.mdx`, `.plan-state.json` et éléments d'image locaux de
 le pont localhost. Le contenu du plan n'est pas écrit dans la base de données hébergée et est
@@ -452,7 +459,7 @@ pnpm dev
 La compétence basée sur l'application hébergée utilise :
 
 - Application : `https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 Le modèle local est utile lorsque vous développez Plans lui-même, testez la persistance locale ou exécutez une surface de révision entièrement auto-hébergée.
 

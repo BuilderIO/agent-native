@@ -22,6 +22,7 @@ const pageTitleKeys: Record<string, string> = {
   "/sessions": "navigation.sessions",
   "/monitoring": "navigation.monitoring",
   "/agents": "navigation.admin",
+  "/agent": "settings.agentTitle",
   "/dashboards/explorer": "navigation.explorer",
   "/settings": "navigation.settings",
 };
@@ -63,7 +64,7 @@ export function Header() {
       </div>
       <div className="flex items-center gap-2 shrink-0">
         {actions}
-        <RunsTray />
+        <RunsTray pollMs={0} />
         <AgentToggleButton />
       </div>
     </header>

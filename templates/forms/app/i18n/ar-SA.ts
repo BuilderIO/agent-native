@@ -4,6 +4,7 @@ const messages = {
     searchForms: "بحث في النماذج",
     appearance: "المظهر",
     toggleTheme: "تبديل السمة",
+    openAgent: "فتح الوكيل",
   },
   header: {
     settings: "الإعدادات",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "اسأل Forms",
     allForms: "كل النماذج",
     team: "الفريق",
+    agent: "الوكيل",
   },
   settings: {
     title: "الإعدادات",
@@ -195,6 +197,9 @@ const messages = {
       anonymousResponses: "ردود مجهولة الهوية",
       anonymousResponsesDescription:
         "عدم الاحتفاظ بعناوين IP أو هوية المجيب أو بيانات المصدر الوصفية.",
+      emailNewResponses: "أرسل لي بريدًا إلكترونيًا عند وصول ردود جديدة",
+      emailNewResponsesDescription:
+        "إرسال إشعار إلى البريد الإلكتروني لحساب مالك النموذج عند إرسال أي رد.",
       saveSettings: "حفظ الإعدادات",
     },
     integrations: {

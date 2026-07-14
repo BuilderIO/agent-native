@@ -43,16 +43,15 @@ interface PlatformInfo {
 const PLATFORMS: PlatformInfo[] = [
   {
     id: "slack",
-    label: "Slack",
+    label: "Slack (legacy)",
     icon: IconBrandSlack,
-    description: "Message your agent from any Slack channel or DM.",
+    description:
+      "Legacy single-workspace setup. Use Settings → Messaging for new Slack connections.",
     envVars: ["SLACK_BOT_TOKEN", "SLACK_SIGNING_SECRET"],
     setupSteps: [
-      "Create a Slack app at api.slack.com/apps",
-      'Enable "Event Subscriptions" and point to your webhook URL',
-      "Subscribe to message.im and app_mention events",
-      "Install the app to your workspace",
-      "Copy the Bot Token and Signing Secret into your environment",
+      "Open Settings → Messaging for the supported managed Slack setup",
+      "Use this legacy setup only for an existing single-workspace installation",
+      "Managed OAuth stores workspace bot tokens automatically; do not add SLACK_BOT_TOKEN for new connections",
     ],
     docsUrl: "https://api.slack.com/apps",
   },

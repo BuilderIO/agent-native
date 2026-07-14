@@ -24,6 +24,11 @@ import {
 } from "@shared/media-device-selection";
 import { scheduleReadyChime } from "@shared/recording-audio";
 import {
+  SCREEN_CAPTURE_FRAME_RATE,
+  screenCaptureVideoConstraints,
+  type ScreenCaptureSurface,
+} from "@shared/recording-capture";
+import {
   chunkUploadUrl,
   pickMimeType,
   type UploadMode,
@@ -300,19 +305,10 @@ async function streamDimensions(
 }
 
 function displayConstraints(
-  surface: "browser" | "window" | "monitor",
+  surface: ScreenCaptureSurface,
 ): MediaStreamConstraints {
-  const displaySurface =
-    surface === "browser"
-      ? "browser"
-      : surface === "window"
-        ? "window"
-        : "monitor";
   return {
-    video: {
-      frameRate: { ideal: 30, max: 30 },
-      ...({ displaySurface } as object),
-    },
+    video: screenCaptureVideoConstraints(surface),
     audio: {
       echoCancellation: false,
       noiseSuppression: false,
@@ -373,6 +369,10 @@ function cameraConstraints(deviceId: string): MediaTrackConstraints {
   const base: MediaTrackConstraints = {
     width: { ideal: 1280 },
     height: { ideal: 720 },
+    frameRate: {
+      ideal: SCREEN_CAPTURE_FRAME_RATE,
+      max: SCREEN_CAPTURE_FRAME_RATE,
+    },
   };
   if (deviceId) base.deviceId = { exact: deviceId };
   else base.facingMode = "user";
@@ -750,7 +750,7 @@ async function buildCompositor(
   };
   raf = requestAnimationFrame(draw);
 
-  const canvasStream = canvas.captureStream(30);
+  const canvasStream = canvas.captureStream(SCREEN_CAPTURE_FRAME_RATE);
   return {
     videoTrack: canvasStream.getVideoTracks()[0],
     canvasStream,
@@ -1194,8 +1194,11 @@ async function begin(message: BeginMessage): Promise<{
   const mimeType = pickMimeType() || "video/webm";
   const recorder = new MediaRecorder(outputStream, {
     mimeType,
-    // Crisp 1080p capture — matches the web/desktop recorders. Files upload
-    // directly (no client-side shrink), so we favor sharpness over a budget.
+    // Crisp 1080p capture — matches the web/desktop recorders. displayConstraints()
+    // (see screenCaptureVideoConstraints in @shared/recording-capture) caps retina/5K
+    // surfaces down to 1920x1080 before this point, so the software VP8 encoder is
+    // never fed native-resolution frames. Files upload directly (no client-side
+    // shrink), so within that cap we favor sharpness over a bitrate budget.
     videoBitsPerSecond: 8_000_000,
     audioBitsPerSecond: 128_000,
   });

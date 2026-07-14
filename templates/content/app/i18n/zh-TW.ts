@@ -13,6 +13,7 @@ const messages = {
     commandLocalFilesHeading: "本機檔案",
     commandDatabaseResultDescription: "開啟資料庫頁面",
     commandAppearance: "外觀",
+    openAgent: "開啟代理",
     toggleTheme: "切換主題",
     metaTitle:
       "Agent-Native Content - 開放原始碼且代理友善的 Obsidian 替代方案",
@@ -26,6 +27,7 @@ const messages = {
   },
   navigation: {
     openSidebar: "開啟側邊欄",
+    agent: "代理",
     settings: "設定",
   },
   team: {
@@ -630,6 +632,8 @@ const messages = {
     addProperty: "新增屬性",
     back: "返回",
     builderSpace: "Builder 空間",
+    connectNotionFirst: "請先連接 Notion",
+    connected: "已連接",
     builderBulkUpdateNotStaged: "Builder 批次更新未暫存",
     builderBulkUpdateStaged: "Builder 批次更新已暫存",
     builderUpdateFailed: "Builder 更新失敗",
@@ -670,6 +674,8 @@ const messages = {
     closeDatabaseSettings: "關閉資料庫設定",
     closeSearch: "關閉搜尋",
     databaseRowsAndLocalPropertiesWereKeptIntact: "資料庫行和本機屬性已保留。",
+    failedToAttachSource: "附加來源失敗",
+    failedToCreateRow: "建立行失敗",
     failedToDeleteRow: "刪除行失敗",
     failedToDeleteSelectedRows: "刪除所選行失敗",
     failedToDuplicateEverySelectedRow: "未能複製所有選取行",

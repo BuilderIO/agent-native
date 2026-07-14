@@ -841,6 +841,7 @@ body {
   align-items: center;
   justify-content: center;
   backdrop-filter: blur(4px);
+  animation: settings-overlay-in 180ms ease-out both;
 }
 
 .settings-panel {
@@ -853,6 +854,51 @@ body {
   flex-direction: column;
   overflow: hidden;
   box-shadow: 0 24px 48px rgba(0, 0, 0, 0.5);
+  animation: settings-panel-in 180ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+.settings-overlay--closing {
+  pointer-events: none;
+  animation: settings-overlay-out 160ms ease-out both;
+}
+
+.settings-overlay--closing .settings-panel {
+  animation: settings-panel-out 160ms ease-out both;
+}
+
+@keyframes settings-overlay-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-overlay-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes settings-panel-in {
+  from {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@keyframes settings-panel-out {
+  to {
+    opacity: 0;
+    transform: scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .settings-overlay,
+  .settings-panel,
+  .settings-overlay--closing,
+  .settings-overlay--closing .settings-panel {
+    animation: none;
+  }
 }
 
 .settings-header {
@@ -1149,6 +1195,10 @@ body {
 }
 
 .settings-builder-connect-spinner {
+  animation: spin 0.8s linear infinite;
+}
+
+.settings-codex-status-spinner {
   animation: spin 0.8s linear infinite;
 }
 

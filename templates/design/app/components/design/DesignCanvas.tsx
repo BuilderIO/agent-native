@@ -1,4 +1,10 @@
 import { usePinchZoom, useT } from "@agent-native/core/client";
+import type { ReviewThread } from "@agent-native/core/client";
+import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client";
+import type { ReviewComment } from "@agent-native/core/review";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
@@ -19,7 +25,14 @@ import {
   type PenPoint,
 } from "@shared/pen-path";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
-import { useRef, useEffect, useCallback, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -29,8 +42,8 @@ import { Button } from "@/components/ui/button";
 // exist for now and can be reconciled in a follow-up. Don't import both.
 import {
   DrawOverlay as SharedDrawOverlay,
-  CanvasCommentPins,
-  type CanvasPin,
+  ReviewCanvasPins,
+  type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
 import {
@@ -249,9 +262,6 @@ const EDITOR_BRIDGE_VAR_NAMES = [
   "--design-editor-component-strong-color",
   "--design-editor-component-contrast-color",
   "--design-editor-measure-color",
-  "--background",
-  "--foreground",
-  "--border",
 ];
 
 function readEditorBridgeThemeVars(): Record<string, string> {
@@ -502,9 +512,9 @@ interface DesignCanvasProps {
   pinMode?: boolean;
   /**
    * When true, suppresses rendering of comment pins on this canvas (e.g. the
-   * Figma-style Shift+C "hide comments" toggle in single-screen mode). Only
-   * affects pin *visibility* — pin drop mode (`pinMode`) still behaves
-   * normally underneath so toggling this back off doesn't lose anything.
+   * Figma-style Shift+C "hide comments" toggle in single-screen mode). Hiding
+   * comments while pin mode is active also exits pin mode so an invisible
+   * click target cannot keep intercepting canvas interactions.
    */
   commentPinsHidden?: boolean;
   selectedSelector?: string | null;
@@ -520,6 +530,18 @@ interface DesignCanvasProps {
   onExitPinMode?: () => void;
   /** Stable id of the open design (used for pin scoping + agent prompt). */
   designId?: string;
+  /** Whether the current signed-in viewer may create review comments. */
+  reviewCanPost?: boolean;
+  /** Whether the current viewer may resolve review threads. */
+  reviewCanResolve?: boolean;
+  /** A panel-driven request to focus an anchored review comment. */
+  reviewFocusRequest?: ReviewFocusRequest | null;
+  /** Dispatch a newly created agent-targeted comment to the local agent chat. */
+  onDispatchCommentToAgent?: (comment: ReviewComment) => void;
+  /** Dispatch one existing review thread to the local agent chat. */
+  onSendThreadToAgent?: (thread: ReviewThread) => void;
+  /** Thread currently being routed to the agent. */
+  reviewSendingThreadId?: string | null;
   /** Human-readable label for the design (used in agent prompt). */
   designTitle?: string;
   /** Stable id for comment pins, usually scoped to the active screen. */
@@ -1021,11 +1043,16 @@ export function DesignCanvas({
   onExitPinMode,
   registerRuntimeBridge = true,
   designId,
+  reviewCanPost = false,
+  reviewCanResolve = false,
+  reviewFocusRequest,
+  onDispatchCommentToAgent,
+  onSendThreadToAgent,
+  reviewSendingThreadId,
   designTitle,
   commentContextId,
   screenId,
   previewFrameId,
-  commentContextLabel,
   onPrototypeNavigate,
   motionTracks,
   motionDefaultEase,
@@ -1049,6 +1076,7 @@ export function DesignCanvas({
     null,
   );
   const scrollContainerRef = useRef<HTMLDivElement>(null);
+  const reviewCanvasId = useId();
   const zoomLayerRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(zoom);
   // Zoom-invariant chrome: the non-embedded-frame render path below wraps the
@@ -1118,8 +1146,6 @@ export function DesignCanvas({
     return true;
   }, []);
   const [renderedContent, setRenderedContent] = useState(content);
-  const [annotationPins, setAnnotationPins] = useState<CanvasPin[]>([]);
-  const [pinSubmitSignal, setPinSubmitSignal] = useState(0);
   // True while a drawing send is capturing/compositing/uploading the
   // annotated screenshot (see design-canvas/annotation-snapshot.ts). Drives
   // SharedDrawOverlay's busy Send state so a slow capture can't be triggered
@@ -1918,14 +1944,6 @@ export function DesignCanvas({
     setExternalSnapshotRetryNonce((nonce) => nonce + 1);
   }, []);
 
-  const queuedAnnotationPins = useMemo(
-    () =>
-      annotationPins.filter(
-        (pin) => pin.queued && !pin.submitted && (pin.draft || "").trim(),
-      ),
-    [annotationPins],
-  );
-
   useEffect(() => {
     if (previousContentKeyRef.current !== contentKey) {
       previousContentKeyRef.current = contentKey;
@@ -1948,6 +1966,15 @@ export function DesignCanvas({
     // content-key change (screen switch / explicit remount) should replace the
     // iframe document here; the bridge replays inspector state after that load.
   }, [content, contentKey, runtimeReplacementContent, runtimeReplacementKey]);
+
+  useEffect(() => {
+    if (!interactMode) return;
+    // Interact renders the authoritative persisted source because the editor
+    // bridge is intentionally absent. Keep that same source as the next
+    // edit-mode baseline so leaving Interact cannot resurrect the older
+    // bridge-managed snapshot and make the design visibly jump backward.
+    setRenderedContent(content);
+  }, [content, interactMode]);
 
   usePinchZoom({
     containerRef: scrollContainerRef,
@@ -2092,24 +2119,32 @@ export function DesignCanvas({
       contentOffsetX: embeddedFrame?.contentOffsetX ?? 0,
       contentOffsetY: embeddedFrame?.contentOffsetY ?? 0,
     });
+    let frameDocument: string;
     if (frameContent.includes("</body>")) {
-      return frameContent.replace("</body>", bridgeToInject + "</body>"); // i18n-ignore generated iframe HTML injection
+      frameDocument = frameContent.replace(
+        "</body>", // i18n-ignore generated iframe HTML injection
+        bridgeToInject + "</body>", // i18n-ignore generated iframe HTML injection
+      ); // i18n-ignore generated iframe HTML injection
+    } else if (frameContent.includes("</html>")) {
+      frameDocument = frameContent.replace(
+        "</html>", // i18n-ignore generated iframe HTML injection
+        bridgeToInject + "</html>", // i18n-ignore generated iframe HTML injection
+      ); // i18n-ignore generated iframe HTML injection
+    } else {
+      // No body/html tags — wrap it
+      const frameStyle = [
+        getEmbeddedFrameBackgroundStyle({
+          embeddedFrameBackground,
+          transparentBackground,
+        }),
+        embeddedContentOffsetStyle(
+          embeddedFrame?.contentOffsetX ?? 0,
+          embeddedFrame?.contentOffsetY ?? 0,
+        ),
+      ].join("");
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
     }
-    if (frameContent.includes("</html>")) {
-      return frameContent.replace("</html>", bridgeToInject + "</html>"); // i18n-ignore generated iframe HTML injection
-    }
-    // No body/html tags — wrap it
-    const frameStyle = [
-      getEmbeddedFrameBackgroundStyle({
-        embeddedFrameBackground,
-        transparentBackground,
-      }),
-      embeddedContentOffsetStyle(
-        embeddedFrame?.contentOffsetX ?? 0,
-        embeddedFrame?.contentOffsetY ?? 0,
-      ),
-    ].join("");
-    return `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${iframeRenderContent}${bridgeToInject}</body></html>`;
+    return injectSessionReplayIframeBootstrap(frameDocument);
     // editorChromeScaleX/Y are intentionally NOT deps: they only seed the initial
     // baked chrome scale. Live zoom updates flow through the set-editor-chrome-scale
     // postMessage above. Including them here rebuilds srcdoc on every zoom commit,
@@ -2328,6 +2363,34 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
+        const reported = e.data.payload as
+          | { selector?: string; sourceId?: string }
+          | undefined;
+        const reportedCandidates: string[] = [];
+        if (reported?.selector) reportedCandidates.push(reported.selector);
+        if (reported?.sourceId) {
+          reportedCandidates.push(
+            `[data-agent-native-node-id="${reported.sourceId}"]`,
+          );
+        }
+        if (e.data.intent) {
+          // User click (carries intent): iframe already shows it — suppress the
+          // echo-back to avoid the fast-click bounce.
+          suppressMirrorSelectorsRef.current =
+            reportedCandidates.length > 0 ? reportedCandidates : null;
+        } else if (
+          selectedSelectorRef.current &&
+          reportedCandidates.length > 0 &&
+          !reportedCandidates.includes(selectedSelectorRef.current) &&
+          !(selectedSelectorCandidatesRef.current ?? []).some((c) =>
+            reportedCandidates.includes(c),
+          )
+        ) {
+          // Intent-less echo ≠ committed selection: iframe drifted; force a
+          // resync (dedup would otherwise block the corrective mirror).
+          forceSelectionMirrorResyncRef.current = true;
+          replayIframeEditorStateRef.current?.();
+        }
         onElementSelect(e.data.payload, e.data.intent);
         return;
       }
@@ -2791,6 +2854,23 @@ export function DesignCanvas({
     postOneShotBridgeMessage,
   ]);
 
+  // Mirror the selection down only when it changes, so stale re-posts can't
+  // race a fast click and re-highlight the old element.
+  const lastSelectionMirrorSignatureRef = useRef<string | null>(null);
+  const forceSelectionMirrorResyncRef = useRef(true);
+  // Selectors from the iframe's own click; skip mirroring them back once to
+  // avoid the fast-click bounce.
+  const suppressMirrorSelectorsRef = useRef<string[] | null>(null);
+  // Latest replayIframeEditorState, synced during render (below) so the message
+  // handler can force a corrective resync without a stale closure.
+  const replayIframeEditorStateRef = useRef<(() => void) | null>(null);
+  // Render-synced committed selection so the message handler reads current
+  // values without re-binding the window listener on every selection.
+  const selectedSelectorRef = useRef(selectedSelector);
+  selectedSelectorRef.current = selectedSelector;
+  const selectedSelectorCandidatesRef = useRef(selectedSelectorCandidates);
+  selectedSelectorCandidatesRef.current = selectedSelectorCandidates;
+
   const replayIframeEditorState = useCallback(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -2813,16 +2893,38 @@ export function DesignCanvas({
       { type: "scale-tool-mode", enabled: scaleMode },
       "*",
     );
-    iframe.contentWindow?.postMessage(
-      selectedSelector
-        ? {
-            type: "select-element",
-            selector: selectedSelector,
-            selectorCandidates: selectedSelectorCandidates,
-          }
-        : { type: "clear-selection" },
-      "*",
-    );
+    const selectionMirrorSignature = JSON.stringify({
+      selector: selectedSelector ?? null,
+      candidates: selectedSelectorCandidates ?? [],
+    });
+    // Skip echoing back a selection the iframe just reported (fast-click
+    // bounce). One-shot: reload forces a resync; external selection clears it.
+    const isIframeOriginatedEcho =
+      !forceSelectionMirrorResyncRef.current &&
+      !!selectedSelector &&
+      (suppressMirrorSelectorsRef.current?.includes(selectedSelector) ?? false);
+    if (isIframeOriginatedEcho) {
+      lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
+      suppressMirrorSelectorsRef.current = null;
+    } else if (
+      forceSelectionMirrorResyncRef.current ||
+      selectionMirrorSignature !== lastSelectionMirrorSignatureRef.current
+    ) {
+      iframe.contentWindow?.postMessage(
+        selectedSelector
+          ? {
+              type: "select-element",
+              selector: selectedSelector,
+              selectorCandidates: selectedSelectorCandidates,
+            }
+          : { type: "clear-selection" },
+        "*",
+      );
+      lastSelectionMirrorSignatureRef.current = selectionMirrorSignature;
+      forceSelectionMirrorResyncRef.current = false;
+      // An external selection just went down; pending suppression is now stale.
+      suppressMirrorSelectorsRef.current = null;
+    }
     iframe.contentWindow?.postMessage(
       {
         type: "select-elements",
@@ -2901,6 +3003,9 @@ export function DesignCanvas({
     statePreviewTarget,
     tweakValues,
   ]);
+  // Sync during render (not in an effect) so a drift echo can't invoke a stale
+  // closure that reposts the previous selection.
+  replayIframeEditorStateRef.current = replayIframeEditorState;
 
   // Replay the editor state whenever it changes OR the iframe (re)loads. The
   // load case matters for screen switches and mode changes; without replaying
@@ -2908,9 +3013,15 @@ export function DesignCanvas({
   useEffect(() => {
     const iframe = iframeRef.current;
     if (!iframe) return;
+    // A (re)loaded document starts with no selection, so force the next
+    // mirror to post even if the selector is unchanged from before the load.
+    const replayAfterLoad = () => {
+      forceSelectionMirrorResyncRef.current = true;
+      replayIframeEditorState();
+    };
     replayIframeEditorState();
-    iframe.addEventListener("load", replayIframeEditorState);
-    return () => iframe.removeEventListener("load", replayIframeEditorState);
+    iframe.addEventListener("load", replayAfterLoad);
+    return () => iframe.removeEventListener("load", replayAfterLoad);
   }, [replayIframeEditorState]);
 
   // A real top-level focus loss (Cmd+Tab, switching windows, browser chrome)
@@ -3915,6 +4026,7 @@ export function DesignCanvas({
   // visible when a design background matches the editor canvas.
   const iframeElement = (
     <div
+      data-review-canvas-id={reviewCanvasId}
       className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
@@ -3999,6 +4111,11 @@ export function DesignCanvas({
           readOnly,
         })}
         data-design-preview-iframe
+        {...{
+          [SESSION_REPLAY_IFRAME_ATTRIBUTE]: !externalPreviewUrl
+            ? ""
+            : undefined,
+        }}
         data-screen-iframe-id={
           boardSurface ? undefined : (previewFrameId ?? screenId ?? undefined)
         }
@@ -4206,7 +4323,7 @@ export function DesignCanvas({
         scopeKey={screenId}
         retainSurfaceWhenHidden={retainDrawOverlayWhenHidden}
         canvasInteractive={!pinMode}
-        queuedAnnotationCount={queuedAnnotationPins.length}
+        queuedAnnotationCount={0}
         zoom={zoom}
         sending={annotationCaptureBusy}
         onClose={() => onExitDrawMode?.()}
@@ -4219,33 +4336,14 @@ export function DesignCanvas({
                 : `[label "${a.text}" at ${a.position.x.toFixed(0)},${a.position.y.toFixed(0)}]`,
             )
             .join("\n");
-          const pinSummary = queuedAnnotationPins
-            .flatMap((pin, index) => {
-              const lines = [
-                `[${index + 1}] Comment pin on ${commentContextLabel || designTitle || commentContextId || designId || "design"}`,
-                `Position: ${pin.xPct.toFixed(1)}% from left, ${pin.yPct.toFixed(1)}% from top`,
-              ];
-              if (pin.targetAnchorId)
-                lines.push(`Anchor id: ${pin.targetAnchorId}`);
-              if (pin.targetSelector)
-                lines.push(`Element: ${pin.targetSelector}`);
-              if (pin.targetText)
-                lines.push(`Nearby text: "${pin.targetText}"`);
-              lines.push("");
-              lines.push((pin.draft || "").trim());
-              return [...lines, ""];
-            })
-            .join("\n");
           const lines = [
             `[Annotations on design ${designId || ""}${designTitle ? ` (${designTitle})` : ""}]`,
             `Canvas size: ${canvasSize.width.toFixed(0)}x${canvasSize.height.toFixed(0)}`,
             ...(summary ? ["", "[Drawing]", summary] : []),
-            ...(pinSummary ? ["", "[Comment pins]", pinSummary] : []),
             "",
             instruction || "Apply these annotations to the design.",
           ];
           const message = lines.join("\n");
-          const hasQueuedPins = queuedAnnotationPins.length > 0;
 
           // Best-effort: render the annotated screen + composited drawing as
           // ONE image the agent can see (see design-canvas/annotation-snapshot.ts),
@@ -4269,7 +4367,7 @@ export function DesignCanvas({
             .then((imageUrl) =>
               submitDesignAnnotations({
                 message,
-                hasQueuedPins,
+                hasQueuedPins: false,
                 // Ack-confirmed send: only exit draw mode / mark pins
                 // submitted once the message is CONFIRMED to have reached
                 // the chat (became a visible turn). A fire-and-forget send
@@ -4290,9 +4388,7 @@ export function DesignCanvas({
                     );
                   }
                 },
-                markQueuedPinsSubmitted: () => {
-                  setPinSubmitSignal((signal) => signal + 1);
-                },
+                markQueuedPinsSubmitted: () => {},
                 exitDrawMode: () => onExitDrawMode?.(),
                 onError: (error) => {
                   console.error(
@@ -4437,27 +4533,23 @@ export function DesignCanvas({
         </div>
       )}
 
-      {/* Canvas comment pins — anchored to the iframe wrapper. The pins
-          themselves render via fixed positioning, so we mount them outside
-          the zoom-transformed container to keep coordinates stable.
-          Suppressed entirely when commentPinsHidden (Figma-style Shift+C
-          "hide comments" toggle) is set — existing pins disappear and pin
-          drop-mode has nothing to render into until it's toggled back on. */}
-      {!commentPinsHidden && (
-        <CanvasCommentPins
+      {designId && (screenId || commentContextId) ? (
+        <ReviewCanvasPins
           active={!!pinMode}
-          submitMode={drawMode ? "queue" : "direct"}
-          onPinsChange={setAnnotationPins}
-          submitQueuedSignal={pinSubmitSignal}
-          clickPlaneUnderToolbar={!!drawMode}
+          hidden={commentPinsHidden}
           onClose={() => onExitPinMode?.()}
-          canvasSelector=".design-canvas-iframe-wrapper"
-          contextId={commentContextId || designId || "design"}
-          contextLabel={
-            commentContextLabel || designTitle || commentContextId || designId
-          }
+          canvasSelector={`[data-review-canvas-id="${reviewCanvasId}"]`}
+          resourceType="design"
+          resourceId={designId}
+          targetId={screenId ?? commentContextId ?? ""}
+          canPost={reviewCanPost}
+          canResolve={reviewCanResolve}
+          focusRequest={reviewFocusRequest}
+          onDispatchCommentToAgent={onDispatchCommentToAgent}
+          onSendThreadToAgent={onSendThreadToAgent}
+          sendingThreadId={reviewSendingThreadId}
         />
-      )}
+      ) : null}
     </div>
   );
 }
@@ -5040,17 +5132,29 @@ function SingleScreenCreationOverlay({
         />
       ) : null}
       {previewRect ? (
-        <div
-          data-creation-preview-rect
-          className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
-          style={{
-            left: previewRect.x,
-            top: previewRect.y,
-            width: Math.max(1, previewRect.width),
-            height: Math.max(1, previewRect.height),
-            borderRadius: tool === "ellipse" ? "9999px" : undefined,
-          }}
-        />
+        <>
+          <div
+            data-creation-preview-rect
+            className="pointer-events-none absolute rounded-[2px] border-[1.5px] border-[var(--design-editor-accent-color)] bg-[var(--design-editor-accent-color)]/10"
+            style={{
+              left: previewRect.x,
+              top: previewRect.y,
+              width: Math.max(1, previewRect.width),
+              height: Math.max(1, previewRect.height),
+              borderRadius: tool === "ellipse" ? "9999px" : undefined,
+            }}
+          />
+          <span
+            data-creation-preview-size
+            className="pointer-events-none absolute z-10 -translate-x-1/2 translate-y-1 rounded bg-[var(--design-editor-accent-color)] px-1.5 py-0.5 text-[10px] font-medium leading-none text-[var(--design-editor-accent-contrast-color)] shadow-sm"
+            style={{
+              left: previewRect.x + previewRect.width / 2,
+              top: previewRect.y + previewRect.height,
+            }}
+          >
+            {Math.round(previewRect.width)} × {Math.round(previewRect.height)}
+          </span>
+        </>
       ) : null}
       {previewLine ? (
         <svg

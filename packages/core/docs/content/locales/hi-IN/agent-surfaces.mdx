@@ -6,6 +6,37 @@ search: "हेडलेस एजेंट रिच चैट पूर्ण 
 
 # एजेंट सतहें
 
+## पूरा Agent कार्यक्षेत्र {#agent-page}
+
+जब किसी पूर्ण ऐप को अपने एजेंट को देखने और कॉन्फ़िगर करने के लिए स्थायी स्थान
+चाहिए, तो `/agent` पर `AgentTabsPage` माउंट करें। ऐप नेविगेशन में यह रूट जोड़ें
+और `AgentSidebar` को `agentPageHref="/agent"` दें, ताकि Resources और Settings
+मोड इन प्रवाहों को दोहराए बिना पूरे पेज पर जा सकें।
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+साझा पेज में अभी पाँच टैब हैं:
+
+- **Context** — स्कोप प्रीव्यू, टोकन बजट, provenance और governance के साथ क्रमबद्ध सिस्टम सेक्शन, सूची/treemap दृश्य और नवीनतम live-thread snapshot।
+- **Files** — व्यक्तिगत या संगठन संसाधनों के लिए मौजूदा `ResourcesPanel` को फिर से उपयोग करता है।
+- **Connections** — MCP सर्वर प्रबंधन और A2A remote-agent सूची: यह ऐप का एजेंट क्या बुला सकता है।
+- **Jobs** — मौजूदा pause/resume, विवरण और delete प्रवाहों के साथ scoped recurring jobs और automations। Automations अभी केवल व्यक्तिगत हैं।
+- **Access** — MCP URL, उपलब्ध होने पर A2A agent card और साझा client setup guides; पूरा flow और token fallback `/mcp/connect` पर है।
+
+**Personal / Organization** टॉगल टैब का scope तय करता है। सदस्य संगठन का डेटा
+देख सकते हैं, जबकि जहाँ होस्ट किया गया component यह सीमा लागू करता है वहाँ
+संगठन प्रबंधन केवल मालिकों/व्यवस्थापकों तक सीमित रहता है। लक्ष्य context को
+inspectable, attributable और governable बनाना तथा capability को access से अलग
+रखना है। यह पेज मौजूदा components, actions और access checks की पतली shell है,
+नई admin console नहीं। Grants, scope editing, revocation या per-iteration
+provenance history की UI अभी उपलब्ध नहीं है।
+
 Agent-Native जानबूझकर रचना योग्य है। आप एजेंट का उपयोग बहुत अधिक UI के बिना कर सकते हैं,
 अंतर्निहित एजेंट रनटाइम के बिना UI का उपयोग करें, या दोनों को पूर्ण रूप में एक साथ उपयोग करें
 आवेदन.

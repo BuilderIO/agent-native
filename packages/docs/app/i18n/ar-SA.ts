@@ -1500,6 +1500,7 @@ const arSA = {
     sharingPrivacy: "المشاركة والخصوصية",
     trackingAnalytics: "التتبع والتحليلات",
     auditLog: "سجل التدقيق",
+    doctorCodeChecks: "Doctor (فحوصات الكود)",
     observability: "قابلية الملاحظة",
     observationalMemory: "ذاكرة ملاحظة",
     ciEvalGate: "بوابة تقييم CI",

@@ -50,6 +50,15 @@ import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
 import { useSession } from "../use-session.js";
 import { cn } from "../utils.js";
+import {
+  AGENT_SETTINGS_SECTIONS,
+  ALL_SETTINGS_SECTIONS,
+  CONNECTION_SETTINGS_SECTIONS,
+  SETTINGS_SECTION_IDS,
+  WORKSPACE_SETTINGS_SECTIONS,
+  getAgentSettingsSearchTabs,
+  type SettingsSectionId,
+} from "./agent-settings-search.js";
 import { AgentsSection } from "./AgentsSection.js";
 import { AutomationsSection } from "./AutomationsSection.js";
 import { DemoModeSection } from "./DemoModeSection.js";
@@ -60,10 +69,7 @@ import {
   useSettingsSurface,
   type SettingsSurface,
 } from "./SettingsSection.js";
-import type {
-  SettingsSearchEntry,
-  SettingsTabItem,
-} from "./SettingsTabsPage.js";
+import type { SettingsTabItem } from "./SettingsTabsPage.js";
 import { UsageSection } from "./UsageSection.js";
 import {
   type BuilderConnectFlow,
@@ -164,12 +170,14 @@ function SettingsSelect({
   value,
   options,
   onValueChange,
+  disabled = false,
 }: {
   label: string;
   labelAdornment?: React.ReactNode;
   value: string;
   options: SettingsSelectOption[];
   onValueChange: (value: string) => void;
+  disabled?: boolean;
 }) {
   const isPage = useSettingsSurface() === "page";
   const controlStyle = isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE;
@@ -181,10 +189,14 @@ function SettingsSelect({
         <p className={fieldLabelClass(isPage)}>{label}</p>
         {labelAdornment}
       </div>
-      <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
+      <SelectPrimitive.Root
+        value={value}
+        onValueChange={onValueChange}
+        disabled={disabled}
+      >
         <SelectPrimitive.Trigger
           className={cn(
-            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground",
+            "flex w-full items-center justify-between rounded-md border border-border bg-background px-3 text-start text-foreground outline-none transition-colors hover:bg-accent/40 data-[placeholder]:text-muted-foreground disabled:cursor-not-allowed disabled:opacity-60",
             isPage ? "h-10 text-sm" : "h-9 text-[12px]",
           )}
           aria-label={label}
@@ -624,8 +636,31 @@ function friendlyModelName(model: string): string {
     const tier = claude[1][0].toUpperCase() + claude[1].slice(1);
     return `${tier} ${claude[2]}${claude[3] ? `.${claude[3]}` : ""}`;
   }
-  if (model.startsWith("gpt-")) return `GPT-${model.slice(4)}`;
+  if (model.startsWith("gpt-")) {
+    const rest = model.slice(4);
+    const gpt = rest.match(/^(\d+)[.-](\d+)(?:[.-](.+))?$/);
+    if (gpt) {
+      const suffix = gpt[3]
+        ? ` ${gpt[3]
+            .split("-")
+            .map((part) => part[0].toUpperCase() + part.slice(1))
+            .join(" ")}`
+        : "";
+      return `GPT-${gpt[1]}.${gpt[2]}${suffix}`;
+    }
+    return `GPT-${rest}`;
+  }
   if (/^o\d/.test(model)) return model;
+  const geminiVersioned = model.match(
+    /^gemini-(\d+)-(\d+)-(.+?)(?:-preview)?$/,
+  );
+  if (geminiVersioned) {
+    const variant = geminiVersioned[3]
+      .split("-")
+      .map((part) => part[0].toUpperCase() + part.slice(1))
+      .join(" ");
+    return `Gemini ${geminiVersioned[1]}.${geminiVersioned[2]} ${variant}`;
+  }
   const gemini = model.match(/^gemini-(.+?)(?:-preview)?$/);
   if (gemini) {
     const parts = gemini[1]
@@ -680,6 +715,77 @@ function latestModelsOnly(models: string[]): string[] {
     }
     return true;
   });
+}
+
+export function AppDefaultModelField({
+  engine,
+  models,
+  value,
+  defaultModel,
+  disabled,
+  onValueChange,
+  onEnter,
+}: {
+  engine: string;
+  models: string[];
+  value: string;
+  defaultModel?: string;
+  disabled?: boolean;
+  onValueChange: (value: string) => void;
+  onEnter?: () => void;
+}) {
+  const isPage = useSettingsSurface() === "page";
+  const modelOptions: SettingsSelectOption[] = latestModelsOnly(models).map(
+    (model) => ({ value: model, label: friendlyModelName(model) }),
+  );
+
+  // Builder models are a closed catalog (and are validated server-side), so a
+  // real select keeps every available model visible even when one is already
+  // selected. Native datalists filter against the current input value, which
+  // made this field appear to contain only the active model.
+  if (engine === "builder" && modelOptions.length > 0) {
+    return (
+      <SettingsSelect
+        label="Model"
+        value={value}
+        options={modelOptions}
+        onValueChange={onValueChange}
+        disabled={disabled}
+      />
+    );
+  }
+
+  return (
+    <div className="space-y-1.5">
+      <p className={fieldLabelClass(isPage)}>Model</p>
+      <input
+        type="text"
+        list={`app-model-suggestions-${engine}`}
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onValueChange(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === "Enter") onEnter?.();
+        }}
+        placeholder={defaultModel ?? "model-id"}
+        spellCheck={false}
+        autoComplete="off"
+        className={cn(textInputClass(isPage), "disabled:opacity-60")}
+        style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
+      />
+      {modelOptions.length > 0 && (
+        <datalist id={`app-model-suggestions-${engine}`}>
+          {modelOptions.map((option) => (
+            <option
+              key={option.value}
+              value={option.value}
+              label={option.label}
+            />
+          ))}
+        </datalist>
+      )}
+    </div>
+  );
 }
 
 // ─── LLM Section ────────────────────────────────────────────────────────────
@@ -1388,9 +1494,6 @@ function AppModelDefaultsSectionInner({
           ? `Install ${engine.installPackage ?? "the provider packages"} to use this provider`
           : "Credentials not detected yet",
     }));
-  const modelOptions: SettingsSelectOption[] = latestModelsOnly(
-    selectedEngineInfo?.supportedModels ?? [],
-  ).map((model) => ({ value: model, label: friendlyModelName(model) }));
   const hasPendingChange =
     !!settings &&
     settings.canUpdate &&
@@ -1536,38 +1639,20 @@ function AppModelDefaultsSectionInner({
                 }}
               />
 
-              <div className="space-y-1.5">
-                <p className={fieldLabelClass(isPage)}>Model</p>
-                <input
-                  type="text"
-                  list={`app-model-suggestions-${selectedEngine}`}
-                  value={selectedModel}
-                  disabled={!settings.canUpdate || saving}
-                  onChange={(event) => {
-                    setSelectedModel(event.target.value);
-                    setError(null);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" && hasPendingChange) void save();
-                  }}
-                  placeholder={selectedEngineInfo?.defaultModel ?? "model-id"}
-                  spellCheck={false}
-                  autoComplete="off"
-                  className={cn(textInputClass(isPage), "disabled:opacity-60")}
-                  style={isPage ? CONTROL_STYLE_PAGE : CONTROL_STYLE}
-                />
-                {modelOptions.length > 0 && (
-                  <datalist id={`app-model-suggestions-${selectedEngine}`}>
-                    {modelOptions.map((option) => (
-                      <option
-                        key={option.value}
-                        value={option.value}
-                        label={option.label}
-                      />
-                    ))}
-                  </datalist>
-                )}
-              </div>
+              <AppDefaultModelField
+                engine={selectedEngine}
+                models={selectedEngineInfo?.supportedModels ?? []}
+                value={selectedModel}
+                defaultModel={selectedEngineInfo?.defaultModel}
+                disabled={!settings.canUpdate || saving}
+                onValueChange={(value) => {
+                  setSelectedModel(value);
+                  setError(null);
+                }}
+                onEnter={() => {
+                  if (hasPendingChange) void save();
+                }}
+              />
 
               <div className="flex items-center gap-1.5">
                 <button
@@ -2220,192 +2305,6 @@ export interface SettingsPanelProps {
   sectionRequestKey?: number;
 }
 
-type SettingsSectionId =
-  | "account"
-  | "llm"
-  | "app-models"
-  | "limits"
-  | "voice"
-  | "demo-mode"
-  | "automations"
-  | "secrets"
-  | "hosting"
-  | "database"
-  | "uploads"
-  | "auth"
-  | "email"
-  | "browser"
-  | "background"
-  | "integrations"
-  | "usage"
-  | "a2a";
-
-const SETTINGS_SECTION_IDS = new Set<SettingsSectionId>([
-  "account",
-  "llm",
-  "app-models",
-  "limits",
-  "voice",
-  "demo-mode",
-  "automations",
-  "secrets",
-  "hosting",
-  "database",
-  "uploads",
-  "auth",
-  "email",
-  "browser",
-  "background",
-  "integrations",
-  "usage",
-  "a2a",
-]);
-
-const ALL_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
-  "llm",
-  "app-models",
-  "limits",
-  "voice",
-  "demo-mode",
-  "automations",
-  "secrets",
-  "hosting",
-  "database",
-  "uploads",
-  "auth",
-  "email",
-  "browser",
-  "background",
-  "integrations",
-  "usage",
-  "a2a",
-];
-
-const AGENT_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "llm",
-  "app-models",
-  "limits",
-  "voice",
-  "automations",
-  "background",
-  "a2a",
-];
-
-const CONNECTION_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "secrets",
-  "integrations",
-  "email",
-  "browser",
-  "usage",
-];
-
-const WORKSPACE_SETTINGS_SECTIONS: readonly SettingsSectionId[] = [
-  "account",
-  "demo-mode",
-  "hosting",
-  "database",
-  "uploads",
-  "auth",
-];
-
-// Search metadata for each section so settings search can deep-link straight
-// to a section from any tab. Labels mirror the section headers; keywords add
-// synonyms and provider names the header doesn't spell out.
-const SETTINGS_SECTION_SEARCH_META: Record<
-  SettingsSectionId,
-  { label: string; keywords: string; description?: string }
-> = {
-  account: {
-    label: "Account",
-    keywords: "profile photo avatar identity signed in email name",
-  },
-  llm: {
-    label: "LLM",
-    keywords:
-      "model claude gpt openai anthropic gemini api key provider ai engine llm",
-  },
-  "app-models": {
-    label: "App Default Model",
-    keywords: "default model provider app template composer",
-  },
-  limits: {
-    label: "Agent Limits",
-    keywords: "max iterations budget loop timeout runtime",
-  },
-  voice: {
-    label: "Voice Transcription",
-    keywords: "microphone dictation speech to text whisper",
-  },
-  "demo-mode": {
-    label: "Demo mode",
-    keywords: "fake data anonymize redact screenshot privacy mask",
-  },
-  automations: {
-    label: "Automations",
-    keywords: "triggers scheduled events cron jobs",
-  },
-  secrets: {
-    label: "API Keys & Connections",
-    keywords: "secrets credentials tokens api keys environment variables",
-  },
-  hosting: {
-    label: "Hosting",
-    keywords: "deploy netlify vercel cloudflare builder nitro",
-  },
-  database: {
-    label: "Database",
-    keywords: "postgres sqlite neon supabase turso storage sql pglite",
-  },
-  uploads: {
-    label: "File uploads",
-    keywords: "files storage s3 avatars attachments bucket blob",
-  },
-  auth: {
-    label: "Authentication",
-    keywords: "login signup oauth google github better auth access sso",
-  },
-  email: {
-    label: "Email",
-    keywords: "resend sendgrid smtp transactional notifications reports",
-  },
-  browser: {
-    label: "Browser Automation",
-    keywords: "web scraping playwright chrome headless",
-  },
-  background: {
-    label: "Background Agent",
-    keywords: "code changes branches builder production async",
-  },
-  integrations: {
-    label: "Integrations",
-    keywords: "slack telegram whatsapp discord messaging connect",
-  },
-  usage: {
-    label: "Usage",
-    keywords: "tokens cost spend billing consumption",
-  },
-  a2a: {
-    label: "Connected Agents (A2A)",
-    keywords: "remote agents protocol a2a connected",
-  },
-};
-
-function buildSectionSearchEntries(
-  sections: readonly SettingsSectionId[],
-): SettingsSearchEntry[] {
-  return sections.map((section) => {
-    const meta = SETTINGS_SECTION_SEARCH_META[section];
-    return {
-      id: `section:${section}`,
-      label: meta.label,
-      keywords: meta.keywords,
-      description: meta.description,
-      hash: section,
-    };
-  });
-}
-
 function normalizeSettingsSection(
   value?: string | null,
 ): SettingsSectionId | null {
@@ -2891,7 +2790,7 @@ function SettingsPanelContent({
             id={settingsSectionDomId("demo-mode")}
             icon={<IconEyeOff size={14} />}
             title="Demo mode"
-            subtitle="Replace contact/free-text names, emails, and numbers with realistic fake data everywhere — in the UI and what the agent sees. Labels, IDs, and structure are preserved so the app keeps working."
+            subtitle="Replace displayed emails with realistic fake data in this browser and reshape supported charts for presentations. Backend, MCP, and agent results stay real and access-scoped."
             open={openSection === "demo-mode"}
             onToggle={() => toggle("demo-mode")}
           >
@@ -3171,15 +3070,24 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     [canToggle, isDevMode, setDevMode],
   );
 
-  return useMemo<SettingsTabItem[]>(
-    () => [
+  return useMemo<SettingsTabItem[]>(() => {
+    const searchTabs = getAgentSettingsSearchTabs();
+    const searchTab = (
+      id: "agent" | "connections" | "organization" | "workspace",
+    ) => {
+      const tab = searchTabs.find((candidate) => candidate.id === id);
+      if (!tab) throw new Error(`Missing agent settings tab: ${id}`);
+      return tab;
+    };
+    const agent = searchTab("agent");
+    const connections = searchTab("connections");
+    const organization = searchTab("organization");
+    const workspace = searchTab("workspace");
+    return [
       {
-        id: "agent",
-        label: "Agent",
+        ...agent,
         icon: IconBrain,
         group: "agent",
-        keywords: "agent model llm limits voice automations",
-        searchEntries: buildSectionSearchEntries(AGENT_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -3191,12 +3099,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
       {
-        id: "connections",
-        label: "Connections",
+        ...connections,
         icon: IconPlugConnected,
         group: "agent",
-        keywords: "connections secrets integrations email browser usage",
-        searchEntries: buildSectionSearchEntries(CONNECTION_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -3208,11 +3113,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
       {
-        id: "organization",
-        label: "Organization",
+        ...organization,
         icon: IconUsersGroup,
         group: "workspace",
-        keywords: "organization org team members invites collaborators",
         content: (
           <div className="mx-auto w-full max-w-2xl">
             <TeamPage showTitle={false} />
@@ -3220,12 +3123,9 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
       {
-        id: "workspace",
-        label: "Workspace",
+        ...workspace,
         icon: IconCloud,
         group: "workspace",
-        keywords: "workspace account hosting database uploads auth",
-        searchEntries: buildSectionSearchEntries(WORKSPACE_SETTINGS_SECTIONS),
         content: (
           <SettingsPanelContent
             {...baseProps}
@@ -3236,7 +3136,6 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
           />
         ),
       },
-    ],
-    [baseProps],
-  );
+    ];
+  }, [baseProps]);
 }

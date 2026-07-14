@@ -23,6 +23,14 @@ export default defineAction({
       .enum(["true", "false"])
       .optional()
       .describe("Set to 'true' for full frontend deck payloads"),
+    light: z
+      .enum(["true", "false"])
+      .optional()
+      .describe(
+        "Set to 'true' for a minimal id/title/updatedAt/visibility listing " +
+          "used for cheap add/remove diffing (e.g. background polling). " +
+          "Never reads the deck body — no slides, no slideCount.",
+      ),
     createdBy: z
       .enum(["all", "me"])
       .optional()
@@ -56,6 +64,26 @@ export default defineAction({
       args.createdBy === "me" && ownerEmail
         ? and(visibleDecks, eq(schema.decks.ownerEmail, ownerEmail))
         : visibleDecks;
+
+    if (args.light === "true") {
+      // Column-projected listing for cheap add/remove diffing (the client's
+      // background poll and SSE-reconnect resync). The `data` column holds
+      // each deck's entire slide JSON and can be large — never select it
+      // here. Callers that need slide content use `includeSlides: "true"` or
+      // fetch the specific deck via `get-deck`.
+      const rows = await db
+        .select({
+          id: schema.decks.id,
+          title: schema.decks.title,
+          updatedAt: schema.decks.updatedAt,
+          visibility: schema.decks.visibility,
+        })
+        .from(schema.decks)
+        .where(where)
+        .orderBy(desc(schema.decks.updatedAt));
+      return { count: rows.length, decks: rows };
+    }
+
     const rows = await db
       .select()
       .from(schema.decks)

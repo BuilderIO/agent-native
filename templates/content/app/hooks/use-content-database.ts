@@ -830,6 +830,19 @@ export function useBuilderCmsModels(enabled: boolean) {
   );
 }
 
+export function useNotionDatabaseSources(enabled: boolean) {
+  return useActionQuery(
+    "list-notion-database-sources",
+    enabled ? { limit: 50 } : undefined,
+    {
+      enabled,
+      retry: false,
+      placeholderData: (previous) => previous,
+      staleTime: 60_000,
+    },
+  );
+}
+
 export function useContentDatabases(args: {
   excludeDatabaseId?: string;
   excludeDatabaseIds?: string[];
@@ -849,7 +862,11 @@ export function useContentDatabases(args: {
 
 export function useSuggestSourceJoinKey(args: {
   documentId: string;
-  candidateSourceType: "mock-local" | "builder-cms" | "local-table";
+  candidateSourceType:
+    | "mock-local"
+    | "builder-cms"
+    | "local-table"
+    | "notion-database";
   candidateSourceTable: string;
   enabled: boolean;
 }) {

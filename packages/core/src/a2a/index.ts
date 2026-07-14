@@ -1,5 +1,6 @@
 // Server (H3/Nitro)
-export { mountA2A } from "./server.js";
+export { mountA2A, verifyA2AToken } from "./server.js";
+export type { A2ATokenPayload } from "./server.js";
 export { generateAgentCard } from "./agent-card.js";
 
 // Client

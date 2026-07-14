@@ -15,11 +15,13 @@ import {
   normalizeModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+import { resolveMainChatMaxOutputTokens } from "../agent/engine/output-tokens.js";
 import { PROVIDER_TO_ENV } from "../agent/engine/provider-env-vars.js";
 import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
 import {
   runAgentLoop,
   actionsToEngineTools,
+  filterInitialEngineTools,
   getOwnerActiveApiKey,
   getOwnerApiKey,
   engineToProvider,
@@ -34,6 +36,7 @@ import {
   buildAssistantMessage,
   extractThreadMeta,
 } from "../agent/thread-data-builder.js";
+import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread, getThread } from "../chat-threads/store.js";
 import { updateThreadData } from "../chat-threads/store.js";
 import { isLocalDatabase } from "../db/client.js";
@@ -45,6 +48,7 @@ import {
   readDeployCredentialEnv,
 } from "../server/credential-provider.js";
 import { runWithRequestContext } from "../server/request-context.js";
+import { normalizeReasoningEffortForRequest } from "../shared/reasoning-effort.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "./a2a-continuation-marker.js";
 import {
   clearIntegrationAwaitingInput,
@@ -70,6 +74,8 @@ import {
 const PROCESSOR_DISPATCH_SETTLE_WAIT_MS = 1_500;
 const DEFERRED_RESPONSE_DISPATCH_SETTLE_WAIT_MS = 1_500;
 const DEFERRED_RESPONSE_MAX_HANDLER_MS = 2_500;
+const EMPTY_INTEGRATION_RESPONSE_MESSAGE =
+  "The model finished without a visible answer. Try again, or open the thread in Dispatch to inspect the run.";
 
 type ToolDoneEvent = { type: "tool_done"; tool: string; result: string };
 
@@ -111,6 +117,17 @@ export interface WebhookHandlerOptions {
   systemPrompt: string;
   /** Action entries for the agent */
   actions: Record<string, ActionEntry>;
+  /**
+   * Tool names to expose on the FIRST engine request. When provided, every
+   * other name in `actions` (framework additions such as
+   * `list-integration-memory` / `call-agent` merged in by
+   * `createIntegrationsPlugin`) is deferred behind the attached `tool-search`
+   * entry instead of being serialized on every inbound message — the run
+   * loop's mid-run tool expansion (`expandActiveTools` in `runAgentLoop`)
+   * still lets the model discover and call them after a search. Omit to keep
+   * the full `actions` set visible up front (current behavior).
+   */
+  initialToolNames?: string[];
   /** Model to use. Defaults to the resolved engine's default model. */
   model?: string;
   /** Anthropic API key */
@@ -571,6 +588,7 @@ async function processIncomingMessage(
     adapter,
     systemPrompt,
     actions,
+    initialToolNames,
     model,
     apiKey,
     ownerEmail,
@@ -729,6 +747,7 @@ async function processIncomingMessage(
     incoming.senderName ? `Sender name: ${incoming.senderName}` : null,
     incoming.senderEmail ? `Sender email: ${incoming.senderEmail}` : null,
     incoming.senderId ? `Sender ID: ${incoming.senderId}` : null,
+    incoming.identityNote ? `Caller identity: ${incoming.identityNote}` : null,
     incoming.sourceUrl ? `Source thread: ${incoming.sourceUrl}` : null,
     incoming.routingHint?.targetAgent
       ? `Required target agent: ${incoming.routingHint.targetAgent}`
@@ -761,10 +780,20 @@ async function processIncomingMessage(
   // A2A delegation. Without this, getRequestOrgId() returns undefined and
   // call-agent can't look up the org's a2a_secret or org_domain.
   let orgId: string | null | undefined;
+  let runnableActions: Record<string, ActionEntry>;
   let tools: ReturnType<typeof actionsToEngineTools>;
+  let availableTools: ReturnType<typeof actionsToEngineTools>;
   try {
     orgId = opts.orgId ?? (await resolveOrgIdForEmail(ownerEmail));
-    tools = actionsToEngineTools(actions);
+    // Attach tool-search on a shallow copy so framework additions merged in
+    // by `createIntegrationsPlugin` (integration memory, `call-agent`) can be
+    // deferred behind it without mutating the plugin's long-lived registry.
+    // `runAgentLoop`'s `expandActiveTools` re-expands from `availableTools`
+    // after a tool-search call, so anything filtered out of the initial
+    // `tools` list stays reachable.
+    runnableActions = attachToolSearch({ ...actions });
+    availableTools = actionsToEngineTools(runnableActions);
+    tools = filterInitialEngineTools(availableTools, initialToolNames);
   } catch (error) {
     await releaseApplicableIntegrationBudgets(budgetReservations.reservations);
     throw error;
@@ -796,6 +825,7 @@ async function processIncomingMessage(
                   attempts: opts.attempts,
                   incoming,
                   placeholderRef: opts.placeholderRef,
+                  progressRef: progress?.ref,
                   scopeId: incoming.integrationScopeId,
                   principalType: opts.principalType ?? "user",
                   lineage: {
@@ -852,8 +882,9 @@ async function processIncomingMessage(
               model: resolvedModel,
               systemPrompt: effectiveSystemPrompt,
               tools,
+              availableTools,
               messages,
-              actions,
+              actions: runnableActions,
               send: async (event) => {
                 if (progress) {
                   await Promise.resolve(progress.onEvent(event)).catch(
@@ -865,6 +896,18 @@ async function processIncomingMessage(
               signal,
               threadId,
               approvedToolCalls: incoming.approvedToolCalls,
+              // Messaging integrations are interactive chat surfaces. They
+              // need the same initial completion headroom as web chat so
+              // reasoning cannot consume the small per-engine default and
+              // leave a user-facing Slack reply empty.
+              maxOutputTokens: resolveMainChatMaxOutputTokens(resolvedModel),
+              // Explicitly resolve the normal chat default so an empty-final
+              // retry can step its reasoning effort down rather than
+              // repeatedly letting the engine choose Medium.
+              reasoningEffort: normalizeReasoningEffortForRequest(
+                resolvedModel,
+                undefined,
+              ),
             });
             return usage;
           },
@@ -872,8 +915,9 @@ async function processIncomingMessage(
       },
       async (completedRun: ActiveRun) => {
         let keepSlackInputWindow = false;
+        let queuedA2AContinuation = false;
         try {
-          const queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
+          queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
           const slackInputRequest =
             incoming.platform === "slack"
               ? extractSlackInputRequest(completedRun)
@@ -930,7 +974,7 @@ async function processIncomingMessage(
                 "If it was a complex analytics question, opening the analytics app " +
                 "directly is the most reliable way to get an answer right now.";
             } else {
-              responseText = "(No response)";
+              responseText = EMPTY_INTEGRATION_RESPONSE_MESSAGE;
             }
           }
           if (approval?.type === "approval_required") {
@@ -953,7 +997,7 @@ async function processIncomingMessage(
           }
           const threadDeepLinkUrl =
             appBaseUrl && threadId
-              ? `${appBaseUrl}/?thread=${threadId}`
+              ? `${appBaseUrl}/chat/${encodeURIComponent(threadId)}`
               : undefined;
 
           // Format and send back to platform — update the "thinking…"
@@ -963,7 +1007,15 @@ async function processIncomingMessage(
               threadDeepLinkUrl,
             });
             let delivered = false;
-            if (progress) {
+            if (queuedA2AContinuation && progress?.ref) {
+              // Post substantive parent results as a normal thread reply while
+              // the one continuation that claimed this resumable stream keeps
+              // it open for its eventual terminal result.
+              await adapter.sendResponse(outgoing, incoming, {
+                placeholderRef: opts.placeholderRef,
+              });
+              delivered = true;
+            } else if (progress) {
               try {
                 await progress.complete(outgoing);
                 delivered = true;
@@ -988,24 +1040,35 @@ async function processIncomingMessage(
               keepSlackInputWindow = true;
             }
           } else if (progress) {
-            // The downstream agent owns the eventual reply, but this parent
-            // integration run owns the native progress stream it opened. End
-            // that stream now so Slack does not leave an eternal task card;
-            // the continuation processor will post the final result into the
-            // same thread when the downstream task completes.
-            const deferred = adapter.formatAgentResponse(
-              "The delegated agent is still working. I’ll post its final result in this thread automatically.",
-            );
-            try {
-              await progress.complete(deferred);
-            } catch {
-              // A failed complete must still terminate a provider-native
-              // stream when the adapter offers a failure lifecycle. Do not
-              // duplicate the deferred text as a regular reply: a later
-              // continuation delivery is authoritative.
-              await progress.fail?.(
+            // A continuation owns the eventual final response. If the adapter
+            // supplied a durable progress reference, leave the same native
+            // stream open for the continuation processor to update and close;
+            // ending it here discards the plan/task UI before the delegated
+            // work has actually finished.
+            if (progress.ref) {
+              await progress.onEvent({
+                type: "agent_call_progress",
+                agent:
+                  getQueuedA2AContinuationAgent(completedRun) ??
+                  "delegated agent",
+                state: "working",
+                elapsedSeconds: 0,
+                detail: "Continuing in the background",
+              });
+            } else {
+              // Older adapters have no resumable native surface. Close their
+              // stream cleanly; the continuation will deliver one standard
+              // final reply when the downstream task is terminal.
+              const deferred = adapter.formatAgentResponse(
                 "The delegated agent is still working. I’ll post its final result in this thread automatically.",
               );
+              try {
+                await progress.complete(deferred);
+              } catch {
+                await progress.fail?.(
+                  "The delegated agent is still working. I’ll post its final result in this thread automatically.",
+                );
+              }
             }
           }
 
@@ -1036,6 +1099,10 @@ async function processIncomingMessage(
             `[integrations] Error sending response to ${incoming.platform}:`,
             err,
           );
+          // A queued continuation owns the final platform response. Later
+          // bookkeeping failures (for example, persisting this parent run)
+          // must not close its resumable native stream with a false failure.
+          if (queuedA2AContinuation) return;
           // Last-ditch: try to post a brief apology so the thread isn't silent.
           try {
             await progress?.fail?.(
@@ -1320,6 +1387,17 @@ function hasQueuedA2AContinuation(completedRun: ActiveRun): boolean {
       String(event.result ?? "").includes(A2A_CONTINUATION_QUEUED_MARKER)
     );
   });
+}
+
+function getQueuedA2AContinuationAgent(completedRun: ActiveRun): string | null {
+  for (let i = completedRun.events.length - 1; i >= 0; i--) {
+    const event = completedRun.events[i]!.event;
+    if (event.type !== "agent_call") continue;
+    if (typeof event.agent === "string" && event.agent.trim()) {
+      return event.agent;
+    }
+  }
+  return null;
 }
 
 function extractSlackInputRequest(

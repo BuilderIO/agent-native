@@ -11,13 +11,18 @@ import {
 } from "@agent-native/core/server";
 import { z } from "zod";
 
-import { getDashboard, upsertDashboard } from "../server/lib/dashboards-store";
+import {
+  getDashboard,
+  upsertDashboardWithRetry,
+  type DashboardRecord,
+} from "../server/lib/dashboards-store";
 import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,
   DASHBOARD_MUTATION_EXAMPLES,
   parseDashboardMutationScript,
   type DashboardMutationOperation,
+  type DashboardMutationResult,
 } from "./dashboard-mutation-api";
 import { compactDashboardResult } from "./dashboard-panel-order";
 import { validateDashboardConfig, validatePanelSql } from "./update-dashboard";
@@ -117,6 +122,7 @@ const apiHelp =
   "Subjects: dashboard.set, dashboard.panel, dashboard.panels, dashboard.panelsMatching, dashboard.section, dashboard.insertPanel. " +
   "Selection methods: moveToTop, moveToBottom, moveBefore, moveAfter, moveToIndex, moveNextTo, moveToRow, remove, set, setTitle, setSql, setWidth, setConfig, setConfigPath, duplicate. " +
   "Inserted panels support atTop, atBottom, before, after, atIndex, nextTo, atRow, atRowStart, and atRowEnd. Use nextTo(panelId) or atRow(rowNumber) for visible row placement. " +
+  "AI-generated first-party panels are dashboard-time-bound by default: set config.timeScope to dashboard and include a matching dashboard time filter in SQL. Allowed values are dashboard, fixed-window, cohort-history, and all-time; use all-time only when the user requests full available history and put all-time, lifetime, or historical in the title or description. A {{timeRange}} token requires the timeRange select filter; {{<id>Start}}/{{<id>End}} require a matching date-range filter. Server validation rejects unbound first-party SQL. " +
   `Examples: ${DASHBOARD_MUTATION_EXAMPLES.slice(0, 5).join(" ")}`;
 
 function resolveScope() {
@@ -193,7 +199,7 @@ export default defineAction({
     "Apply general SQL dashboard edits through a small typed mutation API in ONE atomic save. " +
     "Prefer this for dashboard layout and panel edits: move panels by id, edit titles/SQL/width/config, remove panels, duplicate panels, insert panels, or patch dashboard fields. " +
     "For user placement requests like 'second row' or 'next to return rates', use row-aware placement such as `dashboard.insertPanel(...).nextTo(\"retention-over-time\")` or `.atRow(2)`, then verify rendered rows from `get-sql-dashboard.layout.groups`. " +
-    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. " +
+    "This is code-shaped but not arbitrary code execution: the server parses the allowed dashboard methods, validates the resulting config with the same invariants as update-dashboard, saves once, syncs collab, and returns compact proof. First-party SQL must be explicitly time-bound as described in the API help; server validation rejects unbound first-party SQL. " +
     "The main code argument is a string, so it avoids brittle JSON-pointer indexes and native-array serialization issues. " +
     `Common example: ${DASHBOARD_MUTATION_EXAMPLES[0]}`,
   schema: z.object({
@@ -260,33 +266,77 @@ export default defineAction({
 
     const scope = resolveScope();
     const ctx = { email: scope.email, orgId: scope.orgId };
-    const existing = await getDashboard(dashboardId, ctx);
-    if (!existing) {
-      throw new Error(
-        `dashboard "${dashboardId}" not found (or you don't have access).`,
+
+    // Recomputes the mutation from whatever dashboard state is passed in.
+    // `operations` sourced from `args.operations` are already concrete panel
+    // ids, safe to replay verbatim; `args.code` is re-parsed against `existing`
+    // every time because selectors like `panelsMatching(...)` resolve against
+    // the config at parse time, so a retry must re-resolve them against the
+    // fresh state, not reuse ids resolved from a now-stale config.
+    function computeMutation(
+      existing: Pick<DashboardRecord, "kind" | "config">,
+    ) {
+      if (existing.kind !== "sql") {
+        throw new Error(
+          `mutate-dashboard only supports SQL dashboards; "${dashboardId}" is ${existing.kind}.`,
+        );
+      }
+      const nextRoot = cloneConfig(existing.config as Record<string, unknown>);
+      const nextOperations = args.operations
+        ? (args.operations as DashboardMutationOperation[])
+        : parseDashboardMutationScript(nextRoot, args.code!);
+      const nextMutation = applyDashboardMutationOperations(
+        nextRoot,
+        nextOperations,
       );
+      const validation = validateDashboardConfig(nextRoot);
+      if (validation) throw new Error(validation);
+      return { nextRoot, nextOperations, nextMutation };
     }
-    if (existing.kind !== "sql") {
-      throw new Error(
-        `mutate-dashboard only supports SQL dashboards; "${dashboardId}" is ${existing.kind}.`,
+
+    // Assigned inside `computeMutation`'s caller (directly for dry-run, inside
+    // the retry callback for a real save); always assigned at least once
+    // before use below, since `upsertDashboardWithRetry` only resolves after
+    // its callback has run.
+    let root: Record<string, unknown>;
+    let operations!: DashboardMutationOperation[];
+    let mutation!: DashboardMutationResult;
+
+    if (args.dryRun === true) {
+      const existing = await getDashboard(dashboardId, ctx);
+      if (!existing) {
+        throw new Error(
+          `dashboard "${dashboardId}" not found (or you don't have access).`,
+        );
+      }
+      const computed = computeMutation(existing);
+      root = computed.nextRoot;
+      operations = computed.nextOperations;
+      mutation = computed.nextMutation;
+      if (operations.some(mutationCanChangePanelSql)) {
+        const sqlError = await validatePanelSql(root);
+        if (sqlError) throw new Error(sqlError);
+      }
+    } else {
+      const saved = await upsertDashboardWithRetry(
+        dashboardId,
+        ctx,
+        async (existing) => {
+          const computed = computeMutation(existing);
+          if (computed.nextOperations.some(mutationCanChangePanelSql)) {
+            const sqlError = await validatePanelSql(computed.nextRoot);
+            if (sqlError) throw new Error(sqlError);
+          }
+          root = computed.nextRoot;
+          operations = computed.nextOperations;
+          mutation = computed.nextMutation;
+          return { kind: "sql" as const, body: computed.nextRoot };
+        },
       );
-    }
-
-    const root = cloneConfig(existing.config as Record<string, unknown>);
-    const operations = args.operations
-      ? (args.operations as DashboardMutationOperation[])
-      : parseDashboardMutationScript(root, args.code!);
-    const mutation = applyDashboardMutationOperations(root, operations);
-
-    const validation = validateDashboardConfig(root);
-    if (validation) throw new Error(validation);
-    if (operations.some(mutationCanChangePanelSql)) {
-      const sqlError = await validatePanelSql(root);
-      if (sqlError) throw new Error(sqlError);
-    }
-
-    if (args.dryRun !== true) {
-      await upsertDashboard(dashboardId, existing.kind, root, ctx);
+      // Use the persisted config as the source of truth for the response —
+      // structurally identical to the winning attempt's `root`, but reflects
+      // exactly what was saved.
+      root = saved.config as Record<string, unknown>;
       await syncToCollab(dashboardId, root);
     }
 

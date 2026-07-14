@@ -1,5 +1,6 @@
 import type { Icon } from "@tabler/icons-react";
 import {
+  IconBrain,
   IconBook2,
   IconChecks,
   IconDatabase,
@@ -16,6 +17,7 @@ export type BrainView =
   | "review"
   | "sources"
   | "ops"
+  | "agent"
   | "settings";
 
 export type KnowledgeStatus = "approved" | "needs_review" | "draft" | "stale";
@@ -923,6 +925,12 @@ export const navItems: Array<{
     href: "/settings",
     icon: IconSettings,
   },
+  {
+    view: "agent",
+    label: "Agent settings",
+    href: "/agent",
+    icon: IconBrain,
+  },
 ];
 
 export const defaultSettings: BrainSettings = {
@@ -952,6 +960,7 @@ export function viewFromPath(pathname: string): BrainView {
   if (pathname.startsWith("/review")) return "review";
   if (pathname.startsWith("/sources")) return "sources";
   if (pathname.startsWith("/ops")) return "ops";
+  if (pathname.startsWith("/agent")) return "agent";
   if (pathname.startsWith("/settings")) return "settings";
   return "ask";
 }
@@ -970,6 +979,8 @@ export function pathFromView(view?: string): string {
       return "/sources";
     case "ops":
       return "/ops";
+    case "agent":
+      return "/agent";
     case "settings":
       return "/settings";
     case "ask":

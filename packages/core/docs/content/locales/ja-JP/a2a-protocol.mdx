@@ -384,6 +384,48 @@ console.log(`Called ${result.target.name}: ${result.responseText}`);
 JWT ベアラー トークンとして署名されています。 `apiKeyEnv` は、
 静的なベアラー トークンが必要です。自分自身を呼び出す代わりに、ローカルの actions を使用してください。
 
+## CLI: agent-native invoke {#cli-invoke}
+
+`agent-native invoke` は、`agentNative.invoke()` と同じ解決・呼び出しプリミティブを薄くラップした CLI です。シェル スクリプト、CI ジョブ、cron エントリ、またはシェルアウトできる任意の外部システムからアプリのエージェントをトリガーするために使用します。手動で `/_agent-native/a2a` に POST するのと同等の CLI 版です。
+
+```bash
+agent-native invoke <app-or-url> "prompt" [options]
+```
+
+```bash
+# ワークスペース レジストリで "analytics" を解決し、応答を待つ
+agent-native invoke analytics "Summarize signups by source this month"
+
+# デプロイ済みアプリを URL で直接呼び出し、環境変数からベアラー トークンを読み取る
+agent-native invoke https://analytics.example.com "How many signups last week?" \
+  --api-key-env ANALYTICS_A2A_KEY
+
+# デフォルトの async+poll の代わりに、ブロッキングの message/send を1回だけ強制する
+agent-native invoke analytics "Quick lookup" --sync
+
+# スクリプト用の機械可読な出力
+agent-native invoke analytics "Summarize signups" --json
+```
+
+| Option                    | Description                                                                         |
+| ------------------------- | ----------------------------------------------------------------------------------- |
+| `--agent <id\|name\|url>` | 対象のエージェント（位置引数 `<app-or-url>` のエイリアス）                          |
+| `--message <text>`        | プロンプト（位置引数 `"prompt"` のエイリアス）                                      |
+| `--api-key-env <name>`    | 環境変数からベアラー トークンを読み取る                                             |
+| `--api-key <token>`       | ベアラー トークンの値をインラインで渡す                                             |
+| `--context-id <id>`       | A2A の `contextId`。既存タスクの会話を継続するために使用                            |
+| `--self-app-id <id>`      | 自己呼び出し防止に使われる、現在のアプリ id                                         |
+| `--self-url <url>`        | 自己呼び出し防止に使われる、現在のアプリ URL                                        |
+| `--timeout-ms <n>`        | 非同期ポーリングのタイムアウト                                                      |
+| `--poll-interval-ms <n>`  | 非同期ポーリングの間隔                                                              |
+| `--sync`                  | デフォルトの async+poll の代わりに、ブロッキングの `message/send` を1回だけ使用する |
+| `--no-hint`               | クロスアプリ呼び出しのヒントを付けずに、プロンプトをそのまま送信する                |
+| `--json`                  | ターゲットのメタデータと応答テキストを JSON として出力する                          |
+
+`callAgent()` と同様に、この CLI もデフォルトで async + poll を使用します（内部的には `invokeAgent` → `callAgent`）。これはホスト型/サーバーレスのターゲットに対して安全な選択です。上記の [サーバーレスの Webhook とゲートウェイのタイムアウト](#json-rpc-methods) を参照してください。ターゲットが短い実行時間制限のあるゲートウェイの背後にないとわかっている場合にのみ `--sync` を渡してください。
+
+ターゲットは `agentNative.invoke()` と同じ方法で解決されます: ワークスペースのアプリ id、アプリ名、または完全な URL のいずれかです。そのため、同じコマンドがマルチアプリ ワークスペース内の兄弟アプリに対しても、どこか別の場所にある任意の A2A ピアに対しても機能します。
+
 ## タスクのライフサイクル {#task-lifecycle}
 
 各メッセージは、次の状態を通過するタスクを作成します。

@@ -24,6 +24,7 @@ pub async fn whisper_transcription_start(
     mic_device_label: Option<String>,
     capture_system: bool,
     voice_processing: bool,
+    emit_partials: bool,
     owner: Option<String>,
 ) -> Result<(), String> {
     if !crate::config::feature_config(&app).whisper_model_enabled {
@@ -38,6 +39,7 @@ pub async fn whisper_transcription_start(
             mic_device_label,
             capture_system,
             voice_processing,
+            emit_partials,
             macos::SessionOwner::from_param(owner),
         )
         .await
@@ -51,6 +53,7 @@ pub async fn whisper_transcription_start(
             mic_device_label,
             capture_system,
             voice_processing,
+            emit_partials,
             owner,
         );
         Err("Whisper transcription is only supported on macOS.".into())
@@ -161,7 +164,14 @@ mod macos {
         let path_str = path
             .to_str()
             .ok_or_else(|| "model path is not valid UTF-8".to_string())?;
-        let ctx = WhisperContext::new_with_params(path_str, WhisperContextParameters::default())
+        let mut params = WhisperContextParameters::default();
+        // The `metal` Cargo feature defaults `use_gpu` to true for every mac
+        // (Intel included) via whisper-rs's `_gpu` cfg. Metal offload only
+        // pays off on Apple Silicon's unified-memory GPU, so pin this
+        // explicitly instead of trusting that default — Intel Macs keep
+        // today's CPU decode path.
+        params.use_gpu(cfg!(target_arch = "aarch64"));
+        let ctx = WhisperContext::new_with_params(path_str, params)
             .map_err(|e| format!("whisper model load failed: {e}"))?;
         let ctx = Arc::new(ctx);
         *guard = Some(ctx.clone());
@@ -177,8 +187,25 @@ mod macos {
 
     // ---- resampling -------------------------------------------------------
 
+    /// One linearly-interpolated 16 kHz output sample at output index `i`,
+    /// given `ratio = 16000 / src_rate`. Shared by `resample_to_16k` (one-shot,
+    /// full buffer) and `IncrementalResample` (append-only, growing buffer) so
+    /// both produce byte-identical values for the same input.
+    fn resample_linear_at(input: &[f32], ratio: f64, i: usize) -> f32 {
+        let src_pos = i as f64 / ratio;
+        let idx = src_pos as usize;
+        let frac = (src_pos - idx as f64) as f32;
+        let a = input.get(idx).copied().unwrap_or(0.0);
+        let b = input.get(idx + 1).copied().unwrap_or(a);
+        a + (b - a) * frac
+    }
+
     /// Linear-resample mono f32 to 16 kHz (Whisper's required rate). Per-buffer
-    /// resampling introduces negligible boundary error for speech.
+    /// resampling introduces negligible boundary error for speech. One-shot —
+    /// used only for the final flush on stop. The hot per-utterance path (an
+    /// utterance can be resampled repeatedly as it grows toward the 25 s cap)
+    /// uses `IncrementalResample` instead so it doesn't redo the whole buffer
+    /// every time.
     fn resample_to_16k(input: &[f32], src_rate: f64) -> Vec<f32> {
         if input.is_empty() {
             return Vec::new();
@@ -190,14 +217,93 @@ mod macos {
         let out_len = ((input.len() as f64) * ratio).floor() as usize;
         let mut out = Vec::with_capacity(out_len);
         for i in 0..out_len {
-            let src_pos = i as f64 / ratio;
-            let idx = src_pos as usize;
-            let frac = (src_pos - idx as f64) as f32;
-            let a = input.get(idx).copied().unwrap_or(0.0);
-            let b = input.get(idx + 1).copied().unwrap_or(a);
-            out.push(a + (b - a) * frac);
+            out.push(resample_linear_at(input, ratio, i));
         }
         out
+    }
+
+    /// Incrementally maintains a 16 kHz resample of a growing raw-sample
+    /// buffer so repeated inference calls (partials, then the final) within
+    /// one utterance only resample the audio that arrived since the last
+    /// call, not the whole utterance from scratch. Lives entirely on the
+    /// worker thread — not shared, no locking needed.
+    struct IncrementalResample {
+        src_rate: f32,
+        /// 16 kHz samples resampled so far. A prefix of what
+        /// `resample_to_16k(raw, src_rate)` would produce for the current
+        /// `raw`; `sync` extends it in place.
+        out: Vec<f32>,
+        /// Length of `out` that's permanent: every sample up to this point
+        /// used two real interpolation neighbors (never the same-sample
+        /// fallback `resample_to_16k` falls back to at the true tail), so it
+        /// can never change as more raw samples arrive. `sync` recomputes
+        /// anything past this on every call.
+        committed_len: usize,
+    }
+
+    impl IncrementalResample {
+        fn new() -> Self {
+            Self {
+                src_rate: -1.0,
+                out: Vec::new(),
+                committed_len: 0,
+            }
+        }
+
+        /// Discard all cached state. Call this everywhere the raw buffer it
+        /// tracks is cleared or front-drained (finalize, timeline reset) —
+        /// after either, raw sample indices no longer line up with what's
+        /// cached here, so the cheapest correct move is a clean rebuild on
+        /// the next `sync` (bounded by however little raw audio is left).
+        fn drop_all(&mut self) {
+            self.out.clear();
+            self.committed_len = 0;
+        }
+
+        /// Extend the cached resample to cover all of `raw`, byte-identical to
+        /// calling `resample_to_16k(raw, src_rate)` fresh. Only the samples
+        /// that arrived since the last call are actually resampled.
+        fn sync(&mut self, raw: &[f32], src_rate: f32) {
+            if (src_rate - self.src_rate).abs() > 0.5 {
+                self.src_rate = src_rate;
+                self.drop_all();
+            }
+            // Drop the small uncommitted tail from the previous call (its
+            // fallback neighbor may since have become a real sample) before
+            // recomputing it with the now-current buffer.
+            self.out.truncate(self.committed_len);
+
+            if raw.is_empty() {
+                return;
+            }
+            if (src_rate as f64 - 16000.0).abs() < 1.0 {
+                if raw.len() > self.out.len() {
+                    self.out.extend_from_slice(&raw[self.out.len()..]);
+                }
+                self.committed_len = self.out.len();
+                return;
+            }
+
+            let ratio = 16000.0 / src_rate as f64;
+            let full_len = ((raw.len() as f64) * ratio).floor() as usize;
+            while self.out.len() < full_len {
+                let i = self.out.len();
+                self.out.push(resample_linear_at(raw, ratio, i));
+            }
+            // Reserve the last couple of raw samples as lookahead: an output
+            // sample this close to the end may have used the same-sample
+            // fallback above because its true second neighbor hasn't arrived
+            // yet. Only commit up to where both neighbors are guaranteed
+            // real, so that sample gets redone (cheaply) once more audio
+            // confirms it instead of freezing the fallback value forever.
+            let safe_raw_len = raw.len().saturating_sub(2);
+            let safe_len = ((safe_raw_len as f64) * ratio).floor() as usize;
+            self.committed_len = safe_len.min(self.out.len());
+        }
+
+        fn samples(&self) -> &[f32] {
+            &self.out
+        }
     }
 
     // ---- per-stream worker ------------------------------------------------
@@ -228,6 +334,10 @@ mod macos {
         /// local counters that must be reset after the realtime callback clears
         /// the shared sample buffer.
         reset_generation: AtomicU32,
+        /// Whether this consumer renders live partial transcript updates.
+        /// Recording capture only persists finals and disables this expensive
+        /// repeated inference; meeting capture keeps it enabled.
+        emit_partials: bool,
     }
 
     impl WhisperStream {
@@ -238,6 +348,7 @@ mod macos {
             language: Option<String>,
             ctx: Arc<WhisperContext>,
             stream_start: Instant,
+            emit_partials: bool,
         ) -> Arc<Self> {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
@@ -253,6 +364,7 @@ mod macos {
                     buffer_start: stream_start,
                 }),
                 reset_generation: AtomicU32::new(0),
+                emit_partials,
             });
             let worker_stream = stream.clone();
             std::thread::spawn(move || {
@@ -368,10 +480,11 @@ mod macos {
         language: Option<&str>,
     ) -> Vec<(i64, i64, String)> {
         let mut params = FullParams::new(SamplingStrategy::Greedy { best_of: 1 });
-        params.set_n_threads(4);
+        params.set_n_threads(2);
         params.set_language(language);
         params.set_translate(false);
         params.set_no_context(true);
+        params.set_suppress_nst(true);
         params.set_print_special(false);
         params.set_print_progress(false);
         params.set_print_realtime(false);
@@ -382,7 +495,7 @@ mod macos {
         let mut out = Vec::new();
         for segment in state.as_iter() {
             let text = segment.to_string();
-            if is_speech(&text) {
+            if is_speech(&text) && segment.no_speech_probability() < MAX_NO_SPEECH_PROBABILITY {
                 // whisper timestamps are in centiseconds → ms.
                 out.push((
                     segment.start_timestamp() * 10,
@@ -415,6 +528,24 @@ mod macos {
     const SAMPLE_RATE_16K: f32 = 16000.0;
     /// RMS above this counts as speech for the silence/end-of-utterance timer.
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
+    /// A second, model-level gate for ambient/no-speech Whisper segments.
+    const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
+
+    fn partial_inference_due(
+        emit_partials: bool,
+        had_voice: bool,
+        have_secs: f32,
+        since_last_infer: Duration,
+    ) -> bool {
+        emit_partials
+            && had_voice
+            && have_secs > 0.5
+            && since_last_infer > Duration::from_millis(1200)
+    }
+
+    fn utterance_finalize_due(have_secs: f32, silence: Duration) -> bool {
+        (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0
+    }
 
     fn worker(stream: Arc<WhisperStream>, ctx: Arc<WhisperContext>) {
         let mut state = match ctx.create_state() {
@@ -429,7 +560,7 @@ mod macos {
             }
         };
         let lang = stream.language.as_deref();
-        let mut last_len = 0usize;
+        let mut last_raw_len = 0usize;
         let mut last_infer = Instant::now() - Duration::from_secs(10);
         let mut last_voice = Instant::now();
         // Whether the CURRENT utterance buffer ever crossed the voice
@@ -437,6 +568,8 @@ mod macos {
         // silent audio, so we NEVER run inference on a buffer with no voice.
         let mut had_voice = false;
         let mut seen_reset_generation = stream.reset_generation.load(Ordering::SeqCst);
+        // Growing-utterance resample cache — see `IncrementalResample`.
+        let mut resample_state = IncrementalResample::new();
 
         while stream.running.load(Ordering::SeqCst) {
             std::thread::sleep(Duration::from_millis(250));
@@ -444,59 +577,83 @@ mod macos {
             let reset_generation = stream.reset_generation.load(Ordering::SeqCst);
             if reset_generation != seen_reset_generation {
                 seen_reset_generation = reset_generation;
-                last_len = 0;
+                last_raw_len = 0;
                 last_voice = Instant::now();
                 last_infer = Instant::now() - Duration::from_secs(10);
                 had_voice = false;
+                resample_state.drop_all();
                 continue;
             }
 
-            // Clone the raw buffer (cheap relative to inference), then resample
-            // to 16 kHz here on the worker rather than on the audio thread.
-            let raw = match stream.buf.lock() {
-                Ok(b) => b.clone(),
+            // Voice activity only needs the samples that arrived since the last
+            // poll. Inspect that tail in place instead of cloning + resampling
+            // the entire growing utterance four times per second. Full snapshots
+            // are reserved for an inference that is actually due.
+            let (raw_len, new_rms) = match stream.buf.lock() {
+                Ok(b) => {
+                    let raw_len = b.len();
+                    let new_rms = if raw_len > last_raw_len {
+                        let new = &b[last_raw_len..];
+                        Some((new.iter().map(|x| x * x).sum::<f32>() / new.len() as f32).sqrt())
+                    } else {
+                        None
+                    };
+                    (raw_len, new_rms)
+                }
                 Err(_) => continue,
             };
-            let src_rate = stream.src_rate.load(Ordering::SeqCst) as f64;
-            let samples = resample_to_16k(&raw, src_rate);
             if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
                 continue;
             }
-            let len = samples.len();
-
-            // Track voice activity over the newly-arrived region.
-            if len > last_len {
-                let new = &samples[last_len..];
-                let rms = (new.iter().map(|x| x * x).sum::<f32>() / new.len() as f32).sqrt();
+            if let Some(rms) = new_rms {
                 if rms > VOICE_RMS_THRESHOLD {
                     last_voice = Instant::now();
                     had_voice = true;
                 }
-                last_len = len;
             }
+            last_raw_len = raw_len;
 
-            let have_secs = len as f32 / SAMPLE_RATE_16K;
+            let src_rate = (stream.src_rate.load(Ordering::SeqCst) as f32).max(1.0);
+            let have_secs = raw_len as f32 / src_rate;
             let silence = last_voice.elapsed();
 
             // Finalize on a real pause (>0.8 s silence with >0.4 s speech) or
             // when the buffer grows too long to keep as one utterance.
-            if (have_secs > 0.4 && silence > Duration::from_millis(800)) || have_secs > 25.0 {
+            if utterance_finalize_due(have_secs, silence) {
                 // Only transcribe if the utterance actually contained voice —
                 // otherwise we'd feed whisper silence and get a hallucinated
                 // "you" / "Thank you.".
+                let mut n_processed = raw_len;
                 if had_voice && have_secs > 0.4 {
-                    let segs = infer(&mut state, &samples, lang);
+                    match stream.buf.lock() {
+                        Ok(b) => {
+                            // Hold the lock only long enough to extend the
+                            // resample cache with the new tail (cheap) — NOT
+                            // through inference, so the realtime capture
+                            // callback (`push`) never blocks on whisper.
+                            resample_state.sync(&b, src_rate);
+                            n_processed = b.len();
+                        }
+                        Err(_) => continue,
+                    }
+                    if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
+                        continue;
+                    }
+                    let segs = infer(&mut state, resample_state.samples(), lang);
                     stream.emit_transcript("voice:final-transcript", &segs, stream.offset_ms());
                 }
-                let n_processed = raw.len();
                 if let Ok(mut b) = stream.buf.lock() {
                     let to_drain = n_processed.min(b.len());
                     b.drain(..to_drain);
                 }
+                // Raw indices shift after the drain above (front-truncated),
+                // so the resample cache is invalid regardless of whether this
+                // utterance ran inference — rebuild fresh from whatever's left.
+                resample_state.drop_all();
                 // New buffer begins now — advance the timeline offset so the
                 // next utterance's whisper timestamps map correctly.
                 stream.reset_buffer_start();
-                last_len = 0;
+                last_raw_len = 0;
                 had_voice = false;
                 last_infer = Instant::now();
                 continue;
@@ -504,8 +661,20 @@ mod macos {
 
             // Partial while speech is still accruing (only once real voice has
             // been heard in this utterance).
-            if had_voice && have_secs > 0.5 && last_infer.elapsed() > Duration::from_millis(1200) {
-                let segs = infer(&mut state, &samples, lang);
+            if partial_inference_due(
+                stream.emit_partials,
+                had_voice,
+                have_secs,
+                last_infer.elapsed(),
+            ) {
+                match stream.buf.lock() {
+                    Ok(b) => resample_state.sync(&b, src_rate),
+                    Err(_) => continue,
+                }
+                if stream.reset_generation.load(Ordering::SeqCst) != seen_reset_generation {
+                    continue;
+                }
+                let segs = infer(&mut state, resample_state.samples(), lang);
                 stream.emit_transcript("voice:partial-transcript", &segs, stream.offset_ms());
                 last_infer = Instant::now();
             }
@@ -644,6 +813,7 @@ mod macos {
         mic_device_label: Option<String>,
         capture_system: bool,
         voice_processing: bool,
+        emit_partials: bool,
         owner: SessionOwner,
     ) -> Result<(), String> {
         // Priority rule (D10): a meeting-owned session must never be
@@ -701,6 +871,7 @@ mod macos {
             lang.clone(),
             ctx.clone(),
             session_start,
+            emit_partials,
         );
         let sys_stream = capture_system.then(|| {
             WhisperStream::new(
@@ -710,6 +881,7 @@ mod macos {
                 lang.clone(),
                 ctx.clone(),
                 session_start,
+                emit_partials,
             )
         });
         let mic_for_cb = mic_stream.clone();
@@ -863,8 +1035,91 @@ mod macos {
 
     #[cfg(test)]
     mod tests {
-        use super::{should_use_combined_sck_capture, split_mic_capture_options, SessionOwner};
+        use std::time::Duration;
+
+        use super::{
+            partial_inference_due, resample_to_16k, should_use_combined_sck_capture,
+            split_mic_capture_options, utterance_finalize_due, IncrementalResample, SessionOwner,
+        };
         use crate::native_speech::macos::MicVoiceProcessingMode;
+
+        #[test]
+        fn incremental_resample_matches_one_shot_resample_as_buffer_grows() {
+            let mut state = IncrementalResample::new();
+            let src_rate = 48000.0_f32;
+            let mut raw: Vec<f32> = Vec::new();
+            // Simulate audio arriving in small chunks and syncing after each —
+            // mirrors the worker polling `stream.buf` every 250 ms. A non-integer
+            // chunk size (137) deliberately avoids landing on a 48k/16k=3 boundary.
+            for chunk in 0..40u32 {
+                for i in 0..137u32 {
+                    raw.push(((chunk * 137 + i) as f32 * 0.013).sin());
+                }
+                state.sync(&raw, src_rate);
+                let expected = resample_to_16k(&raw, src_rate as f64);
+                assert_eq!(
+                    state.samples(),
+                    expected.as_slice(),
+                    "diverged after {} raw samples",
+                    raw.len()
+                );
+            }
+        }
+
+        #[test]
+        fn incremental_resample_rebuilds_cleanly_after_drop_all() {
+            let mut state = IncrementalResample::new();
+            let src_rate = 44100.0_f32;
+            let mut raw: Vec<f32> = (0..2_000).map(|i| (i as f32 * 0.02).sin()).collect();
+            state.sync(&raw, src_rate);
+            assert_eq!(
+                state.samples(),
+                resample_to_16k(&raw, src_rate as f64).as_slice()
+            );
+
+            // Utterance finalize: raw buffer is front-drained (indices shift),
+            // so the cache must be dropped, not incrementally patched.
+            raw.drain(..1_500);
+            state.drop_all();
+            state.sync(&raw, src_rate);
+            assert_eq!(
+                state.samples(),
+                resample_to_16k(&raw, src_rate as f64).as_slice()
+            );
+        }
+
+        #[test]
+        fn recording_mode_never_runs_live_partial_inference() {
+            assert!(!partial_inference_due(
+                false,
+                true,
+                10.0,
+                Duration::from_secs(10)
+            ));
+        }
+
+        #[test]
+        fn meeting_mode_keeps_existing_partial_inference_cadence() {
+            assert!(partial_inference_due(
+                true,
+                true,
+                1.0,
+                Duration::from_millis(1201)
+            ));
+            assert!(!partial_inference_due(
+                true,
+                true,
+                1.0,
+                Duration::from_millis(1200)
+            ));
+        }
+
+        #[test]
+        fn recording_mode_keeps_silence_and_long_utterance_finalization() {
+            assert!(utterance_finalize_due(1.0, Duration::from_millis(801)));
+            assert!(utterance_finalize_due(25.1, Duration::ZERO));
+            assert!(!utterance_finalize_due(25.0, Duration::from_millis(100)));
+        }
 
         #[test]
         fn combined_sck_capture_is_only_selected_for_supported_meetings() {

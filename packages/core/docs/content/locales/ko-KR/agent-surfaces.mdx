@@ -6,6 +6,38 @@ search: "헤드리스 에이전트 리치 채팅 전체 앱 BYO 에이전트 런
 
 # 에이전트 표면
 
+## 전체 Agent 작업 공간 {#agent-page}
+
+전체 애플리케이션에서 에이전트를 검사하고 구성할 영구 공간이 필요하면
+`/agent`에 `AgentTabsPage`를 마운트하세요. 앱 탐색에 이 경로를 추가하고
+`AgentSidebar`에 `agentPageHref="/agent"`를 전달하면 Resources 및 Settings
+모드에서 흐름을 중복하지 않고 전체 페이지로 이동할 수 있습니다.
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+공유 페이지에는 현재 다섯 개의 탭이 있습니다.
+
+- **Context** — 범위 미리보기, 토큰 예산, provenance·governance·source별 정렬된 시스템 섹션, 목록/treemap 보기, 최신 live-thread 스냅샷을 보여줍니다.
+- **Files** — 개인 또는 조직 리소스에 기존 `ResourcesPanel`을 다시 호스팅합니다.
+- **Connections** — MCP 서버 관리와 A2A 원격 에이전트 목록을 제공하며, 앱 에이전트가 호출할 수 있는 기능을 보여줍니다.
+- **Jobs** — 기존 일시 중지/재개, 상세, 삭제 흐름을 사용하는 범위별 반복 작업과 자동화입니다. 자동화는 현재 개인용입니다.
+- **Access** — MCP URL, 가능한 경우 A2A 에이전트 카드, 공통 클라이언트 설정 가이드를 보여줍니다. 전체 연결 흐름과 토큰 대체 경로는 `/mcp/connect`에 있습니다.
+
+페이지의 **Personal / Organization** 전환이 각 탭의 범위를 정합니다.
+구성원은 조직 데이터를 검사할 수 있지만, 호스팅된 컴포넌트가 이 경계를 적용하는
+곳에서는 조직 관리가 소유자/관리자로 제한됩니다. 목표는
+컨텍스트를 검사 가능하고 출처를 확인할 수 있으며 거버넌스 가능하게 만들고,
+기능(capability)과 접근(access)을 분리하는 것입니다. 이 페이지는 기존
+컴포넌트, 액션, 접근 검사를 재호스트하는 얇은 셸이며 새로운 관리자 콘솔이
+아닙니다. grants, 범위 편집, 취소 UI와 반복별 provenance 기록은 아직 제공하지
+않습니다.
+
 Agent-Native는 의도적으로 구성 가능합니다. UI를 많이 사용하지 않고도 에이전트를 사용할 수 있습니다,
 내장된 에이전트 런타임 없이 UI를 사용하거나 둘 다 전체로 함께 사용
 신청.

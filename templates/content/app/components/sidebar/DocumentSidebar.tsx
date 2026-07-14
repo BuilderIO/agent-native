@@ -29,6 +29,7 @@ import {
 import type { Document, DocumentTreeNode } from "@shared/api";
 import {
   IconDatabase,
+  IconBrain,
   IconFileText,
   IconPlus,
   IconRestore,
@@ -45,9 +46,10 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useMemo, useRef, useState, type ReactNode } from "react";
-import { useLocation, useNavigate } from "react-router";
+import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { QueryErrorState } from "@/components/QueryErrorState";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import {
   AlertDialog,
@@ -199,7 +201,8 @@ export function DocumentSidebar({
   const location = useLocation();
   const queryClient = useQueryClient();
   const t = useT();
-  const { data: documents = [], isLoading } = useDocuments();
+  const documentsQuery = useDocuments();
+  const { data: documents = [], isLoading } = documentsQuery;
   const createDocument = useCreateDocument();
   const createDatabase = useCreateContentDatabase(null);
   const deleteContentDatabase = useDeleteContentDatabase();
@@ -230,6 +233,7 @@ export function DocumentSidebar({
   const [removeLocalFilesDialogOpen, setRemoveLocalFilesDialogOpen] =
     useState(false);
   const localFilesActive = location.pathname.startsWith("/local-files");
+  const agentActive = location.pathname.startsWith("/agent");
   const settingsActive = location.pathname.startsWith("/settings");
   const sensors = useSensors(
     useSensor(PointerSensor, {
@@ -786,37 +790,54 @@ export function DocumentSidebar({
   );
 
   const renderLocalFilesNavButton = () => (
-    <button
+    <Link
+      to="/local-files"
       className={cn(
         "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
         localFilesActive
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
-      onClick={() => navigate("/local-files")}
     >
       <IconFolderOpen size={15} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-start">
         {t("sidebar.localFiles")}
       </span>
-    </button>
+    </Link>
   );
 
   const renderSettingsNavButton = () => (
-    <button
+    <Link
+      to="/settings"
       className={cn(
         "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
         settingsActive
           ? "bg-accent text-accent-foreground"
           : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
       )}
-      onClick={() => navigate("/settings")}
     >
       <IconSettings size={15} className="shrink-0" />
       <span className="min-w-0 flex-1 truncate text-start">
         {t("navigation.settings")}
       </span>
-    </button>
+    </Link>
+  );
+
+  const renderAgentNavButton = () => (
+    <Link
+      to="/agent"
+      className={cn(
+        "flex h-8 w-full items-center gap-2 rounded-md px-2 text-sm",
+        agentActive
+          ? "bg-accent text-accent-foreground"
+          : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+      )}
+    >
+      <IconBrain size={15} className="shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-start">
+        {t("navigation.agent")}
+      </span>
+    </Link>
   );
 
   const toggleSection = (id: SidebarSectionId) => {
@@ -846,9 +867,11 @@ export function DocumentSidebar({
         <TooltipContent>{t("sidebar.localFilesActions")}</TooltipContent>
       </Tooltip>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuItem onClick={() => navigate("/local-files")}>
-          <IconFolderOpen className="me-2 size-4" />
-          {t("sidebar.manageLocalFolders")}
+        <DropdownMenuItem asChild>
+          <Link to="/local-files">
+            <IconFolderOpen className="me-2 size-4" />
+            {t("sidebar.manageLocalFolders")}
+          </Link>
         </DropdownMenuItem>
         {canRemoveLocalFiles && (
           <>
@@ -943,6 +966,12 @@ export function DocumentSidebar({
             >
               {isLoading ? (
                 renderTreeSkeleton()
+              ) : documentsQuery.isError ? (
+                <QueryErrorState
+                  compact
+                  onRetry={() => void documentsQuery.refetch()}
+                  retrying={documentsQuery.isFetching}
+                />
               ) : nodes.length === 0 ? (
                 <div className="px-3 py-4 text-center text-sm text-muted-foreground">
                   {emptyLabel}
@@ -1072,33 +1101,49 @@ export function DocumentSidebar({
         {renderCollapsedNewButton()}
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Link
+              to="/local-files"
               className={cn(
                 "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
                 localFilesActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => navigate("/local-files")}
             >
               <IconFolderOpen size={16} />
-            </button>
+            </Link>
           </TooltipTrigger>
           <TooltipContent>{t("sidebar.localFiles")}</TooltipContent>
         </Tooltip>
         <Tooltip>
           <TooltipTrigger asChild>
-            <button
+            <Link
+              to="/agent"
+              className={cn(
+                "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
+                agentActive
+                  ? "bg-accent text-accent-foreground"
+                  : "text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <IconBrain size={16} />
+            </Link>
+          </TooltipTrigger>
+          <TooltipContent>{t("navigation.agent")}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Link
+              to="/settings"
               className={cn(
                 "w-10 h-10 flex items-center justify-center rounded-lg hover:bg-accent",
                 settingsActive
                   ? "bg-accent text-accent-foreground"
                   : "text-muted-foreground hover:text-foreground",
               )}
-              onClick={() => navigate("/settings")}
             >
               <IconSettings size={16} />
-            </button>
+            </Link>
           </TooltipTrigger>
           <TooltipContent>{t("navigation.settings")}</TooltipContent>
         </Tooltip>
@@ -1109,7 +1154,8 @@ export function DocumentSidebar({
   return (
     <div
       className={cn(
-        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar transition-[width] duration-200 ease-out",
+        "agent-layout-left-drawer relative flex h-full min-h-0 flex-col border-e border-border bg-sidebar",
+        !isResizing && "transition-[width] duration-200 ease-out",
         width === undefined && "w-full",
       )}
       style={width === undefined ? undefined : { width, flexShrink: 0 }}
@@ -1179,8 +1225,8 @@ export function DocumentSidebar({
         </div>
       )}
 
-      <ScrollArea className="min-h-0 flex-1">
-        <div className="min-w-full w-max py-2 pe-2">
+      <ScrollArea className="min-h-0 flex-1 [&_[data-radix-scroll-area-viewport]]:!overflow-x-hidden">
+        <div className="w-full min-w-0 py-2 pe-2">
           {/* Search results */}
           {filteredDocuments ? (
             <>
@@ -1323,6 +1369,7 @@ export function DocumentSidebar({
       <div className="shrink-0 px-3 py-2">
         <div className="space-y-1">
           {renderLocalFilesNavButton()}
+          {renderAgentNavButton()}
           {renderSettingsNavButton()}
         </div>
       </div>

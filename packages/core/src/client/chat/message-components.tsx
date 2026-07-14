@@ -11,8 +11,10 @@ import {
   BranchPickerPrimitive,
   ComposerPrimitive,
   useMessagePartReasoning,
+  useMessagePartRuntime,
 } from "@assistant-ui/react";
 import type { Attachment } from "@assistant-ui/react";
+import { useAuiState } from "@assistant-ui/store";
 import {
   IconX,
   IconCheck,
@@ -62,7 +64,10 @@ import { PastedTextChip } from "../composer/PastedTextChip.js";
 import { ThumbsFeedback } from "../observability/ThumbsFeedback.js";
 import type { ContentPart } from "../sse-event-processor.js";
 import { cn } from "../utils.js";
-import { MarkdownText } from "./markdown-renderer.js";
+import {
+  MarkdownText,
+  renderMarkdownToClipboardHtml,
+} from "./markdown-renderer.js";
 import {
   ToolCallFallback,
   FilesChangedSummary,
@@ -524,7 +529,10 @@ export function MessageActionsMenu({
       .filter((p) => p.type === "text")
       .map((p) => (p as { text: string }).text)
       .join("\n");
-    void writeClipboardText(text).then((ok) => {
+    // Rich flavor keeps formatting in targets that read text/html (e.g. Slack);
+    // null when the markdown renderer isn't ready yet, so we copy plain markdown.
+    const html = renderMarkdownToClipboardHtml(text);
+    void writeClipboardText(text, html ? { html } : undefined).then((ok) => {
       if (!ok) return;
       setCopied("message");
       setTimeout(() => {
@@ -842,7 +850,18 @@ export function shouldShowAssistantMessageFooter({
 
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
+  const partRuntime = useMessagePartRuntime();
+  const messageParts = useAuiState((state) => state.message.parts);
   const isStreaming = part.status?.type === "running";
+  const partIndex =
+    partRuntime.path.messagePartSelector.type === "index"
+      ? partRuntime.path.messagePartSelector.index
+      : -1;
+  const latestReasoningPartIndex = messageParts.reduce(
+    (latestIndex, messagePart, index) =>
+      messagePart.type === "reasoning" ? index : latestIndex,
+    -1,
+  );
   // Time thinking client-side: record the moment streaming first starts and
   // the moment it stops so the cell can show "Thought for Xs". Historical
   // messages that were never observed streaming in this session never get a
@@ -864,6 +883,8 @@ function ReasoningMessagePart() {
       text={part.text}
       isStreaming={isStreaming}
       durationMs={durationMs}
+      defaultOpen={partIndex === latestReasoningPartIndex}
+      collapseWhenReplaced={partIndex < latestReasoningPartIndex}
     />
   );
 }

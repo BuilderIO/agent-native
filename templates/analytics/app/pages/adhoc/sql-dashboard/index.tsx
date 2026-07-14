@@ -297,7 +297,10 @@ const PanelCell = memo(function PanelCell({
     [panel, vars],
   );
   const resolvedSql = useMemo(
-    () => interpolate(serializePanelSql(panel.sql), vars),
+    () =>
+      interpolate(serializePanelSql(panel.sql), vars, {
+        failClosedTimeVariables: true,
+      }),
     [panel.sql, vars],
   );
   const handleSelectForChat = useCallback(

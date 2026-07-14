@@ -5,7 +5,6 @@ import {
   ErrorReportActions,
   LOCALE_HYDRATION_GLOBAL,
   LOCALE_STORAGE_KEY,
-  RequireSession,
   appPath,
   appApiPath,
   createAgentNativeQueryClient,
@@ -420,18 +419,7 @@ function DbSyncSetup() {
 const MAIL_TOASTER = <Toaster richColors position="bottom-left" />;
 
 export default function Root() {
-  const [queryClient] = useState(() =>
-    createAgentNativeQueryClient({
-      defaultOptions: {
-        queries: {
-          // Mail's VisibilityRefresh handles the focus-based refresh with a
-          // 60 s throttle, so we also want React Query's focus refetch to
-          // fire for other query keys (labels, settings, etc.).
-          refetchOnWindowFocus: true,
-        },
-      },
-    }),
-  );
+  const [queryClient] = useState(() => createAgentNativeQueryClient());
   return (
     <AppToolkitProvider>
       <AppProviders
@@ -439,17 +427,16 @@ export default function Root() {
         themeAttribute={["class", "data-theme"]}
         tooltipDelayDuration={300}
         toaster={MAIL_TOASTER}
+        sessionBypass={isMcpEmbedSurface()}
         i18n={{ catalog: i18nCatalog }}
       >
-        <RequireSession bypass={isMcpEmbedSurface()}>
-          <AutoFocus />
-          <AutomationTrigger />
-          <VisibilityRefresh />
-          <DbSyncSetup />
-          <AppLayout>
-            <Outlet />
-          </AppLayout>
-        </RequireSession>
+        <AutoFocus />
+        <AutomationTrigger />
+        <VisibilityRefresh />
+        <DbSyncSetup />
+        <AppLayout>
+          <Outlet />
+        </AppLayout>
       </AppProviders>
     </AppToolkitProvider>
   );

@@ -106,10 +106,13 @@ Events are stored in `analytics_events`. Common query columns include:
 
 ## LLM observability events
 
-Core emits LLM usage as first-party events with:
+Core emits LLM usage, explicit user feedback, and optional inferred message
+sentiment as first-party events with:
 
 ```txt
 event_name = '$ai_generation'
+event_name = '$ai_feedback'
+event_name = '$ai_sentiment'
 ```
 
 Useful query fields live in `properties`:
@@ -129,8 +132,39 @@ Useful query fields live in `properties`:
 | `tool_calls`, `successful_tools`, `failed_tools` | Tool-call counts                          |
 | `$ai_is_error`, `status`, `$ai_error`            | Error status and message, when applicable |
 
-Install the `agent-observability-llm` dashboard template for canned panels over
-these events.
+Explicit thumbs feedback is content-free and uses these `$ai_feedback`
+properties:
+
+| Property              | Description                                    |
+| --------------------- | ---------------------------------------------- |
+| `sentiment`           | Explicit `positive` or `negative` user rating  |
+| `feedback_type`       | Feedback control/type that produced the rating |
+| `$ai_model`, `model`  | Model that generated the rated agent response  |
+| `run_id`, `thread_id` | Related agent run and thread identifiers       |
+
+These values describe user-provided thumbs feedback.
+
+When optional inferred sentiment is enabled, content-free `$ai_sentiment`
+events use these properties:
+
+| Property              | Description                                                  |
+| --------------------- | ------------------------------------------------------------ |
+| `sentiment`           | Inferred `positive`, `neutral`, or `negative` classification |
+| `method`              | Classification method; `llm` for model-inferred sentiment    |
+| `$ai_model`, `model`  | Main model attributed to the preceding agent response        |
+| `classifier_model`    | Small model used only to classify sentiment                  |
+| `run_id`, `thread_id` | Related agent run and thread identifiers                     |
+
+The inferred-sentiment event does not contain message text. Keep it separate
+from `$ai_feedback`: inferred sentiment is a model classification, while
+feedback sentiment is an explicit user rating. For by-model reporting, group
+on `$ai_model` or `model`; use `classifier_model` only to audit classifier usage.
+
+Agent Native observability panels belong in the canonical Agent Native dashboard
+(`agent-native-templates-first-party`), including generation metrics, explicit
+feedback sentiment, optional inferred message sentiment, and separate
+by-main-model breakdowns. Do not publish or install a separate observability
+dashboard template.
 
 Example dashboard panel:
 

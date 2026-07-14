@@ -120,6 +120,7 @@ describe("agent teams message queue", () => {
 
     expect(result).toMatchObject({
       retryMessage: expect.stringContaining("one last constraint"),
+      expandToolSurface: true,
     });
     await expect(
       _agentTeamsQueueForTests.drainQueuedTaskMessages("task-1"),

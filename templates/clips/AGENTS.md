@@ -36,10 +36,17 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   generation run in the durable post-finalize path; do not hide a usable native
   transcript behind failed metadata work, and keep heuristic titles replaceable
   until the agent refinement lands.
+- Desktop native transcripts merge microphone and system-audio streams while
+  removing overlapping duplicate speech and low-speech Whisper hallucinations;
+  keep system audio enabled when the meeting audio comes from another app.
 - Use `request-transcript --recordingId=<id> --force=true` to retry a failed
   transcript. Pass `--regenerate=true` to replace an existing ready transcript
   from the stored recording media; if regeneration fails, keep the prior ready
   transcript available.
+- The transcript embedded by `view-screen` is a bounded preview. If
+  `previewTruncated` is true, it may end mid-sentence and does not show where
+  transcription ended. Call `get-recording-player-data` before judging
+  completeness or quoting the full transcript.
 - Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are
@@ -95,6 +102,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   (`connect-slack`, `/api/slack/oauth/callback`) so each Slack workspace gets
   its own encrypted bot token in `app_secrets`. `SLACK_BOT_TOKEN` is only a
   legacy single-workspace fallback and must remain behind the team allowlist.
+- Atlassian/Jira is available through the shared MCP integration catalog. It
+  uses Atlassian Rovo MCP OAuth; explain that an Atlassian organization admin
+  may need to allow the Clips app domain and enable the required Read, Write,
+  and Search permissions before the connection can complete.
 - Browser recordings can include redacted browser diagnostics captured during
   the recording session. `save-browser-diagnostics` is UI/internal and stores
   bounded console logs plus fetch/XHR method, URL path/query keys, status, and

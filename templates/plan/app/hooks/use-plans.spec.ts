@@ -31,8 +31,11 @@ describe("usePlan", () => {
       { id: "plan_123", includeMdx: false, includeHtml: true },
       expect.objectContaining({
         enabled: true,
-        refetchInterval: expect.any(Function),
+        placeholderData: expect.any(Function),
       }),
+    );
+    expect(mocks.useActionQuery.mock.calls[0]?.[2]).not.toHaveProperty(
+      "refetchInterval",
     );
   });
 });

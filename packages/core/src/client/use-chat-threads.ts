@@ -449,8 +449,17 @@ export function useChatThreads(
           // haven't shown up in the server list yet — the server only learns
           // about a thread when the user actually sends a message and the
           // agent run's `persistSubmittedUserMessage` writes the row.
+          //
+          // Archived threads are excluded here too: the server list omits
+          // archived threads by default, so a thread we archived this same
+          // session would otherwise look identical to a not-yet-synced
+          // optimistic thread (created this session, missing from `loaded`)
+          // and get preserved forever instead of disappearing once archived.
           const optimisticOnly = prev.filter(
-            (t) => newlyCreatedRef.current.has(t.id) && !loadedIds.has(t.id),
+            (t) =>
+              newlyCreatedRef.current.has(t.id) &&
+              !loadedIds.has(t.id) &&
+              !t.archivedAt,
           );
           // Reconcile each server thread against our local copy. If the local
           // copy has a newer updatedAt or higher messageCount, keep those

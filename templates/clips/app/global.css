@@ -77,6 +77,51 @@
   }
 }
 
+@keyframes clips-collapsible-down {
+  from {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+  to {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes clips-collapsible-up {
+  from {
+    height: var(--radix-collapsible-content-height);
+    opacity: 1;
+    transform: translateY(0);
+  }
+  to {
+    height: 0;
+    opacity: 0;
+    transform: translateY(-2px);
+  }
+}
+
+.clips-collapsible-content {
+  overflow: hidden;
+  transform-origin: top;
+}
+
+.clips-collapsible-content[data-state="open"] {
+  animation: clips-collapsible-down 160ms ease-out;
+}
+
+.clips-collapsible-content[data-state="closed"] {
+  animation: clips-collapsible-up 120ms ease-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .clips-collapsible-content[data-state] {
+    animation-duration: 1ms;
+  }
+}
+
 @container agent-native-main (min-width: 980px) {
   .clips-meeting-detail-skeleton-grid,
   .clips-meeting-detail-grid {

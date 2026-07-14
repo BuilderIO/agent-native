@@ -523,10 +523,10 @@ const messages = {
     slackUpdateFailed: "Échec de la mise à jour de l’entrée Slack",
     slackConfigured: "Les identifiants Slack sont configurés.",
     slackNeedsCredentials:
-      "Ajoutez SLACK_BOT_TOKEN et SLACK_SIGNING_SECRET pour activer l’entrée Slack.",
-    slackIntake: "Entrée Slack",
+      "L’entrée personnalisée héritée nécessite SLACK_BOT_TOKEN et SLACK_SIGNING_SECRET. Pour les nouvelles automatisations de messagerie Slack, connectez un espace de travail dans Paramètres > Messagerie.",
+    slackIntake: "Entrée Slack (héritée)",
     slackDescription:
-      "Permet aux membres de l’organisation de mettre en file des brouillons depuis Slack.",
+      "Intégration personnalisée héritée permettant de mettre en file des brouillons depuis Slack.",
     enabled: "Activé",
     disable: "Désactiver",
     enable: "Activer",

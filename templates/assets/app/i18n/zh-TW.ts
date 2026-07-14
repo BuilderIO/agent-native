@@ -774,6 +774,7 @@ const messages = {
     candidates: "候選項",
     candidateActions: "候選項操作",
     candidateWithNumber: "候選項 {{number}}",
+    variantWithNumber: "變體 {{number}}",
     checkingImageLibraries: "正在檢查圖片資料庫...",
     checking: "正在檢查",
     checkingUpload: "正在檢查上傳",

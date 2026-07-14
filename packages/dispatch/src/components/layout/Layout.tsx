@@ -9,7 +9,6 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useChatThreads,
-  useFormatters,
   useT,
   type ChatThreadSummary,
 } from "@agent-native/core/client";
@@ -95,17 +94,17 @@ export interface DispatchExtensionConfig {
 
 const PRIMARY_NAV_ITEMS = [
   {
-    id: "chat",
-    to: "/chat",
-    label: "Chat",
-    icon: IconMessageQuestion,
-    section: "primary",
-  },
-  {
     id: "overview",
     to: "/overview",
     label: "Overview",
     icon: IconBroadcast,
+    section: "primary",
+  },
+  {
+    id: "chat",
+    to: "/chat",
+    label: "Chat",
+    icon: IconMessageQuestion,
     section: "primary",
   },
   {
@@ -312,22 +311,17 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-function formatThreadAge(
-  updatedAt: number,
-  formatDate: ReturnType<typeof useFormatters>["formatDate"],
-) {
-  const diffMs = Math.max(0, Date.now() - updatedAt);
+export function formatThreadAge(updatedAt: number, now = Date.now()) {
+  const diffMs = Math.max(0, now - updatedAt);
   const minutes = Math.floor(diffMs / 60_000);
   if (minutes < 1) return "now";
   if (minutes < 60) return `${minutes}m`;
   const hours = Math.floor(minutes / 60);
   if (hours < 24) return `${hours}h`;
   const days = Math.floor(hours / 24);
-  if (days < 7) return `${days}d`;
-  return formatDate(updatedAt, {
-    month: "short",
-    day: "numeric",
-  });
+  if (days < 14) return `${days}d`;
+  if (days < 365) return `${Math.floor(days / 7)}w`;
+  return `${Math.floor(days / 365)}y`;
 }
 
 function threadTitle(thread: ChatThreadSummary, fallback: string) {
@@ -344,7 +338,6 @@ function threadUpdatedAt(thread: ChatThreadSummary) {
 
 function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
   const t = useT();
-  const { formatDate } = useFormatters();
   const navigate = useNavigate();
   const location = useLocation();
   const {
@@ -510,19 +503,21 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
                     <button
                       type="button"
                       onClick={() => openThread(thread.id)}
-                      className="min-w-0 flex-1 cursor-pointer px-2 py-1.5 pe-12 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="flex min-w-0 flex-1 cursor-pointer items-center gap-2 px-2 py-1.5 pe-1 text-start text-xs outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     >
-                      <span className="block min-w-0 truncate">{title}</span>
+                      <span className="block min-w-0 flex-1 truncate">
+                        {title}
+                      </span>
+                      <time className="w-8 shrink-0 whitespace-nowrap text-end text-[11px] tabular-nums text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
+                        {isActive
+                          ? ""
+                          : formatThreadAge(threadUpdatedAt(thread))}
+                      </time>
                     </button>
                   </TooltipTrigger>
                   <TooltipContent side="right">{title}</TooltipContent>
                 </Tooltip>
                 <div className="pointer-events-none absolute end-1 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
-                  <span className="pointer-events-none pe-1 text-[11px] text-muted-foreground/60 transition-opacity group-hover/item:opacity-0 group-focus-within/item:opacity-0">
-                    {isActive
-                      ? ""
-                      : formatThreadAge(threadUpdatedAt(thread), formatDate)}
-                  </span>
                   <DropdownMenu>
                     <Tooltip>
                       <TooltipTrigger asChild>
@@ -532,7 +527,7 @@ function DispatchChatsSection({ onNavigate }: { onNavigate?: () => void }) {
                             aria-label={t("dispatch.sidebar.chatOptions", {
                               title,
                             })}
-                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-all hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
+                            className="pointer-events-auto rounded p-0.5 text-muted-foreground/50 opacity-0 transition-[color,opacity] hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/item:opacity-100 group-focus-within/item:opacity-100 data-[state=open]:opacity-100 data-[state=open]:text-foreground"
                           >
                             <IconDots className="size-3" />
                           </button>
@@ -653,7 +648,7 @@ export function NavContent({
                 className={({ isActive }) => {
                   const active = isActive || itemMatchesLocalPath;
                   return cn(
-                    "flex h-10 w-10 items-center justify-center rounded-md text-sm",
+                    "flex h-8 w-8 items-center justify-center rounded-md text-sm",
                     active
                       ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
                       : "text-sidebar-foreground/70 hover:bg-sidebar-accent hover:text-sidebar-accent-foreground",
@@ -780,19 +775,21 @@ export function NavContent({
         <nav className={cn("py-3", collapsed ? "px-1" : "px-2")}>
           <ul
             className={cn(
-              "space-y-0.5",
-              collapsed && "flex flex-col items-center",
+              collapsed ? "flex flex-col items-center gap-1" : "space-y-0.5",
             )}
           >
             {primaryNavItems.map(renderNavItem)}
           </ul>
 
           {collapsed ? (
-            <ul className="mt-2 flex flex-col items-center space-y-0.5">
-              {[...operationsNavItems, ...ADVANCED_NAV_ITEMS].map(
-                renderNavItem,
-              )}
-            </ul>
+            <>
+              <ul className="mt-5 flex flex-col items-center gap-1">
+                {operationsNavItems.map(renderNavItem)}
+              </ul>
+              <ul className="mt-3 flex flex-col items-center gap-1">
+                {ADVANCED_NAV_ITEMS.map(renderNavItem)}
+              </ul>
+            </>
           ) : (
             <div className="mt-5">
               <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wide text-sidebar-foreground/45">
@@ -843,9 +840,11 @@ export function NavContent({
 export function Layout({
   children,
   extensions,
+  agentPageHref,
 }: {
   children: ReactNode;
   extensions?: DispatchExtensionConfig;
+  agentPageHref?: string;
 }) {
   const t = useT();
   const location = useLocation();
@@ -931,6 +930,7 @@ export function Layout({
     <AgentSidebar
       position="right"
       defaultOpen={false}
+      agentPageHref={agentPageHref}
       chatViewTransition
       storageKey="dispatch"
       openOnChatRunning={chatHomeHandoffActive}
@@ -949,7 +949,7 @@ export function Layout({
           data-collapsed={sidebarCollapsed ? "true" : "false"}
           className={cn(
             "agent-layout-left-drawer hidden shrink-0 flex-col border-e bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out lg:flex",
-            sidebarCollapsed ? "w-12" : "w-64",
+            sidebarCollapsed ? "w-14" : "w-56",
           )}
         >
           <NavContent

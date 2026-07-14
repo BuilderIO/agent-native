@@ -334,6 +334,8 @@ const messages = {
     hideResolved: "Gelöste ausblenden",
     showResolved: "{{count}} gelöste anzeigen",
     noCommentsYet: "Noch keine Kommentare",
+    loadFailed: "Kommentare konnten nicht geladen werden",
+    retry: "Erneut versuchen",
     clickToAddComment: "Klicken, um einen Kommentar hinzuzufügen",
     selectSlideToAdd: "Wähle eine Folie aus, um einen hinzuzufügen",
   },
@@ -555,6 +557,10 @@ const messages = {
     chooseAnotherFile: "Andere Datei wählen",
   },
   home: {
+    loadFailed: "Inhalte konnten nicht geladen werden",
+    loadFailedDescription:
+      "Ihre gespeicherten Inhalte sind weiterhin verfügbar. Prüfen Sie die Verbindung und versuchen Sie es erneut.",
+    retry: "Erneut versuchen",
     decksTitle: "Decks",
     newDeck: "Neues Deck",
     deckLengthQuestion: "Wie lang soll dieses Deck sein?",

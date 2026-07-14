@@ -3,11 +3,19 @@ import type { ActionEntry } from "@agent-native/core/server";
 export const INITIAL_TOOL_NAMES = [
   "view-screen",
   "data-source-status",
+  // Keep the first-party observability workflow on the initial surface so a
+  // named user's session/error question does not depend on an indirect
+  // tool-search round before the agent can inspect its evidence.
+  "get-error-issue",
+  "create-session-replay-agent-link",
+  "get-session-replay-events",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "list-error-issues",
+  "list-session-recordings",
   "list-analyses",
   "get-analysis",
   "save-analysis",
-  "rename-analysis",
-  "delete-analysis",
   "get-sql-dashboard",
   "mutate-dashboard",
   "generate-chart",
@@ -35,7 +43,6 @@ export const INITIAL_TOOL_NAMES = [
   "slack-messages",
   "sentry",
   "list-data-dictionary",
-  "save-data-dictionary-entry",
   "navigate",
 ];
 

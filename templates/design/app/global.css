@@ -79,11 +79,16 @@
   );
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
-  --design-editor-measure-color: hsl(344 100% 63%);
+  --design-editor-measure-color: hsl(24 95% 53%);
   --design-editor-panel-bg: hsl(var(--background));
   --design-editor-panel-raised-bg: hsl(var(--secondary));
   --design-editor-control-bg: hsl(var(--muted));
   --design-editor-control-border: hsl(var(--border));
+  --design-editor-question-option-bg: color-mix(
+    in srgb,
+    var(--design-editor-control-bg) 58%,
+    transparent
+  );
   --design-editor-canvas-bg: hsl(0 0% 92%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 92%);
   --design-editor-skeleton-panel-ghost-bg: color-mix(
@@ -157,11 +162,16 @@
   --design-editor-panel-divider-color: hsl(0 0% 22%);
   --design-editor-accent-strong-color: var(--design-editor-accent-color);
   --design-editor-accent-contrast-color: #ffffff;
-  --design-editor-measure-color: hsl(344 100% 63%);
+  --design-editor-measure-color: hsl(24 95% 53%);
   --design-editor-panel-bg: hsl(0 0% 13%);
   --design-editor-panel-raised-bg: hsl(0 0% 18%);
   --design-editor-control-bg: hsl(0 0% 18%);
   --design-editor-control-border: hsl(0 0% 24%);
+  --design-editor-question-option-bg: color-mix(
+    in srgb,
+    var(--design-editor-control-bg) 58%,
+    transparent
+  );
   --design-editor-canvas-bg: hsl(0 0% 10%);
   --design-editor-skeleton-canvas-bg: hsl(0 0% 11%);
 }

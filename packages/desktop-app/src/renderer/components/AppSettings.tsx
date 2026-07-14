@@ -518,9 +518,35 @@ export default function AppSettings({
   );
   const [shortcutMessage, setShortcutMessage] = useState<string | null>(null);
   const [shortcutSaving, setShortcutSaving] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+  const closingTimerRef = useRef<number | null>(null);
   const shortcutTargetApps = useMemo(
     () => apps.filter((app) => app.enabled !== false),
     [apps],
+  );
+
+  useEffect(
+    () => () => {
+      if (closingTimerRef.current !== null) {
+        window.clearTimeout(closingTimerRef.current);
+      }
+    },
+    [],
+  );
+
+  const requestClose = useCallback(
+    (afterClose: () => void = onClose) => {
+      if (isClosing) return;
+      setIsClosing(true);
+
+      if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+        afterClose();
+        return;
+      }
+
+      closingTimerRef.current = window.setTimeout(afterClose, 160);
+    },
+    [isClosing, onClose],
   );
 
   // Load frame settings
@@ -803,11 +829,14 @@ export default function AppSettings({
     shortcutTargetApps.some((app) => app.id === shortcutDraft.app);
 
   return (
-    <div className="settings-overlay" onClick={onClose}>
+    <div
+      className={`settings-overlay${isClosing ? " settings-overlay--closing" : ""}`}
+      onClick={() => requestClose()}
+    >
       <div className="settings-panel" onClick={(e) => e.stopPropagation()}>
         <div className="settings-header">
           <h2>App Settings</h2>
-          <button className="settings-close" onClick={onClose}>
+          <button className="settings-close" onClick={() => requestClose()}>
             <IconX size={18} />
           </button>
         </div>
@@ -1280,7 +1309,9 @@ export default function AppSettings({
               <div className="settings-section">
                 <button
                   className="settings-btn settings-btn--primary"
-                  onClick={onAddAppClick}
+                  onClick={() => {
+                    if (onAddAppClick) requestClose(onAddAppClick);
+                  }}
                 >
                   <IconPlus size={15} /> Add App
                 </button>

@@ -8,25 +8,18 @@ import {
   getMethod,
   getQuery,
   getHeader,
+  getRequestIP,
   type H3Event,
 } from "h3";
 
-import {
-  appendA2AArtifactLinks,
-  buildA2ARecoverableArtifactMessage,
-  type A2AArtifactResponseOptions,
-  type A2AToolResultSummary,
-} from "../a2a/artifact-response.js";
+import { buildA2ARecoverableArtifactMessage } from "../a2a/artifact-response.js";
 import {
   hasConfiguredA2ASecret,
-  isA2AProductionRuntime,
+  isLoopbackAddress,
+  isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
-import {
-  applyAgentTextEventToBuffer,
-  collectFinalResponseTextFromAgentEvents,
-} from "../a2a/response-text.js";
+import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
 import { updateTaskStatusMessage } from "../a2a/task-store.js";
-import { ACTION_CHAT_UI_DATA_WIDGET_RENDERER } from "../action-ui.js";
 import type { ActionHttpConfig } from "../action.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
@@ -54,7 +47,7 @@ import {
   listAgentEngines,
   registerBuiltinEngines,
 } from "../agent/engine/index.js";
-import type { AgentEngine, EngineMessage } from "../agent/engine/types.js";
+import type { EngineMessage } from "../agent/engine/types.js";
 import {
   createProductionAgentHandler,
   actionsToEngineTools,
@@ -64,22 +57,11 @@ import {
   subscribeToRun,
   type ActionEntry,
 } from "../agent/production-agent.js";
-import { runAgentLoopDirectWithSoftTimeout } from "../agent/run-loop-with-resume.js";
 import {
   callerHasRunAccess,
   callerHasThreadAccess,
 } from "../agent/run-ownership.js";
-import type { AgentRunSummary } from "../agent/run-store.js";
-import {
-  CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
-  ensureTerminalRunEvent,
-  readBackgroundRunClaim,
-  recordRunDiagnostic,
-  RUN_DIAG_STAGE,
-  setRunError,
-  setRunTerminalReason,
-  updateRunStatusIfRunning,
-} from "../agent/run-store.js";
+import { readBackgroundRunClaim } from "../agent/run-store.js";
 import {
   buildCurrentTimeUserContext,
   buildRuntimeContextPrompt,
@@ -90,18 +72,16 @@ import {
   extractThreadMeta,
   foldAssistantTurn,
   mergeThreadDataForClientSave,
-  normalizeThreadRepository,
   upsertUserMessage,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import type {
   AgentChatAttachment,
   AgentChatEvent,
-  AgentChatReference,
-  ActionTool,
   MentionProvider,
 } from "../agent/types.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
+import { appStateGet } from "../application-state/store.js";
 import {
   createThread,
   forkThread,
@@ -122,11 +102,9 @@ import {
   withThreadDataLock,
   deleteThread,
   setThreadQueuedMessages,
-  type ChatThread,
   type ChatThreadScope,
   type ForkThreadSourceSnapshot,
 } from "../chat-threads/store.js";
-import { dataWidgetResultSchema } from "../data-widgets/index.js";
 import { createDbAdminAgentTools } from "../db-admin/agent-tools.js";
 import {
   verifyInternalToken,
@@ -142,36 +120,26 @@ import {
   mountMcpHubRoutes,
   buildMergedConfig,
   startMcpConfigRefresh,
-  areBuiltinMcpCapabilitiesSupported,
-  setBuiltinMcpCapabilityEnabled,
   getHubStatus,
   isHubServeEnabled,
-  type BuiltinMcpCapabilityId,
 } from "../mcp-client/index.js";
 import { setProgressPreListHook } from "../progress/store.js";
-import {
-  getFrontmatterValue,
-  getSkillNameFromPath,
-  parseFrontmatter,
-} from "../resources/metadata.js";
+import { getSkillNameFromPath } from "../resources/metadata.js";
 import {
   resourceList,
   resourceListAccessible,
   resourceGet,
-  resourceGetByPath,
   ensurePersonalDefaults,
-  organizationIdFromResourceOwner,
-  sharedResourceOwner,
   SHARED_OWNER,
   WORKSPACE_OWNER,
 } from "../resources/store.js";
-import {
-  normalizeDatabaseToolsMode,
-  type DatabaseToolsMode,
-  type DatabaseToolsOption,
-} from "../scripts/db/tool-mode.js";
-import { dbExecToolParameters } from "../scripts/db/tool-schemas.js";
+import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
+import {
+  handleSharedThreadRequest,
+  type SharedThreadRouteDependencies,
+} from "./agent-chat/shared-thread.js";
 import { discoverAgents } from "./agent-discovery.js";
 import {
   resolveAgentRunOwnerContext,
@@ -185,14 +153,8 @@ import {
   processAgentTeamRun,
   reconcileAgentTeamRunsForOwner,
 } from "./agent-teams.js";
-import { withConfiguredAppBasePath } from "./app-base-path.js";
 import { getSession } from "./auth.js";
-import {
-  getBuilderBrowserConnectUrlForOwner,
-  resolveBuilderBranchProjectId,
-} from "./builder-browser.js";
 import { captureError } from "./capture-error.js";
-import { captureCliOutput } from "./cli-capture.js";
 import {
   getH3App,
   markDefaultPluginProvided,
@@ -201,21 +163,21 @@ import {
 import { getOrigin } from "./google-oauth.js";
 import { readBody } from "./h3-helpers.js";
 import {
-  buildFrameworkCore,
-  buildFrameworkCoreCompact,
   FIRST_SESSION_PERSONALIZATION,
   getModelFamilyOverlay,
-  type PromptExamples,
 } from "./prompts/index.js";
 import { mountRealtimeVoiceRoutes } from "./realtime-voice.js";
 import {
   runWithRequestContext,
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
   getRequestRunContext,
   ensureRequestRunContext,
 } from "./request-context.js";
-import { loadSchemaPromptBlock } from "./schema-prompt.js";
+
+export { handleSharedThreadRequest };
+export type { SharedThreadRouteDependencies };
 
 // Lazy fs — loaded via dynamic import() on first use.
 // This avoids require() which bundlers convert to createRequire(import.meta.url)
@@ -228,829 +190,127 @@ async function lazyFs(): Promise<typeof import("fs")> {
   return _fs;
 }
 
-const SHARED_PROMPT_RESOURCE_MAX_CHARS = 30_000;
-const COMPACT_PROMPT_RESOURCE_MAX_CHARS = 12_000;
-const MAX_ACTION_SUMMARY_DESCRIPTION_CHARS = 140;
+import {
+  buildSystemManifestSections,
+  setContextXraySystemSections,
+} from "../agent/context-xray/manifest.js";
+// ---------------------------------------------------------------------------
+// The bulk of this file's former implementation now lives in focused sibling
+// modules under `./agent-chat/`. This file re-imports them (and re-exports
+// the ones that were already part of the public surface) so
+// `createAgentChatPlugin` below stays a thinner orchestrator.
+// ---------------------------------------------------------------------------
+import {
+  createA2AEngineToolSurface,
+  filterAgentTools,
+  filterPublicAgentActions,
+  filterReadOnlyActions,
+  resolveInitialToolNames,
+  runA2AAgentLoop,
+  runMCPAgentLoop,
+  assembleA2AFinalResponse,
+  buildPublicAgentA2ASkills,
+  resolveArtifactBaseUrl,
+} from "./agent-chat/action-filters-a2a.js";
+import {
+  createBuilderBrowserTool,
+  createTeamTools,
+} from "./agent-chat/browser-team-tools.js";
+import {
+  createDataWidgetActionEntries,
+  createFrameworkContextEntry,
+  createRefreshScreenEntry,
+  createUrlTools,
+} from "./agent-chat/context-tools.js";
+import {
+  _agentChatPromptSectionsForTests,
+  buildFrameworkPrompts,
+  buildSchemaBlock,
+  collectFiles,
+  corpusToolNamesTaughtByPrompt,
+  generateActionsPrompt,
+  generateCorpusToolsPrompt,
+} from "./agent-chat/framework-prompts.js";
+import {
+  type AgentChatPluginOptions,
+  type NitroPluginDef,
+} from "./agent-chat/plugin-options.js";
+import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
+import {
+  loadResourcesForPrompt,
+  promptResourceManifestSections,
+  resourceScopeForOwner,
+} from "./agent-chat/prompt-resources.js";
+import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
+import {
+  isLocalhost,
+  shouldBlockInProductCodeEditingSurface,
+} from "./agent-chat/request-surface.js";
+import { loadRunCodeToolEntries } from "./agent-chat/run-code-tools.js";
+import {
+  createAgentEngineScriptEntries,
+  createAgentLoopSettingsScriptEntries,
+  createCallAgentScriptEntry,
+  createChatScriptEntries,
+  createDbScriptEntries,
+  createDocsScriptEntries,
+  createResourceScriptEntries,
+} from "./agent-chat/script-entries.js";
+import { parseSkillFrontmatter } from "./agent-chat/skill-frontmatter.js";
 
-function sanitizeSharedThread(thread: ChatThread): {
-  id: string;
-  title: string;
-  preview: string;
-  messageCount: number;
-  createdAt: number;
-  updatedAt: number;
-  scope: { type: string; label?: string } | null;
-  messages: Array<{
-    id?: string;
-    role: "user" | "assistant" | "system";
-    text: string;
-    createdAt?: string | number;
-  }>;
-} {
-  let repo: any = {};
-  try {
-    repo = normalizeThreadRepository(JSON.parse(thread.threadData));
-  } catch {
-    repo = {};
-  }
-  const messages = Array.isArray(repo.messages)
-    ? repo.messages
-        .map((entry: unknown) => sanitizeSharedMessage(entry))
-        .filter(
-          (
-            entry: unknown,
-          ): entry is NonNullable<ReturnType<typeof sanitizeSharedMessage>> =>
-            entry != null,
-        )
-    : [];
-  return {
-    id: thread.id,
-    title: thread.title,
-    preview: thread.preview,
-    messageCount: thread.messageCount,
-    createdAt: thread.createdAt,
-    updatedAt: thread.updatedAt,
-    scope: thread.scope
-      ? {
-          type: thread.scope.type,
-          ...(thread.scope.label ? { label: thread.scope.label } : {}),
-        }
-      : null,
-    messages,
-  };
-}
+export { loadResourcesForPrompt };
+export { _agentChatPromptSectionsForTests };
+export { buildPublicAgentA2ASkills };
+export { assembleA2AFinalResponse };
+export type { AgentChatPluginOptions };
+export { runA2AAgentLoop };
+export { runMCPAgentLoop };
+export { createA2AEngineToolSurface };
+export { shouldBlockInProductCodeEditingSurface };
+export { loadRunCodeToolEntries };
+export { shouldDisableRecurringJobsRuntime };
+export { finalizeClaimedAgentChatProcessRunFailure };
 
-type SanitizedSharedThread = ReturnType<typeof sanitizeSharedThread>;
-
-export interface SharedThreadRouteDependencies {
-  getThreadByShareToken: (token: string) => Promise<ChatThread | null>;
-  listRunsForThread: (
-    threadId: string,
-    options?: { limit?: number },
-  ) => Promise<AgentRunSummary[]>;
-}
-
-function escapeSharedThreadHtml(value: unknown): string {
-  return String(value ?? "")
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function wantsSharedThreadHtml(event: H3Event): boolean {
-  const accept = getHeader(event, "accept")?.toLowerCase() ?? "";
-  return accept.includes("text/html") && !accept.includes("application/json");
-}
-
-function formatSharedThreadTime(value: string | number | null | undefined) {
-  if (value == null) return "";
-  const date =
-    typeof value === "number"
-      ? new Date(value)
-      : Number.isFinite(Number(value))
-        ? new Date(Number(value))
-        : new Date(value);
-  return Number.isNaN(date.getTime()) ? String(value) : date.toLocaleString();
-}
-
-function renderSharedThreadHtml(
-  thread: SanitizedSharedThread,
-  runs: AgentRunSummary[],
+export function buildLeanRunPolicyPrompt(
+  codeEditingSurfaceRestriction: string,
+  prodCodeExecPromptNote: string,
 ): string {
-  const title = thread.title || "Shared agent session";
-  const messages = thread.messages
-    .map((message) => {
-      const time = formatSharedThreadTime(message.createdAt);
-      return `<article class="message ${escapeSharedThreadHtml(message.role)}">
-        <div class="meta">
-          <span>${escapeSharedThreadHtml(message.role)}</span>
-          ${time ? `<time>${escapeSharedThreadHtml(time)}</time>` : ""}
-        </div>
-        <pre>${escapeSharedThreadHtml(message.text)}</pre>
-      </article>`;
-    })
-    .join("");
-  const runsHtml = runs.length
-    ? `<section class="runs" aria-label="Recent runs">
-        <h2>Recent runs</h2>
-        <ol>${runs
-          .map((run) => {
-            const started = formatSharedThreadTime(run.startedAt);
-            const completed = formatSharedThreadTime(run.completedAt);
-            const detail = [
-              started ? `started ${started}` : "",
-              completed ? `completed ${completed}` : "",
-              run.errorCode ? `error ${run.errorCode}` : "",
-              run.abortReason ? `aborted ${run.abortReason}` : "",
-            ]
-              .filter(Boolean)
-              .join(" · ");
-            return `<li><strong>${escapeSharedThreadHtml(run.status)}</strong>${detail ? `<span>${escapeSharedThreadHtml(detail)}</span>` : ""}</li>`;
-          })
-          .join("")}</ol>
-      </section>`
-    : "";
-
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <meta name="robots" content="noindex, nofollow" />
-  <meta name="referrer" content="no-referrer" />
-  <title>${escapeSharedThreadHtml(title)}</title>
-  <style>
-    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f7f5; color: #1d1d1b; }
-    * { box-sizing: border-box; }
-    body { margin: 0; }
-    main { width: min(920px, calc(100vw - 32px)); margin: 0 auto; padding: 44px 0 64px; }
-    header { border-bottom: 1px solid rgba(0,0,0,.12); padding-bottom: 24px; margin-bottom: 28px; }
-    .eyebrow { margin: 0 0 10px; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: #676760; }
-    h1 { margin: 0; font-size: 42px; line-height: 1.08; letter-spacing: 0; }
-    .summary { margin: 14px 0 0; color: #5c5c55; line-height: 1.6; max-width: 760px; }
-    .message { border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: rgba(255,255,255,.72); margin: 14px 0; padding: 16px; }
-    .message.assistant { border-left: 4px solid #2563eb; }
-    .message.user { border-left: 4px solid #0f766e; }
-    .message.system { border-left: 4px solid #737373; }
-    .meta { display: flex; gap: 12px; justify-content: space-between; color: #676760; font-size: 12px; font-weight: 700; text-transform: uppercase; }
-    pre { margin: 12px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; line-height: 1.6; }
-    .empty, .runs { margin-top: 28px; color: #676760; }
-    .runs h2 { font-size: 16px; margin: 0 0 12px; }
-    .runs ol { margin: 0; padding-left: 20px; }
-    .runs li { margin: 8px 0; }
-    .runs span { color: #676760; margin-left: 8px; }
-    @media (prefers-color-scheme: dark) {
-      :root { background: #11110f; color: #f5f5ef; }
-      header, .message { border-color: rgba(255,255,255,.15); }
-      .message { background: rgba(255,255,255,.06); }
-      .summary, .eyebrow, .meta, .empty, .runs, .runs span { color: #b9b9ad; }
-    }
-    @media (max-width: 640px) {
-      h1 { font-size: 32px; }
-      main { width: min(100vw - 24px, 920px); padding-top: 32px; }
-    }
-  </style>
-</head>
-<body>
-  <main>
-    <header>
-      <p class="eyebrow">Read-only shared agent session</p>
-      <h1>${escapeSharedThreadHtml(title)}</h1>
-      <p class="summary">${escapeSharedThreadHtml(thread.preview || `${thread.messageCount} message${thread.messageCount === 1 ? "" : "s"}`)}</p>
-    </header>
-    ${messages || '<p class="empty">No transcript messages were shared.</p>'}
-    ${runsHtml}
-  </main>
-</body>
-</html>`;
-}
-
-function renderSharedThreadErrorHtml(status: number, message: string): string {
-  return `<!doctype html><html lang="en"><head><meta charset="utf-8" /><meta name="viewport" content="width=device-width, initial-scale=1" /><meta name="robots" content="noindex, nofollow" /><title>${status} ${escapeSharedThreadHtml(message)}</title><style>body{margin:0;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;background:#f7f7f5;color:#1d1d1b}main{max-width:720px;margin:0 auto;padding:64px 24px}p{color:#676760;line-height:1.6}@media(prefers-color-scheme:dark){body{background:#11110f;color:#f5f5ef}p{color:#b9b9ad}}</style></head><body><main><h1>${status}</h1><p>${escapeSharedThreadHtml(message)}</p></main></body></html>`;
-}
-
-function sharedThreadError(event: H3Event, status: number, message: string) {
-  setResponseStatus(event, status);
-  setResponseHeader(event, "Cache-Control", "private, no-store");
-  setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
-  if (wantsSharedThreadHtml(event)) {
-    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return renderSharedThreadErrorHtml(status, message);
-  }
-  return { error: message };
-}
-
-export async function handleSharedThreadRequest(
-  event: H3Event,
-  deps: SharedThreadRouteDependencies,
-) {
-  const method = getMethod(event);
-  if (method !== "GET") {
-    return sharedThreadError(event, 405, "Method not allowed");
-  }
-
-  const token = parseSharedThreadToken(event);
-  if (!token) {
-    return sharedThreadError(event, 400, "Share token is required");
-  }
-
-  const thread = await deps.getThreadByShareToken(token);
-  if (!thread) {
-    return sharedThreadError(event, 404, "Shared thread not found");
-  }
-
-  const runs = await deps.listRunsForThread(thread.id, { limit: 10 });
-  const payload = {
-    thread: sanitizeSharedThread(thread),
-    runs,
-  };
-  setResponseHeader(event, "Cache-Control", "private, no-store");
-  setResponseHeader(event, "X-Robots-Tag", "noindex, nofollow");
-  if (wantsSharedThreadHtml(event)) {
-    setResponseHeader(event, "Content-Type", "text/html; charset=utf-8");
-    return renderSharedThreadHtml(payload.thread, runs);
-  }
-  setResponseHeader(event, "Content-Type", "application/json");
-  return payload;
-}
-
-function sanitizeSharedMessage(entry: unknown): {
-  id?: string;
-  role: "user" | "assistant" | "system";
-  text: string;
-  createdAt?: string | number;
-} | null {
-  if (!entry || typeof entry !== "object") return null;
-  const raw = entry as Record<string, unknown>;
-  const message =
-    raw.message && typeof raw.message === "object"
-      ? (raw.message as Record<string, unknown>)
-      : raw;
-  const role = message.role;
-  if (role !== "user" && role !== "assistant" && role !== "system") {
-    return null;
-  }
-  const text = sharedTextFromContent(message.content).trim();
-  if (!text) return null;
-  const id = typeof message.id === "string" ? message.id : undefined;
-  const createdAt =
-    typeof message.createdAt === "string" ||
-    typeof message.createdAt === "number"
-      ? message.createdAt
-      : undefined;
-  return {
-    ...(id ? { id } : {}),
-    role,
-    text,
-    ...(createdAt !== undefined ? { createdAt } : {}),
-  };
-}
-
-function sharedTextFromContent(content: unknown): string {
-  if (typeof content === "string") return content;
-  if (!Array.isArray(content)) return "";
-  const parts: string[] = [];
-  for (const part of content) {
-    if (!part || typeof part !== "object") continue;
-    const r = part as Record<string, unknown>;
-    if (r.type !== "text") continue;
-    if (typeof r.text === "string") parts.push(r.text);
-  }
-  return parts.join("");
-}
-
-function parseSharedThreadToken(event: H3Event): string | null {
-  const candidates = [event.path, event.node?.req?.url].filter(
-    (value): value is string => typeof value === "string" && value.length > 0,
-  );
-  for (const candidate of candidates) {
-    const path = candidate.split("?")[0];
-    const parts = path.replace(/^\/+/, "").split("/").filter(Boolean);
-    const sharedIndex = parts.lastIndexOf("shared");
-    if (sharedIndex >= 0 && parts[sharedIndex + 1]) {
-      return decodeURIComponent(parts[sharedIndex + 1]);
-    }
-    if (parts[0]) return decodeURIComponent(parts[0]);
-  }
-  return null;
-}
-
-function compactPromptLine(value: string, maxChars: number): string {
-  const line = value.replace(/\s+/g, " ").trim();
-  if (line.length <= maxChars) return line;
-  return `${line.slice(0, maxChars - 1)}…`;
-}
-const SHARED_RESOURCE_INDEX_LIMIT = 40;
-
-function normalizeResourcePathForPrompt(path: string): string {
-  return path.replace(/^\/+/, "").trim();
-}
-
-function resourceToolHint(
-  action: "list" | "read" | "effective" | "write" | "delete" | "promote",
-  extra?: string,
-): string {
-  return `Use the \`resources\` tool with \`action: "${action}"\`${extra ? `, ${extra}` : ""}.`;
-}
-
-function skillDocsSlug(name: string): string {
-  return `skill-${name
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "")}`;
-}
-
-function ensureSentence(value: string): string {
-  const trimmed = value.trim();
-  if (!trimmed) return "";
-  return /[.!?]$/.test(trimmed) ? trimmed : `${trimmed}.`;
-}
-
-function escapeXmlAttribute(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/"/g, "&quot;");
-}
-
-function truncatePromptResourceContent(
-  content: string,
-  path: string,
-  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
-  readHint?: string,
-): string {
-  const trimmed = content.trim();
-  if (trimmed.length <= maxChars) return trimmed;
-  const omitted = trimmed.length - maxChars;
-  const hint =
-    readHint ??
-    resourceToolHint(
-      "read",
-      `\`path: "${path}"\` and the resource's \`scope\` for the full content`,
-    );
-  return `${trimmed.slice(0, maxChars)}\n\n[Resource ${path} truncated after ${maxChars.toLocaleString()} characters; ${omitted.toLocaleString()} characters omitted. ${hint}]`;
-}
-
-function promptResourceBlock(input: {
-  name: string;
-  scope: string;
-  content: string;
-  path?: string;
-  maxChars?: number;
-  readHint?: string;
-}): string | null {
-  const normalizedPath = input.path
-    ? normalizeResourcePathForPrompt(input.path)
-    : undefined;
-  const content = truncatePromptResourceContent(
-    input.content,
-    normalizedPath ?? input.name,
-    input.maxChars,
-    input.readHint,
-  );
-  if (!content) return null;
-  const pathAttr = normalizedPath
-    ? ` path="${escapeXmlAttribute(normalizedPath)}"`
-    : "";
-  return `<resource name="${escapeXmlAttribute(input.name)}" scope="${escapeXmlAttribute(input.scope)}"${pathAttr}>\n${content}\n</resource>`;
-}
-
-function isAutoLoadedInstructionPath(path: string): boolean {
-  const normalized = normalizeResourcePathForPrompt(path);
-  return normalized.startsWith("instructions/") && normalized.endsWith(".md");
-}
-
-function isSpecialPromptResourcePath(path: string): boolean {
-  const normalized = normalizeResourcePathForPrompt(path);
-  return (
-    normalized === "AGENTS.md" ||
-    normalized === "LEARNINGS.md" ||
-    normalized.startsWith("instructions/") ||
-    normalized.startsWith("skills/") ||
-    normalized.startsWith("agents/") ||
-    normalized.startsWith("remote-agents/") ||
-    normalized.startsWith("jobs/") ||
-    normalized.startsWith("memory/")
-  );
-}
-
-function isTextLikeResource(mimeType: string): boolean {
-  return (
-    mimeType.startsWith("text/") ||
-    mimeType === "application/json" ||
-    mimeType === "application/yaml" ||
-    mimeType === "application/x-yaml"
-  );
-}
-
-function getResourceSummaryFromContent(content: string): string | null {
-  const frontmatter = parseFrontmatter(content);
-  const title =
-    getFrontmatterValue(frontmatter, "title") ||
-    getFrontmatterValue(frontmatter, "name");
-  const description = getFrontmatterValue(frontmatter, "description");
-  if (title && description) return `${title}: ${description}`;
-  if (title) return title;
-  if (description) return description;
-
-  const heading = content
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .find((line) => /^#{1,3}\s+\S/.test(line));
-  if (heading) return heading.replace(/^#{1,3}\s+/, "").trim();
-  return null;
-}
-
-function resourceScopeForOwner(owner: string, currentOwner?: string): string {
-  if (owner === WORKSPACE_OWNER) return "workspace";
-  if (owner === SHARED_OWNER || organizationIdFromResourceOwner(owner)) {
-    return "shared";
-  }
-  if (currentOwner && owner === currentOwner) return "personal";
-  return "resource";
-}
-
-async function loadAgentsResourceForPrompt(
-  owner: string,
-  scope: string,
-  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
-): Promise<string | null> {
-  try {
-    const agents = await resourceGetByPath(owner, "AGENTS.md");
-    if (!agents?.content?.trim()) return null;
-    return promptResourceBlock({
-      name: "AGENTS.md",
-      scope,
-      path: "AGENTS.md",
-      content: agents.content,
-      maxChars,
-    });
-  } catch {
-    return null;
-  }
-}
-
-async function loadInstructionResourcesForPrompt(
-  owner: string,
-  scope: string,
-  maxChars = SHARED_PROMPT_RESOURCE_MAX_CHARS,
-): Promise<string[]> {
-  try {
-    const resources = await resourceList(owner, "instructions/");
-    const blocks: string[] = [];
-    const sorted = resources
-      .filter((resource) => isAutoLoadedInstructionPath(resource.path))
-      .sort((a, b) => a.path.localeCompare(b.path));
-    for (const resource of sorted) {
-      const full = await resourceGet(resource.id).catch(() => null);
-      if (!full?.content?.trim()) continue;
-      const block = promptResourceBlock({
-        name: resource.path,
-        scope,
-        path: resource.path,
-        content: full.content,
-        maxChars,
-      });
-      if (block) blocks.push(block);
-    }
-    return blocks;
-  } catch {
-    return [];
-  }
-}
-
-async function loadResourceSkillsPromptBlock(
-  owner: string,
-  orgId?: string | null,
-): Promise<string | null> {
-  try {
-    const organizationOwner = sharedResourceOwner(orgId);
-    const resources =
-      owner === SHARED_OWNER
-        ? [
-            ...(await resourceList(SHARED_OWNER, "skills/")),
-            ...(await resourceList(WORKSPACE_OWNER, "skills/")),
-          ]
-        : await resourceListAccessible(owner, "skills/", { orgId });
-    const sorted = resources.sort((a, b) => {
-      const ownerOrder =
-        (a.owner === owner
-          ? 0
-          : a.owner === organizationOwner
-            ? 1
-            : a.owner === SHARED_OWNER
-              ? 2
-              : a.owner === WORKSPACE_OWNER
-                ? 3
-                : 4) -
-        (b.owner === owner
-          ? 0
-          : b.owner === organizationOwner
-            ? 1
-            : b.owner === SHARED_OWNER
-              ? 2
-              : b.owner === WORKSPACE_OWNER
-                ? 3
-                : 4);
-      if (ownerOrder !== 0) return ownerOrder;
-      return a.path.localeCompare(b.path);
-    });
-    const seen = new Set<string>();
-    const lines: string[] = [];
-    for (const resource of sorted) {
-      const full = await resourceGet(resource.id).catch(() => null);
-      if (!full?.content) continue;
-      const meta = parseSkillFrontmatter(full.content);
-      if (meta.userInvocable === false) continue;
-      if (meta.scope === "dev") continue;
-      const name = meta.name || getSkillNameFromPath(resource.path);
-      if (!name || seen.has(name)) continue;
-      seen.add(name);
-      const scope = resourceScopeForOwner(resource.owner, owner);
-      const description = meta.description || "(no description)";
-      lines.push(
-        `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${ensureSentence(description)} ${resourceToolHint(
-          "read",
-          `\`path: "${resource.path}"\` and \`scope: "${scope}"\` before starting a task it applies to`,
-        )}`,
-      );
-    }
-    if (lines.length === 0) return null;
-    return `<resource-skills>\nThe following workspace skills are available in addition to codebase skills. They may come from SQL resources, Dispatch workspace resources, or local file mode. Read a matching skill before starting a task it applies to.\n\n${lines.join("\n")}\n</resource-skills>`;
-  } catch {
-    return null;
-  }
-}
-
-async function loadResourceIndexForPrompt(
-  owner: string,
-  scope: "workspace" | "shared",
-): Promise<string | null> {
-  try {
-    const resources = (await resourceList(owner))
-      .filter(
-        (resource) =>
-          !isSpecialPromptResourcePath(resource.path) &&
-          isTextLikeResource(resource.mimeType),
-      )
-      .sort((a, b) => a.path.localeCompare(b.path));
-    if (resources.length === 0) return null;
-
-    const listed = resources.slice(0, SHARED_RESOURCE_INDEX_LIMIT);
-    const lines: string[] = [];
-    for (const resource of listed) {
-      const full = await resourceGet(resource.id).catch(() => null);
-      const summary = full?.content
-        ? getResourceSummaryFromContent(full.content)
-        : null;
-      lines.push(`- \`${resource.path}\`${summary ? ` - ${summary}` : ""}`);
-    }
-    if (resources.length > listed.length) {
-      lines.push(
-        `- ...${resources.length - listed.length} more ${scope} resources. ${resourceToolHint(
-          "list",
-          `\`scope: "${scope}"\` to inspect them`,
-        )}`,
-      );
-    }
-
-    const label =
-      scope === "workspace"
-        ? "Workspace reference resources are inherited by every app and are available for company, brand, positioning, persona, product, or domain context."
-        : "Shared app/organization reference resources are available for app-specific or team context.";
-    return `<workspace-resources scope="${scope}">\n${label} ${resourceToolHint(
-      "read",
-      `\`path: <path>\` and \`scope: "${scope}"\` when a task may depend on them`,
-    )} Do not assume their contents without reading the relevant file.\n\n${lines.join("\n")}\n</workspace-resources>`;
-  } catch {
-    return null;
-  }
+  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
 }
 
 /**
- * Wraps a core CLI script (that writes to console.log) as a ActionEntry
- * by capturing stdout. Uses an AsyncLocalStorage-backed capture so
- * concurrent tool calls do not corrupt the global console/stdout pointers
- * (see `cli-capture.ts`).
- */
-function wrapCliScript(
-  tool: ActionTool,
-  cliDefault: (args: string[]) => Promise<void>,
-  opts?: { readOnly?: boolean },
-): ActionEntry {
-  return {
-    tool,
-    ...(opts?.readOnly ? { readOnly: true as const } : {}),
-    run: async (args: Record<string, string>): Promise<string> => {
-      const cliArgs: string[] = [];
-      for (const [k, v] of Object.entries(args)) {
-        const raw = v as unknown;
-        const value =
-          raw != null && typeof raw === "object"
-            ? JSON.stringify(raw)
-            : String(raw);
-        cliArgs.push(`--${k}`, value);
-      }
-      return captureCliOutput(() => cliDefault(cliArgs));
-    },
-  };
-}
-
-function filterReadOnlyActions(
-  actions: Record<string, ActionEntry>,
-): Record<string, ActionEntry> {
-  return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) => entry.readOnly === true),
-  );
-}
-
-/** Drop actions that opted out of agent exposure via `agentTool: false`. They
- *  remain callable from the frontend / HTTP (mounted separately from this
- *  agent tool surface — see `httpActions`) but never appear in any agent tool
- *  list (in-app assistant, MCP, A2A, job/trigger runners) or actions prompt.
- *  Default-allow: only an explicit `false` is excluded. */
-function filterAgentTools(
-  actions: Record<string, ActionEntry>,
-): Record<string, ActionEntry> {
-  return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) => entry.agentTool !== false),
-  );
-}
-
-function filterPublicAgentActions(
-  actions: Record<string, ActionEntry>,
-): Record<string, ActionEntry> {
-  return Object.fromEntries(
-    Object.entries(actions).filter(([, entry]) => {
-      const config = entry.publicAgent;
-      return (
-        config?.expose === true &&
-        config.readOnly === true &&
-        config.requiresAuth !== true &&
-        config.isConsequential !== true
-      );
-    }),
-  );
-}
-
-export function buildPublicAgentA2ASkills(
-  actions: Record<string, ActionEntry>,
-): Array<{
-  id: string;
-  name: string;
-  description: string;
-  publicAgent: ActionEntry["publicAgent"];
-}> {
-  return Object.entries(filterPublicAgentActions(actions)).map(
-    ([name, entry]) => ({
-      id: name,
-      name,
-      description: entry.tool.description,
-      publicAgent: entry.publicAgent,
-    }),
-  );
-}
-
-function resolveArtifactBaseUrl(event: any | undefined): string | undefined {
-  const fromEnv =
-    process.env.APP_URL ||
-    process.env.URL ||
-    process.env.DEPLOY_URL ||
-    process.env.BETTER_AUTH_URL;
-  if (fromEnv) return withConfiguredAppBasePath(String(fromEnv));
-
-  try {
-    const proto = getHeader(event, "x-forwarded-proto") || "https";
-    const host = getHeader(event, "host");
-    if (host) return withConfiguredAppBasePath(`${proto}://${host}`);
-  } catch {}
-
-  return undefined;
-}
-
-export function assembleA2AFinalResponse(
-  events: readonly AgentChatEvent[],
-  toolResults: readonly A2AToolResultSummary[],
-  options: A2AArtifactResponseOptions & { event?: any } = {},
-): { responseText: string; finalText: string } {
-  const terminalError = getA2ATerminalErrorEvent(events);
-  const responseText = collectFinalResponseTextFromAgentEvents(events, {
-    fallbackToPreToolText: !terminalError,
-  });
-  const finalText = appendA2AArtifactLinks(responseText, [...toolResults], {
-    baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
-    includeReferencedArtifacts: true,
-  });
-  if (terminalError && !finalText.trim()) {
-    throw new Error(formatA2ATerminalError(terminalError));
-  }
-  return { responseText, finalText };
-}
-
-function getA2ATerminalErrorEvent(
-  events: readonly AgentChatEvent[],
-): Extract<AgentChatEvent, { type: "error" }> | null {
-  for (let i = events.length - 1; i >= 0; i--) {
-    const event = events[i];
-    if (event.type === "clear") continue;
-    if (event.type === "done") return null;
-    if (event.type === "error") return event;
-    if (event.type === "auto_continue") {
-      return {
-        type: "error",
-        error: `Agent stopped before finishing (${event.reason}).`,
-        errorCode: event.reason,
-        recoverable: true,
-      };
-    }
-  }
-  return null;
-}
-
-function formatA2ATerminalError(
-  event: Extract<AgentChatEvent, { type: "error" }>,
-): string {
-  const parts = [
-    event.error || "Agent failed before producing a final response.",
-    event.errorCode ? `code: ${event.errorCode}` : "",
-    event.details ? `details: ${event.details}` : "",
-  ].filter(Boolean);
-  return parts.join("\n");
-}
-
-/**
- * Creates the `get-framework-context` tool. Returns detailed instructions
- * for framework capabilities that are summarized in the compact prompt.
- * The agent calls this on-demand when it needs specifics about embeds,
- * agent teams, recurring jobs, etc.
- */
-function createFrameworkContextEntry(): Record<string, ActionEntry> {
-  const topicList = Object.keys(FRAMEWORK_CONTEXT_SECTIONS).join(", ");
-  return {
-    "get-framework-context": {
-      tool: {
-        description: `Read detailed framework instructions for a specific capability. Available topics: ${topicList}. Call with topic="all" to get everything.`,
-        parameters: {
-          type: "object" as const,
-          properties: {
-            topic: {
-              type: "string",
-              description: `Topic to read. One of: ${topicList}, or "all" for everything.`,
-            },
-          },
-          required: ["topic"],
-        },
-      },
-      run: async (args: Record<string, string>) => {
-        const topic = String(args.topic ?? "all").toLowerCase();
-        if (topic === "all") {
-          return Object.values(FRAMEWORK_CONTEXT_SECTIONS).join("\n\n");
-        }
-        const section = FRAMEWORK_CONTEXT_SECTIONS[topic];
-        if (!section) {
-          return `Unknown topic "${topic}". Available: ${topicList}`;
-        }
-        return section;
-      },
-      readOnly: true,
-    },
-  };
-}
-
-/**
- * Creates the `refresh-screen` tool. Writes a bump to `application_state`
- * under a well-known key; the client's `useDbSync` watches for this and
- * invalidates react-query caches so the on-screen UI re-fetches its data
- * without a full page reload.
+ * Returns whether `owner` has already finished (or explicitly skipped) the
+ * First-Session Personalization flow, via the owner-scoped
+ * `application_state` "personalization" flag the agent itself writes
+ * (`writeAppState("personalization", { done: true })` — see
+ * FIRST_SESSION_PERSONALIZATION in prompts/framework-core.ts).
  *
- * This is the standard way for the agent to say "the data on the screen
- * just changed, please refresh it" — e.g. after editing a dashboard config,
- * updating a form schema, or mutating a row that the current view renders.
+ * This used to be gated on "does this thread have prior messages", which
+ * flips false the instant a second request comes in for the SAME thread —
+ * making turn 2's system prompt diverge from turn 1's and invalidating the
+ * prompt-cache prefix on every thread's second request. The flow itself
+ * spans two turns (turn 1 asks the personalization questions and waits;
+ * turn 2 answers them and only then writes the "done" flag), so this flag
+ * is still false when BOTH turns' system prompts are assembled — turn 1
+ * and turn 2 come out byte-identical. It only flips once the flow
+ * completes, and it never flips back, so every later turn (and every
+ * later thread the same owner creates) stays consistent from then on. As
+ * a bonus, it also fixes a latent waste: the old gate re-included the
+ * ~1.5KB block on turn 1 of every new thread a user ever created, even
+ * long after they'd completed personalization once.
  */
-function createRefreshScreenEntry(): Record<string, ActionEntry> {
-  return {
-    "refresh-screen": {
-      // Writes __screen_refresh__ to application_state, which emits its own
-      // distinct `screen-refresh` poll event. Don't double-emit a generic
-      // `action` event on top of that.
-      readOnly: true,
-      tool: {
-        description:
-          "Manually refresh the user's current screen. The framework ALREADY auto-refreshes after any successful mutating action tool call (template actions and any enabled raw DB write tools) — you do NOT need to call this after a normal action. Use it only when (a) you mutated data via a path the framework can't detect (e.g. a direct write to an external system the app mirrors), or (b) you want to pass a `scope` hint so the UI narrows which queries to refetch. The UI re-fetches its queries without a full page reload.",
-        parameters: {
-          type: "object",
-          properties: {
-            scope: {
-              type: "string",
-              description:
-                "Optional hint describing what changed (e.g. 'dashboard', 'form', 'settings'). Templates may use it to narrow which queries to invalidate; if omitted, all queries are invalidated.",
-            },
-          },
-        },
-      },
-      run: async (args) => {
-        const { writeAppState } =
-          await import("../application-state/script-helpers.js");
-        const nonce = Date.now();
-        const scope = typeof args?.scope === "string" ? args.scope : undefined;
-        await writeAppState(SCREEN_REFRESH_KEY, {
-          nonce,
-          ...(scope ? { scope } : {}),
-        });
-        return `refreshed${scope ? ` (scope: ${scope})` : ""}`;
-      },
-    },
-  };
-}
-
-/** Well-known application-state key used by the refresh-screen tool. */
-const SCREEN_REFRESH_KEY = "__screen_refresh__";
-const SAFE_BROWSER_TAB_ID_RE = /^[A-Za-z0-9_-]{1,96}$/;
-
-function appStateKeyForBrowserTab(key: string, browserTabId: unknown): string {
-  if (typeof browserTabId !== "string") return key;
-  const trimmed = browserTabId.trim();
-  return SAFE_BROWSER_TAB_ID_RE.test(trimmed) ? `${key}:${trimmed}` : key;
+export async function hasCompletedFirstSessionPersonalization(
+  owner: string,
+): Promise<boolean> {
+  try {
+    const state = await appStateGet(owner, "personalization");
+    return state?.done === true;
+  } catch {
+    // Fail open to "not done" — same default as a brand-new user (block
+    // shown) rather than silently skipping personalization because of a
+    // transient appstate read error.
+    return false;
+  }
 }
 
 /**
@@ -1060,3040 +320,43 @@ function appStateKeyForBrowserTab(key: string, browserTabId: unknown): string {
  */
 const generateTitleRateLimit = new Map<string, number[]>();
 
+/** Only sweep drained rate-limit entries once the map grows past this size,
+ * so the common small-map case stays O(1). */
+const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
+
 /**
- * Creates the `set-search-params` / `set-url-path` tools. Writes a one-shot
- * URL command to application_state; the client's URLSync component applies
- * it via react-router (no full page reload) and then deletes the command.
+ * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
+ * the agent fetch tool.
  *
- * This is how the agent edits URL state — filter query params, route
- * changes, hash — without needing a per-template navigate action. The
- * current URL is visible to the agent via the auto-injected `<current-url>`
- * block, which includes parsed search params.
+ * SECURITY (audit 05 H2 alignment): the allowlist check must stay
+ * consistent with the scope a key actually resolved at (see the
+ * `getKeyAllowlist` docstring in secrets/substitution.ts). Since the fetch
+ * tool now resolves keys via `resolveKeyReferencesWithRequestScopes` — which
+ * cascades user → org → workspace scope — a plain user-scope-only allowlist
+ * lookup would silently miss an allowlist configured on the org/workspace
+ * row that actually supplied the value. When `resolvedKeys` reports which
+ * scope a key resolved at, look up the allowlist there; only fall back to
+ * the legacy user-scope lookup for a key the resolver didn't report (should
+ * not normally happen — every key the cascade resolves reports a ref).
  */
-function createUrlTools(): Record<string, ActionEntry> {
-  return {
-    "set-search-params": {
-      // Writes __set_url__ to application_state, which the app-state watcher
-      // already surfaces as a poll event. No need to double-emit.
-      readOnly: true,
-      tool: {
-        description:
-          "Update the URL query string on the user's current page. Use this to change dashboard/list filters, search terms, or any other state the app stores in `?foo=bar` style query params. One-shot — the UI applies it in ~1s without a page reload. See the current URL + parsed search params in the auto-injected `<current-url>` block. Keys are the exact query param names as they appear in the URL (e.g. `f_pubDateStart`, not just `pubDateStart`). Set a value to null or empty string to clear that param. By default merges over existing params — pass `merge: false` to replace them all.",
-        parameters: {
-          type: "object",
-          properties: {
-            params: {
-              type: "object",
-              description:
-                'Map of query param → value. Each value is a string, or null/"" to clear. Example: {"f_pubDateStart": null, "f_cadence": "MONTH"}.',
-            },
-            merge: {
-              type: "string",
-              description:
-                '"true" (default) merges over existing params; "false" replaces them entirely.',
-              enum: ["true", "false"],
-            },
-          },
-          required: ["params"],
-        },
-      },
-      run: async (args) => {
-        const params = (args?.params ?? {}) as unknown as Record<
-          string,
-          string | null
-        >;
-        const merge = (args as any)?.merge !== "false";
-        const { writeAppState } =
-          await import("../application-state/script-helpers.js");
-        await writeAppState(
-          appStateKeyForBrowserTab(
-            "__set_url__",
-            getRequestRunContext()?.browserTabId,
-          ),
-          {
-            searchParams: params,
-            mergeSearchParams: merge,
-            // Unique-per-write token. The client's URLSync hook dedups by this
-            // so a fire-and-forget DELETE that loses its race against the next
-            // polling refetch can't cause the same URL command to be applied
-            // repeatedly (which caused the editor to bounce between slides
-            // when an agent turn errored partway through).
-            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          },
-        );
-        const keys = Object.keys(params);
-        return `set-search-params: ${keys.length} key${keys.length === 1 ? "" : "s"}${merge ? "" : " (replace)"}`;
-      },
-    },
-    "set-url-path": {
-      // Same as set-search-params — writes application_state, already emits
-      // via the app-state watcher.
-      readOnly: true,
-      tool: {
-        description:
-          "Navigate the user to a different pathname, optionally also setting search params. For most template-specific routing prefer the template's `navigate` action if it exists — this is the generic fallback. One-shot, applied by the client without a page reload.",
-        parameters: {
-          type: "object",
-          properties: {
-            pathname: {
-              type: "string",
-              description: "New URL pathname (e.g. '/adhoc/weekly').",
-            },
-            params: {
-              type: "object",
-              description:
-                'Optional query params to set alongside the path change. String values set, null/"" clears.',
-            },
-            merge: {
-              type: "string",
-              description:
-                '"true" (default) merges over existing params; "false" starts fresh.',
-              enum: ["true", "false"],
-            },
-          },
-          required: ["pathname"],
-        },
-      },
-      run: async (args) => {
-        const pathname = String(args?.pathname ?? "");
-        if (!pathname.startsWith("/")) {
-          return "Error: pathname must start with '/'.";
-        }
-        const params = (args?.params ?? {}) as unknown as Record<
-          string,
-          string | null
-        >;
-        const merge = (args as any)?.merge !== "false";
-        const { writeAppState } =
-          await import("../application-state/script-helpers.js");
-        await writeAppState(
-          appStateKeyForBrowserTab(
-            "__set_url__",
-            getRequestRunContext()?.browserTabId,
-          ),
-          {
-            pathname,
-            searchParams: params,
-            mergeSearchParams: merge,
-            // See note in set-search-params: unique-per-write dedup token so a
-            // race between GET and consume-DELETE in URLSync can't re-apply
-            // this command.
-            _writeId: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-          },
-        );
-        return `set-url-path: ${pathname}`;
-      },
-    },
-    "ask-question": {
-      tool: {
-        description:
-          "Ask the user a multiple-choice clarifying question and render it inline in the chat. Use this ONLY when you are genuinely blocked on a decision you cannot resolve from context and a wrong guess would be costly — an ambiguous metric, date range, or grain; a real fork in approach. Present 2-5 concrete options and mark the most likely one recommended. Do NOT use it for confirmations, for things the user already specified, or to dodge easy work you could just do. Ask at most once per turn. Calling this yields the turn: stop and wait for the user's answer.",
-        parameters: {
-          type: "object",
-          properties: {
-            question: {
-              type: "string",
-              description:
-                "The complete question to ask the user. Clear, specific, ends with a question mark.",
-            },
-            header: {
-              type: "string",
-              description:
-                'Optional very short label (max ~12 chars) shown as a chip/heading above the question, e.g. "Date range", "Approach", "Library".',
-            },
-            options: {
-              type: "string",
-              description:
-                'A JSON array of 2-4 distinct, mutually-exclusive options (unless `allowMultiple` is true), each `{ "label": string, "value"?: string, "description"?: string, "preview"?: string, "recommended"?: boolean }`. `label` is 1-5 words; `description` explains the trade-off; `preview` is optional content (mockup, code snippet, short comparison) rendered under the option. `value` defaults to `label` when omitted. Mark the most likely option `"recommended": true`. Do NOT add an "Other" option — free text is provided automatically when `allowFreeText` is on.',
-            },
-            allowFreeText: {
-              type: "string",
-              description:
-                'Whether the user may also type a free-text "Other" answer. "true" (default) or "false".',
-              enum: ["true", "false"],
-            },
-            allowMultiple: {
-              type: "string",
-              description:
-                'Whether the user may select more than one option (multi-select). "true" or "false" (default).',
-              enum: ["true", "false"],
-            },
-          },
-          required: ["question", "options"],
-        },
-      },
-      run: async (args) => {
-        const question = String(args?.question ?? "").trim();
-        if (!question) return "Error: 'question' is required.";
-        const header = String(args?.header ?? "").trim();
-        const allowMultiple = String(args?.allowMultiple ?? "") === "true";
-        const allowFreeText = String(args?.allowFreeText ?? "true") !== "false";
-
-        let parsedOptions: unknown;
-        try {
-          parsedOptions = JSON.parse(String(args?.options ?? "[]"));
-        } catch {
-          return "Error: 'options' must be a JSON array of { label, value?, description?, recommended? }.";
-        }
-        if (!Array.isArray(parsedOptions) || parsedOptions.length === 0) {
-          return "Error: 'options' must be a non-empty JSON array of { label, value?, description?, recommended? }.";
-        }
-
-        type AskOption = {
-          label: string;
-          value: string;
-          description?: string;
-          preview?: string;
-          recommended?: boolean;
-        };
-        const options = parsedOptions
-          .map((raw): AskOption | null => {
-            const opt = (raw ?? {}) as Record<string, unknown>;
-            const label =
-              typeof opt.label === "string" && opt.label.trim()
-                ? opt.label.trim()
-                : typeof opt.value === "string"
-                  ? String(opt.value).trim()
-                  : "";
-            if (!label) return null;
-            const value =
-              typeof opt.value === "string" && opt.value.trim()
-                ? opt.value.trim()
-                : label;
-            const option: AskOption = { label, value };
-            if (typeof opt.description === "string" && opt.description.trim()) {
-              option.description = opt.description.trim();
-            }
-            if (typeof opt.preview === "string" && opt.preview.trim()) {
-              option.preview = opt.preview;
-            }
-            if (opt.recommended === true) option.recommended = true;
-            return option;
-          })
-          .filter((opt): opt is AskOption => opt !== null);
-        if (options.length === 0) {
-          return "Error: 'options' must contain at least one option with a label.";
-        }
-
-        // Shape must match the GuidedQuestionFlow renderer in
-        // client/guided-questions.tsx: a `text-options` question whose options
-        // carry `value`, with `multiSelect` for multi-pick and `allowOther` for
-        // free text. The renderer otherwise injects "Explore"/"Decide" options,
-        // which would be noise for a focused clarifying question, so disable them.
-        const payload = {
-          questions: [
-            {
-              id: "q1",
-              type: "text-options" as const,
-              question,
-              ...(header ? { header } : {}),
-              required: !allowFreeText,
-              multiSelect: allowMultiple,
-              allowOther: allowFreeText,
-              includeExplore: false,
-              includeDecide: false,
-              options,
-            },
-          ],
-        };
-
-        const { writeAppState } =
-          await import("../application-state/script-helpers.js");
-        await writeAppState(
-          appStateKeyForBrowserTab(
-            "guided-questions",
-            getRequestRunContext()?.browserTabId,
-          ),
-          payload,
-        );
-        return "Asked the user a clarifying question and rendered it in the chat. Stop here and wait for their answer — do not proceed or assume an answer.";
-      },
-    },
-  };
-}
-
-function createDataWidgetActionEntries(): Record<string, ActionEntry> {
-  return {
-    "render-data-widget": {
-      readOnly: true,
-      parallelSafe: true,
-      chatUI: {
-        renderer: ACTION_CHAT_UI_DATA_WIDGET_RENDERER,
-        title: "Data widget",
-        description: "Render a validated native data table or chart in chat.",
-      },
-      tool: {
-        description:
-          "Render a native Agent-Native chat data widget from compact, real data you already retrieved or the user provided. Use this for in-chat tables, charts, graphs, trends, and compact reports when no domain-specific action already returns a native widget. Never fabricate rows or metrics just to make a chart.",
-        parameters: {
-          type: "object",
-          properties: {
-            widget: {
-              type: "string",
-              enum: ["data-table", "data-chart", "data-insights"],
-              description:
-                "Widget kind. Use data-chart for a chart, data-table for a table, or data-insights for a combined summary/chart/table card.",
-            },
-            widgetId: {
-              type: "string",
-              description: "Optional stable widget identifier.",
-            },
-            title: {
-              type: "string",
-              description: "Optional widget title.",
-            },
-            summary: {
-              type: "object",
-              description:
-                "Optional scalar summary values for data-insights cards.",
-            },
-            display: {
-              type: "object",
-              description:
-                "Optional display metadata: title, description, primaryAction.",
-            },
-            table: {
-              type: "object",
-              description:
-                "For data-table/data-insights: { title?, columns: [{ key, label, align? }], rows, totalRows?, sampledRows?, truncated? }.",
-            },
-            chartSeries: {
-              type: "object",
-              description:
-                "For data-chart/data-insights: { type: 'bar'|'line'|'area', title?, xKey, series: [{ key, label, color? }], data, sampled? }.",
-            },
-          },
-          required: ["widget"],
-        },
-      },
-      run: async (args) => dataWidgetResultSchema.parse(args),
-    },
-  };
-}
-
-/**
- * Creates db-* tools (db-query, db-exec, db-patch, db-schema) as native tools.
- * By default these let the agent inspect the app's own SQL database; raw SQL
- * writes are only exposed when the app explicitly opts into write mode.
- * Scoping to the current user/org is enforced automatically in production via
- * temp views.
- *
- * In dev mode template actions are invoked via bash and the agent can call
- * `pnpm action db-query ...` — but in production there is no bash, so these
- * must be registered as native tools for the agent to reach the app DB at all.
- */
-async function createDbScriptEntries(
-  mode: DatabaseToolsMode = "read",
-  options: { extensionTools?: boolean } = {},
-): Promise<Record<string, ActionEntry>> {
-  try {
-    if (mode === "off") return {};
-    const extensionQueryGuidance =
-      options.extensionTools === false
-        ? "Extension management tools are disabled for this app; do not query or mutate the legacy tools table as a workaround."
-        : "For extension management, use list-extensions, update-extension, hide-extension, or delete-extension instead of querying the legacy tools table.";
-    const [schemaMod, queryMod] = await Promise.all([
-      import("../scripts/db/schema.js"),
-      import("../scripts/db/query.js"),
-    ]);
-    const [execMod, patchMod] =
-      mode === "write"
-        ? await Promise.all([
-            import("../scripts/db/exec.js"),
-            import("../scripts/db/patch.js"),
-          ])
-        : [null, null];
-
-    const entries: Record<string, ActionEntry> = {
-      "db-schema": wrapCliScript(
-        {
-          description:
-            "Show the app's SQL schema — all tables, columns, types, indexes, and foreign keys. Use this to understand the data model before querying.",
-          parameters: {
-            type: "object",
-            properties: {
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-            },
-          },
-        },
-        schemaMod.default,
-        { readOnly: true },
-      ),
-      "db-query": wrapCliScript(
-        {
-          description: `Read from the app's own SQL database ONLY. Runs a SELECT against the app's internal tables (settings, application_state, template tables). Results are auto-scoped to the current user/org. IMPORTANT: This tool CANNOT access external data sources like data warehouses, CRMs, issue trackers, analytics platforms, calendars, mail, docs, or other third-party services. For those, use the relevant template/provider action, MCP connector, or provider-api-catalog/provider-api-docs/provider-api-request when available. If the user names a provider, that named provider wins; do not substitute a warehouse or app database copy unless they explicitly ask for it. If a table isn't in the app schema, don't try db-query — use the data-source-specific action. ${extensionQueryGuidance}`,
-          parameters: {
-            type: "object",
-            properties: {
-              sql: {
-                type: "string",
-                description:
-                  "SELECT query to run, e.g. \"SELECT key, value FROM settings WHERE key LIKE 'sql-dashboard-%'\"",
-              },
-              args: {
-                type: "string",
-                description:
-                  'Optional JSON array of positional bind args for parameterized placeholders. Example: \'["draft","form-123"]\'',
-              },
-              format: {
-                type: "string",
-                description: 'Output format: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-              limit: {
-                type: "string",
-                description:
-                  "Append LIMIT N if the query doesn't already have one",
-              },
-            },
-            required: ["sql"],
-          },
-        },
-        queryMod.default,
-        { readOnly: true },
-      ),
-    };
-
-    if (execMod && patchMod) {
-      entries["db-exec"] = wrapCliScript(
-        {
-          description:
-            "Write to the app's own SQL database ONLY. Runs INSERT / UPDATE / DELETE / REPLACE against the app's internal tables. For multiple related writes, pass `statements` so they run sequentially in one transaction instead of issuing several db-exec calls. Writes are auto-scoped to the current user/org, and `owner_email` / `org_id` are auto-injected on INSERT. Schema changes (CREATE/ALTER/DROP) are blocked. Never use this to backfill missing data for a read/analysis request or to create/modify users, members, roles, permissions, admin flags, or ownership; use a dedicated app action or reviewed code. IMPORTANT: This tool CANNOT write to external data sources like BigQuery, HubSpot, etc. For external services, use the appropriate template action.",
-          parameters: dbExecToolParameters(),
-        },
-        execMod.default,
-      );
-      entries["db-patch"] = wrapCliScript(
-        {
-          description:
-            "Surgical patch on a large text/JSON column in the app's SQL database. Two modes: (1) text find/replace via `find`/`replace`/`edits` — best for small edits to documents, slide HTML, etc. (2) structural JSON ops via `json-ops` — STRONGLY PREFERRED when the column is JSON (dashboard configs, form schemas, slide decks) because it avoids all the brace/quote/comma surgery that text find/replace requires. Use `json-ops` to set/remove values at a JSON Pointer path, or to move/insert array items — e.g. reorder dashboard panels, add a filter, rename a field. Targets exactly one row (narrow `where` by primary key). Same per-user/org scoping as db-exec.",
-          parameters: {
-            type: "object",
-            properties: {
-              table: {
-                type: "string",
-                description: "Table name (e.g. 'settings')",
-              },
-              column: {
-                type: "string",
-                description:
-                  "Text/JSON column to patch (e.g. 'value' for settings)",
-              },
-              where: {
-                type: "string",
-                description:
-                  "WHERE clause that matches exactly one row (e.g. \"key = 'o:org1:sql-dashboard-foo'\")",
-              },
-              find: {
-                type: "string",
-                description:
-                  "Text mode: substring to find. Must match EXACTLY ONE occurrence by default (like Claude Code's Edit tool). If 0 matches, you get 'NOT FOUND'. If >1 matches, you get surrounding context for each match — widen `find` with unique context and retry. Use `all: \"true\"` to replace every occurrence.",
-              },
-              replace: {
-                type: "string",
-                description: "Text mode: replacement substring",
-              },
-              edits: {
-                type: "string",
-                description:
-                  'Text mode batch: JSON array of {find, replace} pairs. Same uniqueness rule applies to each `find`. Example: \'[{"find":"a","replace":"b"}]\'',
-              },
-              "json-ops": {
-                type: "string",
-                description:
-                  'JSON mode: JSON array of structural ops. Each op is {op, path, value?, from?}. `op` is one of "set", "remove", "insert", "move", "move-before". `path` / `from` use JSON Pointer ("/panels/3/title"). Examples — reorder: \'[{"op":"move","from":"/panels/7","path":"/panels/1"}]\'; edit field: \'[{"op":"set","path":"/panels/0/title","value":"New"}]\'; delete filter: \'[{"op":"remove","path":"/filters/2"}]\'; add panel: \'[{"op":"insert","path":"/panels/0","value":{"id":"p","title":"..."}}]\'. Much safer than text find/replace for JSON columns.',
-              },
-              all: {
-                type: "string",
-                description:
-                  'Text mode: set to "true" to replace every occurrence of each `find` (default requires exactly one match)',
-                enum: ["true"],
-              },
-            },
-            required: ["table", "column", "where"],
-          },
-        },
-        patchMod.default,
-      );
-    }
-
-    return entries;
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Creates read-only package lookup tools so agents can inspect version-matched
- * framework docs and source bundled in @agent-native/core at runtime.
- */
-async function createDocsScriptEntries(): Promise<Record<string, ActionEntry>> {
-  const entries: Record<string, ActionEntry> = {};
-
-  try {
-    const mod = await import("../scripts/docs/search.js");
-    entries["docs-search"] = wrapCliScript(
-      {
-        description:
-          "Search and read agent-native framework documentation, bundled AGENTS.md, and codebase skills. Use --list to see all pages, --query to search, --slug to read a specific page. Codebase skill pages use slugs like skill-<name>.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description:
-                "Search term to find relevant docs (e.g. 'actions', 'authentication', 'database')",
-            },
-            slug: {
-              type: "string",
-              description:
-                "Read a specific doc page by slug (e.g. 'actions', 'authentication', 'database')",
-            },
-            list: {
-              type: "string",
-              description: 'Set to "true" to list all available doc pages',
-              enum: ["true"],
-            },
-          },
-        },
-      },
-      mod.default,
-      { readOnly: true },
-    );
-  } catch {
-    // Keep source-search available if docs-search fails during a partial build.
-  }
-
-  try {
-    const mod = await import("../scripts/docs/source-search.js");
-    entries["source-search"] = wrapCliScript(
-      {
-        description:
-          "Search and read the packaged Agent Native source corpus under node_modules/@agent-native/core/corpus. Use --list for sections, --query to search core/template source, and --path to read a file.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description:
-                "Search term to find relevant core or template source (e.g. 'defineAction', 'useActionQuery', 'view-screen').",
-            },
-            path: {
-              type: "string",
-              description:
-                "Read a specific corpus file or list a directory (e.g. 'templates/plan/AGENTS.md' or 'core/src/action.ts').",
-            },
-            list: {
-              type: "string",
-              description: 'Set to "true" to list corpus sections',
-              enum: ["true"],
-            },
-          },
-        },
-      },
-      mod.default,
-      { readOnly: true },
-    );
-  } catch {
-    // Older package installs may not have the corpus/search script yet.
-  }
-
-  return entries;
-}
-
-/**
- * Creates resource ScriptEntries available in both prod and dev modes.
- */
-function shouldDefaultResourceWriteToWorkspace(path: string): boolean {
-  const normalized = path.replace(/^\/+/, "");
-  return (
-    normalized === "AGENTS.md" ||
-    normalized === "LEARNINGS.md" ||
-    normalized.startsWith("memory/") ||
-    normalized.startsWith("skills/") ||
-    normalized.startsWith("jobs/") ||
-    normalized.startsWith("agents/") ||
-    normalized.startsWith("remote-agents/")
-  );
-}
-
-async function createResourceScriptEntries(): Promise<
-  Record<string, ActionEntry>
-> {
-  try {
-    const [list, read, effective, write, del, saveMem, delMem, store] =
-      await Promise.all([
-        import("../scripts/resources/list.js"),
-        import("../scripts/resources/read.js"),
-        import("../scripts/resources/effective.js"),
-        import("../scripts/resources/write.js"),
-        import("../scripts/resources/delete.js"),
-        import("../scripts/resources/save-memory.js"),
-        import("../scripts/resources/delete-memory.js"),
-        import("../resources/store.js"),
-      ]);
-
-    // Wrap each CLI runner so it captures stdout and converts args properly
-    const listEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      list.default,
-      { readOnly: true },
-    );
-    const readEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      read.default,
-      { readOnly: true },
-    );
-    const writeEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      write.default,
-    );
-    const effectiveEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      effective.default,
-      { readOnly: true },
-    );
-    const deleteEntry = wrapCliScript(
-      {
-        description: "",
-        parameters: { type: "object" as const, properties: {} },
-      },
-      del.default,
-    );
-
-    return {
-      resources: {
-        tool: {
-          description:
-            'Manage workspace resources. Actions: "list" (browse visible files), "read" (get contents), "effective" (show workspace -> organization/app -> personal inheritance for a path), "write" (create/update personal or shared; workspace only for local file mode control files), "promote" (make agent scratch visible), "delete" (remove personal or shared; workspace only for local file mode control files). Agent scratch writes are hidden from the Workspace view by default; use visibility="workspace" only for files the user explicitly wants to keep/manage.',
-          parameters: {
-            type: "object",
-            properties: {
-              action: {
-                type: "string",
-                description: "The operation to perform",
-                enum: [
-                  "list",
-                  "read",
-                  "effective",
-                  "write",
-                  "promote",
-                  "delete",
-                ],
-              },
-              path: {
-                type: "string",
-                description:
-                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
-              },
-              content: {
-                type: "string",
-                description: "Content to write. Required for write.",
-              },
-              scope: {
-                type: "string",
-                description:
-                  "personal, shared, workspace, or all (default varies by action). Workspace is read-only when inherited from Dispatch; in local file mode AGENTS.md, agent-native.json, mcp.config.json, .mcp.json, and skills/ are writable.",
-                enum: ["personal", "shared", "workspace", "all"],
-              },
-              prefix: {
-                type: "string",
-                description:
-                  "Filter by path prefix when listing (e.g. 'notes/')",
-              },
-              mime: {
-                type: "string",
-                description:
-                  "MIME type for write (default: inferred from extension)",
-              },
-              format: {
-                type: "string",
-                description:
-                  'Output format for list: "json" or "text" (default: text)',
-                enum: ["json", "text"],
-              },
-              visibility: {
-                type: "string",
-                description:
-                  'Visibility for write: "agent_scratch" for internal working files, "workspace" for user-requested files. Defaults to agent_scratch except durable instruction/skill/job/memory paths.',
-                enum: ["workspace", "agent_scratch"],
-              },
-              includeAgentScratch: {
-                type: "boolean",
-                description: "Include hidden agent scratch files when listing.",
-              },
-            },
-            required: ["action"],
-          },
-        },
-        run: async (args: Record<string, string>) => {
-          const { action: a, ...rest } = args;
-          if (a === "list") return listEntry.run(rest);
-          if (a === "read") {
-            if (!rest.path) return "Error: path is required for read";
-            return readEntry.run(rest);
-          }
-          if (a === "effective") {
-            if (!rest.path) return "Error: path is required for effective";
-            return effectiveEntry.run(rest);
-          }
-          if (a === "write") {
-            if (
-              !rest.path ||
-              rest.content === undefined ||
-              rest.content === null
-            )
-              return "Error: path and content are required for write";
-            rest.createdBy = "agent";
-            rest.visibility =
-              rest.visibility ??
-              (shouldDefaultResourceWriteToWorkspace(String(rest.path))
-                ? "workspace"
-                : "agent_scratch");
-            const runCtx = getRequestRunContext();
-            if (runCtx?.threadId) rest.threadId = runCtx.threadId;
-            return writeEntry.run(rest);
-          }
-          if (a === "promote") {
-            if (!rest.path) return "Error: path is required for promote";
-            const scope = rest.scope ?? "personal";
-            if (scope === "workspace" || scope === "all") {
-              return "Error: promote supports personal or shared scope only";
-            }
-            const owner =
-              scope === "shared"
-                ? store.sharedResourceOwner(getRequestOrgId())
-                : (getRequestRunContext()?.owner ??
-                  getRequestUserEmail() ??
-                  process.env.AGENT_USER_EMAIL);
-            if (!owner) {
-              return "Error: promote requires an authenticated user";
-            }
-            const resource = await store.resourceGetByPath(
-              owner,
-              String(rest.path),
-            );
-            if (!resource) {
-              return `Resource not found: ${rest.path}`;
-            }
-            const promoted = await store.resourcePut(
-              owner,
-              resource.path,
-              resource.content,
-              resource.mimeType,
-              {
-                createdBy: resource.createdBy,
-                visibility: "workspace",
-                threadId: resource.threadId,
-                runId: resource.runId,
-                expiresAt: null,
-                metadata: resource.metadata,
-              },
-            );
-            return `Promoted resource: ${promoted.path}`;
-          }
-          if (a === "delete") {
-            if (!rest.path) return "Error: path is required for delete";
-            return deleteEntry.run(rest);
-          }
-          return `Error: unknown action "${a}". Use: list, read, write, promote, delete`;
-        },
-      },
-      "save-memory": wrapCliScript(
-        {
-          description:
-            "Save a memory for future conversations. Creates or updates a memory file and its index entry. Use proactively when you learn preferences, corrections, project context, or references.",
-          parameters: {
-            type: "object",
-            properties: {
-              name: {
-                type: "string",
-                description:
-                  "Short kebab-case identifier (e.g. 'coding-style', 'deploy-process'). Used as the filename.",
-              },
-              type: {
-                type: "string",
-                description: "Memory category",
-                enum: ["user", "feedback", "project", "reference"],
-              },
-              description: {
-                type: "string",
-                description:
-                  "One-line summary shown in the memory index (keep under 80 chars)",
-              },
-              content: {
-                type: "string",
-                description:
-                  "The memory content in markdown. For updates, read first and provide full updated content.",
-              },
-            },
-            required: ["name", "type", "description", "content"],
-          },
-        },
-        saveMem.default,
-      ),
-      "delete-memory": wrapCliScript(
-        {
-          description:
-            "Delete a memory entry and remove it from the memory index.",
-          parameters: {
-            type: "object",
-            properties: {
-              name: {
-                type: "string",
-                description: "The memory name to delete (e.g. 'coding-style')",
-              },
-            },
-            required: ["name"],
-          },
-        },
-        delMem.default,
-      ),
-    };
-  } catch {
-    // Resources not available — skip silently
-    return {};
-  }
-}
-
-/**
- * Creates a unified chat-history ActionEntry that dispatches to search, open,
- * rename, or lightweight organization actions.
- */
-async function createChatScriptEntries(): Promise<Record<string, ActionEntry>> {
-  try {
-    const [searchMod, openMod] = await Promise.all([
-      import("../scripts/chat/search-chats.js"),
-      import("../scripts/chat/open-chat.js"),
-    ]);
-
-    const searchEntry = wrapCliScript(
-      {
-        description: "Search or list past agent chat threads.",
-        parameters: {
-          type: "object",
-          properties: {
-            query: {
-              type: "string",
-              description:
-                "Search term to find chats by title, preview, or content",
-            },
-            limit: {
-              type: "string",
-              description: "Max number of results (default: 20)",
-            },
-            format: {
-              type: "string",
-              description: "Output format",
-              enum: ["json", "text"],
-            },
-          },
-        },
-      },
-      searchMod.default,
-    );
-
-    const openEntry = wrapCliScript(
-      {
-        description: "Open a chat thread in the UI.",
-        parameters: {
-          type: "object",
-          properties: {
-            id: {
-              type: "string",
-              description: "The chat thread ID to open",
-            },
-          },
-          required: ["id"],
-        },
-      },
-      openMod.default,
-    );
-
-    return {
-      "chat-history": {
-        tool: {
-          description:
-            "Manage past agent chat threads. Use action 'search' to find previous conversations by keyword, 'open' to open a thread in the UI, or 'rename'/'pin'/'unpin'/'archive' to organize history.",
-          parameters: {
-            type: "object",
-            properties: {
-              action: {
-                type: "string",
-                description: "The operation to perform",
-                enum: ["search", "open", "rename", "pin", "unpin", "archive"],
-              },
-              query: {
-                type: "string",
-                description:
-                  "(search) Search term to find chats by title, preview, or content",
-              },
-              limit: {
-                type: "string",
-                description: "(search) Max number of results (default: 20)",
-              },
-              format: {
-                type: "string",
-                description: "(search) Output format",
-                enum: ["json", "text"],
-              },
-              id: {
-                type: "string",
-                description:
-                  "(open, rename, pin, unpin, archive) The chat thread ID to manage",
-              },
-              title: {
-                type: "string",
-                description: "(rename) New chat title",
-              },
-            },
-            required: ["action"],
-          },
-        },
-        run: async (args) => {
-          if (args?.action === "open") {
-            return openEntry.run(args);
-          }
-          if (
-            args?.action === "rename" ||
-            args?.action === "pin" ||
-            args?.action === "unpin" ||
-            args?.action === "archive"
-          ) {
-            const id = typeof args?.id === "string" ? args.id : "";
-            if (!id) return "Missing required id.";
-            const owner =
-              getRequestRunContext()?.owner ?? getRequestUserEmail() ?? "";
-            if (!owner) return "No authenticated user is available.";
-            const thread = await resolveThreadAccess(owner, id, "editor", {
-              orgId: getRequestOrgId(),
-            });
-            if (!thread) {
-              return `Chat thread "${id}" not found.`;
-            }
-            const title = thread.title || thread.preview || "(untitled)";
-            if (args.action === "rename") {
-              const nextTitle =
-                typeof args?.title === "string"
-                  ? args.title.replace(/\s+/g, " ").trim().slice(0, 160)
-                  : "";
-              if (!nextTitle) return "Missing required title.";
-              const renamed = await renameThread(id, nextTitle);
-              if (!renamed) return `Chat thread "${id}" could not be renamed.`;
-              return `Renamed chat "${title}" to "${nextTitle}".`;
-            }
-            if (args.action === "archive") {
-              const archived = await setThreadArchived(id, true);
-              if (!archived)
-                return `Chat thread "${id}" could not be archived.`;
-              return `Archived chat: ${title}`;
-            }
-            const pinned = await setThreadPinned(id, args.action === "pin");
-            if (!pinned) return `Chat thread "${id}" could not be updated.`;
-            return `${args.action === "pin" ? "Pinned" : "Unpinned"} chat: ${title}`;
-          }
-          return searchEntry.run(args);
-        },
-      },
-    };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Creates the consolidated manage-agent-engine tool (list / set / test).
- * Let the agent inspect and configure the active LLM engine.
- */
-async function createAgentEngineScriptEntries(
-  appId?: string,
-): Promise<Record<string, ActionEntry>> {
-  try {
-    const mod = await import("../scripts/agent-engines/manage-agent-engine.js");
-
-    return {
-      "manage-agent-engine": {
-        tool: mod.tool,
-        run: (args) =>
-          mod.run({
-            ...args,
-            appId:
-              typeof args.appId === "string" && args.appId.trim()
-                ? args.appId
-                : (appId ?? ""),
-          }),
-      },
-    };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Creates the manage-agent-loop-settings tool. Lets the agent inspect and
- * configure the loop step limit it may hit on long-running work.
- */
-async function createAgentLoopSettingsScriptEntries(): Promise<
-  Record<string, ActionEntry>
-> {
-  try {
-    const mod = await import("../scripts/manage-agent-loop-settings.js");
-
-    return {
-      "manage-agent-loop-settings": { tool: mod.tool, run: mod.run },
-    };
-  } catch {
-    return {};
-  }
-}
-
-/**
- * Creates the call-agent ActionEntry for cross-agent A2A communication.
- * Binds selfAppId so the agent cannot call itself via call-agent.
- */
-async function createCallAgentScriptEntry(
-  selfAppId?: string,
-): Promise<Record<string, ActionEntry>> {
-  try {
-    const mod = await import("../scripts/call-agent.js");
-    return {
-      "call-agent": {
-        tool: mod.tool,
-        run: (args, context) => mod.run(args, context, selfAppId),
-      },
-    };
-  } catch {
-    return {};
-  }
-}
-
-function createBuilderBrowserTool(deps: {
-  getOrigin: () => string;
-  getOwner?: () => string | null | undefined;
-  extensionTools?: boolean;
-}): Record<string, ActionEntry> {
-  const extensionRequestGuidance =
-    deps.extensionTools === false
-      ? "Do NOT call this for requests to create or edit user-authored extensions/widgets/dashboards/calculators/mini-apps; extension tools are disabled for this app, and Builder is only for source-code changes to the host app. "
-      : "Do NOT call this for a self-contained extension/widget/dashboard/calculator/mini-app or an extension that fits an existing named slot; those use create-extension/update-extension instead. If the requested result requires changing the host UI or placing UI where no named slot exists, it IS a source-code change: call this through the normal flow even when the user describes it as an extension. Never stop at saying an extension cannot do it. ";
-  const setBuiltinForCurrentUser = async (
-    id: BuiltinMcpCapabilityId,
-    enabled: boolean,
-  ) => {
-    const email = getRequestUserEmail();
-    if (!email) {
-      return {
-        ok: false,
-        error: "not-signed-in",
-        message: "You must be signed in to change built-in MCP tools.",
-      };
-    }
-    const enabledIds = await setBuiltinMcpCapabilityEnabled(
-      "user",
-      email,
-      id,
-      enabled,
-    );
-    const manager = getGlobalMcpManager();
-    if (manager) {
-      await manager.reconfigure(await buildMergedConfig());
-    }
-    return { ok: true, enabledIds: enabledIds ?? [] };
-  };
-
-  const entries: Record<string, ActionEntry> = {
-    "connect-builder": {
-      tool: {
-        description: `Render a Builder.io card inline in the chat. Call this as the first step (no code exploration or planning needed) when the user asks to modify the APP'S OWN SOURCE CODE: add a feature, change the UI chrome, edit a React component, add a route, add an integration, fix a bug in the app itself, or anything else that requires source-file edits while in hosted/production mode. ${extensionRequestGuidance}Do NOT call this for content the app is meant to produce — creating a video, generating a design, drafting an email, building a slide deck, making a dashboard, etc. — those run through the app's own domain actions, not Builder. Do NOT mention 'click Send to Builder' in your response unless this card is already in the conversation. The tool result includes \`builderEnabled\`; treat \`true\` as "Builder Cloud Agents can take the code-change handoff" and \`false\` as "this still needs a code change, but no Builder Cloud Agent can run here." If Builder is connected and Builder Cloud Agents are available, the card shows a 'Send to Builder' button that hands the work off to Builder's cloud agent and returns a branch URL. If \`builderEnabled\` is false, the card still renders but shows the code-change fallback: "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like." Never tell the user to enable Builder Cloud Agents in Builder org settings or beta settings, and do not claim the Builder card has everything, is pre-loaded for handoff, or can run the cloud agent when \`builderEnabled\` is false. When you call this for a code-change request, pass the user's request verbatim as the \`prompt\` arg so the card can forward it to Builder unchanged when cloud agents are available.`,
-        parameters: {
-          type: "object",
-          properties: {
-            prompt: {
-              type: "string",
-              description:
-                "The user's feature / change request, verbatim. Forwarded to Builder's cloud agent when the user clicks Send. Omit only for generic 'connect Builder' requests that aren't tied to a specific code change.",
-            },
-          },
-        },
-      },
-      run: async (args) => {
-        const { getBuilderCredentialAuthFailure, resolveBuilderCredentials } =
-          await import("./credential-provider.js");
-        const creds = await resolveBuilderCredentials();
-        const authFailure = await getBuilderCredentialAuthFailure(creds);
-        const configured = !!(
-          creds.privateKey &&
-          creds.publicKey &&
-          !authFailure
-        );
-        const branchProjectId = await resolveBuilderBranchProjectId();
-        const prompt = typeof args?.prompt === "string" ? args.prompt : "";
-        const origin = deps.getOrigin();
-        const ownerEmail = deps.getOwner?.() ?? getRequestUserEmail();
-        return JSON.stringify({
-          kind: "connect-builder-card",
-          configured,
-          builderEnabled: !!branchProjectId,
-          connectUrl: getBuilderBrowserConnectUrlForOwner(origin, ownerEmail),
-          orgName: creds.orgName || null,
-          prompt,
-        });
-      },
-    },
-    "set-browser-control": {
-      tool: {
-        description:
-          "Enable or disable built-in browser-control MCP tools for the current user. Call this when the user asks to test, screenshot, inspect, or interact with a web page and browser tools are not available; confirm once before enabling. Prefer the chrome-devtools backend for live logged-in Chrome, and use playwright when an isolated browser is better.",
-        parameters: {
-          type: "object",
-          properties: {
-            enabled: {
-              type: "boolean",
-              description: "Whether browser-control tools should be enabled.",
-            },
-            backend: {
-              type: "string",
-              enum: ["chrome-devtools", "playwright"],
-              description:
-                "Browser backend to enable. Defaults to chrome-devtools.",
-            },
-          },
-          required: ["enabled"],
-        },
-      },
-      run: async (args) => {
-        const parsed =
-          args && typeof args === "object"
-            ? (args as Record<string, unknown>)
-            : {};
-        const enabled = parsed.enabled !== false;
-        const requestedBackend =
-          typeof parsed.backend === "string" ? parsed.backend : undefined;
-        const backend =
-          requestedBackend === "playwright" ? "playwright" : "chrome-devtools";
-        const targetId: BuiltinMcpCapabilityId =
-          backend === "playwright"
-            ? "browser-playwright"
-            : "browser-chrome-devtools";
-
-        if (!enabled) {
-          const chrome = await setBuiltinForCurrentUser(
-            "browser-chrome-devtools",
-            false,
-          );
-          if (!chrome.ok) return JSON.stringify(chrome);
-          const playwright = await setBuiltinForCurrentUser(
-            "browser-playwright",
-            false,
-          );
-          return JSON.stringify({
-            ...playwright,
-            enabled: false,
-            message: "Browser-control MCP tools are disabled.",
-          });
-        }
-
-        const result = await setBuiltinForCurrentUser(targetId, true);
-        return JSON.stringify({
-          ...result,
-          enabled: true,
-          backend,
-          message:
-            backend === "chrome-devtools"
-              ? "Chrome DevTools MCP is enabled. Browser tools will be available on the next action when Chrome remote debugging is available."
-              : "Playwright MCP is enabled. Browser tools will be available on the next action in an isolated Playwright browser.",
-        });
-      },
-    },
-    "set-computer-use": {
-      tool: {
-        description:
-          "Enable or disable built-in Computer Use MCP tools for the current user. Call only after the user explicitly asks to let the agent control local desktop apps. macOS may require Screen Recording and Accessibility permissions.",
-        parameters: {
-          type: "object",
-          properties: {
-            enabled: {
-              type: "boolean",
-              description: "Whether Computer Use tools should be enabled.",
-            },
-          },
-          required: ["enabled"],
-        },
-      },
-      run: async (args) => {
-        const parsed =
-          args && typeof args === "object"
-            ? (args as Record<string, unknown>)
-            : {};
-        const enabled = parsed.enabled !== false;
-        if (enabled && process.platform !== "darwin") {
-          return JSON.stringify({
-            ok: false,
-            error: "unsupported-platform",
-            message: "Computer Use is currently available only on macOS.",
-          });
-        }
-        const result = await setBuiltinForCurrentUser("computer-use", enabled);
-        return JSON.stringify({
-          ...result,
-          enabled,
-          message: enabled
-            ? "Computer Use MCP is enabled. If macOS prompts, grant Screen Recording and Accessibility permission in System Settings > Privacy & Security."
-            : "Computer Use MCP is disabled.",
-        });
-      },
-    },
-    "activate-browser": {
-      tool: {
-        description:
-          "Activate browser automation tools. Call this when you need to interact with a real browser — e.g. to extract design tokens from a rendered page, take screenshots, read computed styles from JS-heavy sites, or test a live URL. After activation, chrome-devtools MCP tools (navigate, click, evaluate_script, take_screenshot, etc.) become available on your next action. Requires Builder.io connection.",
-        parameters: {
-          type: "object",
-          properties: {
-            sessionId: {
-              type: "string",
-              description:
-                "Optional session identifier for the browser connection. Auto-generated if omitted.",
-            },
-          },
-        },
-      },
-      run: async (args) => {
-        const { resolveBuilderCredentials } =
-          await import("./credential-provider.js");
-        const creds = await resolveBuilderCredentials();
-        if (!creds.privateKey || !creds.publicKey) {
-          return JSON.stringify({
-            error: "builder-not-connected",
-            message:
-              "Builder.io is not connected. Call `connect-builder` first to enable browser automation.",
-          });
-        }
-
-        const { requestBuilderBrowserConnection } =
-          await import("./builder-browser.js");
-        const sessionId =
-          (typeof args?.sessionId === "string" && args.sessionId) ||
-          `an-browser-${Date.now()}`;
-
-        let connection: Record<string, unknown>;
-        try {
-          connection = await requestBuilderBrowserConnection({ sessionId });
-        } catch (err: any) {
-          return JSON.stringify({
-            error: "browser-connection-failed",
-            message: `Failed to get browser connection: ${err?.message ?? err}`,
-          });
-        }
-
-        const wsUrl = connection.wsUrl as string;
-        if (!wsUrl) {
-          return JSON.stringify({
-            error: "no-ws-url",
-            message: "Browser connection did not return a WebSocket URL.",
-          });
-        }
-
-        const manager = getGlobalMcpManager();
-        if (!manager) {
-          return JSON.stringify({
-            error: "no-mcp-manager",
-            message: "MCP manager is not available.",
-          });
-        }
-
-        // Add chrome-devtools-mcp server pointing at the provisioned browser
-        const currentConfig = manager.getConfig();
-        const servers = { ...(currentConfig?.servers ?? {}) };
-        servers["chrome-devtools"] = {
-          command: "npx",
-          args: [
-            "-y",
-            "chrome-devtools-mcp@0.26.0",
-            "--wsEndpoint",
-            wsUrl,
-            "--categoryEmulation=false",
-          ],
-          type: "stdio",
-        } as any;
-
-        await manager.reconfigure({
-          servers,
-          source: currentConfig?.source ?? "runtime",
-        });
-
-        return JSON.stringify({
-          success: true,
-          message:
-            "Browser activated. Chrome DevTools MCP tools (mcp__chrome-devtools__*) are now available. Use them on your next action to navigate pages, read DOM, take screenshots, evaluate JavaScript, etc.",
-          wsUrl,
-          sessionId,
-        });
-      },
-    },
-  };
-
-  if (!areBuiltinMcpCapabilitiesSupported()) {
-    delete entries["set-browser-control"];
-    delete entries["set-computer-use"];
-  }
-
-  return entries;
-}
-
-/**
- * Creates the unified `agent-teams` tool that consolidates all sub-agent
- * orchestration behind a single tool with an `action` parameter.
- */
-function createTeamTools(deps: {
-  getOwner: () => string;
-  getSystemPrompt: () => string;
-  getActions: () => Record<string, ActionEntry>;
-  getEngine: () => AgentEngine;
-  getModel: () => string;
-  getParentThreadId: () => string;
-  getSend: () =>
-    | ((event: import("../agent/types.js").AgentChatEvent) => void)
-    | null;
-}): Record<string, ActionEntry> {
-  return {
-    "agent-teams": {
-      tool: {
-        description:
-          "Manage background sub-agent tasks. Use action 'spawn' to start a new sub-agent, 'status' to check progress, 'read-result' to get a finished task's output, 'send' to message a running sub-agent, or 'list' to see all tasks. A successful spawn only means the task started and is running; do not report it as finished until status/read-result shows a terminal status.",
-        parameters: {
-          type: "object",
-          properties: {
-            action: {
-              type: "string",
-              enum: ["spawn", "status", "read-result", "send", "list"],
-              description: "The operation to perform",
-            },
-            task: {
-              type: "string",
-              description:
-                "(spawn) Clear description of what the sub-agent should accomplish",
-            },
-            instructions: {
-              type: "string",
-              description:
-                "(spawn) Optional additional instructions or context for the sub-agent",
-            },
-            name: {
-              type: "string",
-              description:
-                "(spawn) Short name for the sub-agent tab (e.g. 'Research', 'Draft email'). If omitted, derived from the task.",
-            },
-            agent: {
-              type: "string",
-              description:
-                "(spawn) Optional custom agent profile from agents/*.md to use for this task.",
-            },
-            taskId: {
-              type: "string",
-              description:
-                "(status, read-result, send) The task ID returned by a previous spawn",
-            },
-            message: {
-              type: "string",
-              description: "(send) Message to send to the sub-agent",
-            },
-          },
-          required: ["action"],
-        },
-      },
-      run: async (args: Record<string, string>) => {
-        const action = args.action;
-
-        // ── spawn ──────────────────────────────────────────────
-        if (action === "spawn") {
-          if (!args.task) throw new Error("'task' is required for spawn");
-          // Capture the send function NOW (at spawn time) so that
-          // concurrent runs don't clobber each other's send reference.
-          const capturedSend = deps.getSend();
-          const { spawnTask } = await import("./agent-teams.js");
-          // Filter out the team tool so sub-agents can't spawn sub-agents
-          const subAgentActions = Object.fromEntries(
-            Object.entries(deps.getActions()).filter(
-              ([name]) => name !== "agent-teams",
-            ),
-          );
-          let instructions = args.instructions;
-          let selectedModel = deps.getModel();
-          let selectedName = args.name || "";
-          if (args.agent) {
-            const { findAccessibleCustomAgent } =
-              await import("../resources/agents.js");
-            const profile = await findAccessibleCustomAgent(
-              deps.getOwner(),
-              args.agent,
-            );
-            if (!profile) {
-              throw new Error(`Custom agent not found: ${args.agent}`);
-            }
-            const profileInstructions =
-              `## Custom Agent Profile: ${profile.name}\n\n` +
-              (profile.description ? `${profile.description}\n\n` : "") +
-              profile.instructions;
-            instructions = instructions
-              ? `${profileInstructions}\n\n## Extra Task Context\n\n${instructions}`
-              : profileInstructions;
-            selectedModel = profile.model ?? selectedModel;
-            selectedName = selectedName || profile.name;
-          }
-          const task = await spawnTask({
-            description: args.task,
-            instructions,
-            ownerEmail: deps.getOwner(),
-            systemPrompt: deps.getSystemPrompt(),
-            actions: subAgentActions,
-            engine: deps.getEngine(),
-            model: selectedModel,
-            name: selectedName || undefined,
-            parentThreadId: deps.getParentThreadId(),
-            parentSend: (event) => {
-              if (capturedSend) capturedSend(event);
-            },
-          });
-          return JSON.stringify({
-            taskId: task.taskId,
-            threadId: task.threadId,
-            runId: task.runId,
-            status: task.status,
-            parentThreadId: task.parentThreadId,
-            state: "launched_pending_completion",
-            message:
-              "Sub-agent launched and is still running. Use status or read-result later; do not describe this task as completed from the spawn response alone.",
-            description: task.description,
-            name: task.name ?? selectedName,
-          });
-        }
-
-        // ── status ─────────────────────────────────────────────
-        if (action === "status") {
-          if (!args.taskId) throw new Error("'taskId' is required for status");
-          const { getTask } = await import("./agent-teams.js");
-          const task = await getTask(args.taskId);
-          if (!task) return JSON.stringify({ error: "Task not found" });
-          return JSON.stringify({
-            taskId: task.taskId,
-            threadId: task.threadId,
-            parentThreadId: task.parentThreadId,
-            status: task.status,
-            description: task.description,
-            name: task.name,
-            preview: task.preview,
-            currentStep: task.currentStep,
-            summary: task.summary,
-          });
-        }
-
-        // ── read-result ────────────────────────────────────────
-        if (action === "read-result") {
-          if (!args.taskId)
-            throw new Error("'taskId' is required for read-result");
-          const { getTask } = await import("./agent-teams.js");
-          const task = await getTask(args.taskId);
-          if (!task) return JSON.stringify({ error: "Task not found" });
-          if (task.status === "running") {
-            return JSON.stringify({
-              status: "running",
-              taskId: task.taskId,
-              threadId: task.threadId,
-              parentThreadId: task.parentThreadId,
-              name: task.name,
-              preview: task.preview,
-              message:
-                "Task is still running. Do not report it as complete; use status/read-result later.",
-            });
-          }
-          return JSON.stringify({
-            taskId: task.taskId,
-            threadId: task.threadId,
-            parentThreadId: task.parentThreadId,
-            name: task.name,
-            status: task.status,
-            summary: task.summary,
-            preview: task.preview,
-          });
-        }
-
-        // ── send ───────────────────────────────────────────────
-        if (action === "send") {
-          if (!args.taskId) throw new Error("'taskId' is required for send");
-          if (!args.message) throw new Error("'message' is required for send");
-          const { sendToTask } = await import("./agent-teams.js");
-          const result = await sendToTask(args.taskId, args.message);
-          return JSON.stringify(result);
-        }
-
-        // ── list ───────────────────────────────────────────────
-        if (action === "list") {
-          const { listTasks } = await import("./agent-teams.js");
-          const tasks = await listTasks();
-          if (tasks.length === 0) {
-            return "No sub-agent tasks.";
-          }
-          return JSON.stringify(
-            tasks.map((t) => ({
-              taskId: t.taskId,
-              threadId: t.threadId,
-              parentThreadId: t.parentThreadId,
-              name: t.name,
-              description: t.description,
-              status: t.status,
-              currentStep: t.currentStep,
-              hasResult: t.summary.length > 0,
-            })),
-            null,
-            2,
-          );
-        }
-
-        throw new Error(
-          `Unknown action '${action}'. Use one of: spawn, status, read-result, send, list`,
-        );
-      },
-    },
-  };
-}
-
-type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
-
-export interface AgentChatPluginOptions {
-  /** Template-specific actions (email ops, booking ops, etc.) */
-  actions?:
-    | Record<string, ActionEntry>
-    | (() =>
-        | Record<string, ActionEntry>
-        | Promise<Record<string, ActionEntry>>);
-  /** @deprecated Use `actions` instead */
-  scripts?:
-    | Record<string, ActionEntry>
-    | (() =>
-        | Record<string, ActionEntry>
-        | Promise<Record<string, ActionEntry>>);
-  /** System prompt for the agent. A sensible default is provided. */
-  systemPrompt?: string;
-  /** Additional system prompt prepended in dev mode */
-  devSystemPrompt?: string;
-  /** Model to use. Defaults to the resolved engine's default model. */
-  model?: string;
-  /** Optional per-app agent run chunk budget in milliseconds. Defaults to
-   * AGENT_RUN_SOFT_TIMEOUT_MS when set, otherwise no framework-imposed
-   * timeout. When reached, long runs continue through the hidden continuation
-   * path instead of surfacing a timeout warning. */
-  runSoftTimeoutMs?: number;
-  /** Optional per-app run-manager no-progress watchdog in milliseconds. */
-  runNoProgressTimeoutMs?: number;
-  /**
-   * Opt this app into Netlify durable background-function agent-chat runs. This
-   * gives hosted agent turns the 15-minute async-function budget when the app's
-   * Netlify build also emits the background function.
-   */
-  durableBackgroundRuns?: boolean;
-  /** Anthropic API key. Falls back to ANTHROPIC_API_KEY env var */
-  apiKey?: string;
-  /**
-   * Agent engine to use. Can be a pre-constructed AgentEngine, a registered
-   * engine name (e.g. "anthropic", "ai-sdk:openai"), or an object with name
-   * and config. Defaults to the "anthropic" engine using ANTHROPIC_API_KEY.
-   */
-  engine?:
-    | import("../agent/engine/types.js").AgentEngine
-    | string
-    | { name: string; config: Record<string, unknown> };
-  /** Route path. Default: /_agent-native/agent-chat */
-  path?: string;
-  /** Custom mention providers for @-tagging template entities */
-  mentionProviders?:
-    | Record<string, MentionProvider>
-    | (() =>
-        | Record<string, MentionProvider>
-        | Promise<Record<string, MentionProvider>>);
-  /** App ID used to exclude self from agent discovery (e.g., "mail", "calendar") */
-  appId?: string;
-  /** Optional MCP server branding surfaced during the initialize handshake. */
-  mcpServerInfo?: {
-    /** Human-facing title. Defaults to the capitalized app id/name. */
-    title?: string;
-    /** Host-facing description. Defaults to "Agent-native <app> agent". */
-    description?: string;
-    /** Canonical app URL. Relative URLs are resolved against the request origin. */
-    websiteUrl?: string;
-    /** App icons. Relative `src` values are resolved against the request origin. */
-    icons?: Array<{
-      src: string;
-      mimeType?: string;
-      sizes?: string[];
-      theme?: "light" | "dark";
-    }>;
-  };
-  /**
-   * Optional callback to resolve the org ID for the current request.
-   * When provided, the resolved value is set as AGENT_ORG_ID env var so
-   * that db-query/db-exec automatically scope by org_id in addition to
-   * owner_email.
-   *
-   * If not provided, the framework automatically uses `session.orgId` from
-   * Better Auth's active organization. Only provide this callback when you
-   * need custom org resolution logic (e.g., Atlassian org mapping).
-   */
-  resolveOrgId?: (event: any) => string | null | Promise<string | null>;
-  /**
-   * Optional owner resolver for public/anonymous chat surfaces. When the
-   * normal app session is missing, this callback may return a synthetic
-   * owner id for a narrowly-scoped public request (for example, a public
-   * shared document page). Anonymous requests use a read-only tool set by
-   * default so public viewers cannot mutate app data through the agent.
-   */
-  anonymousOwner?: (event: any) => string | null | Promise<string | null>;
-  /**
-   * Keep anonymous-owner requests on read-only template actions. Defaults to
-   * true. Only disable for single-tenant apps that intentionally allow public
-   * agent mutations.
-   */
-  anonymousReadOnly?: boolean;
-  /**
-   * Optional callback to append template-specific context to the system
-   * prompt on each request. Runs after AGENTS.md / skills / memory are
-   * loaded and before the schema block — use it to inject dynamic SQL
-   * context like a data dictionary, active feature flags, or whatever
-   * the agent should know about *right now* for this user/org.
-   *
-   * Return `null` or an empty string to skip. The string you return is
-   * appended verbatim, so wrap it in your own XML tags (e.g.
-   * `<data-dictionary>…</data-dictionary>`) to keep the prompt scannable.
-   *
-   * Called on every request in every prompt variant (lean, lazy, full).
-   * Templates that want to suppress it in a particular mode should return
-   * `null` from the callback based on their own logic.
-   */
-  extraContext?: (
-    event: any,
-    owner: string,
-  ) => string | null | Promise<string | null>;
-  /**
-   * Optional final-answer guard. Templates can use this to require a
-   * corrective retry before accepting a text-only final answer, e.g. forcing
-   * real data-source tool calls for analytics requests.
-   */
-  finalResponseGuard?: import("../agent/production-agent.js").AgentLoopFinalResponseGuard;
-  /**
-   * Optional per-template request normalizer. Runs after authentication and
-   * before the model sees the message, so apps can translate chat attachments
-   * into template-native file handles while preserving the user's visible text.
-   */
-  prepareRequest?: (details: {
-    event: any;
-    ownerEmail: string | null;
-    message: string;
-    displayMessage?: string;
-    attachments: AgentChatAttachment[];
-    references: AgentChatReference[];
-    threadId?: string;
-    internalContinuation?: boolean;
-    mode: "act" | "plan";
-  }) =>
-    | void
-    | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-      }
-    | Promise<void | {
-        message?: string;
-        displayMessage?: string;
-        attachments?: AgentChatAttachment[];
-      }>;
-  /**
-   * Use ONLY the template's `systemPrompt` and the actions list — skip the
-   * framework prompt wrapper, resource loading (AGENTS.md/LEARNINGS.md/
-   * memory), the SQL schema block, and the workspace files/skills/agents
-   * inventory. Intended for minimal or voice-first apps where a long,
-   * generic preamble adds latency and iteration noise without adding value.
-   *
-   * When set, the same lean prompt is used in both dev and prod modes. In
-   * dev mode the tool registry is ALSO swapped to the template's actions
-   * (same set as prod) — the dev-only bash/db-exec/file-system tools
-   * and the resource/docs/chat/team/job/browser scripts are dropped. The
-   * lean system prompt has no bash-usage guidance, so routing actions
-   * through bash would break. If you need the full dev tool surface,
-   * leave this off.
-   */
-  leanPrompt?: boolean;
-  /**
-   * Skip auto-injecting the workspace files/skills/agents inventory on the
-   * first message of a conversation while keeping the normal prompt, resources,
-   * and tool surface. Use this for domain-focused apps where broad workspace
-   * inventory is mostly latency/noise unless the user explicitly references it.
-   *
-   * `leanPrompt: true` implies this.
-   */
-  skipFilesContext?: boolean;
-  /**
-   * Initial native tool schemas to send to the LLM provider. When set, the
-   * agent starts with only these tools plus `tool-search`; the live registry
-   * remains searchable, and matching schemas from `tool-search` results are
-   * loaded into the next model request. Use this for domain-focused apps that
-   * have a few common actions and many rare framework utilities. Common
-   * provider/corpus/code-execution tools are promoted automatically when present
-   * in the current app/mode registry, so broad integration guidance stays
-   * immediately callable without overloading apps that do not expose those
-   * tools.
-   */
-  initialToolNames?: string[];
-  /**
-   * Use a compact system prompt with on-demand context loading. The system
-   * prompt includes essential behavioral rules and action signatures, but
-   * defers verbose framework details, SQL schema, skills, learnings, and
-   * memory behind tools (`get-framework-context`, `db-schema`,
-   * `resources` (action: read)). The agent fetches these on-demand when needed.
-   *
-   * This reduces the system prompt by ~60-70%, significantly improving
-   * time-to-first-token and reducing "thinking" time. The agent retains
-   * all capabilities — it just loads context lazily instead of upfront.
-   *
-   * Defaults to `true`. Set to `false` to use the original full prompt.
-   * Ignored when `leanPrompt` is set (lean mode is even more minimal).
-   */
-  lazyContext?: boolean;
-  /**
-   * In dev mode, register the template's actions as native tools the agent
-   * can call directly with structured JSON args — skipping the default
-   * `bash(command="pnpm action <name> ...")` indirection.
-   *
-   * The default dev behavior shells out because it "mirrors how Claude Code
-   * works locally" and reduces empty-object tool calls for templates with
-   * simple string args. But templates whose actions take structured data
-   * (objects, arrays, nested JSON) can't round-trip those cleanly through
-   * the CLI parser — stringified JSON on the way in, loss of type fidelity
-   * on the way out.
-   *
-   * Set to `true` to get the same tool surface in dev that production uses.
-   * `leanPrompt: true` implies this already (lean mode has no bash-usage
-   * guidance, so actions must be native). Set this flag without
-   * `leanPrompt` when you want native actions AND the full system prompt.
-   *
-   * Defaults to `false`.
-   */
-  nativeActionsInDev?: boolean;
-  /**
-   * Expose raw SQL/native database tools to the app agent.
-   *
-   * Defaults to `"read"`: `db-schema`/`db-query` are available for inspection,
-   * while writes route through typed app actions. Set to `"write"` (also
-   * `true`) to expose `db-exec`/`db-patch` for scoped raw SQL maintenance.
-   * Set to `"off"` (also `false`) for chat-first apps that want agents to use
-   * typed actions only.
-   */
-  databaseTools?: DatabaseToolsOption;
-  /**
-   * Expose framework extension management actions (`create-extension`,
-   * `update-extension`, `list-extensions`, etc.) to the app agent. Defaults to
-   * true. Set to false for apps that do not want the LLM to create or manage
-   * sandboxed extension mini-apps, even though the core extension routes may
-   * still be mounted for other surfaces.
-   */
-  extensionTools?: boolean;
-  /**
-   * Optional A2A-only deterministic response path. Runs after inbound A2A text
-   * and user context are resolved, but before an agent engine/model is loaded.
-   * Return a message to complete the A2A task without invoking the LLM, or
-   * null/undefined to continue through the normal agent loop.
-   */
-  a2aMessageFallback?: (details: {
-    message: import("../a2a/types.js").Message;
-    text: string;
-    context: import("../a2a/types.js").A2AHandlerContext;
-    userEmail: string | undefined;
-  }) =>
-    | import("../a2a/types.js").Message
-    | string
-    | null
-    | undefined
-    | Promise<import("../a2a/types.js").Message | string | null | undefined>;
-  /**
-   * Optional injectable prompt examples for core rules (rule 5 auto-refresh
-   * examples and rule 8 external provider names). When absent, generic
-   * placeholders are used so no template-specific names appear in the core
-   * prompt by default.
-   *
-   * - `providerActions`: external provider action names this template exposes
-   *   (e.g. `["warehouse-query", "crm-records"]` for a template).
-   * - `appActions`: representative template action names for rule 5's refresh
-   *   examples (e.g. `["log-meal", "update-form"]` for a forms template).
-   */
-  promptExamples?: PromptExamples;
-  /**
-   * Curated allow-list of action names to serve external **connector** clients
-   * on a hosted multi-tenant deployment.
-   *
-   * Whenever this list is non-empty it is active by default for **every**
-   * caller (hosted connectors, code/stdio clients, and the local CLI): external
-   * MCP clients see (and can call) only these actions plus the builtin
-   * cross-app tools (`list_apps`, `open_app`, `ask_app`, `create_embed_session`).
-   * Calls to any tool outside the list are rejected with "Unknown tool".
-   * This prevents the full ~105-tool catalog from bloating external-agent
-   * context windows and removes footguns (db-exec, seed-*, extension suite,
-   * browser-session tools) from connectors. It is no longer gated behind an
-   * environment variable, and the catalog is never inferred from the client.
-   *
-   * `tool-search` stays available so any trimmed tool is reachable on demand.
-   * Callers who need the full surface up front opt in explicitly with
-   * `agent-native connect --full-catalog` (embeds a `catalog_scope: "full"`
-   * claim in their connect-minted JWT) or the deployment-wide
-   * `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
-   *
-   * Declare here rather than in MCPConfig directly; the plugin copies it through.
-   */
-  connectorCatalog?: string[];
-
-  /**
-   * Skip mounting the remote MCP protocol route.
-   *
-   * Most apps should leave this off so agent chat, A2A, and MCP share one
-   * runtime. Hosted apps with a dedicated early MCP plugin can set this to
-   * true so their external connector does not depend on the heavier chat
-   * plugin initialization path.
-   */
-  disableMcp?: boolean;
-
-  /**
-   * Code-execution capability for the production agent.
-   *
-   * - `"off"` (default) — no code-execution tools in production.
-   * - `"sandboxed"` — registers the `run-code` tool (isolated Node.js sandbox
-   *   with a bridge to allowlisted registered tools). Safe for shared or
-   *   hosted deployments.
-   * - `"trusted"` — registers both the full coding tool registry
-   *   (bash / read / edit / write) and the `run-code` sandbox. Only use in
-   *   single-tenant or operator-controlled deployments where full shell access
-   *   to the host machine is intentional.
-   *
-   * The `AGENT_PROD_CODE_EXECUTION` environment variable (`"trusted"`,
-   * `"sandboxed"`, or `"off"`) takes precedence over this option, allowing
-   * per-deployment overrides without code changes.
-   *
-   * Dev-mode behavior is unchanged — both the coding tools and `run-code` are
-   * always available when the environment allows toggling.
-   */
-  codeExecution?: {
-    production?: "off" | "sandboxed" | "trusted";
-    /**
-     * Extra registered-tool names the sandbox bridge may forward (beyond the
-     * default allowlist: provider-api-request, provider-api-docs,
-     * provider-api-catalog, web-request).
-     */
-    bridgeTools?: string[];
-  };
-
-  /**
-   * App-level default tool-call limits. Individual actions override these with
-   * their own `timeoutMs` / `maxResultChars` declarations.
-   */
-  toolLimits?: { timeoutMs?: number; maxResultChars?: number };
-}
-
-type A2AAgentLoopRunner = typeof runAgentLoopDirectWithSoftTimeout;
-
-/**
- * Run an A2A-delegated agent turn with the same final-response guard used by
- * the app's interactive chat surface.
- *
- * Keeping this in one helper prevents delegated calls from silently bypassing
- * template guarantees such as Analytics' requirement to query real data
- * before presenting metrics or exhaustive provider conclusions.
- */
-export function runA2AAgentLoop(
-  runOptions: Parameters<A2AAgentLoopRunner>[0],
-  pluginOptions: Pick<
-    AgentChatPluginOptions,
-    "finalResponseGuard" | "runSoftTimeoutMs"
-  >,
-  timeoutOptions: Parameters<A2AAgentLoopRunner>[2],
-  runner: A2AAgentLoopRunner = runAgentLoopDirectWithSoftTimeout,
-) {
-  return runner(
-    {
-      ...runOptions,
-      finalResponseGuard: pluginOptions.finalResponseGuard,
-    },
-    pluginOptions.runSoftTimeoutMs,
-    timeoutOptions,
-  );
-}
-
-/**
- * Verbose framework sections returned by the `get-framework-context` tool.
- * Keyed by topic so the agent can request specific sections.
- * Not template-specific — lives outside buildFrameworkPrompts().
- */
-const FRAMEWORK_CONTEXT_SECTIONS: Record<string, string> = {
-  embeds: `### Inline Embeds
-
-You can embed an interactive view inline in your chat reply by writing an \`embed\` fenced code block. The chat renderer swaps the fence for a sandboxed iframe pointing at a route inside this app.
-
-Syntax:
-
-\`\`\`\`
-\`\`\`embed
-src: /some/path?param=value
-aspect: 16/9
-title: Optional label
-\`\`\`
-\`\`\`\`
-
-Keys:
-- \`src\` (required) — **must be a same-origin path starting with \`/\`**. Cross-origin URLs are blocked. No \`javascript:\` or \`data:\` URLs.
-- \`aspect\` (optional) — one of \`16/9\` (default), \`4/3\`, \`3/2\`, \`2/1\`, \`21/9\`, \`1/1\`.
-- \`title\` (optional) — accessible label / hover tooltip.
-- \`height\` (optional) — fixed pixel height when aspect ratio isn't a good fit.
-
-Use for charts, visualizations, previews. Don't use for simple text/tables or external sites.`,
-
-  "chat-history": `### Chat History
-
-You can search and restore previous chat conversations using \`chat-history\`:
-- \`chat-history\` (action: "search") — Search or list past chat threads by keyword
-- \`chat-history\` (action: "open") — Open a chat thread in the UI as a new tab and focus it
-- \`chat-history\` (actions: "rename", "pin", "unpin", "archive") — Organize a known chat thread by ID
-
-When the user asks to find a previous conversation, use \`chat-history\` with action "search" first to find matching threads, then action "open" to restore the one they want.`,
-
-  "agent-teams": `### Agent Teams — Orchestration
-
-You can delegate to background sub-agents with the \`agent-teams\` tool:
-- \`agent-teams\` (action: "spawn") — Launch a sub-agent on a task. It runs in its own thread with a clean context while you stay available; a live preview card appears in the chat. The spawn result confirms launch only, not completion. Optionally pass a custom agent profile from \`agents/*.md\` via the \`agent\` parameter.
-- \`agent-teams\` (action: "status") — Check a running sub-agent's progress.
-- \`agent-teams\` (action: "read-result") — Read a finished sub-agent's output.
-- \`agent-teams\` (action: "send") — Message a running sub-agent.
-- \`agent-teams\` (action: "list") — List sub-agent tasks.
-
-Sub-agents inherit all of your template tools but **cannot spawn sub-agents themselves** — only you orchestrate.
-
-**User intent phrases.** If the user asks you to use a "sub-agent" or "background agent", that is explicit delegation intent. Also treat phrases like "run these in the background", "kick off the rest", "run the queued items", "batch run these jobs", "parallelize this", or "start the next batch" as delegation intent when the context is a set of independent work items.
-
-**Spawn is not completion.** A successful \`spawn\` call means the sub-agent started and is running. Tell the user it started, show the task id if useful, and then use \`status\`/\`list\`/\`read-result\` to monitor it. Never say the delegated task "completed", "ran successfully", or "finished" until \`status\` or \`read-result\` reports \`completed\` or \`errored\`. If a task is still running, say that plainly.
-
-**Default to doing the work yourself in this thread.** A sub-agent costs real tokens and adds a merge step, so reach for one only when delegation clearly pays for that overhead.
-
-**Delegate ONE sub-agent** when a task is self-contained and heavy: deep research, long multi-step content generation, or a noisy scan whose intermediate steps would clutter this thread. The sub-agent gets its own clean context and hands you back a distilled result.
-
-**Fan out to MULTIPLE sub-agents ONLY** for units of work that are genuinely independent and don't depend on each other's decisions — e.g. research three unrelated competitors, summarize five separate threads, draft sections that don't reference one another. Each gets a distinct slice.
-
-**Do NOT parallelize tightly-coupled work** — one cohesive artifact, edits that must agree with each other, or anything needing a single consistent voice or style. Parallel sub-agents can't see each other's choices and their outputs will clash. For coupled work, do it yourself, or chain sub-agents one at a time, feeding each result into the next.
-
-**Cap fan-out:** aim for 1, use up to ~3, and go beyond that only for clearly independent bulk work. More sub-agents means more tokens and a harder merge.
-
-**Briefing contract.** A sub-agent starts in a fresh thread and can only see the brief you give it — it cannot see this conversation or ask you to clarify before it runs. Make every brief self-contained:
-1. **Objective** — what "done" looks like, in a sentence or two.
-2. **Context** — the specific facts it needs from this conversation: IDs, names, the user's actual goal, constraints, prior decisions. Paste the specifics; don't assume it knows them.
-3. **Output format** — what to return and how (e.g. "a 3-bullet summary with source links", "the drafted email body only") so the result drops cleanly into your synthesis.
-4. **Boundaries** — what NOT to do, and for parallel sub-agents, which slice is theirs so they don't overlap.
-
-Put the objective and output format in \`task\`; put longer context in \`instructions\`.
-
-**Synthesis discipline.** After the sub-agents you depend on finish, poll \`status\`/\`list\` until they're complete, then pull each one's output with \`read-result\`. Do NOT paste their outputs back to back. Read all results, reconcile any disagreements, de-duplicate, and write ONE integrated answer in your own voice. If two sub-agents conflict, resolve it or flag the discrepancy explicitly rather than presenting both. When findings came from distinct investigations, briefly note which finding came from where so the user can trust the merge.`,
-
-  "recurring-jobs": `### Recurring Jobs
-
-You can create recurring jobs that run on a cron schedule. Jobs are resource files under \`jobs/\`.
-
-- \`manage-jobs\` (action: "create") — Create a new recurring job with a cron schedule and instructions
-- \`manage-jobs\` (action: "list") — List all recurring jobs and their status
-- \`manage-jobs\` (action: "update") — Update a job's schedule, instructions, or toggle enabled/disabled
-- Delete a job with the \`resources\` tool: \`action: "delete"\`, \`path: "jobs/<name>.md"\`
-
-Convert natural language to 5-field cron format:
-- "every morning" / "daily at 9am" → \`0 9 * * *\`
-- "every weekday at 9am" → \`0 9 * * 1-5\`
-- "every hour" → \`0 * * * *\`
-- "every monday at 9am" → \`0 9 * * 1\`
-
-#### Suggesting "Save as automation"
-
-When you finish a task that has obvious recurring value — daily inbox triage, weekly metrics summaries, archive sweeps, status digests, anything the user would plausibly want re-run on a fresh cadence — close the response with ONE short line offering to save it. Examples:
-
-- After "Summarize my unread emails": _"Want me to run this every morning?"_
-- After "What's our top traffic source this week": _"Want a weekly digest on Mondays?"_
-- After "Archive emails older than 30 days": _"Should I run this every Sunday?"_
-
-If the user says yes, call \`manage-jobs\` (action: "create") with the original prompt as the job's instructions and the cadence they confirmed.
-
-Do NOT add this offer for one-shot work: lookups (find Alice, what's the schema, who reported X), single drafts/replies, navigation requests, or any task whose value is in the moment. Skip it when the prompt is already explicitly recurring (the user said "every morning…" — you'd be asking what they already told you). One short sentence at most; do not turn it into a list of cadence options.`,
-
-  builder: `### Connecting Builder.io
-
-When the user asks to connect Builder.io or you hit a "Builder not configured" error, call the \`connect-builder\` tool. It renders a Connect/code-change card inline — do NOT write out multi-step setup instructions yourself. Inspect the returned \`builderEnabled\` flag: \`true\` means Builder Cloud Agents can take the code-change handoff, while \`false\` means this requires a code change and the user should edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way they like. If Builder Cloud Agents are not available for this workspace, never send the user to Builder org settings or beta settings.`,
-
-  browser: `### Browser Automation
-
-You can activate a real Chrome browser via Builder.io for tasks that need full page rendering:
-- Extracting design tokens from JS-heavy or SPA websites (computed styles, rendered colors/fonts)
-- Taking screenshots of live pages
-- Testing interactive flows on deployed URLs
-- Reading content from pages that require JavaScript execution
-
-**How to use:**
-1. In local development, call \`set-browser-control\` with \`{"enabled":true,"backend":"chrome-devtools"}\` after confirming once with the user. In production, use \`activate-browser\` for Builder-provisioned Chrome.
-2. On your next action, use \`mcp__chrome-devtools__navigate_page\`, \`mcp__chrome-devtools__evaluate_script\`, \`mcp__chrome-devtools__take_screenshot\`, etc.
-3. If Builder is not connected, call \`connect-builder\` first
-
-**When to recommend browser automation:**
-- User wants to import a design system from a URL (JS-rendered sites give almost no useful data from plain HTML fetch)
-- User asks you to check how a deployed site looks or behaves
-- Any task involving reading computed/rendered page state
-- When \`web-request\` returns minimal/skeleton HTML from a modern SPA
-
-Prefer \`web-request\` for simple API calls and static pages. Use browser automation when you need the real rendered page.`,
-
-  "call-agent": `### call-agent — External Apps Only
-
-The \`call-agent\` tool sends a message to a DIFFERENT, separately-deployed app's agent (A2A protocol). It is **not** for calling actions within the current app.
-
-**NEVER use \`call-agent\` to:**
-- Call your own app by name
-- Perform tasks you can accomplish with your own registered tools
-
-**ONLY use \`call-agent\` when:**
-- The user explicitly asks you to communicate with a different app
-- You need data that only another deployed app can provide
-- You need brand-consistent generated media and this app does not have a native generation action; call agent "assets" and keep returned asset IDs and URLs verbatim
-
-If \`call-agent\` says a downstream agent accepted the subtask and will post its result separately, do not call that same agent again for the same subtask. Continue any remaining work and answer with the completed results you have.`,
-
-  memory: `### Structured Memory
-
-Your memory index (\`memory/MEMORY.md\`) is loaded at the start of every conversation.
-
-**Tools:**
-- \`save-memory\` — Create or update a memory (name, type, description, content)
-- \`delete-memory\` — Remove a memory and its index entry
-- \`resources\` with \`action: "read"\` and \`path: "memory/<name>.md"\` — Read the full content of a specific memory
-
-**Memory types:** user, feedback, project, reference
-
-**When to save (proactively):**
-- User corrects your approach → \`feedback\`
-- User shares preferences → \`user\`
-- Non-obvious pattern or gotcha → \`feedback\`
-- Personal context (contacts, team) → \`user\`
-- Project context to track → \`project\`
-
-**Rules:**
-- Don't save things obvious from code or standard framework behavior
-- When updating, read first and merge — don't overwrite
-- Keep descriptions concise
-- One memory per logical topic`,
-
-  "sql-tools": `### SQL Tools
-
-When database tools are enabled, \`db-schema\` refreshes the schema and \`db-query\` runs read-only SELECT queries with current user/org scoping. Raw SQL write tools are only available when the app explicitly opts into database write tools; by default, writes go through typed app actions. Some apps configure database tools as read-only or off; only use tools that are actually present in your tool list.
-
-- \`db-schema\` — refresh the full schema with indexes and foreign keys
-- \`db-query\` — run a SELECT (read-only; results already filtered to the current user/org)
-- \`db-exec\` — only when present: run INSERT / UPDATE / DELETE / REPLACE for scoped maintenance. For normal product data writes, use a typed app action instead.
-- \`db-patch\` — only when present: surgical search-and-replace on a large text column. If a typed app action exists for the resource, use that action.
-
-### When to pick which SQL tool
-- A template-specific action exists for the table → use that action (it encodes business rules and pushes live Yjs updates)
-- Read data → \`db-query\`. Never re-add \`WHERE owner_email = ...\` — scoping already applies it.
-- Raw write tools are present and no app action exists → use \`db-exec\` or \`db-patch\` only for deliberate maintenance, not normal product workflows.
-
-### External data sources vs the app database
-The \`db-*\` tools ONLY query the app's own SQL database. They do NOT reach external data warehouses. If the user asks about tables NOT in the schema, use the appropriate template action instead.`,
-};
-
-/**
- * Framework-level instructions injected into every agent's system prompt.
- * Prompt text lives in packages/core/src/server/prompts/ so this file stays
- * focused on routing and assembly logic.
- *
- * buildFrameworkPrompts() is called once per plugin instantiation (not per
- * request) with the template's promptExamples, producing the four assembled
- * prompt strings used at request time.
- */
-function buildFrameworkPrompts(
-  examples?: PromptExamples,
-  options?: { databaseTools?: DatabaseToolsOption; extensionTools?: boolean },
-): {
-  FRAMEWORK_CORE: string;
-  FRAMEWORK_CORE_COMPACT: string;
-  PROD_FRAMEWORK_PROMPT: string;
-  DEV_FRAMEWORK_PROMPT: string;
-  PROD_FRAMEWORK_PROMPT_COMPACT: string;
-  DEV_FRAMEWORK_PROMPT_COMPACT: string;
-} {
-  // Note: FIRST_SESSION_PERSONALIZATION is NOT appended here — it is injected
-  // at per-request prompt-assembly time only for new threads (no prior messages).
-  // This prevents the ~1.5KB block from appearing on every request forever.
-  const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
-  const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
-  const extensionToolsEnabled = options?.extensionTools !== false;
-  const planModeArtifactList = extensionToolsEnabled
-    ? "source-code handoffs and app-created artifacts such as extensions, widgets, dashboards, calculators, mini-apps, documents, designs, slides, or videos"
-    : "source-code handoffs and app-created artifacts such as documents, designs, slides, or videos";
-  const planModeBlockedTools = extensionToolsEnabled
-    ? "`render-inline-extension`, `create-extension`, `update-extension`, `connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data"
-    : "`connect-builder`, or any action that creates, updates, deletes, sends, publishes, or persists data";
-  const extensionConnectBuilderGuard = extensionToolsEnabled
-    ? "If the complete request can be satisfied by a self-contained extension or an existing named slot, use `render-inline-extension`, `create-extension`, `show-extension-inline`, or `update-extension` instead. If the exact placement or behavior requires changing the host UI or no suitable slot exists, continue with the normal `connect-builder` source-change flow even if the user called it an extension; never stop at saying extensions cannot do it."
-    : "Because extension tools are disabled, do NOT invent an extension workflow. Only use `connect-builder` when the request genuinely requires changing the host app's source code.";
-  const extensionInstructionsFull = extensionToolsEnabled
-    ? `### Generative UI and Extensions (Mini-Apps)
-
-In Act mode, if the user asks for generated interactive UI in chat, choose the smallest extension action that matches the lifetime:
-
-- For a **one-time inline UI** that answers the current chat turn (knobs, controls, pickers, calculators, temporary dashboards, visualizers), call \`render-inline-extension\` immediately with a self-contained Alpine.js HTML body. It renders inside the transcript and is not saved.
-- For a **reusable or saved UI** (an extension/widget/dashboard/calculator/mini-app the user can reopen from Extensions), call \`create-extension\` with a self-contained Alpine.js HTML body. It saves to the Extensions view and also renders inline in chat.
-- To **reuse an existing saved extension inline**, call \`show-extension-inline\` with its id, or a search string when the id is unknown.
-
-These are **NOT** source-code changes and do **NOT** go through \`connect-builder\`. Extensions are sandboxed mini-apps — no source files are touched, no PR is opened, no build is required. Saved extensions can be edited later via \`update-extension\`.
-
-If the app exposes native actions or instructions for dashboards, reports, analyses, charts, documents, decks, or other domain artifacts, use those app-native actions first. Choose an extension only when the user explicitly asks for an extension/custom mini-app, or when the app's native artifact format cannot faithfully express the requested interaction.
-
-Keep \`create-extension\` payloads compact enough to finish quickly. For complex extensions, create a useful working v1 first, then call \`update-extension\` with focused edits for refinements instead of trying to assemble one enormous initial tool input.
-
-Generated UI content can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send(...)/sendToAgentChat(...). Use appAction() for app data writes, and dbQuery() only for read-only inspection of known app SQL tables. It can receive chat inputs through slotContext/window.onSlotContext. Use agentNative.ui.output for passive current values from knobs, sliders, selections, and controls; it writes application state at \`inline-ui:<extensionId>:output\` scoped to the inline extension id returned by \`render-inline-extension\` or \`show-extension-inline\`. When the user later says "use that value", "apply the current setting", or similar, read it with \`readAppState("inline-ui:<id>:output")\` instead of asking them to send it again. Use agentNative.chat.send for visible submit/apply actions that should put a message into chat. Transient extensionData is browser-local and not agent-readable, synced, promoted, or garbage-collected; use application_state/appFetch, appAction, ui.output, or chat.send for anything the agent or app must observe. Use semantic Tailwind classes like bg-background, text-foreground, bg-primary, border-border, and text-muted-foreground so the UI inherits the parent app theme.
-
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. After one content read, keep the body in working memory and move to focused \`update-extension\` \`edits\`/\`patches\`; do not loop on repeated \`get-extension\` + \`run-code\` string scans before writing. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes, even when the request says "change the UI" or "fix this". Do **NOT** call \`connect-builder\` for existing extension edits.
-
-In Act mode, when in doubt — if the request asks for a new small interactive utility and does not need reuse, choose \`render-inline-extension\`; if it mentions saving/reuse or asks for an extension/widget/dashboard/calculator/mini-app, choose \`create-extension\`. If it references an existing one or the current extension page, choose \`update-extension\`. Do **not** preface the call with planning text like "let me build the dashboard…" — just call the right extension action directly.
-
-Note: "extension" is the user-facing primitive (the sandboxed Alpine.js mini-app). Don't confuse it with the LLM concept of "tools" (function calls) — those are how you invoke ANY action, including \`create-extension\` itself.
-
-For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. If the user wants a shared extension removed only from their view, use \`hide-extension\` — do not query or mutate the legacy \`tools\` table directly.
-
-### Extensions vs. Code Changes — Pick the Right Path
-
-Route by the exact outcome, not by whether the user calls it an extension. Extensions render in their own sandboxed iframe, either on their own page or inside an existing named slot. They CANNOT change the host app's nav, restyle or inject elements into existing native components, replace built-in views, or render at an arbitrary location that has no slot.
-
-<routing>
-| The request is for…                                              | Path                          |
-| ---------------------------------------------------------------- | ----------------------------- |
-| A one-off interactive answer inside chat (controls, picker, calculator, temporary visualizer) | \`render-inline-extension\` — inline only |
-| A new self-contained surface (widget, dashboard, calculator, viewer, list, tracker) | \`create-extension\` — ships instantly, no PR |
-| Loading a saved extension inside chat | \`show-extension-inline\` |
-| Editing an existing extension (fix, restyle, rename, add behavior) | \`update-extension\`           |
-| The host app's own chrome (nav bar, sidebar, layout, routes, shipped components, existing styles, business logic) | \`connect-builder\` — a real source-code change |
-| UI inside or beside a native component where no named slot exists | \`connect-builder\` — add the native UI or a suitable slot in source |
-| Ambiguous, satisfiable either way (e.g. "give me an unread view") | \`render-inline-extension\` for chat-only, \`create-extension\` for reusable |
-</routing>
-
-If an extension could only approximate the request in a different location, do not silently downgrade the requirement and do not end with "extensions cannot do that." Briefly explain the boundary, then follow the normal source-code handoff so the app can still be customized fully.
-
-Worked examples: "a widget showing unread emails grouped by sender", "a tracker for my newsletter subscriptions", "a custom kanban board with drag-and-drop rules the app does not have" → \`create-extension\`. "Add an Unread tab to the left navigation", "show local time beside every native Calendar attendee row", "make the subject lines wrap", "change the inbox grouping logic", "add a field to the compose form" → \`connect-builder\`.`
-    : `### Extensions Disabled
-
-Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow. For requests that would otherwise be handled as an extension/widget/dashboard/calculator mini-app, explain that this app has disabled extension tools and use the app's available actions instead.`;
-  const extensionInstructionsCompact = extensionToolsEnabled
-    ? `### Generative UI and Extensions (Mini-Apps)
-
-In Act mode, if the user asks for generated interactive UI in chat, call \`render-inline-extension\` for one-time inline controls/knobs/calculators/visualizers that do not need saving. If the user asks for an **extension**, **widget**, **dashboard**, **calculator**, or **mini-app** that should be reusable or saved, call \`create-extension\` with a self-contained Alpine.js HTML body. To load a saved extension inline, call \`show-extension-inline\`. These are NOT code changes — extensions are sandboxed mini-apps. Do not preface with "let me build…" — just call the right extension action.
-
-Use app-native artifact actions first when they exist for dashboards, reports, analyses, charts, documents, decks, or similar domain artifacts. Pick \`create-extension\` only for explicit extension/custom mini-app requests or for behavior the native artifact format cannot support.
-
-Keep the first \`create-extension\` call compact and working. If the request is complex, create the v1 first and then refine with focused \`update-extension\` edits.
-
-Generated UI can read chat inputs from slotContext/window.onSlotContext, see/update app state through appFetch/appAction, use extensionData, record passive current values through agentNative.ui.output(value, opts?), and send visible results through agentNative.chat.send(...) or sendToAgentChat(...). ui.output writes \`inline-ui:<extensionId>:output\` in application state; when the user asks to use the current slider/selection/value, read \`readAppState("inline-ui:<id>:output")\`. Transient extensionData is browser-local only, so do not rely on it for values the agent or app must observe. Use semantic Tailwind theme classes.
-
-If the user asks to change, edit, fix, style, rename, or add behavior to an existing extension/widget/dashboard/calculator/mini-app, use the current extension id from \`<current-screen>\` or \`<current-url>\` when present. Call \`get-extension\` only if you need to inspect its content, then \`update-extension\` with that id. After one content read, use focused \`update-extension\` \`edits\`/\`patches\`; do not repeatedly re-read and scan the same HTML with \`run-code\` before writing. Use \`list-extensions\` only when no current id/name is available. Existing extension edits are SQL data updates, not source-code changes. Do NOT call \`connect-builder\` for them.
-
-For existing extensions, use \`get-extension\` or \`update-extension\` directly when \`<current-screen>\` or \`<current-url>\` provides an \`extensionId\`. Use \`list-extensions\` only to browse or resolve an unknown name. Use \`hide-extension\` when the user wants a shared extension removed only from their own view. Do not query the legacy \`tools\` table directly.
-
-### Extensions vs. Code Changes — Pick the Right Path
-
-If the user wants a **one-off interactive answer in chat**, use \`render-inline-extension\`. If they want a **new reusable self-contained surface** (custom widget, dashboard, list, viewer, calculator), use \`create-extension\` — extensions ship instantly without a PR. Extensions can render only on their own page or in an existing named slot; they cannot inject UI into arbitrary native components. If the exact request changes host chrome, native components, layout, styles, routes, business logic, or needs placement where no slot exists, treat it as a source-code change and use the normal \`connect-builder\` flow even if the user called it an extension. Never stop at "extensions cannot do that" or silently offer a different placement; explain the boundary briefly and continue the code-change handoff.`
-    : `### Extensions Disabled
-
-Extension creation and management tools are disabled for this app. Do not claim you can create, edit, hide, or delete Agent-Native extensions unless the template exposes its own typed action for that workflow.`;
-
-  const PROD_FRAMEWORK_PROMPT = `## Agent-Native Framework — Production Mode
-
-You are an AI agent in an agent-native application, running in **production mode**.
-
-The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
-
-**In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
-
-### Plan Mode
-
-If the current turn is in Plan mode, plan before anything gets written. This applies to ${planModeArtifactList}. Use only read-only tools, clarify the goal when needed, and return a concrete plan for approval. Do not call ${planModeBlockedTools} until the user switches back to Act mode.
-
-${extensionInstructionsFull}
-
-### Code Changes Not Available — Call \`connect-builder\` Immediately
-
-${extensionConnectBuilderGuard}
-
-In Act mode, when the user asks you to change the UI, modify code, add a feature, fix a bug in the app itself, change styles, add a hook, create a component, add a route, add an integration, or anything else that requires editing source files — you MUST take exactly these steps, in order:
-
-1. Briefly acknowledge the user's specific request in their own terms — one short clause naming what they asked for (e.g. "Got it — wider subject lines in the email list."). Do NOT restate the request verbatim, do NOT add a generic preamble, and do NOT promise outcomes. Skip this step entirely if the user already knows you're handing off (e.g. they said "send this to Builder").
-2. Call the \`connect-builder\` tool, passing the user's full request verbatim as the \`prompt\` argument. This renders an inline card. The returned \`builderEnabled\` flag is authoritative: \`true\` means Builder Cloud Agents can take the code-change handoff; \`false\` means this still requires a code change, but no Builder Cloud Agent can run from this workspace. If Builder is connected and \`builderEnabled\` is true, the card hands the prompt off to Builder's cloud agent on one click and returns a branch URL. If Builder is not connected and \`builderEnabled\` is true, it shows the Connect Builder flow. If \`builderEnabled\` is false, it still shows the card, but as a code-change fallback instead of a runnable cloud handoff.
-3. After the card renders, inspect the tool result and write one sentence that frames the next click around what the user just asked — not as a Builder pitch. If \`builderEnabled\` is true and the card can send, say something like "Click Send to Builder and it'll wire that up for you." If the user needs to connect first, say something like "Connect Builder once and it'll handle this and future changes." If \`builderEnabled\` is false, say: "This requires a code change. Edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way you like." Do NOT say "click Send to Builder", mention a branch URL, say the card is pre-loaded, or imply a Builder Cloud Agent can run when \`builderEnabled\` is false.
-
-When \`builderEnabled\` is false, Builder Cloud Agents are not self-serve from Builder org settings. Do NOT tell the user to go to Builder org settings, beta features, "Cloud Agents", or "AI Agents" to enable them. The only allowed guidance is the card's code-change fallback: edit locally, use Agent Native Desktop, or use Builder.io to edit this code in the cloud and continue customizing the app any way you like.
-
-**Act-mode handoff — do exactly this:** The moment a code change is requested, call \`connect-builder\` with the user's verbatim request, then write one sentence framing the next click. That is the whole job: Builder plans and edits in its own sandbox, so the planning, file-mapping, and code all happen there, not here. Keep your turn to the call plus that one sentence — skip code exploration, implementation plans, \`resources\` writes of specs, and sub-agents (they have no code-editing tools either). You don't need filesystem access to recommend Builder, so don't reach for it or list tools you lack.
-
-Builder Cloud Agents are the recommended path when \`builderEnabled\` is true because they are one-click and run in the cloud. Local dev, Agent Native Desktop, and Builder.io cloud editing are the fallback when \`builderEnabled\` is false.
-${FRAMEWORK_CORE}`;
-
-  const DEV_FRAMEWORK_PROMPT = `## Agent-Native Framework — Development Mode
-
-You are an AI agent in an agent-native application, running in **development mode**.
-
-The agent and the UI are equal partners — everything the UI can do, you can do via tools/scripts, and vice versa. They share the same SQL database and stay in sync automatically.
-
-**In development mode, you have full local access — use it with senior-engineer judgment** (read before you edit, keep changes scoped, verify before you claim done):
-- Run any shell command via the \`bash\` tool (node, curl, pnpm, rg, git, etc.), including arbitrary code: \`bash({ command: 'node -e "console.log(1+1)"' })\`
-- Read and write any file on the filesystem; edit source, install packages, modify the app
-- Query and modify the database
-- Call external APIs (via bash with curl, or via scripts)
-
-When no dedicated tool/action exists for what you need, reach for \`bash\` — e.g. \`bash({ command: 'curl -s https://api.example.com/data' })\`.
-
-**Template-specific actions are invoked via bash, NOT as direct tools.** In dev mode, the only tools registered as native tool calls are framework-level utilities (bash, read, edit, write, database, resources, chat, teams, jobs). Anything from the template's \`actions/\` directory must be run through bash: \`bash({ command: 'pnpm action <name> --arg value' })\`. The "Available Actions" section below shows the exact CLI syntax for each one — copy that command verbatim and pass it to \`bash\`. Do not try to call template actions by name as if they were tools; they will not appear in your tool list.
-
-When editing code, follow the agent-native architecture:
-- Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
-- All SQL must be dialect-agnostic (works on SQLite and Postgres)
-- No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
-- Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE}`;
-
-  const PROD_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Production Mode
-
-You are an AI agent in an agent-native application, running in **production mode**.
-
-The agent and the UI are equal partners — everything the UI can do, you can do via your tools, and vice versa. They share the same SQL database and stay in sync automatically.
-
-**In production mode, you operate through registered actions exposed as tools.** These are your capabilities — use them to read data, take actions, and help the user. You cannot edit source code or access the filesystem directly. Your tools are the app's API.
-
-### Plan Mode
-
-If the turn is in Plan mode, plan before anything gets written — including ${planModeArtifactList}. Use read-only tools only and do not call ${planModeBlockedTools} until the user switches back to Act mode.
-
-${extensionInstructionsCompact}
-
-### Code Changes — Call \`connect-builder\`
-
-In Act mode, when a request genuinely needs a source-code edit (per the rules above), do this in order: (1) briefly acknowledge the user's specific ask in their own terms — one short clause, no preamble — then (2) call \`connect-builder\` with the user's request as the \`prompt\`, then (3) inspect \`builderEnabled\` in the result and write one sentence framing the next click around what they asked for, not a Builder pitch. When \`builderEnabled\` is true, Builder Cloud Agents can take the handoff; when \`builderEnabled\` is false, say this requires a code change and they can edit locally or use Builder.io to edit this code in the cloud and continue customizing the app any way they like. Do NOT write code, list files, make plans, or spawn sub-agents. Mention \`npx agent-native create <app-name>\`, Agent Native Desktop, or the code-change fallback when Builder Cloud Agents aren't available. Never tell users to enable Builder Cloud Agents from Builder org settings, beta features, "Cloud Agents", or "AI Agents"; they are not self-serve there.
-${FRAMEWORK_CORE_COMPACT}`;
-
-  const DEV_FRAMEWORK_PROMPT_COMPACT = `## Agent-Native Framework — Development Mode
-
-You are an AI agent in an agent-native application, running in **development mode**.
-
-The agent and the UI are equal partners — everything the UI can do, you can do via tools/scripts, and vice versa. They share the same SQL database and stay in sync automatically.
-
-**In development mode, you have full local access** — shell, filesystem, database, external APIs, source edits, and package installs. Use it with senior-engineer judgment: read before you edit, keep changes scoped, verify before you claim done.
-
-**Template-specific actions are invoked via bash, NOT as direct tools.** Run them with: \`bash({ command: 'pnpm action <name> --arg value' })\`. See the "Available Actions" section below for CLI syntax.
-
-When editing code, follow the agent-native architecture:
-- Every feature needs all four areas: UI + scripts + skills/instructions + application-state sync
-- All SQL must be dialect-agnostic (works on SQLite and Postgres)
-- No Node.js-specific APIs in server routes (must work on Cloudflare Workers, etc.)
-- Use shadcn/ui components and Tabler Icons for all UI work
-${FRAMEWORK_CORE_COMPACT}`;
-
-  return {
-    FRAMEWORK_CORE,
-    FRAMEWORK_CORE_COMPACT,
-    PROD_FRAMEWORK_PROMPT,
-    DEV_FRAMEWORK_PROMPT,
-    PROD_FRAMEWORK_PROMPT_COMPACT,
-    DEV_FRAMEWORK_PROMPT_COMPACT,
-  };
-}
-
-export const _agentChatPromptSectionsForTests = (() => {
-  // Built with default (no template-specific) examples for test stability.
-  const {
-    FRAMEWORK_CORE: frameworkCore,
-    FRAMEWORK_CORE_COMPACT: frameworkCoreCompact,
-  } = buildFrameworkPrompts();
-  return {
-    frameworkCore,
-    frameworkCoreCompact,
-    frameworkContextSections: FRAMEWORK_CONTEXT_SECTIONS,
-    buildFrameworkPrompts,
-    generateActionsPrompt,
-    createDataWidgetActionEntries,
-  };
-})();
-
-/**
- * Pre-load the agent's context: AGENTS.md (workspace/template/runtime
- * instructions), the skills index, shared LEARNINGS.md (team notes), a shared
- * resource index, and memory/MEMORY.md (personal structured memory index).
- * These all get appended to the system prompt so the agent has everything it
- * needs from the first turn.
- *
- * Six sources are layered:
- *
- *   1. `<workspace>` — AGENTS.md from the enterprise workspace core.
- *   2. `<template>` — AGENTS.md + skills index from the Vite plugin bundle.
- *   3. `<workspace>` — SQL workspace AGENTS.md and instructions/*.md.
- *      Runtime global defaults managed from Dispatch and inherited by apps.
- *   4. `<app-default>` — legacy app-wide SQL defaults.
- *   5. `<shared>` — organization AGENTS.md, instructions, and LEARNINGS.md.
- *      These are isolated by active org and override app/workspace defaults.
- *   6. `<personal>` — memory/MEMORY.md from the SQL personal scope. The
- *      current user's structured memory index.
- *
- * Each source is read independently — no copying between them. Editing
- * AGENTS.md and restarting the server is all it takes; Vite HMR invalidates
- * the bundle in dev so changes land instantly.
- */
-export async function loadResourcesForPrompt(
+export async function resolveFetchToolKeyAllowlist(
+  keyName: string,
+  resolvedKeys: ResolvedKeyReference[] | undefined,
   owner: string,
-  compact = false,
-  selfAppId?: string,
-  orgId: string | null = getRequestOrgId() ?? null,
-): Promise<string> {
-  await ensurePersonalDefaults(owner);
-
-  const sections: string[] = [];
-  const promptResourceMaxChars = compact
-    ? COMPACT_PROMPT_RESOURCE_MAX_CHARS
-    : SHARED_PROMPT_RESOURCE_MAX_CHARS;
-
-  // 1. Workspace AGENTS.md + skills merged into the template bundle.
-  try {
-    const { loadAgentsBundle, generateSkillsPromptBlock, getRuntimeSkills } =
-      await import("./agents-bundle.js");
-    const bundle = await loadAgentsBundle();
-
-    // Workspace-core AGENTS.md (enterprise-wide instructions), if present.
-    if (bundle.workspaceAgentsMd && bundle.workspaceAgentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "workspace",
-        path: "AGENTS.md",
-        content: bundle.workspaceAgentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-workspace" to read the full workspace AGENTS.md.',
-      });
-      if (block) sections.push(block);
-    }
-
-    // 2. Template AGENTS.md — always included (critical template instructions).
-    if (bundle.agentsMd.trim()) {
-      const block = promptResourceBlock({
-        name: "AGENTS.md",
-        scope: "template",
-        path: "AGENTS.md",
-        content: bundle.agentsMd,
-        maxChars: promptResourceMaxChars,
-        readHint:
-          'Use docs-search --slug "agents-template" to read the full template AGENTS.md.',
-      });
-      if (block) sections.push(block);
-    }
-
-    // In compact mode, skip the full skills block — the agent can use
-    // `docs-search` to find skills when it needs them. Either way, `scope: dev`
-    // skills are excluded: they're for the human's coding agent, not runtime.
-    const runtimeSkills = getRuntimeSkills(bundle);
-    if (!compact) {
-      const skillsBlock = generateSkillsPromptBlock(bundle);
-      if (skillsBlock) sections.push(skillsBlock);
-    } else if (runtimeSkills.length > 0) {
-      const lines = runtimeSkills.map((s) => {
-        const description = s.meta.description?.trim()
-          ? ` - ${ensureSentence(s.meta.description)}`
-          : "";
-        return `- \`${s.meta.name}\`${description} Read with \`docs-search --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to.`;
-      });
-      sections.push(
-        `<skills-summary>\nCodebase skills bundled from \`.agents/skills/\` (or legacy \`.agent/skills/\`) are available as docs-search pages. Do not use MCP resource reads for these skills.\n\n${lines.join("\n")}\n</skills-summary>`,
-      );
-    }
-  } catch {}
-
-  // 3. Runtime workspace resources. These are global defaults inherited by
-  // every app in the workspace, not copied into app scopes. They may come from
-  // SQL, Dispatch, or local file mode.
-  const workspaceAgents = await loadAgentsResourceForPrompt(
-    WORKSPACE_OWNER,
-    "workspace",
-    promptResourceMaxChars,
-  );
-  if (workspaceAgents) sections.push(workspaceAgents);
-  sections.push(
-    ...(await loadInstructionResourcesForPrompt(
-      WORKSPACE_OWNER,
-      "workspace-instruction",
-      promptResourceMaxChars,
-    )),
-  );
-
-  const organizationOwner = sharedResourceOwner(orgId);
-
-  // 4. Legacy app-wide defaults. Existing deployments keep their seeded
-  // shared guidance as an inherited fallback; organization writes never
-  // mutate this owner.
-  const appDefaultAgents = await loadAgentsResourceForPrompt(
-    SHARED_OWNER,
-    organizationOwner === SHARED_OWNER ? "shared" : "app-default",
-    promptResourceMaxChars,
-  );
-  if (appDefaultAgents) sections.push(appDefaultAgents);
-  sections.push(
-    ...(await loadInstructionResourcesForPrompt(
-      SHARED_OWNER,
-      organizationOwner === SHARED_OWNER
-        ? "shared-instruction"
-        : "app-default-instruction",
-      promptResourceMaxChars,
-    )),
-  );
-
-  // 5. Active organization resources. These are the durable team rules and
-  // learnings that Slack/integration runs share with interactive app chat.
-  if (organizationOwner !== SHARED_OWNER) {
-    const organizationAgents = await loadAgentsResourceForPrompt(
-      organizationOwner,
-      "shared",
-      promptResourceMaxChars,
-    );
-    if (organizationAgents) sections.push(organizationAgents);
-    sections.push(
-      ...(await loadInstructionResourcesForPrompt(
-        organizationOwner,
-        "shared-instruction",
-        promptResourceMaxChars,
-      )),
-    );
-  }
-
-  // 6. Personal SQL resources. These come last in the instruction stack so a
-  // user can narrow or override organization/app and workspace defaults.
-  if (owner !== SHARED_OWNER && owner !== WORKSPACE_OWNER) {
-    const personalAgents = await loadAgentsResourceForPrompt(
-      owner,
-      "personal",
-      promptResourceMaxChars,
-    );
-    if (personalAgents) sections.push(personalAgents);
-    sections.push(
-      ...(await loadInstructionResourcesForPrompt(
-        owner,
-        "personal-instruction",
-        promptResourceMaxChars,
-      )),
-    );
-  }
-
-  const resourceSkillsBlock = await loadResourceSkillsPromptBlock(owner, orgId);
-  if (resourceSkillsBlock) sections.push(resourceSkillsBlock);
-
-  let sharedLearnings: Awaited<ReturnType<typeof resourceGetByPath>> = null;
-  try {
-    sharedLearnings =
-      (organizationOwner !== SHARED_OWNER
-        ? await resourceGetByPath(organizationOwner, "LEARNINGS.md")
-        : null) ?? (await resourceGetByPath(SHARED_OWNER, "LEARNINGS.md"));
-  } catch {}
-
-  if (compact) {
-    // Integration/Slack turns use compact context, but organization learnings
-    // are operational routing input, not optional background. Preload the
-    // bounded shared file so canonical destinations/fields are available on
-    // the first turn; keep personal memory on-demand to preserve the compact
-    // budget.
-    if (sharedLearnings?.content?.trim()) {
-      const block = promptResourceBlock({
-        name: "LEARNINGS.md",
-        scope: "shared",
-        path: "LEARNINGS.md",
-        content: sharedLearnings.content,
-        maxChars: COMPACT_PROMPT_RESOURCE_MAX_CHARS,
-      });
-      if (block) sections.push(block);
-    }
-    sections.push(
-      `<context-note>Organization learnings above and your personal memory (memory/MEMORY.md) are available via the \`resources\` tool. Save durable team facts and routing conventions to shared LEARNINGS.md; keep personal preferences in save-memory.</context-note>`,
-    );
-  } else {
-    // LEARNINGS.md from SQL (template-level instructions are in AGENTS.md above).
-    if (sharedLearnings?.content?.trim()) {
-      sections.push(
-        `<resource name="LEARNINGS.md" scope="shared">\n${sharedLearnings.content.trim()}\n</resource>`,
-      );
-    }
-
-    // 3. Personal memory index (skip if owner is the shared sentinel)
-    if (owner !== SHARED_OWNER) {
-      try {
-        const memoryIndex = await resourceGetByPath(owner, "memory/MEMORY.md");
-        if (memoryIndex?.content?.trim()) {
-          sections.push(
-            `<resource name="memory/MEMORY.md" scope="personal">\n${memoryIndex.content.trim()}\n</resource>`,
-          );
-        }
-      } catch {}
-    }
-  }
-
-  const workspaceResourceIndex = await loadResourceIndexForPrompt(
-    WORKSPACE_OWNER,
-    "workspace",
-  );
-  if (workspaceResourceIndex) sections.push(workspaceResourceIndex);
-
-  const appDefaultResourceIndex = await loadResourceIndexForPrompt(
-    SHARED_OWNER,
-    "shared",
-  );
-  if (appDefaultResourceIndex) sections.push(appDefaultResourceIndex);
-  if (organizationOwner !== SHARED_OWNER) {
-    const organizationResourceIndex = await loadResourceIndexForPrompt(
-      organizationOwner,
-      "shared",
-    );
-    if (organizationResourceIndex) sections.push(organizationResourceIndex);
-  }
-
-  try {
-    const agents = (await discoverAgents(selfAppId)).slice(0, 30);
-    if (agents.length > 0) {
-      const lines = agents.map(
-        (agent) =>
-          `- ${agent.name} (${agent.id}) — ${agent.description || "Connected A2A app"}`,
-      );
-      sections.push(
-        `<available-apps>\nWorkspace apps available over A2A/call-agent:\n${lines.join("\n")}\n\nUse \`call-agent\` with the app id when another app owns the work or data. Use tool-search or app-specific actions for details only when needed.\n</available-apps>`,
-      );
-    }
-  } catch {
-    // Agent discovery is helpful context, not required for the run.
-  }
-
-  if (sections.length === 0) return "";
-  return (
-    "\n\nThe following resources contain template-specific instructions and user context. Use the information in them to help the user.\n\n" +
-    sections.join("\n\n")
-  );
-}
-
-/**
- * Build the per-request SQL-schema context block. Reads AGENT_ORG_ID live
- * from the environment so scheduler/A2A/HTTP call sites all see whatever
- * org was just resolved for this request.
- */
-async function buildSchemaBlock(
-  owner: string,
-  databaseTools: DatabaseToolsOption = "read",
-): Promise<string> {
-  try {
-    return await loadSchemaPromptBlock({
-      owner,
-      orgId: getRequestOrgId() ?? null,
-      databaseTools,
-    });
-  } catch {
-    return "";
-  }
-}
-
-/**
- * Generates a system prompt section describing registered template actions.
- * This helps the agent prefer template-specific actions over raw db-query/db-exec.
- *
- * Two output modes:
- *
- *   - `"tool"` — used in production, where template actions are registered
- *     as native Anthropic tools. Output reads `name(arg*: type; ...) — desc`.
- *   - `"cli"` — used in dev, where template actions are NOT registered as
- *     native tools and must be invoked via `bash(command="pnpm action ...")`.
- *     Output reads `pnpm action name --arg <type> [--opt <type>] — desc`.
- */
-function generateActionsPrompt(
-  registry: Record<string, ActionEntry>,
-  mode: "cli" | "tool" = "tool",
-): string {
-  if (!registry || Object.keys(registry).length === 0) return "";
-
-  const actionEntries = Object.entries(registry);
-  const nativeWidgetNote = (entry: ActionEntry) =>
-    entry.chatUI && typeof entry.chatUI.renderer === "string"
-      ? ` Native chat widget: \`${entry.chatUI.renderer}\`.`
-      : "";
-
-  if (mode === "tool") {
-    const summaryLines = actionEntries.map(([name, entry]) => {
-      const desc = compactPromptLine(
-        entry.tool.description,
-        MAX_ACTION_SUMMARY_DESCRIPTION_CHARS,
-      );
-      return `- \`${name}\` — ${desc}${nativeWidgetNote(entry)}`;
-    });
-
-    return `\n\n## Available Actions
-
-**Use these actions directly as tool calls.** They handle database access, validation, and business logic internally. The native tool schemas contain the full parameter details.
-
-${summaryLines.join("\n")}`;
-  }
-
-  const lines = actionEntries.map(([name, entry]) => {
-    const desc = entry.tool.description;
-    const params = entry.tool.parameters?.properties;
-    const requiredFields = new Set(entry.tool.parameters?.required ?? []);
-
-    // CLI mode: emit `pnpm action <name> --required <type> [--optional <type>]`
-    if (!params || Object.keys(params).length === 0) {
-      return `- \`pnpm action ${name}\` — ${desc}${nativeWidgetNote(entry)}`;
-    }
-    const entries = Object.entries(params);
-    // Required first (alphabetical), then optional (alphabetical)
-    entries.sort(([a], [b]) => {
-      const ar = requiredFields.has(a) ? 0 : 1;
-      const br = requiredFields.has(b) ? 0 : 1;
-      if (ar !== br) return ar - br;
-      return a.localeCompare(b);
-    });
-    const required: string[] = [];
-    const optional: string[] = [];
-    const requiredNames: string[] = [];
-    for (const [k, v] of entries) {
-      const type = (v as { type?: string }).type ?? "any";
-      const flag = `--${k} <${type}>`;
-      if (requiredFields.has(k)) {
-        required.push(flag);
-        requiredNames.push(`--${k}`);
-      } else {
-        optional.push(`[${flag}]`);
-      }
-    }
-    const cmd = ["pnpm action " + name, ...required, ...optional].join(" ");
-    const requiredNote =
-      requiredNames.length > 0 ? ` Required: ${requiredNames.join(", ")}.` : "";
-    return `- \`${cmd}\` — ${desc}.${requiredNote}${nativeWidgetNote(entry)}`;
-  });
-
-  return `\n\n## Available Actions
-
-**These template actions are NOT exposed as direct tools in dev mode. To run any of them, use the \`bash\` tool with the exact command shown below.** Example: \`bash(command="pnpm action add-slide --deckId abc --content 'Hello'")\`.
-
-Do NOT try to call these by name as if they were tools — they will not exist in your tool list. Always go through \`bash\`.
-
-${lines.join("\n")}`;
-}
-
-function generateCorpusToolsPrompt(
-  registry: Record<string, ActionEntry>,
-): string {
-  const hasProviderApi = "provider-api-request" in registry;
-  const hasProviderCorpusJob = "provider-corpus-job" in registry;
-  const providerDiscoveryTools = [
-    "provider-api-catalog" in registry ? "`provider-api-catalog`" : null,
-    "provider-api-docs" in registry ? "`provider-api-docs`" : null,
-  ].filter(Boolean);
-  const hasRunCode = "run-code" in registry;
-  const hasStagedDataset = "query-staged-dataset" in registry;
-  if (
-    !hasProviderApi &&
-    !hasProviderCorpusJob &&
-    !hasRunCode &&
-    !hasStagedDataset
-  )
-    return "";
-
-  const available = [
-    ...providerDiscoveryTools,
-    hasProviderApi ? "`provider-api-request`" : null,
-    hasProviderCorpusJob ? "`provider-corpus-job`" : null,
-    hasStagedDataset ? "`query-staged-dataset`" : null,
-    hasRunCode ? "`run-code`" : null,
-  ].filter(Boolean);
-
-  return `\n\n## Broad Provider And Corpus Workflows
-
-Available corpus-capable tools: ${available.join(", ")}.
-
-For broad provider searches, raw API access, multi-page cohorts, cross-source joins, classification/counting over records, or absence-sensitive answers, do not stop at a bounded shortcut action. Use the provider's broad API/search/list surface, fetch every relevant page or an explicit bounded cohort, stage/save large responses when needed, and reduce the corpus with durable corpus jobs, staged-dataset queries, or code execution.
-
-When \`provider-corpus-job\` is available, prefer it for transcript/message/ticket/issue/document scans that may exceed one turn, need provider-side backoff, or need a defensible "not found" conclusion. Use operation="start" with mode="paginated-search" for any paginated provider endpoint, or mode="batch-search" when a prior cohort of ids/records must feed a second provider endpoint. Continue paused jobs with operation="continue" until status is completed or quota_wait, then read operation="results". In run-code, prefer providerFetchAll() for short cursor/page/offset pagination and providerRequest() when response status, headers, or truncation metadata matters. Report source, filters, row counts, pagination/truncation, failed pages, quota_wait times, and remaining gaps.`;
-}
-
-/**
- * Creates a Nitro plugin that mounts the agent chat endpoint.
- *
- * In dev mode (NODE_ENV !== "production"), automatically includes
- * file system, bash, and database tools alongside any template-specific actions.
- *
- * Usage in templates:
- * ```ts
- * // server/plugins/agent-chat.ts
- * import { readBody, createAgentChatPlugin } from "@agent-native/core/server";
- * import { scriptRegistry } from "../../scripts/registry.js";
- *
- * export default createAgentChatPlugin({
- *   scripts: scriptRegistry,
- *   systemPrompt: "You are an email assistant...",
- * });
- * ```
- */
-async function collectFiles(
-  dir: string,
-  prefix: string,
-  depth: number,
-  results: Array<{ path: string; name: string; type: "file" | "folder" }>,
-): Promise<void> {
-  if (depth > 4 || results.length >= 500) return;
-  const skip = new Set([
-    "node_modules",
-    ".git",
-    ".next",
-    ".output",
-    "dist",
-    ".cache",
-    ".turbo",
-    "data",
-  ]);
-  let entries: import("fs").Dirent[];
-  try {
-    const fs = await lazyFs();
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch {
-    return;
-  }
-  for (const entry of entries) {
-    if (results.length >= 500) return;
-    if (skip.has(entry.name) || entry.name.startsWith(".")) continue;
-    const relPath = prefix ? `${prefix}/${entry.name}` : entry.name;
-    const isDir = entry.isDirectory();
-    results.push({
-      path: relPath,
-      name: entry.name,
-      type: isDir ? "folder" : "file",
-    });
-    if (isDir)
-      await collectFiles(
-        nodePath.join(dir, entry.name),
-        relPath,
-        depth + 1,
-        results,
-      );
-  }
-}
-
-function parseSkillFrontmatter(content: string): {
-  name?: string;
-  description?: string;
-  userInvocable?: boolean;
-  scope?: "runtime" | "dev" | "both";
-} {
-  const frontmatter = parseFrontmatter(content);
-  const userInvocable = getFrontmatterValue(frontmatter, "user-invocable");
-  const scope = normalizeSkillFrontmatterScope(
-    getFrontmatterValue(frontmatter, "scope"),
-  );
-  return {
-    name: getFrontmatterValue(frontmatter, "name"),
-    description: getFrontmatterValue(frontmatter, "description"),
-    scope,
-    userInvocable:
-      userInvocable === undefined
-        ? undefined
-        : userInvocable.toLowerCase() === "true",
-  };
-}
-
-function normalizeSkillFrontmatterScope(
-  value: string | undefined,
-): "runtime" | "dev" | "both" | undefined {
-  if (!value) return undefined;
-  const normalized = value.trim().toLowerCase();
-  if (
-    normalized === "runtime" ||
-    normalized === "dev" ||
-    normalized === "both"
-  ) {
-    return normalized;
-  }
-  return "both";
-}
-
-function isLocalhost(event: any): boolean {
-  try {
-    const host =
-      event.node?.req?.headers?.host || event.headers?.get?.("host") || "";
-    const hostname = host.split(":")[0];
-    return (
-      hostname === "localhost" || hostname === "127.0.0.1" || hostname === "::1"
-    );
-  } catch {
-    return false;
-  }
-}
-
-type AgentChatRequestSurface = "app" | "dev-frame" | "desktop";
-
-function normalizeAgentChatRequestSurface(
-  value: string | null | undefined,
-): AgentChatRequestSurface | null {
-  const normalized = (value ?? "").trim().toLowerCase();
-  if (
-    normalized === "app" ||
-    normalized === "dev-frame" ||
-    normalized === "desktop"
-  ) {
-    return normalized;
-  }
-  return null;
-}
-
-function isBrowserUserAgent(userAgent: string | null | undefined): boolean {
-  return /Mozilla\/|Chrome\/|Safari\/|Firefox\/|Edg\//i.test(userAgent ?? "");
-}
-
-export function shouldBlockInProductCodeEditingSurface(input: {
-  surface?: string | null;
-  userAgent?: string | null;
-  host?: string | null;
-}): boolean {
-  const surface = normalizeAgentChatRequestSurface(input.surface);
-  if (surface === "dev-frame") return false;
-  if (surface === "desktop") return false;
-  if (surface === "app") return true;
-
-  // Legacy clients used to send `frame` for any iframe, which includes the
-  // app-rendered sidebar inside preview frames. Treat unknown explicit surface
-  // values as app-owned so they cannot accidentally receive dev code tools.
-  if (input.surface && input.surface.trim()) return true;
-
-  const userAgent = input.userAgent ?? "";
-  if (/AgentNativeDesktop/i.test(userAgent)) return false;
-
-  // Missing header from an older browser client. Be conservative for browser
-  // UAs on any host, because preview URLs can be non-local while still running
-  // a dev-mode app whose in-product chat would be reloaded by source edits.
-  if (isBrowserUserAgent(userAgent)) return true;
-
-  const host = (input.host ?? "").toLowerCase();
-  const hostname = host.split(":")[0] ?? "";
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname === "[::1]"
-  );
-}
-
-/**
- * Load the sandboxed code-execution tool entries for one action registry:
- * `run-code` plus its `get-code-execution` poll companion. The poll tool is
- * registered ALONGSIDE run-code everywhere run-code appears, so the durable
- * background-execution guidance run-code emits ("check it with
- * get-code-execution") always points at a callable tool. Returns an empty
- * registry when the coding module is unavailable (e.g. bundled browser
- * build), mirroring the prior silent-skip behavior.
- *
- * Exported for tests — the plugin init calls this for the prod, lean, and dev
- * tool bags, so a spec on this helper pins the real registration wiring.
- */
-export async function loadRunCodeToolEntries(
-  supplier: () => Record<string, ActionEntry>,
-  runCodeOptions?: { bridgeTools?: string[] },
-): Promise<Record<string, ActionEntry>> {
-  try {
-    const { createRunCodeEntry, createGetCodeExecutionEntry } =
-      await import("../coding-tools/run-code.js");
-    const entries: Record<string, ActionEntry> = {
-      "run-code": createRunCodeEntry(supplier, runCodeOptions),
-      "get-code-execution": createGetCodeExecutionEntry(),
-    };
-
-    // Data programs: stored JS scripts executed through this same run-code
-    // sandbox, cached in SQL, and rendered by dashboard panels. Registered
-    // identically to run-code — same try/dynamic-import guard, silently
-    // skipped when the module is unavailable (e.g. bundled browser build) —
-    // so every app gets the primitive without per-template wiring.
-    try {
-      const { initDataPrograms, createDataProgramActions } =
-        await import("../data-programs/index.js");
-      const appId = resolveDataProgramsAppId();
-      initDataPrograms({ appId, getActions: supplier });
-      Object.assign(
-        entries,
-        createDataProgramActions({ appId, getActions: supplier }),
-      );
-    } catch {
-      // Module unavailable — skip silently, mirroring the run-code guard above.
-    }
-
-    return entries;
-  } catch {
-    // Module unavailable (e.g. bundled browser build) — skip silently.
-    return {};
-  }
-}
-
-/**
- * Resolve the stable app identity data programs are scoped under. Mirrors
- * the precedent in `cli/agent.ts` (`AGENT_NATIVE_APP_ID` env override, then
- * `APP_ID`, then a fixed fallback) — data programs don't need a per-call
- * agent-supplied appId the way staged datasets do (staged datasets are
- * scratch space the agent explicitly stages into); a data program is a
- * persisted resource scoped to "this app deployment".
- */
-function resolveDataProgramsAppId(): string {
-  return (
-    process.env.AGENT_NATIVE_APP_ID?.trim() ||
-    process.env.APP_ID?.trim() ||
-    process.env.APP_NAME?.trim() ||
-    "app"
-  );
-}
-
-type RecurringJobsRuntimeEnvKey =
-  | "AGENT_NATIVE_DISABLE_RECURRING_JOBS"
-  | "AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS"
-  | "APP_URL"
-  | "BETTER_AUTH_URL"
-  | "DEPLOY_URL"
-  | "NODE_ENV"
-  | "URL"
-  | "VITE_APP_URL"
-  | "VITE_WORKSPACE_GATEWAY_URL"
-  | "WORKSPACE_GATEWAY_URL";
-
-type RecurringJobsRuntimeEnv = Partial<
-  Record<RecurringJobsRuntimeEnvKey, string | undefined>
->;
-
-function isTruthyEnv(value: string | undefined): boolean {
-  return /^(1|true|yes|on)$/i.test(value?.trim() ?? "");
-}
-
-function isLoopbackAppUrl(value: string | undefined): boolean {
-  const raw = value?.trim();
-  if (!raw) return false;
-
-  const candidates = /^[a-z][a-z0-9+.-]*:\/\//i.test(raw)
-    ? [raw]
-    : [raw, `http://${raw}`];
-  for (const candidate of candidates) {
-    try {
-      const url = new URL(candidate);
-      const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
-      if (
-        host === "localhost" ||
-        host === "127.0.0.1" ||
-        host === "0.0.0.0" ||
-        host === "::1" ||
-        host === "tauri.localhost" ||
-        host.endsWith(".localhost")
-      ) {
-        return true;
-      }
-    } catch {}
-  }
-
-  return false;
-}
-
-export function shouldDisableRecurringJobsRuntime(
-  env: RecurringJobsRuntimeEnv = process.env,
-): boolean {
-  if (isTruthyEnv(env.AGENT_NATIVE_DISABLE_RECURRING_JOBS)) return true;
-
-  const isLocalRuntime =
-    env.NODE_ENV === "development" ||
-    env.NODE_ENV === "test" ||
-    [
-      env.APP_URL,
-      env.BETTER_AUTH_URL,
-      env.DEPLOY_URL,
-      env.URL,
-      env.VITE_APP_URL,
-      env.VITE_WORKSPACE_GATEWAY_URL,
-      env.WORKSPACE_GATEWAY_URL,
-    ].some(isLoopbackAppUrl);
-
-  if (
-    isLocalRuntime &&
-    isTruthyEnv(env.AGENT_NATIVE_ENABLE_LOCAL_RECURRING_JOBS)
-  ) {
-    return false;
-  }
-
-  return isLocalRuntime;
-}
-
-type AgentChatProcessRunFailureDeps = {
-  readBackgroundRunClaim?: typeof readBackgroundRunClaim;
-  recordRunDiagnostic?: typeof recordRunDiagnostic;
-  setRunError?: typeof setRunError;
-  setRunTerminalReason?: typeof setRunTerminalReason;
-  updateRunStatusIfRunning?: typeof updateRunStatusIfRunning;
-  ensureTerminalRunEvent?: typeof ensureTerminalRunEvent;
-};
-
-export async function finalizeClaimedAgentChatProcessRunFailure(
-  runId: string,
-  err: unknown,
-  deps: AgentChatProcessRunFailureDeps = {},
-): Promise<boolean> {
-  const readClaim = deps.readBackgroundRunClaim ?? readBackgroundRunClaim;
-  const record = deps.recordRunDiagnostic ?? recordRunDiagnostic;
-  const setError = deps.setRunError ?? setRunError;
-  const setTerminalReason = deps.setRunTerminalReason ?? setRunTerminalReason;
-  const updateStatus =
-    deps.updateRunStatusIfRunning ?? updateRunStatusIfRunning;
-  const ensureTerminal = deps.ensureTerminalRunEvent ?? ensureTerminalRunEvent;
-  const message = err instanceof Error ? err.message : String(err);
-
-  await record(runId, RUN_DIAG_STAGE.routeThrew, message).catch(() => {});
-
-  const claim = await readClaim(runId).catch(() => null);
-  if (
-    claim?.status !== "running" ||
-    claim.dispatchMode !== "background-processing"
-  ) {
-    return false;
-  }
-
-  await setError(
-    runId,
-    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
-    `${CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.details} setupError=${message}`,
-  ).catch(() => {});
-  const statusUpdated = await updateStatus(runId, "errored").catch(() => false);
-  if (statusUpdated) {
-    await setTerminalReason(
-      runId,
-      CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT.errorCode,
-    ).catch(() => {});
-  }
-  await ensureTerminal(
-    runId,
-    CLAIMED_BACKGROUND_WORKER_FAILED_ERROR_EVENT,
-  ).catch(() => {});
-  return true;
+  deps: {
+    getKeyAllowlist: (
+      name: string,
+      scope: "user",
+      scopeId: string,
+    ) => Promise<string[] | null>;
+    getResolvedKeyAllowlist: (
+      ref: ResolvedKeyReference,
+    ) => Promise<string[] | null>;
+  },
+): Promise<string[] | null> {
+  const ref = resolvedKeys?.find((candidate) => candidate.name === keyName);
+  if (ref) return deps.getResolvedKeyAllowlist(ref);
+  return deps.getKeyAllowlist(keyName, "user", owner);
 }
 
 export function createAgentChatPlugin(
@@ -4286,8 +549,9 @@ export function createAgentChatPlugin(
       const refreshScreenTool = createRefreshScreenEntry();
       const frameworkContextTool = createFrameworkContextEntry();
       const leanPrompt = options?.leanPrompt === true;
-      const skipFilesContext = leanPrompt || options?.skipFilesContext === true;
       const lazyContext = options?.lazyContext !== false && !leanPrompt;
+      const skipFilesContext =
+        leanPrompt || (options?.skipFilesContext ?? lazyContext);
       const urlTools = createUrlTools();
       const engineScripts = await createAgentEngineScriptEntries(
         options?.appId,
@@ -4468,6 +732,18 @@ export function createAgentChatPlugin(
       // `*All` sets are reserved for `httpActions`, which keeps agent-hidden
       // actions reachable from the frontend / HTTP.
       const templateScripts = filterAgentTools(templateScriptsAll);
+      // Compact is the safe default for every app, including generated and
+      // third-party apps that have not curated a starter list yet. Keep the
+      // app's own action surface immediately callable; framework, provider,
+      // and MCP tools remain discoverable through tool-search.
+      //
+      // This is the template-only baseline; the final `effectiveInitialToolNames`
+      // (below, after the run-code tools are built) additionally folds in
+      // whatever `generateCorpusToolsPrompt` teaches by name for this request.
+      const templateInitialToolNames = resolveInitialToolNames(
+        templateScripts,
+        options?.initialToolNames,
+      );
       const discoveredActions = filterAgentTools(discoveredActionsAll);
       // Per-request owner is read from the AsyncLocalStorage run context
       // (populated by prepareRun). Module-scope `let` would race across
@@ -4553,21 +829,38 @@ export function createAgentChatPlugin(
       try {
         const { createFetchToolEntry } =
           await import("../extensions/fetch-tool.js");
-        const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
-          await import("../secrets/substitution.js");
+        // Resolve `${keys.NAME}` through the same request-scope cascade
+        // already used by extension fetches (extensions/routes.ts) and
+        // automation connector headers (automation/index.ts): user scope
+        // first (personal overrides win), then the active org scope (the
+        // Dispatch vault syncs workspace secrets here), then workspace
+        // scope. Org/workspace vault rows are write-gated (org-admin +
+        // Dispatch vault UI), so this is safe to read by default — unlike
+        // the opt-in-only user→workspace fallback in resolveKeyReferences
+        // (see audit 05 H2 in secrets/substitution.ts), which stays off.
+        // Previously this tool only looked at scope "user", so a
+        // ${keys.NAME} reference to a key synced into the org/workspace
+        // vault could never resolve here even though the same key already
+        // worked for extension fetches and automations.
+        const {
+          resolveKeyReferencesWithRequestScopes,
+          validateUrlAllowlist,
+          getKeyAllowlist,
+          getResolvedKeyAllowlist,
+        } = await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
           resolveKeys: async (text) =>
-            resolveKeyReferences(
+            resolveKeyReferencesWithRequestScopes(
               text,
-              "user",
               requireCurrentRunOwner("resolve key references"),
             ),
-          validateUrl: async (url, usedKeys) => {
+          validateUrl: async (url, usedKeys, resolvedKeys) => {
             for (const keyName of usedKeys) {
-              const allowlist = await getKeyAllowlist(
+              const allowlist = await resolveFetchToolKeyAllowlist(
                 keyName,
-                "user",
+                resolvedKeys,
                 requireCurrentRunOwner("validate URL allowlist"),
+                { getKeyAllowlist, getResolvedKeyAllowlist },
               );
               if (allowlist && !validateUrlAllowlist(url, allowlist)) {
                 return false;
@@ -4724,6 +1017,37 @@ export function createAgentChatPlugin(
             bridgeTools: options?.codeExecution?.bridgeTools,
           })
         : {};
+
+      // Registry `generateCorpusToolsPrompt` (below) reads from to decide what
+      // it teaches by name — kept as one value so the prompt text and the
+      // initial-tool-set expansion just below can never drift apart.
+      const corpusPromptRegistry = {
+        ...templateScripts,
+        ...(canToggle
+          ? devRunCodeTool
+          : resolvedProdCodeExec !== "off"
+            ? runCodeTool
+            : {}),
+      };
+      // `generateCorpusToolsPrompt` teaches provider-api-request /
+      // provider-corpus-job / query-staged-dataset / run-code BY NAME
+      // whenever they're registered, regardless of whether they made the
+      // curated initial-tool-names list — a prior comment here (since
+      // removed) warned this exact mismatch "caused prod runs to waste
+      // turns": the model reads about a tool in the system prompt, tries to
+      // call it immediately, and finds it missing from the very first
+      // engine request until it calls tool-search. Fold in exactly the tool
+      // names the corpus prompt would announce for THIS registry so the two
+      // always agree. `corpusToolNamesTaughtByPrompt` returns [] for apps
+      // that never emit the corpus prompt (no provider/run-code tools
+      // registered), so this never silently expands the initial set for
+      // apps that don't teach these tools by name.
+      const corpusToolNames =
+        corpusToolNamesTaughtByPrompt(corpusPromptRegistry);
+      const effectiveInitialToolNames =
+        corpusToolNames.length > 0
+          ? [...new Set([...templateInitialToolNames, ...corpusToolNames])]
+          : templateInitialToolNames;
 
       const resolveExtraContext = async (
         event: any,
@@ -4994,9 +1318,41 @@ export function createAgentChatPlugin(
 
           // Use the SAME agent setup as the interactive chat — identical tools,
           // prompt, and capabilities. The A2A agent IS the app's agent.
+          const { getOwnerActiveApiKey } =
+            await import("../agent/production-agent.js");
+          const ownerApiKey = await getOwnerActiveApiKey(userEmail);
+          // A2A runs are reconstructed in a fresh processor request, so they
+          // do not pass through the interactive handler's prepareRun hook.
+          // Seed the same mutable run context before resolving the engine and
+          // building tools. Provider credentials, team/fetch helpers, and
+          // other action closures read this context rather than the engine
+          // argument alone; without it delegated runs can silently fall back
+          // to an unscoped/unconfigured provider path even though interactive
+          // chat works for the same owner.
+          const a2aRunContext = ensureRequestRunContext();
+          if (a2aRunContext) {
+            a2aRunContext.owner = userEmail;
+            a2aRunContext.userApiKey = ownerApiKey;
+            // The async processor restores the original request origin from
+            // task metadata. Only derive a fallback for synchronous A2A calls
+            // where the inbound event is still the caller request.
+            if (!a2aRunContext.requestOrigin) {
+              const restoredOrigin = getRequestContext()?.requestOrigin;
+              if (restoredOrigin) {
+                a2aRunContext.requestOrigin = restoredOrigin;
+              }
+            }
+            if (!a2aRunContext.requestOrigin) {
+              try {
+                a2aRunContext.requestOrigin = getOrigin(context.event as any);
+              } catch {
+                // Keep the owner context even when no browser origin exists.
+              }
+            }
+          }
           const a2aEngine = await resolveEngine({
             engineOption: options?.engine,
-            apiKey: options?.apiKey,
+            apiKey: ownerApiKey ?? options?.apiKey,
             appId: options?.appId,
           });
 
@@ -5013,14 +1369,6 @@ export function createAgentChatPlugin(
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
           const extra = await resolveExtraContext(context.event, owner);
-          // Stable content first, most-volatile-per-day last: the
-          // runtime-context block is appended after resources/schema/extra so
-          // a day rollover (or the resources/extra content changing) only
-          // invalidates the cached prompt prefix as late as possible.
-          const runtimeContext = runtimeContextForEvent(context.event);
-          const systemPrompt = devActive
-            ? devPrompt + resources + schemaBlock + extra + runtimeContext
-            : basePrompt + resources + schemaBlock + extra + runtimeContext;
 
           const a2aModelCandidate =
             options?.model ??
@@ -5029,6 +1377,34 @@ export function createAgentChatPlugin(
             })) ??
             a2aEngine.defaultModel;
           const model = normalizeModelForEngine(a2aEngine, a2aModelCandidate);
+          if (a2aRunContext) {
+            a2aRunContext.engine = a2aEngine;
+            a2aRunContext.model = model;
+          }
+
+          // Keep delegated runs aligned with the interactive production
+          // prompt's model-specific behavior without importing interactive
+          // onboarding into a background/cross-app task.
+          const modelOverlay = getModelFamilyOverlay(model);
+          // Stable content first, most-volatile-per-day last: the
+          // runtime-context block is appended after resources/schema/extra so
+          // a day rollover (or the resources/extra content changing) only
+          // invalidates the cached prompt prefix as late as possible.
+          const runtimeContext = runtimeContextForEvent(context.event);
+          const systemPrompt = devActive
+            ? devPrompt +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext
+            : basePrompt +
+              resources +
+              schemaBlock +
+              extra +
+              modelOverlay +
+              runtimeContext;
+          if (a2aRunContext) a2aRunContext.systemPrompt = systemPrompt;
 
           // Build tools — same as interactive handler but WITHOUT call-agent
           // to prevent infinite recursive A2A loops (agent calling itself).
@@ -5077,7 +1453,10 @@ export function createAgentChatPlugin(
                 },
           );
 
-          const a2aTools = actionsToEngineTools(a2aActions);
+          const a2aToolSurface = createA2AEngineToolSurface(
+            actionsToEngineTools(a2aActions),
+            effectiveInitialToolNames,
+          );
 
           // Precise current time rides the user message (not the cached
           // system-prompt prefix) — same pattern as the interactive handler.
@@ -5098,7 +1477,7 @@ export function createAgentChatPlugin(
           const controller = new AbortController();
 
           console.log(
-            `[A2A] Starting agent loop: ${a2aTools.length} tools, prompt ${systemPrompt.length} chars`,
+            `[A2A] Starting agent loop: ${a2aToolSurface.tools.length}/${a2aToolSurface.availableTools.length} initial tools, prompt ${systemPrompt.length} chars`,
           );
 
           await runA2AAgentLoop(
@@ -5106,9 +1485,17 @@ export function createAgentChatPlugin(
               engine: a2aEngine,
               model,
               systemPrompt,
-              tools: a2aTools,
+              tools: a2aToolSurface.tools,
+              availableTools: a2aToolSurface.availableTools,
               messages: a2aMessages,
               actions: a2aActions,
+              // A2A already establishes these values in request context. Pass
+              // them explicitly too so delegated tool execution and template
+              // final-response guards cannot lose the authenticated caller's
+              // scope when a processor hop or alternate runner is involved.
+              ownerEmail: userEmail,
+              orgId: getRequestOrgId() ?? null,
+              executionMode: "act",
               send: (event) => {
                 a2aEvents.push(event);
                 if (event.type === "tool_start") {
@@ -5192,16 +1579,13 @@ export function createAgentChatPlugin(
       // Dev: actions are invoked via bash — emit `pnpm action name --arg <type>`
       //      and include discoveredActions too, since those are also missing
       //      from the dev tool registry.
-      const corpusToolsPrompt = generateCorpusToolsPrompt({
-        ...templateScripts,
-        ...(canToggle
-          ? devRunCodeTool
-          : resolvedProdCodeExec !== "off"
-            ? runCodeTool
-            : {}),
-      });
+      const corpusToolsPrompt = generateCorpusToolsPrompt(corpusPromptRegistry);
       const prodActionsPrompt =
-        generateActionsPrompt(templateScripts, "tool") + corpusToolsPrompt;
+        generateActionsPrompt(
+          templateScripts,
+          "tool",
+          lazyContext ? effectiveInitialToolNames : undefined,
+        ) + corpusToolsPrompt;
       const devActionsPrompt =
         generateActionsPrompt(
           { ...discoveredActions, ...templateScripts },
@@ -5254,10 +1638,19 @@ export function createAgentChatPlugin(
           ...(options?.connectorCatalog
             ? { connectorCatalog: options.connectorCatalog }
             : {}),
+          ...(options?.externalAgents
+            ? { externalAgents: options.externalAgents }
+            : {}),
           askAgent: async (message: string) => {
+            const ownerEmail = getRequestUserEmail();
+            const { getOwnerActiveApiKey } =
+              await import("../agent/production-agent.js");
+            const ownerApiKey = ownerEmail
+              ? await getOwnerActiveApiKey(ownerEmail)
+              : undefined;
             const mcpEngine = await resolveEngine({
               engineOption: options?.engine,
-              apiKey: options?.apiKey,
+              apiKey: ownerApiKey ?? options?.apiKey,
               appId: options?.appId,
             });
             const mcpModelCandidate =
@@ -5306,7 +1699,18 @@ export function createAgentChatPlugin(
                   },
             );
 
-            const mcpTools = actionsToEngineTools(mcpActions);
+            // Same compact initial-tool surface as interactive chat and A2A:
+            // template actions + the small framework default set stay visible
+            // on the first request; everything else (provider, MCP, extension
+            // schemas) is reachable through the attached `tool-search` entry
+            // via `runAgentLoop`'s mid-run tool expansion. Without this, every
+            // external host calling `ask_app` (MCP) paid for a near-full
+            // catalog on its very first request, undermining the compact MCP
+            // catalog this surface is supposed to keep external callers on.
+            const mcpToolSurface = createA2AEngineToolSurface(
+              actionsToEngineTools(mcpActions),
+              effectiveInitialToolNames,
+            );
 
             const resources = await loadResourcesForPrompt(
               SHARED_OWNER,
@@ -5346,12 +1750,13 @@ export function createAgentChatPlugin(
             let accumulatedText = "";
             const controller = new AbortController();
 
-            await runAgentLoopDirectWithSoftTimeout(
+            await runMCPAgentLoop(
               {
                 engine: mcpEngine,
                 model,
                 systemPrompt,
-                tools: mcpTools,
+                tools: mcpToolSurface.tools,
+                availableTools: mcpToolSurface.availableTools,
                 messages: [
                   {
                     role: "user",
@@ -5366,6 +1771,9 @@ export function createAgentChatPlugin(
                   },
                 ],
                 actions: mcpActions,
+                ownerEmail: getRequestUserEmail(),
+                orgId: getRequestOrgId() ?? null,
+                executionMode: "act",
                 send: (event) => {
                   accumulatedText = applyAgentTextEventToBuffer(
                     accumulatedText,
@@ -5374,7 +1782,10 @@ export function createAgentChatPlugin(
                 },
                 signal: controller.signal,
               },
-              options?.runSoftTimeoutMs,
+              {
+                finalResponseGuard: options?.finalResponseGuard,
+                runSoftTimeoutMs: options?.runSoftTimeoutMs,
+              },
               {
                 backgroundFunction:
                   options?.durableBackgroundRuns === true &&
@@ -5446,6 +1857,7 @@ export function createAgentChatPlugin(
           getOwnerFromEvent,
           getUserNameFromEvent,
           resolveOrgId: options?.resolveOrgId,
+          actionRouteAuth: options?.actionRouteAuth,
         });
       }
 
@@ -5948,7 +2360,11 @@ export function createAgentChatPlugin(
       const leanBasePrompt = (options?.systemPrompt ?? "") + prodActionsPrompt;
       const anonymousReadOnlyPrompt =
         (options?.systemPrompt ?? PROD_FRAMEWORK_PROMPT_COMPACT) +
-        generateActionsPrompt(filterReadOnlyActions(templateScripts), "tool") +
+        generateActionsPrompt(
+          filterReadOnlyActions(templateScripts),
+          "tool",
+          lazyContext ? effectiveInitialToolNames : undefined,
+        ) +
         "\n\nYou are answering from a public shared page. Treat the visible resource as read-only: do not create, edit, delete, comment on, share, or otherwise mutate app data. If the user asks for a change, describe what you would change or suggest signing in to edit.";
 
       // Per-request preamble shared by both prod and dev handlers. Resolves
@@ -5979,6 +2395,104 @@ export function createAgentChatPlugin(
         return prompt;
       };
 
+      const emitContextXraySystemSections = async (
+        event: any,
+        input: {
+          frameworkPrompt?: string;
+          actionsPrompt?: string;
+          resources?: string;
+          schemaBlock?: string;
+          modelOverlay?: string;
+          runtimeContext?: string;
+          additionalFramework?: string;
+          extra?: string;
+        },
+      ): Promise<void> => {
+        const sections = await buildSystemManifestSections([
+          ...(input.frameworkPrompt
+            ? [
+                {
+                  label: "Framework core",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.frameworkPrompt,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.actionsPrompt
+            ? [
+                {
+                  label: "Available actions prompt",
+                  provenance: "actions-prompt" as const,
+                  governance: "required" as const,
+                  content: input.actionsPrompt,
+                  sourceRef: { scope: "actions" },
+                },
+              ]
+            : []),
+          ...(input.resources
+            ? promptResourceManifestSections(input.resources)
+            : []),
+          ...(input.schemaBlock
+            ? [
+                {
+                  label: "SQL schema",
+                  provenance: "db-schema" as const,
+                  governance: "required" as const,
+                  content: input.schemaBlock,
+                  sourceRef: { scope: "sql" },
+                },
+              ]
+            : []),
+          ...(input.additionalFramework
+            ? [
+                {
+                  label: "Framework run policy",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.additionalFramework,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.extra
+            ? [
+                {
+                  label: "App runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "inherited" as const,
+                  content: input.extra,
+                  sourceRef: { scope: "app" },
+                },
+              ]
+            : []),
+          ...(input.modelOverlay
+            ? [
+                {
+                  label: "Model overlay",
+                  provenance: "model-overlay" as const,
+                  governance: "required" as const,
+                  content: input.modelOverlay,
+                  sourceRef: { scope: "model" },
+                },
+              ]
+            : []),
+          ...(input.runtimeContext
+            ? [
+                {
+                  label: "Runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "required" as const,
+                  content: input.runtimeContext,
+                  sourceRef: { scope: "runtime" },
+                },
+              ]
+            : []),
+        ]);
+        setContextXraySystemSections(event, sections);
+      };
+
       /**
        * Read the model family overlay for the currently-resolved model.
        * onEngineResolved sets runCtx.model before systemPrompt is called, so
@@ -5989,20 +2503,6 @@ export function createAgentChatPlugin(
         const model = runCtx?.model;
         if (!model) return "";
         return getModelFamilyOverlay(model);
-      };
-
-      /**
-       * Returns whether this request is for a brand-new thread (no prior
-       * messages). Used to gate the First-Session Personalization block:
-       * once a thread has history the block is dead weight on every request.
-       *
-       * prepareRequest stashes `details.threadId` as `_requestThreadId` on
-       * runCtx before systemPrompt is assembled. A new thread has no threadId
-       * (the UI passes undefined until the first message creates the thread).
-       */
-      const isNewThread = (): boolean => {
-        const runCtx = ensureRequestRunContext();
-        return !(runCtx as any)?._requestThreadId;
       };
 
       const runtimeContextForEvent = (event: any): string => {
@@ -6067,11 +2567,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           )
             ? APP_RENDERED_CHAT_NO_DIRECT_CODE_PROMPT
             : "";
-          // Personalization block: only include on new threads (no prior messages).
-          // Once a thread exists, the agent has already run (or skipped) the flow.
-          const personalizationBlock = isNewThread()
-            ? FIRST_SESSION_PERSONALIZATION
-            : "";
+          // Personalization block: included until this owner has finished (or
+          // skipped) the flow — see hasCompletedFirstSessionPersonalization
+          // for why this is gated on the owner-scoped appstate flag rather
+          // than "is this a new thread" (keeps turn 1 and turn 2 identical).
+          const personalizationBlock =
+            (await hasCompletedFirstSessionPersonalization(owner))
+              ? ""
+              : FIRST_SESSION_PERSONALIZATION;
           // Per-model overlay: nudge GPT/Gemini engines toward our behavioral norms.
           const modelOverlay = resolveModelOverlay();
           // Stable-first ordering: base prompt / schema / extra come before
@@ -6081,10 +2584,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
+            const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
+              codeEditingSurfaceRestriction,
+              prodCodeExecPromptNote,
+            );
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: leanBasePrompt.slice(
+                0,
+                Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+              ),
+              actionsPrompt: prodActionsPrompt,
+              additionalFramework: leanRunPolicyPrompt,
+              extra,
+              modelOverlay,
+              runtimeContext,
+            });
             return setSystemPromptOnContext(
               leanBasePrompt +
-                codeEditingSurfaceRestriction +
-                prodCodeExecPromptNote +
+                leanRunPolicyPrompt +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -6100,6 +2617,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
+          await emitContextXraySystemSections(event, {
+            frameworkPrompt: basePrompt.slice(
+              0,
+              Math.max(0, basePrompt.length - prodActionsPrompt.length),
+            ),
+            actionsPrompt: prodActionsPrompt,
+            resources,
+            schemaBlock,
+            extra,
+            modelOverlay,
+            runtimeContext,
+            additionalFramework:
+              personalizationBlock +
+              codeEditingSurfaceRestriction +
+              prodCodeExecPromptNote,
+          });
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -6120,12 +2653,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         durableBackgroundRuns: options?.durableBackgroundRuns,
         finalResponseGuard: options?.finalResponseGuard,
         prepareRequest: async (details) => {
-          // Stash the threadId on runCtx so systemPrompt can check isNewThread().
-          // prepareRequest fires before systemPromptPromise starts, so this is safe.
-          const runCtxForPrepare = ensureRequestRunContext();
-          if (runCtxForPrepare && details.threadId) {
-            (runCtxForPrepare as any)._requestThreadId = details.threadId;
-          }
           if (details.threadId && details.ownerEmail) {
             const existingThread = await getThread(details.threadId);
             if (existingThread) {
@@ -6182,7 +2709,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           };
         },
         skipFilesContext,
-        initialToolNames: options?.initialToolNames,
+        initialToolNames: effectiveInitialToolNames,
         ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
         onEngineResolved: (engine, model) => {
           const runCtx = ensureRequestRunContext();
@@ -6215,6 +2742,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
+                await emitContextXraySystemSections(event, {
+                  frameworkPrompt: anonymousReadOnlyPrompt,
+                  extra,
+                  runtimeContext: runtimeContextForEvent(event),
+                });
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
                     extra +
@@ -6230,7 +2762,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               finalResponseGuard: options?.finalResponseGuard,
               prepareRequest: options?.prepareRequest,
               skipFilesContext: true,
-              initialToolNames: options?.initialToolNames,
+              initialToolNames: effectiveInitialToolNames,
               onEngineResolved: (engine, model) => {
                 const runCtx = ensureRequestRunContext();
                 if (runCtx) {
@@ -6325,15 +2857,26 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           systemPrompt: async (event: any) => {
             const { owner, extra } = await prepareRun(event);
             const runtimeContext = runtimeContextForEvent(event);
-            const personalizationBlock = isNewThread()
-              ? FIRST_SESSION_PERSONALIZATION
-              : "";
+            const personalizationBlock =
+              (await hasCompletedFirstSessionPersonalization(owner))
+                ? ""
+                : FIRST_SESSION_PERSONALIZATION;
             const modelOverlay = resolveModelOverlay();
             // Stable-first ordering: runtimeContext (day-granular) is
             // appended LAST so a day rollover invalidates as little of the
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              await emitContextXraySystemSections(event, {
+                frameworkPrompt: leanBasePrompt.slice(
+                  0,
+                  Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+                ),
+                actionsPrompt: prodActionsPrompt,
+                extra,
+                modelOverlay,
+                runtimeContext,
+              });
               return setSystemPromptOnContext(
                 leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
@@ -6347,6 +2890,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext || !databaseToolsEnabled
                 ? ""
                 : await buildSchemaBlock(owner, databaseToolsMode);
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: devNative
+                ? basePrompt.slice(
+                    0,
+                    Math.max(0, basePrompt.length - prodActionsPrompt.length),
+                  )
+                : devPrompt.slice(
+                    0,
+                    Math.max(0, devPrompt.length - devActionsPrompt.length),
+                  ),
+              actionsPrompt: devNative ? prodActionsPrompt : devActionsPrompt,
+              resources,
+              schemaBlock,
+              extra,
+              modelOverlay,
+              runtimeContext,
+              additionalFramework: personalizationBlock,
+            });
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +
@@ -6365,10 +2926,6 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           durableBackgroundRuns: options?.durableBackgroundRuns,
           finalResponseGuard: options?.finalResponseGuard,
           prepareRequest: async (details) => {
-            const runCtxForPrepare = ensureRequestRunContext();
-            if (runCtxForPrepare && details.threadId) {
-              (runCtxForPrepare as any)._requestThreadId = details.threadId;
-            }
             if (details.threadId && details.ownerEmail) {
               const existingThread = await getThread(details.threadId);
               if (existingThread) {
@@ -6389,7 +2946,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             return options?.prepareRequest?.(details);
           },
           skipFilesContext,
-          initialToolNames: options?.initialToolNames,
+          initialToolNames: effectiveInitialToolNames,
           ...(options?.toolLimits ? { toolLimits: options.toolLimits } : {}),
           onEngineResolved: (engine, model) => {
             const runCtx = ensureRequestRunContext();
@@ -6516,12 +3073,17 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               setResponseStatus(event, 401);
               return { error: "Invalid or expired processor token" };
             }
-          } else if (isA2AProductionRuntime()) {
-            setResponseStatus(event, 503);
-            return {
-              error:
-                "Agent Teams processor not configured — set A2A_SECRET on this deployment.",
-            };
+          } else {
+            const loopback = isLoopbackAddress(
+              getRequestIP(event, { xForwardedFor: false }),
+            );
+            if (!isTrustedLocalRuntime({ loopback })) {
+              setResponseStatus(event, 503);
+              return {
+                error:
+                  "Agent Teams processor not configured — set A2A_SECRET on this deployment (or A2A_ALLOW_UNSIGNED_INTERNAL=1 for trusted local dev).",
+              };
+            }
           }
 
           try {
@@ -6558,6 +3120,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   engine.defaultModel ??
                   resolvedModel;
                 const model = normalizeModelForEngine(engine, modelCandidate);
+                // Intentionally NOT setting `initialToolNames` here (unlike
+                // schedulerDeps/dispatcher above). `AgentTeamRunConfig.actions`
+                // (buildSubAgentActions()) is already a small curated registry
+                // — it excludes jobTools/automationTools/notificationTools/
+                // progressTools/fetchTool/webSearchTool/toolActions, the exact
+                // bloat those two surfaces needed to defer. There is no larger
+                // catalog behind it for tool-search to expand into: it IS the
+                // sub-agent's entire tool set. Worse, `buildSubAgentSystemPrompt`
+                // (agent-teams.ts) literally lists every key of `actions` as
+                // "Your available actions (...) work directly" — filtering to
+                // anything narrower would contradict what the sub-agent was
+                // just told, and filtering to the full set would only add a
+                // tool-search schema with nothing new for it to find.
                 return {
                   baseSystemPrompt: basePrompt,
                   actions: buildSubAgentActions(),
@@ -7189,6 +3764,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           setResponseHeader(event, "Content-Type", "application/x-ndjson");
           setResponseHeader(event, "Cache-Control", "no-cache");
 
+          // Lets `cancel()` signal in-flight source work to stop early on
+          // client disconnect, instead of only being noticed the next time
+          // `flush()`'s `controller.enqueue` throws.
+          const mentionsAbort = new AbortController();
+
           const stream = new ReadableStream({
             start(controller) {
               return runWithRequestContext(
@@ -7200,7 +3780,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               );
             },
             cancel() {
-              // Client disconnected — stop enqueuing
+              // Client disconnected — stop enqueuing and let in-flight source
+              // work short-circuit instead of running to completion unseen.
+              mentionsAbort.abort();
             },
           });
 
@@ -7211,10 +3793,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           ) {
             const MAX_RESULTS = 50;
             let totalSent = 0;
-            let cancelled = false;
+            let cancelled = mentionsAbort.signal.aborted;
 
             const flush = (batch: MentionItemResponse[]) => {
-              if (cancelled) return;
+              if (cancelled || mentionsAbort.signal.aborted) {
+                cancelled = true;
+                return;
+              }
               const filtered = batch.filter(matchesQuery);
               if (filtered.length === 0) return;
               const remaining = MAX_RESULTS - totalSent;
@@ -7297,6 +3882,8 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
             // 3. Custom mention providers (each flushes independently)
             for (const [key, provider] of Object.entries(mentionProviders)) {
+              // Client already disconnected — don't spawn more provider work.
+              if (mentionsAbort.signal.aborted) break;
               sources.push(
                 (async () => {
                   try {
@@ -7384,7 +3971,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             );
 
             await Promise.all(sources);
-            if (!cancelled) controller.close();
+            if (!cancelled && !mentionsAbort.signal.aborted) {
+              controller.close();
+            }
           }
         }),
       );
@@ -7414,6 +4003,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           }
           recent.push(now);
           generateTitleRateLimit.set(ownerEmail, recent);
+
+          // Opportunistic eviction: keep the map from growing unbounded by
+          // the count of distinct users on a long-lived process. Drop any
+          // key whose window has fully drained (no timestamps within the
+          // rolling window).
+          if (generateTitleRateLimit.size > RATE_LIMIT_SWEEP_THRESHOLD) {
+            for (const [email, times] of generateTitleRateLimit) {
+              if (email === ownerEmail) continue;
+              if (times.every((t) => now - t >= limitWindowMs)) {
+                generateTitleRateLimit.delete(email);
+              }
+            }
+          }
 
           const body = await readBody(event);
           const message = body?.message;
@@ -8403,10 +5005,14 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
 
           // Validate + HMAC-authenticate the self-dispatch and prepare the
           // background-worker body. Pure decision (unit-tested in
-          // durable-background.spec.ts); the route only wires it to h3.
+          // durable-background.spec.ts); the route only wires it to h3. This
+          // handler DOES have the h3 event, so it can see the real socket
+          // peer — thread the loopback signal through so unsigned local-dev
+          // self-dispatch (no A2A_SECRET) still works over 127.0.0.1/::1.
           const prepared = prepareProcessRunRequest(
             processBody,
             getHeader(event, "authorization"),
+            isLoopbackAddress(getRequestIP(event, { xForwardedFor: false })),
           );
           if (!prepared.ok) {
             // DIAGNOSTIC: record the auth/validation failure ONTO the run
@@ -8653,6 +5259,19 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : await buildSchemaBlock(owner, databaseToolsMode);
               return basePrompt + resources + schemaBlock;
             },
+            // `basePrompt` above is the same prompt the interactive chat
+            // handler builds, so it teaches the same template actions plus
+            // `manage-jobs` (Extended Capabilities / recurring jobs) and
+            // `manage-progress` (SHARED_RULE_14) BY NAME — both are present in
+            // getActions() via jobTools/progressTools. Keep the job runner's
+            // first request on the same compact surface as interactive chat
+            // instead of the full jobTools/automationTools/notificationTools/
+            // fetchTool/webSearchTool/toolActions catalog every tick.
+            getInitialToolNames: () => [
+              ...effectiveInitialToolNames,
+              "manage-jobs",
+              "manage-progress",
+            ],
             apiKey: options?.apiKey,
             model: options?.model,
             appId: options?.appId,
@@ -8959,6 +5578,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                 : await buildSchemaBlock(owner, databaseToolsMode);
               return basePrompt + resources + schemaBlock;
             },
+            // See the matching comment on schedulerDeps.getInitialToolNames
+            // above — same shared `basePrompt`, same reasoning.
+            getInitialToolNames: () => [
+              ...effectiveInitialToolNames,
+              "manage-jobs",
+              "manage-progress",
+            ],
             apiKey: options?.apiKey,
             model: options?.model,
             appId: options?.appId,
@@ -8994,6 +5620,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
         "/_agent-native/actions",
         "/_agent-native/agent-model-defaults",
         "/_agent-native/mcp",
+        "/mcp",
       ],
     });
   };
@@ -9006,77 +5633,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
  */
 export const defaultAgentChatPlugin: NitroPluginDef = createAgentChatPlugin();
 
-// ---------------------------------------------------------------------------
-// MCP client glue — a shared manager reference + a /_agent-native/mcp/status
-// route so onboarding / settings UIs can see which MCP servers are live.
-// ---------------------------------------------------------------------------
+import {
+  setGlobalMcpManager,
+  getGlobalMcpManager,
+  refreshGlobalMcpManager,
+  mountMcpHubStatusRoute,
+  mountMcpStatusRoute,
+} from "./agent-chat/mcp-glue.js";
 
-let _globalMcpManager: McpClientManager | null = null;
-
-function setGlobalMcpManager(manager: McpClientManager): void {
-  _globalMcpManager = manager;
-}
-
-/** Internal: access the current process's MCP client manager, if any. */
-export function getGlobalMcpManager(): McpClientManager | null {
-  return _globalMcpManager;
-}
-
-/** Internal: reload the process's MCP client manager after persisted settings change. */
-export async function refreshGlobalMcpManager(): Promise<boolean> {
-  const manager = getGlobalMcpManager();
-  if (!manager) return false;
-  await manager.reconfigure(await buildMergedConfig());
-  return true;
-}
-
-function mountMcpHubStatusRoute(nitroApp: any): void {
-  const mountedApps: WeakSet<object> = ((
-    globalThis as any
-  ).__agentNativeMcpHubStatusMountedApps ??= new WeakSet<object>());
-  if (mountedApps.has(nitroApp)) return;
-  mountedApps.add(nitroApp);
-  try {
-    getH3App(nitroApp).use(
-      "/_agent-native/mcp/hub/status",
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        setResponseHeader(event, "Content-Type", "application/json");
-        return getHubStatus();
-      }),
-    );
-  } catch (err: any) {
-    console.warn(
-      `[mcp-client] Failed to mount /_agent-native/mcp/hub/status: ${err?.message ?? err}`,
-    );
-  }
-}
-
-function mountMcpStatusRoute(nitroApp: any, manager: McpClientManager): void {
-  // Idempotent per Nitro app; dev-all may host multiple templates in one process.
-  const mountedApps: WeakSet<object> = ((
-    globalThis as any
-  ).__agentNativeMcpStatusMountedApps ??= new WeakSet<object>());
-  if (mountedApps.has(nitroApp)) return;
-  mountedApps.add(nitroApp);
-  try {
-    getH3App(nitroApp).use(
-      "/_agent-native/mcp/status",
-      defineEventHandler(async (event) => {
-        if (getMethod(event) !== "GET") {
-          setResponseStatus(event, 405);
-          return { error: "Method not allowed" };
-        }
-        setResponseHeader(event, "Content-Type", "application/json");
-        return manager.getStatus();
-      }),
-    );
-  } catch (err: any) {
-    console.warn(
-      `[mcp-client] Failed to mount /_agent-native/mcp/status: ${err?.message ?? err}`,
-    );
-  }
-}
+export { getGlobalMcpManager };
+export { refreshGlobalMcpManager };

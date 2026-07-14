@@ -41,6 +41,9 @@ jobs:
             rust-targets: ""
             bundles: "appimage,deb,rpm"
     runs-on: ${{ matrix.os }}
+    env:
+      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
+      GGML_METAL_MACOSX_VERSION_MIN: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
@@ -72,6 +75,15 @@ jobs:
         with:
           targets: ${{ matrix.rust-targets }}
 
+      - name: Link Apple compiler runtime for Rust
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          # Xcode emits __isPlatformVersionAtLeast for whisper-rs-sys's
+          # availability checks. Rust's final link does not add compiler-rt.
+          CLANG_RUNTIME="$(xcrun --sdk macosx clang -print-libgcc-file-name)"
+          echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=${CLANG_RUNTIME}" >> "$GITHUB_ENV"
+
       - name: Rust cache
         uses: swatinem/rust-cache@e18b497796c12c097a38f9edb9d0641fb99eee32 # v2
         with:
@@ -79,6 +91,14 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run typecheck
+
+      - name: Test
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        run: pnpm run test
 
       - name: Build frontend
         working-directory: ${{ env.TAURI_APP_PATH }}

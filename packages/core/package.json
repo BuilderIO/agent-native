@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.94.2",
+  "version": "0.101.3",
   "description": "Framework for agent-native application development — where AI agents and UI share SQL state, actions, and context",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -101,6 +101,10 @@
     "./shared": "./dist/shared/index.js",
     "./voice": "./dist/voice/index.js",
     "./scripts": "./dist/scripts/index.js",
+    "./guards": {
+      "types": "./dist/guards/index.d.ts",
+      "default": "./dist/guards/index.js"
+    },
     "./application-state": "./dist/application-state/index.js",
     "./settings": "./dist/settings/index.js",
     "./localization": "./dist/localization/index.js",
@@ -152,6 +156,7 @@
     "./review/actions/consume-review-feedback": "./dist/review/actions/consume-review-feedback.js",
     "./review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
+    "./review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
     "./comments-review/actions/list-review-comments": "./dist/review/actions/list-review-comments.js",
     "./comments-review/actions/create-review-comment": "./dist/review/actions/create-review-comment.js",
     "./comments-review/actions/reply-review-comment": "./dist/review/actions/reply-review-comment.js",
@@ -160,6 +165,7 @@
     "./comments-review/actions/consume-review-feedback": "./dist/review/actions/consume-review-feedback.js",
     "./comments-review/actions/get-review-feedback": "./dist/review/actions/get-review-feedback.js",
     "./comments-review/actions/set-review-status": "./dist/review/actions/set-review-status.js",
+    "./comments-review/actions/send-review-thread-to-agent": "./dist/review/actions/send-review-thread-to-agent.js",
     "./sharing": "./dist/sharing/index.js",
     "./sharing/actions/share-resource": "./dist/sharing/actions/share-resource.js",
     "./sharing/actions/unshare-resource": "./dist/sharing/actions/unshare-resource.js",
@@ -179,6 +185,10 @@
     "./cli/skills": {
       "types": "./dist/cli/skills.d.ts",
       "default": "./dist/cli/skills.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "default": "./dist/testing.js"
     },
     "./router": "./dist/router/index.js",
     "./collab": "./dist/collab/index.js",
@@ -207,6 +217,10 @@
       "default": "./dist/local-artifacts/index.js"
     },
     "./workspace-files": "./dist/workspace-files/index.js",
+    "./package-lifecycle": {
+      "types": "./dist/package-lifecycle/index.d.ts",
+      "default": "./dist/package-lifecycle/index.js"
+    },
     "./code-agents": "./dist/code-agents/index.js",
     "./code-agents/transcript-normalizer": "./dist/code-agents/transcript-normalizer.js",
     "./workspace-connections": "./dist/workspace-connections/index.js",
@@ -219,6 +233,8 @@
     "./terminal/server": "./dist/terminal/index.js",
     "./tailwind": "./dist/tailwind.preset.js",
     "./styles/agent-native.css": "./dist/styles/agent-native.css",
+    "./styles/agent-conversation.css": "./dist/styles/agent-conversation.css",
+    "./styles/chat-history-list.css": "./dist/styles/chat-history-list.css",
     "./agent/engine": "./dist/agent/engine/index.js",
     "./agent/harness": "./dist/agent/harness/index.js",
     "./eval": "./dist/eval/index.js",
@@ -237,6 +253,7 @@
     "prepublishOnly": "npm run build"
   },
   "dependencies": {
+    "@agent-native/recap-cli": "workspace:*",
     "@agent-native/toolkit": "workspace:^",
     "@amplitude/analytics-browser": "^2.41.1",
     "@anthropic-ai/sdk": "^0.90.0",
@@ -264,7 +281,7 @@
     "@react-router/dev": "^8.1.0",
     "@react-router/fs-routes": "^8.1.0",
     "@resvg/resvg-js": "^2.6.2",
-    "@rrweb/record": "2.0.1",
+    "@rrweb/record": "2.1.0",
     "@sentry/browser": "10.60.0",
     "@sentry/node": "10.60.0",
     "@shadcn/react": "^0.2.0",
@@ -346,7 +363,7 @@
     "@tabler/icons-react": "^3.40.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "catalog:",
-    "@tanstack/react-query": "^5.99.2",
+    "@tanstack/react-query": "^5.101.2",
     "@types/better-sqlite3": "^7.6.13",
     "@types/diff-match-patch": "^1.0.36",
     "@types/express": "^5.0.6",
@@ -371,7 +388,6 @@
     "react-dom": "^19.2.7",
     "react-router": "^8.1.0",
     "tailwindcss": "catalog:",
-    "typescript": "catalog:",
     "typescript-7": "catalog:",
     "vite": "catalog:",
     "vitest": "^4.1.5",

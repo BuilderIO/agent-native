@@ -10,7 +10,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
-import { IconMoon, IconSun } from "@tabler/icons-react";
+import { IconBrain, IconMoon, IconSun } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -184,6 +184,20 @@ function AppContent() {
           <CommandMenu.Item onSelect={() => navigate("/settings")}>
             {t("navigation.settings")}
           </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={[
+              "agent",
+              "context",
+              "files",
+              "connections",
+              "jobs",
+              "access",
+            ]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
+          </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>
           <ThemeToggleItem />
@@ -204,9 +218,6 @@ export default function Root() {
           // Brain has a faster sync cadence for source distillation status;
           // 20 s keeps the source list fresh without hammering the server.
           staleTime: 20_000,
-          // Brain shows live ingestion progress — refetch on focus to pick
-          // up background sync jobs that don't emit DB events.
-          refetchOnWindowFocus: true,
           // Flat retry: Brain data fetches are rarely auth failures so a
           // flat count is sufficient.
           retry: 1,

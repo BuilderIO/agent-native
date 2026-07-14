@@ -18,7 +18,8 @@ function slugify(text: string): string {
 }
 
 export default defineAction({
-  description: "Update an existing form.",
+  description:
+    "Update an existing form, including settings.emailOnNewResponses to email the form owner when new responses arrive.",
   schema: z.object({
     id: z.string().describe("Form ID (required)"),
     title: z.string().optional().describe("New title"),
@@ -34,7 +35,9 @@ export default defineAction({
     settings: z
       .union([z.string(), z.record(z.string(), z.any())])
       .optional()
-      .describe("Form settings object (or JSON string of the same)"),
+      .describe(
+        "Form settings object (or JSON string of the same). Set emailOnNewResponses=true to email the form owner for each new response.",
+      ),
     status: z
       .enum(["draft", "published", "closed"])
       .optional()

@@ -21,6 +21,12 @@ export default function Footer() {
             {t("footer.download")}
           </Link>
           <Link
+            to={localizedPath("/skills")}
+            className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
+          >
+            {t("header.skills")}
+          </Link>
+          <Link
             to={localizedPath("/brand")}
             className="text-[var(--fg-secondary)] transition hover:text-[var(--fg)]"
           >

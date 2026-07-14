@@ -57,7 +57,7 @@ describe("buildPlanMarkdownSectionCopyUrl", () => {
   it("removes local bridge tokens from copied section links", () => {
     expect(
       buildPlanMarkdownSectionCopyUrl(
-        "https://plan.agent-native.com/local-plans/checkout?bridge=http%3A%2F%2F127.0.0.1%3A58201%2Flocal-plan.json%3Ftoken%3Dsecret&view=review#old",
+        "https://plan.agent-native.com/local-plans/checkout?view=review#bridge=http%3A%2F%2F127.0.0.1%3A58201%2Flocal-plan.json%3Ftoken%3Dsecret",
         "plan-heading-intro-0",
       ),
     ).toBe(

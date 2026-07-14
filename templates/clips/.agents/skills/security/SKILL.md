@@ -147,6 +147,16 @@ export default defineEventHandler(async (event) => {
 
 - Never create unprotected routes that modify data.
 
+**Exception — the SSR HTML/`.data` catch-all is deliberately session-blind.**
+The rule above is for routes that read or mutate user data. The SSR page
+render and React Router `.data` route are different: they serve one
+impersonal, public-cacheable shell to every visitor by design, and loaders on
+that path render no user data. Do not "fix" this by adding `getSession`,
+`private`, or `no-store` to it — that regresses the CDN cache contract for the
+whole site. Data scoping lives in actions and API routes; the client gates
+private UI after the shell loads. See the `authentication` skill and
+`guard:ssr-cache-shell` / `ssr-handler.spec.ts`.
+
 ## Human-in-the-Loop Approval for High-Consequence Actions
 
 For a small set of outward-facing, hard-to-undo operations — sending an email, charging a card, deleting an account, posting publicly — auth and access control are necessary but not sufficient: you also do not want the **agent** to perform them autonomously. Set `needsApproval` on the `defineAction` so the agent cannot run the action without a human approving the specific call.

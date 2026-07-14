@@ -116,6 +116,7 @@ const {
   handleMcpOAuth,
   handleMcpOAuthAuthorizationServerMetadata,
   handleMcpOAuthProtectedResourceMetadata,
+  getMcpOAuthAudiences,
 } = await import("./oauth-route.js");
 const { verifyMcpOAuthAccessToken } = await import("./oauth-token.js");
 
@@ -169,20 +170,19 @@ describe("MCP OAuth route", () => {
     const protectedRes = handleMcpOAuthProtectedResourceMetadata(event());
     expect(protectedRes.status).toBe(200);
     await expect(protectedRes.json()).resolves.toMatchObject({
-      resource: "https://mail.agent-native.com/_agent-native/mcp",
+      resource: "https://mail.agent-native.com/mcp",
       authorization_servers: ["https://mail.agent-native.com"],
-      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps"],
+      scopes_supported: ["mcp:read", "mcp:write", "mcp:apps", "offline_access"],
     });
 
     const authRes = handleMcpOAuthAuthorizationServerMetadata(event());
     await expect(authRes.json()).resolves.toMatchObject({
       issuer: "https://mail.agent-native.com",
       authorization_endpoint:
-        "https://mail.agent-native.com/_agent-native/mcp/oauth/authorize",
-      token_endpoint:
-        "https://mail.agent-native.com/_agent-native/mcp/oauth/token",
-      registration_endpoint:
-        "https://mail.agent-native.com/_agent-native/mcp/oauth/register",
+        "https://mail.agent-native.com/mcp/oauth/authorize",
+      token_endpoint: "https://mail.agent-native.com/mcp/oauth/token",
+      registration_endpoint: "https://mail.agent-native.com/mcp/oauth/register",
+      scopes_supported: expect.arrayContaining(["offline_access"]),
       code_challenge_methods_supported: ["S256"],
       token_endpoint_auth_methods_supported: ["none"],
     });
@@ -200,7 +200,7 @@ describe("MCP OAuth route", () => {
       }),
     );
     await expect(protectedRes.json()).resolves.toMatchObject({
-      resource: "https://plan.agent-native.com/_agent-native/mcp",
+      resource: "https://plan.agent-native.com/mcp",
       authorization_servers: ["https://plan.agent-native.com"],
     });
 
@@ -215,9 +215,15 @@ describe("MCP OAuth route", () => {
     );
     await expect(authRes.json()).resolves.toMatchObject({
       issuer: "https://plan.agent-native.com",
-      token_endpoint:
-        "https://plan.agent-native.com/_agent-native/mcp/oauth/token",
+      token_endpoint: "https://plan.agent-native.com/mcp/oauth/token",
     });
+  });
+
+  it("publishes /mcp while accepting legacy OAuth resource audiences", () => {
+    expect(getMcpOAuthAudiences(event())).toEqual([
+      "https://mail.agent-native.com/mcp",
+      "https://mail.agent-native.com/_agent-native/mcp",
+    ]);
   });
 
   it("registers public OAuth clients with safe redirect URIs", async () => {
@@ -324,7 +330,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge("v".repeat(50)),
           code_challenge_method: "S256",
         },
@@ -355,7 +361,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:read mcp:apps",
           state: "state-123",
           code_challenge: challenge(verifier),
@@ -377,7 +383,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:read mcp:apps",
           state: "state-123",
           code_challenge: challenge(verifier),
@@ -417,7 +423,7 @@ describe("MCP OAuth route", () => {
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
@@ -450,7 +456,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: deepLink,
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:read mcp:apps",
           state: "state-xyz",
           code_challenge: challenge(verifier),
@@ -472,7 +478,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: deepLink,
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:read mcp:apps",
           state: "state-xyz",
           code_challenge: challenge(verifier),
@@ -519,7 +525,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -538,7 +544,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -568,7 +574,7 @@ describe("MCP OAuth route", () => {
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
@@ -596,7 +602,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           scope: "mcp:typo",
           code_challenge: challenge("v".repeat(50)),
           code_challenge_method: "S256",
@@ -624,7 +630,7 @@ describe("MCP OAuth route", () => {
       )
     ).json();
     const verifier = "v".repeat(50);
-    const resource = "https://mail.agent-native.com/dispatch/_agent-native/mcp";
+    const resource = "https://mail.agent-native.com/dispatch/mcp";
     const consent = await handleMcpOAuth(
       event({
         query: {
@@ -686,7 +692,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -706,7 +712,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -749,7 +755,7 @@ describe("MCP OAuth route", () => {
     await expect(
       verifyMcpOAuthAccessToken(
         body.access_token,
-        "https://mail.agent-native.com/_agent-native/mcp",
+        "https://mail.agent-native.com/mcp",
       ),
     ).resolves.toMatchObject({
       userEmail: "steve@example.com",
@@ -795,7 +801,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -814,7 +820,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -878,7 +884,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -897,7 +903,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -982,7 +988,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -1001,7 +1007,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -1048,7 +1054,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -1067,7 +1073,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,
@@ -1127,7 +1133,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
         },
@@ -1146,7 +1152,7 @@ describe("MCP OAuth route", () => {
           response_type: "code",
           client_id: client.client_id,
           redirect_uri: "http://localhost:5555/callback",
-          resource: "https://mail.agent-native.com/_agent-native/mcp",
+          resource: "https://mail.agent-native.com/mcp",
           code_challenge: challenge(verifier),
           code_challenge_method: "S256",
           consent_token: consentToken,

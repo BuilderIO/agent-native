@@ -2,9 +2,11 @@
 // Cross-platform post-TypeScript step: copies runtime templates + CSS into dist/.
 // Inline shell (rm -rf, cp -r, mkdir -p) breaks on Windows cmd.exe, which
 // blocks CI runs of the Clips Tauri workflow on windows-latest.
+import { randomBytes } from "node:crypto";
 import {
   readFileSync,
   readdirSync,
+  renameSync,
   rmSync,
   cpSync,
   mkdirSync,
@@ -34,9 +36,67 @@ function pruneSpecArtifacts(dir) {
 }
 if (existsSync("dist")) pruneSpecArtifacts("dist");
 
-rmSync("dist/templates", { recursive: true, force: true });
-cpSync("src/templates", "dist/templates", { recursive: true });
-pruneSpecArtifacts("dist/templates");
+// Two overlapping `pnpm --filter @agent-native/core run build` invocations
+// (e.g. concurrent `scripts/dev-lazy.ts` prebuilds) both land here and used
+// to `rmSync`/`cpSync` "dist/templates" directly, which could throw EEXIST
+// out of `cpSync` when one process's copy landed mid-walk of another's rm.
+// Build into a unique temp dir first, then swap it into place with the same
+// bounded, race-tolerant retry used for the source corpus in
+// materialize-source-corpus.mjs.
+const distTemplatesDir = "dist/templates";
+const templatesTempDir = `${distTemplatesDir}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`;
+const templateSwapMaxAttempts = 5;
+const templateSwapRetryDelayMs = 40;
+
+function sleepSync(ms) {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+// src/templates always has content (default/, headless/, workspace-core/,
+// workspace-root/), so a non-empty dist/templates is proof some build --
+// ours or a concurrent one -- finished copying. No marker file is added so
+// dist/templates stays a byte-for-byte mirror of src/templates.
+function looksLikeMaterializedTemplates(dir) {
+  if (!existsSync(dir)) return false;
+  return readdirSync(dir).length > 0;
+}
+
+function swapTemplatesDirIntoPlace(tempDir) {
+  for (let attempt = 1; attempt <= templateSwapMaxAttempts; attempt += 1) {
+    try {
+      rmSync(distTemplatesDir, { recursive: true, force: true });
+    } catch {
+      // A concurrent build may already be repopulating dist/templates; let
+      // the renameSync below decide the outcome instead of failing here.
+    }
+    try {
+      renameSync(tempDir, distTemplatesDir);
+      return;
+    } catch (error) {
+      const code = error && error.code;
+      const concurrentWriter =
+        code === "ENOTEMPTY" ||
+        code === "EEXIST" ||
+        code === "ENOENT" ||
+        code === "EPERM";
+      if (!concurrentWriter) throw error;
+      if (looksLikeMaterializedTemplates(distTemplatesDir)) {
+        rmSync(tempDir, { recursive: true, force: true });
+        return;
+      }
+      if (attempt < templateSwapMaxAttempts) {
+        sleepSync(templateSwapRetryDelayMs * attempt);
+        continue;
+      }
+      throw error;
+    }
+  }
+}
+
+rmSync(templatesTempDir, { recursive: true, force: true });
+cpSync("src/templates", templatesTempDir, { recursive: true });
+pruneSpecArtifacts(templatesTempDir);
+swapTemplatesDirIntoPlace(templatesTempDir);
 mkdirSync("dist/styles", { recursive: true });
 for (const f of readdirSync("src/styles").filter((n) => n.endsWith(".css"))) {
   copyFileSync(join("src/styles", f), join("dist/styles", f));

@@ -11,9 +11,9 @@ import {
   IconFrame,
   IconLayersSubtract,
   IconLayersUnion,
+  IconLayoutGrid,
   IconLock,
   IconLockOpen,
-  IconLayoutGrid,
   IconPencil,
   IconPlus,
   IconSearch,
@@ -30,8 +30,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type DragEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   type Ref,
@@ -51,6 +51,7 @@ import { Input } from "@/components/ui/input";
 import {
   Tooltip,
   TooltipContent,
+  TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -1355,211 +1356,215 @@ function LayersPanelImpl(
   useEffect(() => stopAutoScroll, [stopAutoScroll]);
 
   return (
-    <aside
-      className={cn(
-        "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[12px] text-foreground",
-        className,
-      )}
-      aria-label={labels.title}
-    >
-      {screenRows.length > 0 ? (
-        <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-2">
-          <div className="flex h-10 items-center justify-between px-3">
-            <h2 className="truncate text-[12px] font-semibold text-foreground">
-              {labels.screens}
-            </h2>
-            <div className="flex items-center gap-0.5 text-muted-foreground">
-              <IconTooltipButton
-                label={labels.searchPlaceholder}
-                onClick={focusSearch}
+    <TooltipProvider delayDuration={300} skipDelayDuration={400}>
+      <aside
+        className={cn(
+          "flex h-full min-h-0 w-full flex-col overflow-hidden bg-[var(--design-editor-panel-bg)] text-[12px] text-foreground",
+          className,
+        )}
+        aria-label={labels.title}
+      >
+        {screenRows.length > 0 ? (
+          <div className="shrink-0 border-b border-[var(--design-editor-panel-divider-color)] pb-2">
+            <div className="flex h-10 items-center justify-between px-3">
+              <h2 className="truncate text-[12px] font-semibold text-foreground">
+                {labels.screens}
+              </h2>
+              <div className="flex items-center gap-0.5 text-muted-foreground">
+                <IconTooltipButton
+                  label={labels.searchPlaceholder}
+                  onClick={focusSearch}
+                >
+                  <IconSearch className="size-4" />
+                </IconTooltipButton>
+                <IconTooltipButton
+                  label={labels.addScreen}
+                  disabled={!onAddScreen}
+                  onClick={onAddScreen}
+                >
+                  <IconPlus className="size-4" />
+                </IconTooltipButton>
+              </div>
+            </div>
+            <div className="px-2">
+              <button
+                type="button"
+                className={cn(
+                  "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                  screenOverviewActive
+                    ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+                    : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
+                )}
+                aria-current={screenOverviewActive ? "page" : undefined}
+                onClick={() => onScreenOverview?.()}
+                title={labels.allScreens}
               >
-                <IconSearch className="size-4" />
-              </IconTooltipButton>
-              <IconTooltipButton
-                label={labels.addScreen}
-                disabled={!onAddScreen}
-                onClick={onAddScreen}
-              >
-                <IconPlus className="size-4" />
-              </IconTooltipButton>
+                <IconLayoutGrid className="size-4 shrink-0" />
+                <span className="min-w-0 flex-1 truncate">
+                  {labels.allScreens}
+                </span>
+              </button>
+            </div>
+            <div className="mx-3 my-2 border-t border-[var(--design-editor-panel-divider-color)]" />
+            <div className="space-y-0.5 px-2">
+              {screenRows.map((screen) => {
+                const isActive =
+                  !screenOverviewActive && screen.id === activeScreenId;
+                return (
+                  <button
+                    key={screen.id}
+                    type="button"
+                    className={cn(
+                      "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
+                      isActive
+                        ? "bg-[var(--design-editor-active-row-color)] text-foreground"
+                        : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
+                    )}
+                    aria-current={isActive ? "page" : undefined}
+                    onClick={() => onScreenSelect?.(screen.id)}
+                    title={screen.filename ?? screen.name}
+                  >
+                    <LayerGlyph node={{ ...screen, type: "file" }} />
+                    <span className="min-w-0 flex-1 truncate">
+                      {screen.name}
+                    </span>
+                    {screen.badge ? (
+                      <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
+                        {screen.badge}
+                      </span>
+                    ) : null}
+                  </button>
+                );
+              })}
             </div>
           </div>
-          <div className="px-2">
+        ) : null}
+
+        <div className="flex h-10 shrink-0 items-center justify-between px-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-[12px] font-semibold text-foreground">
+              {labels.title}
+            </h2>
+          </div>
+          <div className="flex items-center gap-0.5 text-muted-foreground">
             <button
               type="button"
-              className={cn(
-                "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                screenOverviewActive
-                  ? "bg-[var(--design-editor-active-row-color)] text-foreground"
-                  : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
-              )}
-              aria-current={screenOverviewActive ? "page" : undefined}
-              onClick={() => onScreenOverview?.()}
-              title={labels.allScreens}
+              className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
+              aria-label={labels.collapse}
+              disabled={!collapseTargetId}
+              onClick={collapseSelectedLayer}
             >
-              <IconLayoutGrid className="size-4 shrink-0" />
-              <span className="min-w-0 flex-1 truncate">
-                {labels.allScreens}
-              </span>
+              <LayerOptionsGlyph className="size-4" />
             </button>
           </div>
-          <div className="mx-3 my-2 border-t border-[var(--design-editor-panel-divider-color)]" />
-          <div className="space-y-0.5 px-2">
-            {screenRows.map((screen) => {
-              const isActive =
-                !screenOverviewActive && screen.id === activeScreenId;
-              return (
-                <button
-                  key={screen.id}
-                  type="button"
-                  className={cn(
-                    "flex h-8 w-full cursor-default items-center gap-2 rounded-[5px] px-2 text-left text-[12px] font-semibold outline-none focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]",
-                    isActive
-                      ? "bg-[var(--design-editor-active-row-color)] text-foreground"
-                      : "text-foreground/85 hover:bg-[var(--design-editor-active-row-color)] hover:text-foreground",
-                  )}
-                  aria-current={isActive ? "page" : undefined}
-                  onClick={() => onScreenSelect?.(screen.id)}
-                  title={screen.filename ?? screen.name}
-                >
-                  <LayerGlyph node={{ ...screen, type: "file" }} />
-                  <span className="min-w-0 flex-1 truncate">{screen.name}</span>
-                  {screen.badge ? (
-                    <span className="rounded-sm bg-muted px-1 text-[10px] font-normal text-muted-foreground">
-                      {screen.badge}
-                    </span>
-                  ) : null}
-                </button>
-              );
-            })}
-          </div>
         </div>
-      ) : null}
 
-      <div className="flex h-10 shrink-0 items-center justify-between px-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-[12px] font-semibold text-foreground">
-            {labels.title}
-          </h2>
-        </div>
-        <div className="flex items-center gap-0.5 text-muted-foreground">
-          <button
-            type="button"
-            className="flex size-6 items-center justify-center rounded-sm text-muted-foreground hover:bg-[var(--design-editor-layer-hover-color)] hover:text-foreground disabled:pointer-events-none disabled:opacity-35"
-            aria-label={labels.collapse}
-            disabled={!collapseTargetId}
-            onClick={collapseSelectedLayer}
-          >
-            <LayerOptionsGlyph className="size-4" />
-          </button>
-        </div>
-      </div>
+        {shouldShowSearch ? (
+          <div className="shrink-0 p-2">
+            <div className="relative">
+              <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                ref={searchInputRef}
+                value={searchQuery}
+                onChange={(event) => onSearchQueryChange(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Escape" && !searchQuery.trim()) {
+                    setSearchOpen(false);
+                  }
+                }}
+                placeholder={labels.searchPlaceholder}
+                className="h-7 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-7 text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
+              />
+            </div>
+          </div>
+        ) : null}
 
-      {shouldShowSearch ? (
-        <div className="shrink-0 p-2">
-          <div className="relative">
-            <IconSearch className="pointer-events-none absolute left-2 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              ref={searchInputRef}
-              value={searchQuery}
-              onChange={(event) => onSearchQueryChange(event.target.value)}
-              onKeyDown={(event) => {
-                if (event.key === "Escape" && !searchQuery.trim()) {
-                  setSearchOpen(false);
-                }
-              }}
-              placeholder={labels.searchPlaceholder}
-              className="h-7 rounded-[4px] border-[var(--design-editor-control-border)] bg-[var(--design-editor-control-bg)] pl-7 text-[12px] shadow-none placeholder:text-muted-foreground/70 focus-visible:ring-1 focus-visible:ring-[var(--design-editor-accent-color)]"
-            />
-          </div>
+        <div
+          ref={scrollContainerRef}
+          className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
+          onDragOver={handleRowsDragOver}
+          onDrop={stopAutoScroll}
+          onDragEnd={stopAutoScroll}
+        >
+          {visibleRows.length ? (
+            <div
+              className="w-max min-w-full px-2"
+              role="tree"
+              aria-label={labels.title}
+            >
+              {visibleRows.map((row) => {
+                // Per-row primitives computed here (not inside LayerRow) so the
+                // row only receives booleans/strings it needs — no whole-tree
+                // arrays that would force a re-render every time any other
+                // row's selection state changes.
+                const isSelected = selectedIdSet.has(row.node.id);
+                const isInSelectedSubtree = row.ancestorIds.some((id) =>
+                  selectedIdSet.has(id),
+                );
+                const isHovered =
+                  hoveredLayerId != null && row.node.id === hoveredLayerId;
+                const isActiveScreen =
+                  row.node.id === activeScreenId &&
+                  (row.node.type === "file" ||
+                    row.node.type === "screen" ||
+                    row.node.type === "frame");
+                const isRenaming = renamingId === row.node.id;
+                const activeDropPlacement =
+                  dropIndicator?.targetId === row.node.id
+                    ? dropIndicator.placement
+                    : null;
+                return (
+                  <LayerRow
+                    key={row.rowKey}
+                    row={row}
+                    labels={labels}
+                    isExpanded={expandedIdSet.has(row.node.id)}
+                    isSelected={isSelected}
+                    isInSelectedSubtree={isInSelectedSubtree}
+                    isActiveScreen={isActiveScreen}
+                    isHovered={isHovered}
+                    isRenaming={isRenaming}
+                    renameDraft={isRenaming ? renameDraft : ""}
+                    registerRowElement={registerRowElement}
+                    onRenameDraftChange={setRenameDraft}
+                    onCommitRename={commitRename}
+                    onCancelRename={handleCancelRename}
+                    onStartRename={startRename}
+                    onRename={onRename}
+                    onSelect={selectNode}
+                    onToggleExpanded={handleToggleExpanded}
+                    onToggleLocked={onToggleLocked}
+                    onToggleHidden={onToggleHidden}
+                    onHoverLayer={onHoverLayer}
+                    onLeaveLayer={onLeaveLayer}
+                    onMoveLayer={onMoveLayer}
+                    canMoveLayer={canMoveLayer}
+                    activeDropPlacement={activeDropPlacement}
+                    onDropIndicatorChange={setDropIndicator}
+                    selectedIdsRef={selectedIdsRef}
+                    visibleRowsRef={visibleRowsRef}
+                    rootsRef={rootsRef}
+                    onCopyLayer={onCopyLayer}
+                    onPasteToReplace={onPasteToReplace}
+                    onGroupSelection={onGroupSelection}
+                    onFrameSelection={onFrameSelection}
+                    onUngroupSelection={onUngroupSelection}
+                    onReorderLayer={onReorderLayer}
+                    onFlipHorizontal={onFlipHorizontal}
+                    onFlipVertical={onFlipVertical}
+                  />
+                );
+              })}
+            </div>
+          ) : (
+            <div className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
+              {hasAnyRows ? labels.noMatches : labels.empty}
+            </div>
+          )}
         </div>
-      ) : null}
-
-      <div
-        ref={scrollContainerRef}
-        className="min-h-0 flex-1 overflow-auto overscroll-contain py-2"
-        onDragOver={handleRowsDragOver}
-        onDrop={stopAutoScroll}
-        onDragEnd={stopAutoScroll}
-      >
-        {visibleRows.length ? (
-          <div
-            className="w-max min-w-full px-2"
-            role="tree"
-            aria-label={labels.title}
-          >
-            {visibleRows.map((row) => {
-              // Per-row primitives computed here (not inside LayerRow) so the
-              // row only receives booleans/strings it needs — no whole-tree
-              // arrays that would force a re-render every time any other
-              // row's selection state changes.
-              const isSelected = selectedIdSet.has(row.node.id);
-              const isInSelectedSubtree = row.ancestorIds.some((id) =>
-                selectedIdSet.has(id),
-              );
-              const isHovered =
-                hoveredLayerId != null && row.node.id === hoveredLayerId;
-              const isActiveScreen =
-                row.node.id === activeScreenId &&
-                (row.node.type === "file" ||
-                  row.node.type === "screen" ||
-                  row.node.type === "frame");
-              const isRenaming = renamingId === row.node.id;
-              const activeDropPlacement =
-                dropIndicator?.targetId === row.node.id
-                  ? dropIndicator.placement
-                  : null;
-              return (
-                <LayerRow
-                  key={row.rowKey}
-                  row={row}
-                  labels={labels}
-                  isExpanded={expandedIdSet.has(row.node.id)}
-                  isSelected={isSelected}
-                  isInSelectedSubtree={isInSelectedSubtree}
-                  isActiveScreen={isActiveScreen}
-                  isHovered={isHovered}
-                  isRenaming={isRenaming}
-                  renameDraft={isRenaming ? renameDraft : ""}
-                  registerRowElement={registerRowElement}
-                  onRenameDraftChange={setRenameDraft}
-                  onCommitRename={commitRename}
-                  onCancelRename={handleCancelRename}
-                  onStartRename={startRename}
-                  onRename={onRename}
-                  onSelect={selectNode}
-                  onToggleExpanded={handleToggleExpanded}
-                  onToggleLocked={onToggleLocked}
-                  onToggleHidden={onToggleHidden}
-                  onHoverLayer={onHoverLayer}
-                  onLeaveLayer={onLeaveLayer}
-                  onMoveLayer={onMoveLayer}
-                  canMoveLayer={canMoveLayer}
-                  activeDropPlacement={activeDropPlacement}
-                  onDropIndicatorChange={setDropIndicator}
-                  selectedIdsRef={selectedIdsRef}
-                  visibleRowsRef={visibleRowsRef}
-                  rootsRef={rootsRef}
-                  onCopyLayer={onCopyLayer}
-                  onPasteToReplace={onPasteToReplace}
-                  onGroupSelection={onGroupSelection}
-                  onFrameSelection={onFrameSelection}
-                  onUngroupSelection={onUngroupSelection}
-                  onReorderLayer={onReorderLayer}
-                  onFlipHorizontal={onFlipHorizontal}
-                  onFlipVertical={onFlipVertical}
-                />
-              );
-            })}
-          </div>
-        ) : (
-          <div className="px-3 py-8 text-center !text-[11px] text-muted-foreground">
-            {hasAnyRows ? labels.noMatches : labels.empty}
-          </div>
-        )}
-      </div>
-      {footer ? <div className="shrink-0">{footer}</div> : null}
-    </aside>
+        {footer ? <div className="shrink-0">{footer}</div> : null}
+      </aside>
+    </TooltipProvider>
   );
 }
 
@@ -2042,7 +2047,7 @@ const LayerRow = memo(function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative min-w-full"
+          className="relative w-max min-w-full"
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -2082,7 +2087,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           <div
             className={cn(
-              "group flex h-8 min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2228,67 +2233,80 @@ const LayerRow = memo(function LayerRow({
               ) : null}
             </button>
 
-            {lockable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.locked && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.locked ? labels.unlock : labels.lock}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleLocked?.(node.id, !node.locked);
-                    }}
-                  >
-                    {node.locked ? (
-                      <IconLock className="size-3" />
-                    ) : (
-                      <IconLockOpen className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.locked ? labels.unlock : labels.lock}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+            {(lockable || hideable) && (
+              <div
+                className={cn(
+                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit",
+                  node.locked || node.hidden
+                    ? "w-auto overflow-visible pl-2 pr-1"
+                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1 focus-within:w-auto focus-within:overflow-visible focus-within:pl-2 focus-within:pr-1",
+                )}
+              >
+                <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
+                <div className="absolute inset-0 -z-10 bg-inherit" />
+                {lockable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.locked && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.locked ? labels.unlock : labels.lock}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleLocked?.(node.id, !node.locked);
+                        }}
+                      >
+                        {node.locked ? (
+                          <IconLock className="size-3" />
+                        ) : (
+                          <IconLockOpen className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.locked ? labels.unlock : labels.lock}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
 
-            {hideable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.hidden && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.hidden ? labels.show : labels.hide}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleHidden?.(node.id, !node.hidden);
-                    }}
-                  >
-                    {node.hidden ? (
-                      <IconEyeOff className="size-3" />
-                    ) : (
-                      <IconEye className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.hidden ? labels.show : labels.hide}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+                {hideable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.hidden && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.hidden ? labels.show : labels.hide}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleHidden?.(node.id, !node.hidden);
+                        }}
+                      >
+                        {node.hidden ? (
+                          <IconEyeOff className="size-3" />
+                        ) : (
+                          <IconEye className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.hidden ? labels.show : labels.hide}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </ContextMenuTrigger>

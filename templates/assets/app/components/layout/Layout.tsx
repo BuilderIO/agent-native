@@ -67,6 +67,10 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+    // A direct /chat/:id link already names the thread and must preserve the
+    // normal chat-to-sidebar transition. Only the empty home chat needs the
+    // recent marker that proves an agent handoff is in flight.
+    requireActiveHandoff: location.pathname === "/",
   });
 
   useEffect(() => {
@@ -156,6 +160,7 @@ export function Layout({ children }: LayoutProps) {
         openOnChatRunning={chatHomeHandoffActive}
         onFullscreenRequest={openCreateChatFullscreen}
         emptyStateText={t("chat.emptyState")}
+        agentPageHref="/agent"
         suggestions={[
           t("chat.suggestionBlogHeroes"),
           t("chat.suggestionProductVideo"),

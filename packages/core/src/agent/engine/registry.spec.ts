@@ -11,6 +11,20 @@ function providerFailureFingerprint(key: string, value: string): string {
     .slice(0, 24);
 }
 
+function readAppSecretsFromSingles(
+  readAppSecret: (input: any) => Promise<any>,
+) {
+  return async ({ keys, scope, scopeId }: any) => {
+    const entries = await Promise.all(
+      keys.map(async (key: string) => {
+        const secret = await readAppSecret({ key, scope, scopeId });
+        return secret ? ([key, secret] as const) : null;
+      }),
+    );
+    return new Map(entries.filter((entry) => entry !== null));
+  };
+}
+
 // Registry uses a module-level Map — reset between tests by re-importing
 // with a fresh module via vi.resetModules().
 describe("AgentEngine registry", () => {
@@ -441,6 +455,23 @@ describe("AgentEngine registry", () => {
         "custom/provider-model",
       );
     });
+
+    it("keeps provider model ids for endpoint-backed OpenAI engines", async () => {
+      const { normalizeModelForEngine } = await import("./registry.js");
+      const engine = {
+        name: "ai-sdk:openai",
+        defaultModel: "gpt-5.5",
+        supportedModels: ["gpt-5.5"],
+        preserveCustomModels: true,
+      } as any;
+
+      expect(normalizeModelForEngine(engine, "deepseek-chat")).toBe(
+        "deepseek-chat",
+      );
+      expect(normalizeModelForEngine(engine, "moonshot-v1-8k")).toBe(
+        "moonshot-v1-8k",
+      );
+    });
   });
 
   it("resolveEngine uses env AGENT_ENGINE when set", async () => {
@@ -758,16 +789,18 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") {
+          return { key, value: "p-key-from-app-secrets" };
+        }
+        if (key === "BUILDER_PUBLIC_KEY") {
+          return { key, value: "space-from-app-secrets" };
+        }
+        return null;
+      });
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
-          if (key === "BUILDER_PRIVATE_KEY") {
-            return { key, value: "p-key-from-app-secrets" };
-          }
-          if (key === "BUILDER_PUBLIC_KEY") {
-            return { key, value: "space-from-app-secrets" };
-          }
-          return null;
-        }),
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
 
       const { registerAgentEngine, detectEngineFromUserSecrets } =
@@ -815,7 +848,10 @@ describe("AgentEngine registry", () => {
               }
             : null,
       );
-      vi.doMock("../../secrets/storage.js", () => ({ readAppSecret }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
 
       const { registerAgentEngine, detectEngineFromUserSecrets } =
         await import("./registry.js");
@@ -890,7 +926,10 @@ describe("AgentEngine registry", () => {
           return null;
         },
       );
-      vi.doMock("../../secrets/storage.js", () => ({ readAppSecret }));
+      vi.doMock("../../secrets/storage.js", () => ({
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
+      }));
 
       const { registerAgentEngine, detectEngineFromUserSecrets } =
         await import("./registry.js");
@@ -925,16 +964,18 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "brent@example.com",
         getRequestOrgId: () => undefined,
       }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") {
+          return { key, value: "p-key-from-app-secrets" };
+        }
+        if (key === "BUILDER_PUBLIC_KEY") {
+          return { key, value: "space-from-app-secrets" };
+        }
+        return null;
+      });
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
-          if (key === "BUILDER_PRIVATE_KEY") {
-            return { key, value: "p-key-from-app-secrets" };
-          }
-          if (key === "BUILDER_PUBLIC_KEY") {
-            return { key, value: "space-from-app-secrets" };
-          }
-          return null;
-        }),
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -1139,19 +1180,21 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "OPENAI_API_KEY") {
+          return { key, value: badOpenAiKey };
+        }
+        if (key === "BUILDER_PRIVATE_KEY") {
+          return { key, value: "p-key-from-app-secrets" };
+        }
+        if (key === "BUILDER_PUBLIC_KEY") {
+          return { key, value: "space-from-app-secrets" };
+        }
+        return null;
+      });
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
-          if (key === "OPENAI_API_KEY") {
-            return { key, value: badOpenAiKey };
-          }
-          if (key === "BUILDER_PRIVATE_KEY") {
-            return { key, value: "p-key-from-app-secrets" };
-          }
-          if (key === "BUILDER_PUBLIC_KEY") {
-            return { key, value: "space-from-app-secrets" };
-          }
-          return null;
-        }),
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
 
       const { registerAgentEngine, resolveEngine } =
@@ -1213,19 +1256,21 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "steve@example.com",
         getRequestOrgId: () => undefined,
       }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "OPENAI_API_KEY") {
+          return { key, value: badOpenAiKey };
+        }
+        if (key === "BUILDER_PRIVATE_KEY") {
+          return { key, value: "p-key-from-app-secrets" };
+        }
+        if (key === "BUILDER_PUBLIC_KEY") {
+          return { key, value: "space-from-app-secrets" };
+        }
+        return null;
+      });
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
-          if (key === "OPENAI_API_KEY") {
-            return { key, value: badOpenAiKey };
-          }
-          if (key === "BUILDER_PRIVATE_KEY") {
-            return { key, value: "p-key-from-app-secrets" };
-          }
-          if (key === "BUILDER_PUBLIC_KEY") {
-            return { key, value: "space-from-app-secrets" };
-          }
-          return null;
-        }),
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
 
       const { registerAgentEngine, detectEngineFromUserSecrets } =
@@ -1537,16 +1582,18 @@ describe("AgentEngine registry", () => {
         getRequestUserEmail: () => "new@example.com",
         getRequestOrgId: () => "org-1",
       }));
+      const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
+        if (key === "BUILDER_PRIVATE_KEY") {
+          return { key, value: "p-key-from-app-secrets" };
+        }
+        if (key === "BUILDER_PUBLIC_KEY") {
+          return { key, value: "space-from-app-secrets" };
+        }
+        return null;
+      });
       vi.doMock("../../secrets/storage.js", () => ({
-        readAppSecret: vi.fn(async ({ key }: { key: string }) => {
-          if (key === "BUILDER_PRIVATE_KEY") {
-            return { key, value: "p-key-from-app-secrets" };
-          }
-          if (key === "BUILDER_PUBLIC_KEY") {
-            return { key, value: "space-from-app-secrets" };
-          }
-          return null;
-        }),
+        readAppSecret,
+        readAppSecrets: readAppSecretsFromSingles(readAppSecret),
       }));
       vi.doMock("../../db/client.js", () => ({
         isLocalDatabase: () => false,

@@ -13,7 +13,8 @@ the agent can do through the same actions.
 ## Features
 
 - Day, week, and month views with multiple Google accounts overlayed.
-- Google Calendar sync and read-only ICS feed subscriptions.
+- Google Calendar sync, native working locations, and read-only ICS feed
+  subscriptions.
 - Weekly availability with timezone support for slot-finding.
 - Calendly-style public booking links at `/book/{slug}` with custom fields.
 - Ask the agent anything schedule-related, from "am I free Thursday?" to

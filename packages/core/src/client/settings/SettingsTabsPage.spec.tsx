@@ -322,6 +322,35 @@ describe("SettingsTabsPage", () => {
     expect(container.textContent).toContain("General content");
   });
 
+  it("selects the owning tab for a section deep link", () => {
+    window.history.replaceState(null, "", "/settings#voice");
+
+    act(() => {
+      root.render(
+        <SettingsTabsPage
+          general={<div>General content</div>}
+          extraTabs={[
+            {
+              id: "agent",
+              label: "Agent",
+              content: <div>Agent voice settings</div>,
+              searchEntries: [
+                {
+                  id: "section:voice",
+                  label: "Voice Transcription",
+                  hash: "voice",
+                },
+              ],
+            },
+          ]}
+        />,
+      );
+    });
+
+    expect(container.textContent).toContain("Agent voice settings");
+    expect(container.textContent).not.toContain("General content");
+  });
+
   it("opens an extra workspace tab from the workspace hash", () => {
     window.history.replaceState(null, "", "/settings#workspace");
 

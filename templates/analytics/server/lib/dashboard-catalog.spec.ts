@@ -10,8 +10,10 @@ import {
   getDashboardCatalogEntry,
 } from "./dashboard-catalog";
 import { loadDashboardSeed } from "./dashboard-seeds";
+import { validateFirstPartyDashboardTimeScope } from "./dashboard-time-scope";
 import { parseDemoDescriptor } from "./demo-source";
 import { validateFirstPartyAnalyticsSql } from "./first-party-analytics";
+import { buildPanel } from "./first-party-metric-catalog";
 import { parsePanelDescriptor } from "./prometheus";
 
 function interpolate(input: string, values: Record<string, string>): string {
@@ -129,22 +131,79 @@ describe("dashboard catalog", () => {
     }
   });
 
-  it("ships a parseable Agent LLM Observability first-party dashboard", () => {
-    const entry = getDashboardCatalogEntry("agent-observability-llm");
+  it("keeps only the requested sentiment panels in the first-party dashboard", () => {
+    expect(getDashboardCatalogEntry("agent-observability-llm")).toBeNull();
+    expect(loadDashboardSeed("agent-observability-llm")).toBeNull();
+
+    const entry = getDashboardCatalogEntry("first-party-template-traffic");
     expect(entry).not.toBeNull();
-    expect(entry?.defaultDashboardId).toBe("agent-observability-llm");
+    expect(entry?.defaultDashboardId).toBe(
+      "agent-native-templates-first-party",
+    );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(10);
+    expect(entry?.panelCount).toBe(36);
 
     const config = cloneDashboardConfig(entry!);
-    expect(config.name).toBe("Agent LLM Observability");
-    expect(config.panels).toHaveLength(10);
-    expect(config.panels.some((panel) => panel.id === "llm-cost-30d")).toBe(
-      true,
+    expect(config.name).toBe("Agent Native Templates (First-party)");
+    expect(config.panels).toHaveLength(39);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(39);
+    const sentimentPanels = config.panels.filter((panel) =>
+      panel.id.startsWith("llm-"),
     );
-    for (const panel of config.panels) {
+    expect(sentimentPanels.map((panel) => panel.id)).toEqual([
+      "llm-feedback-by-model",
+      "llm-inferred-sentiment-30d",
+    ]);
+    expect(sentimentPanels[0]?.sql).toContain("event_name = '$ai_feedback'");
+    expect(sentimentPanels[0]?.sql).toContain("'positive', 'negative'");
+    expect(sentimentPanels[1]?.sql).toContain("event_name = '$ai_sentiment'");
+    expect(sentimentPanels[1]?.sql).toContain(
+      "'positive', 'neutral', 'negative'",
+    );
+    expect(sentimentPanels[1]?.sql).toContain("->> 'method'");
+    for (const panel of sentimentPanels) {
       expect(panel.source).toBe("first-party");
       expect(() => validateFirstPartyAnalyticsSql(panel.sql)).not.toThrow();
+    }
+  });
+
+  it("scopes session panels to the first-party dashboard filters", () => {
+    const sessionPanelIds = [
+      "sessions-by-app",
+      "sessions-over-time",
+      "signed-in-vs-anon",
+    ];
+
+    for (const id of sessionPanelIds) {
+      const catalogPanel = buildPanel(id);
+      expect(catalogPanel?.sql).toContain("{{timeRange}}");
+      expect(catalogPanel?.sql).toContain("{{emailFilter}}");
+    }
+
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    const seedPanels = seed?.panels as Array<{
+      id?: string;
+      sql?: string;
+    }>;
+    for (const id of sessionPanelIds) {
+      const seedPanel = seedPanels.find((panel) => panel.id === id);
+      expect(seedPanel?.sql).toContain("{{timeRange}}");
+      expect(seedPanel?.sql).toContain("{{emailFilter}}");
+    }
+  });
+
+  it("keeps every shipped first-party panel time-scoped or explicitly exceptional", () => {
+    const seed = loadDashboardSeed("agent-native-templates-first-party");
+    expect(seed).not.toBeNull();
+
+    const panels = Array.isArray(seed?.panels)
+      ? (seed.panels as Array<{ source?: string }>)
+      : [];
+    for (const [index, panel] of panels.entries()) {
+      if (panel.source !== "first-party") continue;
+      expect(
+        validateFirstPartyDashboardTimeScope(panel, seed!, index),
+      ).toBeNull();
     }
   });
 

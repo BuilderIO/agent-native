@@ -16,11 +16,17 @@ function createNitroApp() {
 }
 
 async function dispatch(nitroApp: any, pathname: string) {
+  const url = new URL(`http://example.test${pathname}`);
   const event = {
     method: "GET",
-    url: new URL(`http://example.test${pathname}`),
+    url,
     path: pathname,
     context: {},
+    // h3 v2's own getMethod/getRequestHeader read from `event.req` (a real
+    // web-standard Request) — the CSRF middleware that `getH3App()` now
+    // registers globally on every nitroApp calls both, so the fake event
+    // needs a real Request even though these tests never assert on it.
+    req: new Request(url, { method: "GET" }),
     // Minimal h3-v2 response shape so handlers that call setResponseStatus /
     // setResponseHeader (e.g. the init-failure 503 fallback) work under test.
     res: { status: 200, headers: new Headers() },
@@ -35,11 +41,15 @@ async function dispatch(nitroApp: any, pathname: string) {
 }
 
 async function dispatchViaGeneratedMiddleware(nitroApp: any, pathname: string) {
+  const url = new URL(`http://example.test${pathname}`);
   const event = {
     method: "GET",
-    url: new URL(`http://example.test${pathname}`),
+    url,
     path: pathname,
     context: {},
+    // See `dispatch()` above — the globally-registered CSRF middleware needs
+    // a real h3-v2 `event.req`.
+    req: new Request(url, { method: "GET" }),
   };
   const route = {
     data: {
@@ -203,6 +213,24 @@ describe("framework request handler", () => {
     ).resolves.toEqual({
       mountPrefix: "/starter/.well-known/agent-card.json",
       mountedPathname: "/starter/.well-known/agent-card.json",
+      pathname: "/",
+      path: "/",
+    });
+  });
+
+  it("dispatches the public MCP alias under APP_BASE_PATH", async () => {
+    process.env.APP_BASE_PATH = "/starter";
+    const nitroApp = createNitroApp();
+    getH3App(nitroApp).use("/mcp", (event: any) => ({
+      mountPrefix: event.context._mountPrefix,
+      mountedPathname: event.context._mountedPathname,
+      pathname: event.url.pathname,
+      path: event.path,
+    }));
+
+    await expect(dispatch(nitroApp, "/starter/mcp")).resolves.toEqual({
+      mountPrefix: "/starter/mcp",
+      mountedPathname: "/starter/mcp",
       pathname: "/",
       path: "/",
     });
@@ -411,11 +439,15 @@ describe("framework request handler", () => {
     pathname: string,
     opts: { runRequestHooks: boolean },
   ) {
+    const url = new URL(`http://example.test${pathname}`);
     const event = {
       method: "GET",
-      url: new URL(`http://example.test${pathname}`),
+      url,
       path: pathname,
       context: {},
+      // See `dispatch()` above — the globally-registered CSRF middleware
+      // needs a real h3-v2 `event.req`.
+      req: new Request(url, { method: "GET" }),
       res: { status: 200, headers: new Headers() },
     };
     // Nitro bridges the `request` hook to h3's `config.onRequest`, which h3

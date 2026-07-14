@@ -8,6 +8,7 @@ const INJECTED_CONTEXT_BLOCKS = [
   "available-agents",
   "available-jobs",
   "plan-mode-note",
+  "non-analytics-retry",
 ];
 
 export const DATA_QUERY_ACTIONS = new Set([
@@ -15,6 +16,17 @@ export const DATA_QUERY_ACTIONS = new Set([
   "bigquery",
   "content-calendar",
   "content-calendar-schema",
+  // First-party observability reads are grounded data for incident triage,
+  // even though they are not provider queries. Keep the final-response guard
+  // from replacing valid session/error/replay evidence with the generic
+  // "connect a source" fallback.
+  "get-error-issue",
+  "get-session-replay-events",
+  "get-session-replay-summary",
+  "get-session-replay-timeline",
+  "list-error-issues",
+  "list-session-recordings",
+  "match-error-issues",
   "gcloud",
   "gong-calls",
   "grafana",
@@ -231,12 +243,35 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
 const UNSUPPORTED_RESULT_CLAIM =
   /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
 
+export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
+  "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
+
+// The first sentence of the canned fallback, lowercased, with the trailing
+// period dropped. Matching this prefix (rather than the whole message) still
+// catches a model paraphrase that continues differently after "successfully".
+const GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE =
+  GENERIC_NO_DATA_FALLBACK_MESSAGE.slice(
+    0,
+    GENERIC_NO_DATA_FALLBACK_MESSAGE.indexOf(". ") + 1,
+  ).toLowerCase();
+
+export function isGenericNoDataFallback(text: string): boolean {
+  return text
+    .trim()
+    .toLowerCase()
+    .startsWith(GENERIC_NO_DATA_FALLBACK_FIRST_SENTENCE.slice(0, -1));
+}
+
 const SAFE_NO_DATA_RESPONSE =
   /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
 
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();
   if (!trimmed) return false;
+  // This is the guard's own last-resort fallback. If a model emits it before
+  // attempting a query, it must go through the retry path instead of being
+  // accepted as an explicit unavailable-source or clarification response.
+  if (isGenericNoDataFallback(trimmed)) return false;
   if (UNSUPPORTED_RESULT_CLAIM.test(trimmed)) return false;
   if (SAFE_NO_DATA_RESPONSE.test(trimmed)) return true;
   return /\?\s*$/.test(trimmed) && !UNSUPPORTED_RESULT_CLAIM.test(trimmed);

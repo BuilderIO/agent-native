@@ -4,6 +4,8 @@ import {
   IPC,
   type ActiveWebviewTarget,
   type CodeAgentCodePackResult,
+  type CodeAgentComputerSetupAction,
+  type CodeAgentComputerSetupResult,
   type CodeAgentCreateRunRequest,
   type CodeAgentCreateRunResult,
   type CodeAgentFollowUpRequest,
@@ -296,6 +298,10 @@ const electronAPI = {
       }),
     getHostMetadata: (): Promise<CodeAgentHostMetadata> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_GET_HOST_METADATA),
+    runComputerSetupAction: (
+      action: CodeAgentComputerSetupAction,
+    ): Promise<CodeAgentComputerSetupResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_COMPUTER_SETUP, action),
     listCodePacks: (cwd?: string): Promise<CodeAgentCodePackResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_LIST_CODE_PACKS, { cwd }),
     listProjects: (): Promise<CodeAgentProjectListResult> =>
@@ -311,6 +317,8 @@ const electronAPI = {
       request?: CodeAgentTerminalRequest,
     ): Promise<CodeAgentTerminalResult> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_TERMINAL, request),
+    openCodexLogin: (): Promise<CodeAgentTerminalResult> =>
+      ipcRenderer.invoke(IPC.CODE_AGENTS_OPEN_CODEX_LOGIN),
     getRemoteConnectorStatus: (): Promise<CodeAgentRemoteConnectorStatus> =>
       ipcRenderer.invoke(IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS),
     setRemoteConnectorEnabled: (

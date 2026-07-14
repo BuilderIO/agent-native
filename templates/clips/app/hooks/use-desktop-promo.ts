@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 
 import { useIsMobile } from "@/hooks/use-mobile";
-
-const DISMISSED_KEY = "clips.desktop-promo.dismissed";
+import {
+  hasDownloadedDesktopApp,
+  markDesktopAppDownloaded,
+} from "@/lib/capture-install-options";
 
 function detectDesktopApp(): boolean {
   if (typeof navigator === "undefined") return false;
@@ -25,20 +27,12 @@ export function useDesktopPromo() {
 
   useEffect(() => {
     setIsDesktopApp(detectDesktopApp());
-    setDismissed(
-      typeof window !== "undefined" &&
-        window.localStorage?.getItem(DISMISSED_KEY) === "1",
-    );
+    setDismissed(hasDownloadedDesktopApp());
   }, []);
 
   const dismiss = useCallback(() => {
     setDismissed(true);
-    try {
-      window.localStorage?.setItem(DISMISSED_KEY, "1");
-    } catch {
-      // localStorage can throw in private browsing — ignore, dismissal
-      // still holds for the session via React state.
-    }
+    markDesktopAppDownloaded();
   }, []);
 
   return {

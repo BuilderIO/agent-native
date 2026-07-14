@@ -245,6 +245,38 @@ Das bedeutet, dass Benutzer, die die Claude-in-Chrome-Erweiterung installiert ha
 
 MCP-Server (Model Context Protocol) geben Ihrem Agenten neue Fähigkeiten – wie die Verbindung zu Zapier, Cloudflare, Composio oder den internen Tools Ihres Unternehmens. Sobald die Verbindung hergestellt ist, kann der Agent diese Tools genauso verwenden wie die integrierten.
 
+Die Preset-IDs sind `context7`, `sentry`, `notion`, `semgrep`, `linear`,
+`atlassian`, `supabase`, `neon` und `stripe`.
+
+### Atlassian / Jira
+
+Das Atlassian-Preset verwendet den OAuth-2.1-Endpunkt von Atlassian Rovo MCP,
+`https://mcp.atlassian.com/v1/mcp/authv2`, und stellt Tools für Jira und
+Confluence bereit. Zum Erstellen von Jira-Tickets sind Atlassian-Berechtigungen
+erforderlich, die Schreibzugriffe in Jira abdecken. Benutzer sehen weiterhin
+nur die Projekte und Inhalte, die ihr Atlassian-Konto zulässt.
+
+Administratoren einer Atlassian-Organisation können steuern, ob ein OAuth-Client
+eine Verbindung herstellen darf. Vor dem Verbinden muss ein Administrator
+möglicherweise den tatsächlichen HTTPS-Ursprung der App unter **Atlassian
+Administration → Rovo → Rovo MCP server → Domains** zur Liste der
+vertrauenswürdigen Domains hinzufügen und unter **Permissions** die erforderlichen
+Berechtigungen **Read**, **Write** und **Search** aktivieren. Die Domain muss der
+Host sein, auf dem die agent-native-App ausgeführt wird. Übernehmen Sie
+`https://builder.io/**` nicht für eine andere Bereitstellung, sofern dies nicht
+deren tatsächlicher Ursprung ist. Weitere Informationen finden Sie im
+[Rovo-MCP-Einrichtungsleitfaden von Atlassian](https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/)
+und in den [Administratorsteuerelementen](https://support.atlassian.com/security-and-access-policies/docs/control-atlassian-rovo-mcp-server-settings/).
+
+Der Katalog stellt den Endpunkt und Einrichtungshinweise bereit. Das allgemeine
+Einstellungsformular speichert den Endpunkt und optionale verschlüsselte Header;
+es ersetzt nicht den interaktiven OAuth-Zustimmungsablauf von Atlassian. Verwenden
+Sie einen OAuth-fähigen MCP-Client oder eine entsprechende Laufzeit, wenn
+Atlassian interaktives OAuth erfordert. Wenn der Anbieter oder die Laufzeit ein
+statisches Bearer-Token unterstützt, folgen Sie dem dafür vorgesehenen Verfahren
+zur Verwaltung von Secrets und fügen Sie Tokens niemals in Prompts oder
+committete Konfigurationen ein.
+
 ### So verbinden Sie einen Remote-MCP-Server
 
 1. **Servername** – eine kurze Bezeichnung für Ihre eigene Referenz (z. B. „zapier“, „slack-tools“).
@@ -263,7 +295,7 @@ Zwei Bereiche werden unterstützt:
 
 Fügt Hot-Reload zum laufenden MCP-Manager hinzu und entfernt es – kein Neustart des Prozesses und kein Neustart des Servers. Die neuen `mcp__<scope>-<name>__*`-Tools werden dem Agenten in der nächsten Nachricht angezeigt und können über `tool-search` durchsucht werden.
 
-HTTPS URLs werden überall akzeptiert; einfaches `http://` ist während der Entwicklung nur für `localhost` zulässig. Die optionale Authentifizierung erfolgt als Bearer-Token, das bei jeder Anfrage über `Authorization: Bearer …` gesendet wird.
+HTTPS URLs werden überall akzeptiert; einfaches `http://` ist während der Entwicklung nur für `localhost` zulässig. Die optionale Authentifizierung erfolgt als Bearer-Token, das bei jeder Anfrage über `Authorization: Bearer …` gesendet wird. Anbieter, die ausschließlich OAuth unterstützen, darunter Atlassian Rovo MCP, erfordern anstelle eines statischen Headers den OAuth-Ablauf des Anbieters.
 
 Unter der Haube werden diese Server in der `settings`-Tabelle des Frameworks unter dem Schlüssel `u:<email>:mcp-servers-remote` (Persönlich) oder `o:<orgId>:mcp-servers-remote` (Team) gespeichert und beim Start mit `mcp.config.json` zusammengeführt.
 
@@ -292,7 +324,9 @@ Dispatch ist der herkömmliche Hub – er koordiniert bereits alle Apps.
   <div class="diagram-panel center" data-rough>
     <span class="diagram-pill accent">Dispatch hub</span
     ><small class="diagram-muted">MCP-Server mit Organisationsscope</small
-    ><small class="diagram-muted"><code>GET /mcp/hub/servers</code></small>
+    ><small class="diagram-muted"
+      ><code>GET /_agent-native/mcp/hub/servers</code></small
+    >
   </div>
   <div class="diagram-col arrows">
     <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
@@ -454,7 +488,7 @@ Verwenden Sie dies, um Onboarding-Hinweise „claude-in-chrome erkannt – Ihr A
 
 Einzelne MCP-Serverausfälle führen nie zum Ausfall des Agenten:
 
-- Ein falsch konfigurierter `command` → der Server wird übersprungen, sein Fehler erscheint in `/mcp/status` unter `errors.<server-id>` und alle anderen Server funktionieren weiterhin.
+- Ein falsch konfigurierter `command` → der Server wird übersprungen, sein Fehler erscheint in `/_agent-native/mcp/status` unter `errors.<server-id>` und alle anderen Server funktionieren weiterhin.
 - MCP SDK fehlt in `node_modules` → alle MCP-Funktionen werden mit einer Warnung übersprungen; Der Agenten-Chat funktioniert weiterhin ohne MCP-Tools.
 - Laufen in einer Edge-Laufzeit → MCP-Client ist ein No-Op.
 

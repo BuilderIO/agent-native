@@ -17,7 +17,11 @@ import {
   readDeployCredentialEnv,
   recordProviderCredentialAuthFailure,
 } from "../../server/credential-provider.js";
-import { normalizeReasoningEffortForModel } from "../../shared/reasoning-effort.js";
+import {
+  anthropicManualThinkingBudget,
+  normalizeReasoningEffortForModel,
+  supportsClaudeAdaptiveThinking,
+} from "../../shared/reasoning-effort.js";
 import { AI_SDK_MODEL_CONFIG, type AISDKProvider } from "../model-config.js";
 import {
   clampThinkingBudgetTokens,
@@ -205,6 +209,7 @@ class AISDKEngine implements AgentEngine {
   readonly label: string;
   readonly defaultModel: string;
   readonly supportedModels: readonly string[];
+  readonly preserveCustomModels: boolean;
   readonly capabilities: EngineCapabilities;
 
   private readonly provider: AISDKProvider;
@@ -219,6 +224,8 @@ class AISDKEngine implements AgentEngine {
     this.label = `${capitalize(provider)} (AI SDK)`;
     this.defaultModel = config.model ?? PROVIDER_DEFAULT_MODELS[provider];
     this.supportedModels = PROVIDER_SUPPORTED_MODELS[provider];
+    this.preserveCustomModels =
+      provider === "openai" && Boolean(config.baseUrl);
     this.capabilities = PROVIDER_CAPABILITIES[provider];
     this.apiKey =
       config.apiKey ??
@@ -313,13 +320,26 @@ class AISDKEngine implements AgentEngine {
         const explicitThinking = (
           providerOpts.anthropic as { thinking?: unknown } | undefined
         )?.thinking;
-        providerOpts.anthropic = {
-          ...((providerOpts.anthropic as object) ?? {}),
-          thinking: explicitThinking ?? { type: "adaptive" },
-          ...(explicitThinking
-            ? {}
-            : { outputConfig: { effort: reasoningEffort } }),
-        };
+        if (explicitThinking || supportsClaudeAdaptiveThinking(opts.model)) {
+          providerOpts.anthropic = {
+            ...((providerOpts.anthropic as object) ?? {}),
+            thinking: explicitThinking ?? { type: "adaptive" },
+            ...(explicitThinking
+              ? {}
+              : { outputConfig: { effort: reasoningEffort } }),
+          };
+        } else {
+          const budgetTokens = clampThinkingBudgetTokens(
+            anthropicManualThinkingBudget(reasoningEffort),
+            resolvedMaxOutputTokens,
+          );
+          providerOpts.anthropic = {
+            ...((providerOpts.anthropic as object) ?? {}),
+            ...(budgetTokens === undefined
+              ? {}
+              : { thinking: { type: "enabled", budgetTokens } }),
+          };
+        }
       } else if (this.provider === "openai") {
         providerOpts.openai = {
           ...((providerOpts.openai as object) ?? {}),

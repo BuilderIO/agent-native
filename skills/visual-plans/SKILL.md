@@ -201,10 +201,12 @@ forward only the code-research and plan-composition guidance here.
 
 ## Self-Review Before Handoff
 
-For high-stakes plans — architecture, backend, data-model, migration, multi-file,
-or otherwise risky work — run one adversarial self-review pass before treating the
-plan as final. Skip it for small, UI-only, or single-decision plans where the cost
-outweighs the value. Keep the pass cheap and non-blocking:
+This adversarial self-review pass is opt-in, not default: run it only for
+high-stakes plans — irreversible migrations, security-sensitive work, or when
+the user explicitly asks for extra rigor — and skip it otherwise. It roughly
+doubles the cost of plan generation, so the default for small, UI-only,
+single-decision, or ordinary plans is to skip it, not to run it. Keep the pass
+cheap and non-blocking when it does run:
 
 - **Surface the plan first, review concurrently.** Post the link and let the user
   start reading, then run the review in parallel — never make the user wait on it.
@@ -465,5 +467,5 @@ If a Plans tool returns `needs auth`, `Unauthorized`, or `Session terminated`, d
 not keep retrying it — stop and give the user the per-client reconnect step from
 `references/connection.md`, then continue once the connector is available.
 
-Hosted default: connect `https://plan.agent-native.com/_agent-native/mcp`. Do
+Hosted default: connect `https://plan.agent-native.com/mcp`. Do
 not put shared secrets in skill files.

@@ -33,6 +33,10 @@ describe("MCP integration catalog", () => {
     expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual([
       "sentry",
       "linear",
+      "atlassian",
+    ]);
+    expect(filterMcpIntegrations("jira").map((item) => item.id)).toEqual([
+      "atlassian",
     ]);
     expect(
       filterMcpIntegrations("mcp.sentry.dev").map((item) => item.id),
@@ -49,6 +53,20 @@ describe("MCP integration catalog", () => {
       url: "https://mcp.sentry.dev/mcp",
       description: "Inspect issues, events, and debugging data.",
       headersText: "",
+    });
+  });
+
+  it("includes the OAuth endpoint and setup guidance for Atlassian", () => {
+    const atlassian = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "atlassian",
+    );
+
+    expect(atlassian).toMatchObject({
+      url: "https://mcp.atlassian.com/v1/mcp/authv2",
+      authMode: "oauth",
+      docsUrl:
+        "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
+      setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
     });
   });
 

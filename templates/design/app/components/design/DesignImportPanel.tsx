@@ -523,8 +523,11 @@ export function DesignImportPanel({ context }: DesignImportPanelProps) {
                     className="h-1 overflow-hidden rounded-full bg-muted"
                   >
                     <div
-                      className="h-full rounded-full bg-foreground/70 transition-[width] duration-150"
-                      style={{ width: `${figUploadProgress ?? 0}%` }}
+                      className="h-full rounded-full bg-foreground/70 origin-left transition-transform duration-150"
+                      style={{
+                        transform: `scaleX(${(figUploadProgress ?? 0) / 100})`,
+                        width: "100%",
+                      }}
                     />
                   </div>
                 </div>

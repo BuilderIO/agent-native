@@ -110,7 +110,7 @@ npx @agent-native/core@latest skills add visual-plan
 
 如果您使用的是直接接受 MCP 连接器 URL 的基于聊天的主机
 （而不是 CLI 配置的客户端），连接托管计划连接器
-`https://plan.agent-native.com/_agent-native/mcp` — 请参阅 [MCP Clients](/docs/mcp-clients) 以了解特定于客户端的设置。
+`https://plan.agent-native.com/mcp` — 请参阅 [MCP Clients](/docs/mcp-clients) 以了解特定于客户端的设置。
 
 身份验证是在设置时进行一次性浏览器登录 - 这是有意为之的
 是让代理持续存在并共享其生成的计划的原因。授权是什么
@@ -208,6 +208,13 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
 **开放式问题**表格位于同一计划的底部。接听并发送
 它向代理启动针对现有计划的修订。
 
+## 成本和模型选择
+
+生成计划或回顾会对你的编码代理的 LLM 运行一次完整的代理式会话，而不是轻量级的模板填充，因此成本会随 diff 或计划的大小以及你选择的模型而变化。
+
+- 应用自身的默认聊天模型是 Sonnet 5；你可以随时在 **设置** 中更改它。Haiku 是更便宜的 Claude 选项，Luna 是 GPT-5.6 系列中更便宜的选项。
+- 来自 GitHub Action 的自动化 PR 回顾与交互式应用分开运行，拥有自己的模型和成本调节项 — 关于 `VISUAL_RECAP_MODEL`、`VISUAL_RECAP_AGENT` 和 `VISUAL_RECAP_REASONING`，请参见[PR Visual Recap](/docs/pr-visual-recap)。
+
 ## 你可以用它做什么
 
 - **实施前审查。** React 到图表、线框图、选项选项卡，
@@ -249,7 +256,7 @@ vscode://builder.agent-native/open?url=<encoded-plan-url>
   跨设备或团队审核）需要登录。Google 登录会在以下情况出现
   标准 Google OAuth 环境变量已配置。
 
-托管计划连接器位于 `https://plan.agent-native.com/_agent-native/mcp`。
+托管计划连接器位于 `https://plan.agent-native.com/mcp`。
 切勿将共享机密放入技能文件中。
 
 ## 本地文件隐私模式 {#local-files}
@@ -286,7 +293,7 @@ npx @agent-native/core@latest plan local serve --dir plans/<slug> --kind plan --
 ```
 
 桥梁 URL 看起来像
-`https://plan.agent-native.com/local-plans/<slug>?bridge=http://127.0.0.1:...`.
+`https://plan.agent-native.com/local-plans/local-<opaque-id>#bridge=http://127.0.0.1:...`.
 该页面是普通的计划查看器，但浏览器获取 `plan.mdx`，
 `canvas.mdx`、`prototype.mdx`、`.plan-state.json` 以及来自
 本地主机桥。计划内容不会写入托管数据库，而是
@@ -447,7 +454,7 @@ pnpm dev
 托管应用程序支持的技能使用：
 
 - 应用程序：`https://plan.agent-native.com`
-- MCP: `https://plan.agent-native.com/_agent-native/mcp`
+- MCP: `https://plan.agent-native.com/mcp`
 
 当您开发计划本身、测试本地持久性或运行完全自托管的审核界面时，本地模板非常有用。
 

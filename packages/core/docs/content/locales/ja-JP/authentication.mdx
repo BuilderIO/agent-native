@@ -219,7 +219,7 @@ ACCESS_TOKENS=token1,token2,token3
 すべてのアプリの MCP エンドポイントは、標準の保護された MCP リソースとして機能できます。 OAuth 対応クライアントは、リモート MCP URL のみで構成できます:
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 認証されていない MCP リクエストは、`/.well-known/oauth-protected-resource` を指す `WWW-Authenticate` チャレンジを返します。次に、クライアントはアプリの OAuth メタデータを検出し、パブリック クライアントを動的に登録し、アプリの認証ページを開き、アクセス トークンとリフレッシュ トークンのために認証コードを PKCE と交換します。
@@ -381,7 +381,7 @@ function MyComponent() {
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-匿名のビューアがこの URL にアクセスすると、フレームワークのログイン ページが表示されます。サインインが成功すると (トークン、電子メール/パスワード、Google OAuth などの任意のフロー)、ビューアは `return` に 302 されます。
+匿名のビューアがこの URL にアクセスすると、フレームワークのログイン ページが表示されます。サインインが成功すると (トークン、電子メール/パスワード、Google OAuth などの任意のフロー)、ブラウザーは `return` に戻ります。
 
 `return` パラメータは **同一オリジン パス**として検証されます。ネットワーク パス参照 (`//evil.com/...`)、絶対 URL、`data:` / `javascript:` スキーム、および埋め込み制御文字はすべて `/` にフォールバックします。検証されたパスは、入力からエコーバックされるのではなく、URL パーサーから再構築されます。
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### ブックマークされたプライベート パス
 
-匿名ユーザーが `/dashboard` のようなプライベート パスに直接移動すると、フレームワークはすでに URL でログイン ページを提供します。サインインに成功すると、ページがリロードされ、ユーザーは `/dashboard` に移動します。特別な処理は必要ありません。これは、トークン、メール/パスワード、**、および** Google OAuth に対して機能します。
+通常のアプリページは、すべての訪問者に対して同一の非個人化された公開キャッシュ可能な SSR シェルを使用します。`AppProviders` がクライアントでセッションを確認し、`/dashboard` のような非公開パスでは、非公開 UI をマウントする前に匿名ユーザーを `/_agent-native/sign-in?return=%2Fdashboard` へリダイレクトします。サインイン後は `/dashboard` に戻ります。公開/SEO ルートには `isPublicPath` を、MCP 埋め込みトークンなど別の限定された認証方式を使う画面には `sessionBypass` を指定します。
 
 ### 舞台裏: Google OAuth
 

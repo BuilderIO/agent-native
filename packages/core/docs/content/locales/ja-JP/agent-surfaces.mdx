@@ -6,6 +6,38 @@ search: "ヘッドレス エージェント リッチ チャット フル アプ
 
 # エージェント サーフェス
 
+## フルページの Agent ワークスペース {#agent-page}
+
+完全なアプリケーションでエージェントを確認・設定する常設の場所が必要な
+場合は、`/agent` に `AgentTabsPage` をマウントします。アプリのナビゲーション
+にこのルートを追加し、`AgentSidebar` に `agentPageHref="/agent"` を渡すと、
+Resources と Settings から同じフローを重複させずにフルページへ移動できます。
+
+```tsx filename="app/routes/agent.tsx"
+import { AgentTabsPage } from "@agent-native/core/client";
+
+export default function AgentRoute() {
+  return <AgentTabsPage />;
+}
+```
+
+共有ページには現在、5 つのタブがあります。
+
+- **Context** — スコープのプレビュー、トークン予算、provenance・governance・source で整理された順序付きシステムセクション、リスト/treemap 表示、最新の live thread スナップショット。
+- **Files** — 個人または組織のリソース用に既存の `ResourcesPanel` を再ホストします。
+- **Connections** — MCP サーバー管理と A2A リモートエージェント一覧。アプリのエージェントが呼び出せるものを示します。
+- **Jobs** — 既存の一時停止/再開、詳細、削除フローを備えたスコープ別の定期ジョブと自動化。自動化は現在個人用です。
+- **Access** — MCP URL、利用可能なら A2A エージェントカード、共通のクライアント設定ガイドを表示します。完全な接続フローとトークンのフォールバックは `/mcp/connect` にあります。
+
+ページの **Personal / Organization** 切り替えが各タブのスコープを指定します。
+メンバーは組織データを確認できますが、ホストされたコンポーネントがその境界を
+適用する箇所では、組織管理は所有者/管理者に制限されます。
+目的はコンテキストを inspectable・attributable・governable にし、capability と
+access を分離することです。このページは既存のコンポーネント、アクション、
+アクセスチェックを再利用する薄いシェルであり、新しい管理コンソールでは
+ありません。grants、スコープ編集、revoke、反復ごとの provenance 履歴の UI は
+まだ提供していません。
+
 Agent-Native は意図的に構成可能です。 UI をあまり必要とせずにエージェントを使用できます。
 組み込みエージェント ランタイムなしで UI を使用するか、両方を完全なものとして一緒に使用します
 アプリケーション。

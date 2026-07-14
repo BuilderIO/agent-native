@@ -219,7 +219,7 @@ ACCESS_TOKENS=token1,token2,token3
 每個應用程式的 MCP 端點都可以充當標準受保護的 MCP 資源。支援 OAuth 的用戶端只能設定遠端 MCP URL：
 
 ```text
-https://mail.agent-native.com/_agent-native/mcp
+https://mail.agent-native.com/mcp
 ```
 
 未經驗證的 MCP 請求返回指向 `/.well-known/oauth-protected-resource` 的 `WWW-Authenticate` 質詢。然後，用戶端發現應用程式的 OAuth 中繼資料，動態註冊公開用戶端，開啟應用程式的授權頁面，並與 PKCE 交換授權程式碼以取得存取和重新整理權杖。
@@ -381,7 +381,7 @@ function MyComponent() {
 /_agent-native/sign-in?return=<same-origin-path>
 ```
 
-當匿名檢視者點選此 URL 時，將提供框架的登入頁面。成功登入（任何流程 - 權杖、電子郵件/密碼或 GoogleOAuth）後，檢視者將 302 轉至 `return`。
+當匿名檢視者點選此 URL 時，將提供框架的登入頁面。成功登入（任何流程 - 權杖、電子郵件/密碼或 GoogleOAuth）後，瀏覽器會返回 `return`。
 
 `return` 參數被驗證為**同來源路徑**。網路路徑引用 (`//evil.com/...`)、絕對 URL、`data:` / `javascript:` 方案和嵌入式控制字符都回退到 `/`。驗證的路徑是從 URL 解析器重建的，而不是從輸入中回顯。
 
@@ -402,7 +402,7 @@ function SignInCta() {
 
 ### 已新增書簽的私人路徑
 
-當匿名使用者直接導覽到 `/dashboard` 等私人路徑時，框架已經在該 URL 處提供登入頁面 - 成功登入後，頁面重新載入並且使用者登陸 `/dashboard`。無需特殊處理；這適用於權杖、電子郵件/密碼、**和** GoogleOAuth。
+一般應用程式頁面會為所有訪客使用同一個非個人化、可公開快取的 SSR 外殼。`AppProviders` 會在用戶端檢查工作階段；造訪 `/dashboard` 等私人路徑時，它會在掛載私人應用程式介面之前將匿名訪客重新導向至 `/_agent-native/sign-in?return=%2Fdashboard`。登入後，訪客會返回 `/dashboard`。公開或 SEO 路由請使用 `isPublicPath`；透過 MCP 內嵌權杖等其他受限機制驗證的介面請使用 `sessionBypass`。
 
 ### 幕後花絮：GoogleOAuth
 

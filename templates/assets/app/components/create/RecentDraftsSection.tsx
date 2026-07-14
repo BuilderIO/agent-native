@@ -1,5 +1,9 @@
 import { useActionQuery, useT } from "@agent-native/core/client";
-import { IconArrowUpRight, IconPhoto } from "@tabler/icons-react";
+import {
+  IconAlertTriangle,
+  IconArrowUpRight,
+  IconPhoto,
+} from "@tabler/icons-react";
 import { Link } from "react-router";
 
 import { Button } from "@/components/ui/button";
@@ -20,10 +24,32 @@ const RECENT_DRAFTS_LIMIT = 5;
 
 export function RecentDraftsSection() {
   const t = useT();
-  const { data, isLoading } = useActionQuery("list-draft-assets", {
-    limit: RECENT_DRAFTS_LIMIT,
-  });
+  const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
+    "list-draft-assets",
+    {
+      limit: RECENT_DRAFTS_LIMIT,
+    },
+  );
   const drafts = ((data as any)?.assets ?? []) as DraftAsset[];
+
+  if (isError) {
+    return (
+      <section className="flex items-center justify-between gap-3 rounded-lg border border-destructive/30 px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2 text-sm text-muted-foreground">
+          <IconAlertTriangle className="size-4 shrink-0 text-destructive" />
+          <span className="truncate">{t("audit.unknownError")}</span>
+        </div>
+        <Button
+          size="sm"
+          variant="outline"
+          onClick={() => void refetch()}
+          disabled={isFetching}
+        >
+          {t("brandKitDetail.refresh")}
+        </Button>
+      </section>
+    );
+  }
 
   if (!isLoading && drafts.length === 0) return null;
 

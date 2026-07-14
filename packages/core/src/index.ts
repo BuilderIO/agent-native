@@ -236,6 +236,8 @@ export {
   BUILDER_CREDIT_USAGE_BILLING,
   USD_USAGE_BILLING,
   type UsageRecord,
+  type UsageCostSource,
+  type UsageCostAggregate,
   type UsageSummary,
   type UsageBillingMode,
   type UsageBillingUnit,

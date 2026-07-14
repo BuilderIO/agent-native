@@ -8,6 +8,7 @@ import {
   resolveAgentChatProcessRunDispatchPath,
 } from "../agent/durable-background.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
+import { getOrigin, isConfiguredAppOrigin } from "../server/google-oauth.js";
 import { fireInternalDispatch } from "../server/self-dispatch.js";
 import { agentChat } from "../shared/agent-chat.js";
 import {
@@ -22,6 +23,8 @@ import {
   claimA2ATaskForProcessing,
   getA2ATaskDispatchState,
   failStuckA2ATask,
+  failStuckQueuedA2ATask,
+  settleProcessingA2ATask,
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
 } from "./task-store.js";
@@ -39,9 +42,102 @@ import type {
 // transitive deps) into the a2a/handlers test boundary. Must stay in sync
 // with FRAMEWORK_ROUTE_PREFIX in `server/core-routes-plugin.ts`.
 const A2A_PROCESS_TASK_PATH = "/_agent-native/a2a/_process-task";
+const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
+
+/**
+ * Request origin is routing/link context, not an identity signal. Accept only
+ * an absolute HTTP(S) origin from caller metadata so queued runs can preserve
+ * custom-domain/workspace links without allowing arbitrary values to leak
+ * into browser or artifact URLs.
+ */
+function requestOriginFromMetadata(
+  metadata: Record<string, unknown> | undefined,
+): string | undefined {
+  const raw = metadata?.requestOrigin;
+  if (typeof raw !== "string" || !raw.trim()) return undefined;
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    return url.origin;
+  } catch {
+    return undefined;
+  }
+}
+
+function requestOriginFromEvent(event: any | undefined): string | undefined {
+  if (!event) return undefined;
+  try {
+    return requestOriginFromMetadata({
+      requestOrigin: getOrigin(event as any),
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Prefer the origin resolved from the receiving request. A distinct public
+ * browser origin is allowed only when the receiver configured it explicitly;
+ * arbitrary caller metadata must not steer links or service-token URLs.
+ */
+function requestOriginForContext(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+): string | undefined {
+  if (!event) return undefined;
+  const receiverOrigin = requestOriginFromEvent(event);
+  const metadataOrigin = requestOriginFromMetadata(metadata);
+  if (
+    metadataOrigin &&
+    (metadataOrigin === receiverOrigin || isConfiguredAppOrigin(metadataOrigin))
+  ) {
+    return metadataOrigin;
+  }
+  return receiverOrigin;
+}
+
+function trustedA2AMetadata(
+  metadata: Record<string, unknown> | undefined,
+  event: any | undefined,
+): Record<string, unknown> | undefined {
+  if (!metadata) return undefined;
+  const trusted = { ...metadata };
+  const requestOrigin = requestOriginForContext(metadata, event);
+  if (requestOrigin) trusted.requestOrigin = requestOrigin;
+  else delete trusted.requestOrigin;
+  return trusted;
+}
+
+/**
+ * Hard cap on how long a task may sit in submitted/working (never reaching
+ * `processing`) before the dispatch-retry loop in
+ * `refireStuckAsyncTaskIfNeeded` gives up and fails it. Without this, a
+ * persistently failing dispatch (missing background function, bad A2A
+ * secret, 404) throttles-and-retries forever — the queued bucket otherwise
+ * has no terminal state. Override with A2A_QUEUED_LIFETIME_MAX_MS.
+ */
+function a2aQueuedLifetimeMaxMs(): number {
+  const raw = Number(process.env.A2A_QUEUED_LIFETIME_MAX_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 3 * 60 * 1000;
+}
+
+/**
+ * Hard cap on total time a task may spend in `processing`, independent of
+ * the liveness heartbeat. `A2A_PROCESSING_STUCK_AFTER_MS` alone only catches
+ * a dead process — a hung await inside a still-alive process keeps
+ * `updated_at` fresh via the heartbeat forever. This bounds that case
+ * without cutting off legitimately long runs under it. Override with
+ * A2A_PROCESSING_LIFETIME_MAX_MS.
+ */
+function a2aProcessingLifetimeMaxMs(): number {
+  const raw = Number(process.env.A2A_PROCESSING_LIFETIME_MAX_MS);
+  if (Number.isFinite(raw) && raw > 0) return raw;
+  return 30 * 60 * 1000;
+}
 
 /**
  * Dispatch an async A2A task to a fresh function execution. Apps that opted
@@ -56,21 +152,53 @@ async function fireProcessTaskDispatch(
   const backgroundPath = resolveAgentChatProcessRunDispatchPath();
   const useBackgroundWorker =
     isAgentChatDurableBackgroundEnabled({
-      appOptIn: config.durableBackgroundRuns === true,
+      appOptIn: config.durableBackgroundRuns,
     }) && dispatchPathTargetsNetlifyBackgroundFunction(backgroundPath);
 
-  await fireInternalDispatch({
-    event,
-    path: useBackgroundWorker ? backgroundPath : A2A_PROCESS_TASK_PATH,
-    taskId,
-    ...(useBackgroundWorker
-      ? {
-          body: {
-            [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_A2A,
-          },
-        }
-      : {}),
-  });
+  if (!useBackgroundWorker) {
+    await fireInternalDispatch({
+      event,
+      path: A2A_PROCESS_TASK_PATH,
+      taskId,
+    });
+    return;
+  }
+
+  try {
+    // A real Netlify background function acknowledges the enqueue quickly.
+    // Await that acknowledgement so a missing or rejected worker can fall
+    // back before the task is left in `working` with no processor.
+    await fireInternalDispatch({
+      event,
+      path: backgroundPath,
+      taskId,
+      body: {
+        [AGENT_BACKGROUND_PROCESSOR_FIELD]: AGENT_BACKGROUND_PROCESSOR_A2A,
+      },
+      awaitResponse: true,
+    });
+  } catch (backgroundError) {
+    // Deploys can retain a runtime env opt-in after the corresponding
+    // background function was removed from the build. Keep async A2A useful
+    // in that state by falling back to the portable processor route, which
+    // runs in the regular framework function with the same task/auth checks.
+    console.error(
+      "[a2a] Durable background dispatch failed; falling back to portable processor:",
+      backgroundError,
+    );
+    await fireInternalDispatch({
+      event,
+      path: A2A_PROCESS_TASK_PATH,
+      taskId,
+      // The caller is about to return after a failed background handoff.
+      // Await the portable route briefly so the request definitely leaves this
+      // invocation, but do not hold async message/send open for the full agent
+      // run. The target processor continues independently after this bounded
+      // client-side timeout if the handler takes longer.
+      awaitResponse: true,
+      responseTimeoutMs: PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS,
+    });
+  }
 }
 
 /**
@@ -95,7 +223,7 @@ export async function processA2ATaskFromQueue(
 
   const message = claimed.history?.[0];
   if (!message) {
-    await updateTask(taskId, {
+    await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: {
         role: "agent",
@@ -109,6 +237,12 @@ export async function processA2ATaskFromQueue(
   const processorMeta = (meta.__a2a_processor ?? {}) as Record<string, unknown>;
   const verifiedEmail = processorMeta.verifiedEmail as string | undefined;
   const orgDomainHint = processorMeta.orgDomainHint as string | undefined;
+  // The processor metadata was created by the authenticated inbound handler
+  // from that request's resolved origin. Prefer it over the processor event,
+  // whose host may be an internal worker/dispatch origin. Legacy tasks that
+  // predate this metadata fall back to the processor event.
+  const requestOrigin =
+    requestOriginFromMetadata(processorMeta) ?? requestOriginFromEvent(event);
   const contextId =
     (processorMeta.contextId as string | null | undefined) ?? undefined;
   const callerMetadata =
@@ -134,7 +268,11 @@ export async function processA2ATaskFromQueue(
   ).unref?.();
   try {
     await runWithRequestContext(
-      { userEmail: verifiedEmail, orgId: resolvedOrgId },
+      {
+        userEmail: verifiedEmail,
+        orgId: resolvedOrgId,
+        ...(requestOrigin ? { requestOrigin } : {}),
+      },
       () =>
         runHandlerAndPersist(
           taskId,
@@ -147,7 +285,7 @@ export async function processA2ATaskFromQueue(
     );
   } catch (err: any) {
     try {
-      await updateTask(taskId, {
+      await settleProcessingA2ATask(taskId, {
         state: "failed",
         message: {
           role: "agent",
@@ -286,7 +424,7 @@ function makeHandlerContext(
  * inside `runWithRequestContext` so downstream actions see the org.
  */
 async function withA2ARequestContext<T>(
-  _metadata: Record<string, unknown> | undefined,
+  metadata: Record<string, unknown> | undefined,
   event: any | undefined,
   fn: () => Promise<T>,
 ): Promise<T> {
@@ -303,9 +441,14 @@ async function withA2ARequestContext<T>(
     (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
 
   const resolvedOrgId = await resolveVerifiedA2AOrgId(verifiedEmail, orgDomain);
+  const requestOrigin = requestOriginForContext(metadata, event);
 
   return runWithRequestContext(
-    { userEmail: verifiedEmail, orgId: resolvedOrgId },
+    {
+      userEmail: verifiedEmail,
+      orgId: resolvedOrgId,
+      ...(requestOrigin ? { requestOrigin } : {}),
+    },
     fn,
   ) as Promise<T>;
 }
@@ -367,7 +510,7 @@ async function runHandlerAndPersist(
       for await (const msg of result as AsyncGenerator<Message>) {
         lastMessage = msg;
       }
-      await updateTask(taskId, {
+      await settleProcessingA2ATask(taskId, {
         state: "completed",
         message: lastMessage,
         artifacts: artifacts.length > 0 ? artifacts : undefined,
@@ -377,13 +520,13 @@ async function runHandlerAndPersist(
 
     const handlerResult = await (result as Promise<A2AHandlerResult>);
     const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
-    await updateTask(taskId, {
+    await settleProcessingA2ATask(taskId, {
       state: "completed",
       message: handlerResult.message,
       artifacts: allArtifacts.length > 0 ? allArtifacts : undefined,
     });
   } catch (err: any) {
-    await updateTask(taskId, {
+    await settleProcessingA2ATask(taskId, {
       state: "failed",
       message: {
         role: "agent",
@@ -465,14 +608,17 @@ async function handleSend(
     // to metadata.orgDomain which is caller-supplied and unverified.
     const orgDomainHint =
       (event?.context?.__a2aOrgDomain as string | undefined) ?? undefined;
+    const requestOrigin = requestOriginForContext(metadata, event);
+    const safeMetadata = trustedA2AMetadata(metadata, event);
 
     const taskMetadata: Record<string, unknown> = {
-      ...(metadata ?? {}),
+      ...(safeMetadata ?? {}),
       __a2a_processor: {
         verifiedEmail,
         orgDomainHint,
+        ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
-        callerMetadata: metadata ?? null,
+        callerMetadata: safeMetadata ?? null,
       },
     };
     const task = await createTask(
@@ -483,9 +629,18 @@ async function handleSend(
     );
     const working = await updateTask(task.id, { state: "working" });
 
-    fireProcessTaskDispatch(event, task.id, config).catch((err) => {
+    // Awaited, not fire-and-forget: this handler is about to return, and a
+    // detached dispatch fetch racing only a short settle timer can be killed
+    // mid-flight when the serverless response is flushed WITHOUT rejecting —
+    // see the `awaitResponse` doc on `fireInternalDispatch` in
+    // server/self-dispatch.ts. The durable worker path gets a fast 202
+    // acknowledgement; a stale-worker fallback uses a short bounded timeout
+    // because the portable route responds after processing the task.
+    try {
+      await fireProcessTaskDispatch(event, task.id, config);
+    } catch (err) {
       console.error("[a2a] Failed to dispatch process-task:", err);
-    });
+    }
 
     return { ...jsonRpcResult(0, working ?? task), _id: 0 };
   }
@@ -499,7 +654,12 @@ async function handleSend(
     );
     await updateTask(task.id, { state: "working" });
 
-    const ctx = makeHandlerContext(task.id, contextId, metadata, event);
+    const ctx = makeHandlerContext(
+      task.id,
+      contextId,
+      trustedA2AMetadata(metadata, event),
+      event,
+    );
 
     try {
       const result = getHandler(config)(message, ctx.context);
@@ -581,7 +741,7 @@ async function handleStream(
     const { context, artifacts } = makeHandlerContext(
       task.id,
       contextId,
-      metadata,
+      trustedA2AMetadata(metadata, event),
       event,
     );
 
@@ -750,30 +910,54 @@ async function refireStuckAsyncTaskIfNeeded(
   if (!state.metadata?.__a2a_processor) return false;
 
   const now = Date.now();
-  if (
-    (state.statusState === "submitted" || state.statusState === "working") &&
-    state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS
-  ) {
-    if (await touchQueuedA2ATaskDispatch(taskId)) {
-      await fireProcessTaskDispatch(event, taskId, config);
+
+  if (state.statusState === "submitted" || state.statusState === "working") {
+    const queuedLifetimeCutoff = now - a2aQueuedLifetimeMaxMs();
+    if (state.createdAt <= queuedLifetimeCutoff) {
+      // Dispatch has kept failing (or was never delivered) long enough that
+      // retrying further would just repeat the same failure forever — stop
+      // refiring and surface a terminal error instead of throttling forever.
+      return failStuckQueuedA2ATask(
+        taskId,
+        queuedLifetimeCutoff,
+        "The async A2A task could not be started because dispatch kept failing. Please retry the request.",
+      );
+    }
+
+    if (state.updatedAt <= now - A2A_QUEUED_DISPATCH_STUCK_AFTER_MS) {
+      if (!(await touchQueuedA2ATaskDispatch(taskId))) return false;
+      try {
+        await fireProcessTaskDispatch(event, taskId, config);
+      } catch (err) {
+        console.error(
+          "[a2a] Failed to refire stuck queued task dispatch:",
+          err,
+        );
+        return false;
+      }
       return true;
     }
     return false;
   }
 
-  if (
-    state.statusState === "processing" &&
-    state.updatedAt <= now - A2A_PROCESSING_STUCK_AFTER_MS
-  ) {
-    // A processor that died mid-handler may have already performed
-    // side-effectful work. Retrying from the top can duplicate artifacts, so
-    // fail deterministically and let the caller issue an intentional retry.
-    const failed = await failStuckA2ATask(
-      taskId,
-      now - A2A_PROCESSING_STUCK_AFTER_MS,
-      "The async A2A processor timed out before completing. Please retry the request.",
-    );
-    return failed;
+  if (state.statusState === "processing") {
+    const processingStuckCutoff = now - A2A_PROCESSING_STUCK_AFTER_MS;
+    const processingLifetimeCutoff = now - a2aProcessingLifetimeMaxMs();
+    const isStale = state.updatedAt <= processingStuckCutoff;
+    const isOverLifetime = state.createdAt <= processingLifetimeCutoff;
+    if (isStale || isOverLifetime) {
+      // A processor that died mid-handler may have already performed
+      // side-effectful work. Retrying from the top can duplicate artifacts, so
+      // fail deterministically and let the caller issue an intentional retry.
+      return failStuckA2ATask(
+        taskId,
+        processingStuckCutoff,
+        isStale
+          ? "The async A2A processor timed out before completing. Please retry the request."
+          : "The async A2A processor exceeded its maximum run time. Please retry the request.",
+        processingLifetimeCutoff,
+      );
+    }
   }
 
   return false;

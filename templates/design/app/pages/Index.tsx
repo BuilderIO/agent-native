@@ -5,6 +5,10 @@ import {
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
 import {
+  injectSessionReplayIframeBootstrap,
+  SESSION_REPLAY_IFRAME_ATTRIBUTE,
+} from "@agent-native/core/client";
+import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
@@ -29,6 +33,7 @@ import { toast } from "sonner";
 
 import PromptPopover from "@/components/editor/PromptDialog";
 import type { UploadedFile } from "@/components/editor/PromptDialog";
+import { QueryErrorState } from "@/components/QueryErrorState";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -106,7 +111,13 @@ export default function Index() {
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
-  const { data: designsData, isLoading } = useActionQuery<{
+  const {
+    data: designsData,
+    isLoading,
+    isError,
+    isFetching,
+    refetch,
+  } = useActionQuery<{
     count: number;
     designs: Design[];
   }>("list-designs", { includePreview: "true" });
@@ -583,6 +594,11 @@ export default function Index() {
       <main className="px-4 sm:px-6 py-6 sm:py-10">
         {isLoading ? (
           <LoadingSkeleton />
+        ) : isError ? (
+          <QueryErrorState
+            onRetry={() => void refetch()}
+            retrying={isFetching}
+          />
         ) : designs.length === 0 ? (
           <EmptyState
             onCreateDesign={openNewDesign}
@@ -734,7 +750,7 @@ export default function Index() {
                       </Tooltip>
                     </div>
                     {/* Three-dot menu */}
-                    <div className="absolute top-2 end-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100">
+                    <div className="absolute top-2 end-2 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
                           <Button
@@ -942,7 +958,8 @@ function DesignThumbnail({ html }: { html: string | null }) {
       className="aspect-video relative overflow-hidden bg-white"
     >
       <iframe
-        srcDoc={html}
+        {...{ [SESSION_REPLAY_IFRAME_ATTRIBUTE]: "" }}
+        srcDoc={injectSessionReplayIframeBootstrap(html)}
         sandbox="allow-scripts"
         loading="lazy"
         tabIndex={-1}

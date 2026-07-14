@@ -51,6 +51,7 @@ import {
   MCP_CONNECT_SCOPE,
 } from "./connect-store.js";
 import { MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import type { ExternalAgentPolicy } from "./external-agent-policy.js";
 import {
   MCP_OAUTH_SCOPES,
   hasMcpOAuthScope,
@@ -124,8 +125,9 @@ export interface MCPConfig {
    * from connectors. It is no longer gated behind an environment variable, and
    * the catalog is never inferred from the client name/user-agent.
    *
-   * `tool-search` stays available in the compact catalog so any trimmed tool is
-   * reachable on demand. Callers who need the full surface up front opt in
+   * `tool-search` stays available in the compact catalog for discovery. A
+   * searched action still needs the connector catalog or authenticated-read
+   * policy before `tools/call`; callers who need the full surface up front opt in
    * explicitly with `agent-native connect --full-catalog` (embeds a
    * `catalog_scope: "full"` claim in the connect-minted JWT) or the
    * deployment-wide `AGENT_NATIVE_MCP_FULL_CATALOG=1` env override.
@@ -134,6 +136,11 @@ export interface MCPConfig {
    * setting it on `MCPConfig` directly; the plugin copies it through.
    */
   connectorCatalog?: string[];
+  /**
+   * Optional policy for automatically exposing explicitly annotated,
+   * authenticated read actions to external MCP callers.
+   */
+  externalAgents?: ExternalAgentPolicy;
 }
 
 /**
@@ -195,6 +202,35 @@ export interface MCPRequestMeta {
    * text. Defaults to disabled when unset.
    */
   inlineMcpApps?: boolean;
+}
+
+const ASK_AGENT_DEFAULT_INLINE_WAIT_MS = 20_000;
+const ASK_AGENT_MAX_INLINE_WAIT_MS = 25_000;
+
+function boundedAskAgentWaitMs(raw: unknown): number {
+  if (raw == null || raw === "") return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed)) return ASK_AGENT_DEFAULT_INLINE_WAIT_MS;
+  return Math.max(
+    0,
+    Math.min(ASK_AGENT_MAX_INLINE_WAIT_MS, Math.trunc(parsed)),
+  );
+}
+
+function isExplicitAsyncAskAgent(raw: unknown): boolean {
+  return raw === true || raw === "true" || raw === 1 || raw === "1";
+}
+
+function formatAskAgentResult(result: unknown): string {
+  if (typeof result === "string") return result;
+  if (result && typeof result === "object") {
+    const record = result as Record<string, unknown>;
+    if (record.status === "completed" && typeof record.response === "string") {
+      return record.response;
+    }
+  }
+  const serialized = JSON.stringify(result);
+  return serialized === undefined ? String(result) : serialized;
 }
 
 /**
@@ -281,7 +317,7 @@ function explicitlyRequestsFullMcpCatalog(
   // (100k+ tokens) into a context window just because a client called itself
   // "code"/"cursor"/"codex" was a recurring footgun. Everything else gets the
   // connector/compact catalog plus `tool-search`, which keeps every tool
-  // reachable on demand.
+  // discoverable; only permitted actions are callable without full opt-in.
   if (process.env.AGENT_NATIVE_MCP_FULL_CATALOG === "1") return true;
   return requestMeta?.fullCatalog === true;
 }
@@ -309,17 +345,102 @@ function warnFullCatalogServed(toolCount: number): void {
   );
 }
 
+function isAuthenticatedReadAction(entry: ActionEntry): boolean {
+  return (
+    entry.http !== false &&
+    entry.http?.method === "GET" &&
+    entry.readOnly === true &&
+    entry.publicAgent?.expose === true &&
+    entry.publicAgent.readOnly === true &&
+    entry.publicAgent.requiresAuth === true
+  );
+}
+
 /**
- * Returns true when the given action name is in the template's connector
- * catalog, OR is a builtin cross-app tool that is always included for
- * external connector clients. Builtin tool names from
- * `COMPACT_MCP_APP_CATALOG_BUILTINS` are always allowed since they are the
- * stable external-agent verb set.
+ * Hard exclusion list for the `authenticatedReads: "auto"` derivation ONLY
+ * (see `autoAuthenticatedReadNames` below). Explicit `connectorCatalog`
+ * entries are a deliberate, reviewed choice made by the app and are NOT
+ * affected by this list — an app can still list any of these names in
+ * `connectorCatalog` on purpose.
+ *
+ * These are the footgun families this file's other comments already call
+ * out ("removes footguns (db-exec, seed-*, extension tools, browser-session
+ * tools, etc.)" above, and "keeps db-exec / seed-* / extension /
+ * browser-session footguns off the external surface" near the connector
+ * tier below): generic core SQL access, template demo/seed data, the
+ * extension-management suite, live browser-session control, and Context
+ * X-Ray internals. `isAuthenticatedReadAction` only inspects action
+ * metadata (http/readOnly/publicAgent flags) — nothing stops a future
+ * change from mis-annotating one of these with that exact flag set again,
+ * the way `db-query`/`db-schema` were briefly (and accidentally) annotated
+ * before it was caught in review. These names can never be auto-derived
+ * from metadata alone; exposing one to external callers requires an
+ * explicit `connectorCatalog` entry.
  */
-function isActionInConnectorCatalog(name: string, config: MCPConfig): boolean {
-  if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
-  if (!Array.isArray(config.connectorCatalog)) return false;
-  return config.connectorCatalog.includes(name);
+const AUTO_READ_EXCLUDED_ACTION_NAMES = new Set([
+  "db-query",
+  "db-schema",
+  "db-exec",
+  "db-patch",
+  "context-manifest-get",
+  "context-preview-get",
+  "context-pin",
+  "context-evict",
+  "context-restore",
+  "context-report",
+]);
+
+/**
+ * Substring/prefix patterns for excluded name *families* that aren't a
+ * fixed, enumerable set: `seed-*` varies per app/template, and the
+ * extension-management and browser-session tool suites use varying verb
+ * prefixes around a shared noun (e.g. `list-extensions`, `create-extension`,
+ * `hide-extension`; `list-browser-sessions`, `run-browser-session-action`) —
+ * so a leading-prefix match alone would miss most of them.
+ */
+const AUTO_READ_EXCLUDED_ACTION_PATTERNS: RegExp[] = [
+  /^seed-/,
+  /extension/,
+  /browser-session/,
+];
+
+function isAutoReadExcludedActionName(name: string): boolean {
+  return (
+    AUTO_READ_EXCLUDED_ACTION_NAMES.has(name) ||
+    AUTO_READ_EXCLUDED_ACTION_PATTERNS.some((pattern) => pattern.test(name))
+  );
+}
+
+function autoAuthenticatedReadNames(
+  actions: Record<string, ActionEntry>,
+  config: MCPConfig,
+): Set<string> {
+  if (config.externalAgents?.authenticatedReads !== "auto") return new Set();
+  return new Set(
+    Object.entries(actions)
+      .filter(
+        ([name, entry]) =>
+          isAuthenticatedReadAction(entry) &&
+          !isAutoReadExcludedActionName(name),
+      )
+      .map(([name]) => name),
+  );
+}
+
+function externalAgentDenySet(config: MCPConfig): Set<string> {
+  return new Set(
+    (config.externalAgents?.denyActions ?? [])
+      .map((name) => name.trim())
+      .filter(Boolean),
+  );
+}
+
+function externalAgentWritesAreAskAppOnly(config: MCPConfig): boolean {
+  return (
+    config.externalAgents?.writes === "ask_app_only" ||
+    (config.externalAgents?.authenticatedReads === "auto" &&
+      config.externalAgents?.writes !== "allowlisted")
+  );
 }
 
 interface ResolvedMcpAppResource {
@@ -421,28 +542,91 @@ function routePathFromOpenUrl(value: string): string | null {
  * `mcpApp.resource` (the resource path already strips them via
  * `mcpAppStructuredContent`).
  *
- * Depth-capped to avoid pathological / circular structures. Strings that
- * embed an `isEmbedStartUrl` substring (e.g. a longer message that includes
- * the URL) are replaced with `[hidden embed URL]`.
+ * Circular structures are replaced with a marker. Strings that embed an
+ * `isEmbedStartUrl` substring (e.g. a longer message that includes the URL)
+ * are replaced with `[hidden embed URL]`. Credential-like `ticket` fields are
+ * removed only inside an embed-signaled object/branch, so ordinary business
+ * fields from unrelated read actions remain faithful.
  */
-function purgeEmbedStartUrls(value: unknown, depth = 0): unknown {
-  if (depth > 5) return value;
+const EMBED_RESULT_SENSITIVE_KEYS = new Set([
+  "embedTargetPath",
+  "embedExpiresAt",
+  "embedTicket",
+]);
+
+function isEmbedCredentialKey(key: string): boolean {
+  return key === "ticket" || /Ticket$/.test(key);
+}
+
+function containsEmbedRoutingSignal(
+  value: unknown,
+  seen = new WeakSet<object>(),
+): boolean {
+  if (typeof value === "string") return isEmbedStartUrl(value);
+  if (!value || typeof value !== "object") return false;
+  if (seen.has(value)) return false;
+  seen.add(value);
+  if (Array.isArray(value)) {
+    const result = value.some((item) => containsEmbedRoutingSignal(item, seen));
+    seen.delete(value);
+    return result;
+  }
+  for (const [key, val] of Object.entries(value)) {
+    if (EMBED_RESULT_SENSITIVE_KEYS.has(key)) {
+      seen.delete(value);
+      return true;
+    }
+    if (containsEmbedRoutingSignal(val, seen)) {
+      seen.delete(value);
+      return true;
+    }
+  }
+  seen.delete(value);
+  return false;
+}
+
+function purgeEmbedStartUrls(
+  value: unknown,
+  seen = new WeakSet<object>(),
+  embedContext = false,
+): unknown {
   if (typeof value === "string") {
     return isEmbedStartUrl(value) ? "[hidden embed URL]" : value;
   }
   if (Array.isArray(value)) {
-    return value.map((item) => purgeEmbedStartUrls(item, depth + 1));
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    // An embed marker in one array item puts the whole result in the embed
+    // routing context. Credential fields in sibling items must not survive
+    // just because the marker lives elsewhere in the array.
+    const arrayEmbedContext = embedContext || containsEmbedRoutingSignal(value);
+    const out = value.map((item) =>
+      purgeEmbedStartUrls(item, seen, arrayEmbedContext),
+    );
+    seen.delete(value);
+    return out;
   }
   if (value && typeof value === "object") {
+    if (seen.has(value)) return "[circular result]";
+    seen.add(value);
+    const entries = Object.entries(value as Record<string, unknown>);
+    const localEmbedContext = embedContext || containsEmbedRoutingSignal(value);
     const out: Record<string, unknown> = {};
-    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    for (const [key, val] of entries) {
+      if (
+        EMBED_RESULT_SENSITIVE_KEYS.has(key) ||
+        (localEmbedContext && isEmbedCredentialKey(key))
+      ) {
+        continue;
+      }
       if (typeof val === "string" && isEmbedStartUrl(val)) {
         // Drop the key entirely for object-typed inputs so a tool result like
         // `{ embedStartUrl: "..." }` does not appear at all in the LLM text.
         continue;
       }
-      out[key] = purgeEmbedStartUrls(val, depth + 1);
+      out[key] = purgeEmbedStartUrls(val, seen, localEmbedContext);
     }
+    seen.delete(value);
     return out;
   }
   return value;
@@ -1104,11 +1288,12 @@ function mcpAppStructuredContent(
   result: unknown,
   meta: Record<string, unknown> | undefined,
 ): Record<string, unknown> {
+  const purged = purgeEmbedStartUrls(result);
   const out: Record<string, unknown> =
-    result && typeof result === "object" && !Array.isArray(result)
-      ? { ...(result as Record<string, unknown>) }
-      : primitiveValue(result)
-        ? { result }
+    purged && typeof purged === "object" && !Array.isArray(purged)
+      ? { ...(purged as Record<string, unknown>) }
+      : primitiveValue(purged)
+        ? { result: purged }
         : {};
   for (const key of ["embedStartUrl", "startUrl"]) {
     const value = out[key];
@@ -1122,17 +1307,6 @@ function mcpAppStructuredContent(
   // LLM). `embedTargetPath` reveals the exact route + thread/draft id the user
   // is looking at; `embedExpiresAt` is an unintended timestamp; ticket-bearing
   // fields are single-use credentials. Drop all of them unconditionally.
-  for (const key of [
-    "embedTargetPath",
-    "embedExpiresAt",
-    "ticket",
-    "embedTicket",
-  ]) {
-    delete out[key];
-  }
-  for (const key of Object.keys(out)) {
-    if (/Ticket$/.test(key)) delete out[key];
-  }
   const openLink = meta?.["agent-native/openLink"];
   if (openLink && typeof openLink === "object" && !Array.isArray(openLink)) {
     const webUrl = (openLink as Record<string, unknown>).webUrl;
@@ -1184,12 +1358,25 @@ function isSuccessOnlyResult(value: Record<string, unknown>): boolean {
   });
 }
 
-function conciseToolResultText(name: string, result: unknown): string {
+function conciseToolResultText(
+  name: string,
+  result: unknown,
+  options?: { preserveObjectResult?: boolean },
+): string {
   const purged = purgeEmbedStartUrls(result);
   if (typeof purged === "string") return truncateToolText(purged);
   if (purged === true || purged == null) return `${name} completed.`;
   if (purged && typeof purged === "object" && !Array.isArray(purged)) {
     const record = purged as Record<string, unknown>;
+    // Read-only actions are data reads, not mutations. Keep their object
+    // payload available to MCP clients in the text fallback too; the
+    // structuredContent branch below is the lossless path for clients that
+    // support it. Mutating/action-style results retain the concise status
+    // text so we do not unexpectedly dump write results into conversations.
+    if (options?.preserveObjectResult) {
+      const text = JSON.stringify(purged);
+      return text === undefined ? `${name} completed.` : truncateToolText(text);
+    }
     const message = record.message ?? record.summary;
     if (typeof message === "string" && message.trim()) {
       return truncateToolText(message.trim());
@@ -1300,16 +1487,21 @@ export async function createMCPServerForRequest(
         ),
       )
     : visibleActions;
+  const autoReadNames = autoAuthenticatedReadNames(visibleActions, config);
+  const connectorNames = new Set([
+    ...(config.connectorCatalog ?? []),
+    ...autoReadNames,
+  ]);
+  const denyNames = externalAgentDenySet(config);
+  const automaticConnectorPolicyActive =
+    config.externalAgents?.authenticatedReads === "auto";
   // Connector-catalog tier: when a template declares a connector allow-list,
-  // serve exactly that curated surface (+ cross-app builtins + tool-search) to
-  // external callers unless they explicitly opted into the full catalog. This
-  // is active by default whenever a catalog is declared — no env flag required —
-  // so the ~105-tool full catalog can never leak just because a deployment
-  // forgot to set one. It also keeps db-exec / seed-* / extension /
+  // serve exactly that curated surface plus any explicitly annotated
+  // authenticated reads from `externalAgents.authenticatedReads: "auto"`.
+  // This stays compact by default and keeps db-exec / seed-* / extension /
   // browser-session footguns off the external surface.
   const connectorCatalogActive =
-    Array.isArray(config.connectorCatalog) &&
-    config.connectorCatalog.length > 0 &&
+    (connectorNames.size > 0 || automaticConnectorPolicyActive) &&
     !fullCatalogRequested;
   // When the connector catalog is active, filter directly from visibleActions
   // rather than advertisedActionsBeforeConnector. This ensures the connector
@@ -1318,9 +1510,18 @@ export async function createMCPServerForRequest(
   // would have activated the compact catalog for the same caller.
   const advertisedActions = connectorCatalogActive
     ? Object.fromEntries(
-        Object.entries(visibleActions).filter(([name]) =>
-          isActionInConnectorCatalog(name, config),
-        ),
+        Object.entries(visibleActions).filter(([name, entry]) => {
+          if (denyNames.has(name)) return false;
+          if (COMPACT_MCP_APP_CATALOG_BUILTINS.has(name)) return true;
+          if (!connectorNames.has(name)) return false;
+          if (
+            externalAgentWritesAreAskAppOnly(config) &&
+            entry.readOnly !== true
+          ) {
+            return false;
+          }
+          return true;
+        }),
       )
     : advertisedActionsBeforeConnector;
   if (fullCatalogRequested) {
@@ -1447,13 +1648,25 @@ export async function createMCPServerForRequest(
           description:
             "Send a natural-language message to the app's AI agent and get a response. " +
             "Use this for complex, multi-step tasks that require the agent's reasoning " +
-            "and full context about the app.",
+            "and full context about the app. On hosted MCP, the server waits briefly " +
+            "for fast completions and returns a taskId plus ask_app_status polling " +
+            "instructions when the agent needs longer.",
           inputSchema: {
             type: "object" as const,
             properties: {
               message: {
                 type: "string",
                 description: "The message to send to the agent",
+              },
+              async: {
+                type: "boolean",
+                description:
+                  "Start a durable task and return immediately with a taskId.",
+              },
+              maxWaitMs: {
+                type: "number",
+                description:
+                  "Maximum inline wait in milliseconds. Hosted MCP clamps this to 25000ms.",
               },
             },
             required: ["message"],
@@ -1497,8 +1710,29 @@ export async function createMCPServerForRequest(
         }
         const message = args?.message ?? "";
         try {
-          const result = await config.askAgent(message);
-          return { content: [{ type: "text", text: result }] };
+          // Keep the legacy meta-tool compatible for local callers, but use
+          // the same durable A2A submission path as ask_app whenever this is
+          // an HTTP/hosted request. A full agent loop must never be held open
+          // for minutes behind one MCP tools/call request. Always route
+          // through ask_app's own run() — even with no request origin, since
+          // it now bounds that case too via its process-local inline-task
+          // fallback (ask-app-inline-tasks.ts) instead of us awaiting
+          // config.askAgent() here unbounded. This is the shared helper: no
+          // second task map to keep in sync.
+          const hostedAskApp = getBuiltinCrossAppTools(
+            config,
+            requestMeta,
+          ).ask_app;
+          const result = await hostedAskApp.run({
+            message,
+            async: isExplicitAsyncAskAgent(args?.async),
+            maxWaitMs: isExplicitAsyncAskAgent(args?.async)
+              ? 0
+              : boundedAskAgentWaitMs(args?.maxWaitMs),
+          });
+          return {
+            content: [{ type: "text", text: formatAskAgentResult(result) }],
+          };
         } catch (err: any) {
           return {
             content: [{ type: "text", text: `Error: ${err.message}` }],
@@ -1599,6 +1833,14 @@ export async function createMCPServerForRequest(
           Array.isArray(toolVisibility) &&
           toolVisibility.length > 0 &&
           toolVisibility.every((v) => v === "app");
+        const readOnlyStructuredResult =
+          entry.readOnly === true &&
+          rawResultForClient &&
+          typeof rawResultForClient === "object"
+            ? Array.isArray(rawResultForClient)
+              ? { items: rawResultForClient }
+              : rawResultForClient
+            : undefined;
         const structuredContent = mcpAppResource
           ? mcpAppStructuredContent(rawResultForClient, responseMeta)
           : isAppOnlyVisibility &&
@@ -1606,10 +1848,14 @@ export async function createMCPServerForRequest(
               typeof rawResult === "object" &&
               !Array.isArray(rawResult)
             ? (rawResult as Record<string, unknown>)
-            : undefined;
+            : readOnlyStructuredResult
+              ? mcpAppStructuredContent(readOnlyStructuredResult, responseMeta)
+              : undefined;
         const text = mcpAppResource
           ? conciseMcpAppToolText(name, resultForClient, structuredContent!)
-          : conciseToolResultText(name, resultForClient);
+          : conciseToolResultText(name, resultForClient, {
+              preserveObjectResult: entry.readOnly === true,
+            });
         const content: any[] = [{ type: "text", text }];
         if (block) content.push(block);
         return {

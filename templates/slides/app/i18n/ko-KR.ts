@@ -329,6 +329,8 @@ const messages = {
     hideResolved: "해결됨 숨기기",
     showResolved: "해결됨 {{count}}개 표시",
     noCommentsYet: "아직 댓글 없음",
+    loadFailed: "댓글을 불러올 수 없습니다",
+    retry: "다시 시도",
     clickToAddComment: "클릭하여 댓글 추가",
     selectSlideToAdd: "추가하려면 슬라이드를 선택하세요",
   },
@@ -536,6 +538,10 @@ const messages = {
     chooseAnotherFile: "다른 파일 선택",
   },
   home: {
+    loadFailed: "콘텐츠를 불러올 수 없습니다",
+    loadFailedDescription:
+      "저장된 콘텐츠는 그대로 있습니다. 연결을 확인하고 다시 시도하세요.",
+    retry: "다시 시도",
     decksTitle: "덱",
     newDeck: "새 덱",
     deckLengthQuestion: "이 덱은 얼마나 길어야 하나요?",

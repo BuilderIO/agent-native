@@ -265,7 +265,7 @@ export default runMigrations(
 | `/_agent-native/extensions/*`    | रनटाइम एक्सटेंशन और एक्सटेंशन प्रॉक्सी (विरासत उपनाम: `/_agent-native/tools/*`) |
 | `/_agent-native/integrations/*`  | मैसेजिंग/वेबहुक एकीकरण                                                          |
 | `/_agent-native/a2a`             | एजेंट-से-एजेंट JSON-RPC                                                         |
-| `/_agent-native/mcp`             | MCP समापन बिंदु                                                                 |
+| `/mcp`                           | MCP समापन बिंदु                                                                 |
 | `/_agent-native/onboarding/*`    | सेटअप चेकलिस्ट                                                                  |
 | `/_agent-native/observability/*` | निशान, फीडबैक, मूल्यांकन, प्रयोग                                                |
 | `/_agent-native/file-upload`     | फ़ाइल अपलोड प्रदाता समापन बिंदु                                                 |
@@ -461,4 +461,4 @@ const handler = createProductionAgentHandler({
 - [**Database**](/docs/database) — `getDb()`/`schema` पैटर्न जिसे कस्टम रूट और actions दोनों आयात करते हैं
 - [**Security**](/docs/security#access-guards) — `accessFilter`/`assertAccess` और पूरा डेटा-स्कोपिंग मॉडल
 - [**Messaging**](/docs/messaging) — इनबाउंड webhook के लिए मानक इंटीग्रेशन क्यू पैटर्न
-- [**MCP Protocol**](/docs/mcp-protocol) — `/_agent-native/mcp` endpoint जिसे यह सर्वर अपने आप माउंट करता है
+- [**MCP Protocol**](/docs/mcp-protocol) — `/mcp` endpoint जिसे यह सर्वर अपने आप माउंट करता है

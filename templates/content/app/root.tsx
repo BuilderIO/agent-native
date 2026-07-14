@@ -20,6 +20,7 @@ import type { ListContentDatabasesResponse } from "@shared/api";
 import {
   IconDatabase,
   IconDeviceDesktop,
+  IconBrain,
   IconFileText,
   IconFolderOpen,
   IconLoader2,
@@ -222,8 +223,8 @@ function RouteTransitionIndicator() {
       data-pending={pending ? "true" : undefined}
     >
       <div
-        className={`h-full bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-all duration-200 ${
-          pending ? "w-2/3 opacity-100" : "w-0 opacity-0"
+        className={`h-full w-2/3 origin-left bg-primary shadow-[0_0_12px_hsl(var(--primary)/0.45)] transition-[transform,opacity] duration-200 ${
+          pending ? "scale-x-100 opacity-100" : "scale-x-0 opacity-0"
         }`}
       />
     </div>
@@ -522,6 +523,7 @@ function ContentCommandMenu({
   onOpenChange: (open: boolean) => void;
 }) {
   const t = useT();
+  const navigate = useNavigate();
   return (
     <CommandMenu
       open={open}
@@ -536,6 +538,12 @@ function ContentCommandMenu({
         />
       )}
     >
+      <CommandMenu.Group heading={t("root.commandContent")}>
+        <CommandMenu.Item onSelect={() => navigate("/agent")}>
+          <IconBrain size={16} />
+          {t("root.openAgent")}
+        </CommandMenu.Item>
+      </CommandMenu.Group>
       <CommandMenu.Group heading={t("root.commandAppearance")}>
         <ThemeToggleItem />
       </CommandMenu.Group>

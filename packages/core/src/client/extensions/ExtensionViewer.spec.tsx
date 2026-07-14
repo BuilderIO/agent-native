@@ -72,6 +72,7 @@ const extensionResponse = {
   updatedAt: "2026-05-22T00:00:00.000Z",
   ownerEmail: "owner@example.test",
   role: "owner",
+  canEdit: true,
   canDelete: true,
 };
 
@@ -265,6 +266,7 @@ describe("ExtensionViewer MCP embeds", () => {
     expect(shareIndex).toBeGreaterThan(-1);
     expect(moreIndex).toBeLessThan(shareIndex);
     expect(container.textContent).not.toContain("Notifications");
+    expect(container.textContent).not.toContain("View / edit source");
   });
 
   it("lets toolbar popovers take outside clicks over the extension iframe", async () => {

@@ -65,6 +65,29 @@ describe("createSecurityHeadersMiddleware", () => {
     );
   });
 
+  it("applies MCP resource headers to the public /mcp alias", async () => {
+    const app = createApp();
+    app.use(createSecurityHeadersMiddleware());
+
+    const router = createRouter();
+    router.post(
+      "/mcp",
+      defineEventHandler(() => new Response("ok")),
+    );
+    app.use(router);
+
+    const res = await app.request("http://localhost/mcp", {
+      method: "POST",
+      headers: {
+        origin: "https://520ba469ac5783c72c33d79bea940871.claudemcpcontent.com",
+      },
+    });
+
+    expect(res.headers.get("Cross-Origin-Resource-Policy")).toBe(
+      "cross-origin",
+    );
+  });
+
   it("keeps ordinary app responses same-site", async () => {
     const app = createApp();
     app.use(createSecurityHeadersMiddleware());

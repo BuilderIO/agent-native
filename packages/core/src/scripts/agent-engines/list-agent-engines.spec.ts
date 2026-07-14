@@ -109,4 +109,25 @@ describe("list-agent-engines", () => {
     expect(result.current?.engine).toBe("test:openai");
     expect(result.current?.model).toBe("gpt-test");
   });
+
+  it("reports the Builder engine default without a hosted experiment assignment", async () => {
+    vi.stubEnv("BUILDER_PRIVATE_KEY", "builder-private-example");
+    vi.stubEnv("BUILDER_PUBLIC_KEY", "builder-public-example");
+    vi.stubEnv("URL", "https://chat.agent-native.com");
+
+    const { runWithRequestContext } =
+      await import("../../server/request-context.js");
+    const { run } = await import("./list-agent-engines.js");
+
+    const result = JSON.parse(
+      await runWithRequestContext({ userEmail: "hosted@example.com" }, () =>
+        run(),
+      ),
+    );
+
+    expect(result.current).toEqual({
+      engine: "builder",
+      model: "claude-sonnet-5",
+    });
+  });
 });

@@ -85,10 +85,8 @@ import {
   type DesktopShortcutSettings,
   type DesktopShortcutUpdateResult,
   type DesktopShortcutUpsertRequest,
-  type InterAppMessage,
   type LocalAppFolderInfo,
   type LocalAppFolderSelectResult,
-  type DesktopContentFilesClearFolderRequest,
   type DesktopContentFileDeleteRequest,
   type DesktopContentFileRevealRequest,
   type DesktopContentFileWriteRequest,
@@ -97,14 +95,11 @@ import {
   type DesktopContentFilesResult,
   type DesktopContentFilesWriteRequest,
   type DesktopPlanFilesChooseFolderRequest,
-  type DesktopPlanFilesClearFolderRequest,
   type DesktopPlanFilesFolder,
-  type DesktopPlanFilesFolderRequest,
   type DesktopPlanFilesReadRequest,
   type DesktopPlanFilesResult,
   type DesktopPlanFilesWriteRequest,
   type DesktopPlanMdxFolder,
-  type UpdateStatus,
 } from "@shared/ipc-channels";
 import {
   app,
@@ -142,13 +137,32 @@ import * as AppStore from "./app-store";
 import { BrowserControlLoopbackBridge } from "./browser-control/bridge";
 import { installBrowserNativeHost } from "./browser-control/native-host";
 import {
+  getCodexLoginLaunchSpec,
+  spawnDetached,
+} from "./codex-login-launcher.js";
+import {
   ComputerControlBroker,
   DesktopComputerMcpBridge,
   EphemeralScreenObserver,
   getComputerPermissionStatus,
+  requestAccessibilityPermission,
+  runComputerSetupAction,
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import { registerAppsIpc } from "./ipc/apps";
+import { registerCodeAgentsIpc } from "./ipc/code-agents";
+import { registerContentFilesIpc } from "./ipc/content-files";
+import { registerFrameIpc } from "./ipc/frame";
+import { registerInterAppIpc } from "./ipc/inter-app";
+import { registerPlanFilesIpc } from "./ipc/plan-files";
+import { registerShortcutsIpc } from "./ipc/shortcuts";
+import {
+  checkForAppUpdates,
+  getCurrentUpdateStatus,
+  registerUpdatesIpc,
+} from "./ipc/updates";
+import { registerWindowIpc } from "./ipc/window";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -233,11 +247,12 @@ const CODE_AGENT_PROVIDER_SETTING_KEYS: CodeAgentProviderCredentialKey[] = [
 const CODEX_CLI_ENGINE_NAME = "codex-cli";
 const CODEX_CLI_DEFAULT_MODEL = "codex-cli";
 const DESKTOP_BUILDER_CONNECT_TIMEOUT_MS = 5 * 60 * 1000;
-const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
+export const CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:subscribe-transcript";
-const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
+export const CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL =
   "code-agents:unsubscribe-transcript";
-const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL = "code-agents:transcript-events";
+export const CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL =
+  "code-agents:transcript-events";
 
 type DesktopBackgroundAgentControlCommand =
   | "approve"
@@ -282,7 +297,7 @@ interface DesktopBackgroundAgentController {
   ): Promise<DesktopBackgroundAgentControlResult>;
 }
 
-interface CodeAgentTranscriptSubscriptionBatch {
+export interface CodeAgentTranscriptSubscriptionBatch {
   subscriptionId: string;
   status: CodeAgentTranscriptResult["status"];
   runId: string;
@@ -292,7 +307,7 @@ interface CodeAgentTranscriptSubscriptionBatch {
   error?: string;
 }
 
-interface CodeAgentTranscriptSubscription {
+export interface CodeAgentTranscriptSubscription {
   id: string;
   runId: string;
   senderId: number;
@@ -853,94 +868,6 @@ app.on("open-url", (event, url) => {
   }
 });
 
-// ---------- Auto-updates ----------
-//
-// In production, electron-updater pulls release metadata from the
-// `publish:` target in electron-builder.yml (currently the BuilderIO/agent-native
-// GitHub repo). We auto-download in the background, surface progress and
-// readiness to the renderer over IPC, and let the user trigger
-// quitAndInstall from a sidebar pill / restart prompt. The app also
-// installs queued updates automatically on quit.
-//
-// In dev, autoUpdater is unsupported (no app signature, no dev-app-update.yml),
-// so we report an "unsupported" status and skip all autoUpdater calls.
-
-const UPDATE_CHECK_INTERVAL_MS = 60 * 60 * 1000;
-const UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS = 15 * 60 * 1000;
-const DEFAULT_DESKTOP_UPDATE_FEED_URL =
-  "https://agent-native.com/api/desktop-updates";
-const DESKTOP_UPDATE_FEED_URL = (
-  process.env.AGENT_NATIVE_DESKTOP_UPDATE_FEED_URL ||
-  DEFAULT_DESKTOP_UPDATE_FEED_URL
-).replace(/\/+$/, "");
-
-let currentUpdateStatus: UpdateStatus = IS_DEV
-  ? { state: "unsupported", reason: "Auto-update is disabled in development" }
-  : { state: "idle" };
-let updateCheckInFlight: Promise<unknown> | null = null;
-let lastUpdateCheckStartedAt = 0;
-let notifiedUpdateVersion: string | null = null;
-
-function broadcastUpdateStatus(status: UpdateStatus) {
-  currentUpdateStatus = status;
-  refreshApplicationMenu();
-  for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) {
-      win.webContents.send(IPC.UPDATE_STATUS_CHANGED, status);
-    }
-  }
-}
-
-async function checkForAppUpdates(): Promise<UpdateStatus> {
-  if (IS_DEV) return currentUpdateStatus;
-  if (currentUpdateStatus.state === "downloaded") return currentUpdateStatus;
-
-  if (!updateCheckInFlight) {
-    lastUpdateCheckStartedAt = Date.now();
-    updateCheckInFlight = autoUpdater
-      .checkForUpdates()
-      .catch((err) => {
-        broadcastUpdateStatus({
-          state: "error",
-          message: err instanceof Error ? err.message : String(err),
-        });
-      })
-      .finally(() => {
-        updateCheckInFlight = null;
-      });
-  }
-
-  await updateCheckInFlight;
-  return currentUpdateStatus;
-}
-
-function maybeCheckForAppUpdates() {
-  if (IS_DEV) return;
-  if (currentUpdateStatus.state === "downloaded") return;
-  if (
-    updateCheckInFlight ||
-    Date.now() - lastUpdateCheckStartedAt < UPDATE_FOCUS_CHECK_MIN_INTERVAL_MS
-  ) {
-    return;
-  }
-  void checkForAppUpdates();
-}
-
-function showUpdateReadyNotification(version: string) {
-  if (!Notification.isSupported()) return;
-  if (notifiedUpdateVersion === version) return;
-  notifiedUpdateVersion = version;
-
-  const notification = new Notification({
-    title: "Agent Native update ready",
-    body: `Version ${version} is downloaded. Open Agent Native to relaunch and install it.`,
-  });
-  notification.on("click", (_event) => {
-    focusMainWindow();
-  });
-  notification.show();
-}
-
 // --------------- Run completion / attention notifications ---------------
 
 /** True when the main window is hidden or unfocused. */
@@ -1003,98 +930,11 @@ app.on("browser-window-focus", () => {
   updateDockBadge();
 });
 
-if (!IS_DEV) {
-  // The GitHub provider reads the repository-wide latest release feed, which
-  // also contains npm package releases and Clips desktop releases. Use the
-  // Agent Native feed that filters the shared repo down to desktop assets.
-  autoUpdater.setFeedURL({
-    provider: "generic",
-    url: DESKTOP_UPDATE_FEED_URL,
-  });
-  autoUpdater.autoDownload = true;
-  autoUpdater.autoInstallOnAppQuit = true;
-
-  autoUpdater.on("checking-for-update", () => {
-    broadcastUpdateStatus({ state: "checking" });
-  });
-
-  autoUpdater.on("update-available", (info) => {
-    broadcastUpdateStatus({
-      state: "available",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-    });
-  });
-
-  autoUpdater.on("update-not-available", (info) => {
-    broadcastUpdateStatus({
-      state: "not-available",
-      currentVersion: info.version ?? app.getVersion(),
-    });
-  });
-
-  autoUpdater.on("download-progress", (progress) => {
-    broadcastUpdateStatus({
-      state: "downloading",
-      percent: Math.round(progress.percent ?? 0),
-      bytesPerSecond: progress.bytesPerSecond,
-      transferred: progress.transferred,
-      total: progress.total,
-    });
-  });
-
-  autoUpdater.on("update-downloaded", (info) => {
-    broadcastUpdateStatus({
-      state: "downloaded",
-      version: info.version,
-      releaseNotes:
-        typeof info.releaseNotes === "string" ? info.releaseNotes : undefined,
-    });
-    showUpdateReadyNotification(info.version);
-  });
-
-  autoUpdater.on("error", (err) => {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err?.message ?? String(err),
-    });
-  });
-
-  app.whenReady().then(() => {
-    void checkForAppUpdates();
-    setInterval(() => void checkForAppUpdates(), UPDATE_CHECK_INTERVAL_MS);
-  });
-
-  app.on("browser-window-focus", maybeCheckForAppUpdates);
-  app.on("activate", maybeCheckForAppUpdates);
-}
-
-ipcMain.handle(IPC.UPDATE_GET_STATUS, (): UpdateStatus => currentUpdateStatus);
-
-ipcMain.handle(IPC.UPDATE_CHECK, async (): Promise<UpdateStatus> => {
-  return checkForAppUpdates();
-});
-
-ipcMain.handle(IPC.UPDATE_DOWNLOAD, async (): Promise<UpdateStatus> => {
-  if (IS_DEV) return currentUpdateStatus;
-  try {
-    await autoUpdater.downloadUpdate();
-  } catch (err) {
-    broadcastUpdateStatus({
-      state: "error",
-      message: err instanceof Error ? err.message : String(err),
-    });
-  }
-  return currentUpdateStatus;
-});
-
-ipcMain.handle(IPC.UPDATE_INSTALL, () => {
-  if (IS_DEV) return;
-  // isSilent=false so any installer UI shows; isForceRunAfter=true so the
-  // app relaunches after the update completes.
-  autoUpdater.quitAndInstall(false, true);
-});
+// ---------- IPC: Auto-updates ----------
+// See main/ipc/updates.ts for the autoUpdater wiring, status broadcast, and
+// update-ready notification. `checkForAppUpdates`/`getCurrentUpdateStatus`
+// (imported above) are also used by the application menu below.
+registerUpdatesIpc({ refreshApplicationMenu, focusMainWindow });
 
 function createWindow(): BrowserWindow {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -1683,7 +1523,7 @@ const REMOTE_DEVICE_PATH_ENV = "AGENT_NATIVE_REMOTE_DEVICE_PATH";
 const REMOTE_CONNECTOR_INITIAL_BACKOFF_MS = 2_000;
 const REMOTE_CONNECTOR_MAX_BACKOFF_MS = 60_000;
 
-let remoteConnectorEnabled = true;
+let remoteConnectorEnabled = false;
 let remoteConnectorProcess: ChildProcess | null = null;
 let remoteConnectorRestartTimer: NodeJS.Timeout | null = null;
 let remoteConnectorRestartCount = 0;
@@ -1983,18 +1823,6 @@ function startRemoteCodeAgentConnector(): CodeAgentRemoteConnectorStatus {
     revokeRemoteConnectorComputerControl();
     remoteConnectorError = err instanceof Error ? err.message : String(err);
     scheduleRemoteConnectorRestart();
-  }
-  return getRemoteConnectorStatus();
-}
-
-function getRemoteConnectorStatusForUserRequest(): CodeAgentRemoteConnectorStatus {
-  if (
-    remoteConnectorEnabled &&
-    !appIsQuitting &&
-    !remoteConnectorProcess?.pid &&
-    !remoteConnectorNextRestartAt
-  ) {
-    return startRemoteCodeAgentConnector();
   }
   return getRemoteConnectorStatus();
 }
@@ -2734,6 +2562,10 @@ function normalizeCodeAgentTranscriptEvent(
     ? { ...(row.metadata as Record<string, unknown>) }
     : {};
   if (fallback.source) metadata.source = fallback.source;
+  // Prefer the structured signal the executor stamps on credential-gap
+  // events; carry it through so the renderer can detect the condition
+  // without regex-matching `text` (see isCredentialGapCodeAgentEvent).
+  const signal = row.signal === "credential-gap" ? "credential-gap" : undefined;
 
   return {
     id:
@@ -2749,6 +2581,7 @@ function normalizeCodeAgentTranscriptEvent(
     artifactPath,
     artifactUrl,
     metadata: Object.keys(metadata).length > 0 ? metadata : undefined,
+    ...(signal ? { signal } : {}),
   };
 }
 
@@ -3249,9 +3082,7 @@ async function initializeDesktopComputerMcpBridge(): Promise<void> {
         "out/main/browser-control-host.js",
       )
     : path.resolve(__dirname, "browser-control-host.js");
-  const extensionPath = app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-extension")
-    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  const extensionPath = getBundledChromeExtensionPath();
   try {
     browserNativeHostManifestPath = installBrowserNativeHost({
       ...browserHost,
@@ -4635,29 +4466,6 @@ function updateCodeAgentRun(input: unknown): CodeAgentUpdateRunResult {
   };
 }
 
-function spawnDetached(
-  command: string,
-  args: string[],
-  cwd: string,
-): CodeAgentTerminalResult {
-  try {
-    const child = spawn(command, args, {
-      cwd,
-      detached: true,
-      stdio: "ignore",
-      windowsHide: false,
-    });
-    child.unref();
-    return { ok: true, cwd };
-  } catch (err) {
-    return {
-      ok: false,
-      cwd,
-      error: err instanceof Error ? err.message : String(err),
-    };
-  }
-}
-
 function getHomeDirectory(): string {
   try {
     return app.getPath("home");
@@ -5650,7 +5458,7 @@ async function collectLocalControlResources(
   return resources;
 }
 
-interface ContentFilesGrant {
+export interface ContentFilesGrant {
   id: string;
   path: string;
   sourcePrefix?: string;
@@ -5716,8 +5524,10 @@ function normalizeContentFilesGrant(
   grants: Record<string, ContentFilesGrant>,
 ): ContentFilesGrant | null {
   if (!isObject(value)) return null;
-  const folder = resolveUsableContentFolder(firstStringValue(value.path));
-  if (!folder) return null;
+  const storedPath = firstStringValue(value.path)?.trim();
+  if (!storedPath || storedPath.includes("\0")) return null;
+  const folder = path.resolve(expandPathCandidate(storedPath) ?? storedPath);
+  if (isFilesystemRoot(folder)) return null;
   const id = firstStringValue(value.id)?.trim() || contentFilesGrantId(folder);
   const existing = grants[id];
   const prefixBase = contentFilesSourcePrefixBase(
@@ -6407,7 +6217,7 @@ const PLAN_ASSETS_MAX_TOTAL_BYTES = 10 * 1024 * 1024;
 const PLAN_ASSET_FILENAME_PATTERN =
   /^[A-Za-z0-9][A-Za-z0-9._-]*\.(png|jpe?g|gif|webp|svg)$/i;
 
-interface PlanFilesGrant {
+export interface PlanFilesGrant {
   path: string;
   title?: string;
   updatedAt?: string;
@@ -6903,7 +6713,9 @@ function quoteWindowsCmdPath(value: string): string {
   return `"${value.replaceAll('"', '""')}"`;
 }
 
-function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
+async function openTerminalForCodeAgents(
+  request?: unknown,
+): Promise<CodeAgentTerminalResult> {
   const cwd = resolveCodeAgentsTerminalCwd(request);
   if (process.platform === "darwin") {
     return spawnDetached("open", ["-a", "Terminal", cwd], cwd);
@@ -6927,6 +6739,30 @@ function openTerminalForCodeAgents(request?: unknown): CodeAgentTerminalResult {
     cwd,
     error: `Opening a terminal is not supported on ${process.platform}.`,
   };
+}
+
+function isCommandAvailable(command: string): boolean {
+  try {
+    return (
+      spawnSync("which", [command], {
+        stdio: "ignore",
+      }).status === 0
+    );
+  } catch {
+    return false;
+  }
+}
+
+async function openCodexLoginTerminal(): Promise<CodeAgentTerminalResult> {
+  const cwd = getHomeDirectory();
+  const launch = getCodexLoginLaunchSpec(
+    process.platform,
+    process.platform === "linux" ? isCommandAvailable : undefined,
+  );
+  if (!launch.ok) return { ok: false, cwd, error: launch.error };
+  return spawnDetached(launch.command, launch.args, cwd, undefined, {
+    waitForExit: process.platform === "darwin",
+  });
 }
 
 function readPackageMetadata(packagePath: string): {
@@ -7091,8 +6927,10 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
   }
 
   const settings = AppStore.getCodeAgentProviderSettingsStatus();
-  const storedCredentials = AppStore.loadCodeAgentProviderCredentials();
   const codex = getLocalCodexCliStatus();
+  const configuredCredentialKeys = new Set(
+    settings.providers.flatMap((provider) => provider.configuredKeys),
+  );
   const configuredProviders = [
     ...(process.env.AGENT_ENGINE ? ["Custom"] : []),
     ...(codex.authenticated ? [codex.label] : []),
@@ -7104,7 +6942,7 @@ function getCodeAgentLlmProviderStatus(): NonNullable<
     label: configuredProviders[0],
     configuredProviders,
     missingEnvVars: CODE_AGENT_PROVIDER_SETTING_KEYS.filter(
-      (key) => !process.env[key] && !storedCredentials[key],
+      (key) => !process.env[key] && !configuredCredentialKeys.has(key),
     ),
   };
 }
@@ -7124,8 +6962,7 @@ function hasRuntimeNonCodexCodeAgentLlmProvider(): boolean {
   if (process.env.OPENAI_API_KEY) return true;
   if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) return true;
   return Boolean(
-    (process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY) ||
-    AppStore.getCodeAgentProviderSettingsStatus().configured,
+    process.env.BUILDER_PRIVATE_KEY && process.env.BUILDER_PUBLIC_KEY,
   );
 }
 
@@ -7224,12 +7061,13 @@ function withLocalCodexProviderStatus(
   if (!codex.available) return settings;
   const provider = {
     id: "codex" as const,
-    label: "Codex CLI",
+    label: "ChatGPT subscription",
     configured: codex.authenticated,
     configuredKeys: [] as CodeAgentProviderCredentialKey[],
     missingKeys: [] as CodeAgentProviderCredentialKey[],
     savedKeys: [] as CodeAgentProviderCredentialKey[],
     source: codex.authenticated ? ("local-codex" as const) : undefined,
+    error: codex.error,
   };
   const providers = [
     provider,
@@ -7240,9 +7078,7 @@ function withLocalCodexProviderStatus(
     configured: providers.some((item) => item.configured),
     configuredProviders: providers
       .filter((item) => item.configured)
-      .map((item) =>
-        item.id === "codex" && codex.authMode ? codex.label : item.label,
-      ),
+      .map((item) => item.label),
     providers,
   };
 }
@@ -7351,11 +7187,11 @@ function getCodeAgentModelList(): CodeAgentModelListResult {
       if (codex.available) {
         models.push({
           engine: CODEX_CLI_ENGINE_NAME,
-          engineLabel: "Codex",
+          engineLabel: "This computer",
           model: CODEX_CLI_DEFAULT_MODEL,
           label: "Codex CLI default",
           description:
-            "Use the local Codex CLI and its signed-in ChatGPT/API auth.",
+            "Run locally through your signed-in ChatGPT subscription.",
           configured: codex.authenticated,
         });
       }
@@ -7492,9 +7328,7 @@ function getDesktopComputerControlMetadata(): NonNullable<
     process.platform === "darwin"
       ? getComputerPermissionStatus(systemPreferences)
       : { accessibility: false, screenRecording: "unknown" as const };
-  const extensionPath = app.isPackaged
-    ? path.join(process.resourcesPath, "chrome-extension")
-    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
+  const extensionPath = getBundledChromeExtensionPath();
   return {
     available: Boolean(desktopComputerMcpBridge),
     desktop: permissions,
@@ -7508,6 +7342,12 @@ function getDesktopComputerControlMetadata(): NonNullable<
         desktopBrowserControlBridge?.status().nativeHostConnected ?? false,
     },
   };
+}
+
+function getBundledChromeExtensionPath(): string {
+  return app.isPackaged
+    ? path.join(process.resourcesPath, "chrome-extension")
+    : path.resolve(__dirname, "../../../agent-chrome-extension/dist");
 }
 
 function retryCodeAgentRun(input: unknown): CodeAgentRetryRunResult {
@@ -7725,247 +7565,44 @@ async function controlCodeAgentRun(
   };
 }
 
-ipcMain.handle(
-  IPC.CLIPBOARD_WRITE_TEXT,
-  (_event: IpcMainInvokeEvent, text: unknown): boolean => {
-    if (typeof text !== "string" || text.length === 0) return false;
-    clipboard.writeText(text);
-    return true;
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_RUNS,
-  (
-    _event: IpcMainInvokeEvent,
-    goalId?: string,
-  ): Promise<CodeAgentRunListResult> => {
-    const goal = getCodeAgentGoal(goalId ?? CODE_AGENT_GOALS[0]?.id ?? "task");
-    if (!goal) {
-      return Promise.resolve({
-        status: "unavailable",
-        goalId,
-        runs: [],
-        error: `Unknown Agent-Native Code goal: ${goalId}`,
-      });
-    }
-    const runs = listDesktopCodeAgentRuns(goal.id);
-    return Promise.resolve({
-      status: "ok",
-      goalId: goal.id,
-      runs,
-    });
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CREATE_RUN,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentCreateRunResult> => createCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_MODELS,
-  (): CodeAgentModelListResult => getCodeAgentModelList(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_READ_TRANSCRIPT,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentTranscriptResult =>
-    readCodeAgentTranscript(input),
-);
-
-ipcMain.on(
-  CODE_AGENTS_SUBSCRIBE_TRANSCRIPT_CHANNEL,
-  (event: IpcMainEvent, input: unknown) => {
-    const payload = isObject(input) ? input : {};
-    const subscriptionId =
-      firstStringValue(payload.subscriptionId) ??
-      `subscription-${timestampSlug(new Date().toISOString())}-${randomUUID().slice(0, 8)}`;
-    const request = isObject(payload.request) ? payload.request : payload;
-    const runId = normalizeCodeAgentRunId(request.runId);
-    if (!runId) {
-      event.sender.send(CODE_AGENTS_TRANSCRIPT_EVENTS_CHANNEL, {
-        subscriptionId,
-        status: "unavailable",
-        runId: "",
-        events: [],
-        error: "Missing or invalid run id.",
-      } satisfies CodeAgentTranscriptSubscriptionBatch);
-      return;
-    }
-
-    removeCodeAgentTranscriptSubscription(subscriptionId);
-    const subscription: CodeAgentTranscriptSubscription = {
-      id: subscriptionId,
-      runId,
-      senderId: event.sender.id,
-      knownEventKeys: new Set(),
-    };
-    const result = initializeCodeAgentTranscriptSubscriptionKeys(subscription);
-    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription);
-    watchCodeAgentTranscriptSubscription(subscription);
-    event.sender.once("destroyed", () => {
-      removeCodeAgentTranscriptSubscription(subscriptionId);
-    });
-    if (result.status !== "ok" || result.error) {
-      sendCodeAgentTranscriptSubscriptionBatch(subscription, {
-        status: result.status,
-        runId: result.runId ?? runId,
-        events: [],
-        eventFile: result.eventFile,
-        reason: "subscribe",
-        error: result.error,
-      });
-    }
-  },
-);
-
-ipcMain.on(
-  CODE_AGENTS_UNSUBSCRIBE_TRANSCRIPT_CHANNEL,
-  (_event: IpcMainEvent, input: unknown) => {
-    const subscriptionId = isObject(input)
-      ? firstStringValue(input.subscriptionId)
-      : firstStringValue(input);
-    if (subscriptionId) removeCodeAgentTranscriptSubscription(subscriptionId);
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_APPEND_FOLLOW_UP,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentFollowUpResult> => appendCodeAgentFollowUp(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_UPDATE_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentUpdateRunResult =>
-    updateCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_RETRY_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): CodeAgentRetryRunResult =>
-    retryCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_RERUN_RUN,
-  (_event: IpcMainInvokeEvent, input: unknown): Promise<CodeAgentRerunResult> =>
-    rerunCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CONTROL_RUN,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentControlResult> => controlCodeAgentRun(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_GET_HOST_METADATA,
-  (): CodeAgentHostMetadata => getCodeAgentHostMetadata(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_SETTINGS_GET,
-  (): CodeAgentProviderSettings => getCodeAgentProviderSettings(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_SETTINGS_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): CodeAgentProviderSettingsUpdateResult =>
-    updateCodeAgentProviderSettings(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_PROVIDER_BUILDER_CONNECT,
-  (): Promise<CodeAgentProviderSettingsUpdateResult> =>
-    connectDesktopBuilderProvider(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_CODE_PACKS,
-  (_event: IpcMainInvokeEvent, input?: unknown): CodeAgentCodePackResult =>
-    listCodeAgentProjectPacks(input),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_PROJECTS,
-  (): CodeAgentProjectListResult => listCodeAgentProjects(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_SELECT_PROJECT,
-  (
-    _event: IpcMainInvokeEvent,
-    folderPath: unknown,
-  ): CodeAgentProjectSelectResult => {
-    if (typeof folderPath === "string")
-      return upsertCodeAgentProject(folderPath);
-    const state = readCodeAgentProjectsState();
-    return {
-      ok: false,
-      projects: state.projects,
-      selectedPath: state.selectedPath,
-      error: "Missing project folder.",
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_CHOOSE_PROJECT,
-  (): Promise<CodeAgentProjectSelectResult> => chooseCodeAgentProject(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_LIST_MIGRATION_RUNS,
-  (): Promise<CodeAgentRunListResult> =>
-    Promise.resolve({
-      status: "ok",
-      goalId: "migrate",
-      runs: listDesktopCodeAgentRuns("migrate"),
-    }),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_OPEN_TERMINAL,
-  (_event: IpcMainInvokeEvent, request?: unknown): CodeAgentTerminalResult => {
-    return openTerminalForCodeAgents(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_GET_STATUS,
-  (): CodeAgentRemoteConnectorStatus =>
-    getRemoteConnectorStatusForUserRequest(),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_SET_ENABLED,
-  (
-    _event: IpcMainInvokeEvent,
-    enabled: unknown,
-  ): CodeAgentRemoteConnectorControlResult =>
-    setRemoteConnectorEnabled(Boolean(enabled)),
-);
-
-ipcMain.handle(
-  IPC.CODE_AGENTS_REMOTE_CONNECTOR_PAIR,
-  (
-    _event: IpcMainInvokeEvent,
-    input: unknown,
-  ): Promise<CodeAgentRemoteConnectorPairResult> =>
-    pairRemoteCodeAgentConnector(input),
-);
+// ---------- IPC: Clipboard + Agent-Native Code (background code agents) ----------
+// See main/ipc/code-agents.ts.
+registerCodeAgentsIpc({
+  isObject,
+  firstStringValue,
+  timestampSlug,
+  normalizeCodeAgentRunId,
+  listDesktopCodeAgentRuns,
+  createCodeAgentRun,
+  getCodeAgentModelList,
+  readCodeAgentTranscript,
+  removeCodeAgentTranscriptSubscription,
+  initializeCodeAgentTranscriptSubscriptionKeys,
+  watchCodeAgentTranscriptSubscription,
+  setCodeAgentTranscriptSubscription: (subscriptionId, subscription) =>
+    codeAgentTranscriptSubscriptions.set(subscriptionId, subscription),
+  sendCodeAgentTranscriptSubscriptionBatch,
+  appendCodeAgentFollowUp,
+  updateCodeAgentRun,
+  retryCodeAgentRun,
+  rerunCodeAgentRun,
+  controlCodeAgentRun,
+  getCodeAgentHostMetadata,
+  getBundledChromeExtensionPath,
+  getCodeAgentProviderSettings,
+  updateCodeAgentProviderSettings,
+  connectDesktopBuilderProvider,
+  listCodeAgentProjectPacks,
+  listCodeAgentProjects,
+  upsertCodeAgentProject,
+  readCodeAgentProjectsState,
+  chooseCodeAgentProject,
+  openTerminalForCodeAgents,
+  openCodeAgentCodexLogin: openCodexLoginTerminal,
+  getRemoteConnectorStatus,
+  setRemoteConnectorEnabled,
+  pairRemoteCodeAgentConnector,
+});
 
 // ---------- Native context menus ----------
 // Electron does not provide Chromium's standard right-click menu by default,
@@ -8170,350 +7807,66 @@ function installContextMenu(contents: Electron.WebContents) {
 }
 
 // ---------- IPC: Window controls ----------
-
-ipcMain.on(IPC.WINDOW_MINIMIZE, (event: IpcMainEvent) => {
-  BrowserWindow.fromWebContents(event.sender)?.minimize();
-});
-
-ipcMain.on(IPC.WINDOW_MAXIMIZE, (event: IpcMainEvent) => {
-  const win = BrowserWindow.fromWebContents(event.sender);
-  if (!win) return;
-  win.isMaximized() ? win.restore() : win.maximize();
-});
-
-ipcMain.on(IPC.WINDOW_CLOSE, (event: IpcMainEvent) => {
-  BrowserWindow.fromWebContents(event.sender)?.close();
-});
-
-ipcMain.handle(
-  IPC.WINDOW_IS_MAXIMIZED,
-  (event: IpcMainInvokeEvent): boolean => {
-    return BrowserWindow.fromWebContents(event.sender)?.isMaximized() ?? false;
-  },
-);
+// See main/ipc/window.ts.
+registerWindowIpc();
 
 // ---------- IPC: App config management ----------
-
-ipcMain.handle(IPC.APPS_LOAD, (): AppConfig[] => {
-  return AppStore.loadApps();
+// See main/ipc/apps.ts.
+registerAppsIpc({
+  getManagedDesktopAppIds: () => Array.from(managedDesktopAppProcesses.keys()),
+  stopManagedDesktopApp,
+  refreshDesktopShortcutBindings,
+  chooseLocalAppFolder,
+  desktopAppCreationSettings,
+  normalizeDesktopAppsRoot,
+  createDesktopAppFromPrompt,
+  showDesktopAppContextMenu,
 });
 
-ipcMain.handle(
-  IPC.APPS_ADD,
-  (_event: IpcMainInvokeEvent, app: AppConfig): AppConfig[] => {
-    const apps = AppStore.addApp(app);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_REMOVE,
-  (_event: IpcMainInvokeEvent, id: string): AppConfig[] => {
-    stopManagedDesktopApp(id);
-    const apps = AppStore.removeApp(id);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_UPDATE,
-  (
-    _event: IpcMainInvokeEvent,
-    id: string,
-    updates: Partial<AppConfig>,
-  ): AppConfig[] => {
-    const apps = AppStore.updateApp(id, updates);
-    refreshDesktopShortcutBindings();
-    return apps;
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_REORDER,
-  (
-    _event: IpcMainInvokeEvent,
-    id: string,
-    direction: "up" | "down",
-  ): AppConfig[] => AppStore.reorderApp(id, direction),
-);
-
-ipcMain.handle(IPC.APPS_RESET, (): AppConfig[] => {
-  for (const appId of managedDesktopAppProcesses.keys()) {
-    stopManagedDesktopApp(appId);
-  }
-  const apps = AppStore.resetToDefaults();
-  refreshDesktopShortcutBindings();
-  return apps;
+// See main/ipc/plan-files.ts.
+registerPlanFilesIpc({
+  requirePlanFilesWebviewAccess,
+  normalizePlanFilesRequestPlanId,
+  getPlanFilesGrant,
+  planFilesFolderInfo,
+  collectLocalControlResources,
+  choosePlanFilesFolder,
+  writePlanFilesForRequest,
+  readPlanFilesForRequest,
+  clearPlanFilesGrant,
 });
 
-ipcMain.handle(
-  IPC.APPS_CHOOSE_LOCAL_FOLDER,
-  (): Promise<LocalAppFolderSelectResult> => chooseLocalAppFolder(),
-);
-
-ipcMain.handle(
-  IPC.APPS_GET_CREATION_SETTINGS,
-  (): DesktopAppCreationSettings => desktopAppCreationSettings(),
-);
-
-ipcMain.handle(
-  IPC.APPS_UPDATE_CREATION_SETTINGS,
-  (
-    _event: IpcMainInvokeEvent,
-    settings: Partial<DesktopAppCreationSettings>,
-  ): DesktopAppCreationSettings => {
-    const appsRoot = normalizeDesktopAppsRoot(settings?.appsRoot);
-    if (!appsRoot) return desktopAppCreationSettings();
-    AppStore.saveDesktopAppPreferences({ appsRoot });
-    return { appsRoot };
-  },
-);
-
-ipcMain.handle(
-  IPC.APPS_CREATE_FROM_PROMPT,
-  (
-    _event: IpcMainInvokeEvent,
-    input: DesktopCreateAppRequest,
-  ): Promise<DesktopCreateAppResult> => createDesktopAppFromPrompt(input),
-);
-
-ipcMain.handle(
-  IPC.APPS_SHOW_CONTEXT_MENU,
-  (
-    _event: IpcMainInvokeEvent,
-    appId: string,
-  ): Promise<DesktopAppContextAction | null> =>
-    showDesktopAppContextMenu(appId),
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_GET_FOLDER,
-  async (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesFolderRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return denied;
-    const planId = normalizePlanFilesRequestPlanId(request);
-    if (!planId) return { ok: false, error: "Invalid plan ID." };
-    const grant = getPlanFilesGrant(planId);
-    if (!grant) return { ok: false, error: "No local folder is linked." };
-    return {
-      ok: true,
-      folder: planFilesFolderInfo(planId, grant),
-      controlResources: await collectLocalControlResources(grant.path),
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_CHOOSE_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesChooseFolderRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return choosePlanFilesFolder(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_WRITE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesWriteRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writePlanFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_READ,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesReadRequest,
-  ): Promise<DesktopPlanFilesResult> => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return readPlanFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.PLAN_FILES_CLEAR_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopPlanFilesClearFolderRequest,
-  ): DesktopPlanFilesResult => {
-    const denied = requirePlanFilesWebviewAccess(event);
-    if (denied) return denied;
-    const planId = normalizePlanFilesRequestPlanId(request);
-    if (!planId) return { ok: false, error: "Invalid plan ID." };
-    return clearPlanFilesGrant(planId);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_GET_FOLDER,
-  async (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesFolderRequest = {},
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return denied;
-    const grants = getContentFilesGrants();
-    const grant = getContentFilesGrant(request.folderId);
-    if (!grant) return { ok: false, error: "No local folder is linked." };
-    return {
-      ok: true,
-      folder: contentFilesFolderInfo(grant),
-      folders: contentFilesFoldersInfo(grants),
-      controlResources: await collectLocalControlResources(grant.path),
-    };
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_CHOOSE_FOLDER,
-  (event: IpcMainInvokeEvent): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return chooseContentFilesFolder();
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_WRITE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesWriteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writeContentFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_WRITE_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileWriteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return writeContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_DELETE_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileDeleteRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return deleteContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_READ,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesFolderRequest = {},
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return readContentFilesForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_REVEAL_FILE,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFileRevealRequest,
-  ): Promise<DesktopContentFilesResult> => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return Promise.resolve(denied);
-    return revealContentFileForRequest(request);
-  },
-);
-
-ipcMain.handle(
-  IPC.CONTENT_FILES_CLEAR_FOLDER,
-  (
-    event: IpcMainInvokeEvent,
-    request: DesktopContentFilesClearFolderRequest = {},
-  ): DesktopContentFilesResult => {
-    const denied = requireContentFilesWebviewAccess(event);
-    if (denied) return denied;
-    return clearContentFilesGrant(request.folderId);
-  },
-);
+// See main/ipc/content-files.ts.
+registerContentFilesIpc({
+  requireContentFilesWebviewAccess,
+  getContentFilesGrants,
+  getContentFilesGrant,
+  contentFilesFolderInfo,
+  contentFilesFoldersInfo,
+  chooseContentFilesFolder,
+  writeContentFilesForRequest,
+  writeContentFileForRequest,
+  deleteContentFileForRequest,
+  readContentFilesForRequest,
+  revealContentFileForRequest,
+  clearContentFilesGrant,
+});
 
 // ---------- IPC: Frame settings ----------
-
-ipcMain.handle(IPC.FRAME_LOAD, () => {
-  return AppStore.loadFrameSettings();
-});
-
-ipcMain.handle(
-  IPC.FRAME_UPDATE,
-  (_event: IpcMainInvokeEvent, settings: Partial<AppStore.FrameSettings>) => {
-    return AppStore.saveFrameSettings(settings);
-  },
-);
+// See main/ipc/frame.ts.
+registerFrameIpc();
 
 // ---------- IPC: Local app-launch shortcuts ----------
-
-ipcMain.handle(IPC.SHORTCUTS_LOAD, (): DesktopShortcutSettings => {
-  return getDesktopShortcutSettings();
+// See main/ipc/shortcuts.ts.
+registerShortcutsIpc({
+  getDesktopShortcutSettings,
+  registerDesktopShortcutBindings,
 });
-
-ipcMain.handle(
-  IPC.SHORTCUTS_UPSERT,
-  (
-    _event: IpcMainInvokeEvent,
-    request: DesktopShortcutUpsertRequest,
-  ): DesktopShortcutUpdateResult => {
-    const result = AppStore.upsertDesktopShortcutBinding(request);
-    if (!result.ok) {
-      return {
-        ok: false,
-        settings: getDesktopShortcutSettings(),
-        error: result.error,
-      };
-    }
-    registerDesktopShortcutBindings();
-    return { ok: true, settings: getDesktopShortcutSettings() };
-  },
-);
-
-ipcMain.handle(
-  IPC.SHORTCUTS_REMOVE,
-  (_event: IpcMainInvokeEvent, id: string): DesktopShortcutUpdateResult => {
-    AppStore.removeDesktopShortcutBinding(id);
-    registerDesktopShortcutBindings();
-    return { ok: true, settings: getDesktopShortcutSettings() };
-  },
-);
 
 // ---------- IPC: Inter-app message relay ----------
-// Routes messages from one app to all renderer windows so webviews can forward them.
-
-ipcMain.on(IPC.INTER_APP_SEND, (_event: IpcMainEvent, msg: InterAppMessage) => {
-  BrowserWindow.getAllWindows().forEach((win) => {
-    win.webContents.send(IPC.INTER_APP_MESSAGE, msg);
-  });
-});
+// Routes messages from one app to all renderer windows so webviews can forward
+// them. See main/ipc/inter-app.ts.
+registerInterAppIpc();
 
 // ---------- OAuth handling ----------
 // OAuth providers we recognize and keep out of app webviews. Depending on the
@@ -9420,6 +8773,8 @@ function buildUpdateMenuItem(): Electron.MenuItemConstructorOptions {
     };
   }
 
+  const currentUpdateStatus = getCurrentUpdateStatus();
+
   if (currentUpdateStatus.state === "downloaded") {
     return {
       label: currentUpdateStatus.version
@@ -9702,7 +9057,12 @@ app.whenReady().then(async () => {
   registerDesktopShortcutBindings();
 
   const win = createWindow();
-  remoteConnectorEnabled = AppStore.loadRemoteConnectorSettings().enabled;
+  // Pairing details persist, but background access is opt-in per launch.
+  // A read-only status check must never spawn a process or unlock Keychain.
+  remoteConnectorEnabled = false;
+  if (AppStore.loadRemoteConnectorSettings().enabled) {
+    AppStore.saveRemoteConnectorSettings({ enabled: false });
+  }
 
   // Intercept keyboard shortcuts on the shell renderer
   win.webContents.on("before-input-event", (_event, input) => {
