@@ -190,6 +190,22 @@ const LIST_EVENT_TYPES = [
   "outOfOffice",
   "workingLocation",
 ];
+const GOOGLE_READ_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+  values: T[],
+  map: (value: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = [];
+  for (let index = 0; index < values.length; index += GOOGLE_READ_CONCURRENCY) {
+    results.push(
+      ...(await Promise.all(
+        values.slice(index, index + GOOGLE_READ_CONCURRENCY).map(map),
+      )),
+    );
+  }
+  return results;
+}
 
 function mapReminders(
   event: any,
@@ -684,6 +700,85 @@ export async function getClientsWithErrors(forEmail?: string): Promise<{
   return { clients, errors };
 }
 
+/**
+ * Resolve a caller's connected Google accounts without refreshing tokens. This
+ * is intentionally separate from `getClientsWithErrors`: callers that accept
+ * an account filter must reject an unowned requested account before they do
+ * provider work for any account.
+ */
+export async function getOwnedAccountEmails(
+  forEmail?: string,
+): Promise<string[]> {
+  if (!forEmail) return [];
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  return accounts.map((account) => account.accountId);
+}
+
+export async function getClientsForAccountsWithErrors(
+  forEmail: string | undefined,
+  accountEmails?: string[],
+): Promise<{
+  clients: Array<{ email: string; accessToken: string }>;
+  errors: Array<{ email: string; error: string }>;
+  requestedAccounts: string[];
+  resolvedAccounts: string[];
+}> {
+  if (!forEmail) {
+    return {
+      clients: [],
+      errors: [],
+      requestedAccounts: [],
+      resolvedAccounts: [],
+    };
+  }
+  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const byNormalized = new Map(
+    accounts.map((account) => [
+      account.accountId.trim().toLowerCase(),
+      account,
+    ]),
+  );
+  const requestedAccounts = Array.from(
+    new Set(
+      (accountEmails ?? accounts.map((account) => account.accountId))
+        .map((email) => email.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  );
+  const unowned = requestedAccounts.filter((email) => !byNormalized.has(email));
+  if (unowned.length > 0) {
+    throw new Error(
+      `Google Calendar account not connected for this user: ${unowned.join(", ")}`,
+    );
+  }
+  const selected = requestedAccounts.map((email) => byNormalized.get(email)!);
+  const clients: Array<{ email: string; accessToken: string }> = [];
+  const errors: Array<{ email: string; error: string }> = [];
+  await mapWithConcurrency(selected, async (account) => {
+    try {
+      const accessToken = await getValidAccessToken(
+        account.accountId,
+        account.tokens as unknown as GoogleTokens,
+        forEmail,
+      );
+      clients.push({ email: account.accountId, accessToken });
+    } catch (err: any) {
+      errors.push({
+        email: account.accountId,
+        error: err?.message || "Unknown refresh error",
+      });
+    }
+  });
+  clients.sort((a, b) => a.email.localeCompare(b.email));
+  errors.sort((a, b) => a.email.localeCompare(b.email));
+  return {
+    clients,
+    errors,
+    requestedAccounts,
+    resolvedAccounts: selected.map((account) => account.accountId),
+  };
+}
+
 export async function isConnected(forEmail?: string): Promise<boolean> {
   return isOAuthConnected("google", forEmail ?? "");
 }
@@ -779,12 +874,13 @@ export async function listEvents(
   timeMin: string,
   timeMax: string,
   forEmail?: string,
+  options: { accountEmails?: string[]; maxResults?: number } = {},
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
 }> {
   const { clients, errors: refreshErrors } =
-    await getClientsWithErrors(forEmail);
+    await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
   // Seed with refresh failures so a fully-dead connection (every account's
   // refresh_token revoked or invalidated by a GOOGLE_CLIENT_ID rotation)
   // reaches the caller — otherwise the result is indistinguishable from
@@ -792,8 +888,9 @@ export async function listEvents(
   const errors: Array<{ email: string; error: string }> = [...refreshErrors];
   if (clients.length === 0) return { events: [], errors };
 
-  const allResults = await Promise.all(
-    clients.map(async ({ email, accessToken }) => {
+  const allResults = await mapWithConcurrency(
+    clients,
+    async ({ email, accessToken }) => {
       try {
         const events: any[] = [];
         let pageToken: string | undefined;
@@ -803,7 +900,7 @@ export async function listEvents(
             timeMax,
             singleEvents: true,
             orderBy: "startTime",
-            maxResults: 2500,
+            maxResults: options.maxResults ?? 2500,
             pageToken,
             eventTypes: LIST_EVENT_TYPES,
           });
@@ -883,7 +980,7 @@ export async function listEvents(
         errors.push({ email, error: error.message });
         return [];
       }
-    }),
+    },
   );
 
   return { events: allResults.flat(), errors };
@@ -993,64 +1090,89 @@ export async function listOverlayEvents(
   timeMax: string,
   overlayEmails: string[],
   forEmail?: string,
+  options: { accountEmails?: string[] } = {},
 ): Promise<{
   events: CalendarEvent[];
   errors: Array<{ email: string; error: string }>;
+  accountErrors: Array<{ email: string; error: string }>;
 }> {
   const { clients, errors: refreshErrors } =
-    await getClientsWithErrors(forEmail);
-  const errors: Array<{ email: string; error: string }> = [...refreshErrors];
-  if (clients.length === 0) return { events: [], errors };
-
-  // Use the first available token to query other people's calendars
-  const { accessToken } = clients[0];
+    await getClientsForAccountsWithErrors(forEmail, options.accountEmails);
+  const errors: Array<{ email: string; error: string }> = [];
+  if (clients.length === 0) {
+    const message =
+      refreshErrors[0]?.error ?? "Google Calendar is not connected";
+    return {
+      events: [],
+      errors: overlayEmails.map((email) => ({ email, error: message })),
+      accountErrors: refreshErrors,
+    };
+  }
 
   const allResults = await Promise.all(
     overlayEmails.map(async (overlayEmail) => {
-      try {
-        const response = await calendarListEvents(accessToken, overlayEmail, {
-          timeMin,
-          timeMax,
-          singleEvents: true,
-          orderBy: "startTime",
-          eventTypes: LIST_EVENT_TYPES,
-        });
-
-        const events = response.items || [];
-        return events.map((event: any) => ({
-          id: `overlay-${overlayEmail}-${event.id}`,
-          title: event.summary || "Busy",
-          description: event.description || "",
-          start: event.start?.dateTime || event.start?.date || "",
-          end: event.end?.dateTime || event.end?.date || "",
-          startTimeZone: event.start?.timeZone || undefined,
-          endTimeZone: event.end?.timeZone || undefined,
-          location: event.location || "",
-          allDay: !event.start?.dateTime,
-          source: "google" as const,
-          googleEventId: event.id || undefined,
-          htmlLink: event.htmlLink || undefined,
-          eventType: event.eventType || "default",
-          accountEmail: undefined,
-          overlayEmail,
-          ...mapColor(event),
-          attendees: mapAttendees(event),
-          organizer: mapOrganizer(event),
-          createdAt: event.created || new Date().toISOString(),
-          updatedAt: event.updated || new Date().toISOString(),
-        }));
-      } catch (error: any) {
-        console.error(
-          `[listOverlayEvents] Error fetching ${overlayEmail}:`,
-          error.message,
-        );
-        errors.push({ email: overlayEmail, error: error.message });
-        return [];
+      const accessErrors: string[] = [];
+      for (const client of clients) {
+        try {
+          const events: any[] = [];
+          let pageToken: string | undefined;
+          do {
+            const response = await calendarListEvents(
+              client.accessToken,
+              overlayEmail,
+              {
+                timeMin,
+                timeMax,
+                singleEvents: true,
+                orderBy: "startTime",
+                eventTypes: LIST_EVENT_TYPES,
+                pageToken,
+              },
+            );
+            events.push(...(response.items || []));
+            pageToken = response.nextPageToken;
+          } while (pageToken);
+          return events.map((event: any) => ({
+            id: `overlay-${overlayEmail}-${event.id}`,
+            title: event.summary || "Busy",
+            description: event.description || "",
+            start: event.start?.dateTime || event.start?.date || "",
+            end: event.end?.dateTime || event.end?.date || "",
+            startTimeZone: event.start?.timeZone || undefined,
+            endTimeZone: event.end?.timeZone || undefined,
+            location: event.location || "",
+            allDay: !event.start?.dateTime,
+            source: "google" as const,
+            googleEventId: event.id || undefined,
+            htmlLink: event.htmlLink || undefined,
+            eventType: event.eventType || "default",
+            accountEmail: client.email,
+            overlayEmail,
+            ...mapColor(event),
+            attendees: mapAttendees(event),
+            organizer: mapOrganizer(event),
+            createdAt: event.created || new Date().toISOString(),
+            updatedAt: event.updated || new Date().toISOString(),
+          }));
+        } catch (error: any) {
+          const message = error?.message || "Unable to read overlay calendar";
+          console.error(
+            `[listOverlayEvents] Error fetching ${overlayEmail} via ${client.email}:`,
+            message,
+          );
+          accessErrors.push(`${client.email}: ${message}`);
+        }
       }
+
+      errors.push({
+        email: overlayEmail,
+        error: `No selected Google account could read this overlay (${accessErrors.join("; ")})`,
+      });
+      return [];
     }),
   );
 
-  return { events: allResults.flat(), errors };
+  return { events: allResults.flat(), errors, accountErrors: refreshErrors };
 }
 
 export async function getEvent(

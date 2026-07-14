@@ -449,6 +449,58 @@ describe("connector-catalog tier", () => {
     });
   });
 
+  it("advertises and calls the Calendar and Mail deterministic connector reads", async () => {
+    const deterministicReads = {
+      "list-events": {
+        tool: { description: "List a calendar inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+      "list-emails": {
+        tool: { description: "List a mail inventory" },
+        http: { method: "GET" as const },
+        readOnly: true,
+        run: async () => ({ version: 1, items: [], complete: true }),
+      },
+    };
+    const mcpConfig = {
+      ...connectorConfig,
+      actions: deterministicReads,
+      productionActions: deterministicReads,
+      connectorCatalog: ["list-events", "list-emails"],
+    };
+    const token = await signA2AToken("alice@example.com");
+    const headers = { authorization: `Bearer ${token}` };
+    const listed = await call(
+      { jsonrpc: "2.0", id: 30, method: "tools/list", params: {} },
+      { headers, mcpConfig },
+    );
+    const names = listed.result.tools.map((tool: any) => tool.name);
+    expect(names).toEqual(
+      expect.arrayContaining(["list-events", "list-emails"]),
+    );
+
+    for (const name of ["list-events", "list-emails"]) {
+      const called = await call(
+        {
+          jsonrpc: "2.0",
+          id: name,
+          method: "tools/call",
+          params: { name, arguments: {} },
+        },
+        { headers, mcpConfig },
+      );
+      expect(called.error).toBeUndefined();
+      expect(called.result.isError).not.toBe(true);
+      expect(called.result.structuredContent).toMatchObject({
+        version: 1,
+        items: [],
+        complete: true,
+      });
+    }
+  });
+
   describe("tools/call — non-catalog tool is rejected", () => {
     it("rejects db-exec (not in catalog)", async () => {
       const token = await signA2AToken("alice@example.com");

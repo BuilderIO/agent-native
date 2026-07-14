@@ -117,6 +117,52 @@ describe("listGmailMessages", () => {
     expect(result.resultSizeEstimate).toBe(12);
   });
 
+  it("keeps a four-account metadata inventory to eight provider reads", async () => {
+    const accounts = ["a", "b", "c", "d"].map((name) => ({
+      accountId: `${name}@example.com`,
+      owner: "owner@example.com",
+      tokens: {
+        access_token: `${name}-token`,
+        refresh_token: `${name}-refresh`,
+        expiry_date: Date.now() + 60 * 60 * 1000,
+      },
+    }));
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue(accounts as any);
+    vi.mocked(gmailListThreads).mockImplementation(async (token: string) => ({
+      threads: [{ id: `${token}-thread` }],
+    }));
+    vi.mocked(gmailBatchGetThreads).mockImplementation(
+      async (_token: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: { messages: [{ id: `${id}-message`, threadId: id }] },
+        })) as any,
+    );
+
+    const result = await listGmailMessages(
+      "in:inbox",
+      10,
+      "owner@example.com",
+      undefined,
+      {
+        mode: "threads",
+        threadFormat: "metadata",
+        accountEmails: accounts.map((account) => account.accountId),
+      },
+    );
+
+    expect(result.errors).toEqual([]);
+    expect(result.messages).toHaveLength(4);
+    expect(gmailListThreads).toHaveBeenCalledTimes(4);
+    expect(gmailBatchGetThreads).toHaveBeenCalledTimes(4);
+    expect(
+      vi
+        .mocked(gmailBatchGetThreads)
+        .mock.calls.every(([, , format]) => format === "metadata"),
+    ).toBe(true);
+    expect(gmailListMessagesApi).not.toHaveBeenCalled();
+  });
+
   it("uses recent message candidates so old inbox threads with fresh replies can lead normal pages", async () => {
     vi.mocked(gmailListThreads).mockResolvedValue({
       threads: [{ id: "thread-old" }, { id: "thread-other" }],
@@ -427,6 +473,32 @@ describe("listGmailMessages", () => {
     expect(result.messages.map((m) => m.id)).toEqual(["refilled"]);
   });
 
+  it("marks an account failed when missing thread metadata cannot be refilled", async () => {
+    vi.mocked(gmailListThreads).mockResolvedValue({
+      threads: [{ id: "thread-missing" }],
+    } as any);
+    vi.mocked(gmailBatchGetThreads).mockResolvedValue([
+      { id: "thread-missing", data: null, error: "No response part" },
+    ] as any);
+    vi.mocked(gmailGetThread).mockRejectedValue(new Error("still missing"));
+
+    const result = await listGmailMessages(
+      "missing-case",
+      1,
+      "owner@example.com",
+      undefined,
+      { mode: "threads", threadFormat: "metadata" },
+    );
+
+    expect(result.messages).toEqual([]);
+    expect(result.errors).toEqual([
+      {
+        email: "connected@example.com",
+        error: "Gmail thread metadata response was incomplete",
+      },
+    ]);
+  });
+
   it("keeps default inbox and explicit all-mail thread pages separate in the list cache", async () => {
     vi.mocked(gmailListThreads).mockResolvedValue({
       threads: [],
@@ -488,6 +560,41 @@ describe("getClientsWithErrors with unusable token records", () => {
         error: expect.stringContaining("please reconnect"),
       },
     ]);
+    expect(deleteOAuthTokens).not.toHaveBeenCalled();
+  });
+
+  it("filters selected accounts before token validation or refresh", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "unrelated@example.com",
+        owner: "owner@example.com",
+        tokens: {},
+      },
+      {
+        accountId: "selected@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "selected-token",
+          refresh_token: "selected-refresh",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    const result = await getClientsWithErrors("owner@example.com", [
+      "SELECTED@example.com",
+    ]);
+
+    expect(result).toEqual({
+      clients: [
+        {
+          email: "selected@example.com",
+          accessToken: "selected-token",
+          refreshToken: "selected-refresh",
+        },
+      ],
+      errors: [],
+    });
     expect(deleteOAuthTokens).not.toHaveBeenCalled();
   });
 });

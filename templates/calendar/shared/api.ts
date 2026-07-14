@@ -11,6 +11,8 @@ export interface CalendarEvent {
   location: string;
   allDay: boolean;
   source: "local" | "google" | "ical";
+  /** Stable feed/source identifier for non-Google inventory provenance. */
+  sourceId?: string;
   googleEventId?: string;
   /** Absolute Google Calendar web URL for Google events */
   htmlLink?: string;

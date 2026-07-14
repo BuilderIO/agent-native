@@ -13,6 +13,7 @@ import { z } from "zod";
 // why `autoDiscoverActions` on its own produces 404s for action routes in
 // production.
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { CALENDAR_CONNECTOR_CATALOG } from "../lib/calendar-connector-catalog.js";
 
 // ---------------------------------------------------------------------------
 // Register calendar event-bus events
@@ -83,6 +84,7 @@ const INITIAL_TOOL_NAMES = [
 export default createAgentChatPlugin({
   appId: "calendar",
   initialToolNames: INITIAL_TOOL_NAMES,
+  connectorCatalog: [...CALENDAR_CONNECTOR_CATALOG],
   // Enable sandboxed JavaScript execution so Calendar agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
   // hardcoding one action per Google Calendar / CRM endpoint.
@@ -102,7 +104,7 @@ Google Calendar events are NOT stored in the local database. They are fetched li
 
 Provider-specific Calendar actions are shortcuts, not limits. If a first-class action cannot express the exact Google Calendar/CRM endpoint, calendar id, filter, request body, pagination mode, attendee search, recurrence field, or API version needed, call \`provider-api-catalog\` and \`provider-api-docs\` as needed, then call \`provider-api-request\` against the provider's real HTTP API. Use this raw provider API escape hatch instead of weakening the answer, broadening filters, or claiming Calendar cannot do something the underlying API can do.
 
-- \`pnpm action view-screen\` — See what the user is looking at (current view, date, events). ALWAYS run this first.
+- \`pnpm action view-screen\` — See the visible UI state (current view, date, selected event). Use it for questions about what the user is looking at, not as a prerequisite for deterministic schedule reads.
 - \`pnpm action list-events --from YYYY-MM-DD --to YYYY-MM-DD\` — List events from Google Calendar. The --to date is exclusive, so use tomorrow for today's events.
 - \`pnpm action search-events --query "term" --from YYYY-MM-DD --to YYYY-MM-DD\` — Convenience bounded search by title, attendees, organizer, location, or description. For relationship history, all-calendar discovery, exact attendee/domain search, or custom pagination, prefer provider-api-request with provider=google_calendar.
 - \`pnpm action provider-api-catalog\` / \`provider-api-docs\` / \`provider-api-request\` — Inspect and call the real Google Calendar, Apollo, Gong, HubSpot, and Pylon APIs directly. For Google Calendar events.list pagination use provider=google_calendar, path=/calendars/primary/events, query={...}, fetchAllPages={cursorPath:"nextPageToken",cursorParam:"pageToken",itemsPath:"items"}. For large relationship-history scans, pass stageAs and pagination={nextCursorPath:"nextPageToken",cursorParam:"pageToken",maxPages:N} with itemsPath="items", then use query-staged-dataset.
@@ -125,14 +127,14 @@ Provider-specific Calendar actions are shortcuts, not limits. If a first-class a
 Use \`create-event\` or \`update-event --colorId 1..11\` when the user wants one specific Google Calendar event color changed. Use \`update-calendar-visual-preferences\` when the user wants broad app-layer display rules such as color-coding meetings by internal/external, 1:1/group, focus time, or one display color for all Google events.
 
 ## Google Connection Check
-Before answering schedule questions, run view-screen first for context, then use list-events for the requested date range even if the user is currently on Settings, Booking Links, or another non-calendar page. Do not infer a Google Calendar connection problem just because the current page is Settings. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
+For broad, deterministic schedule reads, call list-events directly for the requested date range in inventory/coverage mode, even when UI context is irrelevant or the user is on Settings, Booking Links, or another non-calendar page. Do not require view-screen as a connection preflight, and do not infer a Google Calendar connection problem from the current screen. Only ask the user to reconnect Google if list-events or the explicit Google status reports an auth/connection error.
 
 When the user explicitly asks you to connect or reconnect Google Calendar, call \`connect-google-calendar\` and give them the returned link. Do not call raw HTTP/fetch/web-request against \`/_agent-native/google/auth-url\`; that route depends on the user's browser session and will return 401 from the agent backend.
 
 For relationship-history or frequency questions such as "who have I met at Adobe?" or "how often do I meet with Mattel?", prefer the raw Google Calendar API through provider-api-request so you can choose the exact timeMin/timeMax, q, calendarId, maxResults, and pageToken behavior. Stage large paginated results before analysis. Do not conclude there are no recurring meetings from the visible range or from a convenience action alone.
 
 ## Context Awareness
-The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Always check view-screen to know what the user sees before responding.
+The UI writes navigation state including the current view, date, view mode (day/week/month), and selected event ID. Check view-screen when the answer depends on that visible state; skip it for headless inventory/coverage reads with an explicit date range.
 
 When the user says "show me", "go to", "open", or "switch to" a view or date, ALWAYS use the \`navigate\` action to update the UI first, then fetch/display data. The user expects to SEE the result in the app.`,
   mentionProviders: async () => {
