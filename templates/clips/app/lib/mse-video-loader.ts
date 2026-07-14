@@ -80,6 +80,8 @@ export class MseVideoLoader {
   private nextOffset = 0;
   private initAppended = false;
   private needsRealign = false;
+  /** Duration (seconds) waiting to be written once the source buffer is idle. */
+  private pendingDurationSec: number | null = null;
   /**
    * Byte offset the current realign probe started from (the seek estimate,
    * then walked backward by `backUpRealignProbe`). Used to recover when a seek
@@ -99,9 +101,10 @@ export class MseVideoLoader {
     this.video = opts.video;
     this.mediaSource = new MediaSource();
     this.objectUrl = URL.createObjectURL(this.mediaSource);
-    this.mediaSource.addEventListener("sourceopen", this.onSourceOpen, {
-      once: true,
-    });
+    // Not `once`: after `endOfStream()` a seek into an evicted/unbuffered range
+    // transitions the source back to "open" and fires `sourceopen` again, which
+    // we use to resume fetching (see `onSourceOpen`).
+    this.mediaSource.addEventListener("sourceopen", this.onSourceOpen);
     this.video.addEventListener("seeking", this.onSeeking);
     this.video.addEventListener("timeupdate", this.onTimeUpdate);
   }
@@ -112,6 +115,8 @@ export class MseVideoLoader {
     this.currentFetch?.abort();
     this.video.removeEventListener("seeking", this.onSeeking);
     this.video.removeEventListener("timeupdate", this.onTimeUpdate);
+    this.mediaSource.removeEventListener("sourceopen", this.onSourceOpen);
+    this.sourceBuffer?.removeEventListener("updateend", this.onSourceBufferIdle);
     try {
       if (this.sourceBuffer && this.mediaSource.readyState === "open") {
         this.mediaSource.removeSourceBuffer(this.sourceBuffer);
@@ -139,20 +144,32 @@ export class MseVideoLoader {
     if (!Number.isFinite(durationMs) || durationMs <= 0) return;
     if (durationMs === this.opts.durationMs) return;
     this.opts.durationMs = durationMs;
-    // Only writable while the source is open and no append is in flight;
-    // otherwise `onSourceOpen`/seek re-read `opts.durationMs`, so a skip here
-    // is harmless.
+    // Queue the timeline update and apply it as soon as the source buffer is
+    // idle. Writing `mediaSource.duration` throws while an append is in flight,
+    // so a value that lands mid-append must be retried on `updateend` — never
+    // dropped, or the timeline stays permanently shorter than the recording.
+    this.pendingDurationSec = durationMs / 1000;
+    this.flushPendingDuration();
+  }
+
+  /** Apply a queued duration once the source is open and no append is running. */
+  private flushPendingDuration(): void {
+    if (this.destroyed || this.pendingDurationSec === null) return;
+    if (this.mediaSource.readyState !== "open") return;
+    if (this.sourceBuffer?.updating) return;
     try {
-      if (
-        this.mediaSource.readyState === "open" &&
-        !this.sourceBuffer?.updating
-      ) {
-        this.mediaSource.duration = durationMs / 1000;
-      }
+      this.mediaSource.duration = this.pendingDurationSec;
+      this.pendingDurationSec = null;
     } catch {
-      // Setting duration can still throw on a mid-update source buffer; ignore.
+      // e.g. the new duration is below the highest buffered PTS; keep it
+      // queued and retry on the next `updateend`.
     }
   }
+
+  private onSourceBufferIdle = (): void => {
+    if (this.destroyed) return;
+    this.flushPendingDuration();
+  };
 
   private fail(err: unknown): void {
     if (this.destroyed) return;
@@ -161,6 +178,16 @@ export class MseVideoLoader {
 
   private onSourceOpen = async (): Promise<void> => {
     if (this.destroyed) return;
+    // Reopened after `endOfStream()`: a seek into an evicted/unbuffered range
+    // transitions the "ended" source back to "open". The pipeline is already
+    // built, so just clear the EOF latch and resume fetching for the seek
+    // (`onSeeking` has set `needsRealign`/`nextOffset`) instead of re-running
+    // init (which would try to add a second source buffer).
+    if (this.initAppended) {
+      this.eofReached = false;
+      this.schedulePump();
+      return;
+    }
     try {
       const durationSec = this.opts.durationMs / 1000;
       if (Number.isFinite(durationSec) && durationSec > 0) {
@@ -182,6 +209,9 @@ export class MseVideoLoader {
       }
 
       const sb = this.mediaSource.addSourceBuffer(mime);
+      // Flush any duration update that arrived (or was deferred) while an
+      // append was running.
+      sb.addEventListener("updateend", this.onSourceBufferIdle);
       // "segments" mode honors each fragment's baseMediaDecodeTime, which is
       // what lets us append a later fragment after a seek without any manual
       // timestampOffset bookkeeping.

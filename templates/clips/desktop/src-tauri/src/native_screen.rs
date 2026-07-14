@@ -30,6 +30,12 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 pub(crate) const QUICKTIME_RECORDING_MIME_TYPE: &str = "video/quicktime";
 pub(crate) const MP4_RECORDING_MIME_TYPE: &str = "video/mp4";
+/// Prefix tagging a capture-side finalize/write failure (segment-sink disk
+/// write error, AVAssetWriter finalize failure/timeout) as opposed to a benign
+/// `stop_capture` error. The upload path fails closed on this: the on-disk file
+/// is incomplete even when its init-segment `moov` is present, so uploading
+/// would silently publish a truncated clip.
+const CAPTURE_FINALIZE_INCOMPLETE_PREFIX: &str = "capture finalize incomplete: ";
 // Keep native chunks comfortably under serverless request/event limits.
 const GCS_CHUNK_ALIGN_BYTES: usize = 256 * 1024;
 const UPLOAD_CHUNK_BYTES: usize = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
@@ -1199,6 +1205,28 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )?;
     let stop_error = stop_outcome.err();
     if let Some(stop_err) = &stop_error {
+        // Capture-side finalize/write failure: the on-disk file is incomplete
+        // even though its init-segment moov is present (segmented fMP4 always
+        // carries one). Never upload — the live uploader already streamed a
+        // prefix, and finishing here would report success on a truncated clip
+        // and delete the local copy. Fail closed and keep the retry copy.
+        if stop_err.starts_with(CAPTURE_FINALIZE_INCOMPLETE_PREFIX) {
+            saved.last_error = Some(stop_err.clone());
+            write_saved_recording_metadata(&app, &saved)?;
+            emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+            let error = format!(
+                "{stop_err}. The clip was saved locally and can be retried from the Clips menu."
+            );
+            emit_native_upload_finished(
+                &app,
+                &server_url,
+                &recording_id,
+                false,
+                Some(error.clone()),
+                Some(&saved.file_path),
+            );
+            return Err(error);
+        }
         saved.last_error = Some(stop_err.clone());
         // Only mark corrupt when the SCK delegate explicitly called recording_did_fail
         // (error contains "finalize failed"). Transient stop_capture /
@@ -3585,7 +3613,14 @@ pub(crate) fn stop_native_recording(
                 eprintln!("[clips-tray] custom capture stop_capture error: {err}");
             }
             let finish_result = writer.finish(wait_for_finalize);
-            stop_result.and(finish_result)
+            // The finalize/segment-write result reflects on-disk file integrity,
+            // so it takes priority over a (possibly benign) stop_capture error
+            // and is tagged so the upload path fails closed instead of
+            // publishing a truncated clip.
+            match finish_result {
+                Ok(()) => stop_result,
+                Err(err) => Err(format!("{CAPTURE_FINALIZE_INCOMPLETE_PREFIX}{err}")),
+            }
         }
         #[cfg(target_os = "macos")]
         NativeFullscreenBackend::ScreenCaptureKit { stream, finish, .. } => {
