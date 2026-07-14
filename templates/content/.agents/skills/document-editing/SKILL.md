@@ -139,6 +139,29 @@ Always run this after any document modification to update the sidebar.
 
 Documents use **markdown** for content. The editor renders markdown in real time.
 
+### Math
+
+Content renders LaTeX with KaTeX while preserving the source in NFM. Use the
+canonical Content delimiters when an agent creates or edits math:
+
+```md
+Inline math: The relationship is $`E = mc^2`$ in this example.
+
+Block math:
+
+$$
+\int_0^1 x^2 dx = \frac{1}{3}
+$$
+```
+
+- Inline math uses ``$`...`$``. Do not substitute ordinary `$...$`; dollar
+  amounts in prose are intentionally not interpreted as equations.
+- Block equations use `$$` on their own lines before and after the LaTeX.
+- Keep the raw LaTeX intact when editing around an equation. Invalid or
+  unsupported expressions remain visible as source so they can be repaired.
+- Markdown exports preserve these delimiters. HTML and PDF-ready exports render
+  the equation.
+
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:

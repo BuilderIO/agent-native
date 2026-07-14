@@ -62,6 +62,7 @@ import {
 } from "./lib/content-command-search";
 
 import stylesheet from "./global.css?url";
+import katexStylesheet from "katex/dist/katex.min.css?url";
 configureTracking({
   getDefaultProps: (_name, properties) => ({
     ...properties,
@@ -71,6 +72,7 @@ configureTracking({
 
 export const links: LinksFunction = () => [
   { rel: "stylesheet", href: stylesheet },
+  { rel: "stylesheet", href: katexStylesheet },
 ];
 
 interface RootLoaderData {

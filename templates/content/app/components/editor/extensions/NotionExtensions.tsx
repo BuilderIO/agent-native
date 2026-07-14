@@ -21,6 +21,8 @@ import {
   type NodeViewProps,
 } from "@tiptap/react";
 
+import { MathRenderer } from "../MathRenderer";
+
 const BLOCK_ATOM_TAGS = [
   "page",
   "database",
@@ -452,6 +454,17 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const canOpenLocalPage = Boolean(pageLink && options.onOpenPageLink);
   const externalUrl = safeExternalPageUrl(attrs.url || attrs.href || null);
 
+  if (tagName === "equation") {
+    return (
+      <NodeViewWrapper
+        className="content-equation"
+        data-latex={label || attrs.latex || ""}
+      >
+        <MathRenderer latex={label || attrs.latex || ""} displayMode={true} />
+      </NodeViewWrapper>
+    );
+  }
+
   if (tagName === "page") {
     const openPage = () => {
       if (pageLink && options.onOpenPageLink) {
@@ -507,6 +520,36 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         {humanizeTag(tagName)}
       </div>
       <div className="notion-atom__label">{primary}</div>
+    </NodeViewWrapper>
+  );
+}
+
+function InlineAtomView({ node }: NodeViewProps) {
+  const tagName = (node.attrs.tagName || "mention") as string;
+  const label = (node.attrs.label || "") as string;
+  const attrs = parseAttrsJson(node.attrs.attrsJson as string);
+
+  if (tagName === "math") {
+    const latex = label || attrs.latex || "";
+    return (
+      <NodeViewWrapper
+        as="span"
+        className="content-inline-equation"
+        contentEditable={false}
+        data-latex={latex}
+      >
+        <MathRenderer latex={latex} displayMode={false} />
+      </NodeViewWrapper>
+    );
+  }
+
+  return (
+    <NodeViewWrapper
+      as="span"
+      className="notion-inline-atom"
+      contentEditable={false}
+    >
+      {label || humanizeTag(tagName)}
     </NodeViewWrapper>
   );
 }
@@ -1021,6 +1064,10 @@ export const NotionInlineAtom = Node.create({
       }),
       HTMLAttributes.label || humanizeTag(HTMLAttributes.tagName || "mention"),
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(InlineAtomView);
   },
 
   addStorage() {

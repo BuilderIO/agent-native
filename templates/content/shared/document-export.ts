@@ -1,3 +1,5 @@
+import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
+
 export type DocumentExportFormat = "pdf" | "markdown" | "html";
 
 export interface DocumentExportInput {
@@ -100,7 +102,7 @@ export function markdownWithTitle(
   return `${`# ${safeTitle}`}${body ? `\n\n${body}` : ""}\n`;
 }
 
-function inlineMarkdownToHtml(text: string): string {
+function inlineMarkdownSegmentToHtml(text: string): string {
   return escapeHtml(text)
     .replace(
       /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
@@ -117,6 +119,49 @@ function inlineMarkdownToHtml(text: string): string {
     .replace(/~~([^~]+)~~/g, "<s>$1</s>")
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
     .replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
+}
+
+function mathErrorHtml(
+  source: string,
+  error: string,
+  displayMode: boolean,
+): string {
+  const className = displayMode
+    ? "math-error math-error-block"
+    : "math-error math-error-inline";
+  const tagName = displayMode ? "pre" : "code";
+  return `<${tagName} class="${className}" title="${escapeHtml(error)}">${escapeHtml(source)}</${tagName}>`;
+}
+
+function inlineMarkdownToHtml(text: string): string {
+  const rendered: string[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    const open = text.indexOf("$`", cursor);
+    if (open === -1) {
+      rendered.push(inlineMarkdownSegmentToHtml(text.slice(cursor)));
+      break;
+    }
+
+    const close = text.indexOf("`$", open + 2);
+    if (close === -1) {
+      rendered.push(inlineMarkdownSegmentToHtml(text.slice(cursor)));
+      break;
+    }
+
+    rendered.push(inlineMarkdownSegmentToHtml(text.slice(cursor, open)));
+    const latex = text.slice(open + 2, close);
+    const math = renderMathToHtml(latex, false);
+    rendered.push(
+      math.ok
+        ? `<span class="math-inline">${math.html}</span>`
+        : mathErrorHtml(`$\`${latex}\`$`, math.error, false),
+    );
+    cursor = close + 2;
+  }
+
+  return rendered.join("");
 }
 
 function listItemsToHtml(lines: string[], ordered: boolean): string {
@@ -160,6 +205,42 @@ function markdownToHtml(markdown: string): string {
     if (isEmptyBlockLine(trimmed)) {
       blocks.push("<p>&nbsp;</p>");
       index++;
+      continue;
+    }
+
+    if (trimmed === "$$") {
+      const source = [line];
+      const latex: string[] = [];
+      index++;
+      while (index < lines.length && lines[index].trim() !== "$$") {
+        source.push(lines[index]);
+        latex.push(lines[index]);
+        index++;
+      }
+
+      const closed = index < lines.length;
+      if (closed) {
+        source.push(lines[index]);
+        index++;
+      }
+
+      if (!closed) {
+        blocks.push(
+          mathErrorHtml(
+            source.join("\n"),
+            "This block equation is missing its closing delimiter.",
+            true,
+          ),
+        );
+        continue;
+      }
+
+      const math = renderMathToHtml(latex.join("\n"), true);
+      blocks.push(
+        math.ok
+          ? `<div class="math-block">${math.html}</div>`
+          : mathErrorHtml(source.join("\n"), math.error, true),
+      );
       continue;
     }
 
@@ -233,6 +314,7 @@ function markdownToHtml(markdown: string): string {
       index < lines.length &&
       lines[index].trim() &&
       !isEmptyBlockLine(lines[index].trim()) &&
+      lines[index].trim() !== "$$" &&
       !/^(#{1,6})\s+/.test(lines[index].trim()) &&
       !/^```/.test(lines[index].trim()) &&
       !/^>\s?/.test(lines[index].trim()) &&
@@ -273,6 +355,7 @@ function buildHtmlDocument(input: {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(input.title)}</title>
+  <link rel="stylesheet" href="${KATEX_STYLESHEET_URL}" crossorigin="anonymous" />
   <style>
     :root { color-scheme: light; }
     body {
@@ -329,6 +412,18 @@ function buildHtmlDocument(input: {
       border-radius: 4px;
       padding: 0.12rem 0.3rem;
     }
+    .math-inline { display: inline-block; max-width: 100%; vertical-align: -0.08em; }
+    .math-block { max-width: 100%; margin: 18px 0; overflow-x: auto; padding: 4px 0; }
+    .math-error {
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      background: #fef2f2;
+      color: #262626;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .math-error-inline { padding: 0.05rem 0.25rem; font-size: 0.9em; }
+    .math-error-block { overflow-wrap: anywhere; padding: 12px 14px; }
     a { color: #2563eb; }
     img {
       display: block;
