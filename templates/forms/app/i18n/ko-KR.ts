@@ -191,6 +191,9 @@ const messages = {
       anonymousResponses: "익명 응답",
       anonymousResponsesDescription:
         "IP 주소, 응답자 신원 또는 출처 메타데이터를 저장하지 않습니다.",
+      emailNewResponses: "새 응답을 이메일로 받기",
+      emailNewResponsesDescription:
+        "응답이 제출될 때마다 양식 소유자 계정의 이메일 주소로 알림을 보냅니다.",
       saveSettings: "설정 저장",
     },
     integrations: {

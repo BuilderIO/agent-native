@@ -38,6 +38,7 @@ import {
   parseSpaceIds,
 } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
+import { buildTranscriptPreview } from "./lib/transcript-preview.js";
 
 interface NavigationState {
   view?: string;
@@ -540,18 +541,13 @@ export default defineAction({
               // and is injected into <current-screen> on EVERY message, which
               // can blow the model's context window. The agent calls
               // get-recording-player-data for the complete transcript/segments.
-              const segmentCount = Array.isArray(transcript.segments)
-                ? transcript.segments.length
-                : 0;
-              screen.transcript = {
+              screen.transcript = buildTranscriptPreview({
                 recordingId: transcript.recordingId,
                 language: transcript.language,
                 status: transcript.status,
-                fullTextSnippet: (transcript.fullText ?? "").slice(0, 2000),
-                fullTextLength: (transcript.fullText ?? "").length,
-                segmentCount,
-                note: "Snippet only. Call get-recording-player-data for the full transcript and segments.",
-              };
+                fullText: transcript.fullText,
+                segments: transcript.segments,
+              });
             }
             screen.comments = comments.slice(0, 50);
             if (browserDiagnosticsSummary) {

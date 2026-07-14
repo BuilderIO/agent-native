@@ -194,6 +194,9 @@ const messages = {
       anonymousResponses: "匿名の回答",
       anonymousResponsesDescription:
         "IP アドレス、回答者の身元、送信元メタデータを保存しません。",
+      emailNewResponses: "新しい回答をメールで知らせる",
+      emailNewResponsesDescription:
+        "回答が送信されるたびに、フォーム所有者のアカウントのメールアドレスへ通知します。",
       saveSettings: "設定を保存",
     },
     integrations: {

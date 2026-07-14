@@ -160,11 +160,29 @@ npx @agent-native/recap-cli@latest recap doctor
 
 除了後端之外，兩個儲存庫變數還可以調整代理的執行方式：
 
-- **`VISUAL_RECAP_MODEL`** 固定傳遞給 CLI (`--model`) 的模型 — 例如 `gpt-5.6-sol` 用於 Codex，或 Claude 模型 ID。保留其未設定以使用 CLI 自己的預設模型。
+- **`VISUAL_RECAP_MODEL`** 固定傳遞給 CLI (`--model`) 的模型 — 例如 Codex 使用 `gpt-5.6-luna`、Claude 模型 ID，或 DeepSeek 使用 `deepseek-chat`。對於 `openai-compatible` 是必需的。對於 **Claude** 後端，保留未設定現在預設使用 `claude-sonnet-5`；要使用其他 Claude 模型（例如更便宜的 `claude-haiku-4-5`），請明確設定該變數。對於 **Codex** 後端，保留未設定將使用 Codex CLI 自身的預設模型。
 - **`VISUAL_RECAP_REASONING`** 設定推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端； Claude 的推理是模型驅動的，因此該變數被忽略。
 - **`VISUAL_RECAP_SKILL_SOURCE`** 控制提示新鮮度：`auto`/unset 使用最新的捆綁技能指南，而 `repo` 固定到已提交的儲存庫本機 `visual-recap` 技能資料夾。
 
 例如，要在 Codex 和 GPT-5.6 Sol 上以高推理執行回顧，請設定儲存庫變數 `VISUAL_RECAP_AGENT=codex`、`VISUAL_RECAP_MODEL=gpt-5.6-sol` 和 `VISUAL_RECAP_REASONING=high`。
+
+## 成本
+
+每次回顧執行都是一次完整的代理式編碼代理工作階段，讀取真實的 diff，而不是廉價的範本化摘要，因此其成本取決於模型選擇和執行頻率：
+
+- **每次 PR 推送都會執行完整工作階段。** 預設觸發程序在 `synchronize` 時觸發，因此被推送十次的 PR 會執行代理十次。
+- **每次都是整個 PR**，而不僅僅是自上次執行以來的提交 — 成本隨 PR 總大小而非增量差異大小擴展。
+- **差異輸入上限約為 600KB。** 這限制了每次執行的最壞情況，但大差異的成本仍然明顯高於小差異。
+- **失敗時自動重試一次**，這可能會讓一次暫時性失敗的執行成本大約加倍。
+
+若要降低成本：
+
+- **固定使用較便宜的模型。** 對於 Claude，為簡單或小型儲存庫設定 `VISUAL_RECAP_MODEL=claude-haiku-4-5` — 這是最便宜的 Claude 層級；`claude-sonnet-5`（預設值）是均衡層級。
+- **切換到使用較便宜模型的 Codex。** 設定 `VISUAL_RECAP_AGENT=codex` 並搭配 `VISUAL_RECAP_MODEL=gpt-5.6-luna`（最便宜的 GPT-5.6 層級）或 `gpt-5.6-terra`（中間層級），並設定 `VISUAL_RECAP_REASONING=low` 以進一步減少推理 token 花費。推理深度僅適用於 Codex。
+- **指向較便宜的 OpenAI 相容供應商。** 設定 `VISUAL_RECAP_AGENT=openai-compatible`，並搭配指向 DeepSeek、Kimi 或任何其他 OpenAI 相容端點的 `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY`。
+- **降低回顧頻率。** 將已安裝工作流程的 `on.pull_request.types` 從 `[opened, synchronize, reopened, ready_for_review, closed]` 編輯為 `[opened, ready_for_review, closed]`，使其僅在 PR 開啟和合併時回顧，而不是每次推送都回顧。
+
+每次執行都會記錄實際花費：工作流程的 `recap usage` 步驟會將 token 和成本使用情況附加到已發布的計畫中，因此你可以查看每次執行的實際花費，而不是靠猜測。
 
 ## 秘密和變數
 
@@ -209,14 +227,14 @@ npx @agent-native/recap-cli@latest recap setup
 
 ### 可選（僅當您更改預設值時）
 
-| 秘密/變數                | 預設                            | 當你需要的時候                                                                                                                    |
-| ------------------------ | ------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | 秘密。與 `VISUAL_RECAP_AGENT=codex` 一起設定以使用 Codex 執行回顧。                                                               |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | 變數。選取編碼代理後端（`claude` 或 `codex`）。                                                                                   |
-| `VISUAL_RECAP_MODEL`     | 每個 CLI 的預設值               | 變數。固定模型 - 例如`gpt-5.6-sol` 表示 Codex，或 Claude 型號 ID。取消設定使用 CLI 自己的預設值。                                 |
-| `VISUAL_RECAP_REASONING` | 每個模型的預設值                | 變數。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端。                                          |
-| `RECAP_CLI_VERSION`      | `latest`                        | 變數。固定工作流程安裝的 `@agent-native/recap-cli` CLI 版本 - 例如`1.5.0`。參見[Version pinning](#version-pinning-copy-variant)。 |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | 秘密。僅當在不同來源自行託管計畫應用時。                                                                                          |
+| 秘密/變數                | 預設                                        | 當你需要的時候                                                                                                                                                                                                       |
+| ------------------------ | ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                           | 秘密。與 `VISUAL_RECAP_AGENT=codex` 一起設定以使用 Codex 執行回顧。                                                                                                                                                  |
+| `VISUAL_RECAP_AGENT`     | `claude`                                    | 變數。選取編碼代理後端（`claude` 或 `codex`）。                                                                                                                                                                      |
+| `VISUAL_RECAP_MODEL`     | Claude 使用 `claude-sonnet-5`；相容後端必需 | 變數。OpenAI 相容後端的供應商模型 ID（在該後端為必需）。對於 Claude，未設定時現在預設使用 `claude-sonnet-5` — 設定以覆寫，例如使用最便宜層級的 `claude-haiku-4-5`。對於 Codex，未設定時使用 Codex CLI 自身的預設值。 |
+| `VISUAL_RECAP_REASONING` | 每個模型的預設值                            | 變數。推理深度：`none`、`minimal`、`low`、`medium`、`high` 或 `xhigh`。適用於Codex後端。                                                                                                                             |
+| `RECAP_CLI_VERSION`      | `latest`                                    | 變數。固定工作流程安裝的 `@agent-native/recap-cli` CLI 版本 - 例如`1.5.0`。參見[Version pinning](#version-pinning-copy-variant)。                                                                                    |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`             | 秘密。僅當在不同來源自行託管計畫應用時。                                                                                                                                                                             |
 
 工作流自動偵測如何呼叫其助手 CLI（此 monorepo 內的本機來源，在其他地方發布的 `@agent-native/recap-cli`），因此無需設定 `RECAP_CLI` 變數。
 

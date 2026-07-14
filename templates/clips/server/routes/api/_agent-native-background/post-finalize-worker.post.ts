@@ -26,6 +26,7 @@ const bodySchema = z.object({
   token: z.string().min(1),
   delayMs: z.number().int().min(0).max(30_000).optional(),
   retryAttempt: z.number().int().min(1).max(10).optional(),
+  regenerate: z.boolean().optional(),
 });
 
 export default defineEventHandler(async (event: H3Event) => {
@@ -35,7 +36,8 @@ export default defineEventHandler(async (event: H3Event) => {
     return { ok: false, error: "Invalid post-finalize job" };
   }
 
-  const { recordingId, kind, token, delayMs, retryAttempt } = parsed.data;
+  const { recordingId, kind, token, delayMs, retryAttempt, regenerate } =
+    parsed.data;
   const verified = verifyScopedAgentAccessToken(token, {
     resourceKind: POST_FINALIZE_JOB_TOKEN_KIND,
     resourceId: postFinalizeJobResourceId(recordingId, kind),
@@ -81,6 +83,7 @@ export default defineEventHandler(async (event: H3Event) => {
           recordingId,
           kind,
           retryAttempt,
+          regenerate,
         });
         return {
           ok: true,
@@ -102,6 +105,7 @@ export default defineEventHandler(async (event: H3Event) => {
         recordingId,
         force: true,
         retryAttempt,
+        regenerate,
       });
       return { ok: true, kind, result };
     },

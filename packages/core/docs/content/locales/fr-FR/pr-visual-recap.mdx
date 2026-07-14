@@ -160,11 +160,29 @@ Si la variable n'est pas définie, l'action utilise `claude`.
 
 Au-delà du backend, deux variables du référentiel ajustent _comment_ l'agent s'exécute :
 
-- **`VISUAL_RECAP_MODEL`** épingle le modèle transmis au CLI (`--model`) — par exemple `gpt-5.6-sol` pour Codex, ou un identifiant de modèle Claude. Laissez-le non défini pour utiliser le modèle par défaut du CLI.
+- **`VISUAL_RECAP_MODEL`** épingle le modèle transmis au CLI (`--model`) — par exemple `gpt-5.6-luna` pour Codex, un identifiant de modèle Claude, ou `deepseek-chat` pour DeepSeek. Elle est requise pour `openai-compatible`. Pour le backend **Claude**, la laisser non définie utilise désormais par défaut `claude-sonnet-5` ; définissez la variable explicitement pour utiliser un autre modèle Claude, comme le moins cher `claude-haiku-4-5`. Pour le backend **Codex**, la laisser non définie utilise le modèle par défaut du CLI Codex lui-même.
 - **`VISUAL_RECAP_REASONING`** définit la profondeur du raisonnement : `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Cela s'applique au backend Codex ; Le raisonnement de Claude est basé sur un modèle, cette variable y est donc ignorée.
 - **`VISUAL_RECAP_SKILL_SOURCE`** contrôle la fraîcheur des invites : `auto`/unset utilise les dernières instructions de compétences groupées, tandis que `repo` s'épingle dans le dossier de compétences `visual-recap` local du dépôt validé.
 
 Par exemple, pour exécuter le récapitulatif sur Codex avec GPT-5.6 Sol avec un raisonnement élevé, définissez les variables du référentiel `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` et `VISUAL_RECAP_REASONING=high`.
+
+## Coût
+
+Chaque exécution du récapitulatif est une session complète d'agent de codage agentique qui lit un véritable diff, et non un résumé calqué sur un modèle bon marché ; son coût dépend donc du modèle choisi et de la fréquence d'exécution :
+
+- **Une session complète par poussée de PR.** Le déclencheur par défaut se déclenche sur `synchronize`, donc une PR poussée dix fois exécute l'agent dix fois.
+- **La PR entière à chaque fois**, pas seulement les commits depuis la dernière exécution — le coût augmente avec la taille totale de la PR, pas avec la taille incrémentale du diff.
+- **Entrée de diff plafonnée à environ 600 Ko.** Cela borne le pire cas par exécution, mais les diffs volumineux coûtent tout de même sensiblement plus cher que les petits.
+- **Une nouvelle tentative automatique en cas d'échec**, ce qui peut à peu près doubler le coût d'une exécution qui échoue de manière transitoire.
+
+Pour réduire le coût :
+
+- **Épinglez un modèle moins cher.** Pour Claude, définissez `VISUAL_RECAP_MODEL=claude-haiku-4-5` pour les dépôts simples ou petits — c'est le niveau Claude le moins cher ; `claude-sonnet-5` (la valeur par défaut) est le niveau équilibré.
+- **Passez à Codex avec un modèle moins cher.** Définissez `VISUAL_RECAP_AGENT=codex` avec `VISUAL_RECAP_MODEL=gpt-5.6-luna` (le niveau GPT-5.6 le moins cher) ou `gpt-5.6-terra` (niveau intermédiaire), et définissez `VISUAL_RECAP_REASONING=low` pour réduire encore la dépense en jetons de raisonnement. La profondeur de raisonnement ne s'applique qu'à Codex.
+- **Pointez vers un fournisseur compatible OpenAI moins cher.** Définissez `VISUAL_RECAP_AGENT=openai-compatible` avec `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` ciblant DeepSeek, Kimi ou tout autre point de terminaison compatible OpenAI.
+- **Récapitulez moins souvent.** Modifiez le `on.pull_request.types` du flux de travail installé de `[opened, synchronize, reopened, ready_for_review, closed]` à `[opened, ready_for_review, closed]` afin qu'il ne récapitule que lorsqu'une PR s'ouvre et lorsqu'elle est fusionnée, au lieu de le faire à chaque poussée.
+
+Chaque exécution enregistre ce qu'elle a réellement dépensé : l'étape `recap usage` du flux de travail associe l'utilisation de jetons et de coût au plan publié, afin que vous puissiez consulter la dépense réelle par exécution plutôt que de deviner.
 
 ## Secrets et variables
 
@@ -209,14 +227,14 @@ vrai jeton.
 
 ### Facultatif (uniquement si vous modifiez les valeurs par défaut)
 
-| Secret / variable        | Par défaut                         | Quand vous en avez besoin                                                                                                                                            |
-| ------------------------ | ---------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                                  | Secret. Configurez-le avec `VISUAL_RECAP_AGENT=codex` pour exécuter le récapitulatif avec Codex à la place.                                                          |
-| `VISUAL_RECAP_AGENT`     | `claude`                           | Variable. Sélectionne le backend de l'agent de codage (`claude` ou `codex`).                                                                                         |
-| `VISUAL_RECAP_MODEL`     | valeur par défaut de chaque CLI    | Variable. Épingle le modèle - par ex. `gpt-5.6-sol` pour Codex, ou un identifiant de modèle Claude. Unset utilise la valeur par défaut du CLI.                       |
-| `VISUAL_RECAP_REASONING` | valeur par défaut de chaque modèle | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. S'applique au backend Codex.                                           |
-| `RECAP_CLI_VERSION`      | `latest`                           | Variable. Épingle la version `@agent-native/recap-cli` CLI installée par le flux de travail, par ex. `1.5.0`. Voir [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`    | Secret. Uniquement lors de l'auto-hébergement de l'application Plans à une origine différente.                                                                       |
+| Secret / variable        | Par défaut                                                        | Quand vous en avez besoin                                                                                                                                                                                                                                                                                                                               |
+| ------------------------ | ----------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                                 | Secret. Configurez-le avec `VISUAL_RECAP_AGENT=codex` pour exécuter le récapitulatif avec Codex à la place.                                                                                                                                                                                                                                             |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                          | Variable. Sélectionne le backend de l'agent de codage (`claude` ou `codex`).                                                                                                                                                                                                                                                                            |
+| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` pour Claude ; requis pour le backend compatible | Variable. Identifiant du modèle du fournisseur pour les backends compatibles OpenAI (requis dans ce cas). Pour Claude, non défini utilise désormais par défaut `claude-sonnet-5` — définissez-le pour le remplacer, par ex. `claude-haiku-4-5` pour le niveau le moins cher. Pour Codex, non défini utilise la valeur par défaut du CLI Codex lui-même. |
+| `VISUAL_RECAP_REASONING` | valeur par défaut de chaque modèle                                | Variable. Profondeur de raisonnement : `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. S'applique au backend Codex.                                                                                                                                                                                                                              |
+| `RECAP_CLI_VERSION`      | `latest`                                                          | Variable. Épingle la version `@agent-native/recap-cli` CLI installée par le flux de travail, par ex. `1.5.0`. Voir [Version pinning](#version-pinning-copy-variant).                                                                                                                                                                                    |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                                   | Secret. Uniquement lors de l'auto-hébergement de l'application Plans à une origine différente.                                                                                                                                                                                                                                                          |
 
 Le workflow détecte automatiquement comment appeler son assistant CLI (source locale dans ce monorepo, le `@agent-native/recap-cli` publié ailleurs), il n'y a donc aucune variable `RECAP_CLI` à définir.
 

@@ -2659,7 +2659,7 @@ function rateLimitRecoveryHint(message: string): string {
 }
 
 const SOURCE_SWEEP_TOOL_NAME =
-  /\b(?:api|calls?|deals?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|tickets?|transcripts?)\b/i;
+  /\b(?:api|calls?|deals?|docs?|events?|issues?|messages?|metrics?|provider|query|records?|request|search|source|tickets?|transcripts?)\b/i;
 
 const SOURCE_SWEEP_PROVIDER_TOKEN =
   /\b(?:amplitude|apollo|bigquery|commonroom|data-source|ga4|github|gong|grafana|hubspot|jira|mixpanel|notion|posthog|postgres|postgresql|pylon|sentry|slack|stripe)\b/i;
@@ -2680,6 +2680,18 @@ const SOURCE_SWEEP_EXCLUDED_TOOLS = new Set([
   "view-screen",
 ]);
 
+// The Docs app intentionally exposes several small read-only lookup actions
+// rather than a bulk reader. Keep the per-tool guard for repeated lookups, but
+// do not combine this family into the cross-tool convergence budget.
+const SOURCE_SWEEP_AGGREGATE_EXCLUDED_TOOLS = new Set([
+  "docs-search",
+  "list-docs",
+  "read-doc",
+  "read-source-file",
+  "search-docs",
+  "search-source",
+]);
+
 function normalizeToolNameForHeuristics(name: string): string {
   return name.replace(/[_-]+/g, " ");
 }
@@ -2698,20 +2710,27 @@ function isLikelySourceSweepTool(
   );
 }
 
+function isLikelyAggregateSourceSweepTool(
+  name: string,
+  entry: ActionEntry | undefined,
+): boolean {
+  return (
+    !SOURCE_SWEEP_AGGREGATE_EXCLUDED_TOOLS.has(name.toLowerCase()) &&
+    isLikelySourceSweepTool(name, entry)
+  );
+}
+
 function hasExhaustedSourceSweepBudget(opts: {
   priorToolCalls: readonly AgentLoopToolCallSummary[];
   actions: Record<string, ActionEntry>;
   threshold?: number;
 }): boolean {
   const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
-  const counts = new Map<string, number>();
-  for (const call of opts.priorToolCalls) {
-    if (!isLikelySourceSweepTool(call.name, opts.actions[call.name])) continue;
-    const next = (counts.get(call.name) ?? 0) + 1;
-    if (next >= threshold) return true;
-    counts.set(call.name, next);
-  }
-  return false;
+  return (
+    opts.priorToolCalls.filter((call) =>
+      isLikelyAggregateSourceSweepTool(call.name, opts.actions[call.name]),
+    ).length >= threshold
+  );
 }
 
 function sourceSweepDelegationText(input: unknown): string {
@@ -2784,11 +2803,16 @@ export function repeatedSourceSweepGuardMessage(opts: {
   toolName: string;
   priorCalls: number;
   threshold?: number;
+  scope?: "tool" | "aggregate";
 }): string {
   const threshold = opts.threshold ?? SOURCE_SWEEP_TOOL_CALL_THRESHOLD;
+  const target =
+    opts.scope === "aggregate"
+      ? "read-only source/search tools"
+      : "the same read-only source/search tool";
   return (
     `Skipped ${opts.toolName}: this turn already made ${opts.priorCalls} ` +
-    `call(s) to the same read-only source/search tool, which exceeds the ` +
+    `call(s) to ${target}, which exceeds the ` +
     `${threshold}-call convergence budget. Stop calling ${opts.toolName} ` +
     `one item at a time and change strategy before answering. If a broader ` +
     `read-only bulk/source mechanism is available, use it now: provider API ` +
@@ -2812,6 +2836,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   toolName: string;
   entry: ActionEntry | undefined;
   priorToolCalls: readonly AgentLoopToolCallSummary[];
+  actions?: Record<string, ActionEntry>;
   threshold?: number;
 }): { toolName: string; priorCalls: number; message: string } | null {
   if (!isLikelySourceSweepTool(opts.toolName, opts.entry)) return null;
@@ -2819,6 +2844,25 @@ export function shouldGuardRepeatedSourceSweep(opts: {
   const priorCalls = opts.priorToolCalls.filter(
     (call) => call.name === opts.toolName,
   ).length;
+  const priorSourceSweepCalls = opts.priorToolCalls.filter((call) =>
+    isLikelyAggregateSourceSweepTool(
+      call.name,
+      opts.actions?.[call.name] ??
+        (call.name === opts.toolName ? opts.entry : undefined),
+    ),
+  ).length;
+  if (priorSourceSweepCalls >= threshold) {
+    return {
+      toolName: opts.toolName,
+      priorCalls: priorSourceSweepCalls,
+      message: repeatedSourceSweepGuardMessage({
+        toolName: opts.toolName,
+        priorCalls: priorSourceSweepCalls,
+        threshold,
+        scope: "aggregate",
+      }),
+    };
+  }
   if (priorCalls < threshold) return null;
   return {
     toolName: opts.toolName,
@@ -2827,6 +2871,7 @@ export function shouldGuardRepeatedSourceSweep(opts: {
       toolName: opts.toolName,
       priorCalls,
       threshold,
+      scope: "tool",
     }),
   };
 }
@@ -3831,6 +3876,7 @@ export async function runAgentLoop(opts: {
         toolName: toolCall.name,
         entry: actionEntry,
         priorToolCalls: sourceSweepToolCallHistory,
+        actions,
       });
       const sourceSweepDelegationGuard =
         sourceSweepDelegationGuardActive &&

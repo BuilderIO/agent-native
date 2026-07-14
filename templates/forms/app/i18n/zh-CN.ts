@@ -182,6 +182,9 @@ const messages = {
       redirectUrl: "重定向 URL（可选）",
       anonymousResponses: "匿名回复",
       anonymousResponsesDescription: "不保留 IP 地址、回复者身份或来源元数据。",
+      emailNewResponses: "有新回复时通过电子邮件通知我",
+      emailNewResponsesDescription:
+        "每当有人提交回复时，向表单所有者账户的电子邮件地址发送通知。",
       saveSettings: "保存设置",
     },
     integrations: {

@@ -4102,6 +4102,43 @@ describe("runAgentLoop", () => {
     ).toBeNull();
   });
 
+  it("keeps the Docs lookup family out of the aggregate convergence budget", () => {
+    const actions = {
+      "list-docs": actionEntry({ readOnly: true }),
+      "read-doc": actionEntry({ readOnly: true }),
+      "search-source": actionEntry({ readOnly: true }),
+      "read-source-file": actionEntry({ readOnly: true }),
+      "search-docs": actionEntry({ readOnly: true }),
+    };
+    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+      name: Object.keys(actions)[i % Object.keys(actions).length],
+      input: { query: `term-${i + 1}` },
+    }));
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-docs",
+        entry: actions["search-docs"],
+        actions,
+        priorToolCalls,
+      }),
+    ).toBeNull();
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-docs",
+        entry: actions["search-docs"],
+        priorToolCalls: Array.from({ length: 12 }, () => ({
+          name: "search-docs",
+          input: {},
+        })),
+      }),
+    ).toMatchObject({
+      toolName: "search-docs",
+      priorCalls: 12,
+    });
+  });
+
   it("allows a bulk strategy change instead of continuing a repeated source sweep", async () => {
     let streamCalls = 0;
     const seenMessages: unknown[] = [];
