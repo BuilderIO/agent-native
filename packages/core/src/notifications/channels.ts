@@ -29,7 +29,7 @@
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
-  resolveKeyReferences,
+  resolveKeyReferencesWithRequestScopes,
   validateUrlAllowlist,
   getKeyAllowlist,
 } from "../secrets/substitution.js";
@@ -215,21 +215,30 @@ async function resolveWebhookRequest(
   owner: string,
   label: string,
 ): Promise<{ url: string; headers: Record<string, string> }> {
-  // Resolve `${keys.NAME}` references against the owner's user-scope secrets.
+  // Resolve `${keys.NAME}` references through the same request-scope
+  // cascade already used by extension fetches (extensions/routes.ts) and
+  // automation connector headers (automation/index.ts): user scope first
+  // (a personal override always wins), then the active org scope — where
+  // the Dispatch vault syncs workspace secrets — then workspace scope.
+  // Org/workspace vault rows are write-gated (org-admin + Dispatch vault
+  // UI), so reading them here is safe by default; this is unrelated to the
+  // opt-in-only user→workspace fallback in resolveKeyReferences (audit 05
+  // H2 in secrets/substitution.ts), which stays off. In headless contexts
+  // (e.g. a scheduled monitor check) getRequestOrgId() may be unset, in
+  // which case the cascade checks user + solo-workspace scopes only — a
+  // strict superset of the previous user-scope-only behavior.
   // Missing keys throw — the error surfaces in logs and the channel is marked
   // un-delivered, but other channels still run.
-  const { resolved: url } = await resolveKeyReferences(
+  const { resolved: url } = await resolveKeyReferencesWithRequestScopes(
     urlTemplate,
-    "user",
     owner,
   );
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
   if (authTemplate) {
-    const { resolved: auth } = await resolveKeyReferences(
+    const { resolved: auth } = await resolveKeyReferencesWithRequestScopes(
       authTemplate,
-      "user",
       owner,
     );
     headers.Authorization = auth;
@@ -237,6 +246,11 @@ async function resolveWebhookRequest(
 
   // If the user set an allowlist on a referenced key, enforce it here —
   // origin-level check, same rule the automations fetch-tool applies.
+  // NOTE: this still checks the allowlist at user scope only (unlike the
+  // fetch tool's validateUrl, which now consults getResolvedKeyAllowlist at
+  // the scope the key actually resolved at — see agent-chat-plugin.ts). A
+  // key that resolves at org/workspace scope with an allowlist configured
+  // on that org/workspace row will not have it enforced here.
   const keyNames = Array.from(
     new Set(
       Array.from(urlTemplate.matchAll(/\$\{keys\.([A-Za-z0-9_-]+)\}/g), (m) =>

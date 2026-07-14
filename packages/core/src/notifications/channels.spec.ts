@@ -9,7 +9,7 @@ import type { NotificationChannel } from "./types.js";
 // reference resolution, URL allowlist enforcement, auth header, POST body, and
 // non-ok handling.
 
-const resolveKeyReferences = vi.fn();
+const resolveKeyReferencesWithRequestScopes = vi.fn();
 const validateUrlAllowlist = vi.fn();
 const getKeyAllowlist = vi.fn();
 const sendEmail = vi.fn();
@@ -34,7 +34,8 @@ async function loadChannels(): Promise<NotificationChannel[]> {
     },
   }));
   vi.doMock("../secrets/substitution.js", () => ({
-    resolveKeyReferences: (...args: unknown[]) => resolveKeyReferences(...args),
+    resolveKeyReferencesWithRequestScopes: (...args: unknown[]) =>
+      resolveKeyReferencesWithRequestScopes(...args),
     validateUrlAllowlist: (...args: unknown[]) => validateUrlAllowlist(...args),
     getKeyAllowlist: (...args: unknown[]) => getKeyAllowlist(...args),
   }));
@@ -54,11 +55,13 @@ beforeEach(() => {
   delete process.env.NOTIFICATIONS_WEBHOOK_AUTH;
   fetchMock = vi.fn(async () => okResponse());
   vi.stubGlobal("fetch", fetchMock);
-  resolveKeyReferences.mockImplementation(async (text: string) => ({
-    resolved: text,
-    usedKeys: [],
-    secretValues: [],
-  }));
+  resolveKeyReferencesWithRequestScopes.mockImplementation(
+    async (text: string) => ({
+      resolved: text,
+      usedKeys: [],
+      secretValues: [],
+    }),
+  );
   validateUrlAllowlist.mockReturnValue(true);
   getKeyAllowlist.mockResolvedValue(null);
   sendEmail.mockResolvedValue(undefined);
@@ -105,11 +108,13 @@ describe("webhook notification channel", () => {
 
   it("uses private delivery.webhookUrl without inheriting env auth or echoing delivery metadata", async () => {
     process.env.NOTIFICATIONS_WEBHOOK_AUTH = "Bearer ${keys.HOOK_TOKEN}";
-    resolveKeyReferences.mockImplementation(async (text: string) => ({
-      resolved: text.includes("HOOK_TOKEN") ? "Bearer secret-xyz" : text,
-      usedKeys: [],
-      secretValues: [],
-    }));
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) => ({
+        resolved: text.includes("HOOK_TOKEN") ? "Bearer secret-xyz" : text,
+        usedKeys: [],
+        secretValues: [],
+      }),
+    );
     const channel = (await loadWebhookChannel())!;
 
     await channel.deliver(
@@ -160,13 +165,31 @@ describe("webhook notification channel", () => {
     expect(init.headers.Authorization).toBeUndefined();
   });
 
+  it("resolves ${keys.NAME} through the request-scope cascade, scoped to the owner", async () => {
+    // Locks in the switch from resolveKeyReferences(text, "user", owner) to
+    // resolveKeyReferencesWithRequestScopes(text, owner) — the cascade
+    // resolver that also backs extension fetches and automation headers, so
+    // a key synced into the org/workspace Dispatch vault resolves here too.
+    const channel = (await loadWebhookChannel())!;
+    await channel.deliver(
+      { severity: "info", title: "x" },
+      { owner: "alice@example.com" },
+    );
+    expect(resolveKeyReferencesWithRequestScopes).toHaveBeenCalledWith(
+      "https://hooks.example.com/notify",
+      "alice@example.com",
+    );
+  });
+
   it("resolves an Authorization header from NOTIFICATIONS_WEBHOOK_AUTH", async () => {
     process.env.NOTIFICATIONS_WEBHOOK_AUTH = "Bearer ${keys.HOOK_TOKEN}";
-    resolveKeyReferences.mockImplementation(async (text: string) => ({
-      resolved: text.includes("HOOK_TOKEN") ? "Bearer secret-xyz" : text,
-      usedKeys: [],
-      secretValues: [],
-    }));
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) => ({
+        resolved: text.includes("HOOK_TOKEN") ? "Bearer secret-xyz" : text,
+        usedKeys: [],
+        secretValues: [],
+      }),
+    );
     const channel = (await loadWebhookChannel())!;
 
     await channel.deliver(
@@ -180,7 +203,7 @@ describe("webhook notification channel", () => {
 
   it("enforces the per-key URL allowlist and never POSTs a disallowed origin", async () => {
     process.env.NOTIFICATIONS_WEBHOOK_URL = "${keys.HOOK_URL}";
-    resolveKeyReferences.mockImplementation(async () => ({
+    resolveKeyReferencesWithRequestScopes.mockImplementation(async () => ({
       resolved: "https://evil.example.com/steal",
       usedKeys: ["HOOK_URL"],
       secretValues: [],
@@ -209,7 +232,7 @@ describe("webhook notification channel", () => {
 
   it("delivers when the resolved URL satisfies the allowlist", async () => {
     process.env.NOTIFICATIONS_WEBHOOK_URL = "${keys.HOOK_URL}";
-    resolveKeyReferences.mockImplementation(async () => ({
+    resolveKeyReferencesWithRequestScopes.mockImplementation(async () => ({
       resolved: "https://hooks.example.com/notify",
       usedKeys: ["HOOK_URL"],
       secretValues: [],
@@ -326,11 +349,13 @@ describe("Slack notification channel", () => {
     process.env.NOTIFICATIONS_SLACK_WEBHOOK_URL =
       "https://hooks.slack.example.com/services/T/B/ENV";
     process.env.NOTIFICATIONS_SLACK_WEBHOOK_AUTH = "Bearer ${keys.SLACK_TOKEN}";
-    resolveKeyReferences.mockImplementation(async (text: string) => ({
-      resolved: text.includes("SLACK_TOKEN") ? "Bearer slack-secret" : text,
-      usedKeys: [],
-      secretValues: [],
-    }));
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) => ({
+        resolved: text.includes("SLACK_TOKEN") ? "Bearer slack-secret" : text,
+        usedKeys: [],
+        secretValues: [],
+      }),
+    );
     const channels = await loadChannels();
     const channel = channels.find((c) => c.name === "slack")!;
 

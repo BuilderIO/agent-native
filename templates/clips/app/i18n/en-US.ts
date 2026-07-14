@@ -882,14 +882,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
       "{{email}} will lose access to this organization. You can always invite them back.",
     remove: "Remove",
   },
-  slackShareHint: {
-    playsInline: "Plays inline in Slack",
-    connectedDescription:
-      "Paste this link in any connected workspace to play it inline.",
-    makeInline: "Make it play inline in Slack",
-    connectDescription: "Connect a workspace so this link unfurls as a video.",
-    connect: "Connect",
-  },
   commentsPanel: {
     disabled: "Comments are disabled for this recording.",
     beFirst: "Be the first to comment",

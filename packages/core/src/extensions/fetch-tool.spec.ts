@@ -93,6 +93,80 @@ describe("createFetchToolEntry", () => {
     expect(result).not.toContain("sk-secret");
   });
 
+  it("accumulates resolvedKeys across url/headers/body and passes them to validateUrl", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("ok", { status: 200, statusText: "OK" }),
+    );
+
+    const validateUrl = vi.fn().mockResolvedValue(true);
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => {
+        if (text.includes("${keys.URL_KEY}")) {
+          return {
+            resolved: text.replaceAll("${keys.URL_KEY}", "93.184.216.34/api"),
+            usedKeys: ["URL_KEY"],
+            secretValues: [],
+            resolvedKeys: [{ name: "URL_KEY", scope: "org", scopeId: "org_1" }],
+          };
+        }
+        if (text.includes("${keys.HEADER_KEY}")) {
+          return {
+            resolved: text.replaceAll("${keys.HEADER_KEY}", "secret-header"),
+            usedKeys: ["HEADER_KEY"],
+            secretValues: ["secret-header"],
+            resolvedKeys: [
+              { name: "HEADER_KEY", scope: "user", scopeId: "alice" },
+            ],
+          };
+        }
+        return { resolved: text, usedKeys: [], secretValues: [] };
+      },
+      validateUrl,
+    })["web-request"];
+
+    await entry.run({
+      url: "https://${keys.URL_KEY}",
+      headers: '{"X-Token":"${keys.HEADER_KEY}"}',
+    });
+
+    expect(validateUrl).toHaveBeenCalledWith(
+      "https://93.184.216.34/api",
+      ["URL_KEY", "HEADER_KEY"],
+      [
+        { name: "URL_KEY", scope: "org", scopeId: "org_1" },
+        { name: "HEADER_KEY", scope: "user", scopeId: "alice" },
+      ],
+    );
+  });
+
+  it("passes resolvedKeys as undefined when the resolver never reports any", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("ok", { status: 200, statusText: "OK" }),
+    );
+
+    const validateUrl = vi.fn().mockResolvedValue(true);
+    const entry = createFetchToolEntry({
+      resolveKeys: async (text) => ({
+        resolved: text.replaceAll("${keys.API_TOKEN}", "sk-secret"),
+        usedKeys: text.includes("${keys.API_TOKEN}") ? ["API_TOKEN"] : [],
+        secretValues: text.includes("${keys.API_TOKEN}") ? ["sk-secret"] : [],
+        // No `resolvedKeys` field — mirrors resolvers written before this
+        // field existed. The fetch tool must stay backwards compatible.
+      }),
+      validateUrl,
+    })["web-request"];
+
+    await entry.run({
+      url: "https://93.184.216.34/api?token=${keys.API_TOKEN}",
+    });
+
+    expect(validateUrl).toHaveBeenCalledWith(
+      "https://93.184.216.34/api?token=sk-secret",
+      ["API_TOKEN"],
+      undefined,
+    );
+  });
+
   it("rejects unsupported HTTP methods before fetching", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
     const entry = createFetchToolEntry()["web-request"];
