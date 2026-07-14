@@ -1,6 +1,6 @@
 import {
   readClientAppState,
-  sendToAgentChat,
+  setAgentChatContextItem,
   useActionMutation,
   useActionQuery,
   useT,
@@ -235,8 +235,10 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
   }
 
   function refineSlot(slot: VariantSlot) {
-    sendToAgentChat({
-      message: `Refine generated asset ${slot.assetId}: `,
+    if (!slot.assetId) return;
+    setAgentChatContextItem({
+      key: `refine-asset:${slot.assetId}`,
+      title: t("library.refine"),
       context: [
         "## Assets candidate",
         `Asset ID: ${slot.assetId}`,
@@ -247,7 +249,6 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
       ]
         .filter(Boolean)
         .join("\n"),
-      submit: false,
       openSidebar: true,
     });
   }
