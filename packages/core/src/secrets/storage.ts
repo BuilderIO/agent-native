@@ -4,10 +4,10 @@
  * Values are encrypted at rest with AES-256-GCM. The workspace-shared
  * encryption key is derived from `SECRETS_ENCRYPTION_KEY` (preferred) or the
  * existing `BETTER_AUTH_SECRET` env var (fallback so templates don't need a
- * second secret during development). If neither is set in production we fall
- * back to a machine-local key derived from the cwd — the secret is still only
- * readable on this machine, but consider setting `SECRETS_ENCRYPTION_KEY` for
- * a stable, rotatable key shared by every app in the workspace.
+ * second secret during development). Deployments that only have the legacy
+ * app-scoped key continue to work until shared key material is configured;
+ * once configured, new rows use the shared key and reads retain a legacy-key
+ * fallback for existing rows.
  *
  * Secret values are NEVER logged and NEVER returned from any route handler.
  */
@@ -209,11 +209,40 @@ export interface ReadSecretResult {
  * fallback is only useful when the current app owns the old row; sibling apps
  * will receive shared-key ciphertext after the next vault sync or update.
  */
-function decryptAppSecretValue(encrypted: string): string {
+interface DecryptedAppSecretValue {
+  value: string;
+  usedLegacyKey: boolean;
+}
+
+function decryptAppSecretValue(encrypted: string): DecryptedAppSecretValue {
   try {
-    return decryptValue(encrypted);
+    return { value: decryptValue(encrypted), usedLegacyKey: false };
   } catch {
-    return decryptLegacyValue(encrypted);
+    return { value: decryptLegacyValue(encrypted), usedLegacyKey: true };
+  }
+}
+
+/**
+ * Upgrade a row that was encrypted with the old app-scoped key. This is
+ * intentionally best-effort: a read must still succeed if a deployment's DB
+ * role cannot update the row. The ciphertext predicate prevents a concurrent
+ * write from being overwritten, and leaving `updated_at` untouched preserves
+ * the row's user-visible ordering/metadata.
+ */
+async function reencryptLegacyAppSecret(
+  id: unknown,
+  encrypted: string,
+  value: string,
+): Promise<void> {
+  if (id === undefined || id === null) return;
+  try {
+    await getDbExec().execute({
+      sql: `UPDATE app_secrets SET encrypted_value = ? WHERE id = ? AND encrypted_value = ?`,
+      args: [encryptValue(value), id, encrypted],
+    });
+  } catch {
+    // Migration is opportunistic. Preserve the successful read if the update
+    // is unavailable due to a read-only role, transient DB failure, or race.
   }
 }
 
@@ -260,15 +289,19 @@ export async function readAppSecret(
 ): Promise<ReadSecretResult | null> {
   const { key, scope, scopeId } = ref;
   const { rows } = await executeAppSecretsRead({
-    sql: `SELECT encrypted_value, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    sql: `SELECT encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
   try {
-    const value = decryptAppSecretValue(rows[0].encrypted_value as string);
+    const encrypted = rows[0].encrypted_value as string;
+    const decrypted = decryptAppSecretValue(encrypted);
+    if (decrypted.usedLegacyKey) {
+      await reencryptLegacyAppSecret(rows[0].id, encrypted, decrypted.value);
+    }
     return {
-      value,
-      last4: last4(value),
+      value: decrypted.value,
+      last4: last4(decrypted.value),
       updatedAt: Number(rows[0].updated_at ?? 0),
     };
   } catch {
@@ -289,7 +322,7 @@ export async function readAppSecrets(args: {
 
   const placeholders = keys.map(() => "?").join(", ");
   const { rows } = await executeAppSecretsRead({
-    sql: `SELECT key, encrypted_value, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
+    sql: `SELECT key, encrypted_value, updated_at, id FROM app_secrets WHERE scope = ? AND scope_id = ? AND key IN (${placeholders})`,
     args: [args.scope, args.scopeId, ...keys],
   });
   const results = new Map<string, ReadSecretResult>();
@@ -297,10 +330,14 @@ export async function readAppSecrets(args: {
     const key = String(row.key ?? "");
     if (!key) continue;
     try {
-      const value = decryptAppSecretValue(row.encrypted_value as string);
+      const encrypted = row.encrypted_value as string;
+      const decrypted = decryptAppSecretValue(encrypted);
+      if (decrypted.usedLegacyKey) {
+        await reencryptLegacyAppSecret(row.id, encrypted, decrypted.value);
+      }
       results.set(key, {
-        value,
-        last4: last4(value),
+        value: decrypted.value,
+        last4: last4(decrypted.value),
         updatedAt: Number(row.updated_at ?? 0),
       });
     } catch {
@@ -346,15 +383,19 @@ export async function readAppSecretMeta(
   const { key, scope, scopeId } = ref;
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
+    sql: `SELECT id, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? AND key = ? LIMIT 1`,
     args: [scope, scopeId, key],
   });
   if (rows.length === 0) return null;
   const row = rows[0];
   let last4Value = "";
   try {
-    const value = decryptAppSecretValue(row.encrypted_value as string);
-    last4Value = last4(value);
+    const encrypted = row.encrypted_value as string;
+    const decrypted = decryptAppSecretValue(encrypted);
+    if (decrypted.usedLegacyKey) {
+      await reencryptLegacyAppSecret(row.id, encrypted, decrypted.value);
+    }
+    last4Value = last4(decrypted.value);
   } catch {
     last4Value = "";
   }
@@ -382,18 +423,23 @@ export async function listAppSecretsForScope(
   await ensureTable();
   const client = getDbExec();
   const { rows } = await client.execute({
-    sql: `SELECT key, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
+    sql: `SELECT id, key, encrypted_value, description, url_allowlist, created_at, updated_at FROM app_secrets WHERE scope = ? AND scope_id = ? ORDER BY updated_at DESC`,
     args: [scope, scopeId],
   });
-  return rows.map((row) => {
+  const results: SecretMeta[] = [];
+  for (const row of rows) {
     let last4Value = "";
     try {
-      const value = decryptAppSecretValue(row.encrypted_value as string);
-      last4Value = last4(value);
+      const encrypted = row.encrypted_value as string;
+      const decrypted = decryptAppSecretValue(encrypted);
+      if (decrypted.usedLegacyKey) {
+        await reencryptLegacyAppSecret(row.id, encrypted, decrypted.value);
+      }
+      last4Value = last4(decrypted.value);
     } catch {
       last4Value = "";
     }
-    return {
+    results.push({
       key: row.key as string,
       scope,
       scopeId,
@@ -402,8 +448,9 @@ export async function listAppSecretsForScope(
       urlAllowlist: parseAllowlist(row.url_allowlist as string | null),
       createdAt: Number(row.created_at ?? 0),
       updatedAt: Number(row.updated_at ?? 0),
-    };
-  });
+    });
+  }
+  return results;
 }
 
 function parseAllowlist(raw: string | null): string[] | null {

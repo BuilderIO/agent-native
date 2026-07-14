@@ -9,6 +9,8 @@ import {
   vi,
 } from "vitest";
 
+import { decryptSharedSecretValue } from "./crypto.js";
+
 // A stable encryption key so values round-trip deterministically and the
 // crypto layer never falls through to the cwd-derived fallback (which would
 // warn on every run).
@@ -275,6 +277,65 @@ describe("secrets storage CRUD (real sqlite)", () => {
       if (originalSharedKey === undefined)
         delete process.env.SECRETS_ENCRYPTION_KEY;
       else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+    }
+  });
+
+  it("keeps app-scoped-only production deployments writable", async () => {
+    const originalAppName = process.env.APP_NAME; // guard:allow-env-credential — test configures deploy-level app scope.
+    const originalAppKey = process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test configures deploy-level app encryption material.
+    const originalSharedKey = process.env.SECRETS_ENCRYPTION_KEY;
+    const originalAuthSecret = process.env.BETTER_AUTH_SECRET;
+    const originalNodeEnv = process.env.NODE_ENV;
+
+    try {
+      process.env.NODE_ENV = "production";
+      process.env.APP_NAME = "analytics"; // guard:allow-env-credential — test configures deploy-level app scope.
+      process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = "analytics-only-material"; // guard:allow-env-credential — test configures deploy-level app encryption material.
+      delete process.env.SECRETS_ENCRYPTION_KEY;
+      delete process.env.BETTER_AUTH_SECRET;
+
+      await mod.writeAppSecret({
+        ...userRef,
+        value: "legacy-deployment-secret",
+      });
+      await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
+        value: "legacy-deployment-secret",
+      });
+
+      // Existing rows remain readable after the deployment adds the preferred
+      // workspace key; the storage read path falls back to the old app key.
+      const beforeMigration = sqlite
+        .prepare(`SELECT encrypted_value, updated_at FROM app_secrets`)
+        .get() as { encrypted_value: string; updated_at: number };
+      process.env.SECRETS_ENCRYPTION_KEY = "new-workspace-shared-material";
+      await expect(mod.readAppSecret(userRef)).resolves.toMatchObject({
+        value: "legacy-deployment-secret",
+      });
+      const afterMigration = sqlite
+        .prepare(`SELECT encrypted_value, updated_at FROM app_secrets`)
+        .get() as { encrypted_value: string; updated_at: number };
+      expect(afterMigration.encrypted_value).not.toBe(
+        beforeMigration.encrypted_value,
+      );
+      expect(afterMigration.updated_at).toBe(beforeMigration.updated_at);
+      expect(decryptSharedSecretValue(afterMigration.encrypted_value)).toBe(
+        "legacy-deployment-secret",
+      );
+    } finally {
+      if (originalAppName === undefined)
+        delete process.env.APP_NAME; // guard:allow-env-credential — test restores deploy-level app scope.
+      else process.env.APP_NAME = originalAppName; // guard:allow-env-credential — test restores deploy-level app scope.
+      if (originalAppKey === undefined)
+        delete process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      else process.env.ANALYTICS_SECRETS_ENCRYPTION_KEY = originalAppKey; // guard:allow-env-credential — test restores deploy-level app encryption material.
+      if (originalSharedKey === undefined)
+        delete process.env.SECRETS_ENCRYPTION_KEY;
+      else process.env.SECRETS_ENCRYPTION_KEY = originalSharedKey;
+      if (originalAuthSecret === undefined)
+        delete process.env.BETTER_AUTH_SECRET;
+      else process.env.BETTER_AUTH_SECRET = originalAuthSecret;
+      if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+      else process.env.NODE_ENV = originalNodeEnv;
     }
   });
 

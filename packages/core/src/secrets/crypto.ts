@@ -5,7 +5,10 @@
  * (`resolveCredential` / `saveCredential`, stored in `settings`), and other
  * column-level encrypted values. The `app_secrets` storage layer uses the
  * shared-key variant below because workspace-scoped vault rows are readable by
- * sibling apps in the same workspace.
+ * sibling apps in the same workspace. When a deployment has not been given
+ * shared key material yet, that variant falls back to the app-scoped key so
+ * existing single-app deployments can keep reading and writing secrets while
+ * they migrate to the shared key.
  *
  * The default encryption key is derived from
  * `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when set, then `SECRETS_ENCRYPTION_KEY`,
@@ -123,17 +126,20 @@ export function getSecretEncryptionKey(): Buffer {
 }
 
 /**
- * Derive the workspace-shared key used by `app_secrets` rows. Unlike generic
- * column-level encryption, workspace vault data must decrypt in sibling apps,
- * so app-specific `<APP_NAME>_SECRETS_ENCRYPTION_KEY` values are excluded.
+ * Derive the preferred workspace-shared key used by `app_secrets` rows.
+ * Unlike generic column-level encryption, workspace vault data should decrypt
+ * in sibling apps, so `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` take
+ * precedence. The app-scoped key remains a compatibility fallback for
+ * deployments that have not configured shared material yet; once the shared
+ * key is configured, writes use it and reads still fall back to old rows.
  */
 export function getSharedSecretEncryptionKey(): Buffer {
   return deriveSecretEncryptionKey(
-    sharedEncryptionKeyMaterial(),
-    "[agent-native/secrets] Refusing to start in production without a shared encryption key for workspace secrets. " +
-      "Set SECRETS_ENCRYPTION_KEY or BETTER_AUTH_SECRET in every workspace app.",
-    "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback for workspace secrets. " +
-      "Set SECRETS_ENCRYPTION_KEY or BETTER_AUTH_SECRET in every workspace app.",
+    sharedEncryptionKeyMaterial() || appScopedEncryptionKey(),
+    "[agent-native/secrets] Refusing to start in production without encryption key material for workspace secrets. " +
+      "Set SECRETS_ENCRYPTION_KEY, BETTER_AUTH_SECRET, or the app-scoped *_SECRETS_ENCRYPTION_KEY in the deploy environment.",
+    "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using app-scoped or machine-local fallback for workspace secrets. " +
+      "Set SECRETS_ENCRYPTION_KEY or BETTER_AUTH_SECRET in every workspace app so sibling apps share vault rows.",
   );
 }
 
