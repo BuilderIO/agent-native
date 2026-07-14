@@ -73,7 +73,7 @@ function createWebhookChannel(
       // No-op when neither a per-notification nor workspace URL is set —
       // mirrors email's empty-recipients behavior so notify-all stays quiet.
       if (!urlTemplate) return false;
-      const { url, headers } = await resolveWebhookRequest(
+      const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
         urlTemplate,
         overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
@@ -93,7 +93,7 @@ function createWebhookChannel(
             emittedAt: new Date().toISOString(),
           }),
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, assertUrlAllowed },
       );
       if (!res.ok) {
         throw new Error(
@@ -122,7 +122,7 @@ function createSlackWebhookChannel(
         metadataString(input.metadata, "slackWebhookUrl") ??
         envUrlTemplate?.trim();
       if (!urlTemplate) return false;
-      const { url, headers } = await resolveWebhookRequest(
+      const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
         urlTemplate,
         overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
@@ -166,7 +166,7 @@ function createSlackWebhookChannel(
             ],
           }),
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, assertUrlAllowed },
       );
       if (!res.ok) {
         throw new Error(
@@ -215,7 +215,11 @@ async function resolveWebhookRequest(
   authTemplate: string | undefined,
   owner: string,
   label: string,
-): Promise<{ url: string; headers: Record<string, string> }> {
+): Promise<{
+  url: string;
+  headers: Record<string, string>;
+  assertUrlAllowed: (url: string) => void;
+}> {
   // Resolve `${keys.NAME}` references through the same request-scope
   // cascade already used by extension fetches (extensions/routes.ts) and
   // automation connector headers (automation/index.ts): user scope first
@@ -285,14 +289,17 @@ async function resolveWebhookRequest(
         : getKeyAllowlist(name, "user", owner),
     ),
   );
-  usages.forEach(({ name }, i) => {
-    if (!validateUrlAllowlist(url, allowlists[i])) {
-      throw new Error(
-        `[notifications] ${label} URL ${new URL(url).origin} is not in the allowlist for key "${name}"`,
-      );
-    }
-  });
-  return { url, headers };
+  const assertUrlAllowed = (candidateUrl: string): void => {
+    usages.forEach(({ name }, i) => {
+      if (!validateUrlAllowlist(candidateUrl, allowlists[i])) {
+        throw new Error(
+          `[notifications] ${label} URL ${new URL(candidateUrl).origin} is not in the allowlist for key "${name}"`,
+        );
+      }
+    });
+  };
+  assertUrlAllowed(url);
+  return { url, headers, assertUrlAllowed };
 }
 
 function metadataString(

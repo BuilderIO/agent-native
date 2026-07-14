@@ -3470,6 +3470,123 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("stops after the third visible duplicate across continuation invocations", async () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "read the document" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "original-call",
+            name: "get-document",
+            input: { id: "doc-1" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "original-call",
+            toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
+            content: "the document",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+      },
+    ];
+    const readAction = vi.fn(async () => "fresh document");
+
+    const runContinuation = async (chunk: number) => {
+      let streamCalls = 0;
+      const events: any[] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `repeat-${chunk}`,
+                  name: "get-document",
+                  input: { id: "doc-1" },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: `chunk ${chunk} done` }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions: {
+          "get-document": {
+            ...actionEntry({ readOnly: true }),
+            run: readAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      return { events, streamCalls };
+    };
+
+    const first = await runContinuation(1);
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+    });
+    const second = await runContinuation(2);
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+    });
+    const third = await runContinuation(3);
+
+    expect(readAction).not.toHaveBeenCalled();
+    expect(first.streamCalls).toBe(2);
+    expect(second.streamCalls).toBe(2);
+    expect(third.streamCalls).toBe(1);
+    expect(third.events).toContainEqual({
+      type: "text",
+      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+    });
+  });
+
   it("does not cache repeated reads when the action opts out of deduping", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {

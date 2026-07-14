@@ -307,6 +307,48 @@ describe("webhook notification channel", () => {
     expect(getResolvedKeyAllowlist).toHaveBeenCalledWith(authRef);
   });
 
+  it("rejects a redirect outside the auth key allowlist before forwarding the request", async () => {
+    process.env.NOTIFICATIONS_WEBHOOK_AUTH = "Bearer ${keys.HOOK_TOKEN}";
+    const authRef = {
+      name: "HOOK_TOKEN",
+      scope: "org" as const,
+      scopeId: "org-1",
+    };
+    resolveKeyReferencesWithRequestScopes.mockImplementation(
+      async (text: string) =>
+        text.includes("HOOK_TOKEN")
+          ? {
+              resolved: "Bearer example-token",
+              usedKeys: ["HOOK_TOKEN"],
+              secretValues: ["example-token"],
+              resolvedKeys: [authRef],
+            }
+          : {
+              resolved: text,
+              usedKeys: [],
+              secretValues: [],
+              resolvedKeys: [],
+            },
+    );
+    getResolvedKeyAllowlist.mockResolvedValue(["https://hooks.example.com"]);
+    validateUrlAllowlist.mockImplementation(
+      (url: string) => new URL(url).origin === "https://hooks.example.com",
+    );
+
+    const channel = (await loadWebhookChannel())!;
+    await channel.deliver(
+      { severity: "critical", title: "x" },
+      { owner: "alice@example.com" },
+    );
+
+    const options = fetchMock.mock.calls[0][2] as {
+      assertUrlAllowed: (url: string) => void;
+    };
+    expect(() =>
+      options.assertUrlAllowed("https://evil.example.com/steal"),
+    ).toThrow(/not in the allowlist/i);
+  });
+
   it("delivers when the resolved URL satisfies the allowlist", async () => {
     process.env.NOTIFICATIONS_WEBHOOK_URL = "${keys.HOOK_URL}";
     resolveKeyReferencesWithRequestScopes.mockImplementation(async () => ({

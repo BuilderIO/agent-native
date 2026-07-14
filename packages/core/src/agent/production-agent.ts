@@ -2223,6 +2223,94 @@ function seedReadOnlyToolResultsFromHistory(
   return cache;
 }
 
+function visibleDuplicateReadOnlyToolResult(toolName: string): string {
+  return (
+    `Skipped duplicate read-only call to ${toolName}: identical input already ran in this turn. ` +
+    `Use the previous result already in the conversation instead of calling this tool again.`
+  );
+}
+
+function resurfacedDuplicateReadOnlyToolResultPrefix(toolName: string): string {
+  return (
+    `Skipped duplicate read-only call to ${toolName}: identical input already ran in this turn. ` +
+    `Its earlier result is no longer in view, so here it is again:\n\n`
+  );
+}
+
+function resurfacedDuplicateReadOnlyToolResult(
+  toolName: string,
+  cachedResult: string,
+): string {
+  return `${resurfacedDuplicateReadOnlyToolResultPrefix(toolName)}${cachedResult}`;
+}
+
+/** Restore visible-repeat strike counts for this continuation's active turn. */
+function seedDuplicateReadOnlyToolCallsFromHistory(
+  messages: EngineMessage[],
+  actions: Record<string, ActionEntry>,
+): Map<string, number> {
+  const repeats = new Map<string, number>();
+  if (!isInternalContinuationTurn(messages)) return repeats;
+
+  const turnStart = findCurrentTurnStartForContinuation(messages);
+  const pendingToolCalls = new Map<
+    string,
+    { name: string; input: unknown; readOnly: boolean; dedupe: boolean }
+  >();
+  const reusableReadKeys = new Set<string>();
+
+  for (const message of messages.slice(turnStart)) {
+    if (message.role === "assistant") {
+      for (const part of message.content) {
+        if (part.type !== "tool-call") continue;
+        const entry = actions[part.name];
+        pendingToolCalls.set(part.id, {
+          name: part.name,
+          input: part.input,
+          readOnly: entry?.readOnly === true,
+          dedupe: entry?.dedupe !== false,
+        });
+      }
+      continue;
+    }
+
+    for (const part of message.content) {
+      if (part.type !== "tool-result") continue;
+      const call = pendingToolCalls.get(part.toolCallId);
+      if (!call) continue;
+      if (!call.readOnly) {
+        if (part.isError !== true) {
+          repeats.clear();
+          reusableReadKeys.clear();
+        }
+        continue;
+      }
+      if (!call.dedupe || part.isError === true) continue;
+
+      const cacheKey = toolCallCacheKey(call.name, call.input);
+      if (part.content === visibleDuplicateReadOnlyToolResult(call.name)) {
+        if (reusableReadKeys.has(cacheKey)) {
+          repeats.set(cacheKey, (repeats.get(cacheKey) ?? 0) + 1);
+        }
+        continue;
+      }
+      if (
+        part.content.startsWith(
+          resurfacedDuplicateReadOnlyToolResultPrefix(call.name),
+        )
+      ) {
+        if (reusableReadKeys.has(cacheKey)) repeats.set(cacheKey, 0);
+        continue;
+      }
+      if (isReusableReadOnlyToolResult(part)) {
+        reusableReadKeys.add(cacheKey);
+      }
+    }
+  }
+
+  return repeats;
+}
+
 function isReusableReadOnlyToolResult(part: EngineToolResultPart): boolean {
   if (part.isError) return false;
   const lower = part.content.trim().toLowerCase();
@@ -2271,9 +2359,10 @@ export function isCachedToolResultVisibleInContext(
     }
   }
 
-  const resurfacedResult =
-    `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
-    `Its earlier result is no longer in view, so here it is again:\n\n${cachedResult}`;
+  const resurfacedResult = resurfacedDuplicateReadOnlyToolResult(
+    toolCall.name,
+    cachedResult,
+  );
   for (const message of contextMessages) {
     if (message.role !== "user") continue;
     for (const part of message.content) {
@@ -3182,7 +3271,10 @@ export async function runAgentLoop(opts: {
     messages,
     actions,
   );
-  const duplicateReadOnlyToolCalls = new Map<string, number>();
+  const duplicateReadOnlyToolCalls = seedDuplicateReadOnlyToolCallsFromHistory(
+    messages,
+    actions,
+  );
   const writeToolInterruptions = seedWriteToolInterruptionsFromHistory(
     messages,
     actions,
@@ -4439,9 +4531,7 @@ export async function runAgentLoop(opts: {
         if (visible) {
           const repeats = (duplicateReadOnlyToolCalls.get(cacheKey) ?? 0) + 1;
           duplicateReadOnlyToolCalls.set(cacheKey, repeats);
-          result =
-            `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
-            `Use the previous result already in the conversation instead of calling this tool again.`;
+          result = visibleDuplicateReadOnlyToolResult(toolCall.name);
           if (repeats >= 3) {
             requestedActionStop ??= {
               message:
@@ -4455,9 +4545,10 @@ export async function runAgentLoop(opts: {
           // can't see the answer anymore. Re-serve it in full and don't
           // count a strike.
           duplicateReadOnlyToolCalls.set(cacheKey, 0);
-          result =
-            `Skipped duplicate read-only call to ${toolCall.name}: identical input already ran in this turn. ` +
-            `Its earlier result is no longer in view, so here it is again:\n\n${previousResult}`;
+          result = resurfacedDuplicateReadOnlyToolResult(
+            toolCall.name,
+            previousResult,
+          );
         }
         send({
           type: "tool_done",
