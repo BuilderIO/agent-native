@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.101.3
+
+### Patch Changes
+
+- 7cfb087: Keep centered chat composer skeletons aligned with the real composer while the chat UI loads.
+- 7cfb087: Document PR Visual Recap's cost drivers and cheaper model options (`claude-haiku-4-5`, `gpt-5.6-luna`/`gpt-5.6-terra`, `openai-compatible` providers), and note that the Claude backend now defaults to `claude-sonnet-5` when `VISUAL_RECAP_MODEL` is unset. Adds a matching cost/model-choice section to the Visual Plans template doc.
+- 7cfb087: Fail closed when first-party scaffolds cannot be downloaded from the CLI's immutable core version tags instead of mixing newer templates with an older runtime.
+- 7cfb087: Resolve `${keys.NAME}` in the agent fetch tool and notification webhooks through the request-scope cascade so Dispatch-vault keys scoped to the workspace/org resolve like they already do for extensions and automations.
+- 7cfb087: Resolve provider credentials from encrypted Dispatch vault secrets, keep hosted A2A agent discovery distinct from mounted workspace app inventory, and run long Analytics A2A tasks on the durable background worker.
+- 7cfb087: Expose the embedded OG font resolver so template social images keep their text visible in serverless runtimes.
+- 7cfb087: Stop agent turns from looping across alternating read-only docs and source search tools.
+- 7cfb087: Publish PR Visual Recap helpers as a dependency-light CLI package so recap workflows no longer install the full Agent-Native framework dependency graph.
+- 7cfb087: Derive workspace-shared secret encryption material from A2A_SECRET on hosted workspace deploys so vault keys decrypt across sibling apps, and stop serving stale shared ciphertext after a value is updated without shared key material.
+- Updated dependencies [7cfb087]
+- Updated dependencies [7cfb087]
+- Updated dependencies [7cfb087]
+  - @agent-native/recap-cli@0.4.0
+
 ## 0.101.2
 
 ### Patch Changes
