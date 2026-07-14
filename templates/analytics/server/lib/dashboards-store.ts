@@ -731,16 +731,25 @@ export async function upsertDashboard(
         .where(eq(schema.dashboards.id, id));
     }
   } else {
-    await db.insert(schema.dashboards).values({
-      id,
-      kind,
-      title,
-      config: JSON.stringify(config),
-      ownerEmail: ctx.email,
-      orgId: ctx.orgId,
-      visibility: "private",
-      updatedBy: ctx.email,
-    });
+    // A row with this id can already exist even though the access-scoped
+    // `getDashboard` above returned null — e.g. a demo/seed dashboard whose
+    // `orgId` no longer matches the caller's current org scope. Insert
+    // defensively with `onConflictDoNothing` (same pattern as the legacy
+    // migration path below) instead of a bare insert that would crash the
+    // whole action with a duplicate-key error on every retry.
+    await db
+      .insert(schema.dashboards)
+      .values({
+        id,
+        kind,
+        title,
+        config: JSON.stringify(config),
+        ownerEmail: ctx.email,
+        orgId: ctx.orgId,
+        visibility: "private",
+        updatedBy: ctx.email,
+      })
+      .onConflictDoNothing();
   }
   const [row] = await db
     .select()
