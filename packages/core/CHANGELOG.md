@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.100.1
+
+### Patch Changes
+
+- 037cc3a: Validate explicit Calendar and Mail connector catalog actions through the external MCP lifecycle.
+
 ## 0.100.0
 
 ### Minor Changes
