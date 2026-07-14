@@ -3055,6 +3055,12 @@ describe("reusable caller workflow builder", () => {
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
     );
     expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
+    expect(yml).toContain(
+      "cli-version: ${{ vars.RECAP_CLI_VERSION || 'latest' }}",
+    );
+    expect(yml).toContain(
+      "core-cli-version: ${{ vars.CORE_CLI_VERSION || 'latest' }}",
+    );
     expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
     expect(yml).toContain("base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}");
     expect(yml).toContain(
@@ -3218,6 +3224,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("workflow_call:");
     // Required inputs are present.
     expect(content).toContain("cli-version:");
+    expect(content).toContain("core-cli-version:");
     expect(content).toContain("agent:");
     expect(content).toContain("model:");
     expect(content).toContain("plan-url:");

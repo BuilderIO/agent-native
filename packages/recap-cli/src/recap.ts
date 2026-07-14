@@ -225,9 +225,11 @@ export function buildReusableCallerWorkflow(
     `      reasoning: \${{ vars.VISUAL_RECAP_REASONING || '' }}\n` +
     `      skill-source: \${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}\n` +
     `      secret-scan: \${{ vars.VISUAL_RECAP_SECRET_SCAN || 'high-confidence' }}\n` +
+    `      cli-version: \${{ vars.RECAP_CLI_VERSION || 'latest' }}\n` +
+    `      core-cli-version: \${{ vars.CORE_CLI_VERSION || 'latest' }}\n` +
     `      runs-on: ${runsOnValue}\n` +
     `      gate-runs-on: ${gateRunsOnValue}\n` +
-    `      # cli-version: "latest"  # pin to a specific @agent-native/core version\n` +
+    `      # Pin recap-cli and core-cli independently when using the openai-compatible backend.\n` +
     ``
   );
 }

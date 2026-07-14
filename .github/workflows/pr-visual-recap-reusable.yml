@@ -31,6 +31,14 @@ on:
         required: false
         type: string
         default: "latest"
+      # Version of @agent-native/core to use for the optional OpenAI-compatible
+      # code-exec runtime. Defaults to "latest"; pin independently because the
+      # core and recap-cli packages are released on separate version tracks.
+      core-cli-version:
+        description: "Version of @agent-native/core for the openai-compatible runtime"
+        required: false
+        type: string
+        default: "latest"
       # Coding-agent backend.  Validated in the gate; mis-cased values are
       # normalized to lowercase.
       agent:
@@ -346,7 +354,7 @@ jobs:
       VISUAL_RECAP_SKILL_SOURCE: ${{ inputs.skill-source || 'auto' }}
       VISUAL_RECAP_SECRET_SCAN: ${{ inputs.secret-scan || 'high-confidence' }}
       RECAP_CLI_VERSION: ${{ inputs.cli-version || 'latest' }}
-      CORE_CLI_VERSION: ${{ vars.CORE_CLI_VERSION || 'latest' }}
+      CORE_CLI_VERSION: ${{ inputs.core-cli-version || 'latest' }}
     steps:
       - uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
         with:
