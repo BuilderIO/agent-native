@@ -320,6 +320,7 @@ jobs:
             if [ "$attempt" = "3" ]; then exit 1; fi
             sleep $((attempt * 10))
           done
+          echo "RECAP_CLI_VERSION=$VERSION" >> "$GITHUB_ENV"
           echo "RECAP_CLI=$RUNNER_TEMP/recap-cli/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
           echo "RECAP_PLAYWRIGHT=$RUNNER_TEMP/recap-cli/node_modules/.bin/playwright" >> "$GITHUB_ENV"
 
@@ -328,7 +329,7 @@ jobs:
         run: |
           set -euo pipefail
           npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai
-          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts @agent-native/core@latest
+          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts "@agent-native/core@$RECAP_CLI_VERSION"
           echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check

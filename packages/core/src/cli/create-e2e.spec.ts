@@ -805,6 +805,31 @@ describe("workspace scaffold — required packages", { timeout: 60000 }, () => {
 });
 
 describe("workspace add-app scaffold", { timeout: 60000 }, () => {
+  it("adds local package overrides when adding to an existing workspace", async () => {
+    const previous = process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+    try {
+      const wsDir = path.join(tmpDir, "my-ws");
+      await _scaffoldWorkspaceRoot(wsDir, "my-ws");
+      process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = "1";
+
+      process.chdir(wsDir);
+      await addAppToWorkspace("dispatch", { template: "dispatch" });
+
+      const wsYaml = fs.readFileSync(
+        path.join(wsDir, "pnpm-workspace.yaml"),
+        "utf-8",
+      );
+      expect(wsYaml).toContain('"@agent-native/toolkit": "file://');
+      expect(wsYaml).toContain('"@agent-native/recap-cli": "file://');
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE;
+      } else {
+        process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE = previous;
+      }
+    }
+  });
+
   it("allows Dispatch to be added later as the canonical workspace app", async () => {
     const wsDir = path.join(tmpDir, "my-ws");
     await _scaffoldWorkspaceRoot(wsDir, "my-ws");
