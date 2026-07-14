@@ -6,6 +6,8 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  IconChevronLeft,
+  IconChevronRight,
   IconDeviceFloppy,
   IconMessageCircle,
   IconPhoto,
@@ -289,12 +291,14 @@ export function GenerationResults({ threadId }: { threadId: string | null }) {
 
       <GenerationPreviewDialog
         slot={previewSlot}
+        slots={slots}
         prompt={variants.prompt}
         libraryTitle={libraryTitle}
         isSaving={saveGenerated.isPending}
         onOpenChange={(open) => {
           if (!open) setPreviewSlotId(null);
         }}
+        onSelect={setPreviewSlotId}
         onSave={(slot) => saveSlot(slot, () => setPreviewSlotId(null))}
         onRefine={refineSlot}
       />
@@ -492,22 +496,45 @@ function GenerationDraftCard({
 
 function GenerationPreviewDialog({
   slot,
+  slots,
   prompt,
   libraryTitle,
   isSaving,
   onOpenChange,
+  onSelect,
   onSave,
   onRefine,
 }: {
   slot: VariantSlot | null;
+  slots: VariantSlot[];
   prompt: string;
   libraryTitle: string | null;
   isSaving: boolean;
   onOpenChange: (open: boolean) => void;
+  onSelect: (slotId: string) => void;
   onSave: (slot: VariantSlot) => void;
   onRefine: (slot: VariantSlot) => void;
 }) {
   const t = useT();
+  const previewableSlots = useMemo(
+    () =>
+      slots.filter(
+        (item) => item.status === "ready" && Boolean(item.assetId),
+      ),
+    [slots],
+  );
+  const previewIndex = slot
+    ? previewableSlots.findIndex((item) => item.slotId === slot.slotId)
+    : -1;
+  const hasPrev = previewIndex > 0;
+  const hasNext =
+    previewIndex >= 0 && previewIndex < previewableSlots.length - 1;
+  const showPreviousSlot = () => {
+    if (hasPrev) onSelect(previewableSlots[previewIndex - 1].slotId);
+  };
+  const showNextSlot = () => {
+    if (hasNext) onSelect(previewableSlots[previewIndex + 1].slotId);
+  };
   const sources = slot ? assetPreviewSources(slot, "preview") : [];
   const src = sources[0];
   return (
@@ -515,6 +542,10 @@ function GenerationPreviewDialog({
       {slot ? (
         <DialogContent
           hideClose
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") showPreviousSlot();
+            if (event.key === "ArrowRight") showNextSlot();
+          }}
           className="max-w-4xl border-0 bg-transparent p-0 shadow-none"
         >
           <DialogTitle className="sr-only">
@@ -569,6 +600,28 @@ function GenerationPreviewDialog({
               </div>
             )}
           </div>
+          {hasPrev || hasNext ? (
+            <div className="mt-5 flex justify-center gap-2">
+              <button
+                type="button"
+                aria-label={t("library.previousImage")}
+                onClick={showPreviousSlot}
+                disabled={!hasPrev}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <IconChevronLeft className="h-5 w-5" />
+              </button>
+              <button
+                type="button"
+                aria-label={t("library.nextImage")}
+                onClick={showNextSlot}
+                disabled={!hasNext}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-black/60 text-white transition hover:bg-black/80 focus:outline-none focus-visible:ring-2 focus-visible:ring-white disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <IconChevronRight className="h-5 w-5" />
+              </button>
+            </div>
+          ) : null}
         </DialogContent>
       ) : null}
     </Dialog>
