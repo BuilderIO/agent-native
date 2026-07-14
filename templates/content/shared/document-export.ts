@@ -133,12 +133,19 @@ function inlineMarkdownSegmentToHtml(
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) => {
       return `<a href="${safeExportUrl(href, "link")}">${label}</a>`;
     })
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
     .replace(/~~([^~]+)~~/g, "<s>$1</s>")
     .replace(/(^|[^*])\*([^*]+)\*/g, "$1<em>$2</em>")
     .replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
+}
+
+function isEscapedDelimiter(text: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor--) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
 }
 
 function mathErrorHtml(
@@ -163,8 +170,16 @@ function inlineMarkdownToHtml(text: string): string {
 
   while (cursor < text.length) {
     if (text.startsWith("$`", cursor)) {
-      const close = text.indexOf("`$", cursor + 2);
+      let close = text.indexOf("`$", cursor + 2);
+      while (close !== -1 && isEscapedDelimiter(text, close)) {
+        close = text.indexOf("`$", close + 2);
+      }
       if (close !== -1) {
+        if (isEscapedDelimiter(text, cursor)) {
+          protectedText.push(text.slice(cursor, close + 2));
+          cursor = close + 2;
+          continue;
+        }
         const latex = text.slice(cursor + 2, close);
         const source = text.slice(cursor, close + 2);
         const math = renderMathToHtml(latex, false);
@@ -182,14 +197,16 @@ function inlineMarkdownToHtml(text: string): string {
       }
     }
 
-    if (text[cursor] === "`") {
+    if (text[cursor] === "`" && !isEscapedDelimiter(text, cursor)) {
       let delimiterLength = 1;
       while (text[cursor + delimiterLength] === "`") delimiterLength++;
       const delimiter = "`".repeat(delimiterLength);
       let close = text.indexOf(delimiter, cursor + delimiterLength);
       while (
         close !== -1 &&
-        (text[close - 1] === "`" || text[close + delimiterLength] === "`")
+        (text[close - 1] === "`" ||
+          text[close + delimiterLength] === "`" ||
+          isEscapedDelimiter(text, close))
       ) {
         close = text.indexOf(delimiter, close + delimiterLength);
       }
@@ -228,24 +245,70 @@ function inlineMarkdownToHtml(text: string): string {
   );
 }
 
-function listItemsToHtml(lines: string[], ordered: boolean): string {
-  const items = lines
-    .map((line) => {
-      const text = ordered
-        ? line.replace(/^\s*\d+[.)]\s+/, "")
-        : line.replace(/^\s*[-*+]\s+/, "");
-      const task = text.match(/^\[( |x|X)\]\s+(.*)$/);
+function listItemsToHtml(items: string[][], ordered: boolean): string {
+  const renderedItems = items
+    .map((lines) => {
+      const task = lines[0].match(/^\[( |x|X)\]\s+(.*)$/);
       if (task) {
         const checked = task[1].toLowerCase() === "x";
         return `<li class="task"><input type="checkbox" disabled${
           checked ? " checked" : ""
-        } /> <span>${inlineMarkdownToHtml(task[2])}</span></li>`;
+        } /> <span>${inlineMarkdownToHtml(task[2])}</span>${
+          lines.length > 1 ? markdownToHtml(lines.slice(1).join("\n")) : ""
+        }</li>`;
       }
-      return `<li>${inlineMarkdownToHtml(text)}</li>`;
+      return lines.length === 1
+        ? `<li>${inlineMarkdownToHtml(lines[0])}</li>`
+        : `<li>${markdownToHtml(lines.join("\n"))}</li>`;
     })
     .join("\n");
 
-  return ordered ? `<ol>\n${items}\n</ol>` : `<ul>\n${items}\n</ul>`;
+  return ordered
+    ? `<ol>\n${renderedItems}\n</ol>`
+    : `<ul>\n${renderedItems}\n</ul>`;
+}
+
+function collectListItems(
+  lines: string[],
+  start: number,
+  ordered: boolean,
+): { items: string[][]; nextIndex: number } {
+  const marker = ordered ? /^\s*\d+[.)]\s+/ : /^\s*[-*+]\s+/;
+  const items: string[][] = [];
+  let index = start;
+
+  while (index < lines.length && marker.test(lines[index])) {
+    const item = [lines[index].replace(marker, "")];
+    index++;
+
+    while (index < lines.length) {
+      if (marker.test(lines[index])) break;
+      if (/^(?: {2,}|\t)/.test(lines[index])) {
+        item.push(lines[index].replace(/^(?: {2,4}|\t)/, ""));
+        index++;
+        continue;
+      }
+      if (!lines[index].trim()) {
+        let nextContent = index + 1;
+        while (nextContent < lines.length && !lines[nextContent].trim()) {
+          nextContent++;
+        }
+        if (
+          nextContent < lines.length &&
+          /^(?: {2,}|\t)/.test(lines[nextContent])
+        ) {
+          item.push("");
+          index++;
+          continue;
+        }
+      }
+      break;
+    }
+
+    items.push(item);
+  }
+
+  return { items, nextIndex: index };
 }
 
 function isEmptyBlockLine(trimmed: string): boolean {
@@ -353,22 +416,16 @@ function markdownToHtml(markdown: string): string {
     }
 
     if (/^\s*[-*+]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) {
-        items.push(lines[index]);
-        index++;
-      }
-      blocks.push(listItemsToHtml(items, false));
+      const list = collectListItems(lines, index, false);
+      index = list.nextIndex;
+      blocks.push(listItemsToHtml(list.items, false));
       continue;
     }
 
     if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
-        items.push(lines[index]);
-        index++;
-      }
-      blocks.push(listItemsToHtml(items, true));
+      const list = collectListItems(lines, index, true);
+      index = list.nextIndex;
+      blocks.push(listItemsToHtml(list.items, true));
       continue;
     }
 

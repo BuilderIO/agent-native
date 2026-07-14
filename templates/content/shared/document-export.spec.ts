@@ -101,6 +101,47 @@ describe("document export", () => {
     expect(exportPayload.content.match(/class="math-inline"/g)).toHaveLength(1);
   });
 
+  it("does not tokenize escaped math or code delimiters", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Escaped delimiters",
+      content: [
+        "Escaped math: \\$`x^2`$.",
+        "Escaped code: \\`not code\\`.",
+        "Even parity still renders: \\\\$`y^2`$ and \\\\`code`.",
+      ].join("\n\n"),
+      format: "html",
+    });
+
+    expect(exportPayload.content).toContain("\\$`x^2`$");
+    expect(exportPayload.content).toContain("\\`not code\\`");
+    expect(exportPayload.content.match(/class="math-inline"/g)).toHaveLength(1);
+    expect(exportPayload.content).toContain("<code>code</code>");
+  });
+
+  it("keeps indented block equations inside their list items", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Nested equations",
+      content: [
+        "- Pythagoras",
+        "",
+        "  $$",
+        "  x^2 + y^2 = z^2",
+        "  $$",
+        "- Finished",
+      ].join("\n"),
+      format: "html",
+    });
+
+    expect(exportPayload.content).toMatch(
+      /<ul>\s*<li><p>Pythagoras<\/p>\s*<div class="math-block">.*<\/div><\/li>\s*<li>Finished<\/li>\s*<\/ul>/,
+    );
+    expect(exportPayload.content).not.toMatch(
+      /<\/ul>\s*<div class="math-block">/,
+    );
+  });
+
   it("keeps canonical math source in Markdown exports", () => {
     const source = "Inline $`E = mc^2`$.\n\n$$\nx^2\n$$";
     const exportPayload = buildDocumentExport({
