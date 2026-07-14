@@ -2087,7 +2087,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           <div
             className={cn(
-              "group flex h-8 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
+              "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2235,6 +2235,8 @@ const LayerRow = memo(function LayerRow({
 
             {(lockable || hideable) && (
               <div className="sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit pl-2 pr-1">
+                {/* Solid backdrop to prevent scrolling text from showing through semi-transparent row backgrounds */}
+                <div className="absolute inset-0 -z-10 bg-[var(--design-editor-panel-bg)] rounded-r-[5px]" />
                 {lockable ? (
                   <Tooltip>
                     <TooltipTrigger asChild>
