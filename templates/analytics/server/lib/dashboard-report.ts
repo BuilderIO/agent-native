@@ -702,7 +702,8 @@ async function captureDashboardPng(
   } catch (err) {
     if (attemptTimedOut) {
       throw new Error(
-        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms while ${captureStage}`,
+        `${attempt.label} capture exceeded ${attempt.totalTimeout}ms while ${captureStage}` +
+          (lastDiagnostics ? `; ${lastDiagnostics}` : ""),
       );
     }
     throw new Error(`${captureStage}: ${errorMessage(err)}`);
@@ -745,7 +746,7 @@ function errorMessage(err: unknown): string {
 
 function storedAttemptError(message: string): string {
   const normalized = message.replace(/\s+/g, " ").trim();
-  return normalized.length > 220 ? `${normalized.slice(0, 219)}…` : normalized;
+  return normalized.length > 400 ? `${normalized.slice(0, 399)}…` : normalized;
 }
 
 async function captureDashboardPngWithFallback(
@@ -773,6 +774,7 @@ async function captureDashboardPngWithFallback(
       label: "full-lightweight",
       viewport: { width: 1200, height: 1400 },
       captureScale: 0.7,
+      reportPanelLimit: 8,
       ...(serverless
         ? {
             readyTimeout: 55_000,
