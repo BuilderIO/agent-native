@@ -36,6 +36,27 @@ vi.mock("@agent-native/core/review", () => ({
   getReviewStatus: mocks.getReviewStatus,
   getReviewThreadSummary: mocks.getReviewThreadSummary,
   queryReviewComments: mocks.queryReviewComments,
+  shouldRedactReviewIdentity: (
+    ctx: { userEmail?: string | null } | undefined,
+    access: { role: string; visibility?: string | null },
+  ) =>
+    !ctx?.userEmail ||
+    (access.visibility === "public" && access.role === "viewer"),
+  redactPublicReviewCommentIdentity: (comment: Record<string, unknown>) => ({
+    ...comment,
+    authorEmail: null,
+    authorName:
+      typeof comment.authorName === "string" &&
+      !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(comment.authorName)
+        ? comment.authorName
+        : null,
+    ownerEmail: null,
+    orgId: null,
+  }),
+  redactPublicReviewStatusIdentity: (status: Record<string, unknown> | null) =>
+    status
+      ? { ...status, updatedBy: null, ownerEmail: null, orgId: null }
+      : null,
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -270,6 +291,71 @@ describe("view-screen", () => {
         },
       ],
     });
+  });
+
+  it("redacts reviewer emails from a signed-in public viewer", async () => {
+    mocks.resolveAccess.mockResolvedValue({
+      role: "viewer",
+      resource: {
+        title: "Shared checkout",
+        data: '{"canvasFrames":[]}',
+        visibility: "public",
+      },
+    });
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "single",
+        designId: "design_123",
+        fileId: "file_checkout",
+      })
+      .mockResolvedValueOnce(null);
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_checkout",
+        filename: "checkout.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+    mocks.queryReviewComments.mockResolvedValue([
+      {
+        id: "comment_private_identity",
+        threadId: "thread_private_identity",
+        parentCommentId: null,
+        targetId: "file_checkout",
+        status: "open",
+        body: "Make the button more prominent",
+        anchor: null,
+        resolutionTarget: "human",
+        consumedAt: null,
+        authorName: "reviewer@example.com",
+        authorEmail: "reviewer@example.com",
+        ownerEmail: "owner@example.com",
+        orgId: "example-org",
+        createdBy: "human",
+      },
+    ]);
+
+    const result = JSON.parse(
+      await action.run({}, {
+        userEmail: "public-viewer@example.com",
+        caller: "agent",
+      } as any),
+    );
+
+    expect(result.design.review.activeScreenThreads).toEqual([
+      expect.objectContaining({
+        threadId: "thread_private_identity",
+        author: "human",
+      }),
+    ]);
+    expect(JSON.stringify(result.design.review)).not.toContain(
+      "reviewer@example.com",
+    );
+    expect(JSON.stringify(result.design.review)).not.toContain(
+      "owner@example.com",
+    );
   });
 
   it("uses the root routing target instead of counting agent-targeted replies", async () => {

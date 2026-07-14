@@ -464,7 +464,8 @@ function CommentBubble({
   formatDate: ReturnType<typeof useFormatters>["formatDate"];
 }) {
   const author = comment.authorName ?? comment.authorEmail ?? reviewerLabel;
-  const resolutionNote = getReviewResolutionNote(comment);
+  const resolutionNote =
+    comment.status === "resolved" ? getReviewResolutionNote(comment) : null;
   const bodyIsResolutionNote =
     resolutionNote !== null &&
     resolutionNote === comment.body.trim() &&

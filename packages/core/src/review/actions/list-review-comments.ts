@@ -1,17 +1,18 @@
 import { z } from "zod";
 
 import { defineAction } from "../../action.js";
+import {
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  shouldRedactReviewIdentity,
+} from "../identity.js";
 import { assertReviewableResourceAccess } from "../registry.js";
 import {
   getReviewStatus,
   getReviewThreadSummary,
   queryReviewComments,
 } from "../store.js";
-import type {
-  ReviewComment,
-  ReviewResourceContext,
-  ReviewStatusEntry,
-} from "../types.js";
+import type { ReviewResourceContext } from "../types.js";
 
 const schema = z.object({
   resourceType: z.string().min(1),
@@ -64,9 +65,7 @@ export default defineAction({
         targetId: args.targetId,
       }),
     ]);
-    const redactIdentity =
-      !actionCtx?.userEmail ||
-      (access.visibility === "public" && access.role === "viewer");
+    const redactIdentity = shouldRedactReviewIdentity(actionCtx, access);
     const commentsWithCapabilities = comments.map((comment) => ({
       ...comment,
       canDelete:
@@ -77,81 +76,12 @@ export default defineAction({
     }));
     return redactIdentity
       ? {
-          comments: commentsWithCapabilities.map(redactPublicCommentIdentity),
+          comments: commentsWithCapabilities.map(
+            redactPublicReviewCommentIdentity,
+          ),
           reviewStatus: redactPublicReviewStatusIdentity(reviewStatus),
           summary,
         }
       : { comments: commentsWithCapabilities, reviewStatus, summary };
   },
 });
-
-function redactPublicCommentIdentity(comment: ReviewComment): ReviewComment {
-  return {
-    ...comment,
-    authorEmail: null,
-    authorName: safeDisplayName(comment.authorName),
-    mentions: comment.mentions.map((mention) => ({
-      label: safeDisplayName(mention.label) ?? "Mentioned user",
-    })),
-    ownerEmail: null,
-    orgId: null,
-    resolvedBy: null,
-    deletedBy: null,
-    metadata: redactPublicMetadata(comment.metadata),
-  };
-}
-
-function redactPublicReviewStatusIdentity(
-  status: ReviewStatusEntry | null,
-): ReviewStatusEntry | null {
-  return status
-    ? {
-        ...status,
-        updatedBy: null,
-        ownerEmail: null,
-        orgId: null,
-        metadata: redactPublicMetadata(status.metadata),
-      }
-    : null;
-}
-
-function safeDisplayName(value: string | null | undefined): string | null {
-  const name = value?.trim();
-  if (!name || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(name)) {
-    return null;
-  }
-  return name;
-}
-
-function redactPublicMetadata(
-  metadata: Record<string, unknown> | null,
-): Record<string, unknown> | null {
-  if (!metadata) {
-    return null;
-  }
-  return Object.fromEntries(
-    Object.entries(metadata).flatMap(([key, value]) =>
-      /^(authorEmail|ownerEmail|orgId|updatedBy|resolvedBy|deletedBy|email|userEmail|userId)$/i.test(
-        key,
-      )
-        ? []
-        : [[key, redactPublicMetadataValue(value)]],
-    ),
-  );
-}
-
-function redactPublicMetadataValue(value: unknown): unknown {
-  if (Array.isArray(value)) {
-    return value.map(redactPublicMetadataValue);
-  }
-  if (typeof value === "object" && value !== null) {
-    return redactPublicMetadata(value as Record<string, unknown>);
-  }
-  if (
-    typeof value === "string" &&
-    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value.trim())
-  ) {
-    return null;
-  }
-  return value;
-}

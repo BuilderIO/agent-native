@@ -293,4 +293,32 @@ describe("ReviewThreadPanel sidebar layout", () => {
 
     expect(container.textContent).toContain("Updated the spacing tokens.");
   });
+
+  it("does not render resolution notes on open comments", () => {
+    const comment = rootComment as ReviewComment & {
+      resolutionNote?: string;
+    };
+    comment.status = "open";
+    comment.metadata = {
+      resolutionNote: "This thread has not actually been resolved.",
+    };
+    comment.resolutionNote = "This thread has not actually been resolved.";
+
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          showHeader={false}
+          showComposer={false}
+          resolvedLabel="Resolved"
+        />,
+      );
+    });
+
+    expect(container.textContent).not.toContain(
+      "This thread has not actually been resolved.",
+    );
+    expect(container.querySelector('[aria-label="Resolved"]')).toBeNull();
+  });
 });

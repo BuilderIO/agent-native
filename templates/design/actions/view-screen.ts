@@ -15,6 +15,9 @@ import {
 import {
   getReviewStatus,
   queryReviewComments,
+  redactPublicReviewCommentIdentity,
+  redactPublicReviewStatusIdentity,
+  shouldRedactReviewIdentity,
   type ReviewComment,
   type ReviewResourceContext,
 } from "@agent-native/core/review";
@@ -330,9 +333,17 @@ export default defineAction({
               : Promise.resolve(undefined),
           ],
         );
+        const redactReviewIdentity = shouldRedactReviewIdentity(reviewContext, {
+          role: access.role,
+          visibility: access.resource.visibility,
+        });
         (screen.design as Record<string, unknown>).review = buildReviewSummary(
-          reviewComments,
-          reviewStatus,
+          redactReviewIdentity
+            ? reviewComments.map(redactPublicReviewCommentIdentity)
+            : reviewComments,
+          redactReviewIdentity
+            ? redactPublicReviewStatusIdentity(reviewStatus)
+            : reviewStatus,
           resolveActiveScreen(files, navigation, designSelection)?.id,
           reviewSummary,
         );
