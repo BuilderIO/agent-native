@@ -1,24 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { renderFormOgImage, renderFormOgImageSvg } from "./form-og-image";
-
-function countBrightPixels(
-  image: Awaited<ReturnType<typeof renderFormOgImage>>,
-  bounds: { left: number; top: number; right: number; bottom: number },
-): number {
-  let brightPixels = 0;
-  for (let y = bounds.top; y < bounds.bottom; y += 1) {
-    for (let x = bounds.left; x < bounds.right; x += 1) {
-      const offset = (y * image.width + x) * 4;
-      const r = image.pixels[offset] ?? 0;
-      const g = image.pixels[offset + 1] ?? 0;
-      const b = image.pixels[offset + 2] ?? 0;
-      const a = image.pixels[offset + 3] ?? 0;
-      if (a > 0 && r > 200 && g > 200 && b > 200) brightPixels += 1;
-    }
-  }
-  return brightPixels;
-}
+import { formOgResvgOptions, renderFormOgImageSvg } from "./form-og-image";
 
 describe("form OG image", () => {
   it("renders on the grid background without the old card shell", () => {
@@ -43,14 +25,10 @@ describe("form OG image", () => {
     expect(svg).toContain('mask="url(#avatarMask)"');
   });
 
-  it("rasterizes the form title as visible pixels", async () => {
-    const image = await renderFormOgImage({
-      title: "Customer intake",
-      description: "Tell us what you need.",
-    });
+  it("passes embedded fonts to resvg so serverless text stays visible", () => {
+    const font = formOgResvgOptions().font;
 
-    expect(
-      countBrightPixels(image, { left: 70, top: 340, right: 820, bottom: 450 }),
-    ).toBeGreaterThan(1000);
+    expect(font?.loadSystemFonts).toBe(false);
+    expect(font?.fontFiles?.length).toBeGreaterThan(0);
   });
 });

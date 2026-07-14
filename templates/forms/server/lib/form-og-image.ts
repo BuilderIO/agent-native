@@ -241,7 +241,7 @@ export function renderFormOgImageSvg(input: FormOgImageInput = {}): string {
 </svg>`;
 }
 
-function formOgResvgOptions(
+export function formOgResvgOptions(
   options: FormOgRenderOptions = {},
 ): ResvgRenderOptions {
   const fontFiles = options.fontFiles?.length
