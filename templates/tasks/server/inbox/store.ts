@@ -3,16 +3,14 @@ import type { StoredItem } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
 import {
   assertStoredItemsExist,
-  bulkPromoteStoredItemsToTasks,
   createStoredItem,
-  deleteStoredItem,
-  deleteStoredItemsByIds,
+  deleteStoredItems,
   getStoredItem,
   listStoredItems,
-  promoteStoredItemToTask,
+  promoteStoredItemsToTasks,
   reorderStoredItems,
   requireUserEmail,
-  updateStoredItem,
+  updateStoredItems,
 } from "../stored-items/store.js";
 import { type Task, toTask } from "../tasks/store.js";
 
@@ -20,6 +18,8 @@ export { requireUserEmail };
 
 /** Action/UI view of an inbox item (`promotedToTask = false` in storage). */
 export type InboxItem = Omit<StoredItem, "promotedToTask" | "done">;
+
+const NOT_FOUND = "Stored item not found.";
 
 export async function createInboxItem(
   input: {
@@ -63,6 +63,7 @@ export async function getInboxItem(
 export async function listInboxItems(
   input: {
     ownerEmail: string;
+    ids?: string[];
   },
   db: DbHandle = getDb(),
 ): Promise<InboxItem[]> {
@@ -70,6 +71,27 @@ export async function listInboxItems(
     {
       ...input,
       promotedToTask: false,
+      notFoundMessage: NOT_FOUND,
+    },
+    db,
+  );
+  return items.map(toInboxItem);
+}
+
+export async function updateInboxItems(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    title?: string;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<InboxItem[]> {
+  const items = await updateStoredItems(
+    {
+      ...input,
+      promotedToTask: false,
+      notFoundMessage: NOT_FOUND,
     },
     db,
   );
@@ -85,14 +107,39 @@ export async function updateInboxItem(
   },
   db: DbHandle = getDb(),
 ): Promise<InboxItem> {
-  const item = await updateStoredItem(
+  const [item] = await updateInboxItems({ ...input, ids: [input.id] }, db);
+  if (!item) throw new Error(NOT_FOUND);
+  return item;
+}
+
+export async function deleteInboxItems(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+  },
+  db: DbHandle = getDb(),
+): Promise<{ ok: true; deleted: number }> {
+  const ids = [...new Set(input.ids)];
+  await assertStoredItemsExist(
     {
-      ...input,
+      ownerEmail: input.ownerEmail,
+      ids,
+      promotedToTask: false,
+      notFoundMessage: NOT_FOUND,
+    },
+    db,
+  );
+
+  await deleteStoredItems(
+    {
+      ownerEmail: input.ownerEmail,
+      ids,
       promotedToTask: false,
     },
     db,
   );
-  return toInboxItem(item);
+
+  return { ok: true, deleted: ids.length };
 }
 
 export async function deleteInboxItem(
@@ -102,37 +149,7 @@ export async function deleteInboxItem(
   },
   db: DbHandle = getDb(),
 ): Promise<void> {
-  await deleteStoredItem({ ...input, promotedToTask: false }, db);
-}
-
-export async function bulkDeleteInboxItems(
-  input: {
-    ownerEmail: string;
-    inboxItemIds: string[];
-  },
-  db: DbHandle = getDb(),
-): Promise<{ ok: true; deleted: number }> {
-  const inboxItemIds = [...new Set(input.inboxItemIds)];
-  await assertStoredItemsExist(
-    {
-      ownerEmail: input.ownerEmail,
-      ids: inboxItemIds,
-      promotedToTask: false,
-      notFoundMessage: "Stored item not found.",
-    },
-    db,
-  );
-
-  await deleteStoredItemsByIds(
-    {
-      ownerEmail: input.ownerEmail,
-      ids: inboxItemIds,
-      promotedToTask: false,
-    },
-    db,
-  );
-
-  return { ok: true, deleted: inboxItemIds.length };
+  await deleteInboxItems({ ownerEmail: input.ownerEmail, ids: [input.id] }, db);
 }
 
 export async function reorderInboxItems(
@@ -156,6 +173,25 @@ export async function reorderInboxItems(
   return { items };
 }
 
+export async function markInboxItemsReady(
+  input: {
+    ownerEmail: string;
+    ids: string[];
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<{ tasks: Task[] }> {
+  const items = await promoteStoredItemsToTasks(
+    {
+      ownerEmail: input.ownerEmail,
+      ids: input.ids,
+      now: input.now,
+    },
+    db,
+  );
+  return { tasks: items.map(toTask) };
+}
+
 export async function markInboxItemReady(
   input: {
     ownerEmail: string;
@@ -164,27 +200,13 @@ export async function markInboxItemReady(
   },
   db: DbHandle = getDb(),
 ): Promise<{ task: Task }> {
-  const item = await promoteStoredItemToTask(input, db);
-  return { task: toTask(item) };
-}
-
-export async function bulkMarkInboxItemsReady(
-  input: {
-    ownerEmail: string;
-    inboxItemIds: string[];
-    now?: string;
-  },
-  db: DbHandle = getDb(),
-): Promise<{ tasks: Task[] }> {
-  const items = await bulkPromoteStoredItemsToTasks(
-    {
-      ownerEmail: input.ownerEmail,
-      ids: input.inboxItemIds,
-      now: input.now,
-    },
+  const { tasks } = await markInboxItemsReady(
+    { ownerEmail: input.ownerEmail, ids: [input.id], now: input.now },
     db,
   );
-  return { tasks: items.map(toTask) };
+  const task = tasks[0];
+  if (!task) throw new Error(NOT_FOUND);
+  return { task };
 }
 
 function toInboxItem(item: StoredItem): InboxItem {

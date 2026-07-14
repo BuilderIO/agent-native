@@ -1,4 +1,4 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, sql, type SQL } from "drizzle-orm";
 
 import { caseById, chunk } from "../../db/bulk-write.js";
 import { getDb } from "../../db/index.js";
@@ -140,57 +140,6 @@ export async function applyCustomFieldValuePatches(
   }
 }
 
-export async function deleteCustomFieldValuesByIds(
-  input: { ownerEmail: string; ids: string[] },
-  db: DbHandle = getDb(),
-): Promise<void> {
-  const ids = [...new Set(input.ids)];
-  if (ids.length === 0) return;
-
-  for (const group of chunk(ids)) {
-    await db
-      .delete(customFieldValues)
-      .where(
-        and(
-          eq(customFieldValues.ownerEmail, input.ownerEmail),
-          inArray(customFieldValues.id, group),
-        ),
-      );
-  }
-}
-
-export async function setCustomFieldValueJsonByIds(
-  input: {
-    ownerEmail: string;
-    entries: Array<{ id: string; value: FieldValue }>;
-    now?: string;
-  },
-  db: DbHandle = getDb(),
-): Promise<void> {
-  if (input.entries.length === 0) return;
-
-  const updatedAt = timestamp(input.now);
-  const entries = input.entries.map((entry) => ({
-    id: entry.id,
-    value: JSON.stringify(entry.value),
-  }));
-
-  for (const group of chunk(entries)) {
-    await db
-      .update(customFieldValues)
-      .set({ valueJson: caseById(customFieldValues.id, group), updatedAt })
-      .where(
-        and(
-          eq(customFieldValues.ownerEmail, input.ownerEmail),
-          inArray(
-            customFieldValues.id,
-            group.map((entry) => entry.id),
-          ),
-        ),
-      );
-  }
-}
-
 export async function getCustomFieldValue(
   input: {
     ownerEmail: string;
@@ -230,30 +179,79 @@ export async function getCustomFieldValue(
 export async function listCustomFieldValues(
   input: {
     ownerEmail: string;
+    ids?: string[];
     taskIds?: string[];
-    fieldId?: string;
+    fieldIds?: string[];
   },
   db: DbHandle = getDb(),
 ): Promise<StoredCustomFieldValue[]> {
-  const taskIds = input.taskIds ? [...new Set(input.taskIds)] : undefined;
-  if (!taskIds?.length && !input.fieldId) {
-    throw new Error("Provide taskIds or fieldId to list custom field values.");
+  const selector = buildValueSelector(input);
+  if (!selector) {
+    throw new Error(
+      "Provide ids, taskIds, or fieldIds to list custom field values.",
+    );
   }
-  if (taskIds?.length === 0) return [];
-
-  const conditions = [eq(customFieldValues.ownerEmail, input.ownerEmail)];
-  if (taskIds?.length)
-    conditions.push(inArray(customFieldValues.taskId, taskIds));
-  if (input.fieldId)
-    conditions.push(eq(customFieldValues.fieldId, input.fieldId));
+  if (selector.selectsNothing) return [];
 
   return db
     .select()
     .from(customFieldValues)
-    .where(and(...conditions));
+    .where(and(...selector.conditions));
 }
 
 export async function updateCustomFieldValues(
+  input: {
+    ownerEmail: string;
+    entries: Array<{ id: string; value: FieldValue }>;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
+  if (input.entries.length === 0) return;
+
+  const updatedAt = timestamp(input.now);
+  const entries = input.entries.map((entry) => ({
+    id: entry.id,
+    value: JSON.stringify(entry.value),
+  }));
+
+  for (const group of chunk(entries)) {
+    await db
+      .update(customFieldValues)
+      .set({ valueJson: caseById(customFieldValues.id, group), updatedAt })
+      .where(
+        and(
+          eq(customFieldValues.ownerEmail, input.ownerEmail),
+          inArray(
+            customFieldValues.id,
+            group.map((entry) => entry.id),
+          ),
+        ),
+      );
+  }
+}
+
+export async function updateCustomFieldValue(
+  input: {
+    ownerEmail: string;
+    id: string;
+    value: FieldValue;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
+  await updateCustomFieldValues(
+    {
+      ownerEmail: input.ownerEmail,
+      entries: [{ id: input.id, value: input.value }],
+      now: input.now,
+    },
+    db,
+  );
+}
+
+/** Upsert a task's values by field id; an empty value clears the stored row. */
+export async function updateCustomFieldValuesByTaskId(
   input: {
     ownerEmail: string;
     taskId: string;
@@ -279,58 +277,100 @@ export async function updateCustomFieldValues(
   });
 }
 
-export async function updateCustomFieldValue(
-  input: {
-    ownerEmail: string;
-    id: string;
-    value: FieldValue;
-    now?: string;
-  },
-  db: DbHandle = getDb(),
-): Promise<void> {
-  await db
-    .update(customFieldValues)
-    .set({
-      valueJson: JSON.stringify(input.value),
-      updatedAt: timestamp(input.now),
-    })
-    .where(
-      and(
-        eq(customFieldValues.ownerEmail, input.ownerEmail),
-        eq(customFieldValues.id, input.id),
-      ),
-    );
-}
-
 export async function deleteCustomFieldValues(
-  input: {
-    ownerEmail: string;
-    id?: string;
-    taskId?: string;
-    taskIds?: string[];
-    fieldId?: string;
-  },
+  input: { ownerEmail: string; ids: string[] },
   db: DbHandle = getDb(),
 ): Promise<{ deletedValues: number }> {
-  if (!input.id && !input.taskId && !input.taskIds && !input.fieldId) {
-    throw new Error(
-      "Provide id, taskId, taskIds, or fieldId to delete custom field values.",
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return { deletedValues: 0 };
+
+  let deletedValues = 0;
+  for (const group of chunk(ids)) {
+    const result = await deleteValuesWhere(
+      input.ownerEmail,
+      [inArray(customFieldValues.id, group)],
+      db,
     );
+    deletedValues += result.deletedValues;
   }
+  return { deletedValues };
+}
+
+export async function deleteCustomFieldValue(
+  input: { ownerEmail: string; id: string },
+  db: DbHandle = getDb(),
+): Promise<{ deletedValues: number }> {
+  return deleteCustomFieldValues(
+    { ownerEmail: input.ownerEmail, ids: [input.id] },
+    db,
+  );
+}
+
+export async function deleteCustomFieldValuesByTaskIds(
+  input: { ownerEmail: string; taskIds: string[] },
+  db: DbHandle = getDb(),
+): Promise<{ deletedValues: number }> {
+  const taskIds = [...new Set(input.taskIds)];
+  if (taskIds.length === 0) return { deletedValues: 0 };
+
+  return deleteValuesWhere(
+    input.ownerEmail,
+    [inArray(customFieldValues.taskId, taskIds)],
+    db,
+  );
+}
+
+export async function deleteCustomFieldValuesByFieldIds(
+  input: { ownerEmail: string; fieldIds: string[] },
+  db: DbHandle = getDb(),
+): Promise<{ deletedValues: number }> {
+  const fieldIds = [...new Set(input.fieldIds)];
+  if (fieldIds.length === 0) return { deletedValues: 0 };
+
+  return deleteValuesWhere(
+    input.ownerEmail,
+    [inArray(customFieldValues.fieldId, fieldIds)],
+    db,
+  );
+}
+
+function buildValueSelector(input: {
+  ownerEmail: string;
+  ids?: string[];
+  taskIds?: string[];
+  fieldIds?: string[];
+}): { conditions: SQL[]; selectsNothing: boolean } | null {
+  const ids = input.ids ? [...new Set(input.ids)] : undefined;
+  const taskIds = input.taskIds ? [...new Set(input.taskIds)] : undefined;
+  const fieldIds = input.fieldIds ? [...new Set(input.fieldIds)] : undefined;
+  if (!ids && !taskIds && !fieldIds) return null;
 
   // An explicit empty id list selects nothing; without this it would fall
-  // through to deleting every value the owner has.
-  if (input.taskIds && input.taskIds.length === 0) {
-    return { deletedValues: 0 };
-  }
+  // through to matching every value the owner has.
+  const selectsNothing =
+    ids?.length === 0 || taskIds?.length === 0 || fieldIds?.length === 0;
 
-  const conditions = [eq(customFieldValues.ownerEmail, input.ownerEmail)];
-  if (input.id) conditions.push(eq(customFieldValues.id, input.id));
-  if (input.taskId) conditions.push(eq(customFieldValues.taskId, input.taskId));
-  if (input.taskIds)
-    conditions.push(inArray(customFieldValues.taskId, input.taskIds));
-  if (input.fieldId)
-    conditions.push(eq(customFieldValues.fieldId, input.fieldId));
+  const conditions: SQL[] = [
+    eq(customFieldValues.ownerEmail, input.ownerEmail),
+  ];
+  if (ids?.length) conditions.push(inArray(customFieldValues.id, ids));
+  if (taskIds?.length)
+    conditions.push(inArray(customFieldValues.taskId, taskIds));
+  if (fieldIds?.length)
+    conditions.push(inArray(customFieldValues.fieldId, fieldIds));
+
+  return { conditions, selectsNothing };
+}
+
+async function deleteValuesWhere(
+  ownerEmail: string,
+  selectors: SQL[],
+  db: DbHandle,
+): Promise<{ deletedValues: number }> {
+  const conditions = [
+    eq(customFieldValues.ownerEmail, ownerEmail),
+    ...selectors,
+  ];
 
   const values = await db
     .select({ id: customFieldValues.id })

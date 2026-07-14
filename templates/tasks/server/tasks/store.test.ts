@@ -2,20 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createCustomField } from "../custom-fields/store.js";
 import { listTaskFieldValues } from "../custom-fields/task-fields.js";
-import { updateCustomFieldValues } from "../custom-fields/values/store.js";
+import { updateCustomFieldValuesByTaskId } from "../custom-fields/values/store.js";
 import { BULK_WRITE_CHUNK_SIZE } from "../db/bulk-write.js";
 import { createInMemoryTasksDb } from "../db/test-tasks-table.js";
 import { createInboxItem, updateInboxItem } from "../inbox/store.js";
 import { getStoredItem } from "../stored-items/store.js";
 import {
-  bulkDeleteTasks,
-  bulkUpdateTasks,
   createTask,
   deleteTask,
+  deleteTasks,
   listTasks,
-  patchTask,
   reorderTasks,
   updateTask,
+  updateTasks,
   hasCompletedTasks,
 } from "./store.js";
 
@@ -182,7 +181,7 @@ describe("task store", () => {
       type: "number",
       config: { precision: 0, positiveOnly: true },
     });
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "t1",
       values: [{ fieldId: field.id, value: 5 }],
@@ -281,9 +280,9 @@ describe("task store", () => {
     });
 
     await expect(
-      bulkUpdateTasks({
+      updateTasks({
         ownerEmail: "alice@example.com",
-        taskIds: ["t1", "missing"],
+        ids: ["t1", "missing"],
         done: true,
       }),
     ).rejects.toThrow(/not found/i);
@@ -304,9 +303,9 @@ describe("task store", () => {
     });
 
     await expect(
-      bulkDeleteTasks({
+      deleteTasks({
         ownerEmail: "alice@example.com",
-        taskIds: ["t1", "missing"],
+        ids: ["t1", "missing"],
       }),
     ).rejects.toThrow(/not found/i);
 
@@ -328,9 +327,9 @@ describe("task store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
-    const result = await bulkDeleteTasks({
+    const result = await deleteTasks({
       ownerEmail: "alice@example.com",
-      taskIds: ["t1", "t1", "t2"],
+      ids: ["t1", "t1", "t2"],
     });
 
     expect(result.deleted).toBe(2);
@@ -353,9 +352,9 @@ describe("task store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
-    const updated = await bulkUpdateTasks({
+    const updated = await updateTasks({
       ownerEmail: "alice@example.com",
-      taskIds: ["t1", "t1", "t2"],
+      ids: ["t1", "t1", "t2"],
       done: true,
       now: "2026-06-22T11:00:00.000Z",
     });
@@ -433,7 +432,7 @@ describe("task store", () => {
     });
 
     await expect(
-      patchTask({
+      updateTask({
         ownerEmail: "alice@example.com",
         id: "t1",
         title: "Updated",

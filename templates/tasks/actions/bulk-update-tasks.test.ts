@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { bulkUpdateTasks } = vi.hoisted(() => ({
-  bulkUpdateTasks: vi.fn(),
+const { updateTasks } = vi.hoisted(() => ({
+  updateTasks: vi.fn(),
 }));
 
 vi.mock("../server/tasks/store.js", () => ({
-  bulkUpdateTasks,
+  updateTasks,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -16,7 +16,7 @@ import bulkUpdateTasksAction from "./bulk-update-tasks.js";
 
 describe("bulk-update-tasks", () => {
   beforeEach(() => {
-    bulkUpdateTasks.mockReset();
+    updateTasks.mockReset();
   });
 
   describe("schema", () => {
@@ -56,11 +56,11 @@ describe("bulk-update-tasks", () => {
           { userEmail: "alice@example.com", caller: "cli" },
         ),
       ).rejects.toThrow(/title or done/i);
-      expect(bulkUpdateTasks).not.toHaveBeenCalled();
+      expect(updateTasks).not.toHaveBeenCalled();
     });
 
     it("updates each task atomically", async () => {
-      bulkUpdateTasks.mockResolvedValue([
+      updateTasks.mockResolvedValue([
         {
           id: "t1",
           title: "One",
@@ -86,9 +86,9 @@ describe("bulk-update-tasks", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(bulkUpdateTasks).toHaveBeenCalledWith({
+      expect(updateTasks).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
-        taskIds: ["t1", "t2"],
+        ids: ["t1", "t2"],
         title: undefined,
         done: true,
       });

@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { bulkDeleteTasks, requireUserEmail } from "../server/tasks/store.js";
+import { deleteTasks, requireUserEmail } from "../server/tasks/store.js";
 import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
 export default defineAction({
@@ -16,6 +16,6 @@ export default defineAction({
   }),
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
-    return bulkDeleteTasks({ ownerEmail, taskIds: args.taskIds });
+    return deleteTasks({ ownerEmail, ids: args.taskIds });
   },
 });

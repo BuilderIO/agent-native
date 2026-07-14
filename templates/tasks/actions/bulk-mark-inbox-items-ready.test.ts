@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { bulkMarkInboxItemsReady } = vi.hoisted(() => ({
-  bulkMarkInboxItemsReady: vi.fn(),
+const { markInboxItemsReady } = vi.hoisted(() => ({
+  markInboxItemsReady: vi.fn(),
 }));
 
 vi.mock("../server/inbox/store.js", () => ({
-  bulkMarkInboxItemsReady,
+  markInboxItemsReady,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -16,11 +16,11 @@ import bulkMarkInboxItemsReadyAction from "./bulk-mark-inbox-items-ready.js";
 
 describe("bulk-mark-inbox-items-ready", () => {
   beforeEach(() => {
-    bulkMarkInboxItemsReady.mockReset();
+    markInboxItemsReady.mockReset();
   });
 
   it("promotes every selected inbox item atomically", async () => {
-    bulkMarkInboxItemsReady.mockResolvedValue({
+    markInboxItemsReady.mockResolvedValue({
       tasks: [
         {
           id: "i1",
@@ -42,9 +42,9 @@ describe("bulk-mark-inbox-items-ready", () => {
       { userEmail: "alice@example.com", caller: "cli" },
     );
 
-    expect(bulkMarkInboxItemsReady).toHaveBeenCalledWith({
+    expect(markInboxItemsReady).toHaveBeenCalledWith({
       ownerEmail: "alice@example.com",
-      inboxItemIds: ["i1", "i2"],
+      ids: ["i1", "i2"],
     });
     expect(result).toEqual({
       tasks: [

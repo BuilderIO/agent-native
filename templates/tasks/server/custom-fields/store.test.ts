@@ -16,7 +16,7 @@ import {
 import { listTaskFieldValues } from "./task-fields.js";
 import {
   listCustomFieldValues,
-  updateCustomFieldValues,
+  updateCustomFieldValuesByTaskId,
 } from "./values/store.js";
 
 vi.mock("../db/index.js", () => ({
@@ -108,7 +108,7 @@ describe("custom fields store", () => {
       },
     });
 
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [
@@ -156,12 +156,12 @@ describe("custom fields store", () => {
       type: "number",
     });
 
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [{ fieldId: estimate.id, value: 2 }],
     });
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [{ fieldId: estimate.id, value: 5 }],
@@ -176,7 +176,7 @@ describe("custom fields store", () => {
       await listCustomFieldValues({
         ownerEmail: "alice@example.com",
         taskIds: ["task-1"],
-        fieldId: estimate.id,
+        fieldIds: [estimate.id],
       }),
     ).toHaveLength(1);
   });
@@ -200,7 +200,7 @@ describe("custom fields store", () => {
     });
 
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: "task-1",
         values: [{ fieldId: tags.id, value: ["missing"] }],
@@ -221,7 +221,7 @@ describe("custom fields store", () => {
       config: { precision: 0, positiveOnly: true },
     });
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: "task-1",
         values: [{ fieldId: estimate.id, value: -1 }],
@@ -229,7 +229,7 @@ describe("custom fields store", () => {
     ).rejects.toThrow(/positive/i);
 
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: "task-1",
         values: [{ fieldId: estimate.id, value: 1.5 }],
@@ -250,7 +250,7 @@ describe("custom fields store", () => {
     });
 
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: "task-1",
         values: [{ fieldId: estimate.id, value: 1.5 }],
@@ -258,7 +258,7 @@ describe("custom fields store", () => {
     ).rejects.toThrow(/whole number/i);
 
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: "task-1",
         values: [{ fieldId: confidence.id, value: 12.34 }],
@@ -266,14 +266,14 @@ describe("custom fields store", () => {
     ).rejects.toThrow(/1 decimal/i);
 
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: "task-1",
         values: [{ fieldId: budget.id, value: 12.345 }],
       }),
     ).rejects.toThrow(/2 decimal/i);
 
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [
@@ -306,12 +306,12 @@ describe("custom fields store", () => {
       type: "text",
     });
 
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [{ fieldId: field.id, value: "Keep me" }],
     });
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [{ fieldId: field.id, value: "" }],
@@ -323,7 +323,7 @@ describe("custom fields store", () => {
     });
     expect(fields.find((item) => item.id === field.id)?.value).toBeNull();
 
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [{ fieldId: field.id, value: "Delete me" }],
@@ -351,7 +351,7 @@ describe("custom fields store", () => {
       title: "Context",
       type: "text",
     });
-    await updateCustomFieldValues({
+    await updateCustomFieldValuesByTaskId({
       ownerEmail: "alice@example.com",
       taskId: "task-1",
       values: [{ fieldId: field.id, value: "Stored" }],
@@ -379,7 +379,7 @@ describe("custom fields store", () => {
     });
 
     await expect(
-      updateCustomFieldValues({
+      updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: inboxItem.id,
         values: [{ fieldId: field.id, value: "Nope" }],
@@ -465,7 +465,7 @@ describe("custom fields store", () => {
         id: `t${index}`,
         now: "2026-06-22T10:00:00.000Z",
       });
-      await updateCustomFieldValues({
+      await updateCustomFieldValuesByTaskId({
         ownerEmail: "alice@example.com",
         taskId: `t${index}`,
         values: [
@@ -486,7 +486,7 @@ describe("custom fields store", () => {
 
     const rows = await listCustomFieldValues({
       ownerEmail: "alice@example.com",
-      fieldId: field.id,
+      fieldIds: [field.id],
     });
     expect(rows).toHaveLength(Math.ceil(size / 2));
 

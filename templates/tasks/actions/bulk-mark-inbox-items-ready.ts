@@ -2,7 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
-  bulkMarkInboxItemsReady,
+  markInboxItemsReady,
   requireUserEmail,
 } from "../server/inbox/store.js";
 import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
@@ -19,9 +19,9 @@ export default defineAction({
   }),
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
-    return bulkMarkInboxItemsReady({
+    return markInboxItemsReady({
       ownerEmail,
-      inboxItemIds: args.inboxItemIds,
+      ids: args.inboxItemIds,
     });
   },
 });

@@ -9,10 +9,10 @@ import {
   updateTask,
 } from "../tasks/store.js";
 import {
-  bulkDeleteInboxItems,
-  bulkMarkInboxItemsReady,
   createInboxItem,
   deleteInboxItem,
+  deleteInboxItems,
+  markInboxItemsReady,
   listInboxItems,
   markInboxItemReady,
   reorderInboxItems,
@@ -164,9 +164,9 @@ describe("inbox store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
-    const { tasks } = await bulkMarkInboxItemsReady({
+    const { tasks } = await markInboxItemsReady({
       ownerEmail: "alice@example.com",
-      inboxItemIds: ["i1", "i2"],
+      ids: ["i1", "i2"],
       now: "2026-06-22T10:02:00.000Z",
     });
 
@@ -224,9 +224,9 @@ describe("inbox store", () => {
     });
 
     await expect(
-      bulkDeleteInboxItems({
+      deleteInboxItems({
         ownerEmail: "alice@example.com",
-        inboxItemIds: ["i1", "missing"],
+        ids: ["i1", "missing"],
       }),
     ).rejects.toThrow(/not found/i);
 
@@ -248,9 +248,9 @@ describe("inbox store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
-    const result = await bulkDeleteInboxItems({
+    const result = await deleteInboxItems({
       ownerEmail: "alice@example.com",
-      inboxItemIds: ["i1", "i1", "i2"],
+      ids: ["i1", "i1", "i2"],
     });
 
     expect(result.deleted).toBe(2);
@@ -273,9 +273,9 @@ describe("inbox store", () => {
       now: "2026-06-22T10:01:00.000Z",
     });
 
-    const { tasks } = await bulkMarkInboxItemsReady({
+    const { tasks } = await markInboxItemsReady({
       ownerEmail: "alice@example.com",
-      inboxItemIds: ["i1", "i1", "i2"],
+      ids: ["i1", "i1", "i2"],
       now: "2026-06-22T10:02:00.000Z",
     });
 

@@ -28,9 +28,9 @@ import type {
 import { validateFieldConfig, validateFieldTitle } from "./validate.js";
 import {
   deleteCustomFieldValues,
-  deleteCustomFieldValuesByIds,
+  deleteCustomFieldValuesByFieldIds,
   listCustomFieldValues,
-  setCustomFieldValueJsonByIds,
+  updateCustomFieldValues,
 } from "./values/store.js";
 
 export { requireUserEmail };
@@ -136,6 +136,92 @@ export async function listCustomFields(
   return { fields: rows.map(parseField) };
 }
 
+/**
+ * Title and config are per-field, so the bulk form takes one entry per field
+ * rather than a single patch applied across ids.
+ */
+export async function updateCustomFields(
+  input: {
+    ownerEmail: string;
+    entries: Array<{ fieldId: string; title?: string; config?: unknown }>;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<FieldDefinition[]> {
+  if (input.entries.length === 0) return [];
+
+  const { fields: existing } = await listCustomFields(
+    {
+      ownerEmail: input.ownerEmail,
+      fieldIds: input.entries.map((entry) => entry.fieldId),
+    },
+    db,
+  );
+  const existingById = new Map(existing.map((field) => [field.id, field]));
+
+  const patches = input.entries.map((entry) => {
+    const field = existingById.get(entry.fieldId);
+    if (!field) throw new Error("Custom field not found.");
+
+    if (entry.title === undefined && entry.config === undefined) {
+      return { field, patch: null };
+    }
+
+    const patch: Partial<typeof customFields.$inferInsert> = {
+      updatedAt: timestamp(input.now),
+    };
+    if (entry.title !== undefined) {
+      validateFieldTitle(entry.title);
+      patch.title = normalizeFieldTitle(entry.title);
+    }
+    if (entry.config !== undefined) {
+      patch.configJson = serializeFieldConfig(field.type, entry.config);
+    }
+    return { field, patch, cleanup: entry.config !== undefined };
+  });
+
+  return db.transaction(async (tx) => {
+    const updated: FieldDefinition[] = [];
+
+    for (const { field, patch, cleanup } of patches) {
+      if (!patch) {
+        updated.push(field);
+        continue;
+      }
+
+      await tx
+        .update(customFields)
+        .set(patch)
+        .where(
+          and(
+            eq(customFields.ownerEmail, input.ownerEmail),
+            eq(customFields.id, field.id),
+          ),
+        );
+
+      const [updatedRow] = await tx
+        .select()
+        .from(customFields)
+        .where(
+          and(
+            eq(customFields.ownerEmail, input.ownerEmail),
+            eq(customFields.id, field.id),
+          ),
+        )
+        .limit(1);
+      if (!updatedRow) throw new Error("Custom field not found.");
+
+      const parsed = parseField(updatedRow);
+      if (cleanup) {
+        await cleanupValuesAfterConfigChange(parsed, tx);
+      }
+      updated.push(parsed);
+    }
+
+    return updated;
+  });
+}
+
 export async function updateCustomField(
   input: {
     ownerEmail: string;
@@ -146,55 +232,18 @@ export async function updateCustomField(
   },
   db: DbHandle = getDb(),
 ): Promise<FieldDefinition> {
-  const existing = await getCustomField({
-    ownerEmail: input.ownerEmail,
-    fieldId: input.fieldId,
-  });
-  if (!existing) throw new Error("Custom field not found.");
-
-  if (input.title === undefined && input.config === undefined) return existing;
-
-  const patch: Partial<typeof customFields.$inferInsert> = {
-    updatedAt: timestamp(input.now),
-  };
-  if (input.title !== undefined) {
-    validateFieldTitle(input.title);
-    patch.title = normalizeFieldTitle(input.title);
-  }
-  if (input.config !== undefined) {
-    patch.configJson = serializeFieldConfig(existing.type, input.config);
-  }
-
-  const updated = await db.transaction(async (tx) => {
-    await tx
-      .update(customFields)
-      .set(patch)
-      .where(
-        and(
-          eq(customFields.ownerEmail, input.ownerEmail),
-          eq(customFields.id, input.fieldId),
-        ),
-      );
-
-    const [updatedRow] = await tx
-      .select()
-      .from(customFields)
-      .where(
-        and(
-          eq(customFields.ownerEmail, input.ownerEmail),
-          eq(customFields.id, input.fieldId),
-        ),
-      )
-      .limit(1);
-    if (!updatedRow) return null;
-    const parsed = parseField(updatedRow);
-    if (input.config !== undefined) {
-      await cleanupValuesAfterConfigChange(parsed, tx);
-    }
-    return parsed;
-  });
-  if (!updated) throw new Error("Custom field not found.");
-  return updated;
+  const [field] = await updateCustomFields(
+    {
+      ownerEmail: input.ownerEmail,
+      entries: [
+        { fieldId: input.fieldId, title: input.title, config: input.config },
+      ],
+      now: input.now,
+    },
+    db,
+  );
+  if (!field) throw new Error("Custom field not found.");
+  return field;
 }
 
 async function cleanupValuesAfterConfigChange(
@@ -204,7 +253,7 @@ async function cleanupValuesAfterConfigChange(
   if (field.type !== "single_select" && field.type !== "multi_select") return;
   const allowed = new Set(selectOptionIds(field));
   const rows = await listCustomFieldValues(
-    { ownerEmail: field.ownerEmail, fieldId: field.id },
+    { ownerEmail: field.ownerEmail, fieldIds: [field.id] },
     db,
   );
 
@@ -239,11 +288,11 @@ async function cleanupValuesAfterConfigChange(
     }
   }
 
-  await deleteCustomFieldValuesByIds(
+  await deleteCustomFieldValues(
     { ownerEmail: field.ownerEmail, ids: staleIds },
     db,
   );
-  await setCustomFieldValueJsonByIds(
+  await updateCustomFieldValues(
     { ownerEmail: field.ownerEmail, entries: trimmed },
     db,
   );
@@ -255,6 +304,47 @@ function selectOptionIds(field: FieldDefinition) {
     : [];
 }
 
+export async function deleteCustomFields(
+  input: {
+    ownerEmail: string;
+    fieldIds: string[];
+  },
+  db: DbHandle = getDb(),
+): Promise<{ ok: true; deletedValues: number }> {
+  const fieldIds = [...new Set(input.fieldIds)];
+  if (fieldIds.length === 0) return { ok: true, deletedValues: 0 };
+
+  const { fields: existing } = await listCustomFields(
+    { ownerEmail: input.ownerEmail, fieldIds },
+    db,
+  );
+  if (existing.length !== fieldIds.length) {
+    throw new Error("Custom field not found.");
+  }
+
+  const { deletedValues } = await db.transaction(async (tx) => {
+    const result = await deleteCustomFieldValuesByFieldIds(
+      { ownerEmail: input.ownerEmail, fieldIds },
+      tx,
+    );
+    await tx
+      .delete(customFields)
+      .where(
+        and(
+          eq(customFields.ownerEmail, input.ownerEmail),
+          inArray(customFields.id, fieldIds),
+        ),
+      );
+    return result;
+  });
+
+  for (const fieldId of fieldIds) {
+    await removeTaskCardFieldId({ ownerEmail: input.ownerEmail, fieldId });
+  }
+
+  return { ok: true, deletedValues };
+}
+
 export async function deleteCustomField(
   input: {
     ownerEmail: string;
@@ -262,31 +352,10 @@ export async function deleteCustomField(
   },
   db: DbHandle = getDb(),
 ): Promise<{ ok: true; deletedValues: number }> {
-  const existing = await getCustomField({
-    ownerEmail: input.ownerEmail,
-    fieldId: input.fieldId,
-  });
-  if (!existing) throw new Error("Custom field not found.");
-
-  const { deletedValues } = await db.transaction(async (tx) => {
-    const result = await deleteCustomFieldValues(input, tx);
-    await tx
-      .delete(customFields)
-      .where(
-        and(
-          eq(customFields.ownerEmail, input.ownerEmail),
-          eq(customFields.id, input.fieldId),
-        ),
-      );
-    return result;
-  });
-
-  await removeTaskCardFieldId({
-    ownerEmail: input.ownerEmail,
-    fieldId: input.fieldId,
-  });
-
-  return { ok: true, deletedValues };
+  return deleteCustomFields(
+    { ownerEmail: input.ownerEmail, fieldIds: [input.fieldId] },
+    db,
+  );
 }
 
 export async function reorderCustomFields(

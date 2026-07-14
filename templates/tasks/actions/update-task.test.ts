@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { patchTask, listTaskFieldValues } = vi.hoisted(() => ({
-  patchTask: vi.fn(),
+const { updateTask, listTaskFieldValues } = vi.hoisted(() => ({
+  updateTask: vi.fn(),
   listTaskFieldValues: vi.fn(),
 }));
 
 vi.mock("../server/tasks/store.js", () => ({
-  patchTask,
+  updateTask,
   requireUserEmail: (email: string | undefined) => {
     if (!email) throw new Error("Authentication required.");
     return email;
@@ -21,7 +21,7 @@ import updateTaskAction from "./update-task.js";
 
 describe("update-task", () => {
   beforeEach(() => {
-    patchTask.mockReset();
+    updateTask.mockReset();
     listTaskFieldValues.mockReset();
   });
 
@@ -65,11 +65,11 @@ describe("update-task", () => {
           { userEmail: "alice@example.com", caller: "cli" },
         ),
       ).rejects.toThrow(/title, done, or fieldValues/i);
-      expect(patchTask).not.toHaveBeenCalled();
+      expect(updateTask).not.toHaveBeenCalled();
     });
 
     it("updates an owned task", async () => {
-      patchTask.mockResolvedValue({
+      updateTask.mockResolvedValue({
         id: "t1",
         title: "Updated",
         done: true,
@@ -84,7 +84,7 @@ describe("update-task", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(patchTask).toHaveBeenCalledWith({
+      expect(updateTask).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
         id: "t1",
         title: undefined,
@@ -95,7 +95,7 @@ describe("update-task", () => {
     });
 
     it("updates custom field values through the task action", async () => {
-      patchTask.mockResolvedValue({
+      updateTask.mockResolvedValue({
         id: "t1",
         title: "Task",
         done: false,
@@ -113,7 +113,7 @@ describe("update-task", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(patchTask).toHaveBeenCalledWith({
+      expect(updateTask).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
         id: "t1",
         title: undefined,
@@ -131,7 +131,7 @@ describe("update-task", () => {
     });
 
     it("updates title and custom field values in one call", async () => {
-      patchTask.mockResolvedValue({
+      updateTask.mockResolvedValue({
         id: "t1",
         title: "Updated",
         done: false,
@@ -153,7 +153,7 @@ describe("update-task", () => {
         { userEmail: "alice@example.com", caller: "cli" },
       );
 
-      expect(patchTask).toHaveBeenCalledWith({
+      expect(updateTask).toHaveBeenCalledWith({
         ownerEmail: "alice@example.com",
         id: "t1",
         title: "Updated",

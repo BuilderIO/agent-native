@@ -1,7 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { requireUserEmail, bulkUpdateTasks } from "../server/tasks/store.js";
+import { requireUserEmail, updateTasks } from "../server/tasks/store.js";
 import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
 export default defineAction({
@@ -22,9 +22,9 @@ export default defineAction({
       throw new Error("Provide at least one of title or done.");
     }
 
-    const tasks = await bulkUpdateTasks({
+    const tasks = await updateTasks({
       ownerEmail,
-      taskIds: args.taskIds,
+      ids: args.taskIds,
       title: args.title,
       done: args.done,
     });

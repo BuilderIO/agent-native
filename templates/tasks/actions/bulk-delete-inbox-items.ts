@@ -1,10 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import {
-  bulkDeleteInboxItems,
-  requireUserEmail,
-} from "../server/inbox/store.js";
+import { deleteInboxItems, requireUserEmail } from "../server/inbox/store.js";
 import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
 export default defineAction({
@@ -19,9 +16,9 @@ export default defineAction({
   }),
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
-    return bulkDeleteInboxItems({
+    return deleteInboxItems({
       ownerEmail,
-      inboxItemIds: args.inboxItemIds,
+      ids: args.inboxItemIds,
     });
   },
 });

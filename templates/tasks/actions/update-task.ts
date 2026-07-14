@@ -7,7 +7,7 @@ import {
 } from "../server/custom-fields/schema.js";
 import { listTaskFieldValues } from "../server/custom-fields/task-fields.js";
 import type { FieldValueInput } from "../server/custom-fields/values/store.js";
-import { patchTask, requireUserEmail } from "../server/tasks/store.js";
+import { updateTask, requireUserEmail } from "../server/tasks/store.js";
 
 type FieldValuePatch = {
   fieldId: string;
@@ -44,7 +44,7 @@ export default defineAction({
       throw new Error("Provide at least one of title, done, or fieldValues.");
     }
 
-    const task = await patchTask({
+    const task = await updateTask({
       ownerEmail,
       id: args.taskId,
       title: args.title,
