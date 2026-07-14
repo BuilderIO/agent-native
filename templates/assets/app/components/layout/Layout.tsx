@@ -67,6 +67,7 @@ export function Layout({ children }: LayoutProps) {
   useAgentChatHomeHandoffLinks({
     storageKey: ASSETS_CHAT_STORAGE_KEY,
     isChatPath: (pathname) => pathname === "/" || pathname.startsWith("/chat/"),
+    requireActiveHandoff: true,
   });
 
   useEffect(() => {
