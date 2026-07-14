@@ -31,6 +31,14 @@ pub async fn whisper_transcription_start(
     }
     #[cfg(target_os = "macos")]
     {
+        crate::diag::tray_diag(
+            &app,
+            serde_json::json!({
+                "event": "whisper-start-requested",
+                "captureSystem": capture_system,
+                "owner": owner,
+            }),
+        );
         macos::start(
             app,
             language,

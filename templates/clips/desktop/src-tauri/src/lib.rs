@@ -26,6 +26,7 @@ mod system_audio;
 mod tray;
 mod tray_meetings;
 mod util;
+mod diag;
 mod whisper_model;
 mod whisper_speech;
 

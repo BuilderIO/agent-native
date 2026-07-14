@@ -1022,6 +1022,11 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
     let upload_mode = NativeUploadMode::from_option(upload_mode);
+    let stop_started = std::time::Instant::now();
+    crate::diag::tray_diag(
+        &app,
+        serde_json::json!({ "event": "stop-begin", "recordingId": recording_id }),
+    );
     emit_native_upload_progress(&app, "finalizing", "Optimizing clip", None, None);
     // The recorder's ScreenCaptureKit stream is now fully stopped and its moov
     // atom is written (or has definitively failed). Signal the UI so it can tear
@@ -1049,6 +1054,16 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     // down immediately — otherwise the user's face keeps floating in the
     // corner through the (multi-second) finalize + upload phase, reading
     // as "still recording" while the bottom-left card says "processing".
+    crate::diag::tray_diag(
+        &app,
+        serde_json::json!({
+            "event": "session-finalized",
+            "recordingId": recording_id,
+            "ms": stop_started.elapsed().as_millis() as u64,
+            "multiSegment": multi_segment,
+            "stopOk": stop_outcome.is_ok(),
+        }),
+    );
     let _ = crate::clips::close_bubble(app.clone()).await;
     clear_recording_active(&app);
 
@@ -1198,6 +1213,14 @@ pub async fn native_fullscreen_recording_stop_and_upload(
         }
     }
 
+    crate::diag::tray_diag(
+        &app,
+        serde_json::json!({
+            "event": "upload-begin",
+            "recordingId": recording_id,
+            "sinceStopMs": stop_started.elapsed().as_millis() as u64,
+        }),
+    );
     let result = upload_recording_file(
         &app,
         &session,
@@ -1212,6 +1235,15 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     )
     .await;
 
+    crate::diag::tray_diag(
+        &app,
+        serde_json::json!({
+            "event": "upload-done",
+            "recordingId": recording_id,
+            "ok": result.is_ok(),
+            "sinceStopMs": stop_started.elapsed().as_millis() as u64,
+        }),
+    );
     match result {
         Ok(result) => {
             clear_saved_recording_after_success(&app, &saved);
