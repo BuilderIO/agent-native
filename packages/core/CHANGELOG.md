@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.100.2
+
+### Patch Changes
+
+- f8cf755: Add a native local-runtime sign-in handoff for Codex-backed ChatGPT subscriptions in Agent composer surfaces.
+- f8cf755: Fix Slack integration fallbacks and link replies directly to Dispatch chat threads.
+- f8cf755: Keep workspace-shared app secrets decryptable across sibling apps.
+
 ## 0.100.1
 
 ### Patch Changes
