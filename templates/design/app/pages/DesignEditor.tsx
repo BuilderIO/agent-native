@@ -110,6 +110,7 @@ import {
   breakpointUpperBoundPx,
   utilityStem,
 } from "@shared/responsive-classes";
+import { createElementReviewAnchor } from "@shared/review-anchor";
 import { readDesignReviewSummary } from "@shared/review-summary";
 import { normalizeDesignSourceType } from "@shared/source-mode";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -784,6 +785,7 @@ import {
 } from "./design-editor/text-edit-utils";
 import {
   getDesignToolActivationState,
+  getDesignBottomToolbarMode,
   getMoveGroupToolPresentation,
   getSingleScreenCreationTool,
   isSingleScreenAnnotationTool,
@@ -1589,6 +1591,7 @@ function DesignModeTab({
 }
 
 function DesignBottomToolbar({
+  commentOnly = false,
   mode,
   pinMode,
   drawMode,
@@ -1607,6 +1610,7 @@ function DesignBottomToolbar({
   onModeChange,
   shortcutsPanelOpen,
 }: {
+  commentOnly?: boolean;
   mode: EditorMode;
   pinMode: boolean;
   drawMode: boolean;
@@ -1897,6 +1901,9 @@ function DesignBottomToolbar({
       onClick: () => onModeChange("interact"),
     },
   ];
+  const visibleTools = commentOnly
+    ? tools.filter((tool) => tool.key === "comment")
+    : tools;
 
   return (
     <div
@@ -1905,7 +1912,7 @@ function DesignBottomToolbar({
       style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
     >
       <div className="flex min-w-0 items-center gap-0.5">
-        {tools.map((tool) => (
+        {visibleTools.map((tool) => (
           <DesignToolbarTool
             key={tool.key}
             active={tool.active}
@@ -1917,19 +1924,23 @@ function DesignBottomToolbar({
         ))}
       </div>
 
-      <div className="h-9 w-px shrink-0 bg-white/15" />
+      {!commentOnly ? (
+        <>
+          <div className="h-9 w-px shrink-0 bg-white/15" />
 
-      <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
-        {modes.map((item) => (
-          <DesignModeTab
-            key={item.key}
-            active={item.active}
-            label={item.label}
-            icon={item.icon}
-            onClick={item.onClick}
-          />
-        ))}
-      </div>
+          <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
+            {modes.map((item) => (
+              <DesignModeTab
+                key={item.key}
+                active={item.active}
+                label={item.label}
+                icon={item.icon}
+                onClick={item.onClick}
+              />
+            ))}
+          </div>
+        </>
+      ) : null}
     </div>
   );
 }
@@ -5838,6 +5849,11 @@ function DesignEditor() {
 
   const activeFile =
     files.find((f) => f.id === activeFileId) ?? defaultActiveFile;
+  const designBottomToolbarMode = getDesignBottomToolbarMode({
+    isSignedIn,
+    canEditDesign,
+    hasActiveFile: Boolean(activeFile),
+  });
   activeFileIdForUndoRef.current = activeFile?.id ?? null;
   // Kept current every render (mirrors activeFileIdForUndoRef just above) so
   // handleGeometryCommit/recordContentHistoryEntry/recordLocalContentHistoryEntry
@@ -10473,6 +10489,55 @@ function DesignEditor() {
     });
   }, []);
 
+  const selectedReviewLayerContext = useMemo(() => {
+    if (!activeFile?.id || !selectedElement) return null;
+
+    const selectedScreen = overviewScreens.find(
+      (screen) => screen.id === activeFile.id,
+    );
+    const frameGeometry = canvasFrameGeometryById[activeFile.id];
+    const nodeId =
+      selectedCodeLayerNode?.dataAttributes[
+        "data-agent-native-node-id"
+      ]?.trim() ||
+      selectedElement.sourceId?.trim() ||
+      selectedCodeLayerNode?.id.trim() ||
+      null;
+    const anchor = createElementReviewAnchor({
+      nodeId,
+      rect: selectedElement.boundingRect,
+      viewportWidth:
+        activeBreakpointWidthState ??
+        frameGeometry?.width ??
+        selectedScreen?.width ??
+        activeScreenBaseWidthPx,
+      viewportHeight: frameGeometry?.height ?? selectedScreen?.height,
+    });
+    if (!anchor) return null;
+
+    const layerName =
+      selectedCodeLayerNode?.layerName.trim() ||
+      selectedElement.componentName?.trim() ||
+      selectedElement.id?.trim() ||
+      selectedElement.tagName.toLowerCase();
+    return {
+      anchor,
+      label: layerName,
+      metadata: {
+        layerName,
+        tagName: selectedElement.tagName.toLowerCase(),
+      },
+    };
+  }, [
+    activeBreakpointWidthState,
+    activeFile?.id,
+    activeScreenBaseWidthPx,
+    canvasFrameGeometryById,
+    overviewScreens,
+    selectedCodeLayerNode,
+    selectedElement,
+  ]);
+
   const reviewCommentsPanelProps = useMemo<
     ReviewCommentsPanelProps | undefined
   >(
@@ -10481,6 +10546,13 @@ function DesignEditor() {
         ? {
             designId: id,
             activeFileId: activeFile?.id,
+            commentAnchor: selectedReviewLayerContext?.anchor,
+            commentMetadata: selectedReviewLayerContext?.metadata,
+            commentContextLabel: selectedReviewLayerContext
+              ? t("review.commentingOn", {
+                  name: selectedReviewLayerContext.label,
+                })
+              : undefined,
             canComment: isSignedIn,
             canResolve: canEditDesign,
             canDeleteComment: (comment) =>
@@ -10490,8 +10562,12 @@ function DesignEditor() {
             signInHref: signInToCommentHref,
             canDispatchToAgent: canEditDesign,
             sendingThreadId: reviewSendingThreadId,
-            onDispatchCommentToAgent: handleDispatchCommentToAgent,
-            onSendThreadToAgent: handleSendReviewThreadToAgent,
+            onDispatchCommentToAgent: canEditDesign
+              ? handleDispatchCommentToAgent
+              : undefined,
+            onSendThreadToAgent: canEditDesign
+              ? handleSendReviewThreadToAgent
+              : undefined,
             onSelectThread: handleReviewThreadSelect,
           }
         : undefined,
@@ -10504,8 +10580,10 @@ function DesignEditor() {
       isSignedIn,
       canEditDesign,
       reviewSendingThreadId,
+      selectedReviewLayerContext,
       session?.email,
       signInToCommentHref,
+      t,
     ],
   );
 
@@ -27725,7 +27803,7 @@ function DesignEditor() {
         </DropdownMenuSub>
         <DropdownMenuItem
           onClick={handlePinToolToggle}
-          disabled={!activeFile || viewMode === "overview" || !isSignedIn}
+          disabled={!activeFile || !isSignedIn}
         >
           <IconPin className="mr-2 h-4 w-4" />
           {pinMode
@@ -27953,20 +28031,6 @@ function DesignEditor() {
         </div>
 
         <div className="flex shrink-0 items-center gap-1">
-          {isSignedIn && !canEditDesign && activeFile ? (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="h-8 gap-1 rounded-md px-2 text-xs"
-              onClick={handlePinToolToggle}
-            >
-              <IconMessageCircle className="size-3.5" />
-              {pinMode
-                ? t("designEditor.stopPinningComments")
-                : t("designEditor.pinComment")}
-            </Button>
-          ) : null}
           {canEditDesign && reviewAgentQueueCount > 0 ? (
             <Button
               type="button"
@@ -28520,10 +28584,11 @@ function DesignEditor() {
 
         {!embedded &&
           !uiHidden &&
-          canEditDesign &&
+          designBottomToolbarMode !== "hidden" &&
           activeFile &&
           !questionFlowActive && (
             <DesignBottomToolbar
+              commentOnly={designBottomToolbarMode === "commenter"}
               mode={mode}
               pinMode={pinMode}
               drawMode={drawMode}

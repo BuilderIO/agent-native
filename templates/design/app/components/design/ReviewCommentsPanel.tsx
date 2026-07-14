@@ -15,6 +15,9 @@ import { cn } from "@/lib/utils";
 export interface ReviewCommentsPanelProps {
   designId: string;
   activeFileId?: string | null;
+  commentAnchor?: unknown | null;
+  commentMetadata?: Record<string, unknown>;
+  commentContextLabel?: string;
   canComment: boolean;
   /** Caller-derived editor capability for resolving threads. */
   canResolve?: boolean;
@@ -33,6 +36,9 @@ export interface ReviewCommentsPanelProps {
 export function ReviewCommentsPanel({
   designId,
   activeFileId,
+  commentAnchor,
+  commentMetadata,
+  commentContextLabel,
   canComment,
   canResolve,
   canDeleteComment,
@@ -87,6 +93,10 @@ export function ReviewCommentsPanel({
           resourceType="design"
           resourceId={designId}
           targetId={targetId}
+          composerTargetId={activeFileId}
+          composerAnchor={commentAnchor}
+          composerMetadata={commentMetadata}
+          composerContextLabel={commentContextLabel}
           title={t("review.panelTitle")}
           placeholder={t("review.placeholder")}
           emptyState={t("review.emptyState")}
@@ -104,13 +114,15 @@ export function ReviewCommentsPanel({
           variant="plain"
           showComposer={canComment && showComposer}
           canReply={canComment}
-          canResolve={canResolve ?? canDispatchToAgent}
+          canResolve={canResolve ?? false}
           canDeleteComment={canDeleteComment}
-          showComposerTargetPicker={canComment && showComposer}
+          showComposerTargetPicker={
+            canComment && showComposer && canDispatchToAgent
+          }
           composerCommentLabel={t("review.commentMode")}
           composerAgentLabel={t("review.sendToAgent")}
           onCommentCreated={(comment) => {
-            if (comment.resolutionTarget === "agent") {
+            if (canDispatchToAgent && comment.resolutionTarget === "agent") {
               onDispatchCommentToAgent?.(comment);
             }
           }}

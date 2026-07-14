@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "Sign in to comment",
     panelTitle: "Feedback",
     placeholder: "Leave feedback…",
+    commentingOn: "Commenting on {{name}}",
     emptyState: "No review comments yet.",
     clickToPin: "Click anywhere to pin feedback",
     escToExit: "Esc to exit",
