@@ -1763,6 +1763,9 @@ export default function CodeAgentsApp({
                             message={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
+                            onConnectLocalRuntime={() =>
+                              void connectLocalRuntime("codex-cli")
+                            }
                           />
                         )}
                         <NewSessionComposer
@@ -2409,7 +2412,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io, run codex login for Codex CLI, or add your own API key.",
+        "Connect Builder.io, sign in with your ChatGPT subscription, or add an API key.",
     };
   }
   return {
@@ -2424,12 +2427,14 @@ function ProviderGateNotice({
   message,
   onConnectBuilder,
   onOpenSettings,
+  onConnectLocalRuntime,
 }: {
   description: string;
   connecting: boolean;
   message: string | null;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
+  onConnectLocalRuntime?: () => void;
 }) {
   return (
     <CodeProviderNotice
@@ -2439,6 +2444,8 @@ function ProviderGateNotice({
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
+      localRuntimeActionLabel="Sign in with ChatGPT"
+      onConnectLocalRuntime={onConnectLocalRuntime}
       secondaryActionLabel="API keys"
       onOpenSettings={onOpenSettings}
     />
@@ -2452,6 +2459,8 @@ function CodeProviderNotice({
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
+  localRuntimeActionLabel,
+  onConnectLocalRuntime,
   secondaryActionLabel,
   onOpenSettings,
 }: {
@@ -2461,6 +2470,8 @@ function CodeProviderNotice({
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
+  localRuntimeActionLabel?: string;
+  onConnectLocalRuntime?: () => void;
   secondaryActionLabel?: string;
   onOpenSettings?: () => void;
 }) {
@@ -2480,6 +2491,16 @@ function CodeProviderNotice({
             disabled={primaryDisabled}
           >
             {primaryActionLabel}
+          </button>
+        )}
+        {onConnectLocalRuntime && localRuntimeActionLabel && (
+          <button
+            type="button"
+            className="code-agents-button"
+            onClick={onConnectLocalRuntime}
+          >
+            <IconTerminal2 size={14} strokeWidth={1.8} />
+            {localRuntimeActionLabel}
           </button>
         )}
         {onOpenSettings && secondaryActionLabel && (
@@ -3437,6 +3458,12 @@ function RunDetailCard({
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
+          localRuntimeActionLabel="Sign in with ChatGPT"
+          onConnectLocalRuntime={
+            onConnectLocalRuntime
+              ? () => onConnectLocalRuntime("codex-cli")
+              : undefined
+          }
           secondaryActionLabel="API keys"
           onOpenSettings={onOpenSettings}
         />
