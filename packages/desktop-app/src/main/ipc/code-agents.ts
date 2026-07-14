@@ -95,8 +95,12 @@ export interface CodeAgentsIpcDeps {
     projects: CodeAgentProjectFolder[];
   };
   chooseCodeAgentProject: () => Promise<CodeAgentProjectSelectResult>;
-  openTerminalForCodeAgents: (request?: unknown) => CodeAgentTerminalResult;
-  openCodeAgentCodexLogin: () => CodeAgentTerminalResult;
+  openTerminalForCodeAgents: (
+    request?: unknown,
+  ) => CodeAgentTerminalResult | Promise<CodeAgentTerminalResult>;
+  openCodeAgentCodexLogin: () =>
+    | CodeAgentTerminalResult
+    | Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus: () => CodeAgentRemoteConnectorStatus;
   setRemoteConnectorEnabled: (
     enabled: boolean,
@@ -412,17 +416,18 @@ export function registerCodeAgentsIpc(deps: CodeAgentsIpcDeps): void {
 
   ipcMain.handle(
     IPC.CODE_AGENTS_OPEN_TERMINAL,
-    (
+    async (
       _event: IpcMainInvokeEvent,
       request?: unknown,
-    ): CodeAgentTerminalResult => {
-      return openTerminalForCodeAgents(request);
+    ): Promise<CodeAgentTerminalResult> => {
+      return await openTerminalForCodeAgents(request);
     },
   );
 
   ipcMain.handle(
     IPC.CODE_AGENTS_OPEN_CODEX_LOGIN,
-    (): CodeAgentTerminalResult => openCodeAgentCodexLogin(),
+    async (): Promise<CodeAgentTerminalResult> =>
+      await openCodeAgentCodexLogin(),
   );
 
   ipcMain.handle(

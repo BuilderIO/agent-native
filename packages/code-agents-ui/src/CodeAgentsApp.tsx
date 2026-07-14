@@ -839,6 +839,12 @@ export default function CodeAgentsApp({
     () => getProviderGate(hostMetadata),
     [hostMetadata],
   );
+  // `listModels` only includes Codex when the local CLI is installed. Keep
+  // sign-in hidden until that capability has been confirmed by the host so a
+  // fresh install does not offer a command that cannot launch.
+  const codexCliAvailable = modelOptions.some(
+    (option) => option.engine === "codex-cli",
+  );
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
     () =>
@@ -1751,7 +1757,9 @@ export default function CodeAgentsApp({
                         onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
                         onConnectProvider={connectBuilderProvider}
-                        onConnectLocalRuntime={connectLocalRuntime}
+                        onConnectLocalRuntime={
+                          codexCliAvailable ? connectLocalRuntime : undefined
+                        }
                       />
                     ) : (
                       <div className="code-agents-start">
@@ -1763,8 +1771,10 @@ export default function CodeAgentsApp({
                             message={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
-                            onConnectLocalRuntime={() =>
-                              void connectLocalRuntime("codex-cli")
+                            onConnectLocalRuntime={
+                              codexCliAvailable
+                                ? () => void connectLocalRuntime("codex-cli")
+                                : undefined
                             }
                           />
                         )}
@@ -1784,7 +1794,9 @@ export default function CodeAgentsApp({
                           onSlashCommand={handleSlashCommand}
                           onSubmit={createRunFromPrompt}
                           onConnectProvider={connectBuilderProvider}
-                          onConnectLocalRuntime={connectLocalRuntime}
+                          onConnectLocalRuntime={
+                            codexCliAvailable ? connectLocalRuntime : undefined
+                          }
                         />
                         {(projects.length > 0 || canChooseProjectFolder) && (
                           <ProjectFolderPicker

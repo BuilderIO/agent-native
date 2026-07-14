@@ -1,6 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { EventEmitter } from "node:events";
 
-import { getCodexLoginLaunchSpec } from "./codex-login-launcher";
+import { describe, expect, it, vi } from "vitest";
+
+import { getCodexLoginLaunchSpec, spawnDetached } from "./codex-login-launcher";
 
 describe("getCodexLoginLaunchSpec", () => {
   it.each([
@@ -15,12 +17,33 @@ describe("getCodexLoginLaunchSpec", () => {
       ],
     ],
     ["win32", "cmd.exe", ["/d", "/k", "codex login"]],
-    ["linux", "x-terminal-emulator", ["-e", "codex", "login"]],
   ])("uses a fixed login command on %s", (platform, command, args) => {
     expect(getCodexLoginLaunchSpec(platform)).toEqual({
       ok: true,
       command,
       args,
+    });
+  });
+
+  it("selects the first available Linux terminal emulator", () => {
+    const unavailable = new Set(["x-terminal-emulator"]);
+    expect(
+      getCodexLoginLaunchSpec(
+        "linux",
+        (command) => !unavailable.has(command) && command === "gnome-terminal",
+      ),
+    ).toEqual({
+      ok: true,
+      command: "gnome-terminal",
+      args: ["--", "codex", "login"],
+    });
+  });
+
+  it("returns install guidance when Linux has no supported terminal", () => {
+    expect(getCodexLoginLaunchSpec("linux", () => false)).toEqual({
+      ok: false,
+      error:
+        "No supported terminal emulator was found. Install a terminal emulator and try again.",
     });
   });
 
@@ -44,5 +67,45 @@ describe("getCodexLoginLaunchSpec", () => {
       ok: false,
       error: "Opening a terminal is not supported on aix.",
     });
+  });
+
+  it("does not report success before the child emits spawn", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      unref: () => void;
+    };
+    child.unref = vi.fn();
+    const launch = spawnDetached(
+      "codex",
+      ["login"],
+      "/tmp",
+      () => child as never,
+    );
+
+    child.emit("spawn");
+
+    await expect(launch).resolves.toEqual({ ok: true, cwd: "/tmp" });
+    expect(child.unref).toHaveBeenCalledTimes(1);
+  });
+
+  it("returns a launch error when the child reports an asynchronous spawn failure", async () => {
+    const child = new EventEmitter() as EventEmitter & {
+      unref: () => void;
+    };
+    child.unref = vi.fn();
+    const launch = spawnDetached(
+      "missing-terminal",
+      [],
+      "/tmp",
+      () => child as never,
+    );
+
+    child.emit("error", new Error("spawn ENOENT"));
+
+    await expect(launch).resolves.toEqual({
+      ok: false,
+      cwd: "/tmp",
+      error: "spawn ENOENT",
+    });
+    expect(child.unref).not.toHaveBeenCalled();
   });
 });
