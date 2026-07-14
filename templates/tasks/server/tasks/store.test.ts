@@ -23,6 +23,15 @@ vi.mock("../db/index.js", () => ({
   getDb: () => testDb,
 }));
 
+vi.mock("../db/bulk-write.js", async (importOriginal) => {
+  const original = await importOriginal<typeof import("../db/bulk-write.js")>();
+  return {
+    ...original,
+    BULK_WRITE_CHUNK_SIZE: 2,
+    chunk: <T>(items: T[], size = 2) => original.chunk(items, size),
+  };
+});
+
 type TestDb = Awaited<ReturnType<typeof createInMemoryTasksDb>>;
 
 let client: TestDb["client"];
@@ -384,7 +393,7 @@ describe("task store", () => {
   });
 
   it("reorders a list larger than one sort-order chunk", async () => {
-    const size = BULK_WRITE_CHUNK_SIZE + 50;
+    const size = BULK_WRITE_CHUNK_SIZE + 3;
     for (let index = 0; index < size; index += 1) {
       await createTask({
         ownerEmail: "alice@example.com",
