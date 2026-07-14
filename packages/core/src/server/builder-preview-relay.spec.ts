@@ -10,6 +10,7 @@ import {
   BUILDER_RELAY_FLOW_HEADER,
   BUILDER_RELAY_STATE_PARAM,
   buildBuilderCliAuthUrl,
+  createBuilderBrowserCallbackErrorPage,
   createBuilderRelayRequest,
   signBuilderPreviewRelayState,
   verifyBuilderPreviewRelayState,
@@ -227,6 +228,22 @@ describe("Builder preview callback relay", () => {
   it("fails closed when the dedicated relay secret is missing", () => {
     delete process.env[BUILDER_RELAY_SECRET_ENV];
     expect(() => makeRelay()).toThrow(BUILDER_RELAY_SECRET_ENV);
+  });
+
+  it("describes relay setup failures as pre-authorization configuration errors", () => {
+    const page = createBuilderBrowserCallbackErrorPage(
+      `${BUILDER_RELAY_SECRET_ENV} is required for Builder preview authorization relay.`,
+      {
+        title: "Builder preview connection isn't configured",
+        body: "This preview needs its secure Builder callback relay configured before authorization can start.",
+        closeHint:
+          "Close this popup and ask the preview owner to finish Builder relay setup.",
+      },
+    );
+
+    expect(page).toContain("Builder preview connection isn&#39;t configured");
+    expect(page).toContain("before authorization can start");
+    expect(page).not.toContain("Builder authorized your account");
   });
 
   it("fails closed when the dedicated relay secret is shorter than 32 characters", () => {

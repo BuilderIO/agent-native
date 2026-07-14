@@ -2014,6 +2014,10 @@ export function createCoreRoutesPlugin(
                 "text/html; charset=utf-8",
               );
               return createBuilderBrowserCallbackErrorPage(msg, {
+                title: "Builder preview connection isn't configured",
+                body: "This preview needs its secure Builder callback relay configured before authorization can start.",
+                closeHint:
+                  "Close this popup and ask the preview owner to finish Builder relay setup.",
                 parentOrigin: previewOrigin,
               });
             }
