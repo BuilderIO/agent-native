@@ -64,7 +64,7 @@ async function seed(args?: {
   const itemDocumentId = `item_document_${suffix}`;
   const sourceRowId = `row_${suffix}`;
   const changeSetId = args?.syntheticChangeSetId
-    ? `local-pending-${sourceRowId}-fields`
+    ? `local-pending-${sourceRowId}-change`
     : `change_${suffix}`;
   const db = getDb();
 
@@ -453,7 +453,12 @@ describe("cancel-prepared-builder-source-update", () => {
       .where(eq(schema.documents.id, seeded.itemDocumentId));
     await getDb()
       .update(schema.contentDatabaseSourceRows)
-      .set({ sourceDisplayKey: "Changed remote title" })
+      .set({
+        sourceDisplayKey: "Changed remote title",
+        sourceValuesJson: JSON.stringify({
+          "data.title": "Changed remote title",
+        }),
+      })
       .where(eq(schema.contentDatabaseSourceRows.sourceId, seeded.sourceId));
     const remoteChanged = await getWriteSnapshot(
       {
@@ -520,6 +525,12 @@ describe("cancel-prepared-builder-source-update", () => {
     expect(revisionId).toMatch(
       new RegExp(`^${seeded.changeSetId}-revision-[a-f0-9]{16}$`),
     );
+    expect(prepared.preparedChangeSetMappings).toEqual([
+      {
+        requestedChangeSetId: seeded.changeSetId,
+        preparedChangeSetId: revisionId,
+      },
+    ]);
 
     const persistedChangeSets = await getDb()
       .select()

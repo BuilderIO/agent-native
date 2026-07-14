@@ -44,6 +44,111 @@ export interface BuilderCmsEntryLiveState {
   id: string | null;
 }
 
+export interface BuilderCmsEntryFidelitySummary {
+  topLevelBlockCount: number;
+  componentCount: number;
+  textBlockCount: number;
+  imageBlockCount: number;
+  htmlImageCount: number;
+  markdownImageSyntaxCount: number;
+  videoBlockCount: number;
+  headingCount: number;
+  unorderedListCount: number;
+  orderedListCount: number;
+  listItemCount: number;
+  linkCount: number;
+  tableCount: number;
+  escapedTableMarkupCount: number;
+  codeCount: number;
+  blockquoteCount: number;
+  escapedBlockquoteMarkupCount: number;
+  hasYouTubeLink: boolean;
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return value.match(pattern)?.length ?? 0;
+}
+
+export function summarizeBuilderCmsEntryFidelity(
+  entry: BuilderCmsSourceEntry,
+): BuilderCmsEntryFidelitySummary {
+  const blocks = entry.rawEntry ? builderEntryBlocks(entry.rawEntry) : [];
+  const summary: BuilderCmsEntryFidelitySummary = {
+    topLevelBlockCount: blocks.length,
+    componentCount: 0,
+    textBlockCount: 0,
+    imageBlockCount: 0,
+    htmlImageCount: 0,
+    markdownImageSyntaxCount: 0,
+    videoBlockCount: 0,
+    headingCount: 0,
+    unorderedListCount: 0,
+    orderedListCount: 0,
+    listItemCount: 0,
+    linkCount: 0,
+    tableCount: 0,
+    escapedTableMarkupCount: 0,
+    codeCount: 0,
+    blockquoteCount: 0,
+    escapedBlockquoteMarkupCount: 0,
+    hasYouTubeLink: false,
+  };
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const component =
+      record.component &&
+      typeof record.component === "object" &&
+      !Array.isArray(record.component)
+        ? (record.component as Record<string, unknown>)
+        : null;
+    if (component) {
+      summary.componentCount += 1;
+      const name = typeof component.name === "string" ? component.name : "";
+      if (name === "Image") summary.imageBlockCount += 1;
+      if (name === "Video") summary.videoBlockCount += 1;
+      if (name === "Text") {
+        summary.textBlockCount += 1;
+        const options =
+          component.options &&
+          typeof component.options === "object" &&
+          !Array.isArray(component.options)
+            ? (component.options as Record<string, unknown>)
+            : {};
+        const html = typeof options.text === "string" ? options.text : "";
+        summary.headingCount += countMatches(html, /<h[1-6]\b/gi);
+        summary.htmlImageCount += countMatches(html, /<img\b/gi);
+        summary.markdownImageSyntaxCount += countMatches(
+          html,
+          /!\[[^\]]*\]\(/g,
+        );
+        summary.unorderedListCount += countMatches(html, /<ul\b/gi);
+        summary.orderedListCount += countMatches(html, /<ol\b/gi);
+        summary.listItemCount += countMatches(html, /<li\b/gi);
+        summary.linkCount += countMatches(html, /<a\b/gi);
+        summary.tableCount += countMatches(html, /<table\b/gi);
+        summary.escapedTableMarkupCount += countMatches(html, /&lt;table\b/gi);
+        summary.codeCount += countMatches(html, /<code\b/gi);
+        summary.blockquoteCount += countMatches(html, /<blockquote\b/gi);
+        summary.escapedBlockquoteMarkupCount += countMatches(
+          html,
+          /&lt;blockquote\b/gi,
+        );
+        if (/youtube\.com|youtu\.be/i.test(html)) {
+          summary.hasYouTubeLink = true;
+        }
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(blocks);
+  return summary;
+}
+
 type FetchLike = typeof fetch;
 
 type BuilderMcpContentPart = {

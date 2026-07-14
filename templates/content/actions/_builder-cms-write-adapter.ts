@@ -9,7 +9,10 @@ import type {
   ContentDatabaseSourceWriteMode,
 } from "../shared/api.js";
 import { BUILDER_CMS_SAFE_WRITE_MODEL as SAFE_WRITE_MODEL } from "../shared/api.js";
-import { builderCmsSourceRowIdentityState } from "./_builder-cms-source-adapter.js";
+import {
+  BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
+  builderCmsSourceRowIdentityState,
+} from "./_builder-cms-source-adapter.js";
 import { builderCmsPushModeForTier } from "./_builder-cms-write-settings.js";
 
 export type { BuilderCmsWriteEffect };
@@ -657,6 +660,17 @@ function builderRequiredFieldBlockers(args: {
       ? (args.request.body.data as Record<string, unknown>)
       : {};
   const effectiveData = { ...existingData, ...requestData };
+  if (
+    effectiveData.blocks === undefined &&
+    typeof args.targetRow?.sourceValues?.[BUILDER_CMS_BODY_BLOCKS_HASH_KEY] ===
+      "string" &&
+    args.targetRow.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY].trim()
+  ) {
+    // Body blocks are intentionally stored outside sourceValues. A reconciled
+    // body hash proves that the hydrated Builder body exists without copying a
+    // large blocks payload into SQL merely to satisfy this gate.
+    effectiveData.blocks = ["reconciled-builder-body"];
+  }
   return modelFields.flatMap((field) => {
     if (!field.required) return [];
     const value = effectiveData[field.name];

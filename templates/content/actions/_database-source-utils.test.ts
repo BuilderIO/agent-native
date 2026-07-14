@@ -9,6 +9,7 @@ import { builderBlocksHash } from "../shared/builder-mdx";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
@@ -24,8 +25,10 @@ import {
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
   builderBodyHydrationVersion,
+  builderBodyUnavailableVersion,
   builderBodyHydrationNeedsLiveBaseline,
   builderBodyHydrationIsCodecMigration,
+  builderBodyHydrationCanAdoptSameVersionVariant,
   builderBodyBaselineHasSameVersionConflict,
   builderAuthoritativeRawBodyHash,
   bulkChunkSizeForColumnCount,
@@ -333,6 +336,33 @@ describe("database source helpers", () => {
     ).toBe("topics");
   });
 
+  it("preserves the configured Builder write tier during read metadata refreshes", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "agent-native-blog-article-test",
+          readState: "live",
+          entryCount: 580,
+          matchedRowCount: 580,
+          existingMetadataJson: JSON.stringify({
+            writeMode: "publish_updates",
+            pushMode: "publish",
+            pushModeLabel: "Publish updates",
+            allowPublicationTransitions: true,
+            allowedWriteModes: ["autosave", "publish"],
+          }),
+        }),
+      ),
+    ).toMatchObject({
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      pushModeLabel: "Publish updates",
+      allowPublicationTransitions: true,
+      allowedWriteModes: ["autosave", "publish"],
+      readMode: "builder-api",
+    });
+  });
+
   it("preserves a raw-reference model learned during required-field materialization", () => {
     expect(
       mergeBuilderCmsModelFieldsPreservingReferenceModels({
@@ -403,6 +433,22 @@ describe("database source helpers", () => {
     );
   });
 
+  it("versions terminal bodyless entries by remote update instead of an empty-body hash", () => {
+    expect(
+      builderBodyUnavailableVersion({
+        id: "entry-1",
+        title: "Bodyless entry",
+        updatedAt: "2026-06-30T00:00:00.000Z",
+        sourceValues: {
+          lastUpdated: "1783976416742",
+          "__builder.body.blocksHash": "empty-body-hash",
+        },
+      }),
+    ).toBe(
+      "1783976416742:readable-native-images-authoritative-raw-baseline-v9",
+    );
+  });
+
   it("requires a live baseline when migrating a stored body codec or repairing a hash", () => {
     expect(
       builderBodyHydrationNeedsLiveBaseline({
@@ -448,6 +494,27 @@ describe("database source helpers", () => {
       builderBodyHydrationIsCodecMigration(
         "15ed04whkyf:readable-native-images-authoritative-raw-baseline-v9",
       ),
+    ).toBe(false);
+  });
+
+  it("adopts a same-version live body variant only while the local document still matches its stored baseline", () => {
+    expect(
+      builderBodyHydrationCanAdoptSameVersionVariant({
+        documentContent: "Imported body\n",
+        persistedContent: "Imported body",
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationCanAdoptSameVersionVariant({
+        documentContent: "Local edit",
+        persistedContent: "Imported body",
+      }),
+    ).toBe(false);
+    expect(
+      builderBodyHydrationCanAdoptSameVersionVariant({
+        documentContent: undefined,
+        persistedContent: "Imported body",
+      }),
     ).toBe(false);
   });
 
@@ -779,6 +846,31 @@ describe("database source helpers", () => {
     });
   });
 
+  it("uses Builder data.title as the outbound title baseline", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey:
+            "How to evaluate vibe coding tools for your enterprise",
+          sourceValuesJson: JSON.stringify({
+            "data.title":
+              "How to Evaluate Vibe Coding Tools for Your Enterprise",
+          }),
+        },
+      ],
+      documentTitleById: new Map([
+        ["doc-1", "How to Evaluate Vibe Coding Tools for Your Enterprise"],
+      ]),
+      storedChangeSets: [],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(0);
+  });
+
   it("detects local Builder body edits as outbound pending changes", () => {
     const [changeSet] = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },
@@ -811,6 +903,7 @@ describe("database source helpers", () => {
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
     expect(changeSet).toMatchObject({
+      id: "local-pending-row-source-change",
       kind: "body_update",
       direction: "outbound",
       state: "pending_push",
@@ -822,6 +915,21 @@ describe("database source helpers", () => {
       },
       riskReasons: ["body diff"],
     });
+
+    const [fieldOnlyChangeSet] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Changed title"]]),
+      storedChangeSets: [],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(fieldOnlyChangeSet?.id).toBe(changeSet?.id);
   });
 
   it("does not report hydrated Builder bodies as edits when the local content still matches the baseline", async () => {
@@ -2182,6 +2290,65 @@ describe("database source helpers", () => {
     expect(mapped.get("doc-natural")?.id).toBe("builder-natural-key");
   });
 
+  it("does not rebind an established Builder row during a partial read", () => {
+    const mapped = mapBuilderCmsEntriesToLocalItems({
+      entries: [
+        {
+          id: "builder-same-title-neighbor",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T12:00:00.000Z",
+        },
+      ],
+      items: [item("doc-established", "Same title")],
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      existingRows: [
+        {
+          documentId: "doc-established",
+          sourceRowId: "builder-established-not-on-this-page",
+          sourceQualifiedId:
+            "builder-cms://blog_article/builder-established-not-on-this-page",
+          provenance: "Builder CMS read adapter",
+        },
+      ] as Parameters<
+        typeof mapBuilderCmsEntriesToLocalItems
+      >[0]["existingRows"],
+    });
+
+    expect(mapped.has("doc-established")).toBe(false);
+  });
+
+  it("allows a synthetic Builder fixture row to adopt a live identity", () => {
+    const mapped = mapBuilderCmsEntriesToLocalItems({
+      entries: [
+        {
+          id: "builder-live",
+          model: "blog_article",
+          title: "Fixture title",
+          urlPath: "/blog/fixture-title",
+          updatedAt: "2026-06-08T12:00:00.000Z",
+        },
+      ],
+      items: [item("doc-fixture", "Fixture title")],
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      existingRows: [
+        {
+          documentId: "doc-fixture",
+          sourceRowId: "builder-doc-fixture",
+          sourceQualifiedId: "builder-cms://blog_article/builder-doc-fixture",
+          provenance: BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
+        },
+      ] as Parameters<
+        typeof mapBuilderCmsEntriesToLocalItems
+      >[0]["existingRows"],
+    });
+
+    expect(mapped.get("doc-fixture")?.id).toBe("builder-live");
+  });
+
   it("matches imported Builder entries by title when no row identity exists yet", () => {
     const mapped = mapBuilderCmsEntriesToLocalItems({
       entries: [
@@ -2375,6 +2542,42 @@ describe("database source helpers", () => {
     ).toEqual({
       "data.title": "Same title",
       [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "new-body-hash",
+    });
+  });
+
+  it("preserves the authoritative hydrated body when an unchanged list read reports a different lightweight hash", () => {
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Same title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: {
+            "data.title": "Same title",
+            lastUpdated: "2026-06-08T13:00:00.000Z",
+            [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "lightweight-list-hash",
+          },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          lastUpdated: "2026-06-08T13:00:00.000Z",
+          [BUILDER_CMS_BODY_LAST_UPDATED_KEY]: "2026-06-08T13:00:00.000Z",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "authoritative-entry-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+          [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
+        }),
+        existingLastSourceUpdatedAt: "2026-06-08T13:00:00.000Z",
+      }),
+    ).toMatchObject({
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "authoritative-entry-hash",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
+      [BUILDER_CMS_BODY_LAST_UPDATED_KEY]: "2026-06-08T13:00:00.000Z",
     });
   });
 

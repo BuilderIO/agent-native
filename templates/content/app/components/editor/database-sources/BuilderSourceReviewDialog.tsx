@@ -295,6 +295,8 @@ export function BuilderSourceReviewDialog({
   error = null,
   checkedAt,
   preparedForExecution = false,
+  autoSelectReviewRows = false,
+  selectionChangeSetIdMap = null,
   onClose,
   onValidate,
   onCancelPrepared,
@@ -311,6 +313,8 @@ export function BuilderSourceReviewDialog({
   error?: string | null;
   checkedAt: string | null;
   preparedForExecution?: boolean;
+  autoSelectReviewRows?: boolean;
+  selectionChangeSetIdMap?: Record<string, string> | null;
   onClose: () => void;
   onValidate: (selection: BuilderReviewSelection) => void;
   onCancelPrepared?: (changeSetId: string) => void;
@@ -352,7 +356,7 @@ export function BuilderSourceReviewDialog({
     const wasOpen = wasOpenRef.current;
     wasOpenRef.current = open;
 
-    if (!open || !wasOpen) {
+    if (!open || (!wasOpen && !autoSelectReviewRows)) {
       setSelectedChangeSetIds([]);
       return;
     }
@@ -361,12 +365,26 @@ export function BuilderSourceReviewDialog({
       reviewRowIdsKey ? reviewRowIdsKey.split("\u0000") : [],
     );
     setSelectedChangeSetIds((current) => {
-      const next = current.filter((changeSetId) =>
-        reviewRowIdSet.has(changeSetId),
-      );
-      return next.length === current.length ? current : next;
+      const next = current
+        .map(
+          (changeSetId) =>
+            selectionChangeSetIdMap?.[changeSetId] ?? changeSetId,
+        )
+        .filter((changeSetId) => reviewRowIdSet.has(changeSetId));
+      if (autoSelectReviewRows && next.length === 0) {
+        return [...reviewRowIdSet];
+      }
+      return next.length === current.length &&
+        next.every((changeSetId, index) => changeSetId === current[index])
+        ? current
+        : next;
     });
-  }, [open, reviewRowIdsKey]);
+  }, [
+    autoSelectReviewRows,
+    open,
+    reviewRowIdsKey,
+    selectionChangeSetIdMap,
+  ]);
   useEffect(() => {
     if (!open || !allowPublicationTransitionControls) {
       setTransitionSelections({});
@@ -379,13 +397,25 @@ export function BuilderSourceReviewDialog({
     setTransitionSelections((current) => {
       const next: BuilderReviewPublicationTransitionSelections = {};
       for (const [changeSetId, selection] of Object.entries(current)) {
-        if (reviewRowIdSet.has(changeSetId)) next[changeSetId] = selection;
+        const mappedChangeSetId =
+          selectionChangeSetIdMap?.[changeSetId] ?? changeSetId;
+        if (reviewRowIdSet.has(mappedChangeSetId)) {
+          next[mappedChangeSetId] = selection;
+        }
       }
-      return Object.keys(next).length === Object.keys(current).length
+      return Object.keys(next).length === Object.keys(current).length &&
+        Object.entries(next).every(
+          ([changeSetId, selection]) => current[changeSetId] === selection,
+        )
         ? current
         : next;
     });
-  }, [allowPublicationTransitionControls, open, reviewRowIdsKey]);
+  }, [
+    allowPublicationTransitionControls,
+    open,
+    reviewRowIdsKey,
+    selectionChangeSetIdMap,
+  ]);
   const selectedChangeSetIdSet = useMemo(
     () => new Set(selectedChangeSetIds),
     [selectedChangeSetIds],
@@ -595,7 +625,7 @@ export function BuilderSourceReviewDialog({
               {t("database.reviewBuilderUpdate")}
             </DialogTitle>
             <DialogDescription className="truncate text-xs text-muted-foreground">
-              {intentSummary}
+              {pending && !review ? "Loading complete diff…" : intentSummary}
             </DialogDescription>
           </div>
           <button
@@ -877,6 +907,19 @@ export function BuilderSourceReviewDialog({
                   {error}
                 </div>
               ) : null}
+            </div>
+          ) : pending ? (
+            <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              Loading the complete Builder diff…
+            </div>
+          ) : error ? (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+            >
+              {error}
             </div>
           ) : (
             <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">

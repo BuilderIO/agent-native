@@ -31,12 +31,15 @@ import {
   databaseBuilderExecutionRequiresReconciliation,
   databaseBuilderReviewAfterExecutionError,
   databaseBuilderReviewBelongsToSource,
+  databaseBuilderPreparedReviewSelection,
+  databaseBuilderReviewExactSelectionIsValid,
   databaseBuilderReviewSelectedChangeSetIds,
   databaseBuilderReviewSelectionIsValid,
   databaseBuilderReviewSessionIsCurrent,
   databaseBuilderReviewSource,
   databaseBuilderWriteModeOperationPending,
   databaseCreatedItemForImmediatePreview,
+  databaseCreatedItemNeedsPreview,
   databaseSearchExpandedItemLimit,
   databaseSearchExpansionIsPending,
   databaseAttachedBuilderSources,
@@ -459,6 +462,7 @@ describe("Builder review source sessions", () => {
   const source = {
     id: "builder-secondary",
     sourceType: "builder-cms",
+    sourceTable: "agent-native-blog-article-test",
     changeSets: [{ id: "change-secondary" }],
   } as ContentDatabaseSource;
   const primary = {
@@ -715,6 +719,76 @@ describe("Builder review source sessions", () => {
       ),
     ).toBe(false);
   });
+
+  it("accepts an exact prepared revision mapping without confusing it for another source", () => {
+    const prepared = {
+      sourceTable: "agent-native-blog-article-test",
+      rows: [{ changeSetId: "change-secondary-revision-deadbeef" }],
+    } as ContentDatabaseSourceReviewPayload;
+
+    expect(
+      databaseBuilderPreparedReviewSelection(
+        prepared,
+        source,
+        ["change-secondary"],
+        [
+          {
+            requestedChangeSetId: "change-secondary",
+            preparedChangeSetId: "change-secondary-revision-deadbeef",
+          },
+        ],
+      ),
+    ).toEqual({
+      preparedChangeSetIds: ["change-secondary-revision-deadbeef"],
+      changeSetIdMap: {
+        "change-secondary": "change-secondary-revision-deadbeef",
+      },
+    });
+    expect(
+      databaseBuilderReviewExactSelectionIsValid(prepared, [
+        "change-secondary-revision-deadbeef",
+      ]),
+    ).toBe(true);
+  });
+
+  it("rejects incomplete, duplicate, and cross-model prepared revision mappings", () => {
+    const prepared = {
+      sourceTable: "agent-native-blog-article-test",
+      rows: [{ changeSetId: "prepared-1" }],
+    } as ContentDatabaseSourceReviewPayload;
+    const mapping = [
+      {
+        requestedChangeSetId: "change-secondary",
+        preparedChangeSetId: "prepared-1",
+      },
+    ];
+
+    expect(
+      databaseBuilderPreparedReviewSelection(
+        prepared,
+        source,
+        ["change-secondary", "change-other"],
+        mapping,
+      ),
+    ).toBeNull();
+    expect(
+      databaseBuilderPreparedReviewSelection(
+        { ...prepared, sourceTable: "blog-article" },
+        source,
+        ["change-secondary"],
+        mapping,
+      ),
+    ).toBeNull();
+    expect(
+      databaseBuilderReviewExactSelectionIsValid(
+        {
+          ...prepared,
+          rows: [{ changeSetId: "prepared-1" }, { changeSetId: "prepared-1" }],
+        } as ContentDatabaseSourceReviewPayload,
+        ["prepared-1"],
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("Builder source pending operations", () => {
@@ -904,6 +978,27 @@ describe("large database authoring", () => {
     expect(
       databasePreviewItem(response.items, "created-document", createdItem),
     ).toBe(createdItem);
+  });
+
+  it("opens a created row in preview when pagination keeps its inline editor off-screen", () => {
+    const createdItem = {
+      id: "created-item",
+      document: { id: "created-document" },
+    } as ContentDatabaseItem;
+
+    expect(
+      databaseCreatedItemNeedsPreview([], createdItem, {
+        openAfterCreate: false,
+        focusInlineTitle: true,
+      }),
+    ).toBe(true);
+    expect(
+      databaseCreatedItemNeedsPreview([createdItem], createdItem, {
+        openAfterCreate: false,
+        focusInlineTitle: true,
+      }),
+    ).toBe(false);
+    expect(databaseCreatedItemNeedsPreview([], createdItem, {})).toBe(true);
   });
 
   it("hydrates only rows whose own membership names a Builder source", () => {

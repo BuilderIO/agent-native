@@ -3,15 +3,20 @@ import { z } from "zod";
 
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api.js";
 import { lookupBuilderCmsSafeModelIntent } from "./_builder-cms-intent-lookup.js";
-import { readBuilderCmsEntryLiveState } from "./_builder-cms-read-client.js";
+import {
+  readBuilderCmsContentEntry,
+  readBuilderCmsEntryLiveState,
+  summarizeBuilderCmsEntryFidelity,
+} from "./_builder-cms-read-client.js";
 
 export default defineAction({
   description:
-    "Read-only reconciliation lookup in the safe Builder test model by exact durable execution marker or exact title. Returns count, IDs, timestamps, publication state, and a fresh semantic body hash.",
+    "Read-only reconciliation lookup in the safe Builder test model by exact durable execution marker or exact title. Returns count, IDs, timestamps, publication state, a fresh semantic body hash, and optional bounded rich-content fidelity counts.",
   schema: z
     .object({
       marker: z.string().min(1).optional(),
       exactTitle: z.string().min(1).optional(),
+      includeFidelity: z.boolean().optional(),
     })
     .refine((value) => Boolean(value.marker) !== Boolean(value.exactTitle), {
       message: "Provide exactly one of marker or exactTitle.",
@@ -28,7 +33,21 @@ export default defineAction({
             model: BUILDER_CMS_SAFE_WRITE_MODEL,
             entryId: match.id,
           });
-          return { ...match, blocksHash: live.blocksHash };
+          const entry = args.includeFidelity
+            ? await readBuilderCmsContentEntry({
+                model: BUILDER_CMS_SAFE_WRITE_MODEL,
+                entryId: match.id,
+              })
+            : null;
+          return {
+            ...match,
+            blocksHash: live.blocksHash,
+            ...(args.includeFidelity
+              ? entry
+                ? summarizeBuilderCmsEntryFidelity(entry)
+                : { fidelityUnavailable: true }
+              : {}),
+          };
         }),
       ),
     };

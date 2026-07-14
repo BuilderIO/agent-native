@@ -71,6 +71,9 @@ describe("Builder CMS write settings", () => {
     });
     expect(JSON.parse(next.metadataJson)).toMatchObject({
       pushMode: "publish",
+      pushModeLabel: "Publish updates",
+      pushModeDescription:
+        "Review, update, and publish existing Builder entries. New entries are never created by this mode.",
       writeMode: "publish_updates",
       allowedWriteModes: ["autosave", "publish"],
     });

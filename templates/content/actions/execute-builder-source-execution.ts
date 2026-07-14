@@ -359,10 +359,11 @@ function parseSourceValues(
   }
 }
 
-function builderCmsReconciledSourceValuesJson(args: {
+export function builderCmsReconciledSourceValuesJson(args: {
   existingSourceValuesJson: string | null | undefined;
   snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
   changeSet: ContentDatabaseSourceChangeSet;
+  plan: BuilderCmsExecutionPlan;
 }) {
   const next = {
     ...(args.snapshotSourceValues ?? {}),
@@ -381,6 +382,32 @@ function builderCmsReconciledSourceValuesJson(args: {
     }
     if (bodyChange.sidecarsJson !== undefined) {
       next[BUILDER_CMS_BODY_SIDECARS_KEY] = bodyChange.sidecarsJson;
+    }
+  }
+  const requestData = args.plan.payload.request.body.data;
+  if (
+    requestData &&
+    typeof requestData === "object" &&
+    !Array.isArray(requestData)
+  ) {
+    for (const [fieldName, value] of Object.entries(requestData)) {
+      // Builder blocks remain in body/blob storage. The compact body hash above
+      // is the durable proof used by later required-field validation.
+      if (fieldName === "blocks") continue;
+      const sourceFieldKey = `data.${fieldName}`;
+      next[sourceFieldKey] = value as DocumentPropertyValue;
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (value as Record<string, unknown>)["@type"] ===
+          "@builder.io/core:Reference" &&
+        typeof (value as Record<string, unknown>).id === "string"
+      ) {
+        next[`__agent_native_builder_reference_id:${sourceFieldKey}`] = (
+          value as Record<string, unknown>
+        ).id as string;
+      }
     }
   }
   return JSON.stringify(next);
@@ -560,6 +587,7 @@ async function reconcileBuilderCmsWrite(args: {
     existingSourceValuesJson: row?.sourceValuesJson,
     snapshotSourceValues: snapshotRow?.sourceValues,
     changeSet: args.changeSet,
+    plan: args.plan,
   });
   const patchWithValues = {
     ...patch,

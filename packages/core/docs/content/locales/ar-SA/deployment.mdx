@@ -333,12 +333,13 @@ export default defineConfig({
 
 ### الإنشاء/وقت التشغيل {#env-runtime}
 
-| متغير                       | الوصف                                                                                                                                         |
-| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | منفذ الخادم (Node.js فقط)                                                                                                                     |
-| `NITRO_PRESET`              | تجاوز الإعداد المسبق للإنشاء في وقت الإنشاء                                                                                                   |
-| `APP_BASE_PATH`             | قم بتثبيت التطبيق تحت بادئة (مثل `/mail`). يتم ضبطه تلقائيًا بواسطة `npx @agent-native/core@latest deploy`؛ اتركه بدون ضبط للوضع المستقل.     |
-| `AGENT_PROD_CODE_EXECUTION` | وضع تنفيذ كود الإنتاج الاختياري: `off` (افتراضي)، أو `sandboxed`، أو `trusted`. انظر [Production Code Execution](#production-code-execution). |
+| متغير                               | الوصف                                                                                                                                                                                                                         |
+| ----------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                              | منفذ الخادم (Node.js فقط)                                                                                                                                                                                                     |
+| `NITRO_PRESET`                      | تجاوز الإعداد المسبق للإنشاء في وقت الإنشاء                                                                                                                                                                                   |
+| `APP_BASE_PATH`                     | قم بتثبيت التطبيق تحت بادئة (مثل `/mail`). يتم ضبطه تلقائيًا بواسطة `npx @agent-native/core@latest deploy`؛ اتركه بدون ضبط للوضع المستقل.                                                                                     |
+| `AGENT_PROD_CODE_EXECUTION`         | وضع تنفيذ كود الإنتاج الاختياري: `off` (افتراضي)، أو `sandboxed`، أو `trusted`. انظر [Production Code Execution](#production-code-execution).                                                                                 |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET` | سر HMAC مشترك ومخصص مكوّن من 32 حرفاً أو أكثر لترحيل تفويض Builder بأمان إلى المعاينات. عيّن القيمة نفسها في نشر رد الاتصال المؤسسي المعتمد وعمليات نشر المعاينة فقط عندما يجب أن يصل التفويض إلى قاعدة بيانات معاينة معزولة. |
 
 متغيرات اتصال قاعدة البيانات (`DATABASE_URL`، `DATABASE_AUTH_TOKEN`، `<APP_NAME>_DATABASE_URL` لكل تطبيق) موجودة في [Database](/docs/database#production).
 
@@ -373,7 +374,7 @@ export default defineConfig({
 
 ### توليد أسرار قوية {#env-generate-secrets}
 
-بالنسبة لأي سر تم وضع علامة "32+ حرف عشوائي" (`BETTER_AUTH_SECRET`، `OAUTH_STATE_SECRET`، `A2A_SECRET`، `SECRETS_ENCRYPTION_KEY`)، قم بإنشاء قيم جديدة باستخدام:
+بالنسبة لأي سر تم وضع علامة "32+ حرف عشوائي" (`BETTER_AUTH_SECRET`، `OAUTH_STATE_SECRET`، `A2A_SECRET`، `SECRETS_ENCRYPTION_KEY`، `AGENT_NATIVE_BUILDER_RELAY_SECRET`)، قم بإنشاء قيم جديدة باستخدام:
 
 ```bash
 openssl rand -hex 32

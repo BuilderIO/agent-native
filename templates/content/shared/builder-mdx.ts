@@ -532,6 +532,11 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     const name = componentName(block);
     const options = componentOptions(block);
     if (name === "Text") {
+      const table = possibleNativeTableHtml(String(options.text ?? ""));
+      if (table) {
+        fingerprint.push("prose");
+        continue;
+      }
       for (const unit of markdownUnits(
         htmlToMarkdown(String(options.text ?? "")),
       )) {
@@ -545,6 +550,10 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     }
     if (name === "Image") {
       if (builderImageMarkdown(options)) fingerprint.push("prose");
+      continue;
+    }
+    if (name === "Video") {
+      if (builderVideoMdx(options)) fingerprint.push("prose");
       continue;
     }
     if (name === "Tabbed Content") {
@@ -1197,7 +1206,8 @@ async function builderBlockToReadableMdx(
   const mapping = builderSourceComponentMappingFor(name);
 
   if (name === "Text") {
-    return htmlToMarkdown(String(options.text ?? "")).trim();
+    const table = await validatedNativeTableHtml(String(options.text ?? ""));
+    return table ?? htmlToMarkdown(String(options.text ?? "")).trim();
   }
 
   if (name === "Code Block" || name === "Blog Code Block") {
@@ -1209,6 +1219,10 @@ async function builderBlockToReadableMdx(
 
   if (name === "Image") {
     return builderImageMarkdown(options);
+  }
+
+  if (name === "Video") {
+    return builderVideoMdx(options);
   }
 
   if (name === "Tabbed Content") {
@@ -1312,7 +1326,7 @@ function fencedCodeFromMarkdown(markdown: string) {
 }
 
 interface ReadableEditableSegment {
-  kind: "text" | "code" | "image" | "tab-label";
+  kind: "text" | "table" | "code" | "image" | "video" | "tab-label";
   block: Record<string, unknown>;
   baseline: string;
 }
@@ -1333,8 +1347,12 @@ function collectReadableEditableSegments(
     const name = componentName(block);
     const options = componentOptions(block);
     if (name === "Text") {
-      const baseline = htmlToMarkdown(String(options.text ?? "")).trim();
-      if (baseline) segments.push({ kind: "text", block, baseline });
+      const rawText = String(options.text ?? "").trim();
+      const table = possibleNativeTableHtml(rawText);
+      const baseline = table ?? htmlToMarkdown(rawText).trim();
+      if (baseline) {
+        segments.push({ kind: table ? "table" : "text", block, baseline });
+      }
       continue;
     }
     if (name === "Code Block" || name === "Blog Code Block") {
@@ -1345,6 +1363,11 @@ function collectReadableEditableSegments(
     if (name === "Image") {
       const baseline = builderImageMarkdown(options);
       if (baseline) segments.push({ kind: "image", block, baseline });
+      continue;
+    }
+    if (name === "Video") {
+      const baseline = builderVideoMdx(options);
+      if (baseline) segments.push({ kind: "video", block, baseline });
       continue;
     }
     if (name === "Tabbed Content") {
@@ -1389,6 +1412,9 @@ function builderBlockHasReadableOutput(block: unknown): boolean {
   if (name === "Image") {
     return builderImageMarkdown(options).trim().length > 0;
   }
+  if (name === "Video") {
+    return builderVideoMdx(options).trim().length > 0;
+  }
   if (name === "Tabbed Content") {
     const tabs = Array.isArray(options.tabs) ? options.tabs : [];
     return tabs.some((tab) => {
@@ -1414,7 +1440,8 @@ function countExpectedReadableSourceComponentMarkers(
       name === "Text" ||
       name === "Code Block" ||
       name === "Blog Code Block" ||
-      name === "Image"
+      name === "Image" ||
+      name === "Video"
     ) {
       continue;
     }
@@ -1532,6 +1559,18 @@ export async function builderReadableBodyToBuilderBlocks(args: {
     } else if (segment.kind === "text") {
       const options = ensureComponentOptions(segment.block, "Text");
       options.text = markdownToBuilderTextHtml(nextMarkdown);
+    } else if (segment.kind === "table") {
+      const table = await validatedNativeTableHtml(nextMarkdown);
+      if (!table) {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder table changed into unsupported markup; keep it as a native Content table before pushing.",
+          ],
+        };
+      }
+      const options = ensureComponentOptions(segment.block, "Text");
+      options.text = table;
     } else if (segment.kind === "image") {
       const options = ensureComponentOptions(segment.block, "Image");
       const image = parseMarkdownImage(nextMarkdown);
@@ -1545,6 +1584,22 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       }
       options.image = image.src;
       options.altText = image.alt;
+    } else if (segment.kind === "video") {
+      const root = await parseMdxRoot(nextMarkdown);
+      const children = root.children ?? [];
+      const node = children.length === 1 ? children[0] : undefined;
+      if (!node || node.name !== "video") {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder video changed into unsupported markup; keep it as a native Content video before pushing.",
+          ],
+        };
+      }
+      const converted = freshVideoBlock(node, nextMarkdown);
+      const options = ensureComponentOptions(segment.block, "Video");
+      Object.keys(options).forEach((key) => delete options[key]);
+      Object.assign(options, componentOptions(converted));
     } else {
       const options = ensureComponentOptions(
         segment.block,
@@ -1813,6 +1868,142 @@ function freshTextBlock(markdown: string): unknown {
   };
 }
 
+const BUILDER_TABLE_TAGS = new Set([
+  "table",
+  "colgroup",
+  "col",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "th",
+  "td",
+  "p",
+  "strong",
+  "em",
+  "code",
+  "span",
+  "a",
+  "br",
+]);
+
+function assertSafeBuilderTableAttribute(
+  tag: string,
+  name: string,
+  value: string | null,
+) {
+  if (name === "class" && tag === "table" && value === "notion-table") {
+    return;
+  }
+  if (name === "class" && tag === "span" && value === "dark-mode-invert") {
+    return;
+  }
+  if (
+    name === "style" &&
+    (tag === "table" || tag === "col") &&
+    typeof value === "string" &&
+    /^min-width:\s*\d+(?:\.\d+)?px;?$/.test(value.trim())
+  ) {
+    return;
+  }
+  if (
+    (name === "colspan" || name === "rowspan") &&
+    (tag === "th" || tag === "td") &&
+    typeof value === "string" &&
+    /^[1-9]\d*$/.test(value)
+  ) {
+    return;
+  }
+  if (
+    name === "colwidth" &&
+    (tag === "th" || tag === "td") &&
+    typeof value === "string" &&
+    /^\d+(?:,\d+)*$/.test(value)
+  ) {
+    return;
+  }
+  if (
+    name === "href" &&
+    tag === "a" &&
+    typeof value === "string" &&
+    value.trim()
+  ) {
+    const href = safeLiteralMediaUrl(value.trim(), "table link");
+    if (href.protocol === "https:" || href.protocol === "http:") return;
+  }
+  throw new Error(`Unsupported Builder table attribute: ${tag}.${name}.`);
+}
+
+function assertSafeBuilderTableNode(node: MdxNode) {
+  if (
+    node.type === "mdxFlowExpression" ||
+    node.type === "mdxTextExpression" ||
+    node.type === "mdxjsEsm"
+  ) {
+    throw new Error("Unsupported dynamic syntax inside Builder table.");
+  }
+  if (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") {
+    const tag = node.name?.toLowerCase() ?? "";
+    if (!BUILDER_TABLE_TAGS.has(tag)) {
+      throw new Error(
+        `Unsupported Builder table component: <${node.name || "unknown"}>.`,
+      );
+    }
+    for (const attribute of node.attributes ?? []) {
+      if (
+        attribute.type !== "mdxJsxAttribute" ||
+        !attribute.name ||
+        (attribute.value !== null && typeof attribute.value !== "string")
+      ) {
+        throw new Error("Builder table attributes must be literal values.");
+      }
+      assertSafeBuilderTableAttribute(
+        tag,
+        attribute.name.toLowerCase(),
+        attribute.value ?? null,
+      );
+    }
+  }
+  for (const child of node.children ?? []) {
+    assertSafeBuilderTableNode(child);
+  }
+}
+
+function possibleNativeTableHtml(value: string) {
+  const trimmed = value.trim();
+  return /^<table\b[\s\S]*<\/table>$/.test(trimmed) ? trimmed : null;
+}
+
+async function validatedNativeTableHtml(value: string) {
+  const candidate = possibleNativeTableHtml(value);
+  if (!candidate) return null;
+  const root = await parseMdxRoot(candidate);
+  const children = root.children ?? [];
+  if (children.length !== 1 || children[0]?.name !== "table") return null;
+  assertSafeBuilderTableNode(children[0]);
+  return candidate;
+}
+
+function freshTableBlock(node: MdxNode, raw: string): unknown {
+  assertSafeBuilderTableNode(node);
+  return {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: `builder-mdx-table-${stableHash(raw).slice(0, 16)}`,
+    component: {
+      name: "Text",
+      options: { text: raw },
+    },
+    responsiveStyles: {
+      large: {
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      },
+    },
+  };
+}
+
 function freshImageBlock(markdown: string): unknown | null {
   const image = parseMarkdownImage(markdown);
   if (!image?.src) {
@@ -1855,6 +2046,56 @@ function freshImageBlock(markdown: string): unknown | null {
       },
     },
   };
+}
+
+function nodeBlocksWithStandaloneImages(
+  body: string,
+  node: MdxNode,
+): unknown[] | null {
+  const nodeStart = node.position?.start?.offset;
+  const nodeEnd = node.position?.end?.offset;
+  if (typeof nodeStart !== "number" || typeof nodeEnd !== "number") {
+    return null;
+  }
+  const standaloneImages: MdxNode[] = [];
+  const visit = (candidate: MdxNode) => {
+    if (candidate.type === "image") {
+      const start = candidate.position?.start?.offset;
+      const end = candidate.position?.end?.offset;
+      if (typeof start !== "number" || typeof end !== "number") return;
+      const lineStart = body.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+      const nextNewline = body.indexOf("\n", end);
+      const lineEnd = nextNewline === -1 ? body.length : nextNewline;
+      if (
+        body.slice(lineStart, start).trim() === "" &&
+        body.slice(end, lineEnd).trim() === ""
+      ) {
+        standaloneImages.push(candidate);
+      }
+      return;
+    }
+    for (const child of candidate.children ?? []) visit(child);
+  };
+  visit(node);
+  if (standaloneImages.length === 0) return null;
+
+  const blocks: unknown[] = [];
+  let cursor = nodeStart;
+  for (const imageNode of standaloneImages) {
+    const start = imageNode.position!.start!.offset!;
+    const end = imageNode.position!.end!.offset!;
+    const prose = body.slice(cursor, start).trim();
+    if (prose) blocks.push(freshTextBlock(prose));
+    const image = freshImageBlock(body.slice(start, end));
+    if (!image) {
+      throw new Error("Builder standalone image could not be converted.");
+    }
+    blocks.push(image);
+    cursor = end;
+  }
+  const trailingProse = body.slice(cursor, nodeEnd).trim();
+  if (trailingProse) blocks.push(freshTextBlock(trailingProse));
+  return blocks;
 }
 
 function isEmptyEditorBlockSentinel(node: MdxNode, raw: string) {
@@ -2020,6 +2261,58 @@ function freshVideoBlock(node: MdxNode, raw: string): unknown {
       },
     },
   };
+}
+
+function builderVideoMdx(options: Record<string, unknown>) {
+  const source =
+    typeof options.video === "string"
+      ? options.video.trim()
+      : typeof options.src === "string"
+        ? options.src.trim()
+        : "";
+  if (!source) return "";
+  let src: string;
+  try {
+    src = safeLiteralMediaUrl(source, "src").toString();
+  } catch {
+    return "";
+  }
+  if (!new URL(src).pathname.toLowerCase().endsWith(".mp4")) return "";
+
+  const attributes = [`src="${escapeHtml(src)}"`];
+  const poster =
+    typeof options.posterImage === "string" ? options.posterImage.trim() : "";
+  if (poster) {
+    try {
+      attributes.push(
+        `poster="${escapeHtml(safeLiteralMediaUrl(poster, "poster").toString())}"`,
+      );
+    } catch {
+      return "";
+    }
+  }
+  if (
+    typeof options.preload === "string" &&
+    new Set(["none", "metadata", "auto"]).has(options.preload)
+  ) {
+    attributes.push(`preload="${options.preload}"`);
+  }
+  for (const [option, attribute] of [
+    ["autoPlay", "autoplay"],
+    ["controls", "controls"],
+    ["muted", "muted"],
+    ["loop", "loop"],
+    ["playsInline", "playsinline"],
+  ] as const) {
+    if (options[option] === true) attributes.push(attribute);
+  }
+  for (const dimension of ["width", "height"] as const) {
+    const value = options[dimension];
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      attributes.push(`${dimension}="${value}"`);
+    }
+  }
+  return `<video ${attributes.join(" ")}></video>`;
 }
 
 function rawBlockForData(
@@ -2231,6 +2524,10 @@ export async function builderMdxBodyToBuilderBlocks(
         blocks.push(freshVideoBlock(child, raw));
         continue;
       }
+      if (child.name === "table") {
+        blocks.push(freshTableBlock(child, raw));
+        continue;
+      }
       const block = await blockFromMdxComponent(raw, sidecars);
       if (block) {
         blocks.push(block);
@@ -2249,6 +2546,11 @@ export async function builderMdxBodyToBuilderBlocks(
       throw new Error(
         "Unsupported Builder MDX component: <empty-block>. Only an attribute-free, self-closing Content editor sentinel can be omitted.",
       );
+    }
+    const splitBlocks = nodeBlocksWithStandaloneImages(body, child);
+    if (splitBlocks) {
+      blocks.push(...splitBlocks);
+      continue;
     }
     const imageBlock = freshImageBlock(raw);
     if (imageBlock) {
@@ -2436,6 +2738,13 @@ export function htmlToMarkdown(html: string) {
   let source = html.trim();
   if (!source) return "";
   source = replaceHtmlListsWithMarkdown(source)
+    .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_match, body) => {
+      const quote = htmlToMarkdown(body);
+      return `\n${quote
+        .split("\n")
+        .map((line) => `> ${line}`.trimEnd())
+        .join("\n")}\n`;
+    })
     .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level, body) => {
       return `\n${"#".repeat(Number(level))} ${inlineHtmlToMarkdown(body)}\n`;
     })
@@ -2445,7 +2754,7 @@ export function htmlToMarkdown(html: string) {
     .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_match, body) => {
       return `\n- ${inlineHtmlToMarkdown(body)}\n`;
     })
-    .replace(/<\/?(ul|ol|blockquote)[^>]*>/gi, "\n");
+    .replace(/<\/?(ul|ol)[^>]*>/gi, "\n");
   return inlineHtmlToMarkdown(source)
     .split(/\n{2,}/)
     .map((part) => part.trim())
@@ -2496,6 +2805,14 @@ export function markdownToBuilderTextHtml(markdown: string) {
       flushList();
       const level = heading[1].length;
       html.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`);
+      continue;
+    }
+    const quote = trimmed.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushList();
+      html.push(
+        `<blockquote><p>${inlineMarkdownToHtml(quote[1])}</p></blockquote>`,
+      );
       continue;
     }
     const unorderedList = trimmed.match(/^[-*]\s+(.+)$/);

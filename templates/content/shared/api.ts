@@ -352,6 +352,7 @@ export type ContentDatabaseBodyHydrationState =
   | "pending"
   | "hydrating"
   | "hydrated"
+  | "unavailable"
   | "error";
 
 export interface ContentDatabaseBodyHydration {
@@ -365,6 +366,7 @@ export interface ContentDatabaseBodyHydrationSummary {
   pending: number;
   hydrating: number;
   hydrated: number;
+  unavailable?: number;
   error: number;
   total: number;
 }
@@ -1160,12 +1162,36 @@ export interface ContentDatabaseSourceReviewPayload {
   };
 }
 
+export interface PreviewBuilderSourceReviewRequest {
+  databaseId?: string;
+  documentId?: string;
+  sourceId?: string;
+  scope?: "selected" | "all";
+  documentIds?: string[];
+}
+
+export interface PreviewBuilderSourceReviewResponse {
+  sourceId: string;
+  sourceTable: string;
+  changeSetIds: string[];
+  review: ContentDatabaseSourceReviewPayload | null;
+}
+
 export interface PrepareBuilderSourceReviewResponse {
   database: ContentDatabase;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
   review: ContentDatabaseSourceReviewPayload;
+  /**
+   * Maps the operator-selected diff identities to the immutable change-set
+   * identities prepared for execution. These differ when a cancelled or
+   * otherwise closed synthetic diff is reviewed again as a new revision.
+   */
+  preparedChangeSetMappings: Array<{
+    requestedChangeSetId: string;
+    preparedChangeSetId: string;
+  }>;
   timings?: BuilderActionTiming[];
 }
 

@@ -123,7 +123,7 @@ function maxRisk(
   return riskRank(next) > riskRank(current) ? next : current;
 }
 
-function reviewPreparePriority(changeSet: ContentDatabaseSourceChangeSet) {
+export function reviewPreparePriority(changeSet: ContentDatabaseSourceChangeSet) {
   if (changeSet.state === "pending_push") return 0;
   if (changeSet.state === "staged_revision") return 1;
   return 2;
@@ -718,6 +718,8 @@ export default defineAction({
       const reviewerEmail =
         getRequestUserEmail() ?? "agent-runtime@agent-native.local";
       const approvedIds: string[] = [];
+      const preparedChangeSetMappings: PrepareBuilderSourceReviewResponse["preparedChangeSetMappings"] =
+        [];
       for (const changeSet of reviewableChanges) {
         const approved = await approveChangeSetForReview({
           sourceId: snapshot.id,
@@ -727,6 +729,10 @@ export default defineAction({
           now,
         });
         approvedIds.push(approved.id);
+        preparedChangeSetMappings.push({
+          requestedChangeSetId: changeSet.id,
+          preparedChangeSetId: approved.id,
+        });
         const transition =
           args.transitions?.[changeSet.id] ?? args.transitions?.[approved.id];
         await upsertExecutionGate({
@@ -784,6 +790,7 @@ export default defineAction({
       const result = {
         ...response,
         review,
+        preparedChangeSetMappings,
         timings: timing.finish(),
       };
       timing.log("succeeded");

@@ -27,6 +27,7 @@ import type {
   ExecuteBuilderSourceExecutionRequest,
   MoveDatabaseItemRequest,
   PrepareBuilderSourceExecutionRequest,
+  PreviewBuilderSourceReviewResponse,
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
   ProcessBuilderBodyHydrationRequest,
@@ -1137,6 +1138,33 @@ export function usePrepareBuilderSourceReview(documentId: string) {
       });
     },
   });
+}
+
+export function usePreviewBuilderSourceReview(args: {
+  documentId: string;
+  sourceId: string | null;
+  scope: "selected" | "all";
+  documentIds?: string[];
+  enabled: boolean;
+}) {
+  return useActionQuery<PreviewBuilderSourceReviewResponse>(
+    "preview-builder-source-review",
+    args.enabled && args.sourceId
+      ? {
+          documentId: args.documentId,
+          sourceId: args.sourceId,
+          scope: args.scope,
+          documentIds: args.documentIds,
+        }
+      : undefined,
+    {
+      enabled: args.enabled && !!args.sourceId,
+      retry: false,
+      staleTime: 0,
+      gcTime: 0,
+      refetchOnWindowFocus: false,
+    },
+  );
 }
 
 export function useStageBuilderSourceBulkUpdate(documentId: string) {

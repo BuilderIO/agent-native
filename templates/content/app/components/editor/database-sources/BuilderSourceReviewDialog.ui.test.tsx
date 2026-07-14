@@ -149,6 +149,7 @@ describe("BuilderSourceReviewDialog row selection", () => {
       rows: [
         {
           ...review.rows[1]!,
+          changeSetId: "change-2-revision-deadbeef",
           bodyChange: {
             summary: "Builder body blocks changed.",
             currentExcerpt: "Old body",
@@ -174,6 +175,9 @@ describe("BuilderSourceReviewDialog row selection", () => {
           pending={false}
           checkedAt={null}
           preparedForExecution
+          selectionChangeSetIdMap={{
+            "change-2": "change-2-revision-deadbeef",
+          }}
           onClose={vi.fn()}
           onValidate={onValidate}
         />,
@@ -196,7 +200,7 @@ describe("BuilderSourceReviewDialog row selection", () => {
     act(() => confirmationCta?.click());
     expect(onValidate).toHaveBeenCalledTimes(2);
     expect(onValidate).toHaveBeenLastCalledWith({
-      changeSetIds: ["change-2"],
+      changeSetIds: ["change-2-revision-deadbeef"],
       transitions: {},
     });
   });
@@ -230,6 +234,79 @@ describe("BuilderSourceReviewDialog row selection", () => {
 
     expect(document.body.textContent).toContain(
       "Builder entry 1ce2e96574be4b22baf1e11480520205",
+    );
+  });
+
+  it("automatically selects an explicitly scoped review", () => {
+    const onValidate = vi.fn();
+    act(() => {
+      root.render(
+        <BuilderSourceReviewDialog
+          open
+          review={review}
+          source={source}
+          canEdit
+          pending={false}
+          checkedAt={null}
+          autoSelectReviewRows
+          onClose={vi.fn()}
+          onValidate={onValidate}
+        />,
+      );
+    });
+
+    const rowCheckboxes = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('[role="checkbox"]'),
+    );
+    expect(rowCheckboxes).toHaveLength(3);
+    expect(
+      rowCheckboxes.every(
+        (checkbox) => checkbox.getAttribute("data-state") === "checked",
+      ),
+    ).toBe(true);
+    const cta = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>("button"),
+    ).find((button) => button.textContent?.includes("Review details"));
+    expect(cta?.disabled).toBe(false);
+  });
+
+  it("distinguishes loading and failed previews from a true empty diff", () => {
+    act(() => {
+      root.render(
+        <BuilderSourceReviewDialog
+          open
+          review={null}
+          source={source}
+          canEdit
+          pending
+          checkedAt={null}
+          onClose={vi.fn()}
+          onValidate={vi.fn()}
+        />,
+      );
+    });
+    expect(document.body.textContent).toContain("Loading the complete Builder diff");
+    expect(document.body.textContent).not.toContain(
+      "database.noPendingLocalBuilderChanges",
+    );
+
+    act(() => {
+      root.render(
+        <BuilderSourceReviewDialog
+          open
+          review={null}
+          source={source}
+          canEdit
+          pending={false}
+          error="Preview failed safely."
+          checkedAt={null}
+          onClose={vi.fn()}
+          onValidate={vi.fn()}
+        />,
+      );
+    });
+    expect(document.body.querySelector('[role="alert"]')?.textContent).toBe(
+      "Preview failed safely.",
     );
   });
 

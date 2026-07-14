@@ -165,6 +165,7 @@ import {
   useMaterializeBuilderRequiredFields,
   useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
+  usePreviewBuilderSourceReview,
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
@@ -443,6 +444,19 @@ export function databasePreviewItem(
       ? createdPreviewItem
       : null)
   );
+}
+
+export function databaseCreatedItemNeedsPreview(
+  items: ContentDatabaseItem[],
+  createdItem: ContentDatabaseItem,
+  options: {
+    openAfterCreate?: boolean;
+    focusInlineTitle?: boolean;
+  },
+) {
+  if (options.openAfterCreate !== false) return true;
+  if (!options.focusInlineTitle) return false;
+  return !items.some((item) => item.id === createdItem.id);
 }
 
 type DatabaseDragPreviewState =
@@ -752,6 +766,8 @@ function DatabaseTable({
     preparedBuilderReviewConfirmation,
     setPreparedBuilderReviewConfirmation,
   ] = useState<PreparedBuilderReviewConfirmation | null>(null);
+  const [builderReviewSelectionRemap, setBuilderReviewSelectionRemap] =
+    useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
@@ -899,6 +915,20 @@ function DatabaseTable({
     source,
     builderReviewSourceId,
   );
+  const builderReviewPreviewQuery = usePreviewBuilderSourceReview({
+    documentId: document.id,
+    sourceId: builderReviewSourceId,
+    scope: selectedItemIds.length > 0 ? "selected" : "all",
+    documentIds: selectedItems.map((item) => item.document.id),
+    enabled: builderReviewOpen,
+  });
+  const completeBuilderReviewPreview =
+    builderReviewPreviewQuery.data &&
+    builderReviewSource &&
+    builderReviewPreviewQuery.data.sourceId === builderReviewSource.id &&
+    builderReviewPreviewQuery.data.sourceTable === builderReviewSource.sourceTable
+      ? builderReviewPreviewQuery.data
+      : null;
   const builderReviewChangeSets = useMemo(
     () => builderReviewableChangeSets(builderReviewSource),
     [builderReviewSource],
@@ -913,7 +943,11 @@ function DatabaseTable({
         : null,
     [builderReviewChangeSets, builderReviewSource],
   );
-  const activeBuilderReview = builderReviewResult ?? builderReviewPreview;
+  const activeBuilderReview =
+    builderReviewResult ??
+    (builderReviewOpen
+      ? (completeBuilderReviewPreview?.review ?? null)
+      : builderReviewPreview);
   const sourcePendingOperations: DatabaseSourcePendingOperations = {
     attach: attachSource.isPending,
     changeRole: changeSourceRole.isPending,
@@ -1293,12 +1327,15 @@ function DatabaseTable({
       title,
       propertyValues,
     });
-    if (createdItem && options.openAfterCreate !== false) {
+    const needsPreview =
+      !!createdItem &&
+      databaseCreatedItemNeedsPreview(items, createdItem, options);
+    if (createdItem && needsPreview) {
       setCreatedPreviewItem(createdItem);
       setPreviewDocumentId(createdItem.document.id);
       setPreviewTitleFocusDocumentId(createdItem.document.id);
     }
-    if (createdItem && options.focusInlineTitle) {
+    if (createdItem && options.focusInlineTitle && !needsPreview) {
       setInlineTitleFocusDocumentId(createdItem.document.id);
     }
     return createdItem ?? null;
@@ -1592,6 +1629,7 @@ function DatabaseTable({
     setBuilderReviewCheckedAt(null);
     setBuilderReviewError(null);
     setPreparedBuilderReviewConfirmation(null);
+    setBuilderReviewSelectionRemap(null);
     setBuilderReviewOpen(true);
   }
 
@@ -1612,6 +1650,7 @@ function DatabaseTable({
     setBuilderReviewCheckedAt(null);
     setBuilderReviewError(null);
     setPreparedBuilderReviewConfirmation(null);
+    setBuilderReviewSelectionRemap(null);
   }
 
   async function handleBuilderReviewPush(selection: {
@@ -1637,6 +1676,9 @@ function DatabaseTable({
         activeBuilderReview,
         reviewSource,
         selection.changeSetIds,
+        !builderReviewResult
+          ? completeBuilderReviewPreview?.changeSetIds
+          : undefined,
       )
     ) {
       toast.error(dbText("builderUpdateFailed"), {
@@ -1648,6 +1690,9 @@ function DatabaseTable({
       activeBuilderReview,
       reviewSource,
       selection.changeSetIds,
+      !builderReviewResult
+        ? completeBuilderReviewPreview?.changeSetIds
+        : undefined,
     )!;
     const selectedChangeSetIdSet = new Set(selectedChangeSetIds);
     const selectionFingerprint = builderReviewSelectionFingerprint({
@@ -1684,31 +1729,44 @@ function DatabaseTable({
         ) {
           return;
         }
-        if (
-          !databaseBuilderReviewSelectionIsValid(
-            prepared.review,
-            reviewSource,
-            selectedChangeSetIds,
-            true,
-          )
-        ) {
+        const preparedSelection = databaseBuilderPreparedReviewSelection(
+          prepared.review,
+          reviewSource,
+          selectedChangeSetIds,
+          prepared.preparedChangeSetMappings,
+        );
+        if (!preparedSelection) {
           throw new Error(
             "The prepared Builder review returned changes from another source.",
           );
         }
 
+        const preparedTransitions = Object.fromEntries(
+          Object.entries(selection.transitions).map(
+            ([changeSetId, transition]) => [
+              preparedSelection.changeSetIdMap[changeSetId] ?? changeSetId,
+              transition,
+            ],
+          ),
+        );
+        const preparedSelectionFingerprint = builderReviewSelectionFingerprint({
+          changeSetIds: preparedSelection.preparedChangeSetIds,
+          transitions: preparedTransitions,
+        });
+        setBuilderReviewSelectionRemap(preparedSelection.changeSetIdMap);
         setBuilderReviewResult(prepared.review);
         const executableRows = builderReviewExecutableRows(
           prepared.review,
-          selectedChangeSetIdSet,
+          new Set(preparedSelection.preparedChangeSetIds),
         );
         if (
           prepared.review.liveWritesEnabled &&
-          executableRows.length === selectedChangeSetIds.length
+          executableRows.length ===
+            preparedSelection.preparedChangeSetIds.length
         ) {
           setPreparedBuilderReviewConfirmation({
             ...session,
-            selectionFingerprint,
+            selectionFingerprint: preparedSelectionFingerprint,
           });
           toast.info(dbText("ready"), {
             description: dbText("reviewBuilderUpdate"),
@@ -1742,11 +1800,9 @@ function DatabaseTable({
     const preparedReview = builderReviewResult;
     if (
       !preparedReview ||
-      !databaseBuilderReviewSelectionIsValid(
+      !databaseBuilderReviewExactSelectionIsValid(
         preparedReview,
-        reviewSource,
         selectedChangeSetIds,
-        true,
       )
     ) {
       setPreparedBuilderReviewConfirmation(null);
@@ -2715,13 +2771,21 @@ function DatabaseTable({
         source={builderReviewSource}
         canEdit={canEdit}
         pending={
+          builderReviewPreviewQuery.isFetching ||
           prepareBuilderReview.isPending ||
           executeBuilderExecution.isPending ||
           cancelPreparedBuilderUpdate.isPending
         }
-        error={builderReviewError}
+        error={
+          builderReviewError ??
+          (builderReviewPreviewQuery.error instanceof Error
+            ? builderReviewPreviewQuery.error.message
+            : null)
+        }
         checkedAt={builderReviewCheckedAt}
         preparedForExecution={preparedBuilderReviewConfirmation !== null}
+        autoSelectReviewRows={selectedItemIds.length > 0}
+        selectionChangeSetIdMap={builderReviewSelectionRemap}
         onClose={closeBuilderReview}
         onValidate={(selection) => void handleBuilderReviewPush(selection)}
         onCancelPrepared={(changeSetId) =>
@@ -2732,6 +2796,7 @@ function DatabaseTable({
           setBuilderReviewCheckedAt(null);
           setBuilderReviewError(null);
           setPreparedBuilderReviewConfirmation(null);
+          setBuilderReviewSelectionRemap(null);
         }}
       />
 
@@ -3100,6 +3165,11 @@ export type PreparedBuilderReviewConfirmation = BuilderReviewSession & {
   selectionFingerprint: string;
 };
 
+export type PreparedBuilderChangeSetMapping = {
+  requestedChangeSetId: string;
+  preparedChangeSetId: string;
+};
+
 export function builderReviewSelectionFingerprint(selection: {
   changeSetIds: string[];
   transitions: BuilderReviewPublicationTransitions;
@@ -3171,9 +3241,10 @@ export function databaseBuilderReviewAfterExecutionError(
 export function databaseBuilderReviewBelongsToSource(
   review: ContentDatabaseSourceReviewPayload,
   source: ContentDatabaseSource,
+  authoritativeChangeSetIds?: string[],
 ) {
   const sourceChangeSetIds = new Set(
-    source.changeSets.map((changeSet) => changeSet.id),
+    authoritativeChangeSetIds ?? source.changeSets.map((changeSet) => changeSet.id),
   );
   return review.rows.every((row) => sourceChangeSetIds.has(row.changeSetId));
 }
@@ -3183,11 +3254,20 @@ export function databaseBuilderReviewSelectionIsValid(
   source: ContentDatabaseSource,
   changeSetIds: string[],
   requireExactReviewRows = false,
+  authoritativeChangeSetIds?: string[],
 ) {
   if (changeSetIds.length === 0) return false;
   const selectedIds = new Set(changeSetIds);
   if (selectedIds.size !== changeSetIds.length) return false;
-  if (!databaseBuilderReviewBelongsToSource(review, source)) return false;
+  if (
+    !databaseBuilderReviewBelongsToSource(
+      review,
+      source,
+      authoritativeChangeSetIds,
+    )
+  ) {
+    return false;
+  }
   const reviewIds = new Set(review.rows.map((row) => row.changeSetId));
   if (reviewIds.size !== review.rows.length) return false;
   if (!changeSetIds.every((changeSetId) => reviewIds.has(changeSetId))) {
@@ -3196,12 +3276,68 @@ export function databaseBuilderReviewSelectionIsValid(
   return !requireExactReviewRows || reviewIds.size === selectedIds.size;
 }
 
+export function databaseBuilderReviewExactSelectionIsValid(
+  review: ContentDatabaseSourceReviewPayload,
+  changeSetIds: string[],
+) {
+  if (changeSetIds.length === 0) return false;
+  const selectedIds = new Set(changeSetIds);
+  const reviewIds = new Set(review.rows.map((row) => row.changeSetId));
+  return (
+    selectedIds.size === changeSetIds.length &&
+    reviewIds.size === review.rows.length &&
+    reviewIds.size === selectedIds.size &&
+    changeSetIds.every((changeSetId) => reviewIds.has(changeSetId))
+  );
+}
+
+export function databaseBuilderPreparedReviewSelection(
+  review: ContentDatabaseSourceReviewPayload,
+  source: ContentDatabaseSource,
+  requestedChangeSetIds: string[],
+  mappings: PreparedBuilderChangeSetMapping[],
+) {
+  if (review.sourceTable !== source.sourceTable) return null;
+  if (mappings.length !== requestedChangeSetIds.length) return null;
+  const requestedIds = new Set(requestedChangeSetIds);
+  const mappedRequestedIds = new Set(
+    mappings.map((mapping) => mapping.requestedChangeSetId),
+  );
+  const preparedChangeSetIds = mappings.map(
+    (mapping) => mapping.preparedChangeSetId,
+  );
+  if (
+    requestedIds.size !== requestedChangeSetIds.length ||
+    mappedRequestedIds.size !== mappings.length ||
+    !requestedChangeSetIds.every((id) => mappedRequestedIds.has(id)) ||
+    !databaseBuilderReviewExactSelectionIsValid(review, preparedChangeSetIds)
+  ) {
+    return null;
+  }
+  return {
+    preparedChangeSetIds,
+    changeSetIdMap: Object.fromEntries(
+      mappings.map((mapping) => [
+        mapping.requestedChangeSetId,
+        mapping.preparedChangeSetId,
+      ]),
+    ),
+  };
+}
+
 export function databaseBuilderReviewSelectedChangeSetIds(
   review: ContentDatabaseSourceReviewPayload,
   source: ContentDatabaseSource,
   changeSetIds: string[],
+  authoritativeChangeSetIds?: string[],
 ) {
-  return databaseBuilderReviewSelectionIsValid(review, source, changeSetIds)
+  return databaseBuilderReviewSelectionIsValid(
+    review,
+    source,
+    changeSetIds,
+    false,
+    authoritativeChangeSetIds,
+  )
     ? [...changeSetIds]
     : null;
 }
@@ -7916,9 +8052,7 @@ function DatabaseSettingsSourcePanel({
           </div>
         </div>
 
-        {reviewableBuilderChangeSets.length > 0 ||
-        conflictChangeSets.length > 0 ? (
-          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
+        <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
             <div className="flex items-center justify-between gap-3">
               <div className="min-w-0">
                 <div className="text-sm font-medium">
@@ -7926,12 +8060,14 @@ function DatabaseSettingsSourcePanel({
                     ? `${conflictChangeSets.length} change${
                         conflictChangeSets.length === 1 ? "" : "s"
                       } need review`
-                    : `${reviewableBuilderChangeSets.length} change${
-                        reviewableBuilderChangeSets.length === 1 ? "" : "s"
-                      } ready to push`}
+                    : reviewableBuilderChangeSets.length > 0
+                      ? `${reviewableBuilderChangeSets.length} change${
+                          reviewableBuilderChangeSets.length === 1 ? "" : "s"
+                        } ready to push`
+                      : "Check for local content changes"}
                 </div>
                 <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  {dbText("reviewBeforeTheyReachBuilder")}
+                  Loads the complete content diff before anything reaches Builder.
                 </div>
               </div>
               <Button
@@ -7946,7 +8082,6 @@ function DatabaseSettingsSourcePanel({
               </Button>
             </div>
           </div>
-        ) : null}
 
         {selectedSource.bodyHydration ? (
           <BuilderBodyHydrationCard

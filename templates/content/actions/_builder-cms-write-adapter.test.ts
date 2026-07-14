@@ -5,6 +5,7 @@ import type {
   ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
+import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIntentMarker,
@@ -798,6 +799,48 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+  });
+
+  it("accepts reconciled required fields and a body hash when publishing a partial update", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "blocks", type: "list", required: true },
+        { name: "author", type: "reference", required: true },
+        { name: "image", type: "image", required: true },
+      ],
+    });
+    builderSource.rows[0] = {
+      ...builderSource.rows[0]!,
+      sourceValues: {
+        "data.title": "Old title",
+        "data.author": {
+          "@type": "@builder.io/core:Reference",
+          id: "author-alice",
+          model: "author",
+        },
+        "data.image": "https://example.com/feature.jpg",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+      },
+    };
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "publish",
+      },
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(plan.state).toBe("ready");
+    expect(plan.payload.safety.blockers).toEqual([]);
+    expect(plan.payload.request.body).not.toHaveProperty("data.blocks");
   });
 
   it("blocks unpublish transitions without explicit confirmation", () => {

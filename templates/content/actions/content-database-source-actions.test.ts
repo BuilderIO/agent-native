@@ -26,6 +26,7 @@ import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
+import previewReview from "./preview-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -40,6 +41,22 @@ describe("content database source actions", () => {
     });
     expect(getSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("bounds Builder review previews to an explicit selected scope", () => {
+    expect(
+      previewReview.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        scope: "selected",
+        documentIds: ["document-1"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      scope: "selected",
+      documentIds: ["document-1"],
     });
   });
 

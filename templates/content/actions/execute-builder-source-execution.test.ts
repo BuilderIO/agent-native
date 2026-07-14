@@ -7,12 +7,14 @@ import {
   type ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import type { BuilderCmsEntryLiveState } from "./_builder-cms-read-client";
+import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
   builderCmsExecutionIdempotencyKey,
 } from "./_builder-cms-write-adapter";
 import type { BuilderCmsWriteResult } from "./_builder-cms-write-client";
 import {
+  builderCmsReconciledSourceValuesJson,
   builderCmsReconciledSourceRowPatch,
   builderExecutionAffectedRows,
   builderExecutionConflict,
@@ -1200,6 +1202,67 @@ describe("execute Builder source execution", () => {
       method: "PATCH",
       path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-created-1`,
     });
+  });
+
+  it("reconciles Builder-native field values without copying body blocks into SQL", () => {
+    const draftCreate = {
+      ...changeSet({ pushMode: "draft" }),
+      fieldChanges: [
+        {
+          propertyId: "author",
+          propertyName: "Author",
+          localFieldKey: "author",
+          sourceFieldKey: "data.author",
+          currentValue: null,
+          proposedValue: "Alice Moore",
+        },
+      ],
+      bodyChange: {
+        summary: "Body changed",
+        currentExcerpt: null,
+        proposedExcerpt: "Rich body",
+        proposedHash: "body-hash",
+        proposedContent: "Rich body",
+        proposedBlocksJson: '[{"@type":"@builder.io/sdk:Element"}]',
+        sidecarsJson: "{}",
+        warnings: [],
+      },
+    } as ContentDatabaseSourceChangeSet;
+    const nativeAuthor = {
+      "@type": "@builder.io/core:Reference",
+      id: "author-alice",
+      model: "author",
+    };
+    const plan = {
+      payload: {
+        request: {
+          body: {
+            data: {
+              author: nativeAuthor,
+              image: "https://example.com/feature.jpg",
+              blocks: [{ "@type": "@builder.io/sdk:Element" }],
+            },
+          },
+        },
+      },
+    } as Parameters<typeof builderCmsReconciledSourceValuesJson>[0]["plan"];
+
+    const values = JSON.parse(
+      builderCmsReconciledSourceValuesJson({
+        existingSourceValuesJson: null,
+        snapshotSourceValues: undefined,
+        changeSet: draftCreate,
+        plan,
+      }),
+    );
+
+    expect(values).toMatchObject({
+      "data.author": nativeAuthor,
+      "data.image": "https://example.com/feature.jpg",
+      "__agent_native_builder_reference_id:data.author": "author-alice",
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+    });
+    expect(values).not.toHaveProperty("data.blocks");
   });
 
   it("stores Builder's authoritative updated timestamp after a successful write", () => {

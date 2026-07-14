@@ -614,6 +614,190 @@ describe("Builder MDX conversion", () => {
     ).rejects.toThrow("Unsupported Builder MDX component: <empty-block>");
   });
 
+  it("converts a native Content table into a deterministic Builder Text block", async () => {
+    const body = [
+      '<table class="notion-table" style="min-width: 50px;">',
+      "<colgroup>",
+      '<col style="min-width: 25px;" />',
+      '<col style="min-width: 25px;" />',
+      "</colgroup>",
+      "<tbody>",
+      "<tr>",
+      '<td colspan="1" rowspan="1"><p>Fixture</p></td>',
+      '<td colspan="1" rowspan="1"><p><strong>Expected</strong></p></td>',
+      "</tr>",
+      "</tbody>",
+      "</table>",
+    ].join("\n");
+
+    const first = await builderMdxBodyToBuilderBlocks(body, {});
+    const second = await builderMdxBodyToBuilderBlocks(body, {});
+
+    expect(first).toEqual(second);
+    expect(first).toEqual([
+      expect.objectContaining({
+        id: expect.stringMatching(/^builder-mdx-table-/),
+        component: {
+          name: "Text",
+          options: { text: body },
+        },
+      }),
+    ]);
+  });
+
+  it("preserves Builder rating spans inside native tables", async () => {
+    const body = [
+      "<table>",
+      "<tbody><tr>",
+      '<td><span class="dark-mode-invert">⭐⭐⭐</span></td>',
+      "</tr></tbody>",
+      "</table>",
+    ].join("\n");
+
+    await expect(builderMdxBodyToBuilderBlocks(body, {})).resolves.toEqual([
+      expect.objectContaining({
+        component: { name: "Text", options: { text: body } },
+      }),
+    ]);
+    const unsafe = await builderMdxBodyToBuilderBlocks(
+      '<table><tbody><tr><td><span class="danger">x</span></td></tr></tbody></table>',
+      {},
+    );
+    expect(unsafe).toEqual([
+      expect.objectContaining({
+        component: {
+          name: "Text",
+          options: {
+            text: expect.stringContaining(
+              "&lt;span class=&quot;danger&quot;&gt;",
+            ),
+          },
+        },
+      }),
+    ]);
+    expect(JSON.stringify(unsafe)).not.toContain('<span class="danger">');
+  });
+
+  it("keeps standalone image lines native when editor serialization removes blank lines", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        "[Test YouTube link](https://www.youtube.com/watch?v=jNQXAC9IVRw)",
+        "![Image one](https://example.com/one.png)",
+        "![Image two](https://example.com/two.png)",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toMatchObject({ component: { name: "Text" } });
+    expect(blocks[1]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/one.png", altText: "Image one" },
+      },
+    });
+    expect(blocks[2]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/two.png", altText: "Image two" },
+      },
+    });
+  });
+
+  it("extracts standalone images from a lazily continued blockquote", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      [
+        "> A quotation.",
+        "[Test YouTube link](https://www.youtube.com/watch?v=jNQXAC9IVRw)",
+        "BuilderSync image repair marker.",
+        "![Image one](https://example.com/one.png)",
+        "![Image two](https://example.com/two.png)",
+      ].join("\n"),
+      {},
+    );
+
+    expect(blocks).toHaveLength(3);
+    expect(blocks[0]).toMatchObject({ component: { name: "Text" } });
+    expect(JSON.stringify(blocks[0])).toContain("A quotation.");
+    expect(JSON.stringify(blocks[0])).toContain("Test YouTube link");
+    expect(blocks[1]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/one.png", altText: "Image one" },
+      },
+    });
+    expect(blocks[2]).toMatchObject({
+      component: {
+        name: "Image",
+        options: { image: "https://example.com/two.png", altText: "Image two" },
+      },
+    });
+  });
+
+  it("keeps inline prose images inside a Builder Text block", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      "Before ![inline](https://example.com/inline.png) after.",
+      {},
+    );
+
+    expect(blocks).toHaveLength(1);
+    expect(blocks[0]).toMatchObject({ component: { name: "Text" } });
+  });
+
+  it("preserves native Content tables across Builder readable hydration and merge", async () => {
+    const table = [
+      '<table class="notion-table" style="min-width: 50px;">',
+      "<tbody><tr><td><p>Fixture</p></td><td><p>Expected</p></td></tr></tbody>",
+      "</table>",
+    ].join("\n");
+    const blocks = await builderMdxBodyToBuilderBlocks(table, {});
+    const article: BuilderContentEntry = {
+      id: "article-native-table",
+      model: "blog-article",
+      name: "Article Native Table",
+      data: { title: "Article Native Table", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toBe(table);
+    await expect(
+      builderReadableBodyToBuilderBlocks({
+        localContent: readable.mdx.body,
+        losslessContent: lossless.mdx.body,
+        sidecars,
+      }),
+    ).resolves.toEqual({ blocks, warnings: [] });
+  });
+
+  it("rejects dynamic or unsafe markup inside a native Content table", async () => {
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        [
+          '<table class="notion-table" data-danger="yes">',
+          "<tbody>",
+          "<tr><td>Unsafe</td></tr>",
+          "</tbody>",
+          "</table>",
+        ].join("\n"),
+        {},
+      ),
+    ).rejects.toThrow("Unsupported Builder table attribute");
+    await expect(
+      builderMdxBodyToBuilderBlocks(
+        "<table><tbody><tr><td>{dangerousValue}</td></tr></tbody></table>",
+        {},
+      ),
+    ).rejects.toThrow("Unsupported dynamic syntax");
+  });
+
   it("converts a native Content video into a deterministic Builder Video block", async () => {
     const body =
       '<video src="https://cdn.example.com/demo.mp4?download=1" controls width="640" poster="https://cdn.example.com/poster.jpg" preload="metadata" title="Demo"></video>';
@@ -650,6 +834,60 @@ describe("Builder MDX conversion", () => {
         },
       },
     ]);
+  });
+
+  it("hydrates Builder Video blocks as editable native Content video markup", async () => {
+    const body =
+      '<video src="https://cdn.example.com/demo.mp4" controls muted width="640"></video>';
+    const blocks = await builderMdxBodyToBuilderBlocks(body, {});
+    const article: BuilderContentEntry = {
+      id: "article-native-video",
+      model: "blog-article",
+      name: "Article Native Video",
+      data: { title: "Article Native Video", blocks },
+    };
+    const [readable, lossless] = await Promise.all([
+      builderEntryToReadableMdxBundle(article),
+      builderEntryToMdxBundle(article),
+    ]);
+    const sidecars = Object.fromEntries(
+      Object.entries(lossless.files).filter(
+        ([path]) => path !== lossless.mdx.path,
+      ),
+    );
+
+    expect(readable.mdx.body).toBe(body);
+    await expect(
+      builderReadableBodyToBuilderBlocks({
+        localContent: readable.mdx.body,
+        losslessContent: lossless.mdx.body,
+        sidecars,
+      }),
+    ).resolves.toEqual({ blocks, warnings: [] });
+  });
+
+  it("round-trips Content blockquotes through Builder Text HTML", async () => {
+    const blocks = await builderMdxBodyToBuilderBlocks(
+      "> A test quote should remain a quote.",
+      {},
+    );
+    expect(blocks).toMatchObject([
+      {
+        component: {
+          name: "Text",
+          options: {
+            text: "<blockquote><p>A test quote should remain a quote.</p></blockquote>",
+          },
+        },
+      },
+    ]);
+    const readable = await builderEntryToReadableMdxBundle({
+      id: "article-quote",
+      model: "blog-article",
+      name: "Article Quote",
+      data: { title: "Article Quote", blocks },
+    });
+    expect(readable.mdx.body).toBe("> A test quote should remain a quote.");
   });
 
   it("maps literal native video booleans and rejects unsafe video attributes", async () => {

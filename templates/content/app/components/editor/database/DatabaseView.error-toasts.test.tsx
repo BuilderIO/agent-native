@@ -142,6 +142,12 @@ vi.mock("@/hooks/use-content-database", () => ({
   useDisconnectContentDatabaseSource: () => benignMutation,
   useProcessBuilderBodyHydration: () => benignMutation,
   usePrepareBuilderSourceReview: () => benignMutation,
+  usePreviewBuilderSourceReview: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+  }),
   useExecuteBuilderSourceExecution: () => benignMutation,
   useCancelPreparedBuilderSourceUpdate: () => benignMutation,
   useSetContentDatabaseSourceWriteMode: () => benignMutation,

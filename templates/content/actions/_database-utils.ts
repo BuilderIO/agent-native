@@ -69,6 +69,7 @@ export function serializeBodyHydration(
       status === "pending" ||
       status === "hydrating" ||
       status === "hydrated" ||
+      status === "unavailable" ||
       status === "error"
         ? status
         : options.queued

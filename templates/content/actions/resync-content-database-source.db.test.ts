@@ -544,6 +544,7 @@ let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let resync: typeof import("./_database-source-utils.js").resyncBuilderCmsSourceSnapshot;
 let importBuilderEntries: typeof import("./_database-source-utils.js").importBuilderCmsEntriesAsDatabaseItems;
+let seedSourceRows: typeof import("./_database-source-utils.js").seedMockSourceRows;
 let materializeSourceFields: typeof import("./_database-source-utils.js").materializeSourceFieldPropertyValues;
 let getSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotById;
 let getWriteSnapshot: typeof import("./_database-source-utils.js").getContentDatabaseSourceSnapshotForWrite;
@@ -565,6 +566,8 @@ beforeAll(async () => {
     .resyncBuilderCmsSourceSnapshot;
   importBuilderEntries = (await import("./_database-source-utils.js"))
     .importBuilderCmsEntriesAsDatabaseItems;
+  seedSourceRows = (await import("./_database-source-utils.js"))
+    .seedMockSourceRows;
   materializeSourceFields = (await import("./_database-source-utils.js"))
     .materializeSourceFieldPropertyValues;
   getSnapshot = (await import("./_database-source-utils.js"))
@@ -1412,7 +1415,6 @@ it("records freshly imported Builder row identities even when title and URL keys
     now,
     sourceTable: "collection-duplicates",
     existingSourceRows: [],
-    skipTitleDedup: true,
   });
   const importedIds = Array.from(
     importResult.importedEntriesByDocumentId.values(),
@@ -1454,7 +1456,6 @@ it("records freshly imported Builder row identities even when title and URL keys
     now,
     sourceTable: "collection-duplicates",
     existingSourceRows,
-    skipTitleDedup: true,
   });
   const retryDocuments = await db
     .select({ id: schema.documents.id })
@@ -1468,6 +1469,72 @@ it("records freshly imported Builder row identities even when title and URL keys
   expect(retryResult.imported).toBe(0);
   expect(retryDocuments).toHaveLength(2);
   expect(retryItems).toHaveLength(2);
+
+  // Attach and its background continuation can overlap before source rows are
+  // visible to the second importer. Stable Builder-derived local IDs make the
+  // two writes converge instead of duplicating every remote entry.
+  await Promise.all([
+    importBuilderEntries({
+      database,
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+      skipTitleDedup: true,
+    }),
+    importBuilderEntries({
+      database,
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+      skipTitleDedup: true,
+    }),
+  ]);
+  const concurrentRetryDocuments = await db
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(eq(schema.documents.parentId, databaseDocId));
+  const concurrentRetryItems = await db
+    .select({
+      id: schema.contentDatabaseItems.id,
+      documentId: schema.contentDatabaseItems.documentId,
+    })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
+  expect(concurrentRetryDocuments).toHaveLength(2);
+  expect(concurrentRetryItems).toHaveLength(2);
+
+  const importedItems = concurrentRetryItems.map(
+    (item: { id: string; documentId: string }, index: number) => ({
+      id: item.id,
+      databaseId,
+      document: {
+        id: item.documentId,
+        title:
+          importResult.importedEntriesByDocumentId.get(item.documentId)
+            ?.title ?? `Entry ${index + 1}`,
+        content: "",
+      },
+      position: index,
+      properties: [],
+    }),
+  );
+  const seedArgs = {
+    sourceId: "src-duplicates",
+    ownerEmail: OWNER,
+    sourceType: "builder-cms" as const,
+    sourceTable: "collection-duplicates",
+    items: importedItems,
+    now,
+    builderEntriesByDocumentId: importResult.importedEntriesByDocumentId,
+  };
+  await Promise.all([seedSourceRows(seedArgs), seedSourceRows(seedArgs)]);
+  const concurrentSourceRows = await db
+    .select({ id: schema.contentDatabaseSourceRows.id })
+    .from(schema.contentDatabaseSourceRows)
+    .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-duplicates"));
+  expect(concurrentSourceRows).toHaveLength(2);
 });
 
 it("resync advances Builder partial reads with a cursor and converges on the final page", async () => {
@@ -3506,9 +3573,9 @@ it("preserves local content and the source baseline when Builder returns a confl
       data: { blocks: [publishedBlock] },
     },
   });
-  const localContent = String(
+  const localContent = `${String(
     publishedBaseline.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY],
-  );
+  )}\n\nLocal edit that must survive a conflicting response.`;
 
   await db.insert(schema.documents).values([
     {
@@ -3774,8 +3841,8 @@ it("terminates an unbuildable empty Builder body job at the hydration cap", asyn
     .where(eq(schema.documents.id, documentId));
 
   expect(after.content).toBe("");
-  expect(after.status).toBe("error");
-  expect(after.error).toBe("body not yet available from Builder");
+  expect(after.status).toBe("unavailable");
+  expect(after.error).toBeNull();
   expect(after.queued).toBeNull();
   expect(after.attempts).toBeNull();
 });

@@ -9,6 +9,7 @@ import {
   readBuilderCmsContentEntries,
   readBuilderCmsEntryLiveState,
   readBuilderCmsModelFields,
+  summarizeBuilderCmsEntryFidelity,
 } from "./_builder-cms-read-client";
 
 vi.mock("@agent-native/core/server", () => ({
@@ -25,6 +26,66 @@ describe("Builder CMS read client", () => {
     delete process.env.BUILDER_CMS_MCP_ENDPOINT;
     delete process.env.BUILDER_CMS_MCP_SEARCH_TEXT;
     delete process.env.BUILDER_CMS_READ_LIMIT;
+  });
+
+  it("summarizes bounded rich-content fidelity without returning article text", () => {
+    const fidelity = summarizeBuilderCmsEntryFidelity({
+      id: "entry-1",
+      model: "agent-native-blog-article-test",
+      title: "Fixture",
+      urlPath: "/blog/fixture",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      sourceValues: {},
+      rawEntry: {
+        id: "entry-1",
+        model: "agent-native-blog-article-test",
+        data: {
+          blocks: [
+            {
+              component: {
+                name: "Text",
+                options: {
+                  text: '<h2>Heading</h2><ul><li>One</li><li>Two</li></ul><p><a href="https://www.youtube.com/watch?v=test">Watch</a></p><table><tbody><tr><td>Cell</td></tr></tbody></table><blockquote>Quote</blockquote><code>const x = 1</code>',
+                },
+              },
+            },
+            {
+              component: {
+                name: "Image",
+                options: { image: "https://example.com/a.jpg" },
+              },
+            },
+            {
+              component: {
+                name: "Video",
+                options: { video: "https://example.com/a.mp4" },
+              },
+            },
+          ],
+        },
+      },
+    } as Parameters<typeof summarizeBuilderCmsEntryFidelity>[0]);
+
+    expect(fidelity).toEqual({
+      topLevelBlockCount: 3,
+      componentCount: 3,
+      textBlockCount: 1,
+      imageBlockCount: 1,
+      htmlImageCount: 0,
+      markdownImageSyntaxCount: 0,
+      videoBlockCount: 1,
+      headingCount: 1,
+      unorderedListCount: 1,
+      orderedListCount: 0,
+      listItemCount: 2,
+      linkCount: 1,
+      tableCount: 1,
+      escapedTableMarkupCount: 0,
+      codeCount: 1,
+      blockquoteCount: 1,
+      escapedBlockquoteMarkupCount: 0,
+      hasYouTubeLink: true,
+    });
   });
 
   it("builds additive list projections without reintroducing heavy body fields", () => {

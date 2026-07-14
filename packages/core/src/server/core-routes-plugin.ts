@@ -9,6 +9,7 @@ import {
   deleteCookie,
   getRequestURL,
   getRequestIP,
+  readRawBody,
 } from "h3";
 import type { H3Event } from "h3";
 import { readMultipartFormData } from "h3";
@@ -53,6 +54,7 @@ import {
   runDatabaseSchemaHealthCheck,
   type DatabaseSchemaHealthResult,
 } from "../db/runtime-diagnostics.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   uploadFile,
   getActiveFileUploadProviderForRequest,
@@ -107,12 +109,17 @@ import {
   BUILDER_CONNECT_OWNER_COOKIE,
   BUILDER_ENV_KEYS,
   BUILDER_OPENER_PARAM,
+  BUILDER_RELAY_FLOW_HEADER,
+  BUILDER_RELAY_SIGNATURE_HEADER,
+  BUILDER_RELAY_STATE_PARAM,
+  BUILDER_RELAY_TIMESTAMP_HEADER,
   BUILDER_STATE_PARAM,
   appendBuilderConnectToken,
   builderConnectTrackingProperties,
   buildBuilderCliAuthUrl,
   createBuilderBrowserCallbackErrorPage,
   createBuilderBrowserCallbackPage,
+  createBuilderRelayRequest,
   getBuilderConnectTrackingParams,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserOriginForEvent,
@@ -122,10 +129,15 @@ import {
   resolveSafePreviewUrl,
   runBuilderAgent,
   signBuilderCallbackState,
+  signBuilderPreviewRelayState,
+  verifyBuilderRelayRequest,
+  verifyBuilderPreviewRelayState,
   verifyBuilderConnectTokenAndGetOwner,
   verifyBuilderCallbackStateAndGetOwner,
   signBuilderConnectToken,
   type BuilderConnectTrackingParams,
+  type BuilderRelayCredentials,
+  type BuilderPreviewRelayState,
 } from "./builder-browser.js";
 import { captureError } from "./capture-error.js";
 import {
@@ -861,6 +873,134 @@ export function getFrameworkRouteRequestUrl(event: H3Event): URL {
   if (queryStart < 0) return url;
   url.search = rawUrl!.slice(queryStart);
   return url;
+}
+
+export interface BuilderRelayPendingRecord {
+  ownerEmail: string;
+  orgId: string | null;
+  role: string | null;
+  targetOrigin: string;
+  basePath: string;
+  expiresAt: number;
+  tracking?: BuilderConnectTrackingParams;
+}
+
+export interface ConsumeBuilderRelayDependencies {
+  getPending: (key: string) => Promise<Record<string, unknown> | null>;
+  deletePending: (key: string) => Promise<boolean>;
+  writeCredentials: (
+    ownerEmail: string,
+    credentials: BuilderRelayCredentials,
+    scope: { orgId: string | null; role: string | null },
+  ) => Promise<unknown>;
+}
+
+function builderRelayPendingKey(flowId: string): string {
+  return `builder-pending-relay:${flowId}`;
+}
+
+function parseBuilderRelayPendingRecord(
+  value: Record<string, unknown> | null,
+): BuilderRelayPendingRecord | null {
+  if (
+    !value ||
+    typeof value.ownerEmail !== "string" ||
+    typeof value.targetOrigin !== "string" ||
+    typeof value.basePath !== "string" ||
+    typeof value.expiresAt !== "number"
+  ) {
+    return null;
+  }
+  return {
+    ownerEmail: value.ownerEmail,
+    orgId: typeof value.orgId === "string" ? value.orgId : null,
+    role: typeof value.role === "string" ? value.role : null,
+    targetOrigin: value.targetOrigin,
+    basePath: value.basePath,
+    expiresAt: value.expiresAt,
+    tracking:
+      value.tracking && typeof value.tracking === "object"
+        ? (value.tracking as BuilderConnectTrackingParams)
+        : undefined,
+  };
+}
+
+/**
+ * Authenticated one-shot receiver for the second hop of Builder preview auth.
+ * Owner and org scope always come from the preview's pending record; the
+ * corporate callback cannot choose them in its POST body.
+ */
+export async function consumeBuilderRelayRequest(
+  input: {
+    rawBody: string;
+    timestamp: string | null | undefined;
+    flowId: string | null | undefined;
+    signature: string | null | undefined;
+    requestOrigin: string;
+    requestBasePath: string;
+    now?: number;
+  },
+  dependencies: ConsumeBuilderRelayDependencies,
+): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+  if (input.rawBody.length > 64 * 1024) {
+    return {
+      ok: false,
+      status: 413,
+      error: "Builder relay request is too large",
+    };
+  }
+  let verified: ReturnType<typeof verifyBuilderRelayRequest>;
+  try {
+    verified = verifyBuilderRelayRequest({
+      body: input.rawBody,
+      timestamp: input.timestamp,
+      flowId: input.flowId,
+      signature: input.signature,
+      requestOrigin: input.requestOrigin,
+      requestBasePath: input.requestBasePath,
+      now: input.now,
+    });
+  } catch {
+    return { ok: false, status: 503, error: "Builder relay is not configured" };
+  }
+  if (!verified) {
+    return { ok: false, status: 401, error: "Invalid Builder relay request" };
+  }
+  const pendingKey = builderRelayPendingKey(verified.payload.flowId);
+  const pending = parseBuilderRelayPendingRecord(
+    await dependencies.getPending(pendingKey).catch(() => null),
+  );
+  const now = input.now ?? Date.now();
+  if (
+    !pending ||
+    pending.expiresAt < now ||
+    pending.ownerEmail !== verified.payload.ownerEmail ||
+    pending.targetOrigin !== verified.payload.targetOrigin ||
+    pending.basePath !== verified.payload.basePath
+  ) {
+    return { ok: false, status: 403, error: "No active Builder relay flow" };
+  }
+
+  // A successful delete, not merely a resolved promise, is the one-shot gate.
+  // It happens before credential persistence so replay is impossible even if
+  // the downstream write fails and the human has to start a fresh flow.
+  const consumed = await dependencies
+    .deletePending(pendingKey)
+    .catch(() => false);
+  if (consumed !== true) {
+    return {
+      ok: false,
+      status: 409,
+      error: "Builder relay flow was already consumed",
+    };
+  }
+
+  await dependencies.writeCredentials(
+    pending.ownerEmail,
+    verified.body.credentials,
+    { orgId: pending.orgId, role: pending.role },
+  );
+  return { ok: true };
 }
 
 function redactValues(text: string, values: Array<string | null | undefined>) {
@@ -1837,15 +1977,73 @@ export function createCoreRoutesPlugin(
             // No prior error row — fine
           }
 
+          const previewOrigin = getBuilderBrowserOriginForEvent(event).replace(
+            /\/+$/,
+            "",
+          );
+          const callbackOrigin = getBuilderCliAuthCallbackOriginForEvent(
+            event,
+          ).replace(/\/+$/, "");
+          let relay:
+            | { state: string; payload: BuilderPreviewRelayState }
+            | undefined;
+          if (previewOrigin !== callbackOrigin) {
+            try {
+              relay = signBuilderPreviewRelayState({
+                ownerEmail,
+                targetOrigin: previewOrigin,
+                basePath: getAppBasePath(),
+              });
+            } catch (err) {
+              const msg =
+                err instanceof Error
+                  ? err.message
+                  : "Builder preview relay is not configured.";
+              setResponseStatus(event, 503);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "text/html; charset=utf-8",
+              );
+              return createBuilderBrowserCallbackErrorPage(msg, {
+                parentOrigin: previewOrigin,
+              });
+            }
+          }
+
+          let pendingOrgId: string | null = null;
+          let pendingRole: string | null = null;
+          if (!ownerContext.anonymous) {
+            try {
+              const orgContext = await getOrgContext(event);
+              pendingOrgId = orgContext.orgId ?? null;
+              pendingRole = orgContext.role ?? null;
+            } catch {
+              // The pending owner remains user-scoped when org context is absent.
+            }
+          }
+
           // Store a short-lived pending row. If the DB is unavailable we
           // surface a popup-renderable error page that signals the parent
           // via BroadcastChannel, rather than letting the popup show raw
           // JSON and the parent poll for 5 minutes.
           try {
-            await putSetting(`builder-pending-connect:${ownerEmail}`, {
-              expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
-              tracking: connectTracking,
-            });
+            if (relay) {
+              await putSetting(builderRelayPendingKey(relay.payload.flowId), {
+                ownerEmail,
+                orgId: pendingOrgId,
+                role: pendingRole,
+                targetOrigin: relay.payload.targetOrigin,
+                basePath: relay.payload.basePath,
+                expiresAt: relay.payload.exp,
+                tracking: connectTracking,
+              });
+            } else {
+              await putSetting(`builder-pending-connect:${ownerEmail}`, {
+                expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
+                tracking: connectTracking,
+              });
+            }
           } catch (err) {
             await trackBuilderLifecycle(
               event,
@@ -1896,10 +2094,11 @@ export function createCoreRoutesPlugin(
           // clients, but still send it to Builder immediately and include signed
           // callback state so the callback does not depend on popup cookies.
           const cliAuthUrl = buildBuilderCliAuthUrl(
-            getBuilderCliAuthCallbackOriginForEvent(event),
+            callbackOrigin,
             signBuilderCallbackState(ownerEmail),
             {
-              previewOrigin: getBuilderBrowserOriginForEvent(event),
+              previewOrigin,
+              relayState: relay?.state,
               tracking: connectTracking,
             },
           );
@@ -2078,11 +2277,173 @@ export function createCoreRoutesPlugin(
       );
 
       getH3App(nitroApp).use(
+        `${P}/builder/relay`,
+        defineEventHandler(async (event: H3Event) => {
+          if (getMethod(event) !== "POST") {
+            setResponseStatus(event, 405);
+            return { error: "Method not allowed" };
+          }
+          const declaredLength = Number(getHeader(event, "content-length"));
+          if (Number.isFinite(declaredLength) && declaredLength > 64 * 1024) {
+            setResponseStatus(event, 413);
+            return { error: "Builder relay request is too large" };
+          }
+          const rawBody = (await readRawBody(event, "utf8")) ?? "";
+          const result = await consumeBuilderRelayRequest(
+            {
+              rawBody,
+              timestamp: getHeader(event, BUILDER_RELAY_TIMESTAMP_HEADER),
+              flowId: getHeader(event, BUILDER_RELAY_FLOW_HEADER),
+              signature: getHeader(event, BUILDER_RELAY_SIGNATURE_HEADER),
+              requestOrigin: getFrameworkRouteRequestUrl(event).origin,
+              requestBasePath: getAppBasePath(),
+            },
+            {
+              getPending: getSetting,
+              deletePending: deleteSetting,
+              writeCredentials: async (ownerEmail, credentials, scope) => {
+                const { writeBuilderCredentials } =
+                  await import("./credential-provider.js");
+                await writeBuilderCredentials(ownerEmail, credentials, scope);
+                await Promise.all([
+                  deleteSetting("builder-disconnected").catch(() => false),
+                  deleteSetting(`builder-connect-error:${ownerEmail}`).catch(
+                    () => false,
+                  ),
+                ]);
+              },
+            },
+          ).catch(() => ({
+            ok: false as const,
+            status: 500,
+            error: "Builder relay credential persistence failed",
+          }));
+          if (!result.ok) {
+            setResponseStatus(event, result.status);
+            return { error: result.error };
+          }
+          return { ok: true };
+        }),
+      );
+
+      getH3App(nitroApp).use(
         `${P}/builder/callback`,
         defineEventHandler(async (event: H3Event) => {
           if (getMethod(event) !== "GET") {
             setResponseStatus(event, 405);
             return { error: "Method not allowed" };
+          }
+          // Builder's provider contract puts credentials on this first-hop
+          // URL. Keep the response out of caches and suppress referrer
+          // propagation even though the second hop carries secrets only in
+          // its authenticated POST body.
+          setResponseHeader(event, "Cache-Control", "no-store");
+          setResponseHeader(event, "Referrer-Policy", "no-referrer");
+
+          const requestUrl = getFrameworkRouteRequestUrl(event);
+          const relayStateRaw = requestUrl.searchParams.get(
+            BUILDER_RELAY_STATE_PARAM,
+          );
+          if (relayStateRaw) {
+            let relayPayload: BuilderPreviewRelayState | null = null;
+            try {
+              relayPayload = verifyBuilderPreviewRelayState(relayStateRaw);
+            } catch {
+              // A preview relay must fail closed when its dedicated shared
+              // secret is absent on the corporate callback deployment.
+            }
+            if (!relayPayload) {
+              setResponseStatus(event, 403);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "text/html; charset=utf-8",
+              );
+              return createBuilderBrowserCallbackErrorPage(
+                "Builder preview relay state is invalid or expired.",
+              );
+            }
+
+            const privateKey = requestUrl.searchParams.get("p-key");
+            const publicKey = requestUrl.searchParams.get("api-key");
+            if (!privateKey || !publicKey) {
+              setResponseStatus(event, 400);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "text/html; charset=utf-8",
+              );
+              return createBuilderBrowserCallbackErrorPage(
+                "Builder didn't return credentials. Restart the connect flow from settings.",
+                { parentOrigin: relayPayload.targetOrigin },
+              );
+            }
+
+            const credentials: BuilderRelayCredentials = {
+              privateKey,
+              publicKey,
+              userId: requestUrl.searchParams.get("user-id"),
+              orgName: requestUrl.searchParams.get("org-name"),
+              orgKind: requestUrl.searchParams.get("kind"),
+              subscription: requestUrl.searchParams.get("subscription"),
+              subscriptionLevel:
+                requestUrl.searchParams.get("subscription-level"),
+              subscriptionName:
+                requestUrl.searchParams.get("subscription-name"),
+              isEnterprise: parseBuilderCallbackBoolean(
+                requestUrl.searchParams.get("is-enterprise"),
+              ),
+              isFreeAccount: parseBuilderCallbackBoolean(
+                requestUrl.searchParams.get("is-free-account"),
+              ),
+            };
+
+            try {
+              const relayRequest = createBuilderRelayRequest(
+                relayStateRaw,
+                credentials,
+              );
+              const response = await ssrfSafeFetch(
+                relayRequest.url,
+                {
+                  method: "POST",
+                  headers: relayRequest.headers,
+                  body: relayRequest.body,
+                },
+                { maxRedirects: 0, httpsOnly: true },
+              );
+              if (!response.ok) {
+                throw new Error(
+                  `Preview relay rejected the callback (${response.status}).`,
+                );
+              }
+            } catch (err) {
+              const message =
+                err instanceof Error
+                  ? err.message
+                  : "Builder preview relay failed.";
+              // Never log the first-hop URL or relay body: both contain
+              // credentials. The popup gets a bounded, credential-free error.
+              setResponseStatus(event, 502);
+              setResponseHeader(
+                event,
+                "Content-Type",
+                "text/html; charset=utf-8",
+              );
+              return createBuilderBrowserCallbackErrorPage(message, {
+                parentOrigin: relayPayload.targetOrigin,
+              });
+            }
+
+            setResponseHeader(
+              event,
+              "Content-Type",
+              "text/html; charset=utf-8",
+            );
+            return createBuilderBrowserCallbackPage(
+              `${relayPayload.targetOrigin}${relayPayload.basePath || "/"}`,
+              { parentOrigin: relayPayload.targetOrigin },
+            );
           }
 
           // A real session or a template-approved anonymous owner is required;
@@ -2115,7 +2476,6 @@ export function createCoreRoutesPlugin(
           }
           clearBuilderConnectOwnerCookie(event);
 
-          const requestUrl = getFrameworkRouteRequestUrl(event);
           let connectTracking = getBuilderConnectTrackingParams(
             requestUrl.searchParams,
           );
