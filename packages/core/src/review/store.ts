@@ -1,4 +1,4 @@
-import { getDbExec, isPostgres } from "../db/client.js";
+import { getDbExec, isPostgres, type DbExec } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import type { Visibility } from "../sharing/schema.js";
 import type {
@@ -43,7 +43,23 @@ export interface QueryReviewCommentsInput {
   includeResolved?: boolean;
   includeDeleted?: boolean;
   targetId?: string | null;
+  rootOnly?: boolean;
+  resolutionTargets?: readonly (ReviewResolutionTarget | null)[];
+  unconsumedOnly?: boolean;
   limit?: number;
+}
+
+export interface GetReviewThreadSummaryInput {
+  resourceType: string;
+  resourceId: string;
+  scope: ReviewScope;
+  bypassScope?: boolean;
+  targetId?: string | null;
+}
+
+export interface ReviewThreadSummary {
+  openCount: number;
+  agentQueueCount: number;
 }
 
 export interface UpsertReviewStatusInput {
@@ -112,6 +128,15 @@ export async function ensureReviewTables(): Promise<void> {
            ON agent_review_comments (owner_email, created_at)`,
         `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_org
            ON agent_review_comments (org_id, created_at)`,
+        `CREATE INDEX IF NOT EXISTS idx_agent_review_comments_queue
+           ON agent_review_comments (
+             resource_type,
+             resource_id,
+             parent_comment_id,
+             resolution_target,
+             consumed_at,
+             created_at
+           )`,
         `CREATE INDEX IF NOT EXISTS idx_agent_review_statuses_resource
            ON agent_review_statuses (resource_type, resource_id)`,
       ];
@@ -126,9 +151,10 @@ export async function ensureReviewTables(): Promise<void> {
         await ensureIndexExists("idx_agent_review_comments_thread", indexes[1]);
         await ensureIndexExists("idx_agent_review_comments_owner", indexes[2]);
         await ensureIndexExists("idx_agent_review_comments_org", indexes[3]);
+        await ensureIndexExists("idx_agent_review_comments_queue", indexes[4]);
         await ensureIndexExists(
           "idx_agent_review_statuses_resource",
-          indexes[4],
+          indexes[5],
         );
       } else {
         await client.execute(createCommentsSql);
@@ -147,7 +173,60 @@ export async function insertReviewComment(
   input: InsertReviewCommentInput,
 ): Promise<ReviewComment> {
   await ensureReviewTables();
+  return insertReviewCommentWithClient(input, getDbExec());
+}
+
+export async function insertReviewReply(
+  input: InsertReviewCommentInput & {
+    threadId: string;
+    parentCommentId: string;
+  },
+  routeTarget: ReviewResolutionTarget | null,
+  resource: { resourceType: string; resourceId: string },
+): Promise<ReviewComment> {
+  await ensureReviewTables();
   const client = getDbExec();
+  const insertAndRoute = async (tx: DbExec) => {
+    if (routeTarget) {
+      const routedCount = await routeReviewThreadWithClient(
+        tx,
+        input.threadId,
+        routeTarget,
+        resource,
+      );
+      if (routedCount < 1) {
+        throw new Error("Open review thread not found");
+      }
+    }
+    return insertReviewCommentWithClient(input, tx);
+  };
+  if (client.transaction) return client.transaction(insertAndRoute);
+
+  const reply = await insertReviewCommentWithClient(input, client);
+  if (!routeTarget) return reply;
+  try {
+    const routedCount = await routeReviewThreadWithClient(
+      client,
+      input.threadId,
+      routeTarget,
+      resource,
+    );
+    if (routedCount < 1) throw new Error("Open review thread not found");
+    return reply;
+  } catch (error) {
+    await client.execute({
+      sql: `DELETE FROM agent_review_comments
+             WHERE id = ? AND resource_type = ? AND resource_id = ?`,
+      args: [reply.id, resource.resourceType, resource.resourceId],
+    });
+    throw error;
+  }
+}
+
+async function insertReviewCommentWithClient(
+  input: InsertReviewCommentInput,
+  client: DbExec,
+): Promise<ReviewComment> {
   const id = createReviewId("comment");
   const now = new Date().toISOString();
   const comment: ReviewComment = {
@@ -180,6 +259,10 @@ export async function insertReviewComment(
     createdAt: now,
     updatedAt: now,
     metadata: input.metadata ?? null,
+    resolutionNote:
+      typeof input.metadata?.resolutionNote === "string"
+        ? input.metadata.resolutionNote
+        : null,
   };
 
   await client.execute({
@@ -273,16 +356,105 @@ export async function queryReviewComments(
       filterParams.push(input.targetId);
     }
   }
+  if (input.rootOnly) {
+    filters.push("parent_comment_id IS NULL");
+  }
+  if (input.unconsumedOnly) {
+    filters.push("consumed_at IS NULL");
+  }
+  if (input.resolutionTargets !== undefined) {
+    const targets = Array.from(
+      new Set(
+        input.resolutionTargets.filter(
+          (target): target is ReviewResolutionTarget => target !== null,
+        ),
+      ),
+    );
+    const resolutionFilters: string[] = [];
+    if (targets.length > 0) {
+      resolutionFilters.push(
+        `resolution_target IN (${targets.map(() => "?").join(", ")})`,
+      );
+      filterParams.push(...targets);
+    }
+    if (input.resolutionTargets.includes(null)) {
+      resolutionFilters.push("resolution_target IS NULL");
+    }
+    filters.push(
+      resolutionFilters.length > 0
+        ? `(${resolutionFilters.join(" OR ")})`
+        : "1 = 0",
+    );
+  }
 
+  const selectSql = input.rootOnly
+    ? `SELECT ${commentColumns()}
+         FROM (
+           SELECT ${commentColumns()},
+                  ROW_NUMBER() OVER (
+                    PARTITION BY thread_id
+                    ORDER BY created_at ASC, id ASC
+                  ) AS review_thread_rank
+             FROM agent_review_comments
+            WHERE ${filters.join(" AND ")}
+         ) AS distinct_review_threads
+        WHERE review_thread_rank = 1`
+    : `SELECT ${commentColumns()}
+         FROM agent_review_comments
+        WHERE ${filters.join(" AND ")}`;
   const result = await client.execute({
-    sql: `SELECT ${commentColumns()}
-       FROM agent_review_comments
-      WHERE ${filters.join(" AND ")}
-      ORDER BY created_at ASC
+    sql: `${selectSql}
+      ORDER BY created_at ASC${input.rootOnly ? ", id ASC" : ""}
       LIMIT ?`,
     args: [...filterParams, clampLimit(input.limit)],
   });
   return (result.rows ?? []).map(mapCommentRow);
+}
+
+export async function getReviewThreadSummary(
+  input: GetReviewThreadSummaryInput,
+): Promise<ReviewThreadSummary> {
+  await ensureReviewTables();
+  const { clause, params } = input.bypassScope
+    ? { clause: "1 = 1", params: [] as unknown[] }
+    : scopedReviewClause(input.scope);
+  const filters = [
+    "resource_type = ?",
+    "resource_id = ?",
+    clause,
+    "parent_comment_id IS NULL",
+    "deleted_at IS NULL",
+    "status = 'open'",
+  ];
+  const filterParams: unknown[] = [
+    input.resourceType,
+    input.resourceId,
+    ...params,
+  ];
+  if (input.targetId !== undefined) {
+    if (input.targetId === null) {
+      filters.push("target_id IS NULL");
+    } else {
+      filters.push("target_id = ?");
+      filterParams.push(input.targetId);
+    }
+  }
+  const result = await getDbExec().execute({
+    sql: `SELECT COUNT(DISTINCT thread_id) AS open_count,
+                 COUNT(DISTINCT CASE
+                   WHEN (resolution_target IS NULL OR resolution_target <> 'human')
+                    AND consumed_at IS NULL
+                   THEN thread_id
+                 END) AS agent_queue_count
+            FROM agent_review_comments
+           WHERE ${filters.join(" AND ")}`,
+    args: filterParams,
+  });
+  const row = result.rows?.[0];
+  return {
+    openCount: Number(row?.open_count ?? 0),
+    agentQueueCount: Number(row?.agent_queue_count ?? 0),
+  };
 }
 
 export async function getReviewCommentById(
@@ -306,32 +478,162 @@ export async function getReviewCommentById(
   return row ? mapCommentRow(row) : null;
 }
 
+export async function getReviewThreadRoot(
+  threadId: string,
+  resource: { resourceType: string; resourceId: string },
+  scope: ReviewScope,
+  options: { bypassScope?: boolean } = {},
+): Promise<ReviewComment | null> {
+  await ensureReviewTables();
+  const { clause, params } = options.bypassScope
+    ? { clause: "1 = 1", params: [] as unknown[] }
+    : scopedReviewClause(scope);
+  const result = await getDbExec().execute({
+    sql: `SELECT ${commentColumns()}
+       FROM agent_review_comments
+      WHERE thread_id = ?
+        AND resource_type = ?
+        AND resource_id = ?
+        AND parent_comment_id IS NULL
+        AND ${clause}
+      ORDER BY created_at ASC, id ASC
+      LIMIT 1`,
+    args: [threadId, resource.resourceType, resource.resourceId, ...params],
+  });
+  const row = result.rows?.[0];
+  return row ? mapCommentRow(row) : null;
+}
+
 export async function resolveReviewThread(
   threadId: string,
   resolvedBy?: string | null,
   resource?: { resourceType: string; resourceId: string },
+  resolutionNote?: string,
 ): Promise<number> {
   await ensureReviewTables();
+  const client = getDbExec();
+  const resolve = (tx: DbExec) =>
+    resolveReviewThreadWithClient(
+      tx,
+      threadId,
+      resolvedBy,
+      resource,
+      resolutionNote,
+    );
+  return client.transaction ? client.transaction(resolve) : resolve(client);
+}
+
+async function resolveReviewThreadWithClient(
+  client: DbExec,
+  threadId: string,
+  resolvedBy?: string | null,
+  resource?: { resourceType: string; resourceId: string },
+  resolutionNote?: string,
+): Promise<number> {
   const now = new Date().toISOString();
   const resourceClause = resource
     ? "AND resource_type = ? AND resource_id = ?"
     : "";
-  const result = await getDbExec().execute({
+  let rootMetadata: Record<string, unknown> | null = null;
+  if (resolutionNote !== undefined) {
+    const root = await client.execute({
+      sql: `SELECT metadata_json
+         FROM agent_review_comments
+        WHERE thread_id = ?
+          AND parent_comment_id IS NULL
+          AND deleted_at IS NULL
+          ${resourceClause}
+        ORDER BY created_at ASC, id ASC
+        LIMIT 1`,
+      args: [
+        threadId,
+        ...(resource ? [resource.resourceType, resource.resourceId] : []),
+      ],
+    });
+    if (!root.rows?.[0]) {
+      return 0;
+    }
+    rootMetadata = {
+      ...(parseObject(root.rows[0].metadata_json) ?? {}),
+      resolutionNote,
+    };
+  }
+
+  const metadataAssignment =
+    resolutionNote === undefined
+      ? ""
+      : ", metadata_json = CASE WHEN parent_comment_id IS NULL THEN ? ELSE metadata_json END";
+  const result = await client.execute({
     sql: `UPDATE agent_review_comments
         SET status = 'resolved',
             resolved_by = ?,
             resolved_at = ?,
             updated_at = ?
+            ${metadataAssignment}
       WHERE thread_id = ? AND deleted_at IS NULL ${resourceClause}`,
     args: [
       resolvedBy ?? null,
       now,
       now,
+      ...(resolutionNote === undefined
+        ? []
+        : [stringifyOptionalJson(rootMetadata)]),
       threadId,
       ...(resource ? [resource.resourceType, resource.resourceId] : []),
     ],
   });
   return result.rowsAffected ?? 0;
+}
+
+export async function routeReviewThread(
+  threadId: string,
+  resolutionTarget: ReviewResolutionTarget,
+  resource: { resourceType: string; resourceId: string },
+): Promise<number> {
+  await ensureReviewTables();
+  return routeReviewThreadWithClient(
+    getDbExec(),
+    threadId,
+    resolutionTarget,
+    resource,
+  );
+}
+
+async function routeReviewThreadWithClient(
+  client: DbExec,
+  threadId: string,
+  resolutionTarget: ReviewResolutionTarget,
+  resource: { resourceType: string; resourceId: string },
+): Promise<number> {
+  const now = new Date().toISOString();
+  const result = await client.execute({
+    sql: `UPDATE agent_review_comments
+        SET resolution_target = ?,
+            consumed_at = CASE WHEN ? = 'agent' THEN NULL ELSE consumed_at END,
+            updated_at = ?
+      WHERE thread_id = ?
+        AND resource_type = ?
+        AND resource_id = ?
+        AND parent_comment_id IS NULL
+        AND status = 'open'
+        AND deleted_at IS NULL`,
+    args: [
+      resolutionTarget,
+      resolutionTarget,
+      now,
+      threadId,
+      resource.resourceType,
+      resource.resourceId,
+    ],
+  });
+  return result.rowsAffected ?? 0;
+}
+
+export async function sendReviewThreadToAgent(
+  threadId: string,
+  resource: { resourceType: string; resourceId: string },
+): Promise<number> {
+  return routeReviewThread(threadId, "agent", resource);
 }
 
 export async function deleteReviewComment(
@@ -560,6 +862,7 @@ function scopedReviewClause(scope: ReviewScope): {
 }
 
 function mapCommentRow(row: Record<string, unknown>): ReviewComment {
+  const metadata = parseObject(row.metadata_json);
   return {
     id: String(row.id),
     resourceType: String(row.resource_type),
@@ -586,7 +889,11 @@ function mapCommentRow(row: Record<string, unknown>): ReviewComment {
     deletedAt: nullableString(row.deleted_at),
     createdAt: String(row.created_at),
     updatedAt: String(row.updated_at),
-    metadata: parseObject(row.metadata_json),
+    metadata,
+    resolutionNote:
+      typeof metadata?.resolutionNote === "string"
+        ? metadata.resolutionNote
+        : null,
   };
 }
 

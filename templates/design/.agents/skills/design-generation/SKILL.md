@@ -661,6 +661,9 @@ regeneration is slow, expensive, and regresses unrelated parts.
 
 1. **Read before you edit.** Pull the current file with `get-design-snapshot`
    (or `get-design`) so you edit the live content, not a stale memory of it.
+   If the design has persisted review comments, fetch the open queue with
+   `get-review-feedback` and use `.agents/skills/design-review-feedback` to
+   apply and verify one anchored thread at a time.
 2. **Prefer `edit-design` for small changes.** It applies one or more
    search/replace blocks to a file's HTML — surgical, cheap, and it preserves
    everything you didn't touch (Alpine state, scroll, other screens):

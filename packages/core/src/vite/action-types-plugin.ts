@@ -141,6 +141,10 @@ const CORE_SHARING_ACTIONS: Array<{ name: string; specifier: string }> = [
     name: "set-review-status",
     specifier: "@agent-native/core/review/actions/set-review-status",
   },
+  {
+    name: "send-review-thread-to-agent",
+    specifier: "@agent-native/core/review/actions/send-review-thread-to-agent",
+  },
 ];
 
 function isRuntimeSourceFile(filename: string): boolean {

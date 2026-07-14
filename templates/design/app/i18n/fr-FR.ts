@@ -1,3 +1,59 @@
 import { messagesByLocale } from "../i18n-data";
 
-export default messagesByLocale["fr-FR"];
+const messages = {
+  ...messagesByLocale["fr-FR"],
+  review: {
+    comments: "Commentaires",
+    commentsTab: "Commentaires · {{count}}",
+    commentsTitle: "Commentaires de révision",
+    commentNumber: "Commentaire de révision {{count}}",
+    thisScreen: "Cet écran",
+    allScreens: "Tous les écrans",
+    signInToComment: "Connectez-vous pour commenter",
+    panelTitle: "Retours",
+    placeholder: "Laissez un commentaire…",
+    emptyState: "Aucun commentaire de révision pour le moment.",
+    clickToPin: "Cliquez n’importe où pour épingler un commentaire",
+    escToExit: "Appuyez sur Esc pour quitter",
+    newComment: "Nouveau commentaire",
+    commentMode: "Commenter",
+    sendToAgent: "Envoyer à l’agent",
+    sendingToAgent: "Envoi à l’agent…",
+    enterToPost:
+      "Appuyez sur Entrée pour publier · Maj+Entrée pour insérer une nouvelle ligne",
+    post: "Publier",
+    posting: "Publication…",
+    postFailed: "Impossible de publier ce commentaire",
+    loading: "Chargement des commentaires",
+    replyPlaceholder: "Répondre à cette discussion…",
+    reply: "Répondre",
+    cancelReply: "Annuler la réponse",
+    replyFailed: "Impossible de publier cette réponse",
+    resolve: "Résoudre",
+    resolving: "Résolution…",
+    resolveFailed: "Impossible de résoudre cette discussion",
+    deleteComment: "Supprimer le commentaire",
+    moreActions: "Plus d’actions",
+    resolved: "Résolu",
+    reviewer: "Évaluateur",
+    applyFeedback: "Appliquer les retours ({{count}})",
+    applyingFeedback: "Application des retours…",
+    applyFeedbackFailed: "Impossible d’appliquer les retours de révision",
+    sendToAgentFailed: "Impossible d’envoyer cette discussion à l’agent",
+    shareLinkDescription:
+      "Toute personne disposant de ce lien peut voir le design. Les évaluateurs connectés peuvent commenter.",
+    presentComments: "Commentaires",
+    presentCommentMode: "Mode commentaire",
+    closeComments: "Fermer les commentaires",
+    status: {
+      draft: "Brouillon",
+      in_review: "En révision",
+      approved: "Approuvé",
+      changes_requested: "Modifications demandées",
+      change: "Modifier le statut de révision",
+      saveFailed: "Impossible de mettre à jour le statut de révision",
+    },
+  },
+};
+
+export default messages;

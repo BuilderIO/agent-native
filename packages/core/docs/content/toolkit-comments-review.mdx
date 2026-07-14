@@ -24,9 +24,9 @@ status such as draft, review, approved, or needs changes.
 | ------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `registerReviewableResource()` | Register a resource type and optional access resolver for review actions.                                                                                         |
 | Comment actions                | `list-review-comments`, `create-review-comment`, `reply-review-comment`, `resolve-review-thread`, and `delete-review-comment`.                                    |
-| Feedback actions               | `get-review-feedback` and `consume-review-feedback` for agent-readable review queues.                                                                             |
+| Feedback actions               | `get-review-feedback`, `send-review-thread-to-agent`, and `consume-review-feedback` for root-thread agent queues and human handoffs.                              |
 | Review status action           | `set-review-status` for draft, in review, approved, and changes requested states.                                                                                 |
-| `ReviewThreadPanel`            | Drop-in React panel with comment composer, replies, resolve, and delete controls.                                                                                 |
+| `ReviewThreadPanel`            | Drop-in React panel with capability-gated composer, reply, resolve, delete, and custom thread-action controls.                                                    |
 | `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
@@ -42,6 +42,13 @@ specialize anchor shapes, but the common model preserves:
 - `parentCommentId` for replies
 - optional `mentions`
 - optional `anchor` or `resolutionTarget`
+- optional `resolutionNote` on a resolved root thread
+
+`list-review-comments` supports anonymous reads for resources whose access
+resolver grants public viewer access. Public viewer responses redact ownership,
+organization, email, and actor metadata while preserving safe display names and
+the caller-specific `canDelete` capability. Its `summary` reports unpaginated
+open-root and agent-queue counts even when the returned comment page is bounded.
 
 ## Register A Resource {#register-resource}
 
@@ -76,6 +83,9 @@ export function DocumentReview({ documentId }: { documentId: string }) {
       resourceType="document"
       resourceId={documentId}
       targetId="intro-section"
+      canReply
+      canResolve={false}
+      canDeleteComment={(comment) => comment.canDelete === true}
     />
   );
 }
@@ -93,6 +103,10 @@ actions and thread UI.
 - Agents can read open review feedback before changing code or content.
 - `consumedAt` and `resolved` are separate. An agent can consume a piece of
   feedback without closing the reviewer-visible thread.
+- The root comment owns routing. A human-targeted root is absent from the agent
+  queue; sending it back to the agent clears its previous consumption marker.
+- Agents can pass `resolutionNote` to `resolve-review-thread` so verification
+  evidence remains attached to the resolved root.
 
 ## What's next
 

@@ -686,6 +686,10 @@ export async function mergeCoreSharingActions(
       "set-review-status",
       () => import("../review/actions/set-review-status.js"),
     ],
+    [
+      "send-review-thread-to-agent",
+      () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [

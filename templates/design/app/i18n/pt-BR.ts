@@ -1,3 +1,59 @@
 import { messagesByLocale } from "../i18n-data";
 
-export default messagesByLocale["pt-BR"];
+const messages = {
+  ...messagesByLocale["pt-BR"],
+  review: {
+    comments: "Comentários",
+    commentsTab: "Comentários · {{count}}",
+    commentsTitle: "Comentários da revisão",
+    commentNumber: "Comentário da revisão {{count}}",
+    thisScreen: "Esta tela",
+    allScreens: "Todas as telas",
+    signInToComment: "Entre para comentar",
+    panelTitle: "Feedback",
+    placeholder: "Deixe seu feedback…",
+    emptyState: "Ainda não há comentários de revisão.",
+    clickToPin: "Clique em qualquer lugar para fixar o feedback",
+    escToExit: "Pressione Esc para sair",
+    newComment: "Novo comentário",
+    commentMode: "Comentar",
+    sendToAgent: "Enviar ao agente",
+    sendingToAgent: "Enviando ao agente…",
+    enterToPost:
+      "Pressione Enter para publicar · Shift+Enter para uma nova linha",
+    post: "Publicar",
+    posting: "Publicando…",
+    postFailed: "Não foi possível publicar este comentário",
+    loading: "Carregando comentários",
+    replyPlaceholder: "Responda a esta conversa…",
+    reply: "Responder",
+    cancelReply: "Cancelar resposta",
+    replyFailed: "Não foi possível publicar esta resposta",
+    resolve: "Resolver",
+    resolving: "Resolvendo…",
+    resolveFailed: "Não foi possível resolver esta conversa",
+    deleteComment: "Excluir comentário",
+    moreActions: "Mais ações",
+    resolved: "Resolvido",
+    reviewer: "Revisor",
+    applyFeedback: "Aplicar feedback ({{count}})",
+    applyingFeedback: "Aplicando feedback…",
+    applyFeedbackFailed: "Não foi possível aplicar o feedback da revisão",
+    sendToAgentFailed: "Não foi possível enviar esta conversa ao agente",
+    shareLinkDescription:
+      "Qualquer pessoa com este link pode ver o design. Revisores que entraram na conta podem comentar.",
+    presentComments: "Comentários",
+    presentCommentMode: "Modo de comentários",
+    closeComments: "Fechar comentários",
+    status: {
+      draft: "Rascunho",
+      in_review: "Em revisão",
+      approved: "Aprovado",
+      changes_requested: "Alterações solicitadas",
+      change: "Alterar o status da revisão",
+      saveFailed: "Não foi possível atualizar o status da revisão",
+    },
+  },
+};
+
+export default messages;
