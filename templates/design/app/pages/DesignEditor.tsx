@@ -667,6 +667,7 @@ import {
   resolveScreenEntryZoom,
   resolveZoomUpdate,
   readOverviewZoomPercentFromTransform,
+  resolveScreenDropPoint,
   shouldDeferOverviewZoomCommand,
   shouldPopToOverviewOnZoomChange,
   shouldResetExplicitOverviewZoomOnBasisChange,
@@ -26328,6 +26329,58 @@ function DesignEditor() {
     selectedLayerIds,
   ]);
 
+  const resolveAssetScreenPoint = useCallback(
+    ({ clientX, clientY }: { clientX: number; clientY: number }) => {
+      const container = canvasContainerRef.current;
+      if (!container) return null;
+
+      if (viewMode === "single") {
+        const iframe = container.querySelector<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        );
+        return resolveScreenDropPoint({
+          clientX,
+          clientY,
+          screenId: activeFile?.id,
+          iframeRect: iframe?.getBoundingClientRect(),
+          zoomPercent: zoom,
+        });
+      }
+
+      const frameShell = document
+        .elementsFromPoint(clientX, clientY)
+        .map((element) => element.closest<HTMLElement>("[data-frame-id]"))
+        .find((element): element is HTMLElement => Boolean(element));
+      const screenId = frameShell?.dataset.frameId;
+      const iframe = Array.from(
+        frameShell?.querySelectorAll<HTMLIFrameElement>(
+          "iframe[data-design-preview-iframe]",
+        ) ?? [],
+      ).find((candidate) => {
+        const rect = candidate.getBoundingClientRect();
+        return (
+          clientX >= rect.left &&
+          clientX <= rect.right &&
+          clientY >= rect.top &&
+          clientY <= rect.bottom
+        );
+      });
+      const liveOverviewZoom = readOverviewZoomPercentFromTransform(
+        container.querySelector<HTMLElement>("[data-multi-screen-canvas-world]")
+          ?.style.transform,
+        overviewCanvasZoom,
+      );
+      return resolveScreenDropPoint({
+        clientX,
+        clientY,
+        screenId,
+        iframeRect: iframe?.getBoundingClientRect(),
+        zoomPercent: liveOverviewZoom,
+      });
+    },
+    [activeFile?.id, overviewCanvasZoom, viewMode, zoom],
+  );
+
   const getContextCanvasPoint = useCallback(
     ({ clientX, clientY }: { clientX: number; clientY: number }) => {
       // In single-screen mode the iframe is inside a scale(zoom/100) wrapper
@@ -28057,7 +28110,10 @@ function DesignEditor() {
                   </h3>
                 </div>
                 {canEditDesign ? (
-                  <AssetLibraryPanel context={designExtensionContext} />
+                  <AssetLibraryPanel
+                    context={designExtensionContext}
+                    resolveScreenPoint={resolveAssetScreenPoint}
+                  />
                 ) : (
                   <ReadOnlyEditorPanel
                     title={"Assets require editor access" /* i18n-ignore */}
