@@ -33,6 +33,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import {
   readAppState,
   writeAppState,
@@ -1054,8 +1055,23 @@ const requestTranscriptAction = defineAction({
         "Internal — set only by the bounded automatic retry scheduler after a transient failure (ffmpeg timeout, transient provider error). Do not set this when calling request-transcript manually or from the agent; omitting it means the retry budget never applies to this call.",
       ),
   }),
-  run: async (args) => {
+  run: async (args, context?: ActionRunContext) => {
     await assertAccess("recording", args.recordingId, "editor");
+
+    if (context?.caller === "tool") {
+      await dispatchPostFinalizeJob({
+        recordingId: args.recordingId,
+        kind: "transcript",
+        ...(args.regenerate ? { regenerate: true } : {}),
+      });
+      return {
+        recordingId: args.recordingId,
+        status: "pending" as const,
+        queued: true,
+        regenerate: Boolean(args.regenerate),
+        provider: "background" as const,
+      };
+    }
 
     const db = getDb();
     const ownerEmail = getCurrentOwnerEmail();

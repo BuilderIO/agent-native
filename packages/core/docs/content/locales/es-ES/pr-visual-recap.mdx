@@ -160,11 +160,29 @@ Si la variable no está configurada, la acción utiliza `claude`.
 
 Más allá del backend, dos variables del repositorio ajustan _cómo_ se ejecuta el agente:
 
-- **`VISUAL_RECAP_MODEL`** fija el modelo pasado al CLI (`--model`), por ejemplo, `gpt-5.6-sol` para Codex o una identificación de modelo Claude. Déjelo sin configurar para usar el modelo predeterminado del CLI.
+- **`VISUAL_RECAP_MODEL`** fija el modelo pasado al CLI (`--model`) — por ejemplo, `gpt-5.6-luna` para Codex, una identificación de modelo Claude, o `deepseek-chat` para DeepSeek. Es obligatorio para `openai-compatible`. Para el backend **Claude**, dejarlo sin configurar ahora utiliza `claude-sonnet-5` de forma predeterminada; configure la variable explícitamente para usar un modelo Claude diferente, como el más económico `claude-haiku-4-5`. Para el backend **Codex**, dejarlo sin configurar utiliza el modelo predeterminado propio del CLI de Codex.
 - **`VISUAL_RECAP_REASONING`** establece la profundidad del razonamiento: `none`, `minimal`, `low`, `medium`, `high` o `xhigh`. Se aplica al backend Codex; El razonamiento de Claude se basa en modelos, por lo que esta variable se ignora allí.
 - **`VISUAL_RECAP_SKILL_SOURCE`** controla la actualización de los mensajes: `auto`/unset utiliza la guía de habilidades incluida más reciente, mientras que `repo` se fija a la carpeta de habilidades `visual-recap` local del repositorio comprometido.
 
 Por ejemplo, para ejecutar el resumen en Codex con GPT-5.6 Sol en razonamiento alto, configure las variables del repositorio `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` y `VISUAL_RECAP_REASONING=high`.
+
+## Costo
+
+Cada ejecución de resumen es una sesión completa de agente de codificación que lee un diff real, no un resumen barato basado en plantillas, por lo que su costo depende de la elección del modelo y de la frecuencia con la que se ejecuta:
+
+- **Una sesión completa por cada push al PR.** El disparador predeterminado se activa en `synchronize`, por lo que un PR al que se le hacen diez pushes ejecuta el agente diez veces.
+- **Todo el PR cada vez**, no solo los commits desde la última ejecución — el costo escala con el tamaño total del PR, no con el tamaño incremental del diff.
+- **Entrada de diff limitada a ~600KB.** Esto acota el peor caso por ejecución, pero los diffs grandes siguen costando considerablemente más que los pequeños.
+- **Un reintento automático en caso de fallo**, que puede aproximadamente duplicar el costo de una ejecución que falla de forma transitoria.
+
+Para reducir el costo:
+
+- **Fije un modelo más económico.** Para Claude, configure `VISUAL_RECAP_MODEL=claude-haiku-4-5` para repositorios simples o pequeños — es el nivel más económico de Claude; `claude-sonnet-5` (el predeterminado) es el nivel equilibrado.
+- **Cambie a Codex con un modelo más económico.** Configure `VISUAL_RECAP_AGENT=codex` con `VISUAL_RECAP_MODEL=gpt-5.6-luna` (el nivel más económico de GPT-5.6) o `gpt-5.6-terra` (nivel intermedio), y configure `VISUAL_RECAP_REASONING=low` para reducir aún más el gasto en tokens de razonamiento. La profundidad de razonamiento solo se aplica a Codex.
+- **Apunte a un proveedor compatible con OpenAI más económico.** Configure `VISUAL_RECAP_AGENT=openai-compatible` con `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` apuntando a DeepSeek, Kimi o cualquier otro endpoint compatible con OpenAI.
+- **Resuma con menos frecuencia.** Edite el `on.pull_request.types` del flujo de trabajo instalado de `[opened, synchronize, reopened, ready_for_review, closed]` a `[opened, ready_for_review, closed]` para que solo genere resúmenes cuando un PR se abre y cuando se fusiona, en lugar de en cada push.
+
+Cada ejecución registra lo que realmente gastó: el paso `recap usage` del flujo de trabajo adjunta el uso de tokens y costo al plan publicado, para que pueda ver el gasto real por ejecución en lugar de adivinar.
 
 ## Secretos y variables
 
@@ -209,14 +227,14 @@ token real.
 
 ### Opcional (solo si cambia los valores predeterminados)
 
-| Secreto/variable         | Predeterminado                      | Cuando lo necesites                                                                                                                                        |
-| ------------------------ | ----------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                                   | Secreto. Configúrelo junto con `VISUAL_RECAP_AGENT=codex` para ejecutar el resumen con Codex.                                                              |
-| `VISUAL_RECAP_AGENT`     | `claude`                            | Variable. Selecciona el backend del agente de codificación (`claude` o `codex`).                                                                           |
-| `VISUAL_RECAP_MODEL`     | el valor predeterminado de cada CLI | Variable. Fija el modelo, p.e. `gpt-5.6-sol` para Codex, o una identificación de modelo Claude. Unset utiliza el valor predeterminado del CLI.             |
-| `VISUAL_RECAP_REASONING` | valor predeterminado de cada modelo | Variable. Profundidad de razonamiento: `none`, `minimal`, `low`, `medium`, `high` o `xhigh`. Se aplica al backend Codex.                                   |
-| `RECAP_CLI_VERSION`      | `latest`                            | Variable. Fija la versión `@agent-native/recap-cli` CLI que instala el flujo de trabajo, p. `1.5.0`. Ver [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`     | Secreto. Solo cuando se aloja la aplicación Planes en un origen diferente.                                                                                 |
+| Secreto/variable         | Predeterminado                                                        | Cuando lo necesites                                                                                                                                                                                                                                                                                                                                                |
+| ------------------------ | --------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `OPENAI_API_KEY`         | —                                                                     | Secreto. Configúrelo junto con `VISUAL_RECAP_AGENT=codex` para ejecutar el resumen con Codex.                                                                                                                                                                                                                                                                      |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                              | Variable. Selecciona el backend del agente de codificación (`claude` o `codex`).                                                                                                                                                                                                                                                                                   |
+| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` para Claude; obligatorio para el backend compatible | Variable. Identificación del modelo del proveedor para backends compatibles con OpenAI (obligatoria allí). Para Claude, sin configurar ahora usa `claude-sonnet-5` de forma predeterminada — configúrelo para anularlo, p. ej. `claude-haiku-4-5` para el nivel más económico. Para Codex, sin configurar utiliza el valor predeterminado propio del CLI de Codex. |
+| `VISUAL_RECAP_REASONING` | valor predeterminado de cada modelo                                   | Variable. Profundidad de razonamiento: `none`, `minimal`, `low`, `medium`, `high` o `xhigh`. Se aplica al backend Codex.                                                                                                                                                                                                                                           |
+| `RECAP_CLI_VERSION`      | `latest`                                                              | Variable. Fija la versión `@agent-native/recap-cli` CLI que instala el flujo de trabajo, p. `1.5.0`. Ver [Version pinning](#version-pinning-copy-variant).                                                                                                                                                                                                         |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                                       | Secreto. Solo cuando se aloja la aplicación Planes en un origen diferente.                                                                                                                                                                                                                                                                                         |
 
 El flujo de trabajo detecta automáticamente cómo invocar su asistente CLI (fuente local dentro de este monorepo, el `@agent-native/recap-cli` publicado en otro lugar), por lo que no hay ninguna variable `RECAP_CLI` para configurar.
 

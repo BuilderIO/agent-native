@@ -507,7 +507,7 @@ jobs:
           set -uo pipefail
           CLAUDE_ALLOWED_TOOLS="Read,Write,Bash(git diff:*)"
           CLAUDE_ARGS=(-p "$(cat recap-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
-          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
           rm -f recap-source.json recap-url.txt recap-url-reason.txt claude-result.json claude-stderr.log
           run_claude() {
             set +e

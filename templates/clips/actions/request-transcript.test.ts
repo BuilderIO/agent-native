@@ -401,6 +401,31 @@ describe("requestTranscript regeneration", () => {
     });
   });
 
+  it("queues agent retries in the post-finalize worker", async () => {
+    const result = await requestTranscript.run(
+      {
+        recordingId: "rec_ready",
+        force: true,
+        regenerate: true,
+      },
+      { caller: "tool" } as any,
+    );
+
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith({
+      recordingId: "rec_ready",
+      kind: "transcript",
+      regenerate: true,
+    });
+    expect(result).toEqual({
+      recordingId: "rec_ready",
+      status: "pending",
+      queued: true,
+      regenerate: true,
+      provider: "background",
+    });
+    expect(mockSelectRows.queue).toHaveLength(0);
+  });
+
   it("keeps the ready transcript when regeneration fails", async () => {
     mockTranscribeWithBuilder.mockRejectedValue(
       new Error("Builder transcription failed (503 Service Unavailable)"),

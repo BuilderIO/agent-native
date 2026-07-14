@@ -4102,6 +4102,32 @@ describe("runAgentLoop", () => {
     ).toBeNull();
   });
 
+  it("stops alternating docs and source searches at the aggregate convergence budget", () => {
+    const actions = {
+      "docs-search": actionEntry({ readOnly: true }),
+      "list-docs": actionEntry({ readOnly: true }),
+      "search-source": actionEntry({ readOnly: true }),
+      "read-source-file": actionEntry({ readOnly: true }),
+    };
+    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+      name: Object.keys(actions)[i % Object.keys(actions).length],
+      input: { query: `term-${i + 1}` },
+    }));
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "docs-search",
+        entry: actions["docs-search"],
+        actions,
+        priorToolCalls,
+      }),
+    ).toMatchObject({
+      toolName: "docs-search",
+      priorCalls: 12,
+      message: expect.stringContaining("read-only source/search tools"),
+    });
+  });
+
   it("allows a bulk strategy change instead of continuing a repeated source sweep", async () => {
     let streamCalls = 0;
     const seenMessages: unknown[] = [];

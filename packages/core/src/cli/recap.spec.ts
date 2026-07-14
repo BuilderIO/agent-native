@@ -2656,6 +2656,19 @@ describe("bundled PR visual recap workflow", () => {
         "utf8",
       ),
     ]) {
+      // Claude backend always pins a model: default to claude-sonnet-5 (a
+      // cost-efficient model) when VISUAL_RECAP_MODEL is unset, instead of
+      // falling through to the CLI's own (expensive Opus-tier) default.
+      expect(workflow).toContain(
+        'CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")',
+      );
+      expect(workflow).not.toContain(
+        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      );
+      // Codex backend keeps its own conditional — no forced default model.
+      expect(workflow).toContain(
+        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      );
       expect(workflow).toContain(
         "AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source",
       );

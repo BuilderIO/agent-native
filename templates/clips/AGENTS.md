@@ -43,6 +43,10 @@ Detailed media, meeting, dictation, editing, and sharing rules live in
   transcript. Pass `--regenerate=true` to replace an existing ready transcript
   from the stored recording media; if regeneration fails, keep the prior ready
   transcript available.
+- The transcript embedded by `view-screen` is a bounded preview. If
+  `previewTruncated` is true, it may end mid-sentence and does not show where
+  transcription ended. Call `get-recording-player-data` before judging
+  completeness or quoting the full transcript.
 - Dictation cleanup, Clip title/cleanup, and meeting summaries should pass
   bounded `voiceContext` to the shared cleanup/transcription path when active
   app context, learned vocabulary, user notes, or AGENTS.md preferences are

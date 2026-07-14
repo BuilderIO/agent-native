@@ -1393,6 +1393,11 @@ async function downloadGitHubSubdir(
 ): Promise<void> {
   validateRepoName(repo);
   const refs = getGitHubTemplateRefCandidates();
+  if (refs.length === 0) {
+    throw new Error(
+      "Cannot download first-party scaffold files without a versioned @agent-native/core package.",
+    );
+  }
   const errors: string[] = [];
   for (const ref of refs) {
     const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
@@ -1702,9 +1707,11 @@ function getCorePackageVersion(): string | undefined {
  *   - ≥ 0.8.0:  changesets per-package tags
  *               `@agent-native/core@<version>` (current).
  *
- * `main` is the final fallback so dev builds and brand-new releases (where
- * the tag has not propagated yet) still work — at the cost of pulling
- * potentially newer template code than the running CLI was built against.
+ * Published CLIs intentionally use only immutable version tags. Falling back
+ * to mutable `main` can copy a template that imports exports not present in
+ * the installed core package, leaving a generated app broken at SSR startup.
+ * Local framework development uses the checkout's templates and packages
+ * before this downloader runs, so it does not need a mutable fallback.
  */
 function getGitHubTemplateRefCandidates(): string[] {
   const version = getCorePackageVersion();
@@ -1713,7 +1720,6 @@ function getGitHubTemplateRefCandidates(): string[] {
     candidates.push(`@agent-native/core@${version}`);
     candidates.push(`v${version}`);
   }
-  candidates.push("main");
   return candidates;
 }
 

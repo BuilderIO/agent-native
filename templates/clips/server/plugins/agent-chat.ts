@@ -18,6 +18,7 @@ const INITIAL_TOOL_NAMES = [
   "list-recordings",
   "search-recordings",
   "get-recording-player-data",
+  "request-transcript",
   "create-recording",
   "import-loom-recording",
   "update-recording",
@@ -38,5 +39,9 @@ export default createAgentChatPlugin({
   appId: "clips",
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
+  extraContext: async () =>
+    `<clips-transcript-guidance>
+The transcript in view-screen is a bounded preview. When previewTruncated is true, its text is expected to end mid-sentence and is never evidence that transcription stopped early. Call get-recording-player-data before judging transcript completeness or quoting the full transcript. For a failed or pending transcript, use request-transcript with force=true. For an explicit fresh retry of an existing ready transcript, also pass regenerate=true. Agent-triggered retries are queued for the durable worker and return pending while processing.
+</clips-transcript-guidance>`,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
 });
