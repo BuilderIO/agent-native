@@ -1,5 +1,9 @@
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { createClient } from "@libsql/client";
+import { drizzle } from "drizzle-orm/libsql";
 
 import * as schema from "./schema.js";
 
@@ -54,9 +58,19 @@ CREATE TABLE IF NOT EXISTS user_config (
 );
 `;
 
-export function createInMemoryTasksDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.exec(TEST_TASKS_TABLE_SQL);
-  const testDb = drizzle(sqlite, { schema });
-  return { sqlite, testDb };
+// libsql, not better-sqlite3: its sync driver lets `.run()`/`.all()`/`.get()` pass here and fail in production.
+// A temp file, not `:memory:`: libsql scopes in-memory dbs per connection, so a transaction loses the schema.
+export async function createInMemoryTasksDb() {
+  const dir = mkdtempSync(join(tmpdir(), "tasks-test-"));
+  const client = createClient({ url: `file:${join(dir, "test.db")}` });
+  await client.executeMultiple(TEST_TASKS_TABLE_SQL);
+  const testDb = drizzle(client, { schema });
+
+  const close = client.close.bind(client);
+  client.close = () => {
+    close();
+    rmSync(dir, { recursive: true, force: true });
+  };
+
+  return { client, testDb };
 }

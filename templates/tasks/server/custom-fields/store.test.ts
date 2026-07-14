@@ -23,15 +23,17 @@ vi.mock("../db/index.js", () => ({
   getDb: () => testDb,
 }));
 
-let sqlite: ReturnType<typeof createInMemoryTasksDb>["sqlite"];
-let testDb: ReturnType<typeof createInMemoryTasksDb>["testDb"];
+type TestDb = Awaited<ReturnType<typeof createInMemoryTasksDb>>;
 
-beforeEach(() => {
-  ({ sqlite, testDb } = createInMemoryTasksDb());
+let client: TestDb["client"];
+let testDb: TestDb["testDb"];
+
+beforeEach(async () => {
+  ({ client, testDb } = await createInMemoryTasksDb());
 });
 
 afterEach(() => {
-  sqlite.close();
+  client.close();
 });
 
 describe("custom fields store", () => {
@@ -117,7 +119,7 @@ describe("custom fields store", () => {
     expect(byTitle.get("Estimate")?.value).toBe(3.5);
     expect(byTitle.get("Tags")?.value).toEqual(["opt_frontend", "opt_backend"]);
 
-    const rawValues = listCustomFieldValues({
+    const rawValues = await listCustomFieldValues({
       ownerEmail: "alice@example.com",
       taskIds: ["task-1"],
     });
@@ -162,7 +164,7 @@ describe("custom fields store", () => {
     });
     expect(fields.find((field) => field.id === estimate.id)?.value).toBe(5);
     expect(
-      listCustomFieldValues({
+      await listCustomFieldValues({
         ownerEmail: "alice@example.com",
         taskIds: ["task-1"],
         fieldId: estimate.id,
@@ -473,7 +475,7 @@ describe("custom fields store", () => {
       config: { options: [{ id: "low", name: "Low" }] },
     });
 
-    const rows = listCustomFieldValues({
+    const rows = await listCustomFieldValues({
       ownerEmail: "alice@example.com",
       fieldId: field.id,
     });

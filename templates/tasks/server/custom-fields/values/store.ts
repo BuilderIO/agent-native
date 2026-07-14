@@ -8,7 +8,7 @@ import {
   customFieldValues,
   type StoredCustomFieldValue,
 } from "../../db/schema.js";
-import { runTransaction, type TransactionDb } from "../../db/transaction.js";
+import type { DbHandle } from "../../db/transaction.js";
 import { getStoredItem } from "../../stored-items/store.js";
 import { isEmptyFieldValue, normalizeFieldValue } from "../normalize.js";
 import {
@@ -80,15 +80,15 @@ export async function prepareCustomFieldValuePatches(input: {
   return normalizedValues;
 }
 
-export function applyCustomFieldValuePatchesInTx(
-  tx: TransactionDb,
+export async function applyCustomFieldValuePatchesInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     taskId: string;
     patches: Map<string, PreparedFieldValuePatch>;
     updatedAt: string;
   },
-): void {
+): Promise<void> {
   const patches = [...input.patches.values()];
   const clearedFieldIds = patches
     .filter((patch) => patch.value === null)
@@ -106,21 +106,20 @@ export function applyCustomFieldValuePatchesInTx(
     }));
 
   if (clearedFieldIds.length > 0) {
-    tx.delete(customFieldValues)
+    await tx
+      .delete(customFieldValues)
       .where(
         and(
           eq(customFieldValues.ownerEmail, input.ownerEmail),
           eq(customFieldValues.taskId, input.taskId),
           inArray(customFieldValues.fieldId, clearedFieldIds),
         ),
-      )
-      .run();
+      );
   }
 
-  // One multi-row upsert: `excluded` refers to the row that would have been
-  // inserted, so each conflicting row keeps its own value.
   for (const group of chunk(rows)) {
-    tx.insert(customFieldValues)
+    await tx
+      .insert(customFieldValues)
       .values(group)
       .onConflictDoUpdate({
         target: [
@@ -132,8 +131,58 @@ export function applyCustomFieldValuePatchesInTx(
           valueJson: sql`excluded.value_json`,
           updatedAt: input.updatedAt,
         },
-      })
-      .run();
+      });
+  }
+}
+
+export async function deleteCustomFieldValuesByIds(
+  input: { ownerEmail: string; ids: string[] },
+  db: DbHandle = getDb(),
+): Promise<void> {
+  const ids = [...new Set(input.ids)];
+  if (ids.length === 0) return;
+
+  for (const group of chunk(ids)) {
+    await db
+      .delete(customFieldValues)
+      .where(
+        and(
+          eq(customFieldValues.ownerEmail, input.ownerEmail),
+          inArray(customFieldValues.id, group),
+        ),
+      );
+  }
+}
+
+export async function setCustomFieldValueJsonByIds(
+  input: {
+    ownerEmail: string;
+    entries: Array<{ id: string; value: FieldValue }>;
+    now?: string;
+  },
+  db: DbHandle = getDb(),
+): Promise<void> {
+  if (input.entries.length === 0) return;
+
+  const updatedAt = timestamp(input.now);
+  const entries = input.entries.map((entry) => ({
+    id: entry.id,
+    value: JSON.stringify(entry.value),
+  }));
+
+  for (const group of chunk(entries)) {
+    await db
+      .update(customFieldValues)
+      .set({ valueJson: caseById(customFieldValues.id, group), updatedAt })
+      .where(
+        and(
+          eq(customFieldValues.ownerEmail, input.ownerEmail),
+          inArray(
+            customFieldValues.id,
+            group.map((entry) => entry.id),
+          ),
+        ),
+      );
   }
 }
 
@@ -171,16 +220,14 @@ export async function getCustomFieldValue(input: {
   return parseStoredValue(parseField(fieldRow), row);
 }
 
-type FieldValueDb = ReturnType<typeof getDb> | TransactionDb;
-
-export function listCustomFieldValues(
+export async function listCustomFieldValues(
   input: {
     ownerEmail: string;
     taskIds?: string[];
     fieldId?: string;
   },
-  db: FieldValueDb = getDb(),
-): StoredCustomFieldValue[] {
+  db: DbHandle = getDb(),
+): Promise<StoredCustomFieldValue[]> {
   const taskIds = input.taskIds ? [...new Set(input.taskIds)] : undefined;
   if (!taskIds?.length && !input.fieldId) {
     throw new Error("Provide taskIds or fieldId to list custom field values.");
@@ -196,64 +243,7 @@ export function listCustomFieldValues(
   return db
     .select()
     .from(customFieldValues)
-    .where(and(...conditions))
-    .all();
-}
-
-/** Delete value rows by id, without the existence read `deleteCustomFieldValues` does. */
-export function deleteCustomFieldValuesByIds(
-  input: { ownerEmail: string; ids: string[] },
-  db: FieldValueDb = getDb(),
-): void {
-  const ids = [...new Set(input.ids)];
-  if (ids.length === 0) return;
-
-  for (const group of chunk(ids)) {
-    db.delete(customFieldValues)
-      .where(
-        and(
-          eq(customFieldValues.ownerEmail, input.ownerEmail),
-          inArray(customFieldValues.id, group),
-        ),
-      )
-      .run();
-  }
-}
-
-/** Write a different stored value to each row in one statement per chunk. */
-export function setCustomFieldValueJsonByIds(
-  input: {
-    ownerEmail: string;
-    entries: Array<{ id: string; value: FieldValue }>;
-    now?: string;
-  },
-  db: FieldValueDb = getDb(),
-): void {
-  if (input.entries.length === 0) return;
-
-  const updatedAt = timestamp(input.now);
-  const entries = input.entries.map((entry) => ({
-    id: entry.id,
-    value: JSON.stringify(entry.value),
-  }));
-
-  for (const group of chunk(entries)) {
-    db.update(customFieldValues)
-      .set({
-        valueJson: caseById(customFieldValues.id, group),
-        updatedAt,
-      })
-      .where(
-        and(
-          eq(customFieldValues.ownerEmail, input.ownerEmail),
-          inArray(
-            customFieldValues.id,
-            group.map((entry) => entry.id),
-          ),
-        ),
-      )
-      .run();
-  }
+    .where(and(...conditions));
 }
 
 export async function updateCustomFieldValues(input: {
@@ -266,8 +256,8 @@ export async function updateCustomFieldValues(input: {
   if (patches.size === 0) return;
 
   const updatedAt = timestamp(input.now);
-  runTransaction(getDb(), (tx) => {
-    applyCustomFieldValuePatchesInTx(tx, {
+  await getDb().transaction(async (tx) => {
+    await applyCustomFieldValuePatchesInTx(tx, {
       ownerEmail: input.ownerEmail,
       taskId: input.taskId,
       patches,
@@ -276,16 +266,17 @@ export async function updateCustomFieldValues(input: {
   });
 }
 
-export function updateCustomFieldValue(
+export async function updateCustomFieldValue(
   input: {
     ownerEmail: string;
     id: string;
     value: FieldValue;
     now?: string;
   },
-  db: FieldValueDb = getDb(),
-): void {
-  db.update(customFieldValues)
+  db: DbHandle = getDb(),
+): Promise<void> {
+  await db
+    .update(customFieldValues)
     .set({
       valueJson: JSON.stringify(input.value),
       updatedAt: timestamp(input.now),
@@ -295,11 +286,10 @@ export function updateCustomFieldValue(
         eq(customFieldValues.ownerEmail, input.ownerEmail),
         eq(customFieldValues.id, input.id),
       ),
-    )
-    .run();
+    );
 }
 
-export function deleteCustomFieldValues(
+export async function deleteCustomFieldValues(
   input: {
     ownerEmail: string;
     id?: string;
@@ -307,8 +297,8 @@ export function deleteCustomFieldValues(
     taskIds?: string[];
     fieldId?: string;
   },
-  db: FieldValueDb = getDb(),
-): { deletedValues: number } {
+  db: DbHandle = getDb(),
+): Promise<{ deletedValues: number }> {
   if (!input.id && !input.taskId && !input.taskIds && !input.fieldId) {
     throw new Error(
       "Provide id, taskId, taskIds, or fieldId to delete custom field values.",
@@ -329,16 +319,13 @@ export function deleteCustomFieldValues(
   if (input.fieldId)
     conditions.push(eq(customFieldValues.fieldId, input.fieldId));
 
-  const values = db
+  const values = await db
     .select({ id: customFieldValues.id })
     .from(customFieldValues)
-    .where(and(...conditions))
-    .all();
+    .where(and(...conditions));
 
   if (values.length > 0) {
-    db.delete(customFieldValues)
-      .where(and(...conditions))
-      .run();
+    await db.delete(customFieldValues).where(and(...conditions));
   }
 
   return { deletedValues: values.length };

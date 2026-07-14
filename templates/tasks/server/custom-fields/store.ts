@@ -4,8 +4,7 @@ import { caseById, chunk } from "../db/bulk-write.js";
 import { getDb } from "../db/index.js";
 import { createRecordId, timestamp } from "../db/record-utils.js";
 import { customFields } from "../db/schema.js";
-import { runTransaction } from "../db/transaction.js";
-import type { TransactionDb } from "../db/transaction.js";
+import type { DbHandle } from "../db/transaction.js";
 import { requireUserEmail } from "../stored-items/store.js";
 import { removeTaskCardFieldId } from "../user-config/store.js";
 import {
@@ -157,18 +156,18 @@ export async function updateCustomField(input: {
     patch.configJson = serializeFieldConfig(existing.type, input.config);
   }
 
-  const updated = runTransaction(getDb(), (tx) => {
-    tx.update(customFields)
+  const updated = await getDb().transaction(async (tx) => {
+    await tx
+      .update(customFields)
       .set(patch)
       .where(
         and(
           eq(customFields.ownerEmail, input.ownerEmail),
           eq(customFields.id, input.fieldId),
         ),
-      )
-      .run();
+      );
 
-    const [updatedRow] = tx
+    const [updatedRow] = await tx
       .select()
       .from(customFields)
       .where(
@@ -177,12 +176,11 @@ export async function updateCustomField(input: {
           eq(customFields.id, input.fieldId),
         ),
       )
-      .limit(1)
-      .all();
+      .limit(1);
     if (!updatedRow) return null;
     const parsed = parseField(updatedRow);
     if (input.config !== undefined) {
-      cleanupValuesAfterConfigChange(parsed, tx);
+      await cleanupValuesAfterConfigChange(parsed, tx);
     }
     return parsed;
   });
@@ -190,26 +188,23 @@ export async function updateCustomField(input: {
   return updated;
 }
 
-function cleanupValuesAfterConfigChange(
+async function cleanupValuesAfterConfigChange(
   field: FieldDefinition,
-  db: TransactionDb,
-) {
+  db: DbHandle,
+): Promise<void> {
   if (field.type !== "single_select" && field.type !== "multi_select") return;
   const allowed = new Set(selectOptionIds(field));
-  const rows = listCustomFieldValues(
+  const rows = await listCustomFieldValues(
     { ownerEmail: field.ownerEmail, fieldId: field.id },
     db,
   );
 
-  // Classify every row in memory first, then issue one batch per outcome — this
-  // runs over every value of the field across all tasks, which nothing caps.
   const staleIds: string[] = [];
   const trimmed: Array<{ id: string; value: FieldValue }> = [];
 
   for (const row of rows) {
     // Read the raw shape rather than `parseStoredValue`: that validates against
-    // the new config and throws on exactly the removed options this exists to
-    // clean up.
+    // the new config and throws on exactly the removed options this cleans up.
     const value = parseFieldValueShape(JSON.parse(row.valueJson));
     if (isEmptyFieldValue(value)) {
       staleIds.push(row.id);
@@ -235,11 +230,11 @@ function cleanupValuesAfterConfigChange(
     }
   }
 
-  deleteCustomFieldValuesByIds(
+  await deleteCustomFieldValuesByIds(
     { ownerEmail: field.ownerEmail, ids: staleIds },
     db,
   );
-  setCustomFieldValueJsonByIds(
+  await setCustomFieldValueJsonByIds(
     { ownerEmail: field.ownerEmail, entries: trimmed },
     db,
   );
@@ -261,16 +256,16 @@ export async function deleteCustomField(input: {
   });
   if (!existing) throw new Error("Custom field not found.");
 
-  const { deletedValues } = runTransaction(getDb(), (tx) => {
-    const result = deleteCustomFieldValues(input, tx);
-    tx.delete(customFields)
+  const { deletedValues } = await getDb().transaction(async (tx) => {
+    const result = await deleteCustomFieldValues(input, tx);
+    await tx
+      .delete(customFields)
       .where(
         and(
           eq(customFields.ownerEmail, input.ownerEmail),
           eq(customFields.id, input.fieldId),
         ),
-      )
-      .run();
+      );
     return result;
   });
 
@@ -307,13 +302,11 @@ export async function reorderCustomFields(input: {
     value: index * SORT_GAP,
   }));
 
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (const group of chunk(entries)) {
-      tx.update(customFields)
-        .set({
-          sortOrder: caseById(customFields.id, group),
-          updatedAt,
-        })
+      await tx
+        .update(customFields)
+        .set({ sortOrder: caseById(customFields.id, group), updatedAt })
         .where(
           and(
             eq(customFields.ownerEmail, input.ownerEmail),
@@ -322,8 +315,7 @@ export async function reorderCustomFields(input: {
               group.map((entry) => entry.id),
             ),
           ),
-        )
-        .run();
+        );
     }
   });
 

@@ -3,7 +3,7 @@ import { and, asc, eq, inArray, min } from "drizzle-orm";
 import { caseById, chunk } from "../db/bulk-write.js";
 import { getDb } from "../db/index.js";
 import { tasks, type StoredItem } from "../db/schema.js";
-import { runTransaction, type TransactionDb } from "../db/transaction.js";
+import type { DbHandle } from "../db/transaction.js";
 
 /**
  * Storage layer on the unified `tasks` table.
@@ -262,9 +262,8 @@ export async function listStoredItemsByIds(input: {
   });
 }
 
-/** Apply one identical patch to many stored items in a single statement. */
-export function updateStoredItemsInTx(
-  tx: TransactionDb,
+export async function updateStoredItemsInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     ids: string[];
@@ -273,7 +272,7 @@ export function updateStoredItemsInTx(
     done?: boolean;
     now: string;
   },
-): void {
+): Promise<void> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return;
 
@@ -289,7 +288,8 @@ export function updateStoredItemsInTx(
     patch.done = input.done;
   }
 
-  tx.update(tasks)
+  await tx
+    .update(tasks)
     .set(patch)
     .where(
       and(
@@ -297,12 +297,11 @@ export function updateStoredItemsInTx(
         eq(tasks.promotedToTask, input.promotedToTask),
         inArray(tasks.id, ids),
       ),
-    )
-    .run();
+    );
 }
 
-export function updateStoredItemInTx(
-  tx: TransactionDb,
+export async function updateStoredItemInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     id: string;
@@ -311,42 +310,41 @@ export function updateStoredItemInTx(
     done?: boolean;
     now: string;
   },
-): void {
-  updateStoredItemsInTx(tx, { ...input, ids: [input.id] });
+): Promise<void> {
+  await updateStoredItemsInTx(tx, { ...input, ids: [input.id] });
 }
 
-/** Delete many stored items in a single statement. */
-export function deleteStoredItemsInTx(
-  tx: TransactionDb,
+export async function deleteStoredItemsInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     ids: string[];
     promotedToTask: boolean;
   },
-): void {
+): Promise<void> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) return;
 
-  tx.delete(tasks)
+  await tx
+    .delete(tasks)
     .where(
       and(
         eq(tasks.ownerEmail, input.ownerEmail),
         eq(tasks.promotedToTask, input.promotedToTask),
         inArray(tasks.id, ids),
       ),
-    )
-    .run();
+    );
 }
 
-export function deleteStoredItemInTx(
-  tx: TransactionDb,
+export async function deleteStoredItemInTx(
+  tx: DbHandle,
   input: {
     ownerEmail: string;
     id: string;
     promotedToTask: boolean;
   },
-): void {
-  deleteStoredItemsInTx(tx, { ...input, ids: [input.id] });
+): Promise<void> {
+  await deleteStoredItemsInTx(tx, { ...input, ids: [input.id] });
 }
 
 export async function reorderStoredItems(input: {
@@ -406,13 +404,11 @@ export async function reorderStoredItems(input: {
     value: index * SORT_GAP,
   }));
 
-  runTransaction(getDb(), (tx) => {
+  await db.transaction(async (tx) => {
     for (const group of chunk(entries)) {
-      tx.update(tasks)
-        .set({
-          sortOrder: caseById(tasks.id, group),
-          updatedAt: timestamp,
-        })
+      await tx
+        .update(tasks)
+        .set({ sortOrder: caseById(tasks.id, group), updatedAt: timestamp })
         .where(
           and(
             eq(tasks.ownerEmail, input.ownerEmail),
@@ -422,8 +418,7 @@ export async function reorderStoredItems(input: {
               group.map((entry) => entry.id),
             ),
           ),
-        )
-        .run();
+        );
     }
   });
 }
@@ -457,13 +452,11 @@ async function applySortOrderUpdates(input: {
     value: index * SORT_GAP,
   }));
 
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (const group of chunk(entries)) {
-      tx.update(tasks)
-        .set({
-          sortOrder: caseById(tasks.id, group),
-          updatedAt: timestamp,
-        })
+      await tx
+        .update(tasks)
+        .set({ sortOrder: caseById(tasks.id, group), updatedAt: timestamp })
         .where(
           and(
             eq(tasks.ownerEmail, input.ownerEmail),
@@ -473,8 +466,7 @@ async function applySortOrderUpdates(input: {
               group.map((entry) => entry.id),
             ),
           ),
-        )
-        .run();
+        );
     }
   });
 }
@@ -545,17 +537,15 @@ export async function bulkPromoteStoredItemsToTasks(input: {
 
   const timestamp = input.now ?? new Date().toISOString();
   const topSortOrder = await nextSortOrderForNewItem(input.ownerEmail, true);
-
-  // Each promoted item lands above the previous one, so every row gets its own
-  // sort order and they cannot share a single SET value.
   const entries = uniqueIds.map((id, index) => ({
     id,
     value: topSortOrder - index * SORT_GAP,
   }));
 
-  runTransaction(getDb(), (tx) => {
+  await getDb().transaction(async (tx) => {
     for (const group of chunk(entries)) {
-      tx.update(tasks)
+      await tx
+        .update(tasks)
         .set({
           promotedToTask: true,
           done: false,
@@ -571,8 +561,7 @@ export async function bulkPromoteStoredItemsToTasks(input: {
               group.map((entry) => entry.id),
             ),
           ),
-        )
-        .run();
+        );
     }
   });
 

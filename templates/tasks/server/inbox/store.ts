@@ -1,6 +1,5 @@
 import { getDb } from "../db/index.js";
 import type { StoredItem } from "../db/schema.js";
-import { runTransaction } from "../db/transaction.js";
 import {
   assertStoredItemsExist,
   bulkPromoteStoredItemsToTasks,
@@ -90,8 +89,8 @@ export async function bulkDeleteInboxItems(input: {
     notFoundMessage: "Stored item not found.",
   });
 
-  runTransaction(getDb(), (tx) => {
-    deleteStoredItemsInTx(tx, {
+  await getDb().transaction(async (tx) => {
+    await deleteStoredItemsInTx(tx, {
       ownerEmail: input.ownerEmail,
       ids: inboxItemIds,
       promotedToTask: false,
