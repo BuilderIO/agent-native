@@ -1,10 +1,10 @@
 import { usePinchZoom, useT } from "@agent-native/core/client";
 import type { ReviewThread } from "@agent-native/core/client";
-import type { ReviewComment } from "@agent-native/core/review";
 import {
   injectSessionReplayIframeBootstrap,
   SESSION_REPLAY_IFRAME_ATTRIBUTE,
 } from "@agent-native/core/client";
+import type { ReviewComment } from "@agent-native/core/review";
 import {
   DEFAULT_CANVAS_MAX_ZOOM,
   DEFAULT_CANVAS_MIN_ZOOM,
