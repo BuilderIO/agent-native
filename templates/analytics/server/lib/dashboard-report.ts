@@ -565,6 +565,12 @@ async function captureDashboardPng(
   const screenshotUrl = new URL(targetPath, `${dashboardBaseUrl()}/`);
   screenshotUrl.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
   screenshotUrl.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+  if (attempt.reportPanelLimit) {
+    screenshotUrl.searchParams.set(
+      "reportPanelLimit",
+      String(attempt.reportPanelLimit),
+    );
+  }
 
   let browser: any;
   let cleanup = async () => {};
@@ -575,6 +581,7 @@ async function captureDashboardPng(
   let launchTimeout: ReturnType<typeof setTimeout> | undefined;
   let captureStage = "launching the screenshot browser";
   let attemptTimedOut = false;
+  let lastDiagnostics: string | null = null;
   const attemptTimeout = attempt.totalTimeout
     ? setTimeout(() => {
         attemptTimedOut = true;
@@ -607,6 +614,48 @@ async function captureDashboardPng(
 
     const timeout = screenshotTimeoutMs();
     const page = await newPage();
+
+    // Belt-and-braces auth: the query token still carries the session, but
+    // some serverless navigations bounce through an intermediate redirect
+    // that drops query params before the client-side bootstrap can read them.
+    // Seeding the same signed token as a cookie lets the server accept the
+    // session even if that happens. Never abort the capture over this.
+    try {
+      await page
+        .context()
+        .addCookies([
+          { name: EMBED_SESSION_COOKIE, value: token, url: `${dashboardBaseUrl()}/` },
+        ]);
+    } catch (err) {
+      console.warn(
+        "[dashboard-report] Failed to pre-seed embed session cookie:",
+        errorMessage(err),
+      );
+    }
+
+    // Bounded diagnostics collectors so a failed wait carries evidence of
+    // wrong-page/wedged-renderer/auth-bounce instead of a bare timeout.
+    const consoleErrors: string[] = [];
+    page.on("console", (msg: any) => {
+      if (msg.type() !== "error") return;
+      if (consoleErrors.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+      consoleErrors.push(msg.text().slice(0, 160));
+    });
+    const failedRequests: string[] = [];
+    page.on("requestfailed", (req: any) => {
+      if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+      failedRequests.push(
+        `${req.method()} ${req.url().slice(0, 120)}: ${req.failure()?.errorText ?? "failed"}`,
+      );
+    });
+    page.on("response", (res: any) => {
+      if (res.status() < 400) return;
+      if (failedRequests.length >= DIAGNOSTICS_COLLECTOR_LIMIT) return;
+      failedRequests.push(
+        `${res.request().method()} ${res.url().slice(0, 120)}: HTTP ${res.status()}`,
+      );
+    });
+
     page.setDefaultTimeout(timeout);
     await page.emulateMedia({ media: "screen", colorScheme: "light" });
     await page.addInitScript(() => {
@@ -619,7 +668,14 @@ async function captureDashboardPng(
 
     captureStage = "waiting for the report surface";
     const capture = page.locator("[data-dashboard-report-capture]");
-    await capture.waitFor({ state: "visible", timeout });
+    try {
+      await capture.waitFor({ state: "visible", timeout });
+    } catch (err) {
+      lastDiagnostics = errorMessage(
+        await collectPageDiagnostics(page, consoleErrors, failedRequests),
+      );
+      throw new Error(`${errorMessage(err)}; ${lastDiagnostics}`);
+    }
     captureStage = "waiting for dashboard queries";
     await waitForDashboardReportReady(page, attempt.readyTimeout ?? timeout);
     captureStage = "rendering lazy dashboard panels";
