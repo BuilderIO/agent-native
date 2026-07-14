@@ -25,7 +25,8 @@ import {
 
 const NOW = Date.UTC(2026, 6, 14, 18, 0, 0);
 const OWNER = "owner@example.com";
-const TARGET = "https://deploy-preview-42--content.netlify.app";
+const TARGET = "https://0123456789abcdef01234567--content.netlify.app";
+const MUTABLE_TARGET = "https://deploy-preview-42--content.netlify.app";
 const FLOW_ID = "builderRelayFlowExample000001";
 const SECRET = "builder-relay-secret-example-at-least-32-characters";
 
@@ -42,10 +43,10 @@ const credentials: BuilderRelayCredentials = {
   isFreeAccount: false,
 };
 
-function makeRelay() {
+function makeRelay(targetOrigin = TARGET) {
   return signBuilderPreviewRelayState({
     ownerEmail: OWNER,
-    targetOrigin: TARGET,
+    targetOrigin,
     basePath: "/content",
     flowId: FLOW_ID,
     now: NOW,
@@ -60,10 +61,10 @@ function headersOf(request: ReturnType<typeof createBuilderRelayRequest>) {
   };
 }
 
-function callbackEvent(relayState: string): H3Event {
+function callbackEvent(relayState: string, origin = TARGET): H3Event {
   return mockEvent(
     new Request(
-      `${TARGET}/_agent-native/builder/callback?${BUILDER_RELAY_STATE_PARAM}=${encodeURIComponent(relayState)}`,
+      `${origin}/_agent-native/builder/callback?${BUILDER_RELAY_STATE_PARAM}=${encodeURIComponent(relayState)}`,
     ),
   );
 }
@@ -157,6 +158,25 @@ describe("Builder preview callback relay", () => {
 
     process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] =
       "https://another-preview.netlify.app, https://*.netlify.app";
+
+    expect(verifyBuilderPreviewRelayState(relay.state, { now: NOW })).toEqual(
+      relay.payload,
+    );
+    expect(
+      verifyBuilderPreviewRelayStateForCallback(relay.state, { now: NOW }),
+    ).toBeNull();
+    expect(
+      shouldBypassAuthForBuilderConnect(
+        event,
+        "/_agent-native/builder/callback",
+      ),
+    ).toBe(false);
+  });
+
+  it("rejects an allowlisted mutable Netlify deploy-preview alias at the callback", () => {
+    const relay = makeRelay(MUTABLE_TARGET);
+    const event = callbackEvent(relay.state, MUTABLE_TARGET);
+    process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV] = MUTABLE_TARGET;
 
     expect(verifyBuilderPreviewRelayState(relay.state, { now: NOW })).toEqual(
       relay.payload,

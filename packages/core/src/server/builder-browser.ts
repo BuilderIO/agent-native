@@ -141,6 +141,15 @@ export function isSafeBuilderRelayTargetOrigin(value: string): boolean {
 
 export function isTrustedBuilderRelayTargetOrigin(value: string): boolean {
   if (!isSafeBuilderRelayTargetOrigin(value)) return false;
+  const hostname = new URL(value).hostname.toLowerCase();
+  if (
+    hostname.endsWith(".netlify.app") &&
+    !/^[a-f0-9]{24}--[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.netlify\.app$/.test(
+      hostname,
+    )
+  ) {
+    return false;
+  }
   const configured = process.env[BUILDER_RELAY_TARGET_ORIGINS_ENV];
   if (!configured) return false;
   return configured
