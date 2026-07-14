@@ -380,9 +380,12 @@ export function TranscriptEditor({
         );
       }
     };
-    // A split starts a new scene: break the paragraph and lead the next one
-    // with the scene's preview frame. Splits land on the first segment at or
-    // after their time (whisper segments are our text granularity).
+    // A split starts a new scene, marked by a mini preview frame that flows
+    // INLINE with the words at the scene's exact position — mid-sentence if
+    // that's where the split lands, exactly like Descript. Scene marks never
+    // break the paragraph; paragraphs remain purely pause/length-based.
+    // Splits land on the first segment at or after their time (whisper
+    // segments are our text granularity).
     let sceneIndex = 0;
     const pushScenesBefore = (segStartMs: number, segEndMs: number) => {
       while (
@@ -390,9 +393,6 @@ export function TranscriptEditor({
         sceneTimes[sceneIndex] <= Math.max(segStartMs, segEndMs - 1)
       ) {
         const ms = sceneTimes[sceneIndex++];
-        flushParagraph();
-        // A scene break starts a fresh paragraph clock.
-        paragraphStartMs = ms;
         const thumb = sceneThumbs[ms];
         paragraph.push(
           <Tooltip key={`scene-${ms}`}>
@@ -405,7 +405,7 @@ export function TranscriptEditor({
                   onSeek?.(ms);
                   onSelectSegmentAt?.(ms);
                 }}
-                className="mr-1.5 inline-block h-10 w-[72px] shrink-0 cursor-pointer overflow-hidden rounded border border-border/70 bg-muted align-middle transition-[border-color] hover:border-primary"
+                className="mx-1.5 inline-block h-7 w-8 shrink-0 -translate-y-px cursor-pointer overflow-hidden rounded border border-border/70 bg-muted align-middle transition-[border-color] hover:border-primary"
               >
                 {thumb ? (
                   <img
