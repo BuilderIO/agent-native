@@ -326,10 +326,16 @@ jobs:
 
       - name: Install OpenAI-compatible provider runtime
         if: needs.gate.outputs.agent == 'openai-compatible' && steps.cli.outputs.local != 'true'
+        env:
+          CORE_CLI_VERSION: ${{ vars.CORE_CLI_VERSION || 'latest' }}
         run: |
           set -euo pipefail
-          npm install --prefix "$RUNNER_TEMP/recap-cli" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai
-          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts "@agent-native/core@$RECAP_CLI_VERSION"
+          CORE_VERSION="$CORE_CLI_VERSION"
+          if [ "$CORE_VERSION" = "latest" ]; then
+            CORE_VERSION="$(npm view @agent-native/core@latest version)"
+          fi
+          npm install --prefix "$RUNNER_TEMP/recap-code" --no-audit --no-fund --ignore-scripts ai @ai-sdk/openai "@agent-native/core@$CORE_VERSION"
+          echo "CORE_CLI_VERSION=$CORE_VERSION" >> "$GITHUB_ENV"
           echo "CODE_CLI=$RUNNER_TEMP/recap-code/node_modules/.bin/agent-native" >> "$GITHUB_ENV"
 
       - name: Start visual recap check
