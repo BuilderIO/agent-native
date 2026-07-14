@@ -4935,18 +4935,44 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .whisper-model-option {
-  display: flex;
-  align-items: flex-start;
-  gap: 8px;
-  padding: 8px 10px;
+  position: relative;
+  display: block;
   border: 1px solid var(--border);
   border-radius: 8px;
-  cursor: pointer;
 }
 
-.whisper-model-option input[type="radio"] {
-  margin-top: 2px;
+.whisper-model-choose {
+  display: block;
+  width: 100%;
+  padding: 8px 10px;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 8px;
+}
+
+.whisper-model-choose:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.whisper-model-dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1.5px solid var(--fg-muted);
+  margin-right: 2px;
   flex-shrink: 0;
+  align-self: center;
+}
+
+.whisper-model-dot-on {
+  border-color: var(--accent, #6366f1);
+  background: var(--accent, #6366f1);
 }
 
 .whisper-model-option-selected {
@@ -4954,13 +4980,6 @@ body[data-clips-route="recording-pill"] #root {
   background: color-mix(in srgb, var(--accent, #6366f1) 7%, transparent);
 }
 
-.whisper-model-copy {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
 
 .whisper-model-name {
   display: flex;
@@ -4993,13 +5012,17 @@ body[data-clips-route="recording-pill"] #root {
 }
 
 .whisper-model-detail {
+  display: block;
+  margin-top: 2px;
   font-size: 11px;
   line-height: 1.45;
   color: var(--fg-muted);
 }
 
 .whisper-model-remove {
-  flex-shrink: 0;
+  position: absolute;
+  top: 6px;
+  right: 6px;
   display: inline-flex;
   align-items: center;
   padding: 4px;

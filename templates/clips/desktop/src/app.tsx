@@ -5068,7 +5068,7 @@ function Setup({
         <div className="setup-toggle-row">
           <SettingLabel
             label="Whisper model"
-            hint="Local AI model for offline transcription (dictation and meetings). No API key required."
+            hint="Local AI model for offline transcription (recordings, meetings, and dictation). No API key required."
           />
           <Switch
             on={whisperModelEnabled}
@@ -5451,22 +5451,28 @@ function WhisperModelPicker({
         };
         const selected = m.id === choice;
         return (
-          <label
+          <div
             key={m.id}
             className={
               "whisper-model-option" +
               (selected ? " whisper-model-option-selected" : "")
             }
           >
-            <input
-              type="radio"
-              name="whisper-model"
-              checked={selected}
+            <button
+              type="button"
+              className="whisper-model-choose"
               disabled={downloading}
-              onChange={() => onSelect(m.id)}
-            />
-            <span className="whisper-model-copy">
+              aria-pressed={selected}
+              onClick={() => onSelect(m.id)}
+            >
               <span className="whisper-model-name">
+                <span
+                  className={
+                    "whisper-model-dot" +
+                    (selected ? " whisper-model-dot-on" : "")
+                  }
+                  aria-hidden
+                />
                 {info.name}
                 <span className="whisper-model-tagline">{info.tagline}</span>
                 {m.downloaded ? (
@@ -5474,21 +5480,18 @@ function WhisperModelPicker({
                 ) : null}
               </span>
               <span className="whisper-model-detail">{info.detail}</span>
-            </span>
+            </button>
             {!selected && m.downloaded ? (
               <button
                 type="button"
                 className="whisper-model-remove"
                 title={`Delete the downloaded file (${m.sizeMb} MB)`}
-                onClick={(event) => {
-                  event.preventDefault();
-                  onRemove(m.id);
-                }}
+                onClick={() => onRemove(m.id)}
               >
                 <IconTrash size={13} stroke={1.9} />
               </button>
             ) : null}
-          </label>
+          </div>
         );
       })}
       <p className="setup-hint">
