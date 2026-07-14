@@ -1176,6 +1176,40 @@ describe("slackAdapter", () => {
     ).toBe(true);
   });
 
+  it("returns the provider message timestamp as a delivery receipt", async () => {
+    process.env.SLACK_BOT_TOKEN = "xoxb-test";
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((url: string) =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify(
+              String(url).includes("chat.postMessage")
+                ? { ok: true, ts: "1783979488.631319" }
+                : { ok: true },
+            ),
+          ),
+        ),
+      ),
+    );
+
+    const receipt = await slackAdapter().sendResponse(
+      { text: "done", platformContext: {} },
+      {
+        platform: "slack",
+        externalThreadId: "C123:123.456",
+        text: "make a design ask",
+        timestamp: 1,
+        platformContext: { channelId: "C123", threadTs: "123.456" },
+      },
+    );
+
+    expect(receipt).toEqual({
+      status: "delivered",
+      messageRefs: ["1783979488.631319"],
+    });
+  });
+
   it("does not send whitespace-only Slack replies", async () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-test";
     const deliveryUrls: string[] = [];

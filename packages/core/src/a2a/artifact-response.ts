@@ -8,6 +8,22 @@ export interface A2AArtifactResponseOptions {
   includeReferencedArtifacts?: boolean;
 }
 
+export interface A2AArtifactIdentity {
+  resourceType:
+    | "document"
+    | "deck"
+    | "dashboard"
+    | "analysis"
+    | "image"
+    | "design"
+    | "monitor"
+    | "form";
+  id: string;
+  sourceAction: string;
+  titleAtAction?: string;
+  url?: string;
+}
+
 interface CreatedDocumentArtifact {
   id: string;
   title?: string;
@@ -728,6 +744,97 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     monitors: [...monitors.values()],
     forms: [...forms.values()],
   };
+}
+
+/**
+ * Extract a compact, verified identity ledger from successful artifact tools.
+ * The ledger deliberately excludes raw tool results so it is safe to retain in
+ * long-lived thread context and stable even when a resource is later renamed.
+ */
+export function extractA2AArtifactIdentities(
+  results: A2AToolResultSummary[],
+): A2AArtifactIdentity[] {
+  const identities = new Map<string, A2AArtifactIdentity>();
+
+  const remember = (identity: A2AArtifactIdentity) => {
+    identities.set(`${identity.resourceType}:${identity.id}`, identity);
+  };
+
+  for (const result of results) {
+    const artifacts = collectArtifacts([result]);
+    for (const document of artifacts.documents) {
+      remember({
+        resourceType: "document",
+        id: document.id,
+        sourceAction: result.tool,
+        titleAtAction: document.title,
+        url: document.url,
+      });
+    }
+    for (const deck of artifacts.decks) {
+      remember({
+        resourceType: "deck",
+        id: deck.id,
+        sourceAction: result.tool,
+        url: deck.url,
+      });
+    }
+    for (const dashboard of artifacts.dashboards) {
+      remember({
+        resourceType: "dashboard",
+        id: dashboard.id,
+        sourceAction: result.tool,
+        titleAtAction: dashboard.title,
+        url: dashboard.url,
+      });
+    }
+    for (const analysis of artifacts.analyses) {
+      remember({
+        resourceType: "analysis",
+        id: analysis.id,
+        sourceAction: result.tool,
+        titleAtAction: analysis.title,
+        url: analysis.url,
+      });
+    }
+    for (const image of artifacts.images) {
+      remember({
+        resourceType: "image",
+        id: image.id,
+        sourceAction: result.tool,
+        titleAtAction: image.title,
+        url: image.url,
+      });
+    }
+    for (const design of artifacts.generatedDesigns) {
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        url: design.url,
+      });
+    }
+    for (const monitor of artifacts.monitors) {
+      remember({
+        resourceType: "monitor",
+        id: monitor.id,
+        sourceAction: result.tool,
+        titleAtAction: monitor.name,
+        url: monitor.url,
+      });
+    }
+    for (const form of artifacts.forms) {
+      remember({
+        resourceType: "form",
+        id: form.id,
+        sourceAction: result.tool,
+        titleAtAction: form.title,
+        url: form.url,
+      });
+    }
+  }
+
+  return [...identities.values()];
 }
 
 type DownstreamArtifact =

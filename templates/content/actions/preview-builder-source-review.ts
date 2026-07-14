@@ -62,12 +62,14 @@ export default defineAction({
       }
       return (
         args.scope === "all" ||
-        (!!changeSet.documentId && selectedDocumentIds.has(changeSet.documentId))
+        (!!changeSet.documentId &&
+          selectedDocumentIds.has(changeSet.documentId))
       );
     });
     const changeSets = [...allReviewableChanges]
-      .sort((left, right) =>
-        reviewPreparePriority(left) - reviewPreparePriority(right),
+      .sort(
+        (left, right) =>
+          reviewPreparePriority(left) - reviewPreparePriority(right),
       )
       .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
     const review =
