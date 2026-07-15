@@ -1015,6 +1015,50 @@ function parseMdx(source: string): MdxNode {
   return tree;
 }
 
+type MdxParseError = {
+  column?: unknown;
+  line?: unknown;
+  position?: { start?: { column?: unknown; line?: unknown } };
+  reason?: unknown;
+};
+
+function parsePlanMdxFile(
+  filename: "plan.mdx" | "canvas.mdx" | "prototype.mdx",
+  source: string,
+  lineOffset = 0,
+): MdxNode {
+  try {
+    return parseMdx(source);
+  } catch (error) {
+    const mdxError = error as MdxParseError;
+    const line = numericMdxPosition(
+      mdxError.line ?? mdxError.position?.start?.line,
+    );
+    const column = numericMdxPosition(
+      mdxError.column ?? mdxError.position?.start?.column,
+    );
+    const reason =
+      typeof mdxError.reason === "string"
+        ? mdxError.reason
+        : error instanceof Error
+          ? error.message
+          : String(error);
+    const location = line && column ? `:${line + lineOffset}:${column}` : "";
+    throw new Error(`${filename}${location}: ${reason}`);
+  }
+}
+
+function numericMdxPosition(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value)
+    ? value
+    : undefined;
+}
+
+function lineCountBeforeContent(source: string, content: string): number {
+  const prefix = source.slice(0, Math.max(0, source.length - content.length));
+  return (prefix.match(/\r?\n/g) ?? []).length;
+}
+
 function restoreStaticTemplateLiteralAttributes(tree: MdxNode, source: string) {
   const walk = (node: MdxNode | undefined) => {
     if (!node) return;
@@ -1718,7 +1762,11 @@ export async function parsePlanMdxFolder(
 ): Promise<PlanContent> {
   const files = planMdxFileSchema.parse(folder);
   const parsedMatter = parseSimpleFrontmatter(files["plan.mdx"]);
-  const planTree = parseMdx(parsedMatter.content);
+  const planTree = parsePlanMdxFile(
+    "plan.mdx",
+    parsedMatter.content,
+    lineCountBeforeContent(files["plan.mdx"], parsedMatter.content),
+  );
   const state = parsePlanState(files[".plan-state.json"]);
   const blocks = parseBlocksFromNodes(planTree.children, "plan-block", {
     markdownBlockIds: state?.markdownBlockIds,
@@ -1726,10 +1774,10 @@ export async function parsePlanMdxFolder(
   });
 
   const canvas = files["canvas.mdx"]
-    ? parseCanvas(files["canvas.mdx"])
+    ? parseCanvas(parsePlanMdxFile("canvas.mdx", files["canvas.mdx"]))
     : undefined;
   const prototype = files["prototype.mdx"]
-    ? parsePrototype(files["prototype.mdx"])
+    ? parsePrototype(parsePlanMdxFile("prototype.mdx", files["prototype.mdx"]))
     : undefined;
   if (canvas && state?.canvas) canvas.viewport = state.canvas;
 
@@ -1757,8 +1805,7 @@ export async function parsePlanMdxFolder(
   return normalized;
 }
 
-function parsePrototype(source: string): PlanPrototype | undefined {
-  const tree = parseMdx(source);
+function parsePrototype(tree: MdxNode): PlanPrototype | undefined {
   const node = (tree.children ?? []).find(
     (child) => elementName(child) === "Prototype",
   );
@@ -1822,8 +1869,7 @@ function parsePlanState(source: string | undefined) {
   }
 }
 
-function parseCanvas(source: string): PlanContent["canvas"] {
-  const tree = parseMdx(source);
+function parseCanvas(tree: MdxNode): PlanContent["canvas"] {
   const board = (tree.children ?? []).find(
     (child) => elementName(child) === "DesignBoard",
   );
