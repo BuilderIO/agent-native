@@ -29,6 +29,11 @@ type VariantSlotInput = VariantScopeInput & {
   previewUrl?: string;
   thumbnailUrl?: string;
   error?: string;
+  // When true, add this candidate to the existing live tray for this scope
+  // instead of starting a fresh candidate set. Refine/edit/restyle set this so
+  // iterative results accumulate alongside the prior candidates (newest-first)
+  // rather than replacing them.
+  appendVariant?: boolean;
 };
 
 let variantStateLock: Promise<void> = Promise.resolve();
@@ -96,8 +101,12 @@ export async function upsertVariantSlot(input: VariantSlotInput) {
   await withVariantStateLock(async () => {
     const scopeId = variantScopeIdFor(input);
     const previous = await readVariantStateUnlocked(scopeId);
+    const appendToPrevious =
+      previous != null &&
+      input.appendVariant === true &&
+      previous.libraryId === input.libraryId;
     const state =
-      previous && isSameVariantScope(previous, input)
+      previous && (isSameVariantScope(previous, input) || appendToPrevious)
         ? previous
         : {
             runId: input.runId,

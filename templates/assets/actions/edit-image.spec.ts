@@ -33,12 +33,15 @@ describe("edit-image", () => {
   });
 
   it("delegates to generate-image as a source-guided full-image edit", async () => {
-    await action.run({
-      assetId: "asset-target",
-      instruction: "Make the background navy",
-      tier: "fast",
-      source: "chat",
-    });
+    await action.run(
+      {
+        assetId: "asset-target",
+        instruction: "Make the background navy",
+        tier: "fast",
+        source: "chat",
+      },
+      { threadId: "thread-9" } as any,
+    );
 
     expect(generateImageRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -52,7 +55,9 @@ describe("edit-image", () => {
         groundingMode: "off",
         includeLogo: false,
         tier: "fast",
+        appendVariant: true,
       }),
+      { threadId: "thread-9" },
     );
   });
 });

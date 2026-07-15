@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import {
@@ -37,29 +38,33 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async (args) => {
+  run: async (args, context?: ActionRunContext) => {
     const subject = await getAssetOrThrow(args.subjectAssetId);
     const prompt =
       args.prompt?.trim() ||
       "Apply this library's brand style to the subject image while preserving the subject, pose, composition, and framing.";
-    return generateImage.run({
-      libraryId: subject.libraryId,
-      collectionId: subject.collectionId ?? undefined,
-      presetId: args.presetId,
-      sessionId: args.sessionId,
-      prompt,
-      aspectRatio: (args.aspectRatio ?? subject.aspectRatio ?? "16:9") as any,
-      imageSize: (args.imageSize ?? subject.imageSize ?? "2K") as any,
-      model: args.model,
-      tier: args.tier,
-      intent: "restyle",
-      styleStrength: args.styleStrength,
-      includeLogo: false,
-      groundingMode: "auto",
-      subjectAssetId: subject.id,
-      slotId: args.slotId,
-      source: args.source,
-      callerAppId: args.callerAppId,
-    });
+    return generateImage.run(
+      {
+        libraryId: subject.libraryId,
+        collectionId: subject.collectionId ?? undefined,
+        presetId: args.presetId,
+        sessionId: args.sessionId,
+        prompt,
+        aspectRatio: (args.aspectRatio ?? subject.aspectRatio ?? "16:9") as any,
+        imageSize: (args.imageSize ?? subject.imageSize ?? "2K") as any,
+        model: args.model,
+        tier: args.tier,
+        intent: "restyle",
+        styleStrength: args.styleStrength,
+        includeLogo: false,
+        groundingMode: "auto",
+        subjectAssetId: subject.id,
+        slotId: args.slotId,
+        source: args.source,
+        callerAppId: args.callerAppId,
+        appendVariant: true,
+      },
+      context,
+    );
   },
 });

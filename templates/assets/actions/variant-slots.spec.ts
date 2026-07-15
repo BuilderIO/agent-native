@@ -280,4 +280,68 @@ describe("variant slot state", () => {
       expect.objectContaining({ slotId: "slot-2", status: "pending" }),
     ]);
   });
+
+  it("appends a refined candidate to the existing scope instead of resetting", async () => {
+    await Promise.all(
+      ["slot-1", "slot-2", "slot-3"].map((slotId, index) =>
+        upsertVariantSlot({
+          runId: `run-${index + 1}`,
+          batchId: "batch-1",
+          libraryId: "lib-1",
+          prompt: "First prompt",
+          slotId,
+          status: "ready",
+          assetId: `asset-${index + 1}`,
+          threadId: "thread-1",
+        }),
+      ),
+    );
+
+    // A refine is a distinct run with no batchId; without appendVariant this
+    // would reset the tray. appendVariant keeps prior candidates and adds this.
+    await upsertVariantSlot({
+      runId: "refine-run",
+      libraryId: "lib-1",
+      prompt: "First prompt\n\nUser feedback:\nmake it warmer",
+      slotId: "refine-slot",
+      status: "ready",
+      assetId: "asset-refined",
+      threadId: "thread-1",
+      appendVariant: true,
+    });
+
+    expect(
+      (appStateByKey["asset-variants:thread-1"] as any).slots.map(
+        (slot: any) => slot.slotId,
+      ),
+    ).toEqual(["slot-1", "slot-2", "slot-3", "refine-slot"]);
+  });
+
+  it("does not append across libraries even when appendVariant is set", async () => {
+    await upsertVariantSlot({
+      runId: "run-1",
+      batchId: "batch-1",
+      libraryId: "lib-1",
+      prompt: "First prompt",
+      slotId: "slot-1",
+      status: "ready",
+      assetId: "asset-1",
+      threadId: "thread-1",
+    });
+
+    await upsertVariantSlot({
+      runId: "refine-run",
+      libraryId: "lib-2",
+      prompt: "Different library",
+      slotId: "refine-slot",
+      status: "ready",
+      assetId: "asset-refined",
+      threadId: "thread-1",
+      appendVariant: true,
+    });
+
+    expect((appStateByKey["asset-variants:thread-1"] as any).slots).toEqual([
+      expect.objectContaining({ slotId: "refine-slot", status: "ready" }),
+    ]);
+  });
 });

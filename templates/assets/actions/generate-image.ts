@@ -156,6 +156,12 @@ export default defineAction({
       .describe(
         "Internal UI state scope for live candidate slots. Usually omitted; embedded picker UIs pass a browser-tab scope.",
       ),
+    appendVariant: z.coerce
+      .boolean()
+      .default(false)
+      .describe(
+        "Internal: when true, add this candidate to the existing live tray for its scope instead of resetting to a fresh candidate set. Refine/edit/restyle set this so iterative results accumulate alongside prior candidates (newest-first).",
+      ),
     dismissible: z.coerce
       .boolean()
       .default(true)
@@ -650,6 +656,7 @@ export default defineAction({
       sessionId: session?.id ?? null,
       threadId: context?.threadId ?? null,
       variantScopeId,
+      appendVariant: args.appendVariant,
       prompt: args.prompt,
       slotId,
       status: "pending",
@@ -854,6 +861,7 @@ export default defineAction({
         sessionId: session?.id ?? null,
         threadId: context?.threadId ?? null,
         variantScopeId,
+        appendVariant: args.appendVariant,
         prompt: args.prompt,
         slotId,
         status: "ready",
@@ -901,6 +909,7 @@ export default defineAction({
         sessionId: session?.id ?? null,
         threadId: context?.threadId ?? null,
         variantScopeId,
+        appendVariant: args.appendVariant,
         prompt: args.prompt,
         slotId,
         status: "failed",

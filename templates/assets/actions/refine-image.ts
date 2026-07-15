@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { parseJson } from "../server/lib/json.js";
@@ -30,18 +31,21 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async ({
-    assetId,
-    feedback,
-    presetId,
-    sessionId,
-    model,
-    aspectRatio,
-    imageSize,
-    slotId,
-    source,
-    callerAppId,
-  }) => {
+  run: async (
+    {
+      assetId,
+      feedback,
+      presetId,
+      sessionId,
+      model,
+      aspectRatio,
+      imageSize,
+      slotId,
+      source,
+      callerAppId,
+    },
+    context?: ActionRunContext,
+  ) => {
     const asset = await getAssetOrThrow(assetId);
     if (sessionId) {
       await requireGenerationSessionInLibrary(sessionId, asset.libraryId);
@@ -55,22 +59,26 @@ export default defineAction({
       "",
       "Preserve the strongest successful parts of the prior candidate unless the feedback contradicts them.",
     ].join("\n");
-    return generateImage.run({
-      libraryId: asset.libraryId,
-      collectionId: asset.collectionId ?? undefined,
-      presetId,
-      sessionId,
-      prompt,
-      aspectRatio: (aspectRatio ?? asset.aspectRatio ?? "16:9") as any,
-      imageSize: (imageSize ?? asset.imageSize ?? "2K") as any,
-      model: (model ?? asset.model ?? "gemini-3.1-flash-image") as any,
-      categories: metadata.category ? [metadata.category] : undefined,
-      includeLogo: false,
-      groundingMode: "auto",
-      sourceAssetId: asset.id,
-      slotId,
-      source,
-      callerAppId,
-    });
+    return generateImage.run(
+      {
+        libraryId: asset.libraryId,
+        collectionId: asset.collectionId ?? undefined,
+        presetId,
+        sessionId,
+        prompt,
+        aspectRatio: (aspectRatio ?? asset.aspectRatio ?? "16:9") as any,
+        imageSize: (imageSize ?? asset.imageSize ?? "2K") as any,
+        model: (model ?? asset.model ?? "gemini-3.1-flash-image") as any,
+        categories: metadata.category ? [metadata.category] : undefined,
+        includeLogo: false,
+        groundingMode: "auto",
+        sourceAssetId: asset.id,
+        slotId,
+        source,
+        callerAppId,
+        appendVariant: true,
+      },
+      context,
+    );
   },
 });

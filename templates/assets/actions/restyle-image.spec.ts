@@ -33,13 +33,16 @@ describe("restyle-image", () => {
   });
 
   it("delegates to generate-image with the subject first and restyle intent", async () => {
-    await action.run({
-      subjectAssetId: "asset-subject",
-      prompt: "Make it match the launch campaign",
-      styleStrength: "strong",
-      tier: "best",
-      source: "chat",
-    });
+    await action.run(
+      {
+        subjectAssetId: "asset-subject",
+        prompt: "Make it match the launch campaign",
+        styleStrength: "strong",
+        tier: "best",
+        source: "chat",
+      },
+      { threadId: "thread-9" } as any,
+    );
 
     expect(generateImageRunMock).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -51,7 +54,9 @@ describe("restyle-image", () => {
         styleStrength: "strong",
         tier: "best",
         includeLogo: false,
+        appendVariant: true,
       }),
+      { threadId: "thread-9" },
     );
   });
 });
