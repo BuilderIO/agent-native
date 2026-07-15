@@ -761,19 +761,24 @@ jobs:
           REPAIR_AGENT_OK: ${{ steps.claude_repair.outputs.ok || steps.codex_repair.outputs.ok || steps.openai_compatible_repair.outputs.ok }}
         run: |
           set -uo pipefail
+          REPAIR_REASON=""
           if [ "${REPAIR_AGENT_OK:-false}" != "true" ]; then
             echo "ok=false" >> "$GITHUB_OUTPUT"
-            exit 0
+            REPAIR_REASON="Repair agent exited unsuccessfully; repaired source was not published."
+          else
+            VALIDATION_JSON="$(GITHUB_OUTPUT=/dev/null $RECAP_CLI recap validate-repair --original recap-source.initial.json --source recap-source.json --reason-file recap-url-reason.txt || true)"
+            REPAIR_OK="$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$VALIDATION_JSON")"
+            REPAIR_REASON="$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).reason||"")}catch{process.stdout.write("Repair validation returned invalid output.")}' "$VALIDATION_JSON")"
+            echo "ok=$REPAIR_OK" >> "$GITHUB_OUTPUT"
           fi
-          if cmp -s recap-source.initial.json recap-source.json; then
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            exit 0
+          if [ -n "$REPAIR_REASON" ]; then
+            echo "$REPAIR_REASON" > recap-url-reason.txt
           fi
-          if ! node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync("recap-source.json", "utf8")); if (!value || typeof value !== "object" || !value.mdx || typeof value.mdx["plan.mdx"] !== "string" || !value.mdx["plan.mdx"].trim()) process.exit(1);'; then
-            echo "ok=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo "ok=true" >> "$GITHUB_OUTPUT"
+          {
+            echo 'reason<<__RECAP_REPAIR_REASON_EOF__'
+            echo "$REPAIR_REASON"
+            echo '__RECAP_REPAIR_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
 
       - name: Publish repaired recap source
         id: publish_repair
@@ -871,7 +876,7 @@ jobs:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
           RECAP_REPAIR_ATTEMPTED: ${{ steps.repair_prompt.outcome == 'success' }}
           RECAP_BLOCK_REFERENCE_SUMMARY: ${{ steps.block_reference.outputs.summary }}
-          RECAP_PUBLISH_REASON: ${{ steps.publish_repair.outputs.reason || steps.publish.outputs.reason }}
+          RECAP_PUBLISH_REASON: ${{ steps.repaired_source.outputs.reason || steps.publish_repair.outputs.reason || steps.publish.outputs.reason }}
         run: |
           set -uo pipefail
           RESULT=claude-result.json
@@ -1025,16 +1030,19 @@ jobs:
             claude-stderr.log
             claude-repair-result.json
             claude-repair-stderr.log
+            claude-repair-exit-code.txt
             codex-events.jsonl
             codex-stderr.log
             codex-repair-events.jsonl
             codex-repair-stderr.log
+            codex-repair-exit-code.txt
             openai-compatible-result.txt
             openai-compatible-usage.json
             openai-compatible-stderr.log
             openai-compatible-repair-result.txt
             openai-compatible-repair-usage.json
             openai-compatible-repair-stderr.log
+            openai-compatible-repair-exit-code.txt
           if-no-files-found: ignore
           retention-days: 14
 

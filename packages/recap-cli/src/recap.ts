@@ -39,6 +39,7 @@ import { createHash } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { isDeepStrictEqual } from "node:util";
 
 import { normalizeOpenAiBaseUrl } from "./openai-compatible-endpoint.js";
 import {
@@ -2811,6 +2812,61 @@ export function readRecapSourcePayload(
   return validateRecapSourcePayload(parsed);
 }
 
+export function validateRecapRepairSource(input: {
+  originalPath: string;
+  sourcePath: string;
+  reason: string;
+}): { targetFile: string } {
+  const readObject = (filePath: string): Record<string, unknown> => {
+    const value = JSON.parse(fs.readFileSync(path.resolve(filePath), "utf8"));
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error(`${filePath} must contain a JSON object.`);
+    }
+    return value as Record<string, unknown>;
+  };
+  const original = readObject(input.originalPath);
+  const repaired = readObject(input.sourcePath);
+  validateRecapSourcePayload(repaired);
+  const diagnostic = input.reason.match(
+    /((?:plan|canvas|prototype)\.mdx):\d+:\d+:/,
+  );
+  const targetFile = diagnostic?.[1];
+  if (!targetFile) {
+    throw new Error("Repair diagnostic did not identify a located MDX file.");
+  }
+  const sameKeys = (
+    left: Record<string, unknown>,
+    right: Record<string, unknown>,
+  ) => isDeepStrictEqual(Object.keys(left).sort(), Object.keys(right).sort());
+  if (!sameKeys(original, repaired)) {
+    throw new Error("Repaired recap changed the top-level payload structure.");
+  }
+  for (const key of Object.keys(original)) {
+    if (key !== "mdx" && !isDeepStrictEqual(original[key], repaired[key])) {
+      throw new Error(
+        `Repaired recap changed preserved metadata field ${key}.`,
+      );
+    }
+  }
+  const originalMdx = original.mdx as Record<string, unknown>;
+  const repairedMdx = repaired.mdx as Record<string, unknown>;
+  if (!sameKeys(originalMdx, repairedMdx)) {
+    throw new Error("Repaired recap changed the MDX file structure.");
+  }
+  for (const key of Object.keys(originalMdx)) {
+    if (
+      key !== targetFile &&
+      !isDeepStrictEqual(originalMdx[key], repairedMdx[key])
+    ) {
+      throw new Error(`Repaired recap changed non-target file ${key}.`);
+    }
+  }
+  if (isDeepStrictEqual(originalMdx[targetFile], repairedMdx[targetFile])) {
+    throw new Error(`Repair did not change targeted file ${targetFile}.`);
+  }
+  return { targetFile };
+}
+
 export function buildRecapRepairPrompt(input: {
   reason: string;
   sourcePath?: string;
@@ -3144,6 +3200,29 @@ function runRepairPrompt(args: Record<string, string | boolean>): void {
   process.stdout.write(
     `${JSON.stringify({ ok: true, out, source: sourcePath })}\n`,
   );
+}
+
+function runValidateRepair(args: Record<string, string | boolean>): void {
+  const sourcePath = optionalArg(args, "source") ?? RECAP_SOURCE_FILENAME;
+  const originalPath = stringArg(args, "original");
+  const reasonFile =
+    optionalArg(args, "reason-file") ?? RECAP_URL_REASON_FILENAME;
+  const reason = readTextIfExists(path.resolve(reasonFile))?.trim() ?? "";
+  try {
+    const result = validateRecapRepairSource({
+      originalPath,
+      sourcePath,
+      reason,
+    });
+    process.stdout.write(`${JSON.stringify({ ok: true, ...result })}\n`);
+  } catch (error) {
+    const failure = sanitizeAgentFailureSummary(
+      error instanceof Error ? error.message : String(error),
+      1000,
+    );
+    process.stdout.write(`${JSON.stringify({ ok: false, reason: failure })}\n`);
+    process.exitCode = 1;
+  }
 }
 
 async function runPublish(
@@ -4884,6 +4963,7 @@ Usage:
   npx @agent-native/recap-cli@latest recap scan --diff <path> [--mode off|high-confidence|strict]
   npx @agent-native/recap-cli@latest recap build-prompt --pr <n> [--repo owner/name] [--head <sha>] [--app-url <url>] [--diff <path>] [--stat <path>] [--block-reference recap-blocks.md] [--prev-plan-id <id>] [--huge] [--local-files] [--local-dir <folder>] [--skill-source auto|latest|repo] [--out <path>]
   npx @agent-native/recap-cli@latest recap repair-prompt [--source recap-source.json] [--reason-file recap-url-reason.txt] [--out recap-repair-prompt.md]
+  npx @agent-native/recap-cli@latest recap validate-repair --original recap-source.initial.json [--source recap-source.json] [--reason-file recap-url-reason.txt]
   npx @agent-native/recap-cli@latest recap publish [--source recap-source.json] [--out recap-url.txt] [--repo owner/name] [--pr <n>] [--prev-plan-id <id>] [--source-pr-state open|closed|merged] [--source-pr-merged-at <iso>] [--source-author-email <email>] [--source-author-name <name>] [--source-author-login <login>] [--app-url <url>] [--token <planToken>] [--github-token <ghToken>]
   npx @agent-native/recap-cli@latest recap shot --url <planUrl> [--token <planToken>] [--app-url <url>] [--out recap.png] [--theme light|dark] [--image-cache-key <key>]
   npx @agent-native/recap-cli@latest recap usage --plan-url <planUrl> --result-file <path> --app-url <url> --token <planToken> [--agent claude|codex|openai-compatible] [--model <id>]
@@ -4973,6 +5053,9 @@ export async function runRecap(argv: string[]): Promise<void> {
       return;
     case "repair-prompt":
       runRepairPrompt(args);
+      return;
+    case "validate-repair":
+      runValidateRepair(args);
       return;
     case "publish":
       await runPublish(args);

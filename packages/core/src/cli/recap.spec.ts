@@ -54,6 +54,7 @@ import {
   summarizeLocalAgentFailure,
   summarizeAgentResult,
   truncateDiffAtLineBoundary,
+  validateRecapRepairSource,
   waitForPublicRecapImage,
   withRecapScreenshotParams,
   writePrVisualRecapReusableCallerWorkflow,
@@ -665,6 +666,55 @@ describe("recap direct publish", () => {
       "Preserve the recap's title, brief, grounded facts",
     );
     expect(prompt).toContain("Do not publish");
+  });
+
+  it("accepts a repair that changes only the diagnosed MDX file", () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "an-recap-repair-shape-"),
+    );
+    try {
+      const originalPath = path.join(dir, "original.json");
+      const sourcePath = path.join(dir, "source.json");
+      const original = {
+        title: "Recap",
+        brief: "Preserve me",
+        mdx: {
+          "plan.mdx": "# broken",
+          "canvas.mdx": "<DesignBoard />",
+          "assets/": { "image.png": "base64" },
+        },
+      };
+      fs.writeFileSync(originalPath, JSON.stringify(original));
+      fs.writeFileSync(
+        sourcePath,
+        JSON.stringify({
+          ...original,
+          mdx: { ...original.mdx, "plan.mdx": "# repaired" },
+        }),
+      );
+
+      expect(
+        validateRecapRepairSource({
+          originalPath,
+          sourcePath,
+          reason: "plan.mdx:6:53: Could not parse expression with acorn",
+        }),
+      ).toEqual({ targetFile: "plan.mdx" });
+
+      fs.writeFileSync(
+        sourcePath,
+        JSON.stringify({ mdx: { "plan.mdx": "# repaired" } }),
+      );
+      expect(() =>
+        validateRecapRepairSource({
+          originalPath,
+          sourcePath,
+          reason: "plan.mdx:6:53: Could not parse expression with acorn",
+        }),
+      ).toThrow(/top-level payload structure/);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("infers source author metadata from GitHub PR commits while skipping noreply emails", async () => {
@@ -2808,7 +2858,9 @@ describe("bundled PR visual recap workflow", () => {
       expect(workflow).toContain("Repair recap source (OpenAI-compatible)");
       expect(workflow).toContain("Publish repaired recap source");
       expect(workflow).toContain("Validate repaired recap source");
+      expect(workflow).toContain("recap validate-repair");
       expect(workflow).toContain("steps.repaired_source.outputs.ok == 'true'");
+      expect(workflow).toContain("steps.repaired_source.outputs.reason");
       expect(workflow).toContain("RECAP_REPAIR_ATTEMPTED");
       expect(workflow).toContain("claude-repair-result.json");
       expect(workflow).toContain("recap-source.initial.json");
@@ -2816,6 +2868,7 @@ describe("bundled PR visual recap workflow", () => {
         workflow.indexOf("Upload recap source artifact"),
       );
       expect(artifactBlock).toContain("recap-url-reason.txt");
+      expect(artifactBlock).toContain("claude-repair-exit-code.txt");
       expect(workflow).toContain(
         "steps.publish_repair.outputs.reason || steps.publish.outputs.reason",
       );
