@@ -704,7 +704,7 @@ describe("recap direct publish", () => {
         validateRecapRepairSource({
           originalPath,
           sourcePath,
-          reason: "plan.mdx:6:53: Could not parse expression with acorn",
+          reason: "plan.mdx:41:53: Could not parse expression with acorn",
         }),
       ).toEqual({ targetFile: "plan.mdx" });
 
@@ -716,7 +716,7 @@ describe("recap direct publish", () => {
         validateRecapRepairSource({
           originalPath,
           sourcePath,
-          reason: "plan.mdx:6:53: Could not parse expression with acorn",
+          reason: "plan.mdx:41:53: Could not parse expression with acorn",
         }),
       ).toThrow(/top-level payload structure/);
 
@@ -731,7 +731,7 @@ describe("recap direct publish", () => {
         validateRecapRepairSource({
           originalPath,
           sourcePath,
-          reason: "plan.mdx:6:53: Could not parse expression with acorn",
+          reason: "plan.mdx:41:53: Could not parse expression with acorn",
         }),
       ).toThrow(/localized parser fix/);
 
@@ -760,6 +760,26 @@ describe("recap direct publish", () => {
           originalPath,
           sourcePath,
           reason: "plan.mdx:3:53: Could not parse expression with acorn",
+        }),
+      ).not.toThrow();
+
+      original.mdx["plan.mdx"] = "! Grounded recap\n\nPreserved context.\n";
+      fs.writeFileSync(originalPath, JSON.stringify(original));
+      fs.writeFileSync(
+        sourcePath,
+        JSON.stringify({
+          ...original,
+          mdx: {
+            ...original.mdx,
+            "plan.mdx": `#${original.mdx["plan.mdx"].slice(1)}`,
+          },
+        }),
+      );
+      expect(() =>
+        validateRecapRepairSource({
+          originalPath,
+          sourcePath,
+          reason: "plan.mdx:1:1: Could not parse expression with acorn",
         }),
       ).not.toThrow();
     } finally {

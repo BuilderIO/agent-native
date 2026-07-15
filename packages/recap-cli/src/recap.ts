@@ -2828,7 +2828,7 @@ export function validateRecapRepairSource(input: {
   const repaired = readObject(input.sourcePath);
   validateRecapSourcePayload(repaired);
   const diagnostic = input.reason.match(
-    /((?:plan|canvas|prototype)\.mdx):\d+:\d+:/,
+    /((?:plan|canvas|prototype)\.mdx):(\d+):(\d+):/,
   );
   const targetFile = diagnostic?.[1];
   if (!targetFile) {
@@ -2892,9 +2892,38 @@ export function validateRecapRepairSource(input: {
   const preservedLength = prefixLength + suffixLength;
   const originalChangedLength = originalTarget.length - preservedLength;
   const repairedChangedLength = repairedTarget.length - preservedLength;
+  const diagnosticLine = Number(diagnostic?.[2]);
+  const diagnosticColumn = Number(diagnostic?.[3]);
+  const targetLines = originalTarget.split("\n");
   if (
-    prefixLength === 0 ||
-    suffixLength === 0 ||
+    !Number.isInteger(diagnosticLine) ||
+    !Number.isInteger(diagnosticColumn) ||
+    diagnosticLine < 1 ||
+    diagnosticLine > targetLines.length ||
+    diagnosticColumn < 1
+  ) {
+    throw new Error("Repair diagnostic location is outside the targeted file.");
+  }
+  const diagnosticOffset =
+    targetLines
+      .slice(0, diagnosticLine - 1)
+      .reduce((total, line) => total + line.length + 1, 0) +
+    Math.min(diagnosticColumn - 1, targetLines[diagnosticLine - 1].length);
+  const elementStart = originalTarget.lastIndexOf("<", diagnosticOffset);
+  const elementEnd = originalTarget.indexOf("/>", diagnosticOffset);
+  const hasContainingElement =
+    elementStart >= 0 && elementEnd >= diagnosticOffset;
+  const allowedStart = hasContainingElement
+    ? elementStart
+    : Math.max(0, diagnosticOffset - 250);
+  const allowedEnd = hasContainingElement
+    ? elementEnd + 2
+    : Math.min(originalTarget.length, diagnosticOffset + 250);
+  const originalChangedStart = prefixLength;
+  const originalChangedEnd = originalTarget.length - suffixLength;
+  if (
+    originalChangedStart < allowedStart ||
+    originalChangedEnd > allowedEnd ||
     originalChangedLength > 2000 ||
     repairedChangedLength > 2000
   ) {
