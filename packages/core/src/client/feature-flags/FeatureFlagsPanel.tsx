@@ -331,11 +331,9 @@ function FeatureFlagRow({ flag }: { flag: FeatureFlagMetadata }) {
           <IconAdjustmentsHorizontal className="size-4" />
         </button>
       </div>
-      <TargetingDialog
-        flag={flag}
-        open={targetingOpen}
-        onOpenChange={setTargetingOpen}
-      />
+      {targetingOpen ? (
+        <TargetingDialog flag={flag} open onOpenChange={setTargetingOpen} />
+      ) : null}
     </article>
   );
 }
