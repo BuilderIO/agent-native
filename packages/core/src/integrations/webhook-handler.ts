@@ -2,6 +2,7 @@ import type { H3Event } from "h3";
 
 import {
   appendA2AArtifactLinks,
+  extractA2AArtifactIdentities,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
@@ -35,6 +36,7 @@ import {
 import {
   buildAssistantMessage,
   extractThreadMeta,
+  threadDataToEngineMessages,
 } from "../agent/thread-data-builder.js";
 import { attachToolSearch } from "../agent/tool-search.js";
 import { createThread, getThread } from "../chat-threads/store.js";
@@ -63,7 +65,11 @@ import {
 } from "./pending-tasks-store.js";
 import { integrationScopeSubjectKey } from "./scope-store.js";
 import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
-import type { PlatformAdapter, IncomingMessage } from "./types.js";
+import type {
+  PlatformAdapter,
+  IncomingMessage,
+  PlatformDeliveryReceipt,
+} from "./types.js";
 import {
   listIntegrationUsageBudgets,
   releaseIntegrationUsageBudget,
@@ -710,34 +716,7 @@ async function processIncomingMessage(
   }
   const existingMessages: EngineMessage[] = [];
   if (thread?.threadData) {
-    try {
-      const data = JSON.parse(thread.threadData);
-      if (Array.isArray(data.messages)) {
-        for (const msg of data.messages) {
-          const m = msg.message ?? msg;
-          const textContent =
-            typeof m.content === "string"
-              ? m.content
-              : Array.isArray(m.content)
-                ? m.content
-                    .filter((c: any) => c.type === "text")
-                    .map((c: any) => c.text)
-                    .join("\n")
-                : "";
-          if (m.role === "user") {
-            existingMessages.push({
-              role: "user",
-              content: [{ type: "text", text: textContent }],
-            });
-          } else if (m.role === "assistant") {
-            existingMessages.push({
-              role: "assistant",
-              content: [{ type: "text", text: textContent }],
-            });
-          }
-        }
-      }
-    } catch {}
+    existingMessages.push(...threadDataToEngineMessages(thread.threadData));
   }
 
   // Add the new user message. Include verified platform identity as lightweight
@@ -988,12 +967,11 @@ async function processIncomingMessage(
           // preview card.
           const baseUrl = process.env.APP_URL || process.env.URL || "";
           const appBaseUrl = baseUrl ? withConfiguredAppBasePath(baseUrl) : "";
+          const toolResults = collectToolResultSummaries(completedRun);
           if (!suppressPlatformReply) {
-            responseText = appendA2AArtifactLinks(
-              responseText,
-              collectToolResultSummaries(completedRun),
-              { baseUrl: appBaseUrl || undefined },
-            );
+            responseText = appendA2AArtifactLinks(responseText, toolResults, {
+              baseUrl: appBaseUrl || undefined,
+            });
           }
           const threadDeepLinkUrl =
             appBaseUrl && threadId
@@ -1002,34 +980,60 @@ async function processIncomingMessage(
 
           // Format and send back to platform — update the "thinking…"
           // placeholder in place if the adapter supplied one.
+          let deliveredResponse:
+            | {
+                platform: string;
+                status: "delivered";
+                text: string;
+                deliveredAt: string;
+                messageRefs?: string[];
+              }
+            | undefined;
           if (!suppressPlatformReply) {
             const outgoing = adapter.formatAgentResponse(responseText, {
               threadDeepLinkUrl,
             });
-            let delivered = false;
+            let deliveryReceipt: void | PlatformDeliveryReceipt;
             if (queuedA2AContinuation && progress?.ref) {
               // Post substantive parent results as a normal thread reply while
               // the one continuation that claimed this resumable stream keeps
               // it open for its eventual terminal result.
-              await adapter.sendResponse(outgoing, incoming, {
+              deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
-              delivered = true;
             } else if (progress) {
               try {
-                await progress.complete(outgoing);
-                delivered = true;
+                deliveryReceipt = await progress.complete(outgoing);
               } catch {
-                await adapter.sendResponse(outgoing, incoming, {
-                  placeholderRef: opts.placeholderRef,
-                });
-                delivered = true;
+                deliveryReceipt = await adapter.sendResponse(
+                  outgoing,
+                  incoming,
+                  {
+                    placeholderRef: opts.placeholderRef,
+                  },
+                );
               }
             } else {
-              await adapter.sendResponse(outgoing, incoming, {
+              deliveryReceipt = await adapter.sendResponse(outgoing, incoming, {
                 placeholderRef: opts.placeholderRef,
               });
-              delivered = true;
+            }
+            const delivered = deliveryReceipt?.status === "delivered";
+            if (!delivered) {
+              throw new Error(
+                `${incoming.platform} response completed without delivery proof`,
+              );
+            }
+            if (delivered) {
+              deliveredResponse = {
+                platform: incoming.platform,
+                status: "delivered",
+                text: outgoing.text,
+                deliveredAt: new Date().toISOString(),
+                ...(deliveryReceipt?.messageRefs?.length
+                  ? { messageRefs: deliveryReceipt.messageRefs }
+                  : {}),
+              };
             }
             if (slackInputRequest && delivered && incoming.senderId) {
               await setIntegrationAwaitingInput({
@@ -1078,6 +1082,8 @@ async function processIncomingMessage(
             incoming.text,
             completedRun,
             thread,
+            deliveredResponse,
+            toolResults,
           );
           await recordIntegrationUsage({
             usage,
@@ -1533,6 +1539,14 @@ async function persistThreadData(
   userText: string,
   completedRun: ActiveRun,
   thread: any,
+  deliveredResponse?: {
+    platform: string;
+    status: "delivered";
+    text: string;
+    deliveredAt: string;
+    messageRefs?: string[];
+  },
+  toolResults: A2AToolResultSummary[] = [],
 ): Promise<void> {
   try {
     let repo: any;
@@ -1556,6 +1570,16 @@ async function persistThreadData(
       completedRun.events ?? [],
       completedRun.runId,
     );
+    if (assistantMsg) {
+      assistantMsg.metadata.integrationDeliveryAttempted = true;
+      if (deliveredResponse) {
+        assistantMsg.metadata.integrationDelivery = deliveredResponse;
+        const artifactIdentities = extractA2AArtifactIdentities(toolResults);
+        if (artifactIdentities.length > 0) {
+          assistantMsg.metadata.integrationArtifacts = artifactIdentities;
+        }
+      }
+    }
 
     repo.messages.push(userMsg);
     if (assistantMsg) {

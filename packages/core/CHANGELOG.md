@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.101.7
+
+### Patch Changes
+
+- 70caa6f: Preserve participant-visible integration replies and verified artifact identities so threaded corrections can reliably target resources after renames.
+
 ## 0.101.6
 
 ### Patch Changes

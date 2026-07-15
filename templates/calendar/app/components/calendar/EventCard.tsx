@@ -1,12 +1,13 @@
 import { useT } from "@agent-native/core/client";
 import type { CalendarEvent } from "@shared/api";
-import { IconAlertTriangleFilled } from "@tabler/icons-react";
+import { IconAlertTriangleFilled, IconCalendarOff } from "@tabler/icons-react";
 
 import {
   getEventDisplayColor,
   allOtherDeclined,
   type CalendarColorPreferences,
 } from "@/lib/event-colors";
+import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import { EventStatusIcon } from "@/lib/rsvp-status";
 import { cn } from "@/lib/utils";
 import {
@@ -44,6 +45,7 @@ export function EventCard({
   const title = getWorkingLocationChipLabel(event, workingLocationLabels);
   const ariaTitle = getWorkingLocationTitle(event, workingLocationLabels);
   const isWorkingLocation = isWorkingLocationEvent(event);
+  const isOutOfOffice = isOutOfOfficeEvent(event);
 
   const handleDragStart = (e: React.DragEvent) => {
     e.dataTransfer.setData("text/plain", event.id);
@@ -73,7 +75,13 @@ export function EventCard({
           backgroundColor: `${accentColor}25`,
         }}
       >
-        {allOtherDeclined(event) ? (
+        {isOutOfOffice ? (
+          <IconCalendarOff
+            aria-hidden="true"
+            className="size-3 shrink-0"
+            style={{ color: accentColor }}
+          />
+        ) : allOtherDeclined(event) ? (
           <IconAlertTriangleFilled
             size={10}
             className="shrink-0 text-current opacity-70"
@@ -89,6 +97,11 @@ export function EventCard({
         {isWorkingLocation && (
           <span className="hidden shrink-0 text-[10px] font-normal text-foreground/65 sm:inline">
             {t("eventForm.workingLocation")}
+          </span>
+        )}
+        {isOutOfOffice && (
+          <span className="hidden shrink-0 text-[10px] font-normal text-foreground/65 sm:inline">
+            {t("eventForm.outOfOffice")}
           </span>
         )}
         {event.ownerColor && (
@@ -123,7 +136,14 @@ export function EventCard({
       }}
     >
       <div className="flex items-center gap-1 truncate">
-        {allOtherDeclined(event) && (
+        {isOutOfOffice && (
+          <IconCalendarOff
+            aria-hidden="true"
+            className="size-3 shrink-0"
+            style={{ color: accentColor }}
+          />
+        )}
+        {!isOutOfOffice && allOtherDeclined(event) && (
           <IconAlertTriangleFilled
             size={12}
             className="shrink-0 text-current opacity-70"
@@ -135,6 +155,11 @@ export function EventCard({
       {isWorkingLocation && (
         <span className="truncate text-foreground/70">
           {t("eventForm.workingLocation")}
+        </span>
+      )}
+      {isOutOfOffice && (
+        <span className="truncate text-foreground/70">
+          {t("eventForm.outOfOffice")}
         </span>
       )}
       {!event.allDay && (
