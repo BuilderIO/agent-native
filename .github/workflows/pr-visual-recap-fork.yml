@@ -550,7 +550,7 @@ jobs:
             echo "ok=false" >> "$GITHUB_OUTPUT"
             {
               echo 'summary<<__RECAP_BLOCK_REFERENCE_EOF__'
-              echo "Could not fetch the live plan block reference; the agent will fall back to bundled visual-recap instructions and the publisher will validate the final MDX."
+              echo "Could not fetch the live plan block reference; the agent will fall back to bundled visual-recap instructions and the hosted Plan action will validate the final MDX."
               echo '__RECAP_BLOCK_REFERENCE_EOF__'
             } >> "$GITHUB_OUTPUT"
             cat > recap-blocks.md <<'EOF'
@@ -695,6 +695,124 @@ jobs:
           if [ -n "${PR_MERGED_AT:-}" ]; then ARGS+=(--source-pr-merged-at "$PR_MERGED_AT"); fi
           $RECAP_CLI recap publish "${ARGS[@]}"
 
+      - name: Build one-shot recap repair prompt
+        id: repair_prompt
+        if: steps.publish.outputs.repairable == 'true'
+        run: |
+          set -euo pipefail
+          cp recap-source.json recap-source.initial.json
+          $RECAP_CLI recap repair-prompt --source recap-source.json --reason-file recap-url-reason.txt --out recap-repair-prompt.md
+
+      - name: Repair recap source (Claude Code)
+        id: claude_repair
+        if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'claude'
+        continue-on-error: true
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          set -uo pipefail
+          CLAUDE_ALLOWED_TOOLS="Read,Write"
+          CLAUDE_ARGS=(-p "$(cat recap-repair-prompt.md)" --allowedTools "$CLAUDE_ALLOWED_TOOLS" --permission-mode dontAsk --output-format json)
+          CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")
+          rm -f claude-repair-result.json claude-repair-stderr.log
+          set +e
+          npx -y @anthropic-ai/claude-code@2 "${CLAUDE_ARGS[@]}" > claude-repair-result.json 2> claude-repair-stderr.log
+          CLAUDE_REPAIR_STATUS="$?"
+          set -e
+          echo "$CLAUDE_REPAIR_STATUS" > claude-repair-exit-code.txt
+          if [ "$CLAUDE_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Repair recap source (Codex)
+        id: codex_repair
+        if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'codex'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: |
+          set -uo pipefail
+          printenv OPENAI_API_KEY | npx -y @openai/codex@0 login --with-api-key || true
+          CODEX_ARGS=(exec --dangerously-bypass-approvals-and-sandbox --skip-git-repo-check)
+          if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi
+          case "${VISUAL_RECAP_REASONING:-}" in
+            none|minimal|low|medium|high|xhigh)
+              CODEX_ARGS+=(-c "model_reasoning_effort=\"$VISUAL_RECAP_REASONING\"") ;;
+            "") ;;
+            *) echo "Ignoring invalid VISUAL_RECAP_REASONING: $VISUAL_RECAP_REASONING" ;;
+          esac
+          rm -f codex-repair-events.jsonl codex-repair-stderr.log
+          set +e
+          npx -y @openai/codex@0 "${CODEX_ARGS[@]}" --json "$(cat recap-repair-prompt.md)" 2> codex-repair-stderr.log | tee codex-repair-events.jsonl
+          CODEX_REPAIR_STATUS="${PIPESTATUS[0]}"
+          set -e
+          echo "$CODEX_REPAIR_STATUS" > codex-repair-exit-code.txt
+          if [ "$CODEX_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Repair recap source (OpenAI-compatible)
+        id: openai_compatible_repair
+        if: steps.publish.outputs.repairable == 'true' && needs.gate.outputs.agent == 'openai-compatible'
+        continue-on-error: true
+        env:
+          OPENAI_API_KEY: ${{ secrets.VISUAL_RECAP_API_KEY }}
+          OPENAI_BASE_URL: ${{ vars.VISUAL_RECAP_BASE_URL }}
+          AGENT_ENGINE: ai-sdk:openai
+          AGENT_MODEL: ${{ vars.VISUAL_RECAP_MODEL }}
+          AGENT_NATIVE_CODE_USAGE_FILE: openai-compatible-repair-usage.json
+          AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source
+        run: |
+          set -uo pipefail
+          rm -f openai-compatible-repair-result.txt openai-compatible-repair-usage.json openai-compatible-repair-stderr.log
+          set +e
+          $CODE_CLI code exec --permission-mode auto-edit "$(cat recap-repair-prompt.md)" > openai-compatible-repair-result.txt 2> openai-compatible-repair-stderr.log
+          OPENAI_COMPATIBLE_REPAIR_STATUS="$?"
+          set -e
+          echo "$OPENAI_COMPATIBLE_REPAIR_STATUS" > openai-compatible-repair-exit-code.txt
+          if [ "$OPENAI_COMPATIBLE_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Validate repaired recap source
+        id: repaired_source
+        if: steps.publish.outputs.repairable == 'true'
+        env:
+          REPAIR_AGENT_OK: ${{ steps.claude_repair.outputs.ok || steps.codex_repair.outputs.ok || steps.openai_compatible_repair.outputs.ok }}
+        run: |
+          set -uo pipefail
+          REPAIR_REASON=""
+          if [ "${REPAIR_AGENT_OK:-false}" != "true" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            REPAIR_REASON="Repair agent exited unsuccessfully; repaired source was not published."
+          else
+            VALIDATION_JSON="$(GITHUB_OUTPUT=/dev/null $RECAP_CLI recap validate-repair --original recap-source.initial.json --source recap-source.json --reason-file recap-url-reason.txt || true)"
+            REPAIR_OK="$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).ok===true?"true":"false")}catch{process.stdout.write("false")}' "$VALIDATION_JSON")"
+            REPAIR_REASON="$(node -e 'try{process.stdout.write(JSON.parse(process.argv[1]).reason||"")}catch{process.stdout.write("Repair validation returned invalid output.")}' "$VALIDATION_JSON")"
+            echo "ok=$REPAIR_OK" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -n "$REPAIR_REASON" ]; then
+            echo "$REPAIR_REASON" > recap-url-reason.txt
+          fi
+          {
+            echo 'reason<<__RECAP_REPAIR_REASON_EOF__'
+            echo "$REPAIR_REASON"
+            echo '__RECAP_REPAIR_REASON_EOF__'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Publish repaired recap source
+        id: publish_repair
+        if: steps.repaired_source.outputs.ok == 'true'
+        continue-on-error: true
+        env:
+          PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
+        run: |
+          set -uo pipefail
+          ARGS=(--source recap-source.json --out recap-url.txt --repo "$GITHUB_REPOSITORY" --pr "$PR_NUMBER" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN")
+          if [ -n "${PREV_PLAN_ID:-}" ]; then ARGS+=(--prev-plan-id "$PREV_PLAN_ID"); fi
+          ARGS+=(--source-type pull-request --source-repo "$GITHUB_REPOSITORY" --source-pr-number "$PR_NUMBER")
+          if [ "${PR_MERGED:-false}" = "true" ] || [ -n "${PR_MERGED_AT:-}" ]; then
+            ARGS+=(--source-pr-state merged)
+          elif [ -n "${PR_STATE:-}" ]; then
+            ARGS+=(--source-pr-state "$PR_STATE")
+          fi
+          if [ -n "${PR_MERGED_AT:-}" ]; then ARGS+=(--source-pr-merged-at "$PR_MERGED_AT"); fi
+          $RECAP_CLI recap publish "${ARGS[@]}"
+
       - name: Read plan URL
         id: url
         if: steps.diff.outputs.tiny != 'true' && steps.route_health.outputs.unhealthy != 'true' && steps.scan.outputs.suppressed != 'true'
@@ -768,8 +886,9 @@ jobs:
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+          RECAP_REPAIR_ATTEMPTED: ${{ steps.repair_prompt.outcome == 'success' }}
           RECAP_BLOCK_REFERENCE_SUMMARY: ${{ steps.block_reference.outputs.summary }}
-          RECAP_PUBLISH_REASON: ${{ steps.publish.outputs.reason }}
+          RECAP_PUBLISH_REASON: ${{ steps.repaired_source.outputs.reason || steps.publish_repair.outputs.reason || steps.publish.outputs.reason }}
         run: |
           set -uo pipefail
           RESULT=claude-result.json
@@ -783,6 +902,20 @@ jobs:
             RESULT=openai-compatible-result.txt
             STDERR=openai-compatible-stderr.log
             EXIT_CODE=openai-compatible-exit-code.txt
+          fi
+          if [ "$RECAP_REPAIR_ATTEMPTED" = "true" ]; then
+            RESULT=claude-repair-result.json
+            STDERR=claude-repair-stderr.log
+            EXIT_CODE=claude-repair-exit-code.txt
+            if [ "$RECAP_AGENT" = "codex" ]; then
+              RESULT=codex-repair-events.jsonl
+              STDERR=codex-repair-stderr.log
+              EXIT_CODE=codex-repair-exit-code.txt
+            elif [ "$RECAP_AGENT" = "openai-compatible" ]; then
+              RESULT=openai-compatible-repair-result.txt
+              STDERR=openai-compatible-repair-stderr.log
+              EXIT_CODE=openai-compatible-repair-exit-code.txt
+            fi
           fi
           SUMMARY_JSON="$(GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || echo '{}')"
           SUMMARY="$(node -e 'try { const value = JSON.parse(process.argv[1]).summary; process.stdout.write(typeof value === "string" ? value : ""); } catch {}' "$SUMMARY_JSON")"
@@ -812,11 +945,17 @@ jobs:
         env:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+          RECAP_REPAIR_SUCCEEDED: ${{ steps.publish_repair.outcome == 'success' }}
         run: |
           set -uo pipefail
           RESULT=claude-result.json
           if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
           if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-usage.json; fi
+          if [ "$RECAP_REPAIR_SUCCEEDED" = "true" ]; then
+            RESULT=claude-repair-result.json
+            if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-repair-events.jsonl; fi
+            if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-repair-usage.json; fi
+          fi
           if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       - name: Cache Playwright browsers
@@ -902,13 +1041,26 @@ jobs:
           name: pr-visual-recap-source-fork-${{ github.event.pull_request.number }}
           path: |
             recap-source.json
+            recap-source.initial.json
+            recap-url-reason.txt
+            recap-repair-prompt.md
             claude-result.json
             claude-stderr.log
+            claude-repair-result.json
+            claude-repair-stderr.log
+            claude-repair-exit-code.txt
             codex-events.jsonl
             codex-stderr.log
+            codex-repair-events.jsonl
+            codex-repair-stderr.log
+            codex-repair-exit-code.txt
             openai-compatible-result.txt
             openai-compatible-usage.json
             openai-compatible-stderr.log
+            openai-compatible-repair-result.txt
+            openai-compatible-repair-usage.json
+            openai-compatible-repair-stderr.log
+            openai-compatible-repair-exit-code.txt
           if-no-files-found: ignore
           retention-days: 14
 

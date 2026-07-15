@@ -1079,6 +1079,50 @@ describe("byte stability and malformed import handling", () => {
     ).rejects.toThrow(/plan-state\.json is not valid/);
   });
 
+  it("reports the source file and VFile location for a raw newline in an MDX JS string", async () => {
+    const error = await parsePlanMdxFolder({
+      "plan.mdx": `---
+title: "Raw newline"
+version: 2
+---
+
+<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />
+`,
+    }).then(
+      () => null,
+      (err) => err,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+    expect(error.message).toBe(
+      "plan.mdx:6:53: Could not parse expression with acorn",
+    );
+  });
+
+  it.each(["canvas.mdx", "prototype.mdx"])(
+    "reports the failing %s file when its MDX does not parse",
+    async (filename) => {
+      const error = await parsePlanMdxFolder({
+        "plan.mdx": `---\ntitle: "Valid plan"\nversion: 2\n---\n\n# Valid\n`,
+        [filename]: `<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />\n`,
+      }).then(
+        () => null,
+        (err) => err,
+      );
+
+      expect(error).toBeInstanceOf(Error);
+      if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+      expect(error.message).toMatch(
+        new RegExp(
+          `^${filename.replace(".", "\\.")}:\\d+:\\d+: Could not parse expression with acorn$`,
+        ),
+      );
+    },
+  );
+
   it("captures loose intro prose alongside a block-level RichText", async () => {
     const parsed = await parsePlanMdxFolder({
       "plan.mdx": `---\ntitle: "x"\nversion: 2\n---\n\nSome intro prose.\n\n<RichText id="known">\n\nReal block\n\n</RichText>\n`,
