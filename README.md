@@ -91,7 +91,7 @@ Edit local Markdown/MDX files, generate rich interactive custom blocks, and draf
 
 <a href="https://agent-native.com/templates/analytics"><img src="https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4933a80cc3134d7e874631f688be828a?format=webp&width=800" alt="Analytics app" width="100%" /></a>
 
-**Agent-Native Amplitude, Fullstory**
+**Open-Source Alternative to Amplitude and FullStory**
 
 Connect analytics data sources, prompt for real charts, and build reusable dashboards.
 

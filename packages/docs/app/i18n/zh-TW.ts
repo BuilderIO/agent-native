@@ -470,7 +470,7 @@ const messages = {
         "根據提示產生完整的簡報。視覺或對話方式編輯。 AI 圖片生成、8 種布局和內建簡報模式。",
     },
     analytics: {
-      replaces: "替換或增強 Amplitude、Mixpanel、Looker",
+      replaces: "Amplitude 和 FullStory 的開放原始碼替代品",
       description:
         "連線任何資料來源、提示任何圖表、建置可重用的儀表板。代理編寫 SQL、生成視覺化並改進應用程式。",
     },
@@ -518,7 +518,7 @@ const messages = {
       s004: "查詢瀏覽器",
       s005: "自然語言",
       s006: "所有範本",
-      s007: "Amplitude、Mixpanel 和 Looker 的開放原始碼替代品",
+      s007: "Amplitude 和 FullStory 的開放原始碼替代品",
       s008: "連線任何資料來源，提示任何圖表，建置可重複使用的儀表板 - AI 代理寫入 SQL。",
       s009: "試用",
       s010: "你能做什麼",
