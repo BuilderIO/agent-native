@@ -11,7 +11,7 @@ import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import {
   InvitationBanner,
   OrgSwitcher,
-  useOrg,
+  useOrgRole,
 } from "@agent-native/core/client/org";
 import {
   IconInbox,
@@ -115,7 +115,7 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
   const { shouldShowPromo, shouldShowSidebarLink, dismiss } = useDesktopPromo();
   usePrefetchVideoStorageStatus();
 
-  const { data: org } = useOrg();
+  const { org, canManageOrg } = useOrgRole();
   const hasActiveOrg = Boolean(org?.orgId);
   const { data: organizations } = useOrganizations({ enabled: hasActiveOrg });
   const currentOrganizationId =
@@ -466,19 +466,23 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                     <span className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
                       {t("navigation.spaces")}
                     </span>
-                    <Tooltip>
-                      <TooltipTrigger asChild>
-                        <button
-                          type="button"
-                          aria-label={t("navigation.spaces")}
-                          className="rounded p-1 text-muted-foreground hover:bg-accent"
-                          onClick={() => setNewSpaceOpen(true)}
-                        >
-                          <IconPlus className="h-3.5 w-3.5" />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent>{t("navigation.spaces")}</TooltipContent>
-                    </Tooltip>
+                    {canManageOrg && (
+                      <Tooltip>
+                        <TooltipTrigger asChild>
+                          <button
+                            type="button"
+                            aria-label={t("navigation.spaces")}
+                            className="rounded p-1 text-muted-foreground hover:bg-accent"
+                            onClick={() => setNewSpaceOpen(true)}
+                          >
+                            <IconPlus className="h-3.5 w-3.5" />
+                          </button>
+                        </TooltipTrigger>
+                        <TooltipContent>
+                          {t("navigation.spaces")}
+                        </TooltipContent>
+                      </Tooltip>
+                    )}
                   </div>
                   <ul className="space-y-0.5">
                     {(spaces?.spaces ?? []).map((s: any) => {
@@ -661,7 +665,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   },
                 );
                 setNewFolderName("");
-                setNewFolderOpen(false);
               }}
             >
               {t("common.create")}
