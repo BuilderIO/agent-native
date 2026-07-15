@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   canCreatePropertyOption,
+  createPropertyMetadataUpdateQueue,
   createPropertyOptionUpdateQueue,
   dateInputValueForOffset,
   filesMediaEditorValue,
@@ -257,6 +258,46 @@ describe("document property option picker", () => {
       options[2],
     ]);
     expect(removePropertyOption(options, "missing")).toBe(options);
+  });
+});
+
+describe("document property metadata persistence", () => {
+  it("serializes a fast rename and description edit without restoring the old name", async () => {
+    const persisted: Array<{
+      name: string;
+      description: string;
+    }> = [];
+    const queue = createPropertyMetadataUpdateQueue(
+      {
+        name: "Status",
+        type: "select",
+        description: "",
+        visibility: "always_show",
+        options: { options },
+      },
+      async (metadata) => {
+        persisted.push({
+          name: metadata.name,
+          description: metadata.description ?? "",
+        });
+      },
+    );
+
+    await Promise.all([
+      queue.enqueue((current) => ({ ...current, name: "Workflow stage" })),
+      queue.enqueue((current) => ({
+        ...current,
+        description: "Tracks where the work is in the editorial workflow.",
+      })),
+    ]);
+
+    expect(persisted).toEqual([
+      { name: "Workflow stage", description: "" },
+      {
+        name: "Workflow stage",
+        description: "Tracks where the work is in the editorial workflow.",
+      },
+    ]);
   });
 });
 

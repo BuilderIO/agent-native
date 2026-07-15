@@ -95,4 +95,44 @@ describe("DescriptionField behavior", () => {
     expect(onSave).toHaveBeenCalledWith("Unsent edit");
     expect(textareaProps.value).toBe("Stable guidance");
   });
+
+  it("serializes successive blur saves so the latest value persists last", async () => {
+    let releaseFirstSave!: () => void;
+    const firstSave = new Promise<void>((resolve) => {
+      releaseFirstSave = resolve;
+    });
+    let markSecondSaveStarted!: () => void;
+    const secondSaveStarted = new Promise<void>((resolve) => {
+      markSecondSaveStarted = resolve;
+    });
+    const persistedValues: string[] = [];
+    const onSave = vi.fn(async (value: string) => {
+      if (value === "First edit") await firstSave;
+      persistedValues.push(value);
+      if (value === "Latest edit") markSecondSaveStarted();
+    });
+    render(onSave);
+
+    act(() => {
+      textareaProps.onChange({ target: { value: "First edit" } });
+    });
+    act(() => textareaProps.onBlur());
+    act(() => {
+      textareaProps.onFocus();
+      textareaProps.onChange({ target: { value: "Latest edit" } });
+    });
+    act(() => textareaProps.onBlur());
+
+    await Promise.resolve();
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave).toHaveBeenCalledWith("First edit");
+
+    releaseFirstSave();
+    await firstSave;
+    await secondSaveStarted;
+
+    expect(onSave).toHaveBeenCalledTimes(2);
+    expect(onSave).toHaveBeenLastCalledWith("Latest edit");
+    expect(persistedValues).toEqual(["First edit", "Latest edit"]);
+  });
 });

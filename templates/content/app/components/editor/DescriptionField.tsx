@@ -40,6 +40,8 @@ export function DescriptionField({
   const [draft, setDraft] = useState(description ?? "");
   const [editing, setEditing] = useState(false);
   const skipNextBlurSaveRef = useRef(false);
+  const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const saveRevisionRef = useRef(0);
 
   useEffect(() => {
     if (!editing) setDraft(description ?? "");
@@ -48,10 +50,20 @@ export function DescriptionField({
   const save = async () => {
     const next = descriptionFieldSavedValue(draft, description);
     if (next === null) return;
+
+    const revision = ++saveRevisionRef.current;
+    const request = saveQueueRef.current.then(() => onSave(next));
+    saveQueueRef.current = request.then(
+      () => undefined,
+      () => undefined,
+    );
+
     try {
-      await onSave(next);
+      await request;
     } catch {
-      setDraft(descriptionFieldEscapeDraft(description));
+      if (saveRevisionRef.current === revision) {
+        setDraft(descriptionFieldEscapeDraft(description));
+      }
     }
   };
 

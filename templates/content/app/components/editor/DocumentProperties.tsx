@@ -656,6 +656,39 @@ export function createPropertyOptionUpdateQueue(
   };
 }
 
+type PropertyMetadataSnapshot = Pick<
+  DocumentProperty["definition"],
+  "name" | "type" | "description" | "visibility" | "options"
+>;
+
+/**
+ * Serializes property-definition edits against one local snapshot. The action
+ * accepts the complete definition, so composing each request from render-time
+ * props would let a fast description save restore the name from before an
+ * overlapping rename completed.
+ */
+export function createPropertyMetadataUpdateQueue(
+  initialMetadata: PropertyMetadataSnapshot,
+  persist: (metadata: PropertyMetadataSnapshot) => Promise<unknown>,
+) {
+  let current = initialMetadata;
+  let tail: Promise<unknown> = Promise.resolve();
+
+  return {
+    replace(metadata: PropertyMetadataSnapshot) {
+      current = metadata;
+    },
+    enqueue(
+      update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
+    ) {
+      current = update(current);
+      const snapshot = current;
+      tail = tail.catch(() => undefined).then(() => persist(snapshot));
+      return tail;
+    },
+  };
+}
+
 export function removePropertyOption(
   options: DocumentPropertyOption[],
   optionId: string,
@@ -1025,6 +1058,21 @@ export function PropertyManagementPopover({
     property.definition.description,
   );
   const [newOption, setNewOption] = useState("");
+  const persistMetadataSnapshotRef = useRef<
+    (metadata: PropertyMetadataSnapshot) => Promise<unknown>
+  >(async () => undefined);
+  const metadataUpdateQueueRef = useRef(
+    createPropertyMetadataUpdateQueue(
+      {
+        name: property.definition.name,
+        type: property.definition.type,
+        description: property.definition.description,
+        visibility: property.definition.visibility,
+        options: property.definition.options,
+      },
+      (metadata) => persistMetadataSnapshotRef.current(metadata),
+    ),
+  );
   const persistOptionSnapshotRef = useRef<
     (options: DocumentPropertyOption[]) => Promise<unknown>
   >(async () => undefined);
@@ -1045,6 +1093,13 @@ export function PropertyManagementPopover({
     setName(property.definition.name);
     setDescription(property.definition.description);
     setNewOption("");
+    metadataUpdateQueueRef.current.replace({
+      name: property.definition.name,
+      type: property.definition.type,
+      description: property.definition.description,
+      visibility: property.definition.visibility,
+      options: property.definition.options,
+    });
     optionUpdateQueueRef.current.replace(
       property.definition.options.options ?? [],
     );
@@ -1068,17 +1123,21 @@ export function PropertyManagementPopover({
     options?: DocumentProperty["definition"]["options"];
     description?: string;
   }) {
-    const nextType = next.type ?? property.definition.type;
-    await configure.mutateAsync({
+    await metadataUpdateQueueRef.current.enqueue((current) => ({
+      name: next.name?.trim() || current.name,
+      type: next.type ?? current.type,
+      description: next.description ?? current.description,
+      visibility: next.visibility ?? current.visibility,
+      options: next.options ?? current.options,
+    }));
+  }
+
+  persistMetadataSnapshotRef.current = (metadata) =>
+    configure.mutateAsync({
       id: property.definition.id,
       documentId,
-      name: next.name?.trim() || property.definition.name,
-      type: nextType,
-      description: next.description ?? property.definition.description,
-      visibility: next.visibility,
-      options: next.options ?? property.definition.options,
+      ...metadata,
     });
-  }
 
   persistOptionSnapshotRef.current = (options) =>
     configureProperty({ options: { options } });
