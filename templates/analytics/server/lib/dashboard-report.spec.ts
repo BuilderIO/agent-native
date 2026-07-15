@@ -285,6 +285,10 @@ describe("dashboard report email", () => {
       expect.stringContaining("reportPanelLimit=8"),
       expect.any(Object),
     );
+    const emailArgs = mocks.sendEmail.mock.calls[0]?.[0];
+    expect(emailArgs.html).toContain("limited fallback image");
+    expect(emailArgs.html).toContain("Open the full dashboard");
+    expect(emailArgs.text).toContain("limited fallback image");
   });
 
   it("carries the earlier attempt's error forward when a later attempt succeeds", async () => {
@@ -494,14 +498,14 @@ describe("dashboard report email", () => {
         .mockRejectedValueOnce(new Error("lightweight launch failed"));
 
       const sendPromise = sendDashboardReportSubscription(subscription());
-      await vi.advanceTimersByTimeAsync(125_000);
+      await vi.advanceTimersByTimeAsync(110_000);
       const result = await sendPromise;
 
       expect(result).toMatchObject({
         screenshotAttached: false,
         screenshotMode: "none",
         screenshotError: expect.stringContaining(
-          "full capture exceeded 125000ms while launching the screenshot browser",
+          "full capture exceeded 110000ms while launching the screenshot browser",
         ),
       });
       resolveLateLaunch(late.browser);
