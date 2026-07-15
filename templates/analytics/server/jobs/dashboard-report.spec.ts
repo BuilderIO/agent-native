@@ -51,6 +51,7 @@ function subscription(): DashboardReportSubscription {
 describe("dashboard report sweep", () => {
   beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.claimDueDashboardReportSubscriptions.mockReset();
     mocks.dashboardReportRetryAt.mockReset();
     mocks.dashboardReportRetryAt.mockReturnValue(null);

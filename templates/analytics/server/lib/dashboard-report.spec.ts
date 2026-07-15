@@ -239,6 +239,70 @@ describe("dashboard report email", () => {
     expect(emailArgs.text).toContain("reportSettings=1");
   });
 
+  it("does not run a limited fallback attempt unless explicitly requested", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser({ waitForFails: true });
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      screenshotMode: "none",
+    });
+    expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(full.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+    expect(lightweight.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+  });
+
+  it("runs a third panel-limited attempt when allowLimitedFallback is set and earlier attempts fail", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser({ waitForFails: true });
+    const limited = createBrowser();
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser)
+      .mockResolvedValueOnce(limited.browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      allowLimitedFallback: true,
+    });
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "limited",
+    });
+    expect(mocks.launch).toHaveBeenCalledTimes(3);
+    expect(limited.page.goto).toHaveBeenCalledWith(
+      expect.stringContaining("reportPanelLimit=8"),
+      expect.any(Object),
+    );
+  });
+
+  it("carries the earlier attempt's error forward when a later attempt succeeds", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser();
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full-lightweight",
+    });
+    expect(result.screenshotError).toEqual(expect.stringContaining("full:"));
+  });
+
   it("pre-seeds the signed embed token as a session cookie before navigating", async () => {
     const full = createBrowser();
     mocks.launch.mockResolvedValueOnce(full.browser);
