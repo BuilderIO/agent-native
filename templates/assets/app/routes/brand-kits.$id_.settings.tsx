@@ -225,6 +225,36 @@ export default function BrandKitSettingsRoute() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6">
       <div className="grid items-start gap-4 md:grid-cols-2">
+        <div className="space-y-4 rounded-lg border border-border p-4">
+          <Label htmlFor="brand-kit-title">{t("brandKitDetail.name")}</Label>
+          <Input
+            id="brand-kit-title"
+            value={titleDraft}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            placeholder={t("brandKits.namePlaceholder")}
+          />
+          <Label htmlFor="brand-kit-description">
+            {t("assetDetail.description")}
+          </Label>
+          <Textarea
+            id="brand-kit-description"
+            value={descriptionDraft}
+            onChange={(event) => setDescriptionDraft(event.target.value)}
+            placeholder={t("brandKits.editDescriptionPlaceholder")}
+          />
+          <div>
+            <h3 className="text-sm font-semibold">
+              {t("brandKitDetail.agentUsage")}
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("brandKitDetail.agentUsageDescription")}
+            </p>
+            <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
+              {library.id}
+            </code>
+          </div>
+        </div>
+
         <div className="rounded-lg border border-border p-4">
           <button
             type="button"
@@ -232,9 +262,14 @@ export default function BrandKitSettingsRoute() {
             onClick={() => setDetailsOpen((open) => !open)}
             aria-expanded={detailsOpen}
           >
-            <span className="text-sm font-semibold">
-              {t("brandKitDetail.name")} & {t("assetDetail.description")}
-            </span>
+            <div>
+              <h3 className="text-sm font-semibold">
+                {t("brandKitDetail.setupGuide")}
+              </h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {t("brandKitDetail.setupGuideDescription")}
+              </p>
+            </div>
             {detailsOpen ? (
               <IconChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
             ) : (
@@ -242,95 +277,53 @@ export default function BrandKitSettingsRoute() {
             )}
           </button>
           {detailsOpen ? (
-            <div className="mt-4 space-y-4">
-              <Label htmlFor="brand-kit-title">
-                {t("brandKitDetail.name")}
-              </Label>
-              <Input
-                id="brand-kit-title"
-                value={titleDraft}
-                onChange={(event) => setTitleDraft(event.target.value)}
-                placeholder={t("brandKits.namePlaceholder")}
-              />
-              <Label htmlFor="brand-kit-description">
-                {t("assetDetail.description")}
-              </Label>
-              <Textarea
-                id="brand-kit-description"
-                value={descriptionDraft}
-                onChange={(event) => setDescriptionDraft(event.target.value)}
-                placeholder={t("brandKits.editDescriptionPlaceholder")}
-              />
-              <div>
-                <h3 className="text-sm font-semibold">
-                  {t("brandKitDetail.agentUsage")}
-                </h3>
-                <p className="mt-2 text-sm text-muted-foreground">
-                  {t("brandKitDetail.agentUsageDescription")}
-                </p>
-                <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
-                  {library.id}
-                </code>
-              </div>
-            </div>
+            <ul className="mt-4 space-y-3">
+              <li className="flex gap-3">
+                <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("brandKitDetail.setupGuideReferences")}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {t("brandKitDetail.setupGuideReferencesHint")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("brandKitDetail.setupGuideStyleDescription")}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {t("brandKitDetail.setupGuideStyleDescriptionHint")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <IconListCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("brandKitDetail.setupGuideInstructions")}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {t("brandKitDetail.setupGuideInstructionsHint")}
+                  </p>
+                </div>
+              </li>
+              <li className="flex gap-3">
+                <IconBulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                <div>
+                  <div className="text-sm font-medium">
+                    {t("brandKitDetail.setupGuidePresets")}
+                  </div>
+                  <p className="text-sm text-muted-foreground">
+                    {t("brandKitDetail.setupGuidePresetsHint")}
+                  </p>
+                </div>
+              </li>
+            </ul>
           ) : null}
-        </div>
-
-        <div className="space-y-4 rounded-lg border border-border p-4">
-          <div>
-            <h3 className="text-sm font-semibold">
-              {t("brandKitDetail.setupGuide")}
-            </h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {t("brandKitDetail.setupGuideDescription")}
-            </p>
-          </div>
-          <ul className="space-y-3">
-            <li className="flex gap-3">
-              <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium">
-                  {t("brandKitDetail.setupGuideReferences")}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t("brandKitDetail.setupGuideReferencesHint")}
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium">
-                  {t("brandKitDetail.setupGuideStyleDescription")}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t("brandKitDetail.setupGuideStyleDescriptionHint")}
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <IconListCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium">
-                  {t("brandKitDetail.setupGuideInstructions")}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t("brandKitDetail.setupGuideInstructionsHint")}
-                </p>
-              </div>
-            </li>
-            <li className="flex gap-3">
-              <IconBulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-              <div>
-                <div className="text-sm font-medium">
-                  {t("brandKitDetail.setupGuidePresets")}
-                </div>
-                <p className="text-sm text-muted-foreground">
-                  {t("brandKitDetail.setupGuidePresetsHint")}
-                </p>
-              </div>
-            </li>
-          </ul>
         </div>
       </div>
 
