@@ -6,7 +6,7 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { and, desc, eq, sql } from "drizzle-orm";
-import type { H3Event } from "h3";
+import { HTTPError, type H3Event } from "h3";
 
 import { getDb, schema } from "../db/index.js";
 
@@ -120,7 +120,10 @@ export async function requireOrganizationAccess(
   const email = getCurrentOwnerEmail();
   const role = await getOrganizationRoleForEmail(resolvedOrganizationId, email);
   if (!role || !organizationRoleAllowed(role, allowedRoles)) {
-    throw new Error("Organization not found or access denied");
+    throw new HTTPError({
+      statusCode: 403,
+      statusMessage: "Organization not found or access denied",
+    });
   }
   return { organizationId: resolvedOrganizationId, email, role };
 }
