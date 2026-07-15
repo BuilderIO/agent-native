@@ -17,8 +17,13 @@ import {
   IconPhoto,
   IconTextCaption,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
-import { useNavigate, useParams } from "react-router";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useBeforeUnload,
+  useBlocker,
+  useNavigate,
+  useParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { GenerationPresetsPanel } from "@/components/library/GenerationPresetsPanel";
@@ -78,27 +83,26 @@ export default function BrandKitSettingsRoute() {
   const [styleDescriptionDraft, setStyleDescriptionDraft] = useState("");
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [paletteDraft, setPaletteDraft] = useState("");
-  const [confirmExitOpen, setConfirmExitOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const [detailsOpenInitialized, setDetailsOpenInitialized] = useState(false);
+  const [initializedLibraryId, setInitializedLibraryId] = useState<
+    string | null
+  >(null);
 
   useEffect(() => {
-    if (!library) return;
+    if (!library || initializedLibraryId === library.id) return;
     setTitleDraft(library.title ?? "");
     setDescriptionDraft(library.description ?? "");
     setStyleDescriptionDraft(library.styleBrief?.description ?? "");
     setCustomInstructionsDraft(library.customInstructions ?? "");
     setPaletteDraft(paletteDraftFromColors(library.styleBrief?.palette));
-    if (!detailsOpenInitialized) {
-      const isNewLibrary =
-        !library.description &&
-        !library.customInstructions &&
-        !library.styleBrief?.description &&
-        !(library.styleBrief?.palette ?? []).length;
-      setDetailsOpen(isNewLibrary);
-      setDetailsOpenInitialized(true);
-    }
-  }, [library, detailsOpenInitialized]);
+    const isNewLibrary =
+      !library.description &&
+      !library.customInstructions &&
+      !library.styleBrief?.description &&
+      !(library.styleBrief?.palette ?? []).length;
+    setDetailsOpen(isNewLibrary);
+    setInitializedLibraryId(library.id);
+  }, [library, initializedLibraryId]);
 
   const isDirty = useMemo(() => {
     if (!library) return false;
@@ -127,7 +131,6 @@ export default function BrandKitSettingsRoute() {
     if (!library || !isDirty) return;
     const trimmedTitle = titleDraft.trim();
     const palette = parsePaletteDraft(paletteDraft);
-    setPaletteDraft(palette.join(", "));
     updateLibrary.mutate(
       {
         id: library.id,
@@ -141,19 +144,45 @@ export default function BrandKitSettingsRoute() {
         },
       },
       {
-        onSuccess: () => toast.success(t("brandKits.updated")),
+        onSuccess: () => {
+          setPaletteDraft(palette.join(", "));
+          toast.success(t("brandKits.updated"));
+        },
         onError: (error: Error) =>
           toast.error(error.message || t("brandKits.updateFailed")),
       },
     );
   }
 
+  const navigationBlocker = useBlocker(
+    useCallback(
+      ({ currentLocation, nextLocation }) =>
+        isDirty && currentLocation.pathname !== nextLocation.pathname,
+      [isDirty],
+    ),
+  );
+
+  useBeforeUnload(
+    useCallback(
+      (event: BeforeUnloadEvent) => {
+        if (!isDirty) return;
+        event.preventDefault();
+        event.returnValue = "";
+      },
+      [isDirty],
+    ),
+  );
+
   function handleBack() {
-    if (isDirty) {
-      setConfirmExitOpen(true);
-      return;
-    }
     navigate(`/library/${libraryId}`);
+  }
+
+  function keepEditing() {
+    if (navigationBlocker.state === "blocked") navigationBlocker.reset();
+  }
+
+  function discardAndLeave() {
+    if (navigationBlocker.state === "blocked") navigationBlocker.proceed();
   }
 
   function analyzeBrand() {
@@ -376,7 +405,12 @@ export default function BrandKitSettingsRoute() {
         presets={generationPresets}
       />
 
-      <Dialog open={confirmExitOpen} onOpenChange={setConfirmExitOpen}>
+      <Dialog
+        open={navigationBlocker.state === "blocked"}
+        onOpenChange={(open) => {
+          if (!open) keepEditing();
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t("brandKitDetail.unsavedChangesTitle")}</DialogTitle>
@@ -385,16 +419,10 @@ export default function BrandKitSettingsRoute() {
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirmExitOpen(false)}>
+            <Button variant="outline" onClick={keepEditing}>
               {t("brandKitDetail.keepEditing")}
             </Button>
-            <Button
-              variant="destructive"
-              onClick={() => {
-                setConfirmExitOpen(false);
-                navigate(`/library/${libraryId}`);
-              }}
-            >
+            <Button variant="destructive" onClick={discardAndLeave}>
               {t("brandKitDetail.discardChanges")}
             </Button>
           </DialogFooter>

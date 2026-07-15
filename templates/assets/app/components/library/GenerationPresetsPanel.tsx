@@ -116,7 +116,7 @@ export function GenerationPresetsPanel({
         </Button>
       </div>
       <div className="mt-3 space-y-2">
-        {presets.slice(0, 5).map((preset) => (
+        {presets.map((preset) => (
           <div
             key={preset.id}
             className="flex items-start justify-between gap-3 rounded-md border border-border bg-background p-3"
