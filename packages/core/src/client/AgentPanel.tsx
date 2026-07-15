@@ -1251,17 +1251,18 @@ function AgentPanelInner({
             </button>
           </IconTooltip>
         )}
-        {shouldShowAgentPanelFullViewAction(agentPageHref, mode) && (
-          <IconTooltip content={t("agentPanel.openFullView")}>
-            <Link
-              to={agentPageHref!}
-              aria-label={t("agentPanel.openFullView")}
-              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-            >
-              <IconArrowsMaximize size={14} />
-            </Link>
-          </IconTooltip>
-        )}
+        {agentPageHref &&
+          shouldShowAgentPanelFullViewAction(agentPageHref, mode) && (
+            <IconTooltip content={t("agentPanel.openFullView")}>
+              <Link
+                to={agentPageHref}
+                aria-label={t("agentPanel.openFullView")}
+                className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+              >
+                <IconArrowsMaximize size={14} />
+              </Link>
+            </IconTooltip>
+          )}
         <DropdownMenu open={headerMenuOpen} onOpenChange={setHeaderMenuOpen}>
           <DropdownMenuTrigger asChild>
             <button
@@ -1290,6 +1291,12 @@ function AgentPanelInner({
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
+            )}
+            {onCollapse && mode === "chat" && (
+              <DropdownMenuItem onSelect={addTab}>
+                <IconPlus size={14} className="shrink-0" />
+                {t("agentPanel.newChat")}
+              </DropdownMenuItem>
             )}
             {mode === "chat" && toggleHistory && (
               <DropdownMenuItem onSelect={toggleHistory}>
