@@ -194,6 +194,33 @@ describe("ProtectedPreviewOAuthDoorway", () => {
     unregisterSecond();
   });
 
+  it("keeps the listener alive when an older flow unregisters during registration", async () => {
+    const upstream = await listen((_request, response) => response.end("ok"));
+    const doorway = new ProtectedPreviewOAuthDoorway({ port: 0 });
+    doorways.push(doorway);
+
+    const unregisterFirst = await doorway.register(
+      "first-idle-flow",
+      upstream.origin,
+    );
+    const secondRegistration = doorway.register(
+      "second-idle-flow",
+      upstream.origin,
+    );
+    unregisterFirst();
+    const unregisterSecond = await secondRegistration;
+
+    expect(
+      (
+        await fetch(
+          `${doorway.origin}/_agent-native/google/auth-url?desktop=1&flow_id=second-idle-flow&redirect=1`,
+        )
+      ).status,
+    ).toBe(200);
+
+    unregisterSecond();
+  });
+
   it("fails closed without interrupting a process that already owns the doorway port", async () => {
     const existing = await listen((_request, response) =>
       response.end("still here"),

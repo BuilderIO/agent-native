@@ -129,13 +129,26 @@ export class ProtectedPreviewOAuthDoorway {
     if (!normalizedTarget) {
       throw new Error("OAuth doorway targets must be loopback HTTP origins.");
     }
-    await this.ensureListening();
     this.prune();
-    this.registrations.set(flowId, {
+    const registration: DoorwayRegistration = {
       targetOrigin: normalizedTarget,
       expiresAt: Date.now() + FLOW_TTL_MS,
-    });
+    };
+    // Reserve the flow before yielding to listener startup. An older flow can
+    // unregister while ensureListening() is pending; the reservation prevents
+    // its idle cleanup from closing the doorway underneath this new flow.
+    this.registrations.set(flowId, registration);
+    try {
+      await this.ensureListening();
+    } catch (error) {
+      if (this.registrations.get(flowId) === registration) {
+        this.registrations.delete(flowId);
+      }
+      this.closeIfIdle();
+      throw error;
+    }
     return () => {
+      if (this.registrations.get(flowId) !== registration) return;
       this.registrations.delete(flowId);
       this.closeIfIdle();
     };
