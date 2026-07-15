@@ -46,6 +46,7 @@ export default defineEventHandler(async (event) => {
     .select({
       id: schema.documents.id,
       title: schema.documents.title,
+      description: schema.documents.description,
       content: schema.documents.content,
       icon: schema.documents.icon,
       visibility: schema.documents.visibility,
@@ -77,6 +78,7 @@ export default defineEventHandler(async (event) => {
     resourceType: "document",
     id: document.id,
     title: document.title,
+    description: document.description,
     icon: document.icon,
     content: document.content,
     visibility: document.visibility,

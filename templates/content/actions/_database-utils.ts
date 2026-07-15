@@ -1,3 +1,4 @@
+import { resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -16,12 +17,70 @@ import {
   federateSources,
 } from "./_federation-join.js";
 import {
+  getDatabaseMembershipForDocument,
   listPropertiesForDatabaseDocuments,
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
+
+/** Focused-read context only: owned descriptions stay on their objects; this
+ * assembles the live path without copying ancestor prose into descendants. */
+export async function getDocumentContextPath(
+  document: Pick<typeof schema.documents.$inferSelect, "id" | "parentId">,
+) {
+  const db = getDb();
+  const path: Array<{
+    id: string;
+    kind: "page" | "database";
+    title: string;
+    description: string;
+  }> = [];
+  const seen = new Set<string>([document.id]);
+  let parentId = document.parentId;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parentAccess = await resolveAccess("document", parentId);
+    // A child share must not disclose prose from an inaccessible ancestor.
+    if (!parentAccess) break;
+    const parent = parentAccess.resource;
+    const [database] = await db
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.documentId, parent.id),
+          isNull(schema.contentDatabases.deletedAt),
+        ),
+      );
+    path.unshift({
+      id: database?.id ?? parent.id,
+      kind: database ? "database" : "page",
+      title: database?.title ?? parent.title,
+      description: parent.description,
+    });
+    parentId = parent.parentId;
+  }
+  const membership = await getDatabaseMembershipForDocument(document.id);
+  if (
+    membership &&
+    !path.some((entry) => entry.id === membership.database.id)
+  ) {
+    const databaseDocumentAccess = await resolveAccess(
+      "document",
+      membership.database.documentId,
+    );
+    if (!databaseDocumentAccess) return path;
+    path.push({
+      id: membership.database.id,
+      kind: "database",
+      title: membership.database.title,
+      description: databaseDocumentAccess.resource.description,
+    });
+  }
+  return path;
+}
 
 function canManageRole(role: string) {
   return role === "owner" || role === "admin";
@@ -131,6 +190,7 @@ function serializeDocument(
     parentId: doc.parentId,
     title: doc.title,
     content: options.includeContent === true ? doc.content : "",
+    description: doc.description,
     icon: doc.icon,
     position: doc.position,
     isFavorite: parseDocumentFavorite(doc.isFavorite),
@@ -160,6 +220,10 @@ export async function getContentDatabaseResponse(
   if (!database || database.deletedAt) {
     throw new Error(`Database "${databaseId}" not found`);
   }
+  const [databaseDocument] = await db
+    .select({ description: schema.documents.description })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, database.documentId));
 
   // PURE read: the primary "Content" Blocks field is seeded at create time and
   // by the one-time startup repair — never here. Reading a database (including a
@@ -272,7 +336,7 @@ export async function getContentDatabaseResponse(
   const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
 
   return {
-    database: serializeDatabase(database),
+    database: serializeDatabase(database, databaseDocument?.description ?? ""),
     properties: await listPropertiesForDatabase(databaseId),
     items: itemsWithOverlay,
     source: pagedPrimary,

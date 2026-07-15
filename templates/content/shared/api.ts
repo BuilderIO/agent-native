@@ -13,6 +13,7 @@ export interface Document {
   parentId: string | null;
   title: string;
   content: string;
+  description?: string;
   icon: string | null;
   position: number;
   isFavorite: boolean;
@@ -90,12 +91,14 @@ export interface DocumentCreateRequest {
   title?: string;
   parentId?: string | null;
   content?: string;
+  description?: string;
   icon?: string;
 }
 
 export interface DocumentUpdateRequest {
   title?: string;
   content?: string;
+  description?: string;
   icon?: string | null;
   isFavorite?: boolean;
   loadedUpdatedAt?: string;
@@ -158,6 +161,7 @@ export interface DocumentPropertyDefinition {
   databaseId: string | null;
   name: string;
   type: DocumentPropertyType;
+  description?: string;
   visibility: DocumentPropertyVisibility;
   options: DocumentPropertyOptions;
   position: number;
@@ -182,6 +186,7 @@ export interface ConfigureDocumentPropertyRequest {
   documentId: string;
   name: string;
   type: DocumentPropertyType;
+  description?: string;
   visibility?: DocumentPropertyVisibility;
   options?: DocumentPropertyOptions;
 }
@@ -213,6 +218,7 @@ export interface ContentDatabase {
   id: string;
   documentId: string;
   title: string;
+  description?: string;
   viewConfig: ContentDatabaseViewConfig;
   createdAt: string;
   updatedAt: string;
@@ -692,6 +698,12 @@ export interface ContentDatabaseResponse {
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
+  contextPath?: Array<{
+    id: string;
+    kind: "page" | "database";
+    title: string;
+    description: string;
+  }>;
   // All attached sources (NEXT). `source` stays as `sources[0] ?? null` for
   // back-compat; multi-source consumers read `sources`.
   sources?: ContentDatabaseSource[];
@@ -737,11 +749,13 @@ export interface CreateDatabaseRequest {
   documentId?: string;
   parentId?: string | null;
   title?: string;
+  description?: string;
 }
 
 export interface CreateInlineDatabaseRequest {
   hostDocumentId: string;
   title?: string;
+  description?: string;
 }
 
 export interface CreateInlineDatabaseResponse {
