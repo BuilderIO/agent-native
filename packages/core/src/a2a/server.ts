@@ -1,23 +1,31 @@
 import {
   defineEventHandler,
+  setResponseHeader,
   setResponseStatus,
   getMethod,
   getRequestHeader,
 } from "h3";
 import * as jose from "jose";
 
+import { redactArgsToJson } from "../audit/redact.js";
 import {
   extractBearerToken,
   verifyInternalToken,
 } from "../integrations/internal-token.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
+import { isSameOriginRequest } from "../server/request-origin.js";
 import { generateAgentCard } from "./agent-card.js";
 import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
+import {
+  claimA2AApproval,
+  getA2AApprovalForOwner,
+  settleA2AApproval,
+} from "./task-store.js";
 import type { A2AConfig } from "./types.js";
 
 /**
@@ -232,6 +240,122 @@ export function mountA2A(
         baseUrl,
         `${routePrefix}/a2a`,
       );
+    }),
+  );
+
+  // Human-only continuation for consequential A2A tool calls. The opaque id
+  // is a lookup handle, not authorization: every read and mutation also
+  // requires the task owner's live browser session. Ordinary A2A bearer
+  // tokens never reach this control plane and cannot approve themselves.
+  getH3App(nitroApp).use(
+    `${routePrefix}/a2a/approvals`,
+    defineEventHandler(async (event) => {
+      const approvalId = (event.path || "")
+        .split("?")[0]
+        .replace(/^\//, "")
+        .split("/")[0];
+      if (!approvalId) {
+        setResponseStatus(event, 404);
+        return { error: "Approval not found" };
+      }
+
+      const { getSession } = await import("../server/auth.js");
+      const session = await getSession(event);
+      if (!session?.email) {
+        setResponseStatus(event, 401);
+        return { error: "Sign in to review this approval" };
+      }
+
+      if (getMethod(event) === "GET") {
+        const approval = await getA2AApprovalForOwner(
+          approvalId,
+          session.email,
+          session.orgId ?? null,
+        );
+        if (!approval) {
+          setResponseStatus(event, 404);
+          return { error: "Approval not found" };
+        }
+        const safeInput = redactArgsToJson(approval.input) ?? "{}";
+        const esc = (value: string) =>
+          value.replace(
+            /[&<>"']/g,
+            (char) =>
+              ({
+                "&": "&amp;",
+                "<": "&lt;",
+                ">": "&gt;",
+                '"': "&quot;",
+                "'": "&#39;",
+              })[char] ?? char,
+          );
+        setResponseHeader(event, "content-type", "text/html; charset=utf-8");
+        setResponseHeader(event, "cache-control", "no-store");
+        setResponseHeader(event, "x-frame-options", "DENY");
+        setResponseHeader(
+          event,
+          "content-security-policy",
+          "frame-ancestors 'none'",
+        );
+        setResponseHeader(event, "referrer-policy", "no-referrer");
+        const expired = approval.expiresAt <= Date.now();
+        const active = approval.status === "pending" && !expired;
+        const displayStatus = expired ? "expired" : approval.status;
+        return `<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Review agent action</title><style>body{font:15px/1.5 ui-sans-serif,system-ui;background:#f7f7f5;color:#171717;margin:0}.card{max-width:680px;margin:8vh auto;background:white;border:1px solid #ddd;border-radius:14px;padding:28px;box-shadow:0 12px 36px #0001}h1{font-size:22px;margin:0 0 8px}p{color:#555}pre{white-space:pre-wrap;word-break:break-word;background:#f4f4f2;padding:16px;border-radius:9px;max-height:45vh;overflow:auto}button{background:#171717;color:white;border:0;border-radius:8px;padding:11px 16px;font-weight:650;cursor:pointer}button[disabled]{opacity:.5;cursor:default}#status{margin-left:10px;color:#555}</style></head><body><main class="card"><h1>Review agent action</h1><p>This action is paused until you approve it. Approval can be used once.</p><h2>${esc(approval.tool)}</h2><pre>${esc(safeInput)}</pre><button id="approve" ${active ? "" : "disabled"}>${active ? "Approve and run" : esc(displayStatus)}</button><span id="status">${active ? "" : esc(approval.result ?? displayStatus)}</span><script>document.getElementById('approve').onclick=async function(){this.disabled=true;document.getElementById('status').textContent='Running…';try{const r=await fetch(location.href,{method:'POST',credentials:'include',headers:{'content-type':'application/json'}});const j=await r.json();document.getElementById('status').textContent=j.output||j.error||'Done';}catch(e){document.getElementById('status').textContent='Could not run the action.'}}</script></main></body></html>`;
+      }
+
+      if (getMethod(event) !== "POST") {
+        setResponseStatus(event, 405);
+        return { error: "Method not allowed" };
+      }
+      if (!isSameOriginRequest(event)) {
+        setResponseStatus(event, 403);
+        return { error: "Cross-origin approval denied" };
+      }
+      if (!config.executeApproval) {
+        setResponseStatus(event, 501);
+        return { error: "Approval execution is not configured" };
+      }
+
+      const approval = await claimA2AApproval(
+        approvalId,
+        session.email,
+        session.orgId ?? null,
+      );
+      if (!approval) {
+        const current = await getA2AApprovalForOwner(
+          approvalId,
+          session.email,
+          session.orgId ?? null,
+        );
+        setResponseStatus(event, current ? 409 : 404);
+        return {
+          error: current
+            ? `Approval is ${current.status} and cannot be run again`
+            : "Approval not found",
+        };
+      }
+
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      let execution: { status: "completed" | "failed"; output: string };
+      try {
+        execution = await runWithRequestContext(
+          { userEmail: session.email, orgId: session.orgId ?? undefined },
+          () => config.executeApproval!(approval),
+        );
+      } catch (error) {
+        execution = {
+          status: "failed",
+          output:
+            error instanceof Error
+              ? error.message
+              : "Approval execution failed",
+        };
+      }
+      await settleA2AApproval(approval.id, execution.status, execution.output);
+      if (execution.status === "failed") setResponseStatus(event, 500);
+      return execution;
     }),
   );
 

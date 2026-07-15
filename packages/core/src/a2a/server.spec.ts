@@ -12,13 +12,18 @@ const setResponseStatusMock = vi.hoisted(() =>
     event._status = code;
   }),
 );
+const setResponseHeaderMock = vi.hoisted(() => vi.fn());
+const getSessionMock = vi.hoisted(() => vi.fn());
+const getApprovalMock = vi.hoisted(() => vi.fn());
+const claimApprovalMock = vi.hoisted(() => vi.fn());
+const settleApprovalMock = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   defineEventHandler: (handler: any) => handler,
   getMethod: (event: any) => event.method ?? "POST",
   getRequestHeader: (event: any, name: string) =>
     event.headers?.[name.toLowerCase()] ?? event.headers?.[name],
-  setResponseHeader: vi.fn(),
+  setResponseHeader: setResponseHeaderMock,
   setResponseStatus: setResponseStatusMock,
 }));
 
@@ -43,6 +48,18 @@ vi.mock("../org/context.js", () => ({
   getA2ASecretByDomain: getA2ASecretByDomainMock,
 }));
 
+vi.mock("../server/auth.js", () => ({ getSession: getSessionMock }));
+
+vi.mock("../server/request-context.js", () => ({
+  runWithRequestContext: (_context: unknown, fn: () => unknown) => fn(),
+}));
+
+vi.mock("./task-store.js", () => ({
+  getA2AApprovalForOwner: getApprovalMock,
+  claimA2AApproval: claimApprovalMock,
+  settleA2AApproval: settleApprovalMock,
+}));
+
 const config: A2AConfig = {
   name: "QA Agent",
   description: "Test agent",
@@ -57,6 +74,11 @@ describe("mountA2A auth", () => {
     handleJsonRpcH3Mock.mockClear();
     getA2ASecretByDomainMock.mockReset();
     setResponseStatusMock.mockClear();
+    setResponseHeaderMock.mockClear();
+    getSessionMock.mockReset();
+    getApprovalMock.mockReset();
+    claimApprovalMock.mockReset();
+    settleApprovalMock.mockReset();
     process.env = { ...originalEnv, NODE_ENV: "production" };
   });
 
@@ -147,6 +169,111 @@ describe("mountA2A auth", () => {
     expect(response.skills.map((skill: { id: string }) => skill.id)).toEqual([
       "search-docs",
     ]);
+  });
+
+  it("requires the owner's browser session for approval pages", async () => {
+    getSessionMock.mockResolvedValue(null);
+    const handler = await mountedA2AApprovalHandler(config);
+    const event = { method: "GET", path: "/approval-1", context: {} };
+
+    await expect(handler(event)).resolves.toEqual({
+      error: "Sign in to review this approval",
+    });
+    expect(event).toMatchObject({ _status: 401 });
+    expect(getApprovalMock).not.toHaveBeenCalled();
+  });
+
+  it("prevents approval pages from being framed", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    getApprovalMock.mockResolvedValue({
+      id: "approval-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      tool: "send-email",
+      input: { to: "recipient@example.com" },
+      status: "pending",
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    });
+    const handler = await mountedA2AApprovalHandler(config);
+    const response = await handler({
+      method: "GET",
+      path: "/approval-1",
+      context: {},
+    });
+
+    expect(response).toContain("Approve and run");
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "x-frame-options",
+      "DENY",
+    );
+    expect(setResponseHeaderMock).toHaveBeenCalledWith(
+      expect.anything(),
+      "content-security-policy",
+      "frame-ancestors 'none'",
+    );
+    expect(getApprovalMock).toHaveBeenCalledWith(
+      "approval-1",
+      "owner@example.com",
+      "org-1",
+    );
+  });
+
+  it("claims and executes an approval once from a same-origin owner session", async () => {
+    const approval = {
+      id: "approval-1",
+      taskId: "task-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-1",
+      tool: "send-email",
+      input: { to: "recipient@example.com" },
+      approvalKey: "server-private-key",
+      callId: "call-1",
+      status: "processing" as const,
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    };
+    getSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-1",
+    });
+    claimApprovalMock.mockResolvedValue(approval);
+    const executeApproval = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "Email sent",
+    }));
+    const handler = await mountedA2AApprovalHandler({
+      ...config,
+      executeApproval,
+    });
+
+    await expect(
+      handler({
+        method: "POST",
+        path: "/approval-1",
+        context: {},
+        headers: {
+          host: "mail.example",
+          origin: "https://mail.example",
+          "sec-fetch-site": "same-origin",
+        },
+      }),
+    ).resolves.toEqual({ status: "completed", output: "Email sent" });
+    expect(claimApprovalMock).toHaveBeenCalledWith(
+      "approval-1",
+      "owner@example.com",
+      "org-1",
+    );
+    expect(executeApproval).toHaveBeenCalledWith(approval);
+    expect(settleApprovalMock).toHaveBeenCalledWith(
+      "approval-1",
+      "completed",
+      "Email sent",
+    );
   });
 
   it("allows legacy apiKeyEnv bearer auth even when A2A_SECRET is configured", async () => {
@@ -506,6 +633,19 @@ async function mountedA2AProcessorHandler(
     (entry) => entry.path === "/_agent-native/a2a/_process-task",
   );
   if (!route) throw new Error("A2A processor route was not mounted");
+  return route.handler;
+}
+
+async function mountedA2AApprovalHandler(
+  config: A2AConfig,
+): Promise<(event: any) => any> {
+  const { mountA2A } = await import("./server.js");
+  const app = { routes: [] as Array<{ path: string; handler: any }> };
+  mountA2A(app, config);
+  const route = app.routes.find(
+    (entry) => entry.path === "/_agent-native/a2a/approvals",
+  );
+  if (!route) throw new Error("A2A approval route was not mounted");
   return route.handler;
 }
 

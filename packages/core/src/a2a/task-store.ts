@@ -24,6 +24,23 @@ async function ensureTable(): Promise<void> {
           updated_at ${intType()} NOT NULL
         )
       `;
+      const createApprovalsSql = `
+        CREATE TABLE IF NOT EXISTS a2a_approvals (
+          id TEXT PRIMARY KEY,
+          task_id TEXT NOT NULL UNIQUE,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          tool_name TEXT NOT NULL,
+          tool_input TEXT NOT NULL,
+          approval_key TEXT NOT NULL,
+          call_id TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'pending',
+          result TEXT,
+          expires_at ${intType()} NOT NULL,
+          created_at ${intType()} NOT NULL,
+          updated_at ${intType()} NOT NULL
+        )
+      `;
 
       if (isPostgres()) {
         // PG-guard: probe information_schema before issuing DDL to avoid ACCESS
@@ -40,6 +57,7 @@ async function ensureTable(): Promise<void> {
           "owner_email",
           `ALTER TABLE a2a_tasks ADD COLUMN IF NOT EXISTS owner_email TEXT`,
         );
+        await ensureTableExists("a2a_approvals", createApprovalsSql);
         return;
       }
 
@@ -58,6 +76,7 @@ async function ensureTable(): Promise<void> {
       } catch {
         // Column already exists — expected on every restart after first run.
       }
+      await client.execute(createApprovalsSql);
     })().catch((err) => {
       // Retry init on the next call after a failed startup.
       _initPromise = undefined;
@@ -65,6 +84,240 @@ async function ensureTable(): Promise<void> {
     });
   }
   return _initPromise;
+}
+
+export interface A2AApprovalRecord {
+  id: string;
+  taskId: string;
+  ownerEmail: string;
+  orgId: string | null;
+  tool: string;
+  input: unknown;
+  approvalKey: string;
+  callId: string;
+  status: "pending" | "processing" | "completed" | "failed";
+  result: string | null;
+  expiresAt: number;
+}
+
+async function withDbTransaction<T>(
+  client: ReturnType<typeof getDbExec>,
+  fn: (tx: ReturnType<typeof getDbExec>) => Promise<T>,
+): Promise<T> {
+  if (client.transaction) return client.transaction(fn);
+  await client.execute(isPostgres() ? "BEGIN" : "BEGIN IMMEDIATE");
+  try {
+    const result = await fn(client);
+    await client.execute("COMMIT");
+    return result;
+  } catch (error) {
+    await client.execute("ROLLBACK").catch(() => {});
+    throw error;
+  }
+}
+
+function approvalFromRow(row: any): A2AApprovalRecord {
+  return {
+    id: String(row.id),
+    taskId: String(row.task_id),
+    ownerEmail: String(row.owner_email),
+    orgId: row.org_id ? String(row.org_id) : null,
+    tool: String(row.tool_name),
+    input: JSON.parse(String(row.tool_input)),
+    approvalKey: String(row.approval_key),
+    callId: String(row.call_id),
+    status: row.status,
+    result: row.result ? String(row.result) : null,
+    expiresAt: Number(row.expires_at),
+  };
+}
+
+export async function createA2AApproval(input: {
+  taskId: string;
+  ownerEmail: string;
+  orgId?: string | null;
+  tool: string;
+  toolInput: unknown;
+  approvalKey: string;
+  callId: string;
+  ttlMs?: number;
+}): Promise<A2AApprovalRecord> {
+  await ensureTable();
+  const client = getDbExec();
+  const id = crypto.randomUUID();
+  const now = Date.now();
+  const expiresAt = now + (input.ttlMs ?? 15 * 60_000);
+  await client.execute({
+    sql: `INSERT INTO a2a_approvals (id, task_id, owner_email, org_id, tool_name, tool_input, approval_key, call_id, status, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, ?, ?)`,
+    args: [
+      id,
+      input.taskId,
+      input.ownerEmail,
+      input.orgId ?? null,
+      input.tool,
+      JSON.stringify(input.toolInput ?? {}),
+      input.approvalKey,
+      input.callId,
+      expiresAt,
+      now,
+      now,
+    ],
+  });
+  return {
+    id,
+    taskId: input.taskId,
+    ownerEmail: input.ownerEmail,
+    orgId: input.orgId ?? null,
+    tool: input.tool,
+    input: input.toolInput ?? {},
+    approvalKey: input.approvalKey,
+    callId: input.callId,
+    status: "pending",
+    result: null,
+    expiresAt,
+  };
+}
+
+export async function getA2AApprovalForOwner(
+  id: string,
+  ownerEmail: string,
+  orgId?: string | null,
+): Promise<A2AApprovalRecord | null> {
+  await ensureTable();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT * FROM a2a_approvals WHERE id = ? AND owner_email = ? AND (org_id IS NULL OR org_id = ?)`,
+    args: [id, ownerEmail, orgId ?? null],
+  });
+  return rows[0] ? approvalFromRow(rows[0]) : null;
+}
+
+export async function claimA2AApproval(
+  id: string,
+  ownerEmail: string,
+  orgId?: string | null,
+): Promise<A2AApprovalRecord | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  class ClaimRejected extends Error {}
+  try {
+    return await withDbTransaction(client, async (tx) => {
+      const approvalUpdate = await tx.execute({
+        sql: `UPDATE a2a_approvals SET status = 'processing', updated_at = ? WHERE id = ? AND owner_email = ? AND status = 'pending' AND expires_at > ? AND (org_id IS NULL OR org_id = ?)`,
+        args: [now, id, ownerEmail, now, orgId ?? null],
+      });
+      if (getAffectedRowCount(approvalUpdate) === 0) throw new ClaimRejected();
+      const { rows } = await tx.execute({
+        sql: `SELECT * FROM a2a_approvals WHERE id = ? AND owner_email = ? AND status = 'processing'`,
+        args: [id, ownerEmail],
+      });
+      if (!rows[0]) throw new ClaimRejected();
+      const approval = approvalFromRow(rows[0]);
+      const timestamp = new Date(now).toISOString();
+      const runningMessage: Message = {
+        role: "agent",
+        parts: [{ type: "text", text: "Approved action is running." }],
+      };
+      const taskUpdate = await tx.execute({
+        sql: `UPDATE a2a_tasks SET status_state = 'working', status_message = ?, status_timestamp = ?, updated_at = ? WHERE id = ? AND owner_email = ? AND status_state = 'input-required'`,
+        args: [
+          JSON.stringify(runningMessage),
+          timestamp,
+          now,
+          approval.taskId,
+          ownerEmail,
+        ],
+      });
+      if (getAffectedRowCount(taskUpdate) === 0) throw new ClaimRejected();
+      return approval;
+    });
+  } catch (error) {
+    if (error instanceof ClaimRejected) return null;
+    throw error;
+  }
+}
+
+export async function settleA2AApproval(
+  id: string,
+  status: "completed" | "failed",
+  resultText: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const message: Message = {
+    role: "agent",
+    parts: [{ type: "text", text: resultText }],
+  };
+  await withDbTransaction(client, async (tx) => {
+    const { rows } = await tx.execute({
+      sql: `SELECT task_id FROM a2a_approvals WHERE id = ? AND status = 'processing'`,
+      args: [id],
+    });
+    if (!rows[0]) throw new Error("Approval is not processing");
+    const taskId = String((rows[0] as any).task_id);
+    const { rows: taskRows } = await tx.execute({
+      sql: `SELECT history FROM a2a_tasks WHERE id = ? AND status_state = 'working'`,
+      args: [taskId],
+    });
+    if (!taskRows[0]) {
+      throw new Error("Approval task is no longer awaiting settlement");
+    }
+    const history = JSON.parse(String((taskRows[0] as any).history));
+    history.push(message);
+    const timestamp = new Date(now).toISOString();
+    const taskUpdate = await tx.execute({
+      sql: `UPDATE a2a_tasks SET status_state = ?, status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'working'`,
+      args: [
+        status,
+        JSON.stringify(message),
+        timestamp,
+        JSON.stringify(history),
+        now,
+        taskId,
+      ],
+    });
+    if (getAffectedRowCount(taskUpdate) === 0) {
+      throw new Error("Approval task settlement lost its state claim");
+    }
+    const approvalUpdate = await tx.execute({
+      sql: `UPDATE a2a_approvals SET status = ?, result = ?, updated_at = ? WHERE id = ? AND status = 'processing'`,
+      args: [status, resultText, now, id],
+    });
+    if (getAffectedRowCount(approvalUpdate) === 0) {
+      throw new Error("Approval settlement lost its state claim");
+    }
+  });
+}
+
+export async function pauseProcessingA2ATask(
+  id: string,
+  message: Message,
+): Promise<Task | null> {
+  await ensureTable();
+  const client = getDbExec();
+  const { rows } = await client.execute({
+    sql: `SELECT * FROM a2a_tasks WHERE id = ? AND status_state = 'processing'`,
+    args: [id],
+  });
+  if (!rows[0]) return null;
+  const task = taskFromRow(rows[0]);
+  task.history?.push(message);
+  const now = Date.now();
+  const timestamp = new Date(now).toISOString();
+  const result = await client.execute({
+    sql: `UPDATE a2a_tasks SET status_state = 'input-required', status_message = ?, status_timestamp = ?, history = ?, updated_at = ? WHERE id = ? AND status_state = 'processing'`,
+    args: [
+      JSON.stringify(message),
+      timestamp,
+      JSON.stringify(task.history ?? []),
+      now,
+      id,
+    ],
+  });
+  if (getAffectedRowCount(result) === 0) return null;
+  task.status = { state: "input-required", message, timestamp };
+  return task;
 }
 
 function taskFromRow(row: any): Task & { ownerEmail?: string | null } {

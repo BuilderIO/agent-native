@@ -31,7 +31,7 @@
  * `mountMCP` — the Node bits are dynamically imported inside `run()`.
  */
 
-import type { Task } from "../a2a/types.js";
+import type { A2AApprovedAction, Task } from "../a2a/types.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { ActionTool } from "../agent/types.js";
 import { getConfiguredAppBasePath } from "../server/app-base-path.js";
@@ -404,6 +404,7 @@ async function submitAskAppA2ATask(
   route: AskAppRoute,
   message: string,
   maxWaitMs: number,
+  approvedActions?: A2AApprovedAction[],
 ): Promise<AskAppTaskResult> {
   const deadline = maxWaitMs > 0 ? Date.now() + maxWaitMs : undefined;
   const { client, metadata } = await createA2AClientForAskApp(
@@ -419,6 +420,7 @@ async function submitAskAppA2ATask(
     {
       async: true,
       metadata,
+      ...(approvedActions?.length ? { approvedActions } : {}),
     },
   );
   const finalOrRunning = await waitForA2ATask(client, task, deadline);
@@ -890,6 +892,7 @@ async function routeAskOverA2A(
     durable?: boolean;
     maxWaitMs?: number;
     requestOrigin?: string;
+    approvedActions?: A2AApprovedAction[];
   },
 ): Promise<
   { app: string; routedVia: "a2a"; response: string } | AskAppTaskResult
@@ -904,6 +907,7 @@ async function routeAskOverA2A(
       },
       message,
       options.maxWaitMs ?? ASK_APP_DEFAULT_INLINE_WAIT_MS,
+      options.approvedActions,
     );
   }
   const { callAgent } = await import("../a2a/client.js");
@@ -919,6 +923,7 @@ async function routeAskOverA2A(
     orgDomain: auth.orgDomain,
     orgSecret: auth.orgSecret,
     requestOrigin: options?.requestOrigin,
+    approvedActions: options?.approvedActions,
     // Bound the wait — cross-app A2A polls async by default.
     timeoutMs: 5 * 60_000,
   });
@@ -1012,6 +1017,19 @@ function askAppTool(
           description:
             "Maximum time to wait inline before returning a taskId. Hosted MCP clamps this to 25000ms.",
         },
+        approvedActions: {
+          type: "array",
+          description:
+            "Exact downstream tool calls the user explicitly authorized in this chat. Never infer authorization or include a different action.",
+          items: {
+            type: "object",
+            properties: {
+              tool: { type: "string" },
+              input: { type: "object", additionalProperties: true },
+            },
+            required: ["tool", "input"],
+          },
+        } as any,
       },
       ["message"],
     ),
@@ -1024,6 +1042,9 @@ function askAppTool(
       const maxWaitMs = isExplicitAsyncAsk(args.async)
         ? 0
         : boundedAskAppWaitMs(args.maxWaitMs);
+      const approvedActions = Array.isArray(args.approvedActions)
+        ? (args.approvedActions as A2AApprovedAction[])
+        : undefined;
 
       // Cross-app: the caller named a *different* workspace app. Route the
       // message to THAT app's agent over A2A (its `/_agent-native/a2a`
@@ -1040,6 +1061,7 @@ function askAppTool(
               durable: useDurableA2A,
               maxWaitMs,
               requestOrigin: targetApp.origin,
+              approvedActions,
             },
           );
         } catch (err: any) {
@@ -1074,6 +1096,7 @@ function askAppTool(
                 durable: useDurableA2A,
                 maxWaitMs,
                 requestOrigin: dirMatch.url,
+                approvedActions,
               },
             );
           } catch (err: any) {
@@ -1120,6 +1143,7 @@ function askAppTool(
           },
           message,
           maxWaitMs,
+          approvedActions,
         );
       }
 

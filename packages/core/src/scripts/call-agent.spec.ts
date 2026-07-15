@@ -127,6 +127,26 @@ describe("call-agent action", () => {
     dispatchA2AContinuationMock.mockResolvedValue(undefined);
   });
 
+  it("forwards the user's exact downstream action authorization", async () => {
+    callAgentMock.mockResolvedValueOnce("sent");
+    const { run } = await import("./call-agent.js");
+    const approvedActions = [
+      { tool: "send-email", input: { to: "alice@example.test" } },
+    ];
+
+    await run({
+      agent: "mail",
+      message: "send it",
+      approvedActions,
+    });
+
+    expect(callAgentMock).toHaveBeenCalledWith(
+      "https://slides.agent-native.test",
+      expect.stringContaining("send it"),
+      expect.objectContaining({ approvedActions }),
+    );
+  });
+
   it("queues an integration continuation for structurally equivalent timeout errors", async () => {
     process.env.NETLIFY = "true";
     const timeout = Object.assign(
