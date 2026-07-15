@@ -16,7 +16,7 @@ import {
 import { nanoid } from "nanoid";
 
 import {
-  consumeAttachmentUploadTicket,
+  claimAttachmentUploadTicket,
   verifyAttachmentUploadTicket,
 } from "../lib/attachment-upload-ticket.js";
 import {
@@ -87,12 +87,14 @@ export const uploadAttachmentWithTicket = defineEventHandler(
     const token = authorization.startsWith("Bearer ")
       ? authorization.slice("Bearer ".length).trim()
       : "";
+    // Reject an invalid bearer before buffering request bytes. The later
+    // atomic claim remains the concurrency boundary immediately before the
+    // storage side effect.
     const verified = await verifyAttachmentUploadTicket(uploadId, token);
     if (!verified) {
       setResponseStatus(event, 401);
       return { error: "Invalid or expired attachment upload URL" };
     }
-
     const body = await readRawBody(event, false);
     if (!body || !body.byteLength) {
       setResponseStatus(event, 400);
@@ -103,14 +105,19 @@ export const uploadAttachmentWithTicket = defineEventHandler(
       return { error: "File too large (max 10 MB)" };
     }
 
+    const claimed = await claimAttachmentUploadTicket(uploadId, token);
+    if (!claimed) {
+      setResponseStatus(event, 401);
+      return { error: "Invalid or expired attachment upload URL" };
+    }
+
     try {
       const uploaded = await storeMediaUpload({
-        ownerEmail: verified.ownerEmail,
+        ownerEmail: claimed.ownerEmail,
         data: body instanceof Uint8Array ? body : new Uint8Array(body),
-        filename: verified.ticket.filename,
-        originalName: verified.ticket.originalName,
+        filename: claimed.ticket.filename,
+        originalName: claimed.ticket.originalName,
       });
-      await consumeAttachmentUploadTicket(verified.ownerEmail, uploadId);
       return {
         ...uploaded,
         attachment: {

@@ -6635,6 +6635,82 @@ describe("runAgentLoop", () => {
     expect(events2.at(-1)).toEqual({ type: "done" });
   });
 
+  it("consumes an approval grant after the first exact tool-call match", async () => {
+    const first = approvalEngine();
+    const run = vi.fn(async () => "delivered");
+    const actions = {
+      "send-email": {
+        ...actionEntry({ readOnly: false }),
+        needsApproval: true,
+        run,
+      },
+    };
+    const firstEvents: any[] = [];
+    await runAgentLoop({
+      engine: first.engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      send: (event) => firstEvents.push(event),
+      signal: new AbortController().signal,
+    });
+    const approvalKey = firstEvents.find(
+      (event) => event.type === "approval_required",
+    ).approvalKey;
+
+    let streamCalls = 0;
+    const duplicateEngine: AgentEngine = {
+      ...first.engine,
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "approved-once",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+              {
+                type: "tool-call",
+                id: "must-pause-again",
+                name: "send-email",
+                input: { to: "a@b.com" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: any[] = [];
+    await runAgentLoop({
+      engine: duplicateEngine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions,
+      approvedToolCalls: [approvalKey],
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledOnce();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "approval_required",
+        toolCallId: "must-pause-again",
+      }),
+    );
+  });
+
   it("predicate needsApproval gates only matching args (non-matching runs normally)", async () => {
     // Non-matching args run normally.
     const safe = approvalEngine({ x: "safe" });

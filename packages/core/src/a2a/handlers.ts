@@ -27,8 +27,10 @@ import {
   settleProcessingA2ATask,
   touchQueuedA2ATaskDispatch,
   touchProcessingA2ATask,
+  pauseProcessingA2ATask,
 } from "./task-store.js";
 import type {
+  A2AApprovedAction,
   A2AConfig,
   A2AHandler,
   A2AHandlerContext,
@@ -46,6 +48,30 @@ const PORTABLE_FALLBACK_HANDOFF_TIMEOUT_MS = 1_000;
 const A2A_QUEUED_DISPATCH_STUCK_AFTER_MS = 10_000;
 const A2A_PROCESSING_STUCK_AFTER_MS = 5 * 60 * 1000;
 const A2A_PROCESSING_HEARTBEAT_MS = 30_000;
+const MAX_A2A_APPROVED_ACTIONS = 10;
+
+function trustedApprovedActions(
+  value: unknown,
+  event: any | undefined,
+): A2AApprovedAction[] | undefined {
+  // Static API keys and unsigned requests do not prove which user authorized
+  // a consequential action. Only a verified identity-bearing JWT may carry
+  // chat authorization across the A2A boundary.
+  if (!event?.context?.__a2aVerifiedEmail || !Array.isArray(value)) {
+    return undefined;
+  }
+  const approved = value
+    .slice(0, MAX_A2A_APPROVED_ACTIONS)
+    .filter(
+      (candidate): candidate is A2AApprovedAction =>
+        !!candidate &&
+        typeof candidate === "object" &&
+        typeof (candidate as Record<string, unknown>).tool === "string" &&
+        !!(candidate as Record<string, unknown>).tool,
+    )
+    .map((candidate) => ({ tool: candidate.tool, input: candidate.input }));
+  return approved.length > 0 ? approved : undefined;
+}
 
 /**
  * Request origin is routing/link context, not an identity signal. Accept only
@@ -250,6 +276,9 @@ export async function processA2ATaskFromQueue(
       | Record<string, unknown>
       | null
       | undefined) ?? undefined;
+  const approvedActions = Array.isArray(processorMeta.approvedActions)
+    ? (processorMeta.approvedActions as A2AApprovedAction[])
+    : undefined;
 
   const resolvedOrgId = await resolveVerifiedA2AOrgId(
     verifiedEmail,
@@ -281,6 +310,7 @@ export async function processA2ATaskFromQueue(
           contextId,
           callerMetadata,
           event,
+          approvedActions,
         ),
     );
   } catch (err: any) {
@@ -386,6 +416,7 @@ function makeHandlerContext(
   contextId?: string,
   metadata?: Record<string, unknown>,
   event?: any,
+  approvedActions?: A2AApprovedAction[],
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -396,6 +427,7 @@ function makeHandlerContext(
     contextId,
     metadata,
     event,
+    approvedActions,
     writeArtifact(name, content, mimeType) {
       const artifact: Artifact = {
         name,
@@ -491,12 +523,14 @@ async function runHandlerAndPersist(
   contextId: string | undefined,
   metadata: Record<string, unknown> | undefined,
   event?: any,
+  approvedActions?: A2AApprovedAction[],
 ): Promise<void> {
   const { context, artifacts } = makeHandlerContext(
     taskId,
     contextId,
     metadata,
     event,
+    approvedActions,
   );
   try {
     const result = getHandler(config)(message, context);
@@ -510,6 +544,10 @@ async function runHandlerAndPersist(
       for await (const msg of result as AsyncGenerator<Message>) {
         lastMessage = msg;
       }
+      if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
+        await pauseProcessingA2ATask(taskId, lastMessage);
+        return;
+      }
       await settleProcessingA2ATask(taskId, {
         state: "completed",
         message: lastMessage,
@@ -520,6 +558,10 @@ async function runHandlerAndPersist(
 
     const handlerResult = await (result as Promise<A2AHandlerResult>);
     const allArtifacts = [...artifacts, ...(handlerResult.artifacts ?? [])];
+    if (handlerResult.taskState === "input-required") {
+      await pauseProcessingA2ATask(taskId, handlerResult.message);
+      return;
+    }
     await settleProcessingA2ATask(taskId, {
       state: "completed",
       message: handlerResult.message,
@@ -555,6 +597,7 @@ async function handleSend(
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
+  const approvedActions = trustedApprovedActions(params.approvedActions, event);
 
   // The JWT-verified caller email (set by mountA2A in server.ts) is the
   // single source of truth for task ownership — bound at creation, checked
@@ -619,6 +662,7 @@ async function handleSend(
         ...(requestOrigin ? { requestOrigin } : {}),
         contextId: contextId ?? null,
         callerMetadata: safeMetadata ?? null,
+        approvedActions: approvedActions ?? null,
       },
     };
     const task = await createTask(
@@ -642,7 +686,10 @@ async function handleSend(
       console.error("[a2a] Failed to dispatch process-task:", err);
     }
 
-    return { ...jsonRpcResult(0, working ?? task), _id: 0 };
+    return {
+      ...jsonRpcResult(0, sanitizeTaskForResponse(working ?? task)),
+      _id: 0,
+    };
   }
 
   return withA2ARequestContext(metadata, event, async () => {
@@ -659,6 +706,7 @@ async function handleSend(
       contextId,
       trustedA2AMetadata(metadata, event),
       event,
+      approvedActions,
     );
 
     try {
@@ -673,6 +721,13 @@ async function handleSend(
         for await (const msg of result as AsyncGenerator<Message>) {
           lastMessage = msg;
         }
+        if (lastMessage?.metadata?.agentNativeTaskState === "input-required") {
+          const updated = await updateTask(task.id, {
+            state: "input-required",
+            message: lastMessage,
+          });
+          return { ...jsonRpcResult(0, updated), _id: 0 };
+        }
         const updated = await updateTask(task.id, {
           state: "completed",
           message: lastMessage,
@@ -686,6 +741,13 @@ async function handleSend(
         ...ctx.artifacts,
         ...(handlerResult.artifacts ?? []),
       ];
+      if (handlerResult.taskState === "input-required") {
+        const updated = await updateTask(task.id, {
+          state: "input-required",
+          message: handlerResult.message,
+        });
+        return { ...jsonRpcResult(0, updated), _id: 0 };
+      }
       const updated = await updateTask(task.id, {
         state: "completed",
         message: handlerResult.message,
@@ -725,6 +787,7 @@ async function handleStream(
 
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
+  const approvedActions = trustedApprovedActions(params.approvedActions, event);
   const ownerEmailForTask =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
 
@@ -743,6 +806,7 @@ async function handleStream(
       contextId,
       trustedA2AMetadata(metadata, event),
       event,
+      approvedActions,
     );
 
     try {

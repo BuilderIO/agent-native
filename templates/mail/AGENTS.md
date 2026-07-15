@@ -60,8 +60,9 @@ needed.
 - Never send mail unless the user explicitly asks to send. Draft or queue
   review by default. `send-email` has `needsApproval: true` — it is the
   canonical, intentionally rare use of the human-in-the-loop gate in this
-  framework; the loop pauses for approval on every real send. Drafting and
-  queueing are unaffected.
+  framework. An authenticated A2A caller may carry the user's exact chat
+  authorization for one matching send; otherwise the loop pauses for approval.
+  Drafting and queueing are unaffected.
 - When drafting, first read `get-mail-settings` for signature and writing
   style. Use `signature` exactly when present — draft-writing paths that build
   a `compose-*` entry (`manage-draft`, `open-queued-draft`) call
@@ -101,7 +102,7 @@ needed.
 | `get-hubspot-contact`                                                                                                                  | CRM contact + deals + tickets by email (HubSpot only).                                 |
 | `create-attachment-upload`                                                                                                             | Mint a five-minute, owner-bound raw-byte upload URL for one local attachment.          |
 | `manage-draft`                                                                                                                         | Create/update/delete a `compose-{id}` draft (signature-aware).                         |
-| `send-email`                                                                                                                           | Real send. `needsApproval: true` — always pauses for human approval.                   |
+| `send-email`                                                                                                                           | Real send. `needsApproval: true`; exact authenticated chat grants run once, otherwise it pauses for approval. |
 | `queue-email-draft` / `list-queued-drafts` / `update-queued-draft` / `open-queued-draft` / `send-queued-drafts`                        | Teammate/Slack draft-review workflow — see `draft-queue`.                              |
 | `mark-read` / `mark-thread-read` / `star-email` / `archive-email` / `unarchive-email` / `trash-email` / `untrash-email` / `move-email` | Per-message or per-thread state changes; most call `refresh-list` internally.          |
 | `manage-gmail-filters`                                                                                                                 | Provider-native Gmail filters (create/replace/delete).                                 |

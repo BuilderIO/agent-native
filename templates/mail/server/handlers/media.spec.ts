@@ -9,7 +9,7 @@ const h3 = vi.hoisted(() => ({
 }));
 const tickets = vi.hoisted(() => ({
   verify: vi.fn(),
-  consume: vi.fn(),
+  claim: vi.fn(),
 }));
 const storage = vi.hoisted(() => ({ store: vi.fn() }));
 
@@ -27,7 +27,7 @@ vi.mock("h3", async (importOriginal) => {
 
 vi.mock("../lib/attachment-upload-ticket.js", () => ({
   verifyAttachmentUploadTicket: tickets.verify,
-  consumeAttachmentUploadTicket: tickets.consume,
+  claimAttachmentUploadTicket: tickets.claim,
 }));
 
 vi.mock("../lib/media-upload.js", async (importOriginal) => {
@@ -47,6 +47,10 @@ describe("ticketed attachment upload handler", () => {
     h3.uploadId = "upload-1";
     tickets.verify.mockResolvedValue({
       ownerEmail: "owner@example.com",
+      ticket: { uploadId: "upload-1" },
+    });
+    tickets.claim.mockResolvedValue({
+      ownerEmail: "owner@example.com",
       ticket: {
         uploadId: "upload-1",
         filename: "upload-1.pdf",
@@ -62,7 +66,7 @@ describe("ticketed attachment upload handler", () => {
     });
   });
 
-  it("stores bytes for the ticket owner and consumes the capability", async () => {
+  it("claims before storing bytes for the ticket owner", async () => {
     const result = await uploadAttachmentWithTicket({} as never);
 
     expect(storage.store).toHaveBeenCalledWith({
@@ -71,16 +75,16 @@ describe("ticketed attachment upload handler", () => {
       filename: "upload-1.pdf",
       originalName: "report.pdf",
     });
-    expect(tickets.consume).toHaveBeenCalledWith(
-      "owner@example.com",
-      "upload-1",
+    expect(tickets.claim).toHaveBeenCalledWith("upload-1", "ticket-token");
+    expect(tickets.claim.mock.invocationCallOrder[0]).toBeLessThan(
+      storage.store.mock.invocationCallOrder[0],
     );
     expect(result).toMatchObject({
       attachment: { filename: "upload-1.pdf", originalName: "report.pdf" },
     });
   });
 
-  it("rejects invalid capabilities before reading or storing bytes", async () => {
+  it("rejects invalid capabilities before storing bytes", async () => {
     tickets.verify.mockResolvedValue(null);
 
     await expect(uploadAttachmentWithTicket({} as never)).resolves.toEqual({
@@ -89,10 +93,10 @@ describe("ticketed attachment upload handler", () => {
 
     expect(h3.status).toHaveBeenCalledWith({}, 401);
     expect(storage.store).not.toHaveBeenCalled();
-    expect(tickets.consume).not.toHaveBeenCalled();
+    expect(tickets.claim).not.toHaveBeenCalled();
   });
 
-  it("does not consume the capability when persistence fails", async () => {
+  it("fails closed after a claimed capability when persistence fails", async () => {
     storage.store.mockRejectedValue(new Error("provider unavailable"));
 
     await expect(uploadAttachmentWithTicket({} as never)).resolves.toEqual({
@@ -100,6 +104,32 @@ describe("ticketed attachment upload handler", () => {
     });
 
     expect(h3.status).toHaveBeenCalledWith({}, 500);
-    expect(tickets.consume).not.toHaveBeenCalled();
+    expect(tickets.claim).toHaveBeenCalledOnce();
+  });
+
+  it("allows exactly one upload side effect for concurrent claims", async () => {
+    let available = true;
+    tickets.claim.mockImplementation(async () => {
+      if (!available) return null;
+      available = false;
+      return {
+        ownerEmail: "owner@example.com",
+        ticket: {
+          uploadId: "upload-1",
+          filename: "upload-1.pdf",
+          originalName: "report.pdf",
+        },
+      };
+    });
+
+    const results = await Promise.all([
+      uploadAttachmentWithTicket({} as never),
+      uploadAttachmentWithTicket({} as never),
+    ]);
+
+    expect(storage.store).toHaveBeenCalledOnce();
+    expect(results).toContainEqual({
+      error: "Invalid or expired attachment upload URL",
+    });
   });
 });

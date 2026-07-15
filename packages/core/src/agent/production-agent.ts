@@ -2582,7 +2582,7 @@ function stableStringify(value: unknown): string {
     .join(",")}}`;
 }
 
-function toolCallCacheKey(toolName: string, input: unknown): string {
+export function toolCallCacheKey(toolName: string, input: unknown): string {
   return `${toolName}:${stableStringify(normalizeToolCallInputForHistory(input))}`;
 }
 
@@ -4012,7 +4012,10 @@ export async function runAgentLoop(opts: {
       // instead of executing. The action's side effect never happens until a
       // human re-issues the turn approving this call's stable key.
       const approvalKey = toolCallCacheKey(toolCall.name, toolCall.input);
-      if (actionEntry.needsApproval && !approvedToolCallKeys.has(approvalKey)) {
+      // Consume a grant on its first exact match. A second identical call in
+      // the same continuation must request its own human approval.
+      const wasApproved = approvedToolCallKeys.delete(approvalKey);
+      if (actionEntry.needsApproval && !wasApproved) {
         let mustApprove = false;
         try {
           mustApprove =

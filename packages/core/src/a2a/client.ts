@@ -2,6 +2,7 @@ import * as jose from "jose";
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type {
+  A2AApprovedAction,
   AgentCard,
   JsonRpcRequest,
   JsonRpcResponse,
@@ -227,6 +228,7 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      approvedActions?: A2AApprovedAction[];
       /**
        * If true, ask the server to return the task immediately in `working`
        * state and process the handler in the background. The caller should
@@ -242,6 +244,9 @@ export class A2AClient {
       message,
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      ...(opts?.approvedActions?.length
+        ? { approvedActions: opts.approvedActions }
+        : {}),
       ...(opts?.async ? { async: true } : {}),
     });
 
@@ -281,6 +286,7 @@ export class A2AClient {
     opts?: {
       contextId?: string;
       metadata?: Record<string, unknown>;
+      approvedActions?: A2AApprovedAction[];
       /** Total time to wait for completion. Default 5 min. */
       timeoutMs?: number;
       /** Poll interval. Default 2s. */
@@ -292,10 +298,18 @@ export class A2AClient {
     const submitted = await this.send(message, {
       contextId: opts?.contextId,
       metadata: opts?.metadata,
+      ...(opts?.approvedActions?.length
+        ? { approvedActions: opts.approvedActions }
+        : {}),
       async: true,
     });
 
-    const terminalStates = new Set(["completed", "failed", "canceled"]);
+    const terminalStates = new Set([
+      "completed",
+      "failed",
+      "canceled",
+      "input-required",
+    ]);
     if (terminalStates.has(submitted.status.state)) return submitted;
 
     const timeoutMs = opts?.timeoutMs ?? 5 * 60_000;
@@ -542,6 +556,8 @@ export async function callAgent(
     orgSecret?: string;
     /** Origin used to build links back to the receiving app. */
     requestOrigin?: string;
+    /** Exact downstream actions explicitly authorized in the caller's chat. */
+    approvedActions?: A2AApprovedAction[];
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
      * cross-app calls that may exceed a synchronous serverless request budget.
@@ -602,6 +618,9 @@ export async function callAgent(
         task = await client.sendAndWait(message, {
           contextId: opts?.contextId,
           metadata,
+          ...(opts?.approvedActions?.length
+            ? { approvedActions: opts.approvedActions }
+            : {}),
           timeoutMs: opts?.timeoutMs,
           pollIntervalMs: opts?.pollIntervalMs,
           onUpdate: opts?.onUpdate,
@@ -610,6 +629,9 @@ export async function callAgent(
         task = await client.send(message, {
           contextId: opts?.contextId,
           metadata,
+          ...(opts?.approvedActions?.length
+            ? { approvedActions: opts.approvedActions }
+            : {}),
         });
       }
 

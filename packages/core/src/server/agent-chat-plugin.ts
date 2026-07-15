@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 import nodePath from "node:path";
 
 import {
@@ -19,7 +20,10 @@ import {
   isTrustedLocalRuntime,
 } from "../a2a/auth-policy.js";
 import { applyAgentTextEventToBuffer } from "../a2a/response-text.js";
-import { updateTaskStatusMessage } from "../a2a/task-store.js";
+import {
+  createA2AApproval,
+  updateTaskStatusMessage,
+} from "../a2a/task-store.js";
 import type { ActionHttpConfig } from "../action.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
@@ -52,6 +56,7 @@ import {
   createProductionAgentHandler,
   actionsToEngineTools,
   executeAgentToolCall,
+  toolCallCacheKey,
   getActiveRunForThreadAsync,
   abortRunDurably,
   subscribeToRun,
@@ -1118,6 +1123,25 @@ export function createAgentChatPlugin(
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
+        executeApproval: async (approval) => {
+          const result = await executeAgentToolCall({
+            actions: mcpFullActions ?? allScripts,
+            name: approval.tool,
+            input: approval.input,
+            callId: approval.callId,
+            ownerEmail: approval.ownerEmail,
+            orgId: approval.orgId ?? null,
+            approvedToolCalls: [approval.approvalKey],
+          });
+          if (result.status === "approval_required") {
+            return {
+              status: "failed" as const,
+              output:
+                "The approved action was unexpectedly gated again and did not run.",
+            };
+          }
+          return { status: result.status, output: result.output };
+        },
         handler: async function* (message, context) {
           // Resolve the caller's identity for user-scoped data access.
           // Priority: A2A-JWT verified email (set by the A2A handler in
@@ -1442,6 +1466,9 @@ export function createAgentChatPlugin(
               // scope when a processor hop or alternate runner is involved.
               ownerEmail: userEmail,
               orgId: getRequestOrgId() ?? null,
+              approvedToolCalls: context.approvedActions?.map((approved) =>
+                toolCallCacheKey(approved.tool, approved.input),
+              ),
               executionMode: "act",
               send: (event) => {
                 a2aEvents.push(event);
@@ -1495,6 +1522,62 @@ export function createAgentChatPlugin(
                 isInBackgroundFunctionRuntime(),
             },
           );
+
+          const approval = [...a2aEvents]
+            .reverse()
+            .find(
+              (
+                event,
+              ): event is Extract<
+                AgentChatEvent,
+                { type: "approval_required" }
+              > => event.type === "approval_required",
+            );
+          if (approval) {
+            const pending = await createA2AApproval({
+              taskId: context.taskId,
+              ownerEmail: userEmail,
+              orgId: getRequestOrgId() ?? null,
+              tool: approval.tool,
+              toolInput: approval.input,
+              approvalKey: approval.approvalKey,
+              callId: approval.toolCallId ?? crypto.randomUUID(),
+            });
+            const baseUrl = resolveArtifactBaseUrl(context.event);
+            const approvalPath = `/_agent-native/a2a/approvals/${encodeURIComponent(pending.id)}`;
+            const approvalUrl = baseUrl
+              ? `${baseUrl}${approvalPath}`
+              : approvalPath;
+            yield {
+              role: "agent" as const,
+              metadata: {
+                agentNativeTaskState: "input-required",
+                agentNativeApproval: {
+                  id: pending.id,
+                  tool: approval.tool,
+                  url: approvalUrl,
+                },
+              },
+              parts: [
+                {
+                  type: "text" as const,
+                  text:
+                    `Human approval is required to run ${approval.tool}. ` +
+                    `Open ${approvalUrl} to review and approve this one-time action.`,
+                },
+                {
+                  type: "data" as const,
+                  data: {
+                    kind: "agent-native/approval-required",
+                    approvalId: pending.id,
+                    tool: approval.tool,
+                    approvalUrl,
+                  },
+                },
+              ],
+            };
+            return;
+          }
 
           const { responseText, finalText } = assembleA2AFinalResponse(
             a2aEvents,
