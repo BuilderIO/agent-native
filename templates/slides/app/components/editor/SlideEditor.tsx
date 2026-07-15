@@ -755,6 +755,8 @@ export default function SlideEditor({
   } | null>(null);
   const [selectedImg, setSelectedImg] = useState<HTMLImageElement | null>(null);
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
+  const [selectionViewportRect, setSelectionViewportRect] =
+    useState<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   // Wraps the rendered slide; used as the positioning container for the
@@ -848,6 +850,34 @@ export default function SlideEditor({
     min: MIN_CANVAS_ZOOM,
     max: MAX_CANVAS_ZOOM,
   });
+
+  // Selection outlines are portaled to the document so their viewport
+  // coordinates stay aligned with the zoomed/scrolling slide. Keep a live
+  // viewport rect so that portal can clip itself to the central canvas when
+  // either sidebar or the style inspector changes the available width.
+  useEffect(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+
+    const updateViewportRect = () => {
+      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+    };
+
+    updateViewportRect();
+    const observer =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(updateViewportRect);
+    observer?.observe(scrollContainer);
+    window.addEventListener("resize", updateViewportRect);
+    window.addEventListener("scroll", updateViewportRect, true);
+
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", updateViewportRect);
+      window.removeEventListener("scroll", updateViewportRect, true);
+    };
+  }, []);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -2046,19 +2076,31 @@ export default function SlideEditor({
         slideCount={slideCount}
       />
 
-      {selectionRect && <ImageSelectionOutline rect={selectionRect} />}
+      {selectionRect && (
+        <ImageSelectionOutline
+          rect={selectionRect}
+          viewportRect={selectionViewportRect}
+        />
+      )}
       {selectedElementRect && (
-        <ElementSelectionOutline rect={selectedElementRect} />
+        <ElementSelectionOutline
+          rect={selectedElementRect}
+          viewportRect={selectionViewportRect}
+        />
       )}
 
       {/* Multi-select outlines */}
       {Array.from(multiSelectionRects.entries()).map(([id, v]) => (
-        <MultiSelectOutline key={id} rect={v.rect} />
+        <MultiSelectOutline
+          key={id}
+          rect={v.rect}
+          viewportRect={selectionViewportRect}
+        />
       ))}
 
       {/* Active marquee rectangle */}
       {marquee && (marquee.w > 1 || marquee.h > 1) && (
-        <MarqueeRect rect={marquee} />
+        <MarqueeRect rect={marquee} viewportRect={selectionViewportRect} />
       )}
 
       {/* Floating "N selected" chip */}
