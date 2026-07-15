@@ -1,0 +1,4 @@
+interface:
+  display_name: "Agent Watchdog"
+  short_description: "Audit another agent session and fix gaps."
+  default_prompt: "Use $agent-watchdog to watch or audit an agent session, then report or fix gaps."
