@@ -5,7 +5,7 @@ packages:
   - templates/*/desktop
   - templates/*/chrome-extension
 
-minimumReleaseAge: 1440
+minimumReleaseAge: 0
 minimumReleaseAgeExclude:
   - "@agent-native/core"
   - "dom-to-pptx"
