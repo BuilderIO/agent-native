@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.102.0
+
+### Minor Changes
+
+- 6498492: Add the Tasks template app — a task-list-first agent-native workspace with inbox triage, custom fields, and full action parity for UI and agent.
+
 ## 0.101.14
 
 ### Patch Changes
