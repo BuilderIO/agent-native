@@ -551,6 +551,19 @@ describe("metadata and data-dictionary questions (should NOT force a provider ca
       looksLikeAnalyticsDataRequest("how do I connect Stripe payments?"),
     ).toBe(false);
   });
+
+  it("does not classify provider configuration help as a live analytics request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "How do I configure revenue reports in Stripe?",
+      ),
+    ).toBe(false);
+    expect(
+      looksLikeAnalyticsDataRequest(
+        "Can you check my Stripe payment settings?",
+      ),
+    ).toBe(false);
+  });
 });
 
 describe("isGenericNoDataFallback", () => {

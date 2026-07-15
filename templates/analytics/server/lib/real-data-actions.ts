@@ -183,6 +183,11 @@ const ANALYTICS_INTENT_TERMS =
 const SOURCE_SEARCH_INTENT_TERMS =
   /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
 
+const SETUP_REQUEST_TERMS =
+  /\b(connect|configure|configuration|settings?|setup|set up|credentials?|authenticate|authorization)\b/;
+const SETUP_REQUEST_FRAMING =
+  /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
+
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
 const ARTIFACT_DATA_INTENT =
@@ -199,6 +204,12 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const lower = requestText.toLowerCase();
   if (!lower) return false;
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (
+    SETUP_REQUEST_TERMS.test(lower) &&
+    (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
+  ) {
+    return false;
+  }
   if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(

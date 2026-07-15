@@ -161,8 +161,61 @@ interface DataSourceStatusSummary {
 const EXTERNAL_SOURCE_REQUEST_TERMS =
   /\b(bigquery|hubspot|gong|slack|stripe|ga4|google analytics|mixpanel|posthog|amplitude|jira|pylon|sentry|salesforce|snowflake|segment|zendesk|intercom|warehouse|crm|payments?)\b/i;
 
+const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
+  { pattern: /\bbigquery\b/i, aliases: ["bigquery"] },
+  { pattern: /\bhubspot\b/i, aliases: ["hubspot"] },
+  { pattern: /\bgong\b/i, aliases: ["gong"] },
+  { pattern: /\bslack\b/i, aliases: ["slack"] },
+  { pattern: /\bstripe\b/i, aliases: ["stripe"] },
+  {
+    pattern: /\b(?:ga4|google analytics)\b/i,
+    aliases: ["ga4", "google analytics"],
+  },
+  { pattern: /\bmixpanel\b/i, aliases: ["mixpanel"] },
+  { pattern: /\bposthog\b/i, aliases: ["posthog"] },
+  { pattern: /\bamplitude\b/i, aliases: ["amplitude"] },
+  { pattern: /\bjira\b/i, aliases: ["jira"] },
+  { pattern: /\bpylon\b/i, aliases: ["pylon"] },
+  { pattern: /\bsentry\b/i, aliases: ["sentry"] },
+  { pattern: /\bsalesforce\b/i, aliases: ["salesforce"] },
+  { pattern: /\bsnowflake\b/i, aliases: ["snowflake"] },
+  { pattern: /\bsegment\b/i, aliases: ["segment"] },
+  { pattern: /\bzendesk\b/i, aliases: ["zendesk"] },
+  { pattern: /\bintercom\b/i, aliases: ["intercom"] },
+] as const;
+
 function looksLikeExternalSourceRequest(userText: string): boolean {
   return EXTERNAL_SOURCE_REQUEST_TERMS.test(userText);
+}
+
+function normalizeSourceLabel(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
+}
+
+function hasMissingRequestedExternalSource(
+  userText: string,
+  configuredSourceLabels: string[],
+): boolean {
+  const configuredLabels = configuredSourceLabels.map(normalizeSourceLabel);
+  return EXTERNAL_SOURCE_PROVIDER_ALIASES.filter(({ pattern }) =>
+    pattern.test(userText),
+  ).some(
+    ({ aliases }) =>
+      !configuredLabels.some((label) =>
+        aliases.some((alias) => {
+          const normalizedAlias = normalizeSourceLabel(alias);
+          return (
+            label === normalizedAlias ||
+            label.startsWith(`${normalizedAlias} `) ||
+            label.endsWith(` ${normalizedAlias}`) ||
+            label.includes(` ${normalizedAlias} `)
+          );
+        }),
+      ),
+  );
 }
 
 function dataSourceStatusSummary(
@@ -272,8 +325,10 @@ function dataSourceStatusSummary(
 }
 
 function includesDataSourcesLink(text: string, setupLink: string): boolean {
-  return (
-    text.includes(setupLink) || /\]\([^)]*\/data-sources(?:[)#?]|$)/i.test(text)
+  const normalizedText = text.replace(/&amp;/g, "&");
+  const normalizedSetupLink = setupLink.trim().replace(/&amp;/g, "&");
+  return Boolean(
+    normalizedSetupLink && normalizedText.includes(normalizedSetupLink),
   );
 }
 
@@ -309,11 +364,16 @@ export function realDataFinalGuard(
   const noConnectedExternalSources =
     sourceStatus.checked && sourceStatus.externalSourceLabels.length === 0;
   const externalSourceRequest = looksLikeExternalSourceRequest(userText);
+  const missingRequestedExternalSource = hasMissingRequestedExternalSource(
+    userText,
+    sourceStatus.externalSourceLabels,
+  );
   const firstPartySourceShouldBeTried =
     noConnectedExternalSources && !externalSourceRequest;
   const needsDataSourceLink =
     !sourceStatus.checked ||
-    (noConnectedExternalSources && externalSourceRequest);
+    (externalSourceRequest &&
+      (noConnectedExternalSources || missingRequestedExternalSource));
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -393,9 +453,32 @@ export function realDataFinalGuard(
   }
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
   if (failedQueryMessage) {
+    if (
+      needsDataSourceLink &&
+      !includesDataSourcesLink(context.text, sourceStatus.setupLink)
+    ) {
+      return {
+        retryMessage: `${failedQueryMessage} Explain which external source is missing and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}).`,
+        fallbackMessage: `${failedQueryMessage} [Connect data sources](${sourceStatus.setupLink})`,
+        maxRetries: 2,
+      };
+    }
     return {
       retryMessage: failedQueryMessage,
       fallbackMessage: failedQueryMessage,
+    };
+  }
+
+  if (
+    needsDataSourceLink &&
+    (missingRequestedExternalSource ||
+      (noConnectedExternalSources && externalSourceRequest))
+  ) {
+    return {
+      retryMessage: `The requested external source is not connected. Explain what is missing in the context of the user's question and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}). Do not use the generic no-grounded-data fallback.`,
+      fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+      maxRetries: 2,
+      expandToolSurface: true,
     };
   }
 

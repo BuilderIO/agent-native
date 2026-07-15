@@ -428,6 +428,71 @@ describe("realDataFinalGuard", () => {
     expect(result).toBeNull();
   });
 
+  it("requires setup guidance when the requested provider is missing alongside another connection", () => {
+    const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our Stripe payments last week",
+        draftText:
+          "I can't retrieve Stripe payments because that source is not configured yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                { provider: "hubspot", label: "HubSpot", via: "oauth" },
+              ],
+              dataSourcesSetupLink: setupLink,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(setupLink),
+      fallbackMessage: expect.stringContaining(setupLink),
+    });
+  });
+
+  it("does not accept a bare data-sources route instead of the generated setup link", () => {
+    const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our Stripe payments last week",
+        draftText:
+          "Stripe is not connected yet. [Connect data sources](/data-sources)",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              dataSourcesSetupLink: setupLink,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(setupLink),
+      fallbackMessage: expect.stringContaining(setupLink),
+    });
+  });
+
   it("passes through a data question backed by a successful data query attempt", () => {
     const result = realDataFinalGuard(
       guardContext({
