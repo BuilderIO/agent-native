@@ -1,10 +1,15 @@
 import { useActionMutation, useT } from "@agent-native/core/client";
+import {
+  ASPECT_RATIOS,
+  IMAGE_CATEGORIES,
+  type AspectRatio,
+  type ImageCategory,
+} from "@shared/api";
 import { IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
 
-import { Badge } from "@/components/ui/badge";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -15,6 +20,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -35,12 +41,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  ASPECT_RATIOS,
-  IMAGE_CATEGORIES,
-  type AspectRatio,
-  type ImageCategory,
-} from "@shared/api";
 
 export function GenerationPresetsPanel({
   libraryId,
