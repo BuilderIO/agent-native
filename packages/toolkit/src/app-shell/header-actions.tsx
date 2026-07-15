@@ -59,16 +59,25 @@ export const HeaderActionsProvider: FC<{ children: ReactNode }> = ({
   children,
 }) => <>{children}</>;
 
-/** Mount a custom title into the app header. Cleans up on unmount. */
+/**
+ * Mount a custom title into the app header. Cleans up on unmount.
+ *
+ * Pass a memoised node (useMemo / stable reference) to avoid triggering
+ * notify() on every render. Inline JSX creates a new reference each render
+ * which defeats the identity guard and can cause update loops.
+ */
 export function useSetPageTitle(node: ReactNode) {
   useEffect(() => {
     currentTitle = node;
     notify();
     return () => {
-      currentTitle = null;
-      notify();
+      if (currentTitle === node) {
+        currentTitle = null;
+        notify();
+      }
     };
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node]);
 }
 
 /** Mount ReactNode into the header's actions slot. Cleans up on unmount. */
@@ -77,8 +86,11 @@ export function useSetHeaderActions(node: ReactNode) {
     currentActions = node;
     notify();
     return () => {
-      currentActions = null;
-      notify();
+      if (currentActions === node) {
+        currentActions = null;
+        notify();
+      }
     };
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node]);
 }

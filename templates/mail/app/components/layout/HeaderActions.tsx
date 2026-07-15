@@ -48,27 +48,25 @@ export function useSetPageTitle(node: ReactNode) {
     currentTitle = node;
     notify();
     return () => {
-      currentTitle = null;
-      notify();
+      if (currentTitle === node) {
+        currentTitle = null;
+        notify();
+      }
     };
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node]);
 }
 
 export function useSetHeaderActions(node: ReactNode) {
   useEffect(() => {
-    // Callers may pass a fresh-but-equivalent node (e.g. `null` from a
-    // conditional) on every render; only broadcast when the reference the
-    // store holds actually changes so unrelated re-renders of the caller
-    // don't force every header subscriber to re-render too.
-    if (currentActions !== node) {
-      currentActions = node;
-      notify();
-    }
+    currentActions = node;
+    notify();
     return () => {
       if (currentActions === node) {
         currentActions = null;
         notify();
       }
     };
-  });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [node]);
 }
