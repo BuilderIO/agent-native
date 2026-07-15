@@ -3,6 +3,7 @@ import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
+import { readResource } from "../resources/script-helpers.js";
 import { getRequestRunContext } from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
 import type {
@@ -468,7 +469,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
     "create-extension": {
       tool: {
         description:
-          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() for app data writes and extensionData for extension-owned persisted UI state; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery() only for known existing SQL tables and never for writes. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
+          'Create a persisted sandboxed Alpine.js mini-app extension and render it inline in the chat. Use this when the user wants generated UI that should be saved, reusable, or visible in the Extensions view: extensions, widgets, dashboards, calculators, mini-apps, and reusable interactive utilities. For one-time chat-only UI, use render-inline-extension instead. The content must be a self-contained Alpine.js HTML body snippet that can use appAction(), appFetch(), dbQuery(), extensionFetch(), extensionData, agentNative.ui.output(value, opts?), and agentNative.chat.send()/sendToAgentChat(). Use appAction() for app data writes and extensionData for extension-owned persisted UI state; dbQuery() is for read-only inspection of known app SQL tables. Use agentNative.ui.output for passive current values from knobs, sliders, and selections; it writes application state at inline-ui:<extension id>:output, which the agent can read later with readAppState when the user says to use that value. Use agentNative.chat.send for visible submit/apply actions. Persist reusable user-edited state with extensionData: if the extension has checkboxes, todos, notes, filters, preferences, or any control whose value should survive reload/reopen, load that state on init and save changes with extensionData, usually at user scope, instead of keeping it only in Alpine state. IMPORTANT — hosting a pasted file: if the user pasted a large HTML/Alpine file (it appears in your context as an <attachment name="pasted-text-…"> block) and asked you to host it as-is, do NOT copy that file into `content`. Instead leave `content` empty and pass `contentFromAttachment` set to that attachment\'s name (or the literal "latest" for the most recent pasted block) — the server reads the file verbatim. Re-emitting a large pasted file as `content` regularly gets cut off mid-stream and stalls the turn. IMPORTANT — cloning a large extension that lives as a workspace resource (not a chat attachment): leave `content` empty and pass `contentFromWorkspaceFile` set to the resource path (e.g. "intuit-analytics-extension.html"); the server reads the full file. Do NOT try to reconstruct the body with run-code or route create-extension through run-code (mutating actions are not callable there). Prefer appAction(name, params) for app data and actions, including read actions mounted as GET; do not call template /api/* routes from appFetch because the extension bridge only allows framework /_agent-native/* paths. Parse JSON string action results before aggregating; use dbQuery() only for known existing SQL tables and never for writes. Keep the initial create-extension payload compact and working; for complex extensions, create a useful v1 first, then use focused update-extension edits for refinements rather than assembling one enormous initial tool input. For any non-trivial component (more than a couple of state fields, any methods, any string formatting, any branching) put the component in a <script> block via Alpine.data(\'name\', () => ({...})) and reference it with x-data="name" — do NOT cram methods, template literals, or branching logic into an inline x-data="{...}" attribute (HTML parser pitfalls cause ReferenceError failures). Define every variable referenced from x-text/x-show/x-if/x-for on the data object\'s initial state. If the extension\'s value depends on an LLM call, require a real key via \\${keys.OPENAI_API_KEY}/\\${keys.ANTHROPIC_API_KEY} (and tell the user to add it in the Dispatch Vault, or in app Settings → API Keys & Connections for standalone apps, if missing) or route the AI work to the agent chat — never ship a stubbed analysis step that renders a placeholder/boolean as the result.',
         parameters: {
           type: "object",
           properties: {
@@ -491,6 +492,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description:
                 'Host a pasted/attached file verbatim WITHOUT re-typing it. Set this to the name of an attachment on the current turn (e.g. "pasted-text-1718000000000-ab12cd.txt") or the literal "latest" for the most recent pasted block; the server resolves it into the extension content. Use this instead of `content` whenever the user pasted a large file to host — it avoids re-emitting thousands of tokens. When set, leave `content` empty.',
             },
+            contentFromWorkspaceFile: {
+              type: "string",
+              description:
+                'Host a workspace/shared resource file verbatim WITHOUT re-typing it. Set this to the resource path (e.g. "intuit-analytics-extension.html"); the server reads the full file and uses it as the extension content. Use this — NOT run-code or contentFromAttachment — when cloning a large extension body that already exists as a workspace resource. When set, leave `content` empty.',
+            },
             icon: {
               type: "string",
               description: "Optional icon name or short label.",
@@ -506,7 +512,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
       run: async (args, ctx) => {
         const name = String(args?.name ?? "").trim();
         if (!name) return "Error: name is required.";
-        const resolved = resolveExtensionContent(args, ctx);
+        const resolved = await resolveExtensionContentAsync(args, ctx);
         if ("error" in resolved) return resolved.error;
         const content = resolved.content.trim();
         if (!content) return "Error: content is required.";
@@ -609,6 +615,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description:
                 'Optional full replacement sourced from a pasted/attached file on the current turn, by attachment name (or the literal "latest" for the most recent pasted block). Use instead of `content` when replacing the whole body with a large pasted file so you do not have to re-type it. Ignored when `content` is provided.',
             },
+            contentFromWorkspaceFile: {
+              type: "string",
+              description:
+                'Optional full replacement sourced from a workspace/shared resource file, by resource path (e.g. "intuit-analytics-extension.html"). The server reads the full file and uses it as the replacement body. Use instead of `content` when replacing the whole body with a large file that exists as a workspace resource. Ignored when `content` is provided.',
+            },
             patches: {
               type: "string",
               description:
@@ -655,9 +666,10 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
             : undefined;
         if (
           replacementContent === undefined &&
-          args?.contentFromAttachment !== undefined
+          (args?.contentFromAttachment !== undefined ||
+            args?.contentFromWorkspaceFile !== undefined)
         ) {
-          const resolved = resolveExtensionContent(args, ctx);
+          const resolved = await resolveExtensionContentAsync(args, ctx);
           if ("error" in resolved) return resolved.error;
           replacementContent = resolved.content;
         }
@@ -1303,6 +1315,73 @@ function resolveExtensionContent(
     };
   }
   return { content: resolved };
+}
+
+/**
+ * Read a workspace/shared/personal resource file's FULL content by path.
+ *
+ * Resolution mirrors resourceEffectiveContext precedence (personal override →
+ * shared/org → workspace default) so a `contentFromWorkspaceFile` reference
+ * resolves the same file the `resources` read tool and run-code `workspaceRead`
+ * see. Unlike attachments, resource content is not capped/truncated on the way
+ * in, so this is the correct path for cloning a large extension body that
+ * already exists as a workspace resource (e.g. a per-customer dashboard).
+ */
+async function readWorkspaceFileContent(path: string): Promise<string | null> {
+  const trimmed = path.trim();
+  if (!trimmed) return null;
+  for (const scope of ["personal", "shared", "workspace"] as const) {
+    try {
+      const content = await readResource(trimmed, { scope });
+      if (typeof content === "string") return content;
+    } catch {
+      // A given scope can throw (e.g. `personal` when no user identity is
+      // resolvable in this context). Don't let one scope abort the lookup —
+      // fall through and try the next one.
+    }
+  }
+  return null;
+}
+
+/**
+ * Resolve the extension HTML body from (in priority order) inline `content`, a
+ * `contentFromWorkspaceFile` resource path, or a `contentFromAttachment` handle.
+ *
+ * The workspace-file path exists because a large extension body frequently lives
+ * as a workspace resource (not a chat attachment). Without it the model has no
+ * viable route — inline is too large to shuttle reliably, contentFromAttachment
+ * only sees chat attachments, and mutating actions cannot run from run-code — so
+ * it loops and the run aborts with no_progress.
+ */
+async function resolveExtensionContentAsync(
+  args: Record<string, string> | undefined,
+  ctx: ActionRunContext | undefined,
+): Promise<{ content: string } | { error: string }> {
+  const inline = args?.content !== undefined ? String(args.content) : undefined;
+  if (inline !== undefined && inline.trim().length > 0) {
+    return { content: inline };
+  }
+
+  const wsRef =
+    args?.contentFromWorkspaceFile !== undefined
+      ? String(args.contentFromWorkspaceFile).trim()
+      : "";
+  if (wsRef) {
+    const content = await readWorkspaceFileContent(wsRef);
+    if (content === null) {
+      return {
+        error: `Error: contentFromWorkspaceFile="${wsRef}" did not match any readable workspace/shared/personal resource file. Check the exact path (e.g. "intuit-analytics-extension.html"), or pass the HTML inline via content.`,
+      };
+    }
+    if (content.trim().length === 0) {
+      return {
+        error: `Error: workspace file "${wsRef}" is empty. Pass non-empty HTML inline via content, or point contentFromWorkspaceFile at a file with content.`,
+      };
+    }
+    return { content };
+  }
+
+  return resolveExtensionContent(args, ctx);
 }
 
 function coerceBoolean(value: unknown): boolean {
