@@ -15,6 +15,7 @@ const { updateEventMutate } = vi.hoisted(() => ({
 const { calendarContext } = vi.hoisted(() => ({
   calendarContext: {
     eventDetailSidebar: false,
+    sidebarEvent: null as CalendarEvent | null,
     setEventDetailSidebar: vi.fn(),
     setSidebarEvent: vi.fn(),
     setFocusedEvent: vi.fn(),
@@ -210,6 +211,7 @@ describe("EventDetailPopover characterization", () => {
     unmounted = false;
     updateEventMutate.mockClear();
     calendarContext.eventDetailSidebar = false;
+    calendarContext.sidebarEvent = null;
     calendarContext.setEventDetailSidebar.mockClear();
     calendarContext.setSidebarEvent.mockClear();
     calendarContext.setFocusedEvent.mockClear();
@@ -333,6 +335,43 @@ describe("EventDetailPopover characterization", () => {
     // visibly opened.
     expect(findByExactText("button", "Open")).toBeUndefined();
     expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("notifies parents when sidebar details open and close", () => {
+    const event = baseEvent();
+    const onOpenChange = vi.fn();
+    calendarContext.eventDetailSidebar = true;
+    calendarContext.sidebarEvent = event;
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+
+    calendarContext.sidebarEvent = null;
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
   });
 
   it("resyncs unedited fields from the event prop but preserves an in-progress edit on the actively edited field", () => {

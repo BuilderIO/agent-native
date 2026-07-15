@@ -524,6 +524,7 @@ export function EventDetailPopover({
   }
   const {
     eventDetailSidebar,
+    sidebarEvent,
     setEventDetailSidebar,
     setSidebarEvent,
     setFocusedEvent,
@@ -1345,13 +1346,20 @@ export function EventDetailPopover({
 
   const popoverOpen =
     eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open;
-  const previousPopoverOpenRef = useRef(false);
+  const sidebarDetailsOpen =
+    eventDetailSidebar &&
+    !isNewEventRef.current &&
+    !isDraft &&
+    sidebarEvent?.id === event.id &&
+    sidebarEvent.accountEmail === event.accountEmail;
+  const detailsOpen = popoverOpen || sidebarDetailsOpen;
+  const previousDetailsOpenRef = useRef(false);
 
   useEffect(() => {
-    if (previousPopoverOpenRef.current === popoverOpen) return;
-    previousPopoverOpenRef.current = popoverOpen;
-    onOpenChange?.(popoverOpen);
-  }, [onOpenChange, popoverOpen]);
+    if (previousDetailsOpenRef.current === detailsOpen) return;
+    previousDetailsOpenRef.current = detailsOpen;
+    onOpenChange?.(detailsOpen);
+  }, [detailsOpen, onOpenChange]);
 
   useEffect(() => {
     const token = popoverTokenRef.current;
