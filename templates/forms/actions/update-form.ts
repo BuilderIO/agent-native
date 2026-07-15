@@ -5,6 +5,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
+import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 import { assertValidFields } from "../server/lib/validate-fields.js";
 import type { FormField, FormSettings } from "../shared/types.js";
 import { assertPublishableForm } from "./lib/assert-publishable-form.js";
@@ -135,6 +136,8 @@ export default defineAction({
       .from(schema.forms)
       .where(eq(schema.forms.id, args.id))
       .limit(1);
+
+    invalidatePublicFormCache(existing, row);
 
     return {
       id: row!.id,

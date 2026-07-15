@@ -22,6 +22,20 @@ import { getDb, schema } from "../db/index.js";
 const cache = new Map<string, { data: any; ts: number }>();
 const TTL = 60_000;
 
+type PublicFormCacheKeys = {
+  id?: string | null;
+  slug?: string | null;
+};
+
+export function invalidatePublicFormCache(
+  ...forms: Array<PublicFormCacheKeys | null | undefined>
+) {
+  for (const form of forms) {
+    if (form?.id) cache.delete(form.id);
+    if (form?.slug) cache.delete(form.slug);
+  }
+}
+
 function getCached(key: string) {
   const entry = cache.get(key);
   if (entry && Date.now() - entry.ts < TTL) return entry.data;

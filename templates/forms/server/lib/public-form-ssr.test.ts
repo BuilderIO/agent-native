@@ -28,7 +28,11 @@ vi.mock("../db/index.js", () => ({
   },
 }));
 
-import { renderPublicForm } from "./public-form-ssr";
+import {
+  getPublicFormBySlugOrId,
+  invalidatePublicFormCache,
+  renderPublicForm,
+} from "./public-form-ssr";
 
 function createDbWithRows(rows: unknown[]) {
   return {
@@ -89,5 +93,47 @@ describe("public form SSR", () => {
     expect(html).toContain(
       "/api/forms/og/customer-intake-123/og.png?v=2026-07-14T12%3A00%3A00.000Z",
     );
+  });
+
+  it("refreshes cached forms after invalidating old and new lookup keys", async () => {
+    const rows = [
+      {
+        id: "form-cache-123",
+        slug: "old-cache-slug",
+        title: "Before update",
+        description: null,
+        ownerEmail: "owner@example.test",
+        updatedAt: "2026-07-14T12:00:00.000Z",
+        fields: "[]",
+        settings: "{}",
+        status: "published",
+        deletedAt: null,
+      },
+    ];
+    mockGetDb.mockReturnValue(createDbWithRows(rows));
+
+    await expect(
+      getPublicFormBySlugOrId("old-cache-slug"),
+    ).resolves.toMatchObject({ title: "Before update" });
+    await expect(
+      getPublicFormBySlugOrId("form-cache-123"),
+    ).resolves.toMatchObject({ title: "Before update" });
+
+    rows[0] = {
+      ...rows[0],
+      slug: "new-cache-slug",
+      title: "After update",
+    };
+    invalidatePublicFormCache(
+      { id: "form-cache-123", slug: "old-cache-slug" },
+      { id: "form-cache-123", slug: "new-cache-slug" },
+    );
+
+    await expect(
+      getPublicFormBySlugOrId("old-cache-slug"),
+    ).resolves.toMatchObject({ title: "After update", slug: "new-cache-slug" });
+    await expect(
+      getPublicFormBySlugOrId("form-cache-123"),
+    ).resolves.toMatchObject({ title: "After update", slug: "new-cache-slug" });
   });
 });
