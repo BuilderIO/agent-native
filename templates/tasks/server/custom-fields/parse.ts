@@ -86,8 +86,61 @@ export function parseStoredValue(
   field: FieldDefinition,
   row: StoredCustomFieldValue,
 ): FieldValue | null {
-  const shaped = parseFieldValueShape(JSON.parse(row.valueJson));
+  let shaped: FieldValueInput;
+  try {
+    shaped = parseFieldValueShape(JSON.parse(row.valueJson));
+  } catch {
+    return null;
+  }
   if (isEmptyFieldValue(shaped)) return null;
-  validateFieldValue(field, shaped);
-  return normalizeFieldValue(field, shaped);
+
+  const coerced = coerceStoredValueToConfig(field, shaped);
+  if (coerced === null || isEmptyFieldValue(coerced)) return null;
+
+  try {
+    validateFieldValue(field, coerced);
+  } catch {
+    return null;
+  }
+  return normalizeFieldValue(field, coerced);
+}
+
+function roundToPrecision(value: number, precision: number): number {
+  const factor = 10 ** precision;
+  return Math.round(value * factor) / factor;
+}
+
+function coerceStoredValueToConfig(
+  field: FieldDefinition,
+  value: FieldValueInput,
+): FieldValueInput | null {
+  switch (field.type) {
+    case "number": {
+      if (typeof value !== "number" || !Number.isFinite(value)) return null;
+      const rounded = roundToPrecision(value, field.config.precision ?? 0);
+      if (field.config.positiveOnly && rounded < 0) return null;
+      return rounded;
+    }
+    case "percent":
+      if (typeof value !== "number" || !Number.isFinite(value)) return null;
+      return roundToPrecision(value, field.config.precision ?? 0);
+    case "currency":
+      if (typeof value !== "number" || !Number.isFinite(value)) return null;
+      return roundToPrecision(value, field.config.precision ?? 2);
+    case "single_select": {
+      const allowed = field.config.options.some(
+        (option) => option.id === value,
+      );
+      return allowed ? value : null;
+    }
+    case "multi_select": {
+      if (!Array.isArray(value)) return null;
+      const allowed = new Set(field.config.options.map((option) => option.id));
+      return value.filter(
+        (id): id is string => typeof id === "string" && allowed.has(id),
+      );
+    }
+    default:
+      return value;
+  }
 }

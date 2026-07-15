@@ -519,4 +519,63 @@ describe("custom fields store", () => {
       }),
     ).rejects.toThrow(/duplicates/i);
   });
+
+  it("reads stored values that no longer fit a lowered precision instead of throwing", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Task",
+      id: "task-1",
+    });
+    const estimate = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Estimate",
+      type: "number",
+      config: { precision: 2 },
+    });
+
+    await updateCustomFieldValuesByTaskId({
+      ownerEmail: "alice@example.com",
+      taskId: "task-1",
+      values: [{ fieldId: estimate.id, value: 2.33 }],
+    });
+
+    // Lowering precision leaves the stored 2.33 out of spec for the new config.
+    await updateCustomField({
+      ownerEmail: "alice@example.com",
+      fieldId: estimate.id,
+      config: { precision: 1 },
+    });
+
+    // The read path must round to the current precision, not crash the list.
+    const fields = await listTaskFieldValues({
+      ownerEmail: "alice@example.com",
+      taskId: "task-1",
+    });
+    const estimateField = fields.find((field) => field.id === estimate.id);
+    expect(estimateField?.value).toBe(2.3);
+  });
+
+  it("surfaces an over-precise value as a 400 validation error, not a 500", async () => {
+    await createTask({
+      ownerEmail: "alice@example.com",
+      title: "Task",
+      id: "task-1",
+    });
+    const estimate = await createCustomField({
+      ownerEmail: "alice@example.com",
+      title: "Estimate",
+      type: "number",
+      config: { precision: 2 },
+    });
+
+    const error = await updateCustomFieldValuesByTaskId({
+      ownerEmail: "alice@example.com",
+      taskId: "task-1",
+      values: [{ fieldId: estimate.id, value: 2.333 }],
+    }).catch((err) => err as { statusCode?: number; message: string });
+
+    expect(error).toBeInstanceOf(Error);
+    expect((error as { statusCode?: number }).statusCode).toBe(400);
+    expect((error as Error).message).toMatch(/2 decimal places/);
+  });
 });

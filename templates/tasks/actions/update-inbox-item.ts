@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { UserInputError } from "../server/errors.js";
 import { requireUserEmail, updateInboxItem } from "../server/inbox/store.js";
 
 export default defineAction({
@@ -12,7 +13,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
     if (args.title === undefined) {
-      throw new Error("Provide title to update.");
+      throw new UserInputError("Provide title to update.");
     }
     return updateInboxItem({
       ownerEmail,

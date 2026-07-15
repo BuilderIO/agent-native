@@ -8,6 +8,7 @@ import {
 import { getDb } from "../db/index.js";
 import type { StoredItem } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { NotFoundError, UserInputError } from "../errors.js";
 import {
   assertStoredItemsExist,
   createStoredItem,
@@ -111,7 +112,7 @@ export async function updateTasks(
   db: DbHandle = getDb(),
 ): Promise<Task[]> {
   if (input.title === undefined && input.done === undefined) {
-    throw new Error("Provide at least one of title or done.");
+    throw new UserInputError("Provide at least one of title or done.");
   }
 
   const items = await updateStoredItems(
@@ -144,12 +145,14 @@ export async function updateTask(
   const hasFieldPatch = input.fieldValues !== undefined;
 
   if (!hasTaskPatch && !hasFieldPatch) {
-    throw new Error("Provide at least one of title, done, or fieldValues.");
+    throw new UserInputError(
+      "Provide at least one of title, done, or fieldValues.",
+    );
   }
 
   if (!hasFieldPatch) {
     const [task] = await updateTasks({ ...input, ids: [input.id] }, db);
-    if (!task) throw new Error(NOT_FOUND);
+    if (!task) throw new NotFoundError(NOT_FOUND);
     return task;
   }
 
@@ -158,7 +161,7 @@ export async function updateTask(
       { ownerEmail: input.ownerEmail, id: input.id },
       db,
     );
-    if (!task) throw new Error(NOT_FOUND);
+    if (!task) throw new NotFoundError(NOT_FOUND);
 
     await updateCustomFieldValuesByTaskId(
       {
@@ -217,7 +220,7 @@ export async function updateTask(
     return item ? toTask(item) : null;
   });
 
-  if (!task) throw new Error(NOT_FOUND);
+  if (!task) throw new NotFoundError(NOT_FOUND);
   return task;
 }
 

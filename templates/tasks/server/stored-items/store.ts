@@ -4,6 +4,7 @@ import { caseById, chunk } from "../db/bulk-write.js";
 import { getDb } from "../db/index.js";
 import { tasks, type StoredItem } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { AuthError, NotFoundError, UserInputError } from "../errors.js";
 
 /**
  * Storage layer on the unified `tasks` table.
@@ -16,7 +17,7 @@ const SORT_GAP = 1000;
 
 export function requireUserEmail(email: string | undefined): string {
   if (!email) {
-    throw new Error("Authentication required.");
+    throw new AuthError("Authentication required.");
   }
   return email;
 }
@@ -147,7 +148,9 @@ export async function listStoredItems(
   return ids.map((id) => {
     const row = rowsById.get(id);
     if (!row) {
-      throw new Error(input.notFoundMessage ?? "Stored item not found.");
+      throw new NotFoundError(
+        input.notFoundMessage ?? "Stored item not found.",
+      );
     }
     return row;
   });
@@ -221,7 +224,7 @@ export async function updateStoredItem(
 ): Promise<StoredItem> {
   const [item] = await updateStoredItems({ ...input, ids: [input.id] }, db);
   if (!item) {
-    throw new Error(input.notFoundMessage ?? "Stored item not found.");
+    throw new NotFoundError(input.notFoundMessage ?? "Stored item not found.");
   }
   return item;
 }
@@ -284,7 +287,7 @@ export async function assertStoredItemsExist(
     );
 
   if (found.length !== ids.length) {
-    throw new Error(input.notFoundMessage ?? "Stored item not found.");
+    throw new NotFoundError(input.notFoundMessage ?? "Stored item not found.");
   }
 }
 
@@ -333,13 +336,13 @@ export async function reorderStoredItems(
     if (!visibleIds.has(item.id)) return item;
     const nextId = visibleQueue.shift();
     if (!nextId) {
-      throw new Error(
+      throw new UserInputError(
         `${idLabel} must include every visible item exactly once.`,
       );
     }
     const nextItem = itemsById.get(nextId);
     if (!nextItem) {
-      throw new Error("Stored item not found.");
+      throw new NotFoundError("Stored item not found.");
     }
     return nextItem;
   });
@@ -375,15 +378,17 @@ function validateVisibleReorder(
   idLabel: string,
 ): void {
   if (orderedIds.length !== visibleIds.size) {
-    throw new Error(`${idLabel} must include every visible item exactly once.`);
+    throw new UserInputError(
+      `${idLabel} must include every visible item exactly once.`,
+    );
   }
 
   if (!orderedIds.every((id) => visibleIds.has(id))) {
-    throw new Error(`${idLabel} must match the current visible list.`);
+    throw new UserInputError(`${idLabel} must match the current visible list.`);
   }
 
   if (new Set(orderedIds).size !== orderedIds.length) {
-    throw new Error(`${idLabel} must not contain duplicates.`);
+    throw new UserInputError(`${idLabel} must not contain duplicates.`);
   }
 }
 
@@ -431,7 +436,7 @@ export async function promoteStoredItemsToTasks(
 ): Promise<StoredItem[]> {
   const ids = [...new Set(input.ids)];
   if (ids.length === 0) {
-    throw new Error("Provide at least one inbox item id.");
+    throw new UserInputError("Provide at least one inbox item id.");
   }
 
   await assertStoredItemsExist(
@@ -501,7 +506,7 @@ export async function promoteStoredItemToTask(
     db,
   );
   if (!item) {
-    throw new Error("Stored item not found.");
+    throw new NotFoundError("Stored item not found.");
   }
   return item;
 }
@@ -509,7 +514,7 @@ export async function promoteStoredItemToTask(
 function assertNonEmptyTitle(title: string, emptyMessage: string): string {
   const trimmed = title.trim();
   if (!trimmed) {
-    throw new Error(emptyMessage);
+    throw new UserInputError(emptyMessage);
   }
   return trimmed;
 }

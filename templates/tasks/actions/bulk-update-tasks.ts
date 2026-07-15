@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { UserInputError } from "../server/errors.js";
 import { requireUserEmail, updateTasks } from "../server/tasks/store.js";
 import { BULK_ID_LIMIT } from "../shared/bulk-limits.js";
 
@@ -19,7 +20,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
     if (args.title === undefined && args.done === undefined) {
-      throw new Error("Provide at least one of title or done.");
+      throw new UserInputError("Provide at least one of title or done.");
     }
 
     const tasks = await updateTasks({

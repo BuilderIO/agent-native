@@ -1,4 +1,5 @@
 import type { StoredCustomFieldValue } from "../db/schema.js";
+import { NotFoundError } from "../errors.js";
 import { getTask, type Task } from "../tasks/store.js";
 import { parseStoredValue } from "./parse.js";
 import { listCustomFields } from "./store.js";
@@ -64,7 +65,7 @@ export async function listTaskFieldValues(input: {
     ownerEmail: input.ownerEmail,
     id: input.taskId,
   });
-  if (!task) throw new Error("Task not found.");
+  if (!task) throw new NotFoundError("Task not found.");
 
   const [{ fields }, rows] = await Promise.all([
     listCustomFields({ ownerEmail: input.ownerEmail }),

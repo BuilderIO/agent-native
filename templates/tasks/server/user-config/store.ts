@@ -9,6 +9,7 @@ import { getDb } from "../db/index.js";
 import { timestamp } from "../db/record-utils.js";
 import { userConfig } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { UserInputError } from "../errors.js";
 
 export { DEFAULT_TASK_CARD_FIELD_NAMES, TASK_CARD_FIELD_LIMIT };
 
@@ -86,7 +87,7 @@ export async function setTaskCardFieldIds(
   const next = dedupeFieldIds(input.fieldIds);
 
   if (!next.every((fieldId) => knownIds.has(fieldId))) {
-    throw new Error("fieldIds must reference existing custom fields.");
+    throw new UserInputError("fieldIds must reference existing custom fields.");
   }
 
   const updatedAt = timestamp(input.now);

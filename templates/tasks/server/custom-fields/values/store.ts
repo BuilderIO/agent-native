@@ -9,6 +9,7 @@ import {
   type StoredCustomFieldValue,
 } from "../../db/schema.js";
 import type { DbHandle } from "../../db/transaction.js";
+import { NotFoundError, UserInputError } from "../../errors.js";
 import { getStoredItem } from "../../stored-items/store.js";
 import { isEmptyFieldValue, normalizeFieldValue } from "../normalize.js";
 import {
@@ -46,7 +47,7 @@ export async function prepareCustomFieldValuePatches(
     },
     db,
   );
-  if (!task) throw new Error("Task not found.");
+  if (!task) throw new NotFoundError("Task not found.");
 
   const fields = await db
     .select()
@@ -67,7 +68,7 @@ export async function prepareCustomFieldValuePatches(
   const normalizedValues = new Map<string, PreparedFieldValuePatch>();
   for (const value of input.values) {
     const field = fieldsById.get(value.fieldId);
-    if (!field) throw new Error("Custom field not found.");
+    if (!field) throw new NotFoundError("Custom field not found.");
     let normalizedValue: FieldValue | null;
     const shaped = parseFieldValueShape(value.value);
     if (isEmptyFieldValue(shaped)) {
@@ -171,7 +172,7 @@ export async function getCustomFieldValue(
       ),
     )
     .limit(1);
-  if (!fieldRow) throw new Error("Custom field not found.");
+  if (!fieldRow) throw new NotFoundError("Custom field not found.");
 
   return parseStoredValue(parseField(fieldRow), row);
 }
@@ -187,7 +188,7 @@ export async function listCustomFieldValues(
 ): Promise<StoredCustomFieldValue[]> {
   const selector = buildValueSelector(input);
   if (!selector) {
-    throw new Error(
+    throw new UserInputError(
       "Provide ids, taskIds, or fieldIds to list custom field values.",
     );
   }

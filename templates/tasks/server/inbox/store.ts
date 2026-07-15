@@ -1,6 +1,7 @@
 import { getDb } from "../db/index.js";
 import type { StoredItem } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { NotFoundError } from "../errors.js";
 import {
   assertStoredItemsExist,
   createStoredItem,
@@ -108,7 +109,7 @@ export async function updateInboxItem(
   db: DbHandle = getDb(),
 ): Promise<InboxItem> {
   const [item] = await updateInboxItems({ ...input, ids: [input.id] }, db);
-  if (!item) throw new Error(NOT_FOUND);
+  if (!item) throw new NotFoundError(NOT_FOUND);
   return item;
 }
 
@@ -205,7 +206,7 @@ export async function markInboxItemReady(
     db,
   );
   const task = tasks[0];
-  if (!task) throw new Error(NOT_FOUND);
+  if (!task) throw new NotFoundError(NOT_FOUND);
   return { task };
 }
 

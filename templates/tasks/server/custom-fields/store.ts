@@ -5,6 +5,7 @@ import { getDb } from "../db/index.js";
 import { createRecordId, timestamp } from "../db/record-utils.js";
 import { customFields } from "../db/schema.js";
 import type { DbHandle } from "../db/transaction.js";
+import { NotFoundError, UserInputError } from "../errors.js";
 import { requireUserEmail } from "../stored-items/store.js";
 import { removeTaskCardFieldId } from "../user-config/store.js";
 import {
@@ -161,7 +162,7 @@ export async function updateCustomFields(
 
   const patches = input.entries.map((entry) => {
     const field = existingById.get(entry.fieldId);
-    if (!field) throw new Error("Custom field not found.");
+    if (!field) throw new NotFoundError("Custom field not found.");
 
     if (entry.title === undefined && entry.config === undefined) {
       return { field, patch: null };
@@ -209,7 +210,7 @@ export async function updateCustomFields(
           ),
         )
         .limit(1);
-      if (!updatedRow) throw new Error("Custom field not found.");
+      if (!updatedRow) throw new NotFoundError("Custom field not found.");
 
       const parsed = parseField(updatedRow);
       if (cleanup) {
@@ -242,7 +243,7 @@ export async function updateCustomField(
     },
     db,
   );
-  if (!field) throw new Error("Custom field not found.");
+  if (!field) throw new NotFoundError("Custom field not found.");
   return field;
 }
 
@@ -319,7 +320,7 @@ export async function deleteCustomFields(
     db,
   );
   if (existing.length !== fieldIds.length) {
-    throw new Error("Custom field not found.");
+    throw new NotFoundError("Custom field not found.");
   }
 
   const { deletedValues } = await db.transaction(async (tx) => {
@@ -371,13 +372,13 @@ export async function reorderCustomFields(
   const existingIds = new Set(existing.map((field) => field.id));
 
   if (new Set(input.fieldIds).size !== input.fieldIds.length) {
-    throw new Error("fieldIds must not contain duplicates.");
+    throw new UserInputError("fieldIds must not contain duplicates.");
   }
   if (input.fieldIds.length !== existingIds.size) {
-    throw new Error("fieldIds must include every field exactly once.");
+    throw new UserInputError("fieldIds must include every field exactly once.");
   }
   if (!input.fieldIds.every((fieldId) => existingIds.has(fieldId))) {
-    throw new Error("fieldIds must match the current field list.");
+    throw new UserInputError("fieldIds must match the current field list.");
   }
 
   const updatedAt = timestamp();

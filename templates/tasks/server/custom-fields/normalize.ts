@@ -1,3 +1,4 @@
+import { UserInputError } from "../errors.js";
 /**
  * Canonicalize validated configs for storage (select option ids and sort order).
  * Shape validation lives in schema.ts; domain rules in validate.ts.
@@ -101,7 +102,7 @@ function canonicalizeSelectOptions(
       const name = option.name.trim();
       const key = name.toLowerCase();
       if (names.has(key)) {
-        throw new Error(`Select option "${name}" is duplicated.`);
+        throw new UserInputError(`Select option "${name}" is duplicated.`);
       }
       names.add(key);
       const providedId = option.id?.trim();
@@ -110,7 +111,9 @@ function canonicalizeSelectOptions(
       let suffix = 2;
       while (ids.has(optionId)) {
         if (providedId) {
-          throw new Error(`Select option id "${providedId}" is duplicated.`);
+          throw new UserInputError(
+            `Select option id "${providedId}" is duplicated.`,
+          );
         }
         optionId = `${baseId}_${suffix}`;
         suffix += 1;

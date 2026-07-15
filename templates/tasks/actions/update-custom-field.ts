@@ -6,6 +6,7 @@ import {
   requireUserEmail,
   updateCustomField,
 } from "../server/custom-fields/store.js";
+import { UserInputError } from "../server/errors.js";
 
 export default defineAction({
   description:
@@ -20,7 +21,7 @@ export default defineAction({
   run: async (args, ctx) => {
     const ownerEmail = requireUserEmail(ctx?.userEmail);
     if (args.title === undefined && args.config === undefined) {
-      throw new Error("Provide title or config.");
+      throw new UserInputError("Provide title or config.");
     }
     return updateCustomField({
       ownerEmail,
