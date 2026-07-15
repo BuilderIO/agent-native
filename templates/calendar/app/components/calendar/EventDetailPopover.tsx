@@ -1322,9 +1322,6 @@ export function EventDetailPopover({
         isNewEventRef.current = false;
       }
       setOpen(newOpen);
-      if (newOpen !== open) {
-        onOpenChange?.(newOpen);
-      }
     },
     [
       open,
@@ -1334,7 +1331,6 @@ export function EventDetailPopover({
       event.accountEmail,
       onTitleSave,
       onDismissNew,
-      onOpenChange,
       editingField,
       handleSaveDescription,
       handleSaveLocation,
@@ -1349,6 +1345,13 @@ export function EventDetailPopover({
 
   const popoverOpen =
     eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open;
+  const previousPopoverOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (previousPopoverOpenRef.current === popoverOpen) return;
+    previousPopoverOpenRef.current = popoverOpen;
+    onOpenChange?.(popoverOpen);
+  }, [onOpenChange, popoverOpen]);
 
   useEffect(() => {
     const token = popoverTokenRef.current;

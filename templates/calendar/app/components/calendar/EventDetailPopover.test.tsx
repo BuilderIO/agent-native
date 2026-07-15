@@ -271,6 +271,26 @@ describe("EventDetailPopover characterization", () => {
     expect(onOpenChange).toHaveBeenCalledTimes(2);
   });
 
+  it("notifies parents when default-open makes the popover visible", () => {
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+
   it("does not notify a popover open request suppressed by sidebar mode", () => {
     calendarContext.eventDetailSidebar = true;
     const onOpenChange = vi.fn();
