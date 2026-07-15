@@ -1591,7 +1591,6 @@ function DesignModeTab({
 }
 
 function DesignBottomToolbar({
-  commentOnly = false,
   mode,
   pinMode,
   drawMode,
@@ -1610,7 +1609,6 @@ function DesignBottomToolbar({
   onModeChange,
   shortcutsPanelOpen,
 }: {
-  commentOnly?: boolean;
   mode: EditorMode;
   pinMode: boolean;
   drawMode: boolean;
@@ -1901,10 +1899,6 @@ function DesignBottomToolbar({
       onClick: () => onModeChange("interact"),
     },
   ];
-  const visibleTools = commentOnly
-    ? tools.filter((tool) => tool.key === "comment")
-    : tools;
-
   return (
     <div
       data-design-bottom-toolbar
@@ -1912,7 +1906,7 @@ function DesignBottomToolbar({
       style={{ bottom: shortcutsPanelOpen ? 257 : 16 }}
     >
       <div className="flex min-w-0 items-center gap-0.5">
-        {visibleTools.map((tool) => (
+        {tools.map((tool) => (
           <DesignToolbarTool
             key={tool.key}
             active={tool.active}
@@ -1924,23 +1918,19 @@ function DesignBottomToolbar({
         ))}
       </div>
 
-      {!commentOnly ? (
-        <>
-          <div className="h-9 w-px shrink-0 bg-white/15" />
+      <div className="h-9 w-px shrink-0 bg-white/15" />
 
-          <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
-            {modes.map((item) => (
-              <DesignModeTab
-                key={item.key}
-                active={item.active}
-                label={item.label}
-                icon={item.icon}
-                onClick={item.onClick}
-              />
-            ))}
-          </div>
-        </>
-      ) : null}
+      <div className="flex shrink-0 items-center gap-0.5 rounded-md bg-white/10 p-0.5">
+        {modes.map((item) => (
+          <DesignModeTab
+            key={item.key}
+            active={item.active}
+            label={item.label}
+            icon={item.icon}
+            onClick={item.onClick}
+          />
+        ))}
+      </div>
     </div>
   );
 }
@@ -28584,11 +28574,10 @@ function DesignEditor() {
 
         {!embedded &&
           !uiHidden &&
-          designBottomToolbarMode !== "hidden" &&
+          designBottomToolbarMode === "editor" &&
           activeFile &&
           !questionFlowActive && (
             <DesignBottomToolbar
-              commentOnly={designBottomToolbarMode === "commenter"}
               mode={mode}
               pinMode={pinMode}
               drawMode={drawMode}
@@ -28874,7 +28863,18 @@ function DesignEditor() {
                   {/* Figma-style notice for viewers who can't edit this
                       design. Only shown once accessRole has actually
                       resolved to "viewer" to avoid flashing during load. */}
-                  {designAccessRole === "viewer" && <ReadOnlyDesignBanner />}
+                  {designAccessRole === "viewer" && (
+                    <ReadOnlyDesignBanner
+                      pinMode={pinMode}
+                      onCommentPin={
+                        !embedded &&
+                        !uiHidden &&
+                        designBottomToolbarMode === "commenter"
+                          ? handlePinToolToggle
+                          : undefined
+                      }
+                    />
+                  )}
                   {/* Full-app building status/controls. Renders only for
                       designs backed by a fusion app (see readFusionApp) and
                       only while the flag is on — the fusion actions the
