@@ -785,7 +785,8 @@ function cleanupOnFailure(targetDir: string): void {
  * Scaffold a single app template into `targetDir`. Resolves:
  *   - "headless" / legacy "blank" → bundled action-first template
  *   - "github:user/repo" → download the whole repo
- *   - first-party template name → download that subdir from BuilderIO/agent-native
+ *   - first-party template name → use a bundled copy or download its subdir
+ *     from BuilderIO/agent-native
  */
 async function scaffoldAppTemplate(
   targetDir: string,
@@ -842,15 +843,26 @@ function templateSourceName(name: string): string {
 }
 
 /**
- * When developing the framework itself, prefer the sibling templates/<name>
- * directory. Returns undefined when running as a published package.
+ * Prefer a nearby templates/<name> or src/templates/<name> directory. This
+ * covers the framework checkout, the dist/templates copy bundled into
+ * published CLI packages, and source templates included in package files;
+ * packages that do not bundle a template fall back to GitHub.
  */
 function findLocalTemplate(name: string): string | undefined {
-  let dir = path.resolve(__dirname);
+  return findLocalTemplateFrom(path.resolve(__dirname), name);
+}
+
+function findLocalTemplateFrom(
+  startDir: string,
+  name: string,
+): string | undefined {
+  let dir = path.resolve(startDir);
   for (let i = 0; i < 10; i++) {
-    const candidate = path.join(dir, "templates", name);
-    if (fs.existsSync(path.join(candidate, "package.json"))) {
-      return candidate;
+    for (const templatesDir of ["templates", "src/templates"]) {
+      const candidate = path.join(dir, templatesDir, name);
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        return candidate;
+      }
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -1332,6 +1344,8 @@ export {
   getToolkitDependencyVersion as _getToolkitDependencyVersion,
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
+  githubTarballUrl as _githubTarballUrl,
+  findLocalTemplateFrom as _findLocalTemplateFrom,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,
@@ -1405,7 +1419,7 @@ async function downloadAndExtract(
       "10",
       "--max-time",
       "120",
-      "-sL",
+      "-sSL",
       url,
     ],
     { maxBuffer: 100 * 1024 * 1024 },
@@ -1435,7 +1449,7 @@ async function downloadGitHubSubdir(
   }
   const errors: string[] = [];
   for (const ref of refs) {
-    const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
+    const tarUrl = githubTarballUrl(repo, ref, "tag");
     const tmpDir = path.join(
       targetDir,
       "..",
@@ -1471,8 +1485,16 @@ async function downloadGitHubRepo(
   targetDir: string,
 ): Promise<void> {
   validateRepoName(repo);
-  const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
+  const tarUrl = githubTarballUrl(repo, "main", "branch");
   await downloadAndExtract(tarUrl, targetDir);
+}
+
+function githubTarballUrl(
+  repo: string,
+  ref: string,
+  kind: "branch" | "tag",
+): string {
+  return `https://codeload.github.com/${repo}/tar.gz/refs/${kind === "tag" ? "tags" : "heads"}/${encodeURIComponent(ref)}`;
 }
 
 /* ─────────────────────────────────────────────────────────────────────────

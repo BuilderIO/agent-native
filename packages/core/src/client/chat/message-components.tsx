@@ -901,6 +901,7 @@ function ReasoningMessagePart() {
     <ReasoningCell
       text={part.text}
       isStreaming={isStreaming}
+      resetKey={`message-reasoning-${partIndex}`}
       durationMs={durationMs}
       defaultOpen={partIndex === latestReasoningPartIndex}
       collapseWhenReplaced={partIndex < latestReasoningPartIndex}

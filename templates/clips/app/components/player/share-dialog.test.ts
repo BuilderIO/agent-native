@@ -19,7 +19,9 @@ describe("recording share popover", () => {
   it("keeps human and agent links visible for every visibility", () => {
     const shareDialogSource = readSource("./share-dialog.tsx");
 
-    expect(shareDialogSource).toContain('label={t("shareDialog.shareLink")}');
+    expect(shareDialogSource).toContain(
+      'label={t("shareDialog.shareWithHumans")}',
+    );
     expect(shareDialogSource).toContain(
       'label={t("shareDialog.shareWithAgents")}',
     );

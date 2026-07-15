@@ -449,6 +449,7 @@ const messages = {
     invite: "招待",
     embed: "埋め込み",
     shareLink: "共有リンク",
+    shareWithHumans: "人と共有する",
     shareWithAgents: "エージェントと共有する",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:

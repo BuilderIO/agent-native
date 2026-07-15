@@ -1468,10 +1468,10 @@ function ResultsContent({ formId, form }: { formId: string; form: any }) {
                   key={response.id}
                   className="border-b border-border hover:bg-muted/20"
                 >
-                  <td className="px-4 py-2.5 text-xs text-muted-foreground">
+                  <td className="px-4 py-2.5 align-top text-xs text-muted-foreground">
                     {responses.length - idx}
                   </td>
-                  <td className="min-w-36 px-4 py-2.5 text-xs text-muted-foreground whitespace-nowrap">
+                  <td className="min-w-36 px-4 py-2.5 align-top text-xs text-muted-foreground whitespace-nowrap">
                     {format(new Date(response.submittedAt), "MMM d, h:mm a")}
                   </td>
                   {hasSubmitterEmail && (

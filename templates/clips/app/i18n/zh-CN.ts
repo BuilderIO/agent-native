@@ -424,6 +424,7 @@ const messages = {
     invite: "邀请",
     embed: "嵌入",
     shareLink: "分享链接",
+    shareWithHumans: "与人分享",
     shareWithAgents: "与代理商分享",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:

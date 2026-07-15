@@ -451,6 +451,7 @@ const messages = {
     invite: "Convidar",
     embed: "Incorporar",
     shareLink: "Link de compartilhamento",
+    shareWithHumans: "Compartilhe com pessoas",
     shareWithAgents: "Compartilhe com agentes",
     copyAgentPrompt: "Copiar prompt para agente",
     agentPrompt:

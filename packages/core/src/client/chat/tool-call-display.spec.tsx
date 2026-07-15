@@ -759,6 +759,16 @@ describe("ToolCallDisplay native renderers", () => {
       thoughtButtons.map((button) => button.getAttribute("aria-expanded")),
     ).toEqual(["false", "true"]);
     expect(container.textContent).not.toContain("First thought");
+    expect(container.textContent).not.toContain("Current thought");
+
+    act(() => {
+      root.render(
+        <ChatRunningContext.Provider value={false}>
+          <ReconnectStreamMessage content={content} />
+        </ChatRunningContext.Provider>,
+      );
+    });
+
     expect(container.textContent).toContain("Current thought");
   });
 });
@@ -865,6 +875,22 @@ describe("ReasoningCell", () => {
     expect(container.textContent).toContain("Thinking");
     const shimmer = container.querySelector(".agent-thinking-indicator__text");
     expect(shimmer?.textContent).toBe("Thinking");
+  });
+
+  it("smoothly reveals reasoning text while streaming and completes it when done", () => {
+    const text = "Weighing options carefully.";
+
+    act(() => {
+      root.render(<ReasoningCell text={text} isStreaming />);
+    });
+
+    expect(container.textContent).not.toContain(text);
+
+    act(() => {
+      root.render(<ReasoningCell text={text} isStreaming={false} />);
+    });
+
+    expect(container.textContent).toContain(text);
   });
 
   it('falls back to a plain "Thought" label with no live timing', () => {

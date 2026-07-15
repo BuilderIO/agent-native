@@ -380,7 +380,7 @@ function LinkTab({
       )}
 
       <CopyField
-        label={t("shareDialog.shareLink")}
+        label={t("shareDialog.shareWithHumans")}
         value={shareUrl}
         disabled={
           visibilityPending || !sharesLoaded || (!isPublic && canManage)

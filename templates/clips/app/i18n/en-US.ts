@@ -440,6 +440,7 @@ const messages = {
     invite: "Invite",
     embed: "Embed",
     shareLink: "Share link",
+    shareWithHumans: "Share with humans",
     shareWithAgents: "Share with agents",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
