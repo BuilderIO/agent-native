@@ -166,11 +166,14 @@ re-upload" path is slow, fragile, and does not work end-to-end.
    mutating actions and are NOT callable from `run-code` / `appAction` (the
    sandbox bridge only exposes read-only actions). Do not try to create or update
    an extension from inside `run-code`.
-5. Never route the full extension body through `run-code` or the chat. If you
-   must stage intermediate content, write it to a workspace scratch file and read
-   it back with `workspaceRead` (it returns the whole file, auto-paging past the
-   per-read cap). `contentFromAttachment` is only for a file the user pasted into
-   chat — not for workspace scratch files.
+5. **If the customized body already exists as a workspace/shared resource file**
+   (e.g. a pre-built `intuit-analytics-extension.html`), do NOT re-read it into
+   context or paste it inline. Call `create-extension` (or `update-extension`)
+   with `contentFromWorkspaceFile` set to that resource path and leave `content`
+   empty — the server reads the full file verbatim. Re-emitting an 80k+ char body
+   as the `content` argument stalls the turn (it gets cut off mid-stream), and
+   `contentFromAttachment` only sees files the user pasted into chat, not
+   workspace resources. Never route the body through `run-code`.
 6. Finally `update-dashboard` to save a new dashboard embedding the new
    extension panel (`chartType: "extension"`, `config.extensionId`), then
    `navigate` to it.
