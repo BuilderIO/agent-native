@@ -115,7 +115,14 @@ export function McpIntegrationDialog({
       ...(mcpServersQuery.data?.user ?? []),
       ...(mcpServersQuery.data?.org ?? []),
     ];
-    return new Set(servers.map((server) => compareUrl(server.url)));
+    // A saved server is not necessarily a working connection. The settings
+    // page reports failed and unknown health states separately, so only mark
+    // catalog entries as connected after the health probe succeeds.
+    return new Set(
+      servers
+        .filter((server) => server.status.state === "connected")
+        .map((server) => compareUrl(server.url)),
+    );
   }, [mcpServersQuery.data]);
 
   const filteredIntegrations = useMemo(

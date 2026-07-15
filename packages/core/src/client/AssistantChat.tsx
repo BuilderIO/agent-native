@@ -2354,6 +2354,11 @@ const AssistantChatInner = forwardRef<
   } | null>(null);
   const [authSessionAvailable, setAuthSessionAvailable] = useState(false);
   const [queuedMessages, setQueuedMessages] = useState<QueuedMessage[]>([]);
+  // The dequeue guard briefly stays locked after appending a queued turn so
+  // the adapter has time to claim the run. Wake the effect when that guard
+  // expires; otherwise a fast-completing turn can leave the remaining queue
+  // pending with no state transition left to trigger another dequeue.
+  const [queueWakeVersion, setQueueWakeVersion] = useState(0);
   const queuedMessagesRef = useRef<QueuedMessage[]>([]);
   const queueDirtyRef = useRef(false);
   const queueMutationVersionRef = useRef(0);
@@ -4041,6 +4046,7 @@ const AssistantChatInner = forwardRef<
           if (appended) {
             window.setTimeout(() => {
               dequeueInFlightRef.current = false;
+              setQueueWakeVersion((version) => version + 1);
             }, 500);
           } else {
             dequeueInFlightRef.current = false;
@@ -4062,6 +4068,7 @@ const AssistantChatInner = forwardRef<
     applyLocalQueuedMessages,
     isRestoring,
     isRunning,
+    queueWakeVersion,
     queuedMessages,
     threadId,
   ]);

@@ -102,6 +102,18 @@ function isProviderAuthenticationError(
   );
 }
 
+function isConnectionError(text: string, errorCode?: string): boolean {
+  const code = normalizeErrorCode(errorCode);
+  return (
+    code === "provider_network_error" ||
+    code === "connection_error" ||
+    code === "network_error" ||
+    /^(?:provider_network_error|connection_error|network_error)$/i.test(
+      text.trim(),
+    )
+  );
+}
+
 export function normalizeChatError(
   errorMessage: string,
   errorCode?: string,
@@ -122,6 +134,18 @@ export function normalizeChatError(
     return {
       message:
         "The model provider rejected the saved API key. Update the key in API Keys & Connections, then retry.",
+      details: text,
+    };
+  }
+
+  if (isConnectionError(text, errorCode)) {
+    const providerNetworkError =
+      normalizeErrorCode(errorCode) === "provider_network_error" ||
+      /provider_network_error/i.test(text);
+    return {
+      message: providerNetworkError
+        ? "The model provider could not be reached. Check your connection and retry."
+        : "The agent connection was interrupted. Check your connection and retry.",
       details: text,
     };
   }

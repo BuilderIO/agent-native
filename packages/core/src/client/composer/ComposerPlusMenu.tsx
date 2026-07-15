@@ -42,6 +42,10 @@ import {
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
 import { cn } from "../utils.js";
+import {
+  isExternalAssetPickerUrl,
+  standaloneAssetPickerUrl,
+} from "./asset-picker-url.js";
 import type { ComposerMode } from "./types.js";
 
 interface ComposerPlusMenuProps {
@@ -744,6 +748,20 @@ function AssetsPickerModal({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const [pickerReady, setPickerReady] = useState(false);
   const sourceUrl = useMemo(() => assetPickerUrl(), []);
+  const externalPicker = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      isExternalAssetPickerUrl(sourceUrl, window.location.origin),
+    [sourceUrl],
+  );
+  const standaloneUrl = useMemo(
+    () =>
+      standaloneAssetPickerUrl(
+        sourceUrl,
+        typeof window !== "undefined" ? window.location.href : undefined,
+      ),
+    [sourceUrl],
+  );
   const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
   const targetOrigin = useMemo(() => assetPickerOrigin(iframeUrl), [iframeUrl]);
   const configurePicker = useCallback(() => {
@@ -842,7 +860,22 @@ function AssetsPickerModal({
             <IconX className="h-4 w-4" />
           </button>
         </div>
-        {targetOrigin ? (
+        {externalPicker ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+            <div className="max-w-md text-sm text-muted-foreground">
+              Open Assets in a new tab to sign in and choose an image securely.
+            </div>
+            <a
+              href={standaloneUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={() => onOpenChange(false)}
+              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Open Assets image picker
+            </a>
+          </div>
+        ) : targetOrigin ? (
           <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
             {!pickerReady && <AssetsPickerLoadingSkeleton />}
             <iframe

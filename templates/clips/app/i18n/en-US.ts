@@ -451,6 +451,8 @@ const messages = {
     retryAgentLink: "Retry",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
+    chooseFile: "Choose file",
+    remove: "Remove",
     downloadMp4: "Download MP4",
     embedsNeedPublic: "Embeds need a public clip",
     embedPublicDescription:

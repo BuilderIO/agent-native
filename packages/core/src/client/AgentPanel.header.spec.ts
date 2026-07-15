@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -148,6 +150,33 @@ describe("AgentPanel mode and full-view visibility", () => {
     );
     expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
       false,
+    );
+  });
+});
+
+describe("AgentPanel stale lazy chunk recovery", () => {
+  it("uses the guarded reload path before the panel reset fallback", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const componentDidCatch = source.slice(
+      source.indexOf("componentDidCatch(error: Error"),
+      source.indexOf(
+        "componentDidUpdate(",
+        source.indexOf("componentDidCatch"),
+      ),
+    );
+
+    expect(source).toContain(
+      'import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";',
+    );
+    expect(componentDidCatch).toContain(
+      "if (recoverFromStaleChunkError(error))",
+    );
+    expect(
+      componentDidCatch.indexOf("recoverFromStaleChunkError(error)"),
+    ).toBeLessThan(
+      componentDidCatch.indexOf("assistantUiRecoverableRenderErrorKind(error)"),
     );
   });
 });

@@ -1648,6 +1648,25 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
   });
+
+  it("wakes the dequeue loop after its startup guard expires", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("// Auto-dequeue:");
+    const end = source.indexOf(
+      "// Clear frozen reconnect content + forceStopped",
+    );
+    const dequeueSource = source.slice(start, end);
+
+    expect(source).toContain(
+      "const [queueWakeVersion, setQueueWakeVersion] = useState(0);",
+    );
+    expect(dequeueSource).toContain(
+      "setQueueWakeVersion((version) => version + 1);",
+    );
+    expect(dequeueSource).toContain("queueWakeVersion,");
+  });
 });
 
 describe("waitForThreadRunToClear", () => {

@@ -468,6 +468,8 @@ const messages = {
     retryAgentLink: "Erneut versuchen",
     gifPreview: "GIF-Vorschau",
     openPlayer: "Spieler öffnen",
+    chooseFile: "Datei auswählen",
+    remove: "Entfernen",
     downloadMp4: "Laden Sie MP4 herunter",
     embedsNeedPublic: "Für Einbettungen ist ein öffentlicher Clip erforderlich",
     embedPublicDescription:

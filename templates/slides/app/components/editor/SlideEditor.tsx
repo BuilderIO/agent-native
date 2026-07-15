@@ -1141,7 +1141,10 @@ export default function SlideEditor({
       const selector = getBuilderSelector(el);
       el.contentEditable = "true";
       el.setAttribute("data-editing-block", "true");
-      clearSelectedElement();
+      // Keep the inspector selection mounted while text is being edited. The
+      // inspector is a stable dock, so clearing it here would make the canvas
+      // resize and auto-fit again on the second click.
+      setSelectedElementRect(null);
       captureInlineEditDraft(slide.id);
       // Mark the deck dirty immediately so SSE/poll refreshes do not replace
       // the deck under an active contentEditable edit, even before the user
@@ -1167,13 +1170,7 @@ export default function SlideEditor({
         );
       }
     },
-    [
-      buildSelectionState,
-      captureInlineEditDraft,
-      clearSelectedElement,
-      onInlineEditStart,
-      slide.id,
-    ],
+    [buildSelectionState, captureInlineEditDraft, onInlineEditStart, slide.id],
   );
 
   // Exit edit mode when switching slides — save pending content first so
@@ -2053,18 +2050,29 @@ export default function SlideEditor({
           )}
         </div>
 
-        {selectedStyleSnapshot && !readOnly && (
-          <div className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block">
-            <SlideStyleInspector
-              snapshot={selectedStyleSnapshot}
-              designSystem={designSystem}
-              className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
-              onChange={applySelectedStylePatch}
-              onClose={() => {
-                clearSelectedElement();
-                syncSelectionToAppState(null);
-              }}
-            />
+        {!readOnly && (
+          <div
+            className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block"
+            data-slide-style-dock="true"
+          >
+            {selectedStyleSnapshot ? (
+              <SlideStyleInspector
+                snapshot={selectedStyleSnapshot}
+                designSystem={designSystem}
+                className="h-full w-full rounded-none border-0 bg-transparent shadow-none"
+                onChange={applySelectedStylePatch}
+                onClose={() => {
+                  clearSelectedElement();
+                  syncSelectionToAppState(null);
+                }}
+              />
+            ) : (
+              <div className="flex h-11 items-center border-b border-border/70 px-3">
+                <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/70">
+                  {t("styleInspector.title")}
+                </span>
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -2082,7 +2090,7 @@ export default function SlideEditor({
           viewportRect={selectionViewportRect}
         />
       )}
-      {selectedElementRect && (
+      {selectedElementRect && !editingEl && (
         <ElementSelectionOutline
           rect={selectedElementRect}
           viewportRect={selectionViewportRect}

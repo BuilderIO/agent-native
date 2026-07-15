@@ -110,6 +110,7 @@ import type {
   MultiTabAssistantChatHeaderProps,
   MultiTabAssistantChatProps,
 } from "./MultiTabAssistantChat.js";
+import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";
 import { AgentNativeRouteWarmup } from "./route-warmup.js";
 import { withBuilderConnectTrackingParams } from "./settings/useBuilderStatus.js";
 import { useScreenRefreshKey } from "./use-db-sync.js";
@@ -2371,6 +2372,12 @@ class AgentPanelErrorBoundary extends React.Component<
   }
 
   componentDidCatch(error: Error, errorInfo: React.ErrorInfo) {
+    if (recoverFromStaleChunkError(error)) {
+      console.warn(
+        "[agent-native] Recovering agent panel after stale chunk error",
+      );
+      return;
+    }
     const recoverableKind = assistantUiRecoverableRenderErrorKind(error);
     if (recoverableKind) {
       console.warn(

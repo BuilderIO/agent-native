@@ -13,7 +13,7 @@ import { writeAppState } from "@agent-native/core/application-state";
 import { deleteAppSecret, readAppSecret } from "@agent-native/core/secrets";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -88,6 +88,43 @@ export default defineAction({
         scope: "user",
         scopeId: secretScopeEmail,
       }).catch(() => {});
+    }
+
+    // Preserve recorded meetings, but hide unrecorded calendar placeholders
+    // tied to this account. Without this cleanup, those materialized rows stay
+    // visible after the account and its calendar-event cache are removed.
+    const syncedEvents = await db
+      .select({
+        id: schema.calendarEvents.id,
+        meetingId: schema.calendarEvents.meetingId,
+      })
+      .from(schema.calendarEvents)
+      .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+    const syncedCalendarEventIds = syncedEvents.map((event) => event.id);
+    const syncedMeetingIds = syncedEvents
+      .map((event) => event.meetingId)
+      .filter((meetingId): meetingId is string => Boolean(meetingId));
+    if (syncedCalendarEventIds.length > 0 || syncedMeetingIds.length > 0) {
+      await db
+        .update(schema.meetings)
+        .set({ trashedAt: new Date().toISOString() })
+        .where(
+          and(
+            or(
+              syncedMeetingIds.length > 0
+                ? inArray(schema.meetings.id, syncedMeetingIds)
+                : undefined,
+              syncedCalendarEventIds.length > 0
+                ? inArray(
+                    schema.meetings.calendarEventId,
+                    syncedCalendarEventIds,
+                  )
+                : undefined,
+            )!,
+            isNull(schema.meetings.recordingId),
+            isNull(schema.meetings.trashedAt),
+          ),
+        );
     }
 
     // Drop the synced events for this account so the meetings tab clears.

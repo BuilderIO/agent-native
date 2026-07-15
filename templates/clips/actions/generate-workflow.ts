@@ -15,7 +15,10 @@
  */
 
 import { defineAction } from "@agent-native/core";
-import { writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -77,6 +80,22 @@ export default defineAction({
 
     const stateKey = `clips-workflow-${args.recordingId}`;
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
+
+    const existing = await readAppState(stateKey).catch(() => null);
+    if (existing?.status === "generating") {
+      const requestedAt = Date.parse(String(existing.requestedAt ?? ""));
+      const isRecent =
+        !Number.isFinite(requestedAt) || Date.now() - requestedAt < 10 * 60_000;
+      if (isRecent) {
+        return {
+          queued: false,
+          duplicate: true,
+          recordingId: args.recordingId,
+          kind: existing.kind ?? args.kind,
+          stateKey,
+        };
+      }
+    }
 
     // Seed the output state with a "generating" placeholder so the UI can show
     // a loading state immediately.
