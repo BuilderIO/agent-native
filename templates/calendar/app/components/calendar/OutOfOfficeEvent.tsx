@@ -62,22 +62,28 @@ export function OutOfOfficeEvent({
   const title = event.title || label;
 
   return (
-    <div
-      data-out-of-office-event={event.id}
-      className="pointer-events-none absolute inset-x-0 z-0"
-      style={{ top: `${top}px`, height: `${height}px` }}
-    >
+    <>
       <div
-        aria-hidden="true"
-        className="absolute inset-0"
+        data-out-of-office-event={event.id}
+        className="pointer-events-none absolute inset-x-0 z-0"
+        style={{ top: `${top}px`, height: `${height}px` }}
+      >
+        <div
+          aria-hidden="true"
+          className="absolute inset-0"
+          style={{
+            backgroundColor: `color-mix(in srgb, ${color} 7%, transparent)`,
+            boxShadow: `inset 2px 0 0 color-mix(in srgb, ${color} 28%, transparent)`,
+          }}
+        />
+      </div>
+      <div
+        data-out-of-office-trigger={event.id}
+        className="pointer-events-auto absolute right-1 z-40"
         style={{
-          backgroundColor: `color-mix(in srgb, ${color} 7%, transparent)`,
-          boxShadow: `inset 2px 0 0 color-mix(in srgb, ${color} 28%, transparent)`,
+          top: `${top + 4}px`,
+          left: `${4 + markerIndex * 12}px`,
         }}
-      />
-      <div
-        className="pointer-events-auto absolute right-1 top-1 z-10"
-        style={{ left: `${4 + markerIndex * 12}px` }}
       >
         <EventDetailPopover
           event={event}
@@ -108,6 +114,6 @@ export function OutOfOfficeEvent({
           </button>
         </EventDetailPopover>
       </div>
-    </div>
+    </>
   );
 }

@@ -295,6 +295,24 @@ describe("EventDetailPopover characterization", () => {
     // Sidebar mode consumes this interaction, so the popover never becomes
     // visible and parents must not receive a misleading open notification.
     expect(onOpenChange).not.toHaveBeenCalled();
+
+    calendarContext.eventDetailSidebar = false;
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    // Disabling sidebar mode later must not reveal a popover that was never
+    // visibly opened.
+    expect(findByExactText("button", "Open")).toBeUndefined();
+    expect(onOpenChange).not.toHaveBeenCalled();
   });
 
   it("resyncs unedited fields from the event prop but preserves an in-progress edit on the actively edited field", () => {

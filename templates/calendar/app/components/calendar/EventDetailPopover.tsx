@@ -1281,6 +1281,7 @@ export function EventDetailPopover({
     (newOpen: boolean) => {
       const isPopoverSuppressed =
         eventDetailSidebar && !isNewEventRef.current && !isDraft;
+      if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
         const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
@@ -1321,7 +1322,7 @@ export function EventDetailPopover({
         isNewEventRef.current = false;
       }
       setOpen(newOpen);
-      if (!isPopoverSuppressed && newOpen !== open) {
+      if (newOpen !== open) {
         onOpenChange?.(newOpen);
       }
     },
