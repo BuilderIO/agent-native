@@ -36,7 +36,7 @@ export function ListSelectionToolbar({
 
   return (
     <div
-      className="flex h-10 items-center gap-2"
+      className="flex h-12 items-center gap-2 px-1"
       role="toolbar"
       aria-label={ariaLabel}
     >

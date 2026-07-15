@@ -2,14 +2,17 @@ import { IconChecks, IconTrash } from "@tabler/icons-react";
 import { useState } from "react";
 
 import type { SortableItemRenderProps } from "@/components/dnd/SortableItem";
-import { InlineEditable } from "@/components/shared/InlineEditable";
+import {
+  InlineEditable,
+  LIST_ROW_TITLE_FIELD_CLASS,
+} from "@/components/shared/InlineEditable";
 import { ListRow } from "@/components/shared/list/ListRow";
 import { ListRowDragHandle } from "@/components/shared/list/ListRowDragHandle";
 import { RowActionsMenu } from "@/components/shared/RowActionsMenu";
 import type { ListSelection } from "@/components/shared/selection/use-list-selection";
 import { Button } from "@/components/ui/button";
-import { Checkbox } from "@/components/ui/checkbox";
 import { DropdownMenuItem } from "@/components/ui/dropdown-menu";
+import { cn } from "@/lib/utils";
 
 export interface InboxListRowProps {
   sortable: SortableItemRenderProps;
@@ -61,18 +64,14 @@ export function InboxListRow({
             disabled={busy}
           />
 
-          {rowSelection.selectionMode ? (
-            <Checkbox
-              checked={rowSelection.selected}
-              onClick={rowSelection.selectRow}
-              className="cursor-pointer"
-              aria-label={`Select ${displayTitle}`}
-            />
-          ) : null}
-
           <div className="min-w-0 flex-1">
             {rowSelection.selectionMode ? (
-              <div className="flex h-8 min-w-0 items-center truncate text-sm font-medium">
+              <div
+                className={cn(
+                  LIST_ROW_TITLE_FIELD_CLASS,
+                  "flex items-center truncate border-transparent bg-transparent text-left",
+                )}
+              >
                 {displayTitle}
               </div>
             ) : (
@@ -87,39 +86,35 @@ export function InboxListRow({
             )}
           </div>
 
-          {!rowSelection.selectionMode ? (
-            <>
-              <Button
-                type="button"
-                variant="secondary"
-                size="sm"
-                disabled={busy}
-                onClick={() => void handleMarkReady()}
-              >
-                Mark ready
-              </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="sm"
+            disabled={busy || rowSelection.selectionMode}
+            onClick={() => void handleMarkReady()}
+          >
+            Mark ready
+          </Button>
 
-              <RowActionsMenu
-                ariaLabel={`Actions for ${displayTitle}`}
-                disabled={busy}
-              >
-                <DropdownMenuItem
-                  className="gap-2"
-                  onSelect={() => selection.actions.startSelection(item.id)}
-                >
-                  <IconChecks className="size-4" />
-                  Select
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
-                  onSelect={onRequestDelete}
-                >
-                  <IconTrash className="size-4" />
-                  Delete
-                </DropdownMenuItem>
-              </RowActionsMenu>
-            </>
-          ) : null}
+          <RowActionsMenu
+            ariaLabel={`Actions for ${displayTitle}`}
+            disabled={busy || rowSelection.selectionMode}
+          >
+            <DropdownMenuItem
+              className="gap-2"
+              onSelect={() => selection.actions.startSelection(item.id)}
+            >
+              <IconChecks className="size-4" />
+              Select
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
+              onSelect={onRequestDelete}
+            >
+              <IconTrash className="size-4" />
+              Delete
+            </DropdownMenuItem>
+          </RowActionsMenu>
         </>
       )}
     </ListRow>

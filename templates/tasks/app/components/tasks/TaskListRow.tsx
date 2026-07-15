@@ -101,7 +101,7 @@ export function TaskListRow({
       {({ rowDrag, rowSelection }) => {
         const selectionTitleClassName = cn(
           LIST_ROW_TITLE_FIELD_CLASS,
-          "truncate border-transparent text-foreground",
+          "flex items-center truncate border-transparent bg-transparent text-left text-foreground",
           displayDone && "line-through text-muted-foreground",
           rowSelection.selected && displayDone && "text-foreground/80",
         );
@@ -148,27 +148,25 @@ export function TaskListRow({
               <TaskListRowFieldStrip fields={fields} />
             </div>
 
-            {!rowSelection.selectionMode ? (
-              <RowActionsMenu
-                ariaLabel={`Actions for ${displayTitle}`}
-                disabled={busy}
+            <RowActionsMenu
+              ariaLabel={`Actions for ${displayTitle}`}
+              disabled={busy || rowSelection.selectionMode}
+            >
+              <DropdownMenuItem
+                className="gap-2"
+                onSelect={() => selection.actions.startSelection(item.id)}
               >
-                <DropdownMenuItem
-                  className="gap-2"
-                  onSelect={() => selection.actions.startSelection(item.id)}
-                >
-                  <IconChecks className="size-4" />
-                  Select
-                </DropdownMenuItem>
-                <DropdownMenuItem
-                  className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
-                  onSelect={onRequestDelete}
-                >
-                  <IconTrash className="size-4" />
-                  Delete
-                </DropdownMenuItem>
-              </RowActionsMenu>
-            ) : null}
+                <IconChecks className="size-4" />
+                Select
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className="gap-2 text-destructive focus:bg-destructive focus:text-destructive-foreground"
+                onSelect={onRequestDelete}
+              >
+                <IconTrash className="size-4" />
+                Delete
+              </DropdownMenuItem>
+            </RowActionsMenu>
           </>
         );
       }}

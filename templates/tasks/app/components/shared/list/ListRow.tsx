@@ -74,7 +74,6 @@ export function ListRow<T extends ListIdentifiable>({
   const selected =
     selection?.state.selectedItems.some((entry) => entry.id === item.id) ??
     false;
-  const selectedItemsCount = selection?.state.selectedItems.length ?? 0;
   const activateEnabled = Boolean(onActivate) && !selectionMode;
 
   function selectRow(event: MouseEvent<Element>) {
@@ -82,14 +81,13 @@ export function ListRow<T extends ListIdentifiable>({
   }
 
   const rowDragEnabled = !selectionMode;
-  const gripDragEnabled = !selectionMode || selectedItemsCount > 0;
   const { dragHandleProps, rowDragProps, titleDragProps } =
     getSortableDragProps(sortable.attributes, sortable.listeners);
   const isDragging = sortable.isDragging;
   const gatedRowDragProps = rowDragEnabled ? rowDragProps : undefined;
   const renderArgs: ListRowRenderArgs = {
     rowDrag: {
-      dragHandleProps: gripDragEnabled ? dragHandleProps : undefined,
+      dragHandleProps,
       titleDragProps: rowDragEnabled ? titleDragProps : undefined,
       isDragging,
     },

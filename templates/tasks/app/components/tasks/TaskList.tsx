@@ -207,13 +207,11 @@ export function TaskList({
               )}
             </div>
 
-            {!selectionActive ? (
-              <div className="shrink-0">
-                <TaskListHeaderRow
-                  task={orderedTasks.find((task) => task.fields)}
-                />
-              </div>
-            ) : null}
+            <div className="shrink-0">
+              <TaskListHeaderRow
+                task={orderedTasks.find((task) => task.fields)}
+              />
+            </div>
 
             <div
               aria-label={
