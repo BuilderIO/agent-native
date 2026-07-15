@@ -878,11 +878,17 @@ jobs:
           PLAN_URL: ${{ steps.url.outputs.plan_url }}
           # Use the gate-normalized agent so "Codex" still selects the right file.
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+          RECAP_REPAIR_SUCCEEDED: ${{ steps.publish_repair.outcome == 'success' }}
         run: |
           set -uo pipefail
           RESULT=claude-result.json
           if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-events.jsonl; fi
           if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-usage.json; fi
+          if [ "$RECAP_REPAIR_SUCCEEDED" = "true" ]; then
+            RESULT=claude-repair-result.json
+            if [ "$RECAP_AGENT" = "codex" ]; then RESULT=codex-repair-events.jsonl; fi
+            if [ "$RECAP_AGENT" = "openai-compatible" ]; then RESULT=openai-compatible-repair-usage.json; fi
+          fi
           if [ -f "$RESULT" ]; then $RECAP_CLI recap usage --plan-url "$PLAN_URL" --agent "$RECAP_AGENT" --result-file "$RESULT" --model "${VISUAL_RECAP_MODEL:-}" --app-url "$PLAN_RECAP_APP_URL" --token "$PLAN_RECAP_TOKEN" || true; fi
 
       - name: Cache Playwright browsers

@@ -736,7 +736,7 @@ describe("recap direct publish", () => {
       ).toThrow(/localized parser fix/);
 
       const largeCodeBlock = Array.from(
-        { length: 80 },
+        { length: 180 },
         (_, index) => `const value${index} = ${index};`,
       ).join("\n");
       original.mdx["plan.mdx"] =
@@ -2932,6 +2932,10 @@ describe("bundled PR visual recap workflow", () => {
       expect(workflow).toContain("steps.repaired_source.outputs.ok == 'true'");
       expect(workflow).toContain("steps.repaired_source.outputs.reason");
       expect(workflow).toContain("RECAP_REPAIR_ATTEMPTED");
+      expect(workflow).toContain("RECAP_REPAIR_SUCCEEDED");
+      expect(workflow).toContain(
+        'if [ "$RECAP_REPAIR_SUCCEEDED" = "true" ]; then',
+      );
       expect(workflow).toContain("claude-repair-result.json");
       expect(workflow).toContain("recap-source.initial.json");
       const artifactBlock = workflow.slice(

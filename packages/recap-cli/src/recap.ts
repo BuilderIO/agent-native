@@ -2889,9 +2889,6 @@ export function validateRecapRepairSource(input: {
   ) {
     suffixLength += 1;
   }
-  const preservedLength = prefixLength + suffixLength;
-  const originalChangedLength = originalTarget.length - preservedLength;
-  const repairedChangedLength = repairedTarget.length - preservedLength;
   const diagnosticLine = Number(diagnostic?.[2]);
   const diagnosticColumn = Number(diagnostic?.[3]);
   const targetLines = originalTarget.split("\n");
@@ -2921,12 +2918,7 @@ export function validateRecapRepairSource(input: {
     : Math.min(originalTarget.length, diagnosticOffset + 250);
   const originalChangedStart = prefixLength;
   const originalChangedEnd = originalTarget.length - suffixLength;
-  if (
-    originalChangedStart < allowedStart ||
-    originalChangedEnd > allowedEnd ||
-    originalChangedLength > 2000 ||
-    repairedChangedLength > 2000
-  ) {
+  if (originalChangedStart < allowedStart || originalChangedEnd > allowedEnd) {
     throw new Error(
       `Repair changed too much of targeted file ${targetFile}; expected a localized parser fix.`,
     );
