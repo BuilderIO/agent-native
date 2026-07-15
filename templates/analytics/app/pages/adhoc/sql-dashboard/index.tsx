@@ -181,6 +181,31 @@ function groupDashboardTabs(tabs: string[]): {
   return { groups, hasNestedTabs };
 }
 
+function parseReportPanelLimit(raw: string | null): number | null {
+  if (!raw) return null;
+  const parsed = Number.parseInt(raw, 10);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.min(50, parsed);
+}
+
+function limitReportPanels(panels: SqlPanel[], limit: number | null) {
+  if (!limit) return panels;
+  const limited: SqlPanel[] = [];
+  let chartCount = 0;
+
+  for (const panel of panels) {
+    if (panel.chartType === "section") {
+      if (chartCount < limit) limited.push(panel);
+      continue;
+    }
+    if (chartCount >= limit) continue;
+    chartCount++;
+    limited.push(panel);
+  }
+
+  return limited;
+}
+
 function DashboardDropLine({
   slot,
   activeSlot,
@@ -453,6 +478,9 @@ export default function SqlDashboardPage() {
   const dashboardId = searchParams.get("id") || routeId;
   const reportScreenshot = searchParams.get("reportScreenshot") === "1";
   const reportSettingsRequested = searchParams.get("reportSettings") === "1";
+  const reportPanelLimit = reportScreenshot
+    ? parseReportPanelLimit(searchParams.get("reportPanelLimit"))
+    : null;
 
   const [dashboard, setDashboard] = useState<SqlDashboardConfig | null>(null);
   const [archivedAt, setArchivedAt] = useState<string | null>(null);
@@ -1162,8 +1190,8 @@ export default function SqlDashboardPage() {
     const tabPanels = activeTab
       ? dashboard.panels.filter((p) => !p.tab || p.tab === activeTab)
       : dashboard.panels;
-    return tabPanels;
-  }, [dashboard, activeTab]);
+    return limitReportPanels(tabPanels, reportPanelLimit);
+  }, [dashboard, activeTab, reportPanelLimit]);
 
   // Group panels into "section blocks": each section starts a new block whose
   // grid uses the section's `columns` (falling back to the dashboard default).

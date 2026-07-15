@@ -55,12 +55,13 @@ const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 
 type DashboardScreenshotAttempt = {
-  label: "full" | "full-lightweight";
+  label: "full" | "full-lightweight" | "limited";
   viewport: { width: number; height: number };
   captureScale?: number;
   readyTimeout?: number;
   secondReadyTimeout?: number;
   totalTimeout?: number;
+  reportPanelLimit?: number;
 };
 
 type LaunchedScreenshotBrowser = {
@@ -579,6 +580,12 @@ async function captureDashboardPng(
   const screenshotUrl = new URL(targetPath, `${dashboardBaseUrl()}/`);
   screenshotUrl.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
   screenshotUrl.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
+  if (attempt.reportPanelLimit) {
+    screenshotUrl.searchParams.set(
+      "reportPanelLimit",
+      String(attempt.reportPanelLimit),
+    );
+  }
 
   let browser: any;
   let cleanup = async () => {};
@@ -763,9 +770,10 @@ function storedAttemptError(message: string): string {
 async function captureDashboardPngWithFallback(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
+  options?: { includeLimitedFallback?: boolean },
 ): Promise<{
   png: Buffer | null;
-  mode: "full" | "full-lightweight" | "none";
+  mode: "full" | "full-lightweight" | "limited" | "none";
   error?: string;
 }> {
   const serverless = isServerlessBrowserRuntime();
@@ -794,13 +802,34 @@ async function captureDashboardPngWithFallback(
         : {}),
     },
   ];
+  if (options?.includeLimitedFallback) {
+    // Only added on the final sweep after the 1-hour retry window, when the
+    // alternative is a no-image fallback email. All three serverless attempt
+    // totalTimeouts must sum well under the 300s Netlify background-function
+    // timeout: 125s + 85s + 55s = 265s.
+    attempts.push({
+      label: "limited",
+      viewport: { width: 1200, height: 1400 },
+      captureScale: 0.7,
+      reportPanelLimit: 8,
+      ...(serverless
+        ? {
+            readyTimeout: 40_000,
+            secondReadyTimeout: 10_000,
+            totalTimeout: 55_000,
+          }
+        : {}),
+    });
+  }
   const errors: string[] = [];
 
   for (const attempt of attempts) {
     try {
+      const png = await captureDashboardPng(sub, snapshot, attempt);
       return {
-        png: await captureDashboardPng(sub, snapshot, attempt),
+        png,
         mode: attempt.label,
+        ...(errors.length ? { error: errors.join(" | ") } : {}),
       };
     } catch (err) {
       const attemptError = errorMessage(err);
@@ -889,17 +918,20 @@ export async function sendDashboardReportSubscription(
   options: {
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
+    allowLimitedFallback?: boolean;
   } = {},
 ): Promise<{
   dashboardUrl: string;
   recipientCount: number;
   screenshotAttached: boolean;
-  screenshotMode: "full" | "full-lightweight" | "none";
+  screenshotMode: "full" | "full-lightweight" | "limited" | "none";
   screenshotError?: string;
   emailsSent: boolean;
 }> {
   const snapshot = await collectReportSnapshot(sub);
-  const capture = await captureDashboardPngWithFallback(sub, snapshot);
+  const capture = await captureDashboardPngWithFallback(sub, snapshot, {
+    includeLimitedFallback: options?.allowLimitedFallback,
+  });
   if (!capture.png && options.requireScreenshot) {
     throw new Error(
       capture.error
