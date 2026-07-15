@@ -14,7 +14,9 @@ import {
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import { credentialProviderConfigs } from "../lib/credential-keys";
 import {
+  draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
+  hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
@@ -23,6 +25,7 @@ import {
   isSafeNoDataAnalyticsResponse,
   hasOverstatedCoverageConfidenceClaim,
   looksLikeCoverageSensitiveAnalyticsRequest,
+  looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
@@ -522,6 +525,33 @@ export function realDataFinalGuard(
         "I can't make a confident exhaustive analytics claim yet because part of the source evidence was aborted, truncated, or still paginated. I need to recover the missing coverage or state the answer as partial with the inspected sample size.",
     };
   }
+  // Dashboard construction/template-clone turns may inspect and clone an
+  // existing dashboard/extension without running a metric query, as long as
+  // the draft does not invent numbers. Check this before the generic
+  // "no data query ran" fallback so a template-based extension clone is not
+  // treated the same as an unanswerable analytics-result question.
+  if (
+    looksLikeDashboardConstructionRequest(userText) &&
+    !draftClaimsAnalyticsMetrics(context.text)
+  ) {
+    if (
+      hasDashboardConstructionAttempt(context.toolResults) ||
+      isSafeNoDataAnalyticsResponse(context.text)
+    ) {
+      return null;
+    }
+    return {
+      retryMessage:
+        'This is a dashboard construction/template-clone request. Resolve the named template\'s id (use `list-sql-dashboards` if you only have a title) and call `get-sql-dashboard` with `includeConfig: true` first. If its panels are `chartType: "extension"`, use `get-extension` then `create-extension` to clone/adapt it, then `update-dashboard` to save the new dashboard. Do not invent SQL panels for an extension-backed template. Ask one clarifying filter question if needed. Only run a data-source query before presenting numbers or authoring invented SQL.',
+      fallbackMessage:
+        "I need to inspect the template dashboard (and its extension, if it uses one) before creating the new one. Tell me the template dashboard name, or confirm the org/account filter, and I'll clone it without inventing metrics.",
+      // list-sql-dashboards/list-dashboard-templates are on the initial
+      // surface, but expand anyway so a corrective retry can always reach
+      // the lookup/inspection tools this message asks for.
+      expandToolSurface: true,
+    };
+  }
+
   if (dataQueryAttempted) return null;
   if (isSafeNoDataAnalyticsResponse(context.text)) {
     if (firstPartySourceShouldBeTried) {

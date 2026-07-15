@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
   GENERIC_NO_DATA_FALLBACK_MESSAGE,
+  hasDashboardConstructionAttempt,
   hasExplicitPartialDisclosure,
   hasCorpusWorkflowAttempt,
   hasDataQueryAttempt,
@@ -13,6 +15,7 @@ import {
   isGenericNoDataFallback,
   isSafeNoDataAnalyticsResponse,
   looksLikeCoverageSensitiveAnalyticsRequest,
+  looksLikeDashboardConstructionRequest,
   looksLikeStrongCoverageClaim,
   looksLikeAnalyticsDataRequest,
   needsCorpusWorkflowForCoverageSensitiveRequest,
@@ -791,6 +794,102 @@ describe("incomplete evidence detection", () => {
     expect(
       hasOverstatedCoverageConfidenceClaim(
         "Partial coverage: I found 0 matches in the 200 calls inspected; this is a defensible interim read.",
+      ),
+    ).toBe(false);
+  });
+
+  it("treats a Company A template clone for Company B as dashboard construction", () => {
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Create a new dashboard for Company B using the Company A User Usage Analytics dashboard as a template",
+      ),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "Use the same source data as Company A, filter for Company B",
+      ),
+    ).toBe(false);
+  });
+
+  it("still treats a plain numeric analytics question as a data request, not construction", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("What was our conversion rate last week?"),
+    ).toBe(true);
+    expect(
+      looksLikeDashboardConstructionRequest(
+        "What was our conversion rate last week?",
+      ),
+    ).toBe(false);
+  });
+
+  it("accepts get-sql-dashboard and extension actions as construction progress", () => {
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-sql-dashboard", content: '{"id":"company-a-analysis"}' },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-extension", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(hasDashboardConstructionAttempt([{ name: "bigquery" }])).toBe(false);
+    expect(hasDashboardConstructionAttempt([])).toBe(false);
+  });
+
+  it("does not treat authoring/saving a dashboard or extension alone as construction progress", () => {
+    // update-dashboard/mutate-dashboard/create-extension/update-extension can
+    // all author brand-new SQL or extension content, so calling them with no
+    // prior inspection/clone step must not be enough to bypass the real-data
+    // guard for an invented dashboard or extension.
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "mutate-dashboard", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "create-extension", content: "{}" },
+      ]),
+    ).toBe(false);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "update-extension", content: "{}" },
+      ]),
+    ).toBe(false);
+    // But it's fine alongside a real inspection/clone step.
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-extension", content: "{}" },
+        { name: "update-dashboard", content: "{}" },
+      ]),
+    ).toBe(true);
+    expect(
+      hasDashboardConstructionAttempt([
+        { name: "get-sql-dashboard", content: "{}" },
+        { name: "create-extension", content: "{}" },
+      ]),
+    ).toBe(true);
+  });
+
+  it("still blocks inventing metrics without a data query", () => {
+    expect(draftClaimsAnalyticsMetrics("Company B has 12,450 users")).toBe(
+      true,
+    );
+    expect(
+      draftClaimsAnalyticsMetrics("Company B signups increased last week"),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics("Company B had zero signups last week"),
+    ).toBe(true);
+    expect(
+      draftClaimsAnalyticsMetrics(
+        "I've cloned the Company A extension for Company B. What org id should I filter on?",
       ),
     ).toBe(false);
   });

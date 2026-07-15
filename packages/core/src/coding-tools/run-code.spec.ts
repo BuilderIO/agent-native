@@ -72,7 +72,7 @@ describe("run-code bridge", () => {
     });
 
     expect(result).toContain(
-      'write-users: Tool "write-users" is not an agent-exposed read-only action',
+      'write-users: Tool "write-users" is a mutating action and cannot be called from run-code',
     );
     expect(result).toContain(
       'hidden-reader: Tool "hidden-reader" is not an agent-exposed read-only action',

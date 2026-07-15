@@ -57,6 +57,25 @@ export const CORPUS_SOURCE_ACTIONS = new Set([
 
 export const CORPUS_REDUCTION_ACTIONS = new Set(["run-code"]);
 
+// Inspecting or cloning an existing dashboard/extension template is
+// construction progress, not a metric query. These do not satisfy
+// hasDataQueryAttempt, but they should stop the guard from steering a
+// template-clone turn into "connect a missing source". Deliberately limited
+// to read/inspection actions: update-dashboard/mutate-dashboard/
+// compose-dashboard/install-dashboard-template/create-extension/
+// update-extension can all author brand-new SQL or extension content, so
+// calling one of those alone is not proof the turn actually inspected a
+// template rather than inventing it from scratch. If the tool run also
+// includes one of these read actions, the bypass still applies even when an
+// authoring/save action ran alongside it.
+export const DASHBOARD_CONSTRUCTION_ACTIONS = new Set([
+  "get-sql-dashboard",
+  "list-sql-dashboards",
+  "list-dashboard-templates",
+  "list-extensions",
+  "get-extension",
+]);
+
 const RUN_CODE_BRIDGE_TOOLS_USED = /^bridgeToolsUsed:\s*(.+)$/im;
 
 const MCP_DATA_SOURCE_TOKENS = [
@@ -95,6 +114,41 @@ function isToolName(name: string, expected: string): boolean {
 
 function isDataQueryActionName(name: string): boolean {
   return DATA_QUERY_ACTIONS.has(normalizeActionToolName(name));
+}
+
+function isDashboardConstructionActionName(name: string): boolean {
+  return DASHBOARD_CONSTRUCTION_ACTIONS.has(normalizeActionToolName(name));
+}
+
+// "Build/clone/template" language targeting a dashboard/extension/panel is
+// dashboard construction, distinct from an analytics-result question. Turns
+// like this may inspect and clone a template without running a metric query.
+const DASHBOARD_CONSTRUCTION_INTENT_TERMS =
+  /\b(build|create|make|clone|copy|duplicate|adapt|template|based (?:off|on)|using .{1,80}? as a template)\b/i;
+
+const DASHBOARD_CONSTRUCTION_TARGET_TERMS =
+  /\b(dashboard|extension|panel|widget)\b/i;
+
+export function looksLikeDashboardConstructionRequest(text: string): boolean {
+  const requestText = stripInjectedAnalyticsGuardContext(text);
+  const lower = requestText.toLowerCase();
+  if (!lower) return false;
+  const wantsBuild = DASHBOARD_CONSTRUCTION_INTENT_TERMS.test(lower);
+  const targetsDashboard =
+    DASHBOARD_CONSTRUCTION_TARGET_TERMS.test(lower) ||
+    lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase());
+  return wantsBuild && targetsDashboard;
+}
+
+export function hasDashboardConstructionAttempt(
+  toolResults:
+    | Array<{ name?: string; isError?: boolean; content?: string }>
+    | undefined,
+): boolean {
+  return (toolResults ?? []).some((result) => {
+    if (result.isError) return false;
+    return isDashboardConstructionActionName(String(result.name ?? ""));
+  });
 }
 
 function isCorpusSourceActionName(name: string): boolean {
@@ -253,7 +307,15 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
 }
 
 const UNSUPPORTED_RESULT_CLAIM =
-  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+  /(?:\b\d[\d,.]*(?:\.\d+)?\s*(?:%|percent|users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\$\s*\d|\b(?:zero|no|none)\s+(?:users?|customers?|accounts?|sessions?|events?|deals?|tickets?|issues?|calls?|messages?|signups?|pageviews?)\b|\b(?:data|query|results?)\s+(?:shows?|showed|indicates?|returned|found)\b|\b(?:i found|the top|the bottom|highest|lowest|increased|decreased|grew|declined|converted|churned|retained|averaged|total(?:ed)?|count(?:ed)?)\b)/i;
+
+// Reuse the same broad unsupported-result-claim vocabulary that gates
+// isSafeNoDataAnalyticsResponse so a dashboard-construction turn cannot
+// bypass the no-query fallback just by avoiding the narrower set of units a
+// dashboard-specific regex would otherwise miss (e.g. "signups", "accounts").
+export function draftClaimsAnalyticsMetrics(text: string): boolean {
+  return UNSUPPORTED_RESULT_CLAIM.test(String(text ?? "").trim());
+}
 
 export const GENERIC_NO_DATA_FALLBACK_MESSAGE =
   "I can't provide a grounded analytics result yet because no real data-source query ran successfully. Tell me which source to use or connect the missing source, and I'll run it before giving numbers or source-record conclusions.";
