@@ -139,7 +139,10 @@ export function CaptureInstallButton({
   const downloaded = useHasDownloadedDesktopApp();
   const label = downloaded ? (downloadedChildren ?? children) : children;
 
-  if (!clipsChromeExtensionEnabled) {
+  // Once downloaded (or after a successful launch), the CTA opens the app
+  // directly — no installer chooser. Not-yet-downloaded users still see the
+  // Chrome/desktop choice when the extension is available.
+  if (downloaded || !clipsChromeExtensionEnabled) {
     const { onClick, ...restButtonProps } = buttonProps;
     return (
       <Button
@@ -182,7 +185,7 @@ export function CaptureInstallInlineLink({
   const downloaded = useHasDownloadedDesktopApp();
   const label = downloaded ? (downloadedChildren ?? children) : children;
 
-  if (!clipsChromeExtensionEnabled) {
+  if (downloaded || !clipsChromeExtensionEnabled) {
     return (
       <button
         type="button"
