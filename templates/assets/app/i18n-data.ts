@@ -456,6 +456,7 @@ const brandKitDetailEnUS = {
     "Clears the live candidates panel and deletes any unsaved candidate rows.",
   couldNotClearLiveCandidates: "Could not clear live candidates.",
   liveCandidatesActions: "Live candidates actions",
+  settingsTitle: "Brand Kit Settings",
   unsavedChangesTitle: "Unsaved changes",
   unsavedChangesDescription:
     "You have unsaved changes to this brand kit. Discard them or keep editing?",

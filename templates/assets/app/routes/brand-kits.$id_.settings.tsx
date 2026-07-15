@@ -176,27 +176,30 @@ export default function BrandKitSettingsRoute() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6">
-      <div className="border-b border-border pb-5">
-        <div className="flex items-start justify-between gap-3">
-          <Button variant="ghost" className="-ms-3 mb-3 gap-2" onClick={handleBack}>
-            <IconArrowLeft className="h-4 w-4" />
-            {t("brandKitDetail.backToLibrary")}
-          </Button>
+      <div className="flex items-center justify-between gap-3 border-b border-border pb-5">
+        <div className="flex min-w-0 items-center gap-2">
           <Button
-            onClick={saveAll}
-            disabled={!isDirty || updateLibrary.isPending}
+            variant="ghost"
+            size="icon"
+            className="-ms-2 shrink-0"
+            onClick={handleBack}
+            aria-label={t("brandKitDetail.backToLibrary")}
           >
-            {updateLibrary.isPending
-              ? t("brandKitDetail.saving")
-              : t("brandKitDetail.save")}
+            <IconArrowLeft className="h-4 w-4" />
           </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
           <h1 className="truncate text-2xl font-semibold tracking-tight">
-            {t("library.settings")}
+            {t("brandKitDetail.settingsTitle")}
           </h1>
           <Badge variant="outline">{library.title}</Badge>
         </div>
+        <Button
+          onClick={saveAll}
+          disabled={!isDirty || updateLibrary.isPending}
+        >
+          {updateLibrary.isPending
+            ? t("brandKitDetail.saving")
+            : t("brandKitDetail.save")}
+        </Button>
       </div>
 
       <div className="space-y-4 rounded-lg border border-border p-4">
@@ -231,110 +234,115 @@ export default function BrandKitSettingsRoute() {
         </div>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <Label>{t("brandKitDetail.styleDescription")}</Label>
-        <Textarea
-          value={styleDescriptionDraft}
-          onChange={(event) => setStyleDescriptionDraft(event.target.value)}
-          className="min-h-40"
-        />
-        <Separator />
-        <Label>{t("brandKitDetail.customInstructions")}</Label>
-        <Textarea
-          value={customInstructionsDraft}
-          onChange={(event) => setCustomInstructionsDraft(event.target.value)}
-          placeholder={t("brandKitDetail.customInstructionsPlaceholder")}
-          className="min-h-28"
-        />
-        <Separator />
-        <div className="flex items-center justify-between gap-3">
-          <div>
-            <div className="text-sm font-medium">
-              {t("brandKitDetail.palette")}
+      <div className="grid items-start gap-4 md:grid-cols-2">
+        <div className="space-y-4 rounded-lg border border-border p-4">
+          <Label>{t("brandKitDetail.styleDescription")}</Label>
+          <Textarea
+            value={styleDescriptionDraft}
+            onChange={(event) => setStyleDescriptionDraft(event.target.value)}
+            className="min-h-40"
+          />
+          <Separator />
+          <Label>{t("brandKitDetail.customInstructions")}</Label>
+          <Textarea
+            value={customInstructionsDraft}
+            onChange={(event) => setCustomInstructionsDraft(event.target.value)}
+            placeholder={t("brandKitDetail.customInstructionsPlaceholder")}
+            className="min-h-28"
+          />
+          <Separator />
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <div className="text-sm font-medium">
+                {t("brandKitDetail.palette")}
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {(library.styleBrief?.palette ?? []).map((color: string) => (
+                  <span
+                    key={color}
+                    className="h-7 w-7 rounded-md border border-border"
+                    style={{ backgroundColor: color }}
+                    title={color}
+                  />
+                ))}
+              </div>
+              <Input
+                value={paletteDraft}
+                onChange={(event) => setPaletteDraft(event.target.value)}
+                placeholder={"#111827, #f8fafc, #2563eb"}
+                className="mt-3 h-9 max-w-md text-xs"
+              />
             </div>
-            <div className="mt-2 flex flex-wrap gap-2">
-              {(library.styleBrief?.palette ?? []).map((color: string) => (
-                <span
-                  key={color}
-                  className="h-7 w-7 rounded-md border border-border"
-                  style={{ backgroundColor: color }}
-                  title={color}
-                />
-              ))}
-            </div>
-            <Input
-              value={paletteDraft}
-              onChange={(event) => setPaletteDraft(event.target.value)}
-              placeholder={"#111827, #f8fafc, #2563eb"}
-              className="mt-3 h-9 max-w-md text-xs"
-            />
+            <Button variant="outline" onClick={analyzeBrand}>
+              {library.settings?.brandAnalysis?.analyzedAt
+                ? t("brandKitDetail.refreshBrand")
+                : t("brandKitDetail.analyzeBrand")}
+            </Button>
           </div>
-          <Button variant="outline" onClick={analyzeBrand}>
-            {library.settings?.brandAnalysis?.analyzedAt
-              ? t("brandKitDetail.refreshBrand")
-              : t("brandKitDetail.analyzeBrand")}
-          </Button>
+        </div>
+
+        <div className="space-y-4 rounded-lg border border-border p-4">
+          <div>
+            <h3 className="text-sm font-semibold">
+              {t("brandKitDetail.setupGuide")}
+            </h3>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("brandKitDetail.setupGuideDescription")}
+            </p>
+          </div>
+          <ul className="space-y-3">
+            <li className="flex gap-3">
+              <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium">
+                  {t("brandKitDetail.setupGuideReferences")}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t("brandKitDetail.setupGuideReferencesHint")}
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium">
+                  {t("brandKitDetail.setupGuideStyleDescription")}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t("brandKitDetail.setupGuideStyleDescriptionHint")}
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <IconListCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium">
+                  {t("brandKitDetail.setupGuideInstructions")}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t("brandKitDetail.setupGuideInstructionsHint")}
+                </p>
+              </div>
+            </li>
+            <li className="flex gap-3">
+              <IconBulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <div>
+                <div className="text-sm font-medium">
+                  {t("brandKitDetail.setupGuidePresets")}
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  {t("brandKitDetail.setupGuidePresetsHint")}
+                </p>
+              </div>
+            </li>
+          </ul>
         </div>
       </div>
 
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t("brandKitDetail.setupGuide")}
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("brandKitDetail.setupGuideDescription")}
-          </p>
-        </div>
-        <ul className="space-y-3">
-          <li className="flex gap-3">
-            <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">
-                {t("brandKitDetail.setupGuideReferences")}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {t("brandKitDetail.setupGuideReferencesHint")}
-              </p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">
-                {t("brandKitDetail.setupGuideStyleDescription")}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {t("brandKitDetail.setupGuideStyleDescriptionHint")}
-              </p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <IconListCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">
-                {t("brandKitDetail.setupGuideInstructions")}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {t("brandKitDetail.setupGuideInstructionsHint")}
-              </p>
-            </div>
-          </li>
-          <li className="flex gap-3">
-            <IconBulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-            <div>
-              <div className="text-sm font-medium">
-                {t("brandKitDetail.setupGuidePresets")}
-              </div>
-              <p className="text-sm text-muted-foreground">
-                {t("brandKitDetail.setupGuidePresetsHint")}
-              </p>
-            </div>
-          </li>
-        </ul>
-      </div>
-
-      <GenerationPresetsPanel libraryId={libraryId} presets={generationPresets} />
+      <GenerationPresetsPanel
+        libraryId={libraryId}
+        presets={generationPresets}
+      />
 
       <Dialog open={confirmExitOpen} onOpenChange={setConfirmExitOpen}>
         <DialogContent>
