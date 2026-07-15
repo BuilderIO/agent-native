@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
 
+import { INERT_SORTABLE_PROPS } from "@/components/dnd/SortableItem";
 import { InboxListRow } from "@/components/inbox/InboxListRow";
 import { AddListItemInput } from "@/components/shared/AddListItemInput";
 import { BulkDeleteDialog } from "@/components/shared/BulkDeleteDialog";
@@ -162,11 +163,26 @@ export function InboxList({
               renderOverlay={({ item, blockDragCount }) => (
                 <ListRowPreview
                   id={item.id}
-                  title={item.title}
                   overlayDataAttribute="data-dnd-overlay-inbox-item-id"
                   blockDragCount={blockDragCount}
-                  promotedToTask={false}
-                />
+                >
+                  <InboxListRow
+                    sortable={INERT_SORTABLE_PROPS}
+                    selection={selection}
+                    item={item}
+                    highlighted={selectedInboxItemId === item.id}
+                    onUpdateTitle={(title) =>
+                      updateInboxItem.mutateAsync({
+                        inboxItemId: item.id,
+                        title,
+                      })
+                    }
+                    onMarkReady={() =>
+                      markInboxItemReady.mutateAsync({ inboxItemId: item.id })
+                    }
+                    onRequestDelete={() => setPendingDeleteId(item.id)}
+                  />
+                </ListRowPreview>
               )}
             />
           </div>

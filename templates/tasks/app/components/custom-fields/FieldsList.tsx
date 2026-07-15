@@ -4,6 +4,7 @@ import { toast } from "sonner";
 
 import { FieldListRow } from "@/components/custom-fields/FieldListRow";
 import { FieldsListSkeleton } from "@/components/custom-fields/FieldsListSkeleton";
+import { INERT_SORTABLE_PROPS } from "@/components/dnd/SortableItem";
 import { ChipSelect } from "@/components/shared/ChipSelect";
 import { DeleteItemDialog } from "@/components/shared/DeleteItemDialog";
 import { ListRowPreview } from "@/components/shared/dnd/ListRowPreview";
@@ -176,11 +177,17 @@ export function FieldsList({
               renderOverlay={({ item, blockDragCount }) => (
                 <ListRowPreview
                   id={item.id}
-                  title={item.title}
                   overlayDataAttribute="data-dnd-overlay-field-id"
                   blockDragCount={blockDragCount}
-                  promotedToTask={false}
-                />
+                >
+                  <FieldListRow
+                    sortable={INERT_SORTABLE_PROPS}
+                    item={item}
+                    highlighted={activeFieldId === item.id}
+                    onOpenDetails={() => openEditor(item.id)}
+                    onRequestDelete={() => setPendingDelete(item)}
+                  />
+                </ListRowPreview>
               )}
             />
           </div>

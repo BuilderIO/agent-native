@@ -2,6 +2,7 @@ import { focusAgentChat } from "@agent-native/core/client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 
+import { INERT_SORTABLE_PROPS } from "@/components/dnd/SortableItem";
 import { AddListItemInput } from "@/components/shared/AddListItemInput";
 import { BulkDeleteDialog } from "@/components/shared/BulkDeleteDialog";
 import { DeleteItemDialog } from "@/components/shared/DeleteItemDialog";
@@ -271,20 +272,25 @@ export function TaskList({
                   renderOverlay={({ item, blockDragCount }) => (
                     <ListRowPreview
                       id={item.id}
-                      title={item.title}
                       overlayDataAttribute="data-dnd-overlay-task-id"
                       blockDragCount={blockDragCount}
-                      checkbox={{
-                        checked: item.done,
-                        ariaLabel: `Mark ${item.title} ${item.done ? "incomplete" : "complete"}`,
-                      }}
-                      dimmed={item.done}
-                      titleClassName={
-                        item.done
-                          ? "border-transparent bg-transparent text-left text-foreground line-through text-muted-foreground"
-                          : "border-transparent bg-transparent text-left text-foreground"
-                      }
-                    />
+                    >
+                      <TaskListRow
+                        sortable={INERT_SORTABLE_PROPS}
+                        selection={selection}
+                        item={item}
+                        fields={item.fields}
+                        done={item.done}
+                        highlighted={false}
+                        hideAfterComplete={false}
+                        onUpdateTitle={async () => {}}
+                        onUpdateDone={async () => {}}
+                        onOpenDetails={() => {}}
+                        onRequestDelete={() => {}}
+                        onBeginExit={() => {}}
+                        onExitAfterComplete={() => {}}
+                      />
+                    </ListRowPreview>
                   )}
                 />
               )}
