@@ -2054,7 +2054,7 @@ export default function SlideEditor({
         </div>
 
         {selectedStyleSnapshot && !readOnly && (
-          <div className="hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block">
+          <div className="relative z-[70] hidden h-full w-[17rem] shrink-0 border-l border-border/70 bg-background/95 lg:block">
             <SlideStyleInspector
               snapshot={selectedStyleSnapshot}
               designSystem={designSystem}

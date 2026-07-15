@@ -437,6 +437,19 @@ export function shouldShowAgentPanelCliTabBar(cliTabs: string[]) {
   return cliTabs.length > 1;
 }
 
+export function shouldShowAgentPanelModeButtons(isSidebar: boolean) {
+  return !isSidebar;
+}
+
+export function shouldShowAgentPanelFullViewAction(
+  agentPageHref: string | undefined,
+  mode: PanelMode,
+) {
+  return (
+    Boolean(agentPageHref) && (mode === "resources" || mode === "settings")
+  );
+}
+
 // ─── AgentPanel ─────────────────────────────────────────────────────────────
 
 export interface AgentPanelCodeAccess {
@@ -1171,33 +1184,34 @@ function AgentPanelInner({
       | "toggleHistory"
     > & { activeChatSessionId?: string }) => (
       <div className="relative flex shrink-0 items-center gap-0.5">
-        {SHOW_ONBOARDING && (
+        {!onCollapse && SHOW_ONBOARDING && (
           <Suspense fallback={null}>
             <SetupButton />
           </Suspense>
         )}
-        {(() => {
-          const activeTab =
-            mode === "chat" && activeChatSessionId
-              ? tabs.find((tab) => tab.id === activeChatSessionId)
-              : undefined;
-          if (
-            !activeTab ||
-            (activeTabMessageCount <= 0 && activeTab.status === "idle")
-          ) {
-            return null;
-          }
-          return (
-            <ShareButton
-              resourceType="chat_thread"
-              resourceId={activeTab.id}
-              resourceTitle={activeTab.label || "Chat"}
-              shareUrl={getChatThreadShareUrl(activeTab.id)}
-              trigger="icon"
-              triggerClassName="h-7 w-7"
-            />
-          );
-        })()}
+        {!onCollapse &&
+          (() => {
+            const activeTab =
+              mode === "chat" && activeChatSessionId
+                ? tabs.find((tab) => tab.id === activeChatSessionId)
+                : undefined;
+            if (
+              !activeTab ||
+              (activeTabMessageCount <= 0 && activeTab.status === "idle")
+            ) {
+              return null;
+            }
+            return (
+              <ShareButton
+                resourceType="chat_thread"
+                resourceId={activeTab.id}
+                resourceTitle={activeTab.label || "Chat"}
+                shareUrl={getChatThreadShareUrl(activeTab.id)}
+                trigger="icon"
+                triggerClassName="h-7 w-7"
+              />
+            );
+          })()}
         <FeedbackButton
           variant="icon"
           side="bottom"
@@ -1215,7 +1229,7 @@ function AgentPanelInner({
             />
           }
         />
-        {mode === "chat" && (
+        {!onCollapse && mode === "chat" && (
           <IconTooltip content={t("agentPanel.newChat")}>
             <button
               onClick={addTab}
@@ -1226,7 +1240,7 @@ function AgentPanelInner({
             </button>
           </IconTooltip>
         )}
-        {mode === "cli" && canUseCodeTools && (
+        {!onCollapse && mode === "cli" && canUseCodeTools && (
           <IconTooltip content={t("agentPanel.newTerminal")}>
             <button
               onClick={addCliTab}
@@ -1235,6 +1249,17 @@ function AgentPanelInner({
             >
               <IconPlus size={14} />
             </button>
+          </IconTooltip>
+        )}
+        {shouldShowAgentPanelFullViewAction(agentPageHref, mode) && (
+          <IconTooltip content={t("agentPanel.openFullView")}>
+            <Link
+              to={agentPageHref!}
+              aria-label={t("agentPanel.openFullView")}
+              className="flex h-6 w-6 items-center justify-center rounded text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+            >
+              <IconArrowsMaximize size={14} />
+            </Link>
           </IconTooltip>
         )}
         <DropdownMenu open={headerMenuOpen} onOpenChange={setHeaderMenuOpen}>
@@ -1430,6 +1455,7 @@ function AgentPanelInner({
       headerMenuOpen,
       isFullscreen,
       mode,
+      agentPageHref,
       onCollapse,
       onToggleFullscreen,
       openRunThread,
@@ -1547,7 +1573,9 @@ function AgentPanelInner({
           style={AGENT_PANEL_HEADER_STYLE}
         >
           <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-            {renderModeButtons(mode)}
+            {shouldShowAgentPanelModeButtons(Boolean(onCollapse))
+              ? renderModeButtons(mode)
+              : null}
           </div>
           <div className="flex items-center gap-0.5">
             {renderHeaderActions({
@@ -1939,17 +1967,6 @@ function AgentPanelInner({
       {/* Resources view */}
       {mode === "resources" && (
         <div className="flex flex-1 flex-col min-h-0">
-          {agentPageHref && (
-            <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5">
-              <Link
-                to={agentPageHref}
-                className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                {t("agentPanel.openFullView")}
-                <IconExternalLink className="h-3 w-3" />
-              </Link>
-            </div>
-          )}
           <Suspense
             fallback={
               <div className="flex h-full flex-col min-h-0">
@@ -1970,17 +1987,6 @@ function AgentPanelInner({
       {/* Settings / Setup view */}
       {mode === "settings" && (
         <div className="flex flex-col flex-1 min-h-0">
-          {agentPageHref && (
-            <div className="flex shrink-0 justify-end border-b border-border px-3 py-1.5">
-              <Link
-                to={agentPageHref}
-                className="inline-flex cursor-pointer items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
-              >
-                {t("agentPanel.openFullView")}
-                <IconExternalLink className="h-3 w-3" />
-              </Link>
-            </div>
-          )}
           <Suspense
             fallback={
               <div className="p-3 space-y-2">
