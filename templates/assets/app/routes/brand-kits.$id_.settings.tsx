@@ -5,6 +5,10 @@ import {
   useT,
 } from "@agent-native/core/client";
 import {
+  useSetHeaderActions,
+  useSetPageTitle,
+} from "@agent-native/toolkit/app-shell";
+import {
   IconArrowLeft,
   IconBulb,
   IconListCheck,
@@ -28,7 +32,6 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 
 function paletteDraftFromColors(colors: unknown): string {
@@ -166,6 +169,38 @@ export default function BrandKitSettingsRoute() {
     });
   }
 
+  useSetPageTitle(
+    <div className="flex min-w-0 items-center gap-2">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="-ms-2 h-7 w-7 shrink-0"
+        onClick={handleBack}
+        aria-label={t("brandKitDetail.backToLibrary")}
+      >
+        <IconArrowLeft className="h-4 w-4" />
+      </Button>
+      <h1 className="truncate text-lg font-semibold tracking-tight">
+        {t("brandKitDetail.settingsTitle")}
+      </h1>
+      {library ? <Badge variant="outline">{library.title}</Badge> : null}
+    </div>,
+  );
+
+  useSetHeaderActions(
+    library ? (
+      <Button
+        size="sm"
+        onClick={saveAll}
+        disabled={!isDirty || updateLibrary.isPending}
+      >
+        {updateLibrary.isPending
+          ? t("brandKitDetail.saving")
+          : t("brandKitDetail.save")}
+      </Button>
+    ) : null,
+  );
+
   if (!library) {
     return (
       <div className="p-6 text-sm text-muted-foreground">
@@ -176,108 +211,34 @@ export default function BrandKitSettingsRoute() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6">
-      <div className="flex items-center justify-between gap-3 border-b border-border pb-5">
-        <div className="flex min-w-0 items-center gap-2">
-          <Button
-            variant="ghost"
-            size="icon"
-            className="-ms-2 shrink-0"
-            onClick={handleBack}
-            aria-label={t("brandKitDetail.backToLibrary")}
-          >
-            <IconArrowLeft className="h-4 w-4" />
-          </Button>
-          <h1 className="truncate text-2xl font-semibold tracking-tight">
-            {t("brandKitDetail.settingsTitle")}
-          </h1>
-          <Badge variant="outline">{library.title}</Badge>
-        </div>
-        <Button
-          onClick={saveAll}
-          disabled={!isDirty || updateLibrary.isPending}
-        >
-          {updateLibrary.isPending
-            ? t("brandKitDetail.saving")
-            : t("brandKitDetail.save")}
-        </Button>
-      </div>
-
-      <div className="space-y-4 rounded-lg border border-border p-4">
-        <Label htmlFor="brand-kit-title">{t("brandKitDetail.name")}</Label>
-        <Input
-          id="brand-kit-title"
-          value={titleDraft}
-          onChange={(event) => setTitleDraft(event.target.value)}
-          placeholder={t("brandKits.namePlaceholder")}
-        />
-        <Separator />
-        <Label htmlFor="brand-kit-description">
-          {t("assetDetail.description")}
-        </Label>
-        <Textarea
-          id="brand-kit-description"
-          value={descriptionDraft}
-          onChange={(event) => setDescriptionDraft(event.target.value)}
-          placeholder={t("brandKits.editDescriptionPlaceholder")}
-        />
-        <Separator />
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t("brandKitDetail.agentUsage")}
-          </h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            {t("brandKitDetail.agentUsageDescription")}
-          </p>
-          <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
-            {library.id}
-          </code>
-        </div>
-      </div>
-
       <div className="grid items-start gap-4 md:grid-cols-2">
         <div className="space-y-4 rounded-lg border border-border p-4">
-          <Label>{t("brandKitDetail.styleDescription")}</Label>
-          <Textarea
-            value={styleDescriptionDraft}
-            onChange={(event) => setStyleDescriptionDraft(event.target.value)}
-            className="min-h-40"
+          <Label htmlFor="brand-kit-title">{t("brandKitDetail.name")}</Label>
+          <Input
+            id="brand-kit-title"
+            value={titleDraft}
+            onChange={(event) => setTitleDraft(event.target.value)}
+            placeholder={t("brandKits.namePlaceholder")}
           />
-          <Separator />
-          <Label>{t("brandKitDetail.customInstructions")}</Label>
+          <Label htmlFor="brand-kit-description">
+            {t("assetDetail.description")}
+          </Label>
           <Textarea
-            value={customInstructionsDraft}
-            onChange={(event) => setCustomInstructionsDraft(event.target.value)}
-            placeholder={t("brandKitDetail.customInstructionsPlaceholder")}
-            className="min-h-28"
+            id="brand-kit-description"
+            value={descriptionDraft}
+            onChange={(event) => setDescriptionDraft(event.target.value)}
+            placeholder={t("brandKits.editDescriptionPlaceholder")}
           />
-          <Separator />
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <div className="text-sm font-medium">
-                {t("brandKitDetail.palette")}
-              </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(library.styleBrief?.palette ?? []).map((color: string) => (
-                  <span
-                    key={color}
-                    className="h-7 w-7 rounded-md border border-border"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-              <Input
-                value={paletteDraft}
-                onChange={(event) => setPaletteDraft(event.target.value)}
-                placeholder={"#111827, #f8fafc, #2563eb"}
-                className="mt-3 h-9 max-w-md text-xs"
-              />
-            </div>
-            <Button variant="outline" onClick={analyzeBrand}>
-              {library.settings?.brandAnalysis?.analyzedAt
-                ? t("brandKitDetail.refreshBrand")
-                : t("brandKitDetail.analyzeBrand")}
-            </Button>
+          <div>
+            <h3 className="text-sm font-semibold">
+              {t("brandKitDetail.agentUsage")}
+            </h3>
+            <p className="mt-2 text-sm text-muted-foreground">
+              {t("brandKitDetail.agentUsageDescription")}
+            </p>
+            <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
+              {library.id}
+            </code>
           </div>
         </div>
 
@@ -336,6 +297,50 @@ export default function BrandKitSettingsRoute() {
               </div>
             </li>
           </ul>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border p-4">
+        <Label>{t("brandKitDetail.styleDescription")}</Label>
+        <Textarea
+          value={styleDescriptionDraft}
+          onChange={(event) => setStyleDescriptionDraft(event.target.value)}
+          className="min-h-40"
+        />
+        <Label>{t("brandKitDetail.customInstructions")}</Label>
+        <Textarea
+          value={customInstructionsDraft}
+          onChange={(event) => setCustomInstructionsDraft(event.target.value)}
+          placeholder={t("brandKitDetail.customInstructionsPlaceholder")}
+          className="min-h-28"
+        />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium">
+              {t("brandKitDetail.palette")}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(library.styleBrief?.palette ?? []).map((color: string) => (
+                <span
+                  key={color}
+                  className="h-7 w-7 rounded-md border border-border"
+                  style={{ backgroundColor: color }}
+                  title={color}
+                />
+              ))}
+            </div>
+            <Input
+              value={paletteDraft}
+              onChange={(event) => setPaletteDraft(event.target.value)}
+              placeholder={"#111827, #f8fafc, #2563eb"}
+              className="mt-3 h-9 max-w-md text-xs"
+            />
+          </div>
+          <Button variant="outline" onClick={analyzeBrand}>
+            {library.settings?.brandAnalysis?.analyzedAt
+              ? t("brandKitDetail.refreshBrand")
+              : t("brandKitDetail.analyzeBrand")}
+          </Button>
         </div>
       </div>
 
