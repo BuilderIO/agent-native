@@ -1,4 +1,5 @@
 import Link from "@tiptap/extension-link";
+import { IconChevronDown, IconChevronUp } from "@tabler/icons-react";
 import Placeholder from "@tiptap/extension-placeholder";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -1318,9 +1319,12 @@ export function ResourceEditor({
   );
 }
 
+const COLLAPSED_MAX_HEIGHT = 420;
+
 /**
- * Plain-text editor that grows to fit its full content so the entire file is
- * visible; the surrounding container scrolls instead of the textarea.
+ * Plain-text editor that opens at a capped height and offers a "Show more"
+ * toggle to reveal the full file. When expanded it grows to fit all content
+ * and the surrounding container scrolls.
  */
 function AutoGrowTextarea({
   content,
@@ -1332,28 +1336,58 @@ function AutoGrowTextarea({
   readOnly?: boolean;
 }) {
   const ref = useRef<HTMLTextAreaElement | null>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
     el.style.height = "auto";
-    el.style.height = `${el.scrollHeight}px`;
-  }, [content]);
+    const full = el.scrollHeight;
+    setOverflowing(full > COLLAPSED_MAX_HEIGHT);
+    el.style.height = expanded
+      ? `${full}px`
+      : `${Math.min(full, COLLAPSED_MAX_HEIGHT)}px`;
+  }, [content, expanded]);
 
   return (
-    <textarea
-      ref={ref}
-      value={content}
-      onChange={(e) => onChange(e.target.value)}
-      readOnly={readOnly}
-      className="block w-full resize-none overflow-hidden bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
-      style={{
-        fontFamily:
-          'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-        lineHeight: 1.6,
-      }}
-      spellCheck={false}
-    />
+    <div className="flex flex-col">
+      <textarea
+        ref={ref}
+        value={content}
+        onChange={(e) => onChange(e.target.value)}
+        readOnly={readOnly}
+        className="block w-full resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
+        style={{
+          fontFamily:
+            'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+          lineHeight: 1.6,
+          overflowY: expanded ? "hidden" : "auto",
+        }}
+        spellCheck={false}
+      />
+      {overflowing && (
+        <div className="flex justify-center border-t border-border/60 py-1.5">
+          <button
+            type="button"
+            onClick={() => setExpanded((value) => !value)}
+            className="flex items-center gap-1 rounded-md px-2 py-1 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
+          >
+            {expanded ? (
+              <>
+                <IconChevronUp className="size-3.5" />
+                Show less
+              </>
+            ) : (
+              <>
+                <IconChevronDown className="size-3.5" />
+                Show more
+              </>
+            )}
+          </button>
+        </div>
+      )}
+    </div>
   );
 }
 
