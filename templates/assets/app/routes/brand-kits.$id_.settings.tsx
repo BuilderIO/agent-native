@@ -92,22 +92,6 @@ export default function BrandKitSettingsRoute() {
     string | null
   >(null);
 
-  useEffect(() => {
-    if (!library || initializedLibraryId === library.id) return;
-    setTitleDraft(library.title ?? "");
-    setDescriptionDraft(library.description ?? "");
-    setStyleDescriptionDraft(library.styleBrief?.description ?? "");
-    setCustomInstructionsDraft(getLibraryCustomInstructions(library) ?? "");
-    setPaletteDraft(paletteDraftFromColors(library.styleBrief?.palette));
-    const isNewLibrary =
-      !library.description &&
-      !getLibraryCustomInstructions(library) &&
-      !library.styleBrief?.description &&
-      !(library.styleBrief?.palette ?? []).length;
-    setDetailsOpen(isNewLibrary);
-    setInitializedLibraryId(library.id);
-  }, [library, initializedLibraryId]);
-
   const isDirty = useMemo(() => {
     if (!library) return false;
     if (titleDraft.trim() !== (library.title ?? "")) return true;
@@ -115,7 +99,8 @@ export default function BrandKitSettingsRoute() {
     if (styleDescriptionDraft !== (library.styleBrief?.description ?? ""))
       return true;
     if (
-      customInstructionsDraft !== (getLibraryCustomInstructions(library) ?? "")
+      customInstructionsDraft.trim() !==
+      (getLibraryCustomInstructions(library) ?? "")
     )
       return true;
     if (
@@ -133,16 +118,37 @@ export default function BrandKitSettingsRoute() {
     paletteDraft,
   ]);
 
+  useEffect(() => {
+    if (!library) return;
+    if (initializedLibraryId === library.id && isDirty) return;
+    setTitleDraft(library.title ?? "");
+    setDescriptionDraft(library.description ?? "");
+    setStyleDescriptionDraft(library.styleBrief?.description ?? "");
+    setCustomInstructionsDraft(getLibraryCustomInstructions(library) ?? "");
+    setPaletteDraft(paletteDraftFromColors(library.styleBrief?.palette));
+    if (initializedLibraryId !== library.id) {
+      const isNewLibrary =
+        !library.description &&
+        !getLibraryCustomInstructions(library) &&
+        !library.styleBrief?.description &&
+        !(library.styleBrief?.palette ?? []).length;
+      setDetailsOpen(isNewLibrary);
+      setInitializedLibraryId(library.id);
+    }
+  }, [library, initializedLibraryId, isDirty]);
+
+  const isTitleValid = titleDraft.trim().length > 0;
+
   function saveAll() {
-    if (!library || !isDirty) return;
+    if (!library || !isDirty || !isTitleValid) return;
     const trimmedTitle = titleDraft.trim();
     const palette = parsePaletteDraft(paletteDraft);
     updateLibrary.mutate(
       {
         id: library.id,
-        title: trimmedTitle || library.title,
+        title: trimmedTitle,
         description: descriptionDraft.trim() || null,
-        customInstructions: customInstructionsDraft,
+        customInstructions: customInstructionsDraft.trim(),
         styleBrief: {
           ...library.styleBrief,
           description: styleDescriptionDraft,
@@ -240,7 +246,7 @@ export default function BrandKitSettingsRoute() {
       <Button
         size="sm"
         onClick={saveAll}
-        disabled={!isDirty || updateLibrary.isPending}
+        disabled={!isDirty || !isTitleValid || updateLibrary.isPending}
       >
         {updateLibrary.isPending
           ? t("brandKitDetail.saving")
