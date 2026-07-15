@@ -751,7 +751,7 @@ export async function upsertDashboard(
       })
       .onConflictDoNothing();
   }
-  const [row] = await db
+  let [row] = await db
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
@@ -763,27 +763,45 @@ export async function upsertDashboard(
   }
   if (!existing) {
     // We took the insert branch (access-scoped read found nothing). If a row
-    // with this id already existed, `onConflictDoNothing` left it untouched and
-    // our insert was a no-op. Re-run the SCOPED access check first — that covers
-    // the normal fresh-insert success (the new row is ours) and org-shared rows.
+    // with this id already existed, onConflictDoNothing left it untouched and
+    // our insert was a no-op. Re-run the SCOPED access check first: that covers
+    // the normal fresh-insert success (the new row is ours).
     const accessible = await getDashboard(id, ctx);
     if (!accessible) {
-      // Not accessible under the current scope. Recover ONLY the caller's own
-      // PRIVATE row — e.g. a per-user demo/seed dashboard created under a
-      // now-stale org scope (`ownerMatchesActiveScope` denies owner access when
-      // the row's orgId no longer matches). A row owned by someone else, or an
-      // org/public-visibility row bound to a different org, is a genuine
-      // conflict and must never be handed back.
+      // Not accessible under the current scope, but a row exists. Only the
+      // caller's OWN row is recoverable; a row owned by a different user is a
+      // genuine conflict and must never be handed back.
       const sameOwner =
         typeof row.ownerEmail === "string" &&
         row.ownerEmail.trim().toLowerCase() === ctx.email.trim().toLowerCase();
-      const foreignOrgScoped =
-        row.visibility !== "private" &&
-        !!row.orgId &&
-        row.orgId !== (ctx.orgId ?? null);
-      if (!sameOwner || foreignOrgScoped) {
-        throw new DashboardConflictError(id);
-      }
+      if (!sameOwner) throw new DashboardConflictError(id);
+      // The caller owns this id but the existing row is scoped to a context
+      // they are no longer in (e.g. a per-user demo/seed dashboard created long
+      // ago under an org scope, now being re-installed in a private, null-org
+      // context). ownerMatchesActiveScope denied access and onConflictDoNothing
+      // left the stale row untouched, so the app would otherwise 500 on every
+      // load. Re-own it to the caller's current scope and apply the fresh
+      // config: idempotent self-create that also makes the dashboard visible
+      // again. (A different owner already threw above.)
+      await db
+        .update(schema.dashboards)
+        .set({
+          kind,
+          title,
+          config: configJson,
+          ownerEmail: ctx.email,
+          orgId: ctx.orgId,
+          visibility: "private",
+          updatedAt: nowIso(),
+          updatedBy: ctx.email,
+        })
+        .where(eq(schema.dashboards.id, id));
+      const [reowned] = await db
+        .select()
+        .from(schema.dashboards)
+        .where(eq(schema.dashboards.id, id));
+      if (!reowned) throw new DashboardConflictError(id);
+      row = reowned;
     }
   }
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)

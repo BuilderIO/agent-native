@@ -196,15 +196,17 @@ describe("dashboards-store insert conflict", () => {
     expect(result.id).toBe("demo-abc");
   });
 
-  it("throws a conflict for an own row that is org-visibility in another org", async () => {
+  it("recovers (re-owns) an own org-visibility row into the current scope", async () => {
+    // The production demo case: alice owns this id but it was created under an
+    // org scope she is no longer in, so scoped access denies it. Because she is
+    // the owner it must be re-owned and returned, not thrown.
     state.access = null;
     state.selectRows = [
       row({ id: "org-shared", orgId: "other-org", visibility: "org" }),
     ];
 
-    await expect(
-      upsertDashboard("org-shared", "sql", body, ctx),
-    ).rejects.toBeInstanceOf(DashboardConflictError);
+    const result = await upsertDashboard("org-shared", "sql", body, ctx);
+    expect(result.id).toBe("org-shared");
   });
 
   it("throws a conflict when the post-write row is missing (raced delete)", async () => {
