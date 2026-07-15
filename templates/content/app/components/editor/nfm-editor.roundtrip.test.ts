@@ -30,7 +30,7 @@ const CASES: Array<{ name: string; nfm: string }> = [
     name: "inline marks",
     nfm: 'Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline="true">underline</span>, <span color="red">red text</span>, a [link](https://example.com).',
   },
-  { name: "inline math", nfm: "before $`a^2 + b^2`$ after" },
+  { name: "inline math", nfm: "before $a^2 + b^2$ after" },
   { name: "block color paragraph", nfm: 'Colored paragraph {color="red"}' },
   {
     name: "headings",

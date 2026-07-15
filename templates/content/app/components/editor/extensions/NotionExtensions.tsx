@@ -1,3 +1,4 @@
+import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import {
   escapeHtml,
   indentMarkdown,
@@ -10,6 +11,7 @@ import {
   IconExternalLink,
   IconFileText,
 } from "@tabler/icons-react";
+import { InputRule } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   Mark,
@@ -1017,6 +1019,35 @@ export const NotionInlineAtom = Node.create({
   inline: true,
   atom: true,
   selectable: false,
+
+  addInputRules() {
+    return [
+      new InputRule({
+        find: (text) => {
+          const match = findTrailingPlainInlineMath(text);
+          if (!match) return null;
+          return {
+            index: match.from,
+            text: text.slice(match.from, match.to),
+            data: { latex: match.latex },
+          };
+        },
+        handler: ({ state, range, match }) => {
+          const latex = match.data?.latex;
+          if (typeof latex !== "string") return null;
+
+          const mathNode = state.schema.nodes.notionInlineAtom?.create({
+            tagName: "math",
+            attrsJson: "{}",
+            label: latex,
+          });
+          if (!mathNode) return null;
+
+          state.tr.replaceWith(range.from, range.to, mathNode).scrollIntoView();
+        },
+      }),
+    ];
+  },
 
   addAttributes() {
     return {

@@ -44,7 +44,7 @@ describe("document export", () => {
       id: "doc_123",
       title: "Equations",
       content: [
-        "Inline $`E = mc^2`$.",
+        "Inline $E = mc^2$.",
         "",
         "$$",
         "\\int_0^1 x^2 dx = \\frac{1}{3}",
@@ -58,7 +58,7 @@ describe("document export", () => {
     expect(exportPayload.content).toContain('class="math-block"');
     expect(exportPayload.content).toContain('class="katex"');
     expect(exportPayload.content).toContain('class="katex-display"');
-    expect(exportPayload.content).not.toContain("$`E = mc^2`$");
+    expect(exportPayload.content).not.toContain("$E = mc^2$");
   });
 
   it("renders inline math inside emphasis and links", () => {
@@ -66,9 +66,9 @@ describe("document export", () => {
       id: "doc_123",
       title: "Styled equations",
       content: [
-        "**Energy is $`E = mc^2`$ here.**",
+        "**Energy is $E = mc^2$ here.**",
         "",
-        "[Solve *$`x^2 = 4`$*](https://example.com/solve)",
+        "[Solve *$x^2 = 4$*](https://example.com/solve)",
       ].join("\n"),
       format: "html",
     });
@@ -99,6 +99,18 @@ describe("document export", () => {
     expect(exportPayload.content).toContain("<code>before</code>");
     expect(exportPayload.content).toContain("<code>after</code>");
     expect(exportPayload.content.match(/class="math-inline"/g)).toHaveLength(1);
+  });
+
+  it("renders GitHub-style inline math as a backwards-compatible alias", () => {
+    const exportPayload = buildDocumentExport({
+      id: "doc_123",
+      title: "Legacy equation",
+      content: "Inline $`E = mc^2`$.",
+      format: "html",
+    });
+
+    expect(exportPayload.content).toContain('class="math-inline"');
+    expect(exportPayload.content).not.toContain("$`E = mc^2`$");
   });
 
   it("does not tokenize escaped math or code delimiters", () => {
@@ -199,7 +211,7 @@ describe("document export", () => {
   });
 
   it("keeps canonical math source in Markdown exports", () => {
-    const source = "Inline $`E = mc^2`$.\n\n$$\nx^2\n$$";
+    const source = "Inline $E = mc^2$.\n\n$$\nx^2\n$$";
     const exportPayload = buildDocumentExport({
       id: "doc_123",
       title: "Equations",
@@ -215,12 +227,12 @@ describe("document export", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",
       title: "Broken equation",
-      content: "Inline $`\\frac{`$.",
+      content: "Inline $\\frac{$.",
       format: "html",
     });
 
     expect(exportPayload.content).toContain("math-error-inline");
-    expect(exportPayload.content).toContain("$`\\frac{`$");
+    expect(exportPayload.content).toContain("$\\frac{$");
     expect(exportPayload.content).toContain("KaTeX parse error");
   });
 
@@ -228,7 +240,7 @@ describe("document export", () => {
     const exportPayload = buildDocumentExport({
       id: "doc_123",
       title: "Untrusted equation",
-      content: "$`\\href{javascript:alert(1)}{unsafe}`$",
+      content: "$\\href{javascript:alert(1)}{unsafe}$",
       format: "html",
     });
 

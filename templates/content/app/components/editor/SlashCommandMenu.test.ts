@@ -8,7 +8,10 @@ import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  equationNodeContent,
+  getEquationInsertionRange,
   inlineDatabaseBlockContent,
+  insertEquation,
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
@@ -78,6 +81,90 @@ describe("slash command menu trigger", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+});
+
+describe("equation slash commands", () => {
+  it("builds the canonical inline and block atom payloads", () => {
+    expect(equationNodeContent("E = mc^2", false)).toEqual({
+      type: "notionInlineAtom",
+      attrs: { tagName: "math", attrsJson: "{}", label: "E = mc^2" },
+    });
+    expect(equationNodeContent("E = mc^2", true)).toEqual({
+      type: "notionBlockAtom",
+      attrs: { tagName: "equation", attrsJson: "{}", label: "E = mc^2" },
+    });
+  });
+
+  it("replaces only the slash range for inline equations", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertEquation({ chain: () => chain } as any, "x^2", false, {
+        from: 4,
+        to: 11,
+      }),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith(
+      { from: 4, to: 11 },
+      equationNodeContent("x^2", false),
+    );
+  });
+
+  it("replaces the paragraph and leaves a trailing paragraph for block equations", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertEquation({ chain: () => chain } as any, "x^2", true, {
+        from: 0,
+        to: 9,
+      }),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith({ from: 0, to: 9 }, [
+      equationNodeContent("x^2", true),
+      { type: "paragraph" },
+    ]);
+  });
+
+  it("expands block insertion to the containing paragraph", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "/equation" }] },
+        ],
+      },
+    });
+
+    try {
+      expect(
+        getEquationInsertionRange(editor as any, { from: 1, to: 10 }, true),
+      ).toEqual({ from: 0, to: 11 });
+      expect(
+        getEquationInsertionRange(editor as any, { from: 1, to: 10 }, false),
+      ).toEqual({ from: 1, to: 10 });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("wires two searchable equation commands to a validated preview", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain('title: t("editor.slash.blockEquation")');
+    expect(source).toContain('title: t("editor.slash.inlineEquation")');
+    expect(source).toContain('searchText: "latex katex math formula"');
+    expect(source).toContain("renderMathToHtml(");
+    expect(source).toContain("disabled={!equationResult.ok}");
   });
 });
 

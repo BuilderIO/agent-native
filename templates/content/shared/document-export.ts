@@ -1,3 +1,4 @@
+import { matchInlineMathAt } from "./inline-math.js";
 import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
 
 export type DocumentExportFormat = "pdf" | "markdown" | "html";
@@ -169,16 +170,20 @@ function inlineMarkdownToHtml(text: string): string {
   let cursor = 0;
 
   while (cursor < text.length) {
-    if (text.startsWith("$`", cursor)) {
+    if (text.startsWith("$`", cursor) && isEscapedDelimiter(text, cursor)) {
       const close = text.indexOf("`$", cursor + 2);
       if (close !== -1) {
-        if (isEscapedDelimiter(text, cursor)) {
-          protectedText.push(text.slice(cursor, close + 2));
-          cursor = close + 2;
-          continue;
-        }
-        const latex = text.slice(cursor + 2, close);
-        const source = text.slice(cursor, close + 2);
+        protectedText.push(text.slice(cursor, close + 2));
+        cursor = close + 2;
+        continue;
+      }
+    }
+
+    if (text[cursor] === "$") {
+      const inlineMath = matchInlineMathAt(text, cursor);
+      if (inlineMath) {
+        const { latex } = inlineMath;
+        const source = text.slice(cursor, inlineMath.to);
         const math = renderMathToHtml(latex, false);
         const marker = `${markerStart}${tokens.length}\uE001`;
         tokens.push({
@@ -189,7 +194,7 @@ function inlineMarkdownToHtml(text: string): string {
             : mathErrorHtml(source, math.error, false),
         });
         protectedText.push(marker);
-        cursor = close + 2;
+        cursor = inlineMath.to;
         continue;
       }
     }

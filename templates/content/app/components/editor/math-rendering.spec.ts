@@ -55,6 +55,19 @@ function createMathEditor(source: string, editable = true) {
   return editor;
 }
 
+function typeIntoEditor(editor: Editor, text: string) {
+  for (const character of text) {
+    const { from, to } = editor.state.selection;
+    const handled = editor.view.someProp("handleTextInput", (handler) =>
+      handler(editor.view, from, to, character, () => editor.state.tr),
+    );
+    if (!handled) {
+      editor.view.dispatch(editor.state.tr.insertText(character, from, to));
+      editor.commands.setTextSelection(from + character.length);
+    }
+  }
+}
+
 function inlineMathPosition(editor: Editor): number {
   let position = -1;
   editor.state.doc.descendants((node, pos) => {
@@ -117,9 +130,42 @@ async function mountVisualEditors(source: string) {
 }
 
 describe("math editor rendering", () => {
+  it("turns completed plain-dollar input into an inline equation atom", () => {
+    const editor = createMathEditor("");
+
+    typeIntoEditor(editor, "Energy $E = mc^2$ travels");
+
+    expect(docToNfm(editor.getJSON() as never)).toBe(
+      "Energy $E = mc^2$ travels",
+    );
+    expect(inlineMathPosition(editor)).toBeGreaterThan(0);
+  });
+
+  it("leaves currency dollars as text", () => {
+    const editor = createMathEditor("");
+
+    typeIntoEditor(editor, "Costs $20,000 and $30,000");
+
+    expect(editor.state.doc.textContent).toContain("$20,000 and $30,000");
+    expect(() => inlineMathPosition(editor)).toThrow();
+  });
+
+  it("preserves malformed typed LaTeX in a visible fallback atom", async () => {
+    const editor = createMathEditor("");
+    typeIntoEditor(editor, "Broken $\\frac{$");
+
+    expect(docToNfm(editor.getJSON() as never)).toBe("Broken $\\frac{$");
+    expect(inlineMathPosition(editor)).toBeGreaterThan(0);
+
+    const container = await mountVisualEditors("Broken $\\frac{$");
+    expect(container.querySelector(".content-math-error")?.textContent).toBe(
+      "\\frac{",
+    );
+  });
+
   it("renders inline and block atoms with KaTeX in editable and read-only editors", async () => {
     const source = [
-      "Before $`a^2 + b^2`$ after",
+      "Before $a^2 + b^2$ after",
       "$$",
       "\\int_0^1 x^2 dx",
       "$$",
@@ -140,7 +186,7 @@ describe("math editor rendering", () => {
   });
 
   it("preserves the math atom while editing on both sides", () => {
-    const editor = createMathEditor("Before $`a^2`$ after");
+    const editor = createMathEditor("Before $a^2$ after");
 
     let position = inlineMathPosition(editor);
     editor.view.dispatch(editor.state.tr.insertText("left ", position));
@@ -148,7 +194,7 @@ describe("math editor rendering", () => {
     editor.view.dispatch(editor.state.tr.insertText(" right", position + 1));
 
     expect(docToNfm(editor.getJSON() as never)).toBe(
-      "Before left $`a^2`$ right after",
+      "Before left $a^2$ right after",
     );
     let mathAttrs: Record<string, unknown> | null = null;
     editor.state.doc.descendants((node) => {
@@ -165,16 +211,16 @@ describe("math editor rendering", () => {
   });
 
   it("keeps math source intact when adjacent text is deleted", () => {
-    const editor = createMathEditor("A $`x`$ B");
+    const editor = createMathEditor("A $x$ B");
     const position = inlineMathPosition(editor);
 
     editor.view.dispatch(editor.state.tr.delete(position - 1, position));
 
-    expect(docToNfm(editor.getJSON() as never)).toBe("A$`x`$ B");
+    expect(docToNfm(editor.getJSON() as never)).toBe("A$x$ B");
   });
 
   it("copies structured math content into another editor without drift", () => {
-    const source = "Copy $`x^2`$ intact";
+    const source = "Copy $x^2$ intact";
     const editor = createMathEditor(source);
     const target = createMathEditor("");
 
@@ -184,7 +230,7 @@ describe("math editor rendering", () => {
   });
 
   it("degrades invalid expressions to visible raw source", async () => {
-    const source = "Broken $`\\frac{`$ equation";
+    const source = "Broken $\\frac{$ equation";
     const container = await mountVisualEditors(source);
     const fallbacks = container.querySelectorAll(".content-math-error");
 
