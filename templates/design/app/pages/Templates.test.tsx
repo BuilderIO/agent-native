@@ -8,17 +8,31 @@ import Templates from "./Templates";
 
 const mocks = vi.hoisted(() => ({
   navigate: vi.fn(),
+  setSearchParams: vi.fn(),
   promptProps: null as Record<string, any> | null,
   queryClient: { invalidateQueries: vi.fn() },
   templates: [
     {
-      id: "starter-target",
-      title: "Target starter",
-      description: "Deep-linked starter",
+      id: "saved-template",
+      title: "Saved template",
+      description: "Owned reusable template",
+      category: "social",
+      lockedLayerCount: 1,
+      visibility: "private",
+      isOwner: true,
+      isBuiltIn: false,
+      source: "saved",
+      previewHtml: "<main>Saved preview</main>",
+    },
+    {
+      id: "built-in-target",
+      title: "Built-in target",
+      description: "Deep-linked built-in",
       category: "landing-page",
       lockedLayerCount: 0,
       visibility: "public",
       isOwner: false,
+      isBuiltIn: true,
       source: "starter",
       previewHtml: "<main>Preview</main>",
     },
@@ -29,9 +43,9 @@ vi.mock("@agent-native/core/client", () => ({
   ShareButton: () => null,
   useActionQuery: () => ({
     data: {
-      count: 1,
+      count: 2,
       starterCount: 1,
-      savedCount: 0,
+      savedCount: 1,
       templates: mocks.templates,
     },
     isLoading: false,
@@ -53,11 +67,24 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
-  useSearchParams: () => [new URLSearchParams("templateId=starter-target")],
+  useSearchParams: () => [
+    new URLSearchParams("templateId=built-in-target"),
+    mocks.setSearchParams,
+  ],
 }));
 
 vi.mock("@/components/templates/TemplatePreview", () => ({
-  TemplatePreview: () => <div data-template-preview />,
+  TemplatePreview: ({ title }: { title: string }) => (
+    <div data-template-preview={title} />
+  ),
+}));
+
+vi.mock("@/hooks/use-design-systems", () => ({
+  useDesignSystems: () => ({
+    designSystems: [],
+    defaultSystem: null,
+    isLoading: false,
+  }),
 }));
 
 vi.mock("@/components/editor/PromptDialog", () => ({
@@ -96,9 +123,30 @@ describe("Templates deep links", () => {
       root.render(<Templates />);
     });
 
-    const card = container.querySelector("#design-template-starter-target");
+    const card = container.querySelector("#design-template-built-in-target");
     expect(card?.getAttribute("aria-current")).toBe("true");
     expect(mocks.promptProps?.open).toBe(true);
-    expect(mocks.promptProps?.title).toBe("Target starter");
+    expect(mocks.promptProps?.title).toBe("Built-in target");
+  });
+
+  it("renders user templates before built-ins with real previews and a built-in badge", async () => {
+    await act(async () => {
+      root.render(<Templates />);
+    });
+
+    const headings = Array.from(container.querySelectorAll("h2")).map(
+      (heading) => heading.textContent,
+    );
+    expect(headings).toEqual([
+      "templatesPage.yourTemplates",
+      "templatesPage.builtInTemplates",
+    ]);
+    const cards = Array.from(container.querySelectorAll("article"));
+    expect(cards[0]?.id).toBe("design-template-saved-template");
+    expect(cards[1]?.id).toBe("design-template-built-in-target");
+    expect(
+      cards[1]?.querySelector('[data-template-preview="Built-in target"]'),
+    ).toBeTruthy();
+    expect(cards[1]?.textContent).toContain("templatesPage.builtIn");
   });
 });

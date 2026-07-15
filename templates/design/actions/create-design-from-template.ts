@@ -4,7 +4,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
+import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -31,7 +31,7 @@ export default defineAction({
     "Create an editable design from a reusable template. The action copies the template files, exact dimensions, defaults, and locked layers. " +
     "When a prompt is supplied, refine the copied files with get-design-snapshot and edit-design; do not replace the template with generate-design.",
   schema: z.object({
-    templateId: z.string().min(1).describe("Template or starter template ID"),
+    templateId: z.string().min(1).describe("Saved or built-in template ID"),
     title: z.string().trim().min(1).max(120).optional(),
     prompt: z
       .string()
@@ -124,14 +124,22 @@ export default defineAction({
     let linkedDesignSystemId =
       designSystemId === undefined ? templateDesignSystemId : designSystemId;
     if (linkedDesignSystemId) {
-      try {
-        await assertAccess("design-system", linkedDesignSystemId, "viewer");
-      } catch {
-        if (designSystemId !== undefined)
+      const designSystemAccess = await resolveAccess(
+        "design-system",
+        linkedDesignSystemId,
+      );
+      if (!designSystemAccess) {
+        if (designSystemId !== undefined) {
           throw new Error("Design system not found");
+        }
         linkedDesignSystemId = null;
       }
     }
+    const designSystemOverridden =
+      designSystemId !== undefined && designSystemId !== templateDesignSystemId;
+    const adaptationPending =
+      Boolean(prompt) ||
+      Boolean(designSystemOverridden && linkedDesignSystemId);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
@@ -149,6 +157,9 @@ export default defineAction({
       category: templateCategory,
       templateUpdatedAt,
       instantiatedAt: now,
+      templateDesignSystemId,
+      appliedDesignSystemId: linkedDesignSystemId,
+      designSystemOverridden,
     };
     if (prompt) data.templatePrompt = prompt;
 
@@ -190,6 +201,8 @@ export default defineAction({
       title: title ?? templateTitle,
       templateId,
       templateTitle,
+      designSystemId: linkedDesignSystemId,
+      designSystemOverridden,
       fileCount: files.length,
       lockedLayerCount: countLockedLayersAcrossFiles(persistedFiles),
       templateBaselineFiles: persistedFiles.map((file) => ({
@@ -197,7 +210,8 @@ export default defineAction({
         contentHash: sourceContentHash(file.content),
       })),
       promptPending: Boolean(prompt),
-      nextRequiredAction: prompt
+      adaptationPending,
+      nextRequiredAction: adaptationPending
         ? "Call get-design-snapshot, then refine unlocked content with edit-design. Do not call generate-design."
         : null,
     };

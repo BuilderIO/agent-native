@@ -8,8 +8,10 @@ import Index from "./Index";
 
 const mocks = vi.hoisted(() => ({
   createDesign: vi.fn(),
+  createFromTemplate: vi.fn(),
   generateTitle: vi.fn(),
   navigate: vi.fn(),
+  setSearchParams: vi.fn(),
   nanoid: vi.fn(() => "design-1"),
   queryClient: {
     setQueryData: vi.fn(),
@@ -23,17 +25,40 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client", () => ({
-  useActionQuery: (name: string) =>
-    name === "list-designs"
-      ? { data: { count: 0, designs: [] }, isLoading: false }
-      : { data: undefined, isLoading: false },
+  useActionQuery: (name: string) => {
+    if (name === "list-designs") {
+      return { data: { count: 0, designs: [] }, isLoading: false };
+    }
+    if (name === "list-design-templates") {
+      return {
+        data: {
+          count: 1,
+          templates: [
+            {
+              id: "saved-template",
+              title: "Saved template",
+              description: "Reusable campaign",
+              category: "social",
+              designSystemId: "linked-system",
+              isBuiltIn: false,
+              previewHtml: "<main>Saved</main>",
+            },
+          ],
+        },
+        isLoading: false,
+      };
+    }
+    return { data: undefined, isLoading: false };
+  },
   useActionMutation: (name: string) => ({
     mutateAsync:
       name === "create-design"
         ? mocks.createDesign
-        : name === "generate-design-title"
-          ? mocks.generateTitle
-          : vi.fn().mockResolvedValue(undefined),
+        : name === "create-design-from-template"
+          ? mocks.createFromTemplate
+          : name === "generate-design-title"
+            ? mocks.generateTitle
+            : vi.fn().mockResolvedValue(undefined),
     mutate: vi.fn(),
   }),
   useT: () => (key: string) => {
@@ -57,6 +82,7 @@ vi.mock("@tanstack/react-query", () => ({
 
 vi.mock("react-router", () => ({
   useNavigate: () => mocks.navigate,
+  useSearchParams: () => [new URLSearchParams(), mocks.setSearchParams],
   Link: ({ children }: { children: unknown }) => <>{children as never}</>,
 }));
 
@@ -82,6 +108,16 @@ vi.mock("@/hooks/use-design-systems", () => ({
         id: "default-system",
         title: "Default system",
         isDefault: true,
+      },
+      {
+        id: "linked-system",
+        title: "Linked system",
+        isDefault: false,
+      },
+      {
+        id: "override-system",
+        title: "Override system",
+        isDefault: false,
       },
     ],
     defaultSystem: {
@@ -113,6 +149,14 @@ beforeEach(async () => {
   ).IS_REACT_ACT_ENVIRONMENT = true;
   vi.clearAllMocks();
   mocks.nanoid.mockReturnValue("design-1");
+  mocks.createFromTemplate.mockResolvedValue({
+    id: "copied-design",
+    title: "Saved template",
+    designSystemId: "override-system",
+    adaptationPending: true,
+    templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
+  });
+  mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
   mocks.promptProps = null;
   container = document.createElement("div");
   document.body.append(container);
@@ -188,5 +232,66 @@ describe("Index skip to editor", () => {
     expect(mocks.createDesign).toHaveBeenCalledTimes(2);
     expect(mocks.navigate).toHaveBeenCalledTimes(1);
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-2");
+  });
+
+  it("preselects a saved template system and sends an explicit override through empty-prompt copy", async () => {
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
+    expect(mocks.promptProps?.skipLabel).toBe("templatesPage.useTemplate");
+
+    await act(async () => {
+      mocks.promptProps?.onDesignSystemChange("override-system");
+    });
+
+    await act(async () => {
+      await mocks.promptProps?.onSkip();
+    });
+
+    expect(mocks.createFromTemplate).toHaveBeenCalledWith({
+      templateId: "saved-template",
+      title: "Saved template",
+      designSystemId: "override-system",
+    });
+    expect(mocks.createDesign).not.toHaveBeenCalled();
+    expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
+      "copied-design",
+      expect.objectContaining({
+        templateId: "saved-template",
+        designSystemId: "override-system",
+        templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
+      }),
+    );
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
+  });
+
+  it("opens a copied template without waiting for the designs list to refresh", async () => {
+    let resolveRefresh: (() => void) | undefined;
+    mocks.queryClient.invalidateQueries.mockReturnValue(
+      new Promise<void>((resolve) => {
+        resolveRefresh = resolve;
+      }),
+    );
+
+    await act(async () => {
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    let skipPromise: Promise<void> | undefined;
+    await act(async () => {
+      skipPromise = mocks.promptProps?.onSkip();
+      await Promise.resolve();
+    });
+
+    expect(mocks.createFromTemplate).toHaveBeenCalledTimes(1);
+    expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
+
+    resolveRefresh?.();
+    await act(async () => {
+      await skipPromise;
+    });
   });
 });

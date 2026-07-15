@@ -36,6 +36,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -45,6 +46,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { useDesignSystems } from "@/hooks/use-design-systems";
 import { writePendingGeneration } from "@/lib/pending-generation";
 
 type TemplateCategory =
@@ -63,28 +65,26 @@ interface DesignTemplateSummary {
   width?: number | null;
   height?: number | null;
   lockedLayerCount: number;
+  designSystemId?: string | null;
   visibility: "private" | "org" | "public";
   isOwner: boolean;
+  isBuiltIn: boolean;
   source: "starter" | "saved";
   previewHtml?: string | null;
-}
-
-interface TemplatesResult {
-  count: number;
-  starterCount: number;
-  savedCount: number;
-  templates: DesignTemplateSummary[];
 }
 
 export default function Templates() {
   const t = useT();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [selected, setSelected] = useState<DesignTemplateSummary | null>(null);
   const [promptOpen, setPromptOpen] = useState(false);
   const [creating, setCreating] = useState(false);
+  const [selectedDesignSystemId, setSelectedDesignSystemId] = useState<
+    string | null | undefined
+  >(undefined);
   const [deleteTemplate, setDeleteTemplate] =
     useState<DesignTemplateSummary | null>(null);
   const anchorElRef = useRef<HTMLElement | null>(null);
@@ -92,12 +92,19 @@ export default function Templates() {
   const anchorRef = useRef<HTMLElement | null>(null);
   anchorRef.current = anchorElRef.current;
 
-  const { data, isLoading, isError, isFetching, refetch } =
-    useActionQuery<TemplatesResult>("list-design-templates", {
+  const { data, isLoading, isError, isFetching, refetch } = useActionQuery(
+    "list-design-templates",
+    {
       includePreview: "true",
-    });
+    },
+  );
   const createMutation = useActionMutation("create-design-from-template");
   const deleteMutation = useActionMutation("delete-design-template");
+  const {
+    designSystems,
+    defaultSystem,
+    isLoading: designSystemsLoading,
+  } = useDesignSystems();
 
   const templates = data?.templates ?? [];
   const linkedTemplateId = searchParams.get("templateId");
@@ -112,8 +119,27 @@ export default function Templates() {
         )
       : templates;
   }, [search, templates]);
-  const starters = filtered.filter((template) => template.source === "starter");
-  const saved = filtered.filter((template) => template.source === "saved");
+  const builtIns = filtered.filter((template) => template.isBuiltIn);
+  const userTemplates = filtered.filter((template) => !template.isBuiltIn);
+
+  const resolveTemplateDesignSystemId = (
+    template: DesignTemplateSummary,
+  ): string | null => {
+    if (
+      template.designSystemId &&
+      designSystems.some((system) => system.id === template.designSystemId)
+    ) {
+      return template.designSystemId;
+    }
+    return defaultSystem?.id ?? designSystems[0]?.id ?? null;
+  };
+
+  const setSelectedTemplateParam = (templateId: string | null) => {
+    const next = new URLSearchParams(searchParams);
+    if (templateId) next.set("templateId", templateId);
+    else next.delete("templateId");
+    setSearchParams(next, { replace: true });
+  };
 
   useEffect(() => {
     if (
@@ -125,7 +151,7 @@ export default function Templates() {
     const template = templates.find(
       (candidate) => candidate.id === linkedTemplateId,
     );
-    if (!template) return;
+    if (!template || designSystemsLoading) return;
 
     const card = document.getElementById(`design-template-${linkedTemplateId}`);
     const useButton = card?.querySelector<HTMLElement>(
@@ -135,17 +161,21 @@ export default function Templates() {
     handledTemplateIdRef.current = linkedTemplateId;
     setSearch("");
     setSelected(template);
+    setSelectedDesignSystemId(resolveTemplateDesignSystemId(template));
     setPromptOpen(true);
     card?.scrollIntoView({ block: "center", behavior: "smooth" });
     useButton?.focus();
-  }, [linkedTemplateId, templates]);
+  }, [designSystemsLoading, linkedTemplateId, templates]);
 
   const openTemplatePrompt = (
     template: DesignTemplateSummary,
     element: HTMLElement,
   ) => {
     anchorElRef.current = element;
+    handledTemplateIdRef.current = template.id;
+    setSelectedTemplateParam(template.id);
     setSelected(template);
+    setSelectedDesignSystemId(resolveTemplateDesignSystemId(template));
     setPromptOpen(true);
   };
 
@@ -156,32 +186,54 @@ export default function Templates() {
   ) => {
     setCreating(true);
     try {
-      const title = prompt?.trim() ? derivePromptTitle(prompt) : template.title;
+      const trimmedPrompt = prompt?.trim() ?? "";
+      const title = trimmedPrompt
+        ? derivePromptTitle(trimmedPrompt)
+        : template.title;
+      const designSystemId =
+        selectedDesignSystemId === undefined
+          ? resolveTemplateDesignSystemId(template)
+          : selectedDesignSystemId;
       const result = (await createMutation.mutateAsync({
         templateId: template.id,
         title,
-        ...(prompt?.trim() ? { prompt: prompt.trim() } : {}),
+        designSystemId,
+        ...(trimmedPrompt ? { prompt: trimmedPrompt } : {}),
       })) as {
-        id?: string;
+        id: string;
         title?: string;
+        designSystemId?: string | null;
+        adaptationPending?: boolean;
         templateBaselineFiles?: Array<{ id: string; contentHash: string }>;
       };
       if (!result.id)
         throw new Error("Template copy did not return a design ID");
-      if (prompt?.trim()) {
+      if (result.adaptationPending) {
+        const effectiveDesignSystemId = result.designSystemId ?? null;
+        const effectiveSystemTitle =
+          designSystems.find((system) => system.id === effectiveDesignSystemId)
+            ?.title ?? t("promptDialog.designSystem");
         writePendingGeneration(result.id, {
-          prompt: prompt.trim(),
+          prompt:
+            trimmedPrompt ||
+            t("promptDialog.reskinTemplatePrompt", {
+              title: template.title,
+              system: effectiveSystemTitle,
+            }),
           title: result.title ?? title,
           source: template.title,
           templateId: template.id,
           templateBaselineFiles: result.templateBaselineFiles,
+          designSystemId: effectiveDesignSystemId,
           skipQuestions: true,
           ...options,
         });
       }
-      await queryClient.invalidateQueries({
-        queryKey: ["action", "list-designs"],
-      });
+      void queryClient
+        .invalidateQueries({
+          queryKey: ["action", "list-designs"],
+        })
+        .catch(() => {});
       navigate(`/design/${result.id}`);
     } catch (error) {
       setCreating(false);
@@ -254,6 +306,16 @@ export default function Templates() {
           </p>
         </div>
 
+        <div className="relative mb-6 md:hidden">
+          <IconSearch className="absolute start-2.5 top-1/2 size-3.5 -translate-y-1/2 text-muted-foreground/70" />
+          <Input
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+            placeholder={t("templatesPage.searchPlaceholder")}
+            className="h-9 w-full bg-accent/50 ps-8 text-sm"
+          />
+        </div>
+
         {isLoading ? (
           <TemplateGridSkeleton />
         ) : isError ? (
@@ -264,19 +326,19 @@ export default function Templates() {
         ) : (
           <div className="flex flex-col gap-10">
             <TemplateSection
-              title={t("templatesPage.starterTemplates")}
-              templates={starters}
+              title={t("templatesPage.yourTemplates")}
+              description={t("templatesPage.yourTemplatesDescription")}
+              templates={userTemplates}
               linkedTemplateId={linkedTemplateId}
-              onUse={openTemplatePrompt}
-            />
-            <TemplateSection
-              title={t("templatesPage.savedTemplates")}
-              description={t("templatesPage.savedTemplatesDescription")}
-              templates={saved}
-              linkedTemplateId={linkedTemplateId}
-              empty={t("templatesPage.savedEmpty")}
+              empty={t("templatesPage.yourTemplatesEmpty")}
               onUse={openTemplatePrompt}
               onDelete={setDeleteTemplate}
+            />
+            <TemplateSection
+              title={t("templatesPage.builtInTemplates")}
+              templates={builtIns}
+              linkedTemplateId={linkedTemplateId}
+              onUse={openTemplatePrompt}
             />
           </div>
         )}
@@ -286,7 +348,11 @@ export default function Templates() {
         open={promptOpen}
         onOpenChange={(open) => {
           setPromptOpen(open);
-          if (!open) setSelected(null);
+          if (!open) {
+            setSelected(null);
+            setSelectedDesignSystemId(undefined);
+            setSelectedTemplateParam(null);
+          }
         }}
         title={selected?.title ?? t("templatesPage.useTemplate")}
         placeholder={t("templatesPage.promptPlaceholder")}
@@ -297,6 +363,14 @@ export default function Templates() {
         onSubmit={handleSubmit}
         anchorRef={anchorRef}
         loading={creating}
+        designSystems={designSystems}
+        designSystemsLoading={designSystemsLoading}
+        selectedDesignSystemId={selectedDesignSystemId ?? null}
+        onDesignSystemChange={setSelectedDesignSystemId}
+        onCreateDesignSystem={() => {
+          setPromptOpen(false);
+          navigate("/design-systems/setup");
+        }}
       />
 
       <AlertDialog
@@ -407,14 +481,24 @@ function TemplateCard({
       <div className="flex min-h-40 flex-col p-4">
         <div className="flex items-start gap-2">
           <div className="min-w-0 flex-1">
-            <h3 className="truncate text-sm font-medium text-foreground/90">
-              {template.title}
-            </h3>
+            <div className="flex min-w-0 items-center gap-2">
+              <h3 className="truncate text-sm font-medium text-foreground/90">
+                {template.title}
+              </h3>
+              {template.isBuiltIn ? (
+                <Badge
+                  variant="secondary"
+                  className="h-5 shrink-0 px-1.5 text-[10px] font-medium"
+                >
+                  {t("templatesPage.builtIn")}
+                </Badge>
+              ) : null}
+            </div>
             <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-muted-foreground">
               {template.description}
             </p>
           </div>
-          {template.source === "saved" ? (
+          {!template.isBuiltIn && template.isOwner ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -429,18 +513,16 @@ function TemplateCard({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end">
-                {template.isOwner ? (
-                  <div className="p-1">
-                    <ShareButton
-                      resourceType="design-template"
-                      resourceId={template.id}
-                      resourceTitle={template.title}
-                      trigger="label"
-                      triggerClassName="w-full justify-start"
-                    />
-                  </div>
-                ) : null}
-                {template.isOwner && onDelete ? (
+                <div className="p-1">
+                  <ShareButton
+                    resourceType="design-template"
+                    resourceId={template.id}
+                    resourceTitle={template.title}
+                    trigger="label"
+                    triggerClassName="w-full justify-start"
+                  />
+                </div>
+                {onDelete ? (
                   <DropdownMenuItem
                     onClick={() => onDelete(template)}
                     className="text-destructive focus:text-destructive"
