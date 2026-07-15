@@ -310,9 +310,7 @@ export async function handleMcpRequest(
   // must fail closed rather than trust a spoofable owner-email header that
   // `fullSurface` would otherwise escalate to the full mutating surface.
   const requestMeta = deriveRequestMeta(event);
-  const hasLocalOwnerHint = Boolean(
-    ownerEmailHeader?.trim() || process.env.AGENT_NATIVE_OWNER_EMAIL?.trim(),
-  );
+  const hasLocalOwnerHint = Boolean(ownerEmailHeader?.trim());
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
     // A bare localhost URL is still a protected MCP resource. This lets
     // OAuth-native hosts (Kiro, Claude Code, etc.) receive the standard 401
