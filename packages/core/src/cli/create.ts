@@ -843,16 +843,26 @@ function templateSourceName(name: string): string {
 }
 
 /**
- * Prefer a nearby templates/<name> directory. This covers the framework
- * checkout and the dist/templates copy bundled into published CLI packages;
+ * Prefer a nearby templates/<name> or src/templates/<name> directory. This
+ * covers the framework checkout, the dist/templates copy bundled into
+ * published CLI packages, and source templates included in package files;
  * packages that do not bundle a template fall back to GitHub.
  */
 function findLocalTemplate(name: string): string | undefined {
-  let dir = path.resolve(__dirname);
+  return findLocalTemplateFrom(path.resolve(__dirname), name);
+}
+
+function findLocalTemplateFrom(
+  startDir: string,
+  name: string,
+): string | undefined {
+  let dir = path.resolve(startDir);
   for (let i = 0; i < 10; i++) {
-    const candidate = path.join(dir, "templates", name);
-    if (fs.existsSync(path.join(candidate, "package.json"))) {
-      return candidate;
+    for (const templatesDir of ["templates", "src/templates"]) {
+      const candidate = path.join(dir, templatesDir, name);
+      if (fs.existsSync(path.join(candidate, "package.json"))) {
+        return candidate;
+      }
     }
     const parent = path.dirname(dir);
     if (parent === dir) break;
@@ -1335,6 +1345,7 @@ export {
   getGitHubTemplateRef as _getGitHubTemplateRef,
   getGitHubTemplateRefCandidates as _getGitHubTemplateRefCandidates,
   githubTarballUrl as _githubTarballUrl,
+  findLocalTemplateFrom as _findLocalTemplateFrom,
   workspaceAppNameForTemplateSelection as _workspaceAppNameForTemplateSelection,
   shouldSkipScaffoldEntry as _shouldSkipScaffoldEntry,
   tarExtractArgs as _tarExtractArgs,

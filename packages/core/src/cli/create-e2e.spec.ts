@@ -34,6 +34,7 @@ import {
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
   _githubTarballUrl,
+  _findLocalTemplateFrom,
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
@@ -244,6 +245,24 @@ describe("standalone scaffold — chat template", { timeout: 60000 }, () => {
     await createApp("test-app", { template: "chat" });
     const pkg = readPkg(path.join(tmpDir, "test-app"));
     expect(pkg.dependencies?.postgres).toBeDefined();
+  });
+});
+
+describe("installed package template discovery", () => {
+  it("finds source templates included in an installed core package", () => {
+    const packageRoot = path.join(
+      tmpDir,
+      "node_modules",
+      "@agent-native",
+      "core",
+    );
+    const sourceTemplate = path.join(packageRoot, "src", "templates", "chat");
+    const compiledCli = path.join(packageRoot, "dist", "cli");
+    fs.mkdirSync(sourceTemplate, { recursive: true });
+    fs.mkdirSync(compiledCli, { recursive: true });
+    fs.writeFileSync(path.join(sourceTemplate, "package.json"), "{}\n");
+
+    expect(_findLocalTemplateFrom(compiledCli, "chat")).toBe(sourceTemplate);
   });
 });
 
