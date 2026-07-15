@@ -665,7 +665,6 @@ export function LibraryLayout({ children }: LibraryLayoutProps) {
                   },
                 );
                 setNewFolderName("");
-                setNewFolderOpen(false);
               }}
             >
               {t("common.create")}
