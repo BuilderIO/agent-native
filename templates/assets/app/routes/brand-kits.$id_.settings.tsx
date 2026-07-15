@@ -40,10 +40,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
+import { getLibraryCustomInstructions } from "@/lib/libraries";
 
 function paletteDraftFromColors(colors: unknown): string {
   return Array.isArray(colors)
-    ? colors.filter((color) => typeof color === "string").join(", ")
+    ? colors
+        .filter((color) => typeof color === "string")
+        .map((color) => color.toLowerCase())
+        .join(", ")
     : "";
 }
 
@@ -93,11 +97,11 @@ export default function BrandKitSettingsRoute() {
     setTitleDraft(library.title ?? "");
     setDescriptionDraft(library.description ?? "");
     setStyleDescriptionDraft(library.styleBrief?.description ?? "");
-    setCustomInstructionsDraft(library.customInstructions ?? "");
+    setCustomInstructionsDraft(getLibraryCustomInstructions(library) ?? "");
     setPaletteDraft(paletteDraftFromColors(library.styleBrief?.palette));
     const isNewLibrary =
       !library.description &&
-      !library.customInstructions &&
+      !getLibraryCustomInstructions(library) &&
       !library.styleBrief?.description &&
       !(library.styleBrief?.palette ?? []).length;
     setDetailsOpen(isNewLibrary);
@@ -110,7 +114,9 @@ export default function BrandKitSettingsRoute() {
     if (descriptionDraft.trim() !== (library.description ?? "")) return true;
     if (styleDescriptionDraft !== (library.styleBrief?.description ?? ""))
       return true;
-    if (customInstructionsDraft !== (library.customInstructions ?? ""))
+    if (
+      customInstructionsDraft !== (getLibraryCustomInstructions(library) ?? "")
+    )
       return true;
     if (
       parsePaletteDraft(paletteDraft).join(", ") !==
@@ -202,8 +208,8 @@ export default function BrandKitSettingsRoute() {
         `Description: ${library.description || ""}`,
         `Reference assets: ${referenceCount}`,
         `Current style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
-        library.customInstructions
-          ? `Custom instructions: ${library.customInstructions}`
+        getLibraryCustomInstructions(library)
+          ? `Custom instructions: ${getLibraryCustomInstructions(library)}`
           : "Custom instructions: none",
       ].join("\n"),
       submit: true,
