@@ -23,6 +23,7 @@ import {
 import {
   annotationColorClass,
   annotationKindLabel,
+  annotationUnderlineClass,
 } from "@/lib/annotation-kinds";
 import {
   formatMs,
@@ -338,6 +339,16 @@ export function TranscriptEditor({
     const markers = annotations
       .filter((a) => a.endMs === null)
       .sort((a, b) => a.startMs - b.startMs);
+    // Section annotations (b-roll ranges, retakes, AI plan sections) paint a
+    // colored underline over the words they cover — the text itself shows
+    // WHAT the section is about, not just that one exists on the timeline.
+    const sections = annotations
+      .filter((a) => a.endMs !== null && !a.resolved)
+      .sort((a, b) => a.startMs - b.startMs);
+    const sectionFor = (segStartMs: number, segEndMs: number) =>
+      sections.find(
+        (a) => a.startMs < segEndMs && (a.endMs as number) > segStartMs,
+      );
     let markerIndex = 0;
     let paragraph: React.ReactNode[] = [];
     const paragraphs: React.ReactNode[] = [];
@@ -452,6 +463,7 @@ export function TranscriptEditor({
       if (isHidden(s.startMs, edits)) return;
       const excluded = isExcluded(s.startMs, edits);
       const active = currentMs >= s.startMs && currentMs < s.endMs;
+      const section = sectionFor(s.startMs, s.endMs);
       paragraph.push(
         <Tooltip key={`${s.startMs}-${i}`}>
           <TooltipTrigger asChild>
@@ -467,12 +479,27 @@ export function TranscriptEditor({
                 "inline cursor-pointer px-0.5 rounded",
                 active && "bg-primary/20 text-foreground",
                 excluded && "line-through text-muted-foreground/70",
+                section &&
+                  !excluded &&
+                  cn(
+                    "underline decoration-2 underline-offset-4",
+                    annotationUnderlineClass(section.kind),
+                  ),
               )}
             >
               {s.text.trim()}{" "}
             </span>
           </TooltipTrigger>
-          <TooltipContent>{`${formatMs(s.startMs)} – ${formatMs(s.endMs)}`}</TooltipContent>
+          <TooltipContent>
+            {`${formatMs(s.startMs)} – ${formatMs(s.endMs)}`}
+            {section
+              ? ` · ${annotationKindLabel(section.kind, t)}${
+                  (section.label ?? section.body)
+                    ? `: ${(section.label ?? section.body ?? "").slice(0, 60)}`
+                    : ""
+                }`
+              : ""}
+          </TooltipContent>
         </Tooltip>,
       );
     });
