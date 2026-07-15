@@ -30,6 +30,29 @@
 
 @utility editor-starter-field {
   @apply rounded-sm border-[1px] border-transparent bg-[var(--color-editor-starter-bg)] outline-hidden hover:border-border focus:border-[var(--color-editor-starter-accent)] data-[focused=true]:border-[var(--color-editor-starter-accent)];
+  /* Plastic 3D: same inset treatment as the app's inputs. */
+  box-shadow: var(--shadow-input);
+}
+
+@utility editor-starter-field-focus {
+  box-shadow: var(--shadow-input-focus);
+}
+
+/* Plastic treatment for the vendored editor's primary/secondary buttons —
+   mirror the app Button's raised look without importing the component. */
+@utility editor-starter-btn-3d {
+  box-shadow: var(--shadow-btn);
+  transition:
+    box-shadow 120ms ease-out,
+    transform 120ms ease-out;
+}
+@utility editor-starter-btn-3d-hover {
+  box-shadow: var(--shadow-btn-hover);
+  transform: translateY(-1px);
+}
+@utility editor-starter-btn-3d-active {
+  box-shadow: var(--shadow-btn-active);
+  transform: translateY(0);
 }
 
 /* Prevent accidental back gesture when scrolling the editor timeline. */
