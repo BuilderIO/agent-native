@@ -8,6 +8,13 @@ import type {
 
 export type DocumentAccessRole = "owner" | "viewer" | "editor" | "admin";
 
+export interface ContentContextPathEntry {
+  id: string;
+  kind: "page" | "database";
+  title: string;
+  description: string;
+}
+
 export interface Document {
   id: string;
   parentId: string | null;
@@ -28,6 +35,7 @@ export interface Document {
   properties?: DocumentProperty[];
   database?: ContentDatabase;
   databaseMembership?: ContentDatabaseMembership;
+  contextPath?: ContentContextPathEntry[];
   createdAt: string;
   updatedAt: string;
 }
@@ -698,12 +706,7 @@ export interface ContentDatabaseResponse {
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
   source: ContentDatabaseSource | null;
-  contextPath?: Array<{
-    id: string;
-    kind: "page" | "database";
-    title: string;
-    description: string;
-  }>;
+  contextPath?: ContentContextPathEntry[];
   // All attached sources (NEXT). `source` stays as `sources[0] ?? null` for
   // back-compat; multi-source consumers read `sources`.
   sources?: ContentDatabaseSource[];

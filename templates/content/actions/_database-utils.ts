@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { getDocumentContextPath } from "../server/lib/document-context.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -20,7 +21,7 @@ import {
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
-export { getDocumentContextPath } from "../server/lib/document-context.js";
+export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
 
@@ -163,7 +164,11 @@ export async function getContentDatabaseResponse(
     throw new Error(`Database "${databaseId}" not found`);
   }
   const [databaseDocument] = await db
-    .select({ description: schema.documents.description })
+    .select({
+      id: schema.documents.id,
+      parentId: schema.documents.parentId,
+      description: schema.documents.description,
+    })
     .from(schema.documents)
     .where(eq(schema.documents.id, database.documentId));
 
@@ -279,6 +284,9 @@ export async function getContentDatabaseResponse(
 
   return {
     database: serializeDatabase(database, databaseDocument?.description ?? ""),
+    contextPath: databaseDocument
+      ? await getDocumentContextPath(databaseDocument)
+      : [],
     properties: await listPropertiesForDatabase(databaseId),
     items: itemsWithOverlay,
     source: pagedPrimary,

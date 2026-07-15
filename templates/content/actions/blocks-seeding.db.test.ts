@@ -164,10 +164,19 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
         const databaseRead = await getContentDatabaseAction.run({
           databaseId: database.database.id,
         });
+        const databaseHelperRead =
+          await databaseUtils.getContentDatabaseResponse(database.database.id);
         const rowPage = await getDocumentAction.run({
           id: row.createdDocumentId,
         });
-        return { page, databasePage, databaseRead, rowPage, propertyResult };
+        return {
+          page,
+          databasePage,
+          databaseRead,
+          databaseHelperRead,
+          rowPage,
+          propertyResult,
+        };
       },
     );
 
@@ -181,6 +190,12 @@ describe("seedDefaultBlocksField — single-primary invariant (findings 1, 2)", 
     expect(result.databaseRead.database.description).toBe(
       "Only actionable tasks belong here",
     );
+    expect(result.databaseHelperRead.contextPath).toEqual([
+      expect.objectContaining({
+        title: expect.stringMatching(/^Root /),
+        kind: "page",
+      }),
+    ]);
     const status = result.databaseRead.properties.find(
       (property) => property.definition.name === "Status",
     );
