@@ -731,79 +731,21 @@ export async function upsertDashboard(
         .where(eq(schema.dashboards.id, id));
     }
   } else {
-    // A row with this id can already exist even though the access-scoped
-    // `getDashboard` above returned null — e.g. a demo/seed dashboard whose
-    // `orgId` no longer matches the caller's current org scope. Insert
-    // defensively with `onConflictDoNothing` (same pattern as the legacy
-    // migration path below) instead of a bare insert that would crash the
-    // whole action with a duplicate-key error on every retry.
-    await db
-      .insert(schema.dashboards)
-      .values({
-        id,
-        kind,
-        title,
-        config: JSON.stringify(config),
-        ownerEmail: ctx.email,
-        orgId: ctx.orgId,
-        visibility: "private",
-        updatedBy: ctx.email,
-      })
-      .onConflictDoNothing();
+    await db.insert(schema.dashboards).values({
+      id,
+      kind,
+      title,
+      config: JSON.stringify(config),
+      ownerEmail: ctx.email,
+      orgId: ctx.orgId,
+      visibility: "private",
+      updatedBy: ctx.email,
+    });
   }
-  let [row] = await db
+  const [row] = await db
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
-  if (!row) {
-    // The post-write SELECT found nothing: a concurrent delete raced our write,
-    // or the insert was a no-op against a row that has since disappeared. Fail
-    // with a conflict instead of dereferencing `undefined`.
-    throw new DashboardConflictError(id);
-  }
-  if (!existing) {
-    // We took the insert branch (access-scoped read found nothing). If a row
-    // with this id already existed, onConflictDoNothing left it untouched and
-    // our insert was a no-op. Re-run the SCOPED access check first: that covers
-    // the normal fresh-insert success (the new row is ours).
-    const accessible = await getDashboard(id, ctx);
-    if (!accessible) {
-      // Not accessible under the current scope, but a row exists. Only the
-      // caller's OWN row is recoverable; a row owned by a different user is a
-      // genuine conflict and must never be handed back.
-      const sameOwner =
-        typeof row.ownerEmail === "string" &&
-        row.ownerEmail.trim().toLowerCase() === ctx.email.trim().toLowerCase();
-      if (!sameOwner) throw new DashboardConflictError(id);
-      // The caller owns this id but the existing row is scoped to a context
-      // they are no longer in (e.g. a per-user demo/seed dashboard created long
-      // ago under an org scope, now being re-installed in a private, null-org
-      // context). ownerMatchesActiveScope denied access and onConflictDoNothing
-      // left the stale row untouched, so the app would otherwise 500 on every
-      // load. Re-own it to the caller's current scope and apply the fresh
-      // config: idempotent self-create that also makes the dashboard visible
-      // again. (A different owner already threw above.)
-      await db
-        .update(schema.dashboards)
-        .set({
-          kind,
-          title,
-          config: configJson,
-          ownerEmail: ctx.email,
-          orgId: ctx.orgId,
-          visibility: "private",
-          updatedAt: nowIso(),
-          updatedBy: ctx.email,
-        })
-        .where(eq(schema.dashboards.id, id));
-      const [reowned] = await db
-        .select()
-        .from(schema.dashboards)
-        .where(eq(schema.dashboards.id, id));
-      if (!reowned) throw new DashboardConflictError(id);
-      row = reowned;
-    }
-  }
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)
   // so create/update propagate just like delete and the legacy-migration path.
   const dashboard = rowToDashboard(row);
