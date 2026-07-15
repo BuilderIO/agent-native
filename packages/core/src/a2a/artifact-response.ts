@@ -56,6 +56,8 @@ const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
 ]);
 
 const PERSISTED_ARTIFACT_MARKER = "agent-native:persisted-artifacts=";
+const PERSISTED_ARTIFACT_MARKER_PATTERN =
+  /\s*<!--\s*agent-native:persisted-artifacts=[A-Za-z0-9_-]+\.[a-f0-9]{64}\s*-->/g;
 const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
   "document",
   "deck",
@@ -117,6 +119,10 @@ function withPersistedArtifactMarker(
   const signature = createHmac("sha256", secret).update(payload).digest("hex");
   const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
   return text ? `${text}\n\n${marker}` : marker;
+}
+
+export function stripA2APersistedArtifactMarkers(text: string): string {
+  return text.replace(PERSISTED_ARTIFACT_MARKER_PATTERN, "").trim();
 }
 
 interface CreatedDocumentArtifact {

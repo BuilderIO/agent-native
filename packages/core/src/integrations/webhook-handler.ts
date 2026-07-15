@@ -1019,6 +1019,11 @@ async function processIncomingMessage(
               });
             }
             const delivered = deliveryReceipt?.status === "delivered";
+            if (!delivered) {
+              throw new Error(
+                `${incoming.platform} response completed without delivery proof`,
+              );
+            }
             if (delivered) {
               deliveredResponse = {
                 platform: incoming.platform,

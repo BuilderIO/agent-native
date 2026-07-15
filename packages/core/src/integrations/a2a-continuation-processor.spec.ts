@@ -294,6 +294,9 @@ describe("A2A continuation processor", () => {
       adapters: new Map([["slack", adapter(sendResponse)]]),
     });
 
+    expect(sendResponse.mock.calls[0][0].text).not.toContain(
+      "agent-native:persisted-artifacts",
+    );
     const persisted = JSON.parse(updateThreadDataMock.mock.calls[0][1]);
     expect(persisted.messages.at(-1).metadata).toMatchObject({
       integrationDelivery: {
@@ -310,6 +313,39 @@ describe("A2A continuation processor", () => {
         },
       ],
     });
+  });
+
+  it("does not redeliver when post-delivery history persistence fails", async () => {
+    getThreadMappingMock.mockResolvedValue({
+      internalThreadId: "thread-123",
+    });
+    getThreadMock.mockResolvedValue({
+      id: "thread-123",
+      title: "Slack thread",
+      preview: "Create the request",
+      threadData: JSON.stringify({ messages: [] }),
+    });
+    updateThreadDataMock.mockRejectedValue(new Error("database unavailable"));
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    claimA2AContinuationMock.mockResolvedValueOnce(continuation());
+    const { processA2AContinuationById } =
+      await import("./a2a-continuation-processor.js");
+
+    await processA2AContinuationById("cont-1", {
+      adapters: new Map([["slack", adapter(sendResponse)]]),
+    });
+
+    expect(sendResponse).toHaveBeenCalledTimes(1);
+    expect(updateThreadDataMock).toHaveBeenCalledTimes(3);
+    expect(rescheduleA2AContinuationMock).not.toHaveBeenCalled();
+    expect(completeA2AContinuationMock).toHaveBeenCalledWith("cont-1");
+    expect(consoleError).toHaveBeenCalledWith(
+      expect.stringContaining("could not persist its thread history"),
+      expect.any(Error),
+    );
   });
 
   it("finishes the resumed native progress stream when the remote task completes", async () => {

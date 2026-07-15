@@ -165,7 +165,7 @@ vi.mock("../agent/run-manager.js", () => ({
 }));
 
 function createAdapter(
-  sendResponse = vi.fn(),
+  sendResponse = vi.fn(async () => ({ status: "delivered" as const })),
   formatAgentResponse: PlatformAdapter["formatAgentResponse"] = (text) => ({
     text,
     platformContext: {},
@@ -370,7 +370,9 @@ describe("integration webhook handler engine resolution", () => {
     { timeout: 15000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
-      const sendResponse = vi.fn();
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
       const task: PendingTask = {
         id: "task-qa",
         platform: "fake",
@@ -605,12 +607,7 @@ describe("integration webhook handler engine resolution", () => {
         principalType: "service",
       });
 
-      const persistedData = updateThreadDataMock.mock.calls.at(-1)?.[1];
-      expect(typeof persistedData).toBe("string");
-      const persisted = JSON.parse(persistedData as string);
-      const assistant = persisted.messages.at(-1);
-      expect(assistant.metadata.integrationDelivery).toBeUndefined();
-      expect(assistant.metadata.integrationArtifacts).toBeUndefined();
+      expect(updateThreadDataMock).not.toHaveBeenCalled();
     },
   );
 
@@ -619,7 +616,9 @@ describe("integration webhook handler engine resolution", () => {
     { timeout: 15000 },
     async () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
-      const sendResponse = vi.fn();
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
       getOwnerApiKeyMock.mockResolvedValue("openai-user-key");
       const task: PendingTask = {
         id: "task-openai",
@@ -676,7 +675,9 @@ describe("integration webhook handler engine resolution", () => {
       const { processIntegrationTask } = await import("./webhook-handler.js");
       const { getRequestOrgId, getRequestUserEmail } =
         await import("../server/request-context.js");
-      const sendResponse = vi.fn();
+      const sendResponse = vi.fn(async () => ({
+        status: "delivered" as const,
+      }));
       getConfiguredEngineNameForRequestMock.mockImplementationOnce(async () => {
         expect(getRequestUserEmail()).toBe("dispatch+qa@integration.local");
         expect(getRequestOrgId()).toBe("org-qa");
@@ -731,7 +732,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("sanitizes missing LLM credential text before sending platform replies", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({ type: "text", text: "ANTHROPIC_API_KEY is not set" });
     });
@@ -776,7 +777,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("uses the explicit provider env key when no owner key exists in single-tenant mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     readDeployCredentialEnvMock.mockImplementation((key: string) =>
       key === "OPENAI_API_KEY" ? "openai-env-key" : undefined,
     );
@@ -826,7 +827,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("does not fall back to deployment LLM keys in production shared mode", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     process.env.NODE_ENV = "production";
     isLocalDatabaseMock.mockReturnValue(false);
     canUseDeployCredentialFallbackForRequestMock.mockReturnValue(false);
@@ -881,7 +882,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("prefers stored model settings over the integration plugin default", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     getStoredModelForEngineMock.mockResolvedValue("stored-builder-model");
     const task: PendingTask = {
       id: "task-model",
@@ -928,7 +929,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { getIntegrationRequestContext } =
       await import("../server/request-context.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     let captured: ReturnType<typeof getIntegrationRequestContext>;
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       captured = getIntegrationRequestContext();
@@ -1044,7 +1045,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const task = pendingTask({ id: "task-retry-existing-continuation" });
     runAgentLoopMock
       .mockImplementationOnce(async ({ send }) => {
@@ -1096,7 +1097,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -1131,7 +1132,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const onEvent = vi.fn(async () => undefined);
     const complete = vi.fn(async () => undefined);
     const adapter = {
@@ -1178,7 +1179,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const fail = vi.fn(async () => undefined);
     const adapter = {
       ...createAdapter(sendResponse),
@@ -1337,7 +1338,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const deferrals = [
       "",
       A2A_CONTINUATION_QUEUED_MARKER,
@@ -1387,7 +1388,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const onEvent = vi.fn(async () => undefined);
     const complete = vi.fn(async () => undefined);
     const adapter = {
@@ -1443,7 +1444,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =
       await import("./a2a-continuation-marker.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const complete = vi.fn(async () => undefined);
     const adapter = {
       ...createAdapter(sendResponse),
@@ -1493,7 +1494,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("sends verified recoverable A2A artifact tool results when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -1534,7 +1535,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -1583,7 +1584,7 @@ describe("integration webhook handler engine resolution", () => {
 
   it("surfaces a useful fallback when no final text is emitted", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_start",
@@ -1624,7 +1625,7 @@ describe("integration webhook handler engine resolution", () => {
     const previousAppBasePath = process.env.APP_BASE_PATH;
     process.env.APP_URL = "https://agent-workspace.builder.io";
     process.env.APP_BASE_PATH = "/dispatch";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     const formatAgentResponse = vi.fn(
       (text: string, opts?: { threadDeepLinkUrl?: string }) => ({
         text,
@@ -1672,7 +1673,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://design.agent.test";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "text",
@@ -1713,7 +1714,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://dispatch.agent-native.com";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "text",
@@ -1761,7 +1762,7 @@ describe("integration webhook handler engine resolution", () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const previousAppUrl = process.env.APP_URL;
     process.env.APP_URL = "https://design.agent.test";
-    const sendResponse = vi.fn();
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
     runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
       send({
         type: "tool_done",

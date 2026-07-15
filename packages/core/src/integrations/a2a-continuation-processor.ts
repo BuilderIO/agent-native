@@ -1,6 +1,7 @@
 import {
   appendA2AArtifactLinks,
   extractA2AArtifactIdentities,
+  stripA2APersistedArtifactMarkers,
 } from "../a2a/artifact-response.js";
 import { A2AClient, signA2AToken } from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
@@ -366,7 +367,9 @@ async function deliverAndCompleteA2AContinuation(
   if (!deliveryContinuation) return;
 
   try {
-    const outgoing = adapter.formatAgentResponse(text);
+    const outgoing = adapter.formatAgentResponse(
+      stripA2APersistedArtifactMarkers(text),
+    );
     const deliveryReceipt = await withTimeout(
       deliverA2AContinuationResponse(
         adapter,
@@ -378,12 +381,27 @@ async function deliverAndCompleteA2AContinuation(
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} response delivery timed out`,
     );
-    await persistA2AContinuationDelivery(
-      deliveryContinuation,
-      outgoing,
-      deliveryReceipt,
-      text,
-    );
+    let persistenceError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await persistA2AContinuationDelivery(
+          deliveryContinuation,
+          outgoing,
+          deliveryReceipt,
+          text,
+        );
+        persistenceError = undefined;
+        break;
+      } catch (err) {
+        persistenceError = err;
+      }
+    }
+    if (persistenceError) {
+      console.error(
+        `[integrations] Delivered A2A continuation ${deliveryContinuation.id} but could not persist its thread history:`,
+        persistenceError,
+      );
+    }
   } catch (err) {
     if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
       await failA2AContinuation(

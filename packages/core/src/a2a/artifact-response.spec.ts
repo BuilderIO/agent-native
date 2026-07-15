@@ -4,6 +4,7 @@ import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   extractA2AArtifactIdentities,
+  stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
@@ -131,6 +132,10 @@ describe("appendA2AArtifactLinks", () => {
         },
       ]),
     ).toEqual([]);
+
+    expect(stripA2APersistedArtifactMarkers(downstream)).toBe(
+      'Filed the design ask.\n\nArtifacts:\n- Document "Launch ask v1.2": https://content.agent.test/page/request_123 (ID: request_123)',
+    );
 
     expect(
       extractA2AArtifactIdentities([
