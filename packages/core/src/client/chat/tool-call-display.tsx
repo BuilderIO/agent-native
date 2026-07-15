@@ -1088,20 +1088,17 @@ export function WorkedForSummary({
   children,
 }: {
   durationMs?: number | null;
-  /** When true, start open then animate closed (post-run collapse). */
+  /** When true, close the summary after a run has completed. */
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(autoCollapse);
-  const didAutoCollapseRef = useRef(false);
+  // Start closed so a remounted completed message never flashes its work
+  // details open while auto-collapse settles. If the summary was already
+  // open when autoCollapse changes, AnimatedCollapse still animates it shut.
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!autoCollapse || didAutoCollapseRef.current) return;
-    didAutoCollapseRef.current = true;
-    const frame = requestAnimationFrame(() => {
-      setOpen(false);
-    });
-    return () => cancelAnimationFrame(frame);
+    if (autoCollapse) setOpen(false);
   }, [autoCollapse]);
 
   const label =

@@ -2251,6 +2251,52 @@ describe("AssistantMessageListErrorBoundary", () => {
     expect(container.textContent).toContain("Recovered messages");
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
   });
+
+  it("preserves message disclosure state when the message reset key changes", () => {
+    function StatefulMessageList() {
+      const [expanded, setExpanded] = React.useState(false);
+      return React.createElement(
+        "button",
+        {
+          type: "button",
+          "aria-expanded": expanded,
+          onClick: () => setExpanded((value) => !value),
+        },
+        expanded ? "open" : "closed",
+      );
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages:1" },
+          React.createElement(StatefulMessageList),
+        ),
+      );
+    });
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages:2" },
+          React.createElement(StatefulMessageList),
+        ),
+      );
+    });
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+  });
 });
 
 describe("AssistantUiStaleIndexErrorBoundary", () => {

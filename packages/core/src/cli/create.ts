@@ -1,4 +1,4 @@
-import { execFileSync } from "child_process";
+import { execFile, execFileSync } from "child_process";
 import fs from "fs";
 import path from "path";
 import { fileURLToPath, pathToFileURL } from "url";
@@ -1363,18 +1363,53 @@ function tarExtractArgs(
   return ["xzf", tarPath, "--strip-components=1", ...excludes, "-C", destDir];
 }
 
-function downloadAndExtract(
+function execFileBuffer(
+  command: string,
+  args: string[],
+  options: { maxBuffer: number },
+): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    execFile(
+      command,
+      args,
+      { ...options, encoding: "buffer" },
+      (error, stdout, stderr) => {
+        if (error) {
+          const detail = stderr?.toString().trim();
+          if (detail) error.message = `${error.message}: ${detail}`;
+          reject(error);
+          return;
+        }
+        resolve(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
+      },
+    );
+  });
+}
+
+async function downloadAndExtract(
   url: string,
   destDir: string,
   options: { skipAgentSymlinks?: boolean } = {},
-): void {
+): Promise<void> {
   fs.mkdirSync(destDir, { recursive: true });
   // --fail-with-body so curl exits non-zero on HTTP 4xx/5xx instead of writing
   // the error body (HTML/JSON) to disk where tar then fails with the opaque
   // "Unrecognized archive format" message.
-  const tarball = execFileSync("curl", ["--fail-with-body", "-sL", url], {
-    maxBuffer: 100 * 1024 * 1024,
-  });
+  // Keep this asynchronous: a synchronous curl blocks the event loop, which
+  // makes the create command's spinner look frozen during the GitHub fetch.
+  const tarball = await execFileBuffer(
+    "curl",
+    [
+      "--fail-with-body",
+      "--connect-timeout",
+      "10",
+      "--max-time",
+      "120",
+      "-sL",
+      url,
+    ],
+    { maxBuffer: 100 * 1024 * 1024 },
+  );
   const tarPath = path.join(destDir, ".download.tar.gz");
   fs.writeFileSync(tarPath, tarball);
   try {
@@ -1407,7 +1442,9 @@ async function downloadGitHubSubdir(
       `.agent-native-tmp-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
     );
     try {
-      downloadAndExtract(tarUrl, tmpDir, { skipAgentSymlinks: repo === REPO });
+      await downloadAndExtract(tarUrl, tmpDir, {
+        skipAgentSymlinks: repo === REPO,
+      });
       const srcDir = path.join(tmpDir, subdir);
       if (!fs.existsSync(srcDir)) {
         throw new Error(
@@ -1435,7 +1472,7 @@ async function downloadGitHubRepo(
 ): Promise<void> {
   validateRepoName(repo);
   const tarUrl = `https://api.github.com/repos/${repo}/tarball/main`;
-  downloadAndExtract(tarUrl, targetDir);
+  await downloadAndExtract(tarUrl, targetDir);
 }
 
 /* ─────────────────────────────────────────────────────────────────────────
