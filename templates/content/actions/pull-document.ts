@@ -73,6 +73,7 @@ export default defineAction({
       return {
         id: doc.id,
         title: doc.title,
+        description: doc.description ?? "",
         content: formatDocumentContent(doc.content ?? "", format),
         format,
         deepLink: buildDeepLink({
@@ -104,6 +105,7 @@ export default defineAction({
     return {
       id: doc.id,
       title: doc.title,
+      description: (doc.description as string | null | undefined) ?? "",
       content,
       format,
       deepLink: buildDeepLink({

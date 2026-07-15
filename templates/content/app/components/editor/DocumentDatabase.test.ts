@@ -71,6 +71,7 @@ import {
   databaseVisibleItemSummaries,
   databaseVisibleGroups,
   databaseGridColumns,
+  databaseItemPropertyForColumn,
   databaseInlineFilterLabel,
   databaseViewSummaries,
   databaseViewItemGroups,
@@ -191,6 +192,39 @@ function builderExecution(
     ...overrides,
   };
 }
+
+describe("database row property definitions", () => {
+  it("uses the canonical column guidance with the row's own value", () => {
+    const staleRowProperty = property(
+      "status",
+      "Status",
+      "status",
+      "in-progress",
+      {
+        options: [{ id: "in-progress", name: "In progress", color: "blue" }],
+      },
+    );
+    const canonicalProperty = property("status", "Status", "status", null, {
+      options: [
+        {
+          id: "in-progress",
+          name: "In progress",
+          color: "blue",
+          description: "Use while work is underway",
+        },
+      ],
+    });
+    const row = item("row", "Row", {});
+    row.properties.push(staleRowProperty);
+
+    const resolved = databaseItemPropertyForColumn(row, canonicalProperty);
+
+    expect(resolved.value).toBe("in-progress");
+    expect(resolved.definition.options.options?.[0]?.description).toBe(
+      "Use while work is underway",
+    );
+  });
+});
 
 function builderChangeSet(
   overrides: Partial<ContentDatabaseSourceChangeSet> = {},

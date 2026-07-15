@@ -59,6 +59,7 @@ export default defineAction({
           (doc) =>
             !normalizedQuery ||
             doc.title.toLowerCase().includes(normalizedQuery) ||
+            (doc.description ?? "").toLowerCase().includes(normalizedQuery) ||
             doc.content.toLowerCase().includes(normalizedQuery),
         )
         .sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))
@@ -69,6 +70,7 @@ export default defineAction({
           id: doc.id,
           parentId: doc.parentId,
           title: doc.title,
+          description: doc.description,
           icon: doc.icon,
           snippet: makeSnippet(doc.content, query),
           contentLength: doc.content.length,
@@ -95,6 +97,7 @@ export default defineAction({
         id: schema.documents.id,
         parentId: schema.documents.parentId,
         title: schema.documents.title,
+        description: schema.documents.description,
         icon: schema.documents.icon,
         contentPreview: sql<string>`substr(${schema.documents.content}, 1, 5000)`,
         contentLength: sql<number>`length(${schema.documents.content})`,
@@ -106,7 +109,7 @@ export default defineAction({
         and(
           accessFilter(schema.documents, schema.documentShares),
           documentDiscoveryFilter(),
-          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
+          sql`(${schema.documents.title} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.description} LIKE ${pattern} ESCAPE '\\' OR ${schema.documents.content} LIKE ${pattern} ESCAPE '\\')`,
         ),
       )
       .orderBy(sql`${schema.documents.updatedAt} DESC`)
@@ -117,6 +120,7 @@ export default defineAction({
         id: doc.id,
         parentId: doc.parentId,
         title: doc.title,
+        description: doc.description,
         icon: doc.icon,
         snippet: makeSnippet(doc.contentPreview, query),
         contentLength: Number(doc.contentLength) || 0,

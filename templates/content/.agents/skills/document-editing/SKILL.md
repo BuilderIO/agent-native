@@ -7,7 +7,10 @@ description: >-
 
 # Document Editing
 
-Documents are stored in the SQL database via Drizzle ORM. Each document has a title, markdown content, optional parent (for nesting), and a position for ordering.
+Documents are stored in the SQL database via Drizzle ORM. Each document has a
+title, stable description, markdown content, optional parent (for nesting), and
+a position for ordering. The description explains why the page exists and what
+belongs there; it is not a changing synopsis of the current body.
 
 ## Scripts
 
@@ -48,6 +51,7 @@ Create a new document.
 pnpm action create-document --title "Meeting Notes" --content "# Meeting Notes\n\nAttendees: ..."
 pnpm action create-document --title "Sub Page" --parentId parent123
 pnpm action create-document --title "My Page" --icon "📝"
+pnpm action create-document --title "Research" --description "Evidence and source notes that support the current project"
 ```
 
 ### edit-document
@@ -73,6 +77,7 @@ Update an existing document. Use for **full rewrites or new content**, not for s
 pnpm action update-document --id abc123 --title "New Title"
 pnpm action update-document --id abc123 --content "# Updated Content\n\nNew text here"
 pnpm action update-document --id abc123 --title "New Title" --content "New content"
+pnpm action update-document --id abc123 --description "Stable guidance for what belongs on this page"
 ```
 
 ### delete-document
@@ -123,17 +128,18 @@ Always run this after any document modification to update the sidebar.
 
 ## Document Schema
 
-| Column       | Type    | Description                             |
-| ------------ | ------- | --------------------------------------- |
-| `id`         | text    | Primary key (12-char hex string)        |
-| `parent_id`  | text    | Parent document ID (null for root)      |
-| `title`      | text    | Document title (default: "Untitled")    |
-| `content`    | text    | Markdown content                        |
-| `icon`       | text    | Emoji icon (optional)                   |
-| `position`   | integer | Sort order within parent (0-based)      |
-| `is_favorite`| integer | Whether document is favorited (0 or 1)  |
-| `created_at` | text    | ISO timestamp                           |
-| `updated_at` | text    | ISO timestamp                           |
+| Column        | Type    | Description                            |
+| ------------- | ------- | -------------------------------------- |
+| `id`          | text    | Primary key (12-char hex string)       |
+| `parent_id`   | text    | Parent document ID (null for root)     |
+| `title`       | text    | Document title (default: "Untitled")   |
+| `description` | text    | Stable semantic guidance for the page  |
+| `content`     | text    | Markdown content                       |
+| `icon`        | text    | Emoji icon (optional)                  |
+| `position`    | integer | Sort order within parent (0-based)     |
+| `is_favorite` | integer | Whether document is favorited (0 or 1) |
+| `created_at`  | text    | ISO timestamp                          |
+| `updated_at`  | text    | ISO timestamp                          |
 
 ## Content Format
 
@@ -142,21 +148,29 @@ Documents use **markdown** for content. The editor renders markdown in real time
 ## Parent-Child Hierarchy
 
 Documents form a tree via `parent_id`:
+
 - Root documents have `parent_id = null`
 - Child documents reference their parent's `id`
 - Deleting a parent recursively deletes all children
 - Position determines ordering within the same parent
 
+Descriptions are owned; context is inherited. `get-document` and `view-screen`
+return the focused page's own description plus a computed root-to-parent
+`contextPath`. Use that path to understand where the page lives, but never copy
+ancestor descriptions into the child. Database, property, and option
+descriptions narrow the guidance further when working with structured values.
+
 ## Common Tasks
 
-| User says                     | What to do                                                       |
-| ----------------------------- | ---------------------------------------------------------------- |
-| "Create a page about X"       | `create-document --title "X" --content "# X\n\n..."`           |
-| "Find my meeting notes"       | `search-documents --query "meeting notes"`                      |
-| "Fix a typo / edit a line"    | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
-| "Rewrite this document"       | `view-screen` to get ID, then `update-document --id ... --content ...` |
-| "Delete this page"            | `view-screen` to get ID, then `delete-document --id ...`       |
-| "Add a sub-page"              | `create-document --title "Sub" --parentId <parentId>`           |
-| "Show me the document tree"   | `list-documents`                                                |
+| User says                    | What to do                                                                          |
+| ---------------------------- | ----------------------------------------------------------------------------------- |
+| "Create a page about X"      | `create-document --title "X" --content "# X\n\n..."`                                |
+| "Describe what belongs here" | `update-document --id ... --description "..."`                                      |
+| "Find my meeting notes"      | `search-documents --query "meeting notes"`                                          |
+| "Fix a typo / edit a line"   | `view-screen` to get ID, then `edit-document --id ... --find "old" --replace "new"` |
+| "Rewrite this document"      | `view-screen` to get ID, then `update-document --id ... --content ...`              |
+| "Delete this page"           | `view-screen` to get ID, then `delete-document --id ...`                            |
+| "Add a sub-page"             | `create-document --title "Sub" --parentId <parentId>`                               |
+| "Show me the document tree"  | `list-documents`                                                                    |
 
 Always run `refresh-list` after any create, update, or delete operation.

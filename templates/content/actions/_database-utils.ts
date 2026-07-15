@@ -1,6 +1,7 @@
 import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { getDocumentContextPath } from "../server/lib/document-context.js";
 import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
@@ -20,6 +21,7 @@ import {
   listPropertiesForDatabase,
   serializeDatabase,
 } from "./_property-utils.js";
+export { getDocumentContextPath };
 
 export const CONTENT_DATABASE_MAX_READ_LIMIT = 5_000;
 
@@ -131,6 +133,7 @@ function serializeDocument(
     parentId: doc.parentId,
     title: doc.title,
     content: options.includeContent === true ? doc.content : "",
+    description: doc.description,
     icon: doc.icon,
     position: doc.position,
     isFavorite: parseDocumentFavorite(doc.isFavorite),
@@ -160,6 +163,14 @@ export async function getContentDatabaseResponse(
   if (!database || database.deletedAt) {
     throw new Error(`Database "${databaseId}" not found`);
   }
+  const [databaseDocument] = await db
+    .select({
+      id: schema.documents.id,
+      parentId: schema.documents.parentId,
+      description: schema.documents.description,
+    })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, database.documentId));
 
   // PURE read: the primary "Content" Blocks field is seeded at create time and
   // by the one-time startup repair — never here. Reading a database (including a
@@ -272,7 +283,10 @@ export async function getContentDatabaseResponse(
   const itemsWithOverlay = applyFederatedOverlayValues(federatedItems);
 
   return {
-    database: serializeDatabase(database),
+    database: serializeDatabase(database, databaseDocument?.description ?? ""),
+    contextPath: databaseDocument
+      ? await getDocumentContextPath(databaseDocument)
+      : [],
     properties: await listPropertiesForDatabase(databaseId),
     items: itemsWithOverlay,
     source: pagedPrimary,

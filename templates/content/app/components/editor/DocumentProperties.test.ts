@@ -5,6 +5,8 @@ import { describe, expect, it } from "vitest";
 
 import {
   canCreatePropertyOption,
+  createPropertyMetadataUpdateQueue,
+  createPropertyOptionUpdateQueue,
   dateInputValueForOffset,
   filesMediaEditorValue,
   filesMediaItems,
@@ -25,6 +27,7 @@ import {
   removePropertyOption,
   renamePropertyOption,
   updatePropertyOptionColor,
+  updatePropertyOptionDescription,
 } from "./DocumentProperties";
 
 const options: DocumentPropertyOption[] = [
@@ -137,9 +140,21 @@ describe("document files media property display", () => {
 });
 
 describe("document property option picker", () => {
-  it("filters options by label or id", () => {
+  it("filters options by label, stable id, or usage description", () => {
+    const documentedOptions = [
+      ...options,
+      {
+        id: "ready",
+        name: "Ready",
+        color: "green" as const,
+        description: "Use once editorial review is complete.",
+      },
+    ];
     expect(filterPropertyOptions(options, "pub")).toEqual([options[2]]);
     expect(filterPropertyOptions(options, "review")).toEqual([options[1]]);
+    expect(filterPropertyOptions(documentedOptions, "editorial")).toEqual([
+      documentedOptions[3],
+    ]);
     expect(filterPropertyOptions(options, "")).toEqual(options);
   });
 
@@ -184,12 +199,168 @@ describe("document property option picker", () => {
     ]);
   });
 
+  it("updates an option description without changing its stable id", () => {
+    expect(
+      updatePropertyOptionDescription(options, "draft", "Use for early work."),
+    ).toEqual([
+      {
+        id: "draft",
+        name: "Draft",
+        color: "gray",
+        description: "Use for early work.",
+      },
+      options[1],
+      options[2],
+    ]);
+  });
+
+  it("serializes a fast rename and description edit without losing either", async () => {
+    const persisted: DocumentPropertyOption[][] = [];
+    const queue = createPropertyOptionUpdateQueue(options, async (next) => {
+      persisted.push(next);
+    });
+
+    await Promise.all([
+      queue.enqueue((current) =>
+        renamePropertyOption(current, "draft", "In progress"),
+      ),
+      queue.enqueue((current) =>
+        updatePropertyOptionDescription(
+          current,
+          "draft",
+          "Use while active work is underway.",
+        ),
+      ),
+    ]);
+
+    expect(persisted).toEqual([
+      [
+        { id: "draft", name: "In progress", color: "gray" },
+        options[1],
+        options[2],
+      ],
+      [
+        {
+          id: "draft",
+          name: "In progress",
+          color: "gray",
+          description: "Use while active work is underway.",
+        },
+        options[1],
+        options[2],
+      ],
+    ]);
+  });
+
   it("removes options by stable id", () => {
     expect(removePropertyOption(options, "in-review")).toEqual([
       options[0],
       options[2],
     ]);
     expect(removePropertyOption(options, "missing")).toBe(options);
+  });
+});
+
+describe("document property metadata persistence", () => {
+  it("serializes a fast rename and description edit without restoring the old name", async () => {
+    const persisted: Array<{
+      name: string;
+      description: string;
+    }> = [];
+    const queue = createPropertyMetadataUpdateQueue(
+      {
+        name: "Status",
+        type: "select",
+        description: "",
+        visibility: "always_show",
+        options: { options },
+      },
+      async (metadata) => {
+        persisted.push({
+          name: metadata.name,
+          description: metadata.description ?? "",
+        });
+      },
+    );
+
+    await Promise.all([
+      queue.enqueue((current) => ({ ...current, name: "Workflow stage" })),
+      queue.enqueue((current) => ({
+        ...current,
+        description: "Tracks where the work is in the editorial workflow.",
+      })),
+    ]);
+
+    expect(persisted).toEqual([
+      { name: "Workflow stage", description: "" },
+      {
+        name: "Workflow stage",
+        description: "Tracks where the work is in the editorial workflow.",
+      },
+    ]);
+  });
+
+  it("keeps option edits when a property metadata save follows them", async () => {
+    const persisted: Array<{
+      description: string;
+      options: DocumentPropertyOption[];
+    }> = [];
+    const queue = createPropertyMetadataUpdateQueue(
+      {
+        name: "Status",
+        type: "select",
+        description: "",
+        visibility: "always_show",
+        options: { options },
+      },
+      async (metadata) => {
+        persisted.push({
+          description: metadata.description ?? "",
+          options: metadata.options.options ?? [],
+        });
+      },
+    );
+
+    await Promise.all([
+      queue.enqueue((current) => ({
+        ...current,
+        options: {
+          options: renamePropertyOption(
+            current.options.options ?? [],
+            "draft",
+            "In progress",
+          ),
+        },
+      })),
+      queue.enqueue((current) => ({
+        ...current,
+        options: {
+          options: updatePropertyOptionDescription(
+            current.options.options ?? [],
+            "draft",
+            "Use while active work is underway.",
+          ),
+        },
+      })),
+      queue.enqueue((current) => ({
+        ...current,
+        description: "Tracks the editorial workflow.",
+      })),
+    ]);
+
+    expect(persisted[persisted.length - 1]).toEqual({
+      description: "Tracks the editorial workflow.",
+      options: [
+        {
+          id: "draft",
+          name: "In progress",
+          color: "gray",
+          description: "Use while active work is underway.",
+        },
+        options[1],
+        options[2],
+      ],
+    });
   });
 });
 
