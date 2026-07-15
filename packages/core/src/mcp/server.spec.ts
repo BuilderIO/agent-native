@@ -3322,6 +3322,37 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 11, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        mcpUrl: "http://localhost:8100/mcp",
+      },
+    });
+  });
+
   it("uses forwarded host for tunneled OAuth challenges instead of opening dev mode", async () => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;

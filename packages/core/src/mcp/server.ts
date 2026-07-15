@@ -310,9 +310,20 @@ export async function handleMcpRequest(
   // must fail closed rather than trust a spoofable owner-email header that
   // `fullSurface` would otherwise escalate to the full mutating surface.
   const requestMeta = deriveRequestMeta(event);
+  const hasLocalOwnerHint = Boolean(
+    ownerEmailHeader?.trim() || process.env.AGENT_NATIVE_OWNER_EMAIL?.trim(),
+  );
   const authResult = await verifyAuth(authHeader, ownerEmailHeader, {
+    // A bare localhost URL is still a protected MCP resource. This lets
+    // OAuth-native hosts (Kiro, Claude Code, etc.) receive the standard 401
+    // challenge and open browser approval instead of silently getting the
+    // sparse anonymous dev surface. The stdio proxy remains zero-config for
+    // local installs because it forwards an owner hint; an explicit opt-out
+    // is available for local diagnostics.
     allowDevOpen:
-      isLoopbackRequest(event) && isLoopbackOrigin(requestMeta.origin),
+      isLoopbackRequest(event) &&
+      isLoopbackOrigin(requestMeta.origin) &&
+      (hasLocalOwnerHint || process.env.AGENT_NATIVE_MCP_DEV_OPEN === "1"),
     resourceUrl: getMcpOAuthAudiences(event),
   });
   if (!authResult.authed) {
