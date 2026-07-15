@@ -33,6 +33,7 @@ import {
   _getToolkitDependencyVersion,
   _getGitHubTemplateRef,
   _getGitHubTemplateRefCandidates,
+  _githubTarballUrl,
   _shouldSkipScaffoldEntry,
   _tarExtractArgs,
 } from "./create.js";
@@ -942,6 +943,18 @@ describe("template/core version compatibility", () => {
     // Never fall back to mutable `main`: it can be newer than the installed
     // core package and produce a scaffold that fails during SSR startup.
     expect(candidates).not.toContain("main");
+  });
+
+  it("downloads GitHub tarballs from codeload instead of the GitHub API", () => {
+    expect(
+      _githubTarballUrl(
+        "BuilderIO/agent-native",
+        "@agent-native/core@0.101.13",
+        "tag",
+      ),
+    ).toBe(
+      "https://codeload.github.com/BuilderIO/agent-native/tar.gz/refs/tags/%40agent-native%2Fcore%400.101.13",
+    );
   });
 });
 
