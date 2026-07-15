@@ -52,6 +52,7 @@ import {
   markdownModule,
   remarkGfmFn,
   markdownUrlTransform,
+  useSmoothStreamingText,
 } from "./markdown-renderer.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
@@ -929,6 +930,7 @@ export function ReconnectStreamMessage({
                 key={`reconnect-reasoning-${i}`}
                 text={part.text}
                 isStreaming={chatRunning && i === streamingReasoningPartIndex}
+                resetKey={`reconnect-reasoning-${i}`}
                 defaultOpen={i === latestReasoningPartIndex}
                 collapseWhenReplaced={i < latestReasoningPartIndex}
               />
@@ -973,6 +975,7 @@ const WorkSummaryContentContext = React.createContext(false);
 export function ReasoningCell({
   text,
   isStreaming = false,
+  resetKey,
   defaultOpen,
   autoCollapse = false,
   collapseWhenReplaced = false,
@@ -980,6 +983,8 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
+  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  resetKey?: string;
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
   autoCollapse?: boolean;
@@ -998,6 +1003,11 @@ export function ReasoningCell({
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
+  const visibleText = useSmoothStreamingText(
+    trimmed,
+    isStreaming,
+    resetKey ?? "reasoning",
+  );
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {
@@ -1018,7 +1028,7 @@ export function ReasoningCell({
   if (embeddedInWorkSummary) {
     return (
       <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-        {trimmed || (isStreaming ? "…" : "")}
+        {visibleText || (isStreaming ? "…" : "")}
       </div>
     );
   }
@@ -1055,7 +1065,7 @@ export function ReasoningCell({
       <AnimatedCollapse open={open}>
         <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
           <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {trimmed || (isStreaming ? "…" : "")}
+            {visibleText || (isStreaming ? "…" : "")}
           </div>
         </div>
       </AnimatedCollapse>
