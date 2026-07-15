@@ -34,6 +34,14 @@ export default defineAction({
   description:
     "Atomically manage one registered feature flag: enable it for the current user, turn it off immediately for the active scope, or replace its full rules. Organization owner/admin only (or the explicit no-org administrator).",
   schema,
+  // Keep the strict discriminated union for runtime validation, but advertise
+  // an object-shaped schema so agent tool registries can expose the action.
+  // Root-level JSON Schema unions are intentionally rejected by the agent.
+  agentInputSchema: z.object({
+    operation: z.enum(["enable-for-current-user", "off", "replace-rules"]),
+    key: z.string(),
+    rules: rulesSchema.optional(),
+  }),
   toolCallable: false,
   audit: {
     target: (args, _result, meta) => ({

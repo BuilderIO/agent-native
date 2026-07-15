@@ -106,6 +106,7 @@ describe("feature flag action contracts", () => {
     );
 
     expect(setAction.toolCallable).toBe(false);
+    expect(setAction.agentInputSchema).toBeDefined();
     expect(setAction.audit).toEqual(
       expect.objectContaining({
         target: expect.any(Function),
