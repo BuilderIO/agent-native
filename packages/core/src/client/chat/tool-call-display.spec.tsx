@@ -1010,6 +1010,50 @@ describe("ReasoningCell", () => {
   });
 });
 
+describe("WorkedForSummary", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
+  it("does not flash open when a completed summary remounts", () => {
+    function Harness({ visible }: { visible: boolean }) {
+      return visible ? (
+        <WorkedForSummary durationMs={11_000} autoCollapse>
+          <ReasoningCell text="The old thought stays collapsed." />
+        </WorkedForSummary>
+      ) : null;
+    }
+
+    act(() => root.render(<Harness visible />));
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+
+    act(() => root.render(<Harness visible={false} />));
+    act(() => root.render(<Harness visible />));
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+    expect(container.textContent).not.toContain(
+      "The old thought stays collapsed.",
+    );
+  });
+});
+
 describe("ApprovalAffordance", () => {
   let container: HTMLDivElement;
   let root: Root;

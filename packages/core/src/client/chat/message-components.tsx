@@ -848,6 +848,25 @@ export function shouldShowAssistantMessageFooter({
   return !chatRunning && statusIsTerminal;
 }
 
+export function shouldShowAssistantWorkSummary({
+  isLast,
+  isComplete,
+  hasCollapsibleWork,
+  hasUnresolvedTool,
+}: {
+  isLast: boolean;
+  isComplete: boolean;
+  hasCollapsibleWork: boolean;
+  hasUnresolvedTool: boolean;
+}): boolean {
+  if (!hasCollapsibleWork || hasUnresolvedTool) return false;
+
+  // Keep completed historical work wrapped while a later turn is running.
+  // Removing the wrapper exposes/remounts ReasoningCell and resets its
+  // disclosure state to the default-open value on every new submission.
+  return isComplete || !isLast;
+}
+
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
   const partRuntime = useMessagePartRuntime();
@@ -1040,8 +1059,12 @@ export function AssistantMessage() {
           {({ part, children }) => {
             switch (part.type) {
               case "group-work": {
-                const showSummary =
-                  isComplete && !chatRunning && hasCollapsibleWork;
+                const showSummary = shouldShowAssistantWorkSummary({
+                  isLast,
+                  isComplete,
+                  hasCollapsibleWork,
+                  hasUnresolvedTool,
+                });
                 if (!showSummary) return <>{children}</>;
                 return (
                   <WorkedForSummary
