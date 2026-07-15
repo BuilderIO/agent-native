@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasUnresolvedTool,
+  shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   ThinkingIndicator,
   isHiddenUserMessage,
@@ -99,6 +100,41 @@ describe("shouldShowAssistantMessageFooter", () => {
         chatRunning: true,
         hasRenderableContent: true,
         statusIsTerminal: true,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldShowAssistantWorkSummary", () => {
+  it("keeps completed historical work grouped while a later turn runs", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: false,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(true);
+  });
+
+  it("does not group the currently running assistant response", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: true,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("does not group work that still has an unresolved tool", () => {
+    expect(
+      shouldShowAssistantWorkSummary({
+        isLast: false,
+        isComplete: false,
+        hasCollapsibleWork: true,
+        hasUnresolvedTool: true,
       }),
     ).toBe(false);
   });
