@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.101.13
+
+### Patch Changes
+
+- e503433: Keep CLI repository downloads asynchronous and challenge bare loopback MCP URLs for OAuth clients.
+- e503433: Keep completed chat work disclosures collapsed and stable when submitting a later message.
+- e503433: Remove the automatic first-session personalization questions from agent chat so new requests are handled directly.
+
 ## 0.101.12
 
 ### Patch Changes
