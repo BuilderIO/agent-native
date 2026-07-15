@@ -74,7 +74,7 @@ function configArg<T extends z.ZodType>(schema: T) {
 
 const titleShapeSchema = z.string().describe("Field title");
 
-export const createCustomFieldActionSchema = z.discriminatedUnion("type", [
+const createCustomFieldUnion = z.discriminatedUnion("type", [
   z.object({
     title: titleShapeSchema,
     type: z.literal("text"),
@@ -116,6 +116,30 @@ export const createCustomFieldActionSchema = z.discriminatedUnion("type", [
     config: configArg(selectConfigShapeSchema),
   }),
 ]);
+
+/**
+ * Agent-tool layer registers requires top-level object.
+ * The refinement delegates to the discriminated union so config is still validated per type.
+ */
+export const createCustomFieldActionSchema = z
+  .object({
+    title: titleShapeSchema,
+    type: fieldTypeSchema.describe("Field type; immutable after creation"),
+    config: configArg(z.unknown()).describe(
+      "Type-compatible field configuration",
+    ),
+  })
+  .superRefine((val, ctx) => {
+    const result = createCustomFieldUnion.safeParse(val);
+    if (result.success) return;
+    for (const issue of result.error.issues) {
+      ctx.addIssue({
+        code: "custom",
+        path: issue.path,
+        message: issue.message,
+      });
+    }
+  });
 
 export const updateCustomFieldConfigActionSchema = z.preprocess(
   parseJsonArg,
