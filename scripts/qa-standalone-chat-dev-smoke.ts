@@ -771,12 +771,12 @@ async function runBrowserSmoke(
   browserErrors.length = 0;
   httpErrors.length = 0;
 
-  log("assertion pass: /observability after warmup");
+  log("assertion pass: /agent after warmup");
   await gotoAndWaitForNavLink(
     page,
     running,
-    "/observability",
-    "Observability",
+    "/agent",
+    "Agent settings",
     browserErrors,
     httpErrors,
   );
@@ -851,7 +851,7 @@ async function main(): Promise<void> {
     console.log(`  url:      ${running.baseUrl}`);
     console.log(`  app:      ${appDir}`);
     console.log(
-      "  checked:  scaffold → install → dev server → auto-login → / → /observability",
+      "  checked:  scaffold → install → dev server → auto-login → / → /agent",
     );
     console.log(
       "  checked:  no Unexpected Server Error, no HydratedRouter in dev logs",
