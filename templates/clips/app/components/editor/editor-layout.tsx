@@ -488,6 +488,36 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     return () => v.removeEventListener("timeupdate", onTime);
   }, [videoUrl]);
 
+  // While playing, the preview must behave like the edited cut: `timeupdate`
+  // only ticks ~4Hz, so a tighter interval (a) jumps the playhead past any
+  // excluded range it enters (matching the share player's skipExcludedRange —
+  // deleted words must not be spoken in the editor either) and (b) keeps the
+  // transcript's active-word highlight in step. Paused seeks stay free so
+  // trimmed material remains inspectable/restorable.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || !playing) return;
+    const tick = () => {
+      if (v.paused || v.seeking) return;
+      const ms = v.currentTime * 1000;
+      const range = excludedRanges.find((r) => ms >= r.startMs && ms < r.endMs);
+      if (range) {
+        if (durationMs > 0 && range.endMs >= durationMs) {
+          v.pause();
+          v.currentTime = durationMs / 1000;
+          setPlayheadMs(durationMs);
+          return;
+        }
+        v.currentTime = range.endMs / 1000;
+        setPlayheadMs(range.endMs);
+        return;
+      }
+      setPlayheadMs(ms);
+    };
+    const id = window.setInterval(tick, 80);
+    return () => window.clearInterval(id);
+  }, [playing, excludedRanges, durationMs, videoUrl]);
+
   // Expose the in-editor state so the agent can read "the user is editing and scrubbed to X".
   useEffect(() => {
     writeAppStateClient("editor-draft", {
