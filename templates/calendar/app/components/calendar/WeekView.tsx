@@ -1384,6 +1384,7 @@ export const WeekView = memo(function WeekView({
                       }
                       label={t("eventForm.outOfOffice")}
                       markerIndex={markerIndex}
+                      compactMarker
                       onDelete={onDeleteEvent}
                       isDraft={draftEventIds.includes(event.id)}
                       defaultOpen={quickEditEventId === event.id}

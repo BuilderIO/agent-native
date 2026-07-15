@@ -12,6 +12,7 @@ interface OutOfOfficeEventProps {
   color: string;
   label: string;
   markerIndex?: number;
+  compactMarker?: boolean;
   onDelete: (eventId: string) => void;
   isDraft: boolean;
   defaultOpen: boolean;
@@ -44,6 +45,7 @@ export function OutOfOfficeEvent({
   color,
   label,
   markerIndex = 0,
+  compactMarker = false,
   onDelete,
   isDraft,
   defaultOpen,
@@ -79,10 +81,11 @@ export function OutOfOfficeEvent({
       </div>
       <div
         data-out-of-office-trigger={event.id}
-        className="pointer-events-auto absolute right-1 z-40"
+        className="pointer-events-auto absolute z-40"
         style={{
           top: `${top + 4}px`,
-          left: `${4 + markerIndex * 12}px`,
+          right: `${4 + (compactMarker ? markerIndex * 24 : 0)}px`,
+          left: compactMarker ? undefined : `${4 + markerIndex * 12}px`,
         }}
       >
         <EventDetailPopover
@@ -98,7 +101,11 @@ export function OutOfOfficeEvent({
           onOpenChange={onOpenChange}
         >
           <button
-            className="flex h-5 max-w-full items-center gap-1 truncate rounded-sm px-1.5 text-left text-[10px] font-medium text-foreground outline-none transition-[filter,box-shadow] hover:brightness-110 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1"
+            className={`flex h-5 max-w-full items-center truncate rounded-sm text-[10px] font-medium text-foreground outline-none transition-[filter,box-shadow] hover:brightness-110 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 ${
+              compactMarker
+                ? "w-5 justify-center px-0"
+                : "gap-1 px-1.5 text-left"
+            }`}
             aria-label={`${label}: ${title}`}
             style={{
               backgroundColor: `color-mix(in srgb, ${color} 20%, hsl(var(--background)))`,
@@ -110,7 +117,7 @@ export function OutOfOfficeEvent({
               className="size-3 shrink-0"
               style={{ color }}
             />
-            <span className="truncate">{title}</span>
+            {!compactMarker && <span className="truncate">{title}</span>}
           </button>
         </EventDetailPopover>
       </div>
