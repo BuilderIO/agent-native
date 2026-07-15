@@ -192,6 +192,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (typeof entry.dedupe === "boolean") {
+    out.dedupe = entry.dedupe;
+  }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
   }
@@ -716,7 +719,7 @@ export async function mergeCoreSharingActions(
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
           // Carry security-relevant flags (toolCallable, publicAgent, link,
-          // mcpApp) plus readOnly/parallelSafe. Without this, the sharing
+          // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),

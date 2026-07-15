@@ -479,7 +479,7 @@ const enUS = {
         "Generate full presentations from a prompt. Edit visually or conversationally. AI image generation, 8 layouts, and presentation mode built in.",
     },
     analytics: {
-      replaces: "Agent-Native Amplitude, Fullstory",
+      replaces: "Open-source alternative to Amplitude and FullStory",
       description:
         "Connect any data source, prompt for any chart, build reusable dashboards. The agent writes SQL, generates visualizations, and evolves the app.",
     },
@@ -529,7 +529,7 @@ const enUS = {
       s004: "Query explorer",
       s005: "Natural language",
       s006: "All Apps",
-      s007: "Open-Source Amplitude, Fullstory",
+      s007: "Open-Source Alternative to Amplitude & FullStory",
       s008: "Connect any data source, prompt for any chart, build reusable dashboards — the AI agent writes the SQL.",
       s009: "Try It",
       s010: "What you can do",

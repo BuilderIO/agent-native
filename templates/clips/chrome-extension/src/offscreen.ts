@@ -36,6 +36,13 @@ import {
 import { MAX_UPLOAD_BYTES } from "@shared/upload-limits";
 
 import { waitForReadyRecordingAfterFinalizeError } from "./finalize-recovery";
+import {
+  createRecordingDurationState,
+  pauseRecordingDuration,
+  resumeRecordingDuration,
+  startRecordingDuration,
+  type RecordingDurationState,
+} from "./recording-duration";
 import { captureExtensionError, initExtensionSentry } from "./sentry";
 
 initExtensionSentry("offscreen");
@@ -187,6 +194,7 @@ type ActiveRecording = {
   authToken: string | null;
   mode: CaptureMode;
   startedAtMs: number;
+  duration: RecordingDurationState;
   mimeType: string;
   recorder: MediaRecorder;
   outputStream: MediaStream;
@@ -1218,6 +1226,7 @@ async function begin(message: BeginMessage): Promise<{
     authToken: message.authToken ?? null,
     mode: ready.mode,
     startedAtMs: 0,
+    duration: createRecordingDurationState(),
     mimeType,
     recorder,
     outputStream,
@@ -1350,6 +1359,7 @@ function startRecorderNow(recording: ActiveRecording): void {
     playStartChime();
     recording.recorder.start(2000);
     recording.startedAtMs = Date.now();
+    recording.duration = startRecordingDuration(recording.startedAtMs);
     console.log("[clips-offscreen] recorder.start ok");
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
@@ -1446,6 +1456,11 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
     recording.resolveStopped({ ok: true, status: "cancelled" });
     return;
   }
+  // Freeze the media duration as soon as MediaRecorder stops. Waiting for
+  // outstanding uploads below must not make the clip appear longer, and time
+  // spent paused is excluded by pauseRecordingDuration().
+  recording.duration = pauseRecordingDuration(recording.duration, Date.now());
+  const durationMs = recording.duration.elapsedMs;
   reportStatus(recording.sessionId, "uploading", {
     recordingId: recording.recordingId,
   });
@@ -1460,7 +1475,6 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         ? rejected.reason
         : new Error(String(rejected.reason));
     }
-    const durationMs = Math.max(0, Date.now() - recording.startedAtMs);
     // Surface WHY a finalize might fail before the server's cryptic "No chunks
     // found": 0 chunks means the recorder emitted no non-empty data (empty
     // capture / never started), which is a different problem than an auth 401.
@@ -1549,7 +1563,7 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
         recordingId: recording.recordingId,
         chunkCount: recording.chunkIndex,
         mimeType: recording.mimeType,
-        durationMs: Math.max(0, Date.now() - recording.startedAtMs),
+        durationMs,
       },
     });
     // The upload failed — save the buffered recording to disk so it isn't lost.
@@ -1574,7 +1588,13 @@ async function finalizeStop(recording: ActiveRecording): Promise<void> {
 function pause(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
-    if (recording.recorder.state === "recording") recording.recorder.pause();
+    if (recording.recorder.state === "recording") {
+      recording.recorder.pause();
+      recording.duration = pauseRecordingDuration(
+        recording.duration,
+        Date.now(),
+      );
+    }
     reportStatus(recording.sessionId, "paused", {
       recordingId: recording.recordingId,
     });
@@ -1585,7 +1605,13 @@ function pause(message: SimpleMessage): { ok: boolean } {
 function resume(message: SimpleMessage): { ok: boolean } {
   const recording = activeRecording;
   if (recording && recording.sessionId === message.sessionId) {
-    if (recording.recorder.state === "paused") recording.recorder.resume();
+    if (recording.recorder.state === "paused") {
+      recording.recorder.resume();
+      recording.duration = resumeRecordingDuration(
+        recording.duration,
+        Date.now(),
+      );
+    }
     reportStatus(recording.sessionId, "recording", {
       recordingId: recording.recordingId,
     });

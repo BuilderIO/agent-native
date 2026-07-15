@@ -482,7 +482,7 @@ const ptBR = {
         "Gere apresentações completas a partir de um prompt. Edite visualmente ou de forma conversacional. AI geração de imagem, 8 layouts e modo de apresentação integrado.",
     },
     analytics: {
-      replaces: "Substitui ou aumenta Amplitude, Mixpanel, Looker",
+      replaces: "Alternativa de código aberto ao Amplitude e ao FullStory",
       description:
         "Conecte qualquer fonte de dados, solicite qualquer gráfico, crie painéis reutilizáveis. O agente escreve SQL, gera visualizações e evolui o aplicativo.",
     },
@@ -532,7 +532,7 @@ const ptBR = {
       s004: "Explorador de consultas",
       s005: "Linguagem natural",
       s006: "Todos os modelos",
-      s007: "A alternativa de código aberto para Amplitude, Mixpanel e Looker",
+      s007: "A alternativa de código aberto para Amplitude e FullStory",
       s008: "Conecte qualquer fonte de dados, solicite qualquer gráfico, crie painéis reutilizáveis ​​— o agente AI escreve o SQL.",
       s009: "Experimentar",
       s010: "O que você pode fazer",

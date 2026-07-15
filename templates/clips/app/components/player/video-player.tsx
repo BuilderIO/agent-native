@@ -19,6 +19,7 @@ import {
   useState,
 } from "react";
 
+import { resolveMediaDurationMs } from "@/components/player/media-duration";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -824,22 +825,16 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       durationProbedRef.current = false;
     }, [activeVideoSrc, durationMs]);
 
-    // The recorder's elapsed-time counter (durationMs prop) is the most
-    // trustworthy length we have. A MediaRecorder WebM's own duration is
-    // cluster-estimated and lands short by up to one timeslice, so we never
-    // let it overwrite a real prop — doing so makes the scrubber jump to a
-    // shorter length than the actual recording on first watch.
-    const hasReliableDurationProp =
-      Number.isFinite(durationMs) && durationMs > 0;
-
+    // Prefer the recorder's elapsed-time counter for ordinary WebM timeslice
+    // drift, but let clearly different playable-media metadata win. This also
+    // repairs playback controls for older clips whose stored duration counted
+    // time spent paused.
     const probeDurationIfNeeded = useCallback(
       (v: HTMLVideoElement) => {
         if (durationProbedRef.current) return;
         if (Number.isFinite(v.duration) && v.duration > 0) {
           durationProbedRef.current = true;
-          if (!hasReliableDurationProp) {
-            setResolvedDurationMs(Math.round(v.duration * 1000));
-          }
+          setResolvedDurationMs(resolveMediaDurationMs(durationMs, v.duration));
           return;
         }
         if (playAttemptPendingRef.current || !v.paused) return;
@@ -855,7 +850,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           // picks up the real duration.
         }
       },
-      [hasReliableDurationProp],
+      [durationMs],
     );
 
     // Resolve the WebM-duration-is-Infinity Chrome quirk: when a video created
@@ -873,11 +868,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
       const onDurationChange = () => {
         if (Number.isFinite(v.duration) && v.duration > 0) {
-          // Don't downgrade a trustworthy recorder duration to the
-          // cluster-estimated WebM duration; only adopt it as a fallback.
-          if (!hasReliableDurationProp) {
-            setResolvedDurationMs(Math.round(v.duration * 1000));
-          }
+          setResolvedDurationMs(resolveMediaDurationMs(durationMs, v.duration));
           // After we've resolved the real duration, rewind back to 0 so the
           // user isn't sitting at the end of the clip.
           if (durationProbedRef.current && v.currentTime > v.duration) {
@@ -900,7 +891,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         v.removeEventListener("loadedmetadata", onLoadedMetadata);
         v.removeEventListener("durationchange", onDurationChange);
       };
-    }, [activeVideoSrc, hasReliableDurationProp, probeDurationIfNeeded]);
+    }, [activeVideoSrc, durationMs, probeDurationIfNeeded]);
 
     // Reset the thumbnail-capture flag when the source changes (e.g. the
     // player is reused for a different recording via React Router).
