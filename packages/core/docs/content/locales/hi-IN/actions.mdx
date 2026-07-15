@@ -614,6 +614,44 @@ export default defineAction({
 });
 ```
 
++## चरणबद्ध सुविधाओं की सुरक्षा {#feature-flags}
+
+Core फीचर फ़्लैग का उपयोग तब करें जब कोई action सुरक्षित रूप से deploy की जा सकती हो, लेकिन production तक धीरे-धीरे पहुँचनी हो। डिफ़ॉल्ट रूप से बंद फ़्लैग को एक बार घोषित करें, Nitro plugin से register करें और हर guarded action में evaluate करें। संबंधित बटन छिपाना केवल प्रस्तुति है; action check ही enforcement है।
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+क्लाइंट सतह को छिपाने या दिखाने के लिए `@agent-native/core/client` से `useFeatureFlag(FULL_APP_BUILDING.key)` का उपयोग करें। Core `get-feature-flags`, `list-feature-flags`, और `set-feature-flag` उपलब्ध कराता है; साझा फीचर फ़्लैग Settings टैब सटीक उपयोगकर्ता, संगठन, प्रतिशत और वैश्विक rollout के लिए उन्हीं actions का उपयोग करता है। प्रबंधन में अनुमतियों की जाँच होती है और उसका audit किया जाता है। फ़्लैग writes को कभी भी सामान्य settings endpoints या raw SQL के माध्यम से route न करें, और authentication, authorization, audit, secrets या SSR cache behavior को कभी runtime flag के पीछे न रखें। rollout और retirement मार्गदर्शन के लिए `feature-flags` skill पढ़ें।
+
 ## विरासत CLI-शैली actions {#legacy-cli-actions}
 
 फ्रेमवर्क अभी भी पुराने `export default async function(args)` actions का समर्थन करता है जो `defineAction` में लिपटे नहीं हैं - एक-ऑफ़ देव स्क्रिप्ट के लिए उपयोगी है जिन्हें एजेंट/HTTP एक्सपोज़र की आवश्यकता नहीं है। ये केवल CLI हैं; वे एजेंट टूल के रूप में प्रकट नहीं होते हैं, HTTP एंडपॉइंट को माउंट नहीं करते हैं, और उन्हें टाइपसेफ फ्रंटएंड हुक नहीं मिलते हैं।

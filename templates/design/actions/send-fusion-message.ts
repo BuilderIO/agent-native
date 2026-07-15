@@ -11,6 +11,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -18,10 +19,7 @@ import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import {
-  FULL_APP_BUILDING_ENABLED,
-  readFusionApp,
-} from "../shared/full-app.js";
+import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 export default defineAction({
   description:
@@ -38,8 +36,8 @@ export default defineAction({
       .min(1)
       .describe("The message to send to the app's coding agent."),
   }),
-  run: async ({ designId, prompt }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, prompt }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

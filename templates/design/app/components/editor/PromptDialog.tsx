@@ -957,7 +957,7 @@ function PromptAttachmentMenu({
 /**
  * Compact segmented "Design" / "Full app" pill selector shown in the new-design
  * popover title row. Only rendered by the caller when full-app building is
- * flag-enabled (see FULL_APP_BUILDING_ENABLED in shared/full-app.ts) — when
+ * flag-enabled by the Design page — when
  * absent the popover renders with no mode control at all.
  */
 function CreationModeToggle({

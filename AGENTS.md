@@ -206,6 +206,8 @@ templates/*/         Template apps
 Read the relevant skill before making changes in that area:
 
 - `adding-a-feature` for the four-area checklist.
+- `feature-flags` for default-off production rollouts, shared evaluation,
+  operator targeting, and removing stale flags after rollout.
 - `context-xray` for inspecting and managing the live agent context window.
 - `actions` for action definitions and invocation.
 - `data-programs` for stored, cached data-source scripts bound to app panels.

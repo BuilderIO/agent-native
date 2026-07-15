@@ -59,6 +59,14 @@ describe("extension SQL gate — comment-evasion resistance", () => {
         matchesSqlGate(SENSITIVE_SQL_RE, "SELECT * FROM app/**/_secrets"),
       ).toBe(true);
     });
+    it("blocks framework settings so extensions cannot bypass guarded configuration actions", () => {
+      expect(
+        matchesSqlGate(
+          SENSITIVE_SQL_RE,
+          "UPDATE settings SET value = ? WHERE key = ?",
+        ),
+      ).toBe(true);
+    });
     it("does not flag a legitimate tool_data query with a real comment", () => {
       expect(
         matchesSqlGate(
