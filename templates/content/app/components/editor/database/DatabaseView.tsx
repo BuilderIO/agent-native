@@ -1720,6 +1720,10 @@ function DatabaseTable({
           documentId: document.id,
           sourceId: session.sourceId,
           changeSetIds: selectedChangeSetIds,
+          documentIds:
+            selectedItemIds.length > 0
+              ? selectedItems.map((item) => item.document.id)
+              : undefined,
           pushModeConfirmation:
             activeBuilderReview.pushMode === "none"
               ? undefined
