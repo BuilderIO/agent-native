@@ -14,6 +14,7 @@ import {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
   reviewPreparePriority,
+  withAuthoritativeBuilderTargetRows,
 } from "./prepare-builder-source-review.js";
 
 export default defineAction({
@@ -72,9 +73,16 @@ export default defineAction({
           reviewPreparePriority(left) - reviewPreparePriority(right),
       )
       .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
+    const authoritativeSource = await withAuthoritativeBuilderTargetRows({
+      source,
+      changeSets,
+    });
     const review =
       changeSets.length > 0
-        ? buildBuilderSourceReviewPayload({ source, changeSets })
+        ? buildBuilderSourceReviewPayload({
+            source: authoritativeSource,
+            changeSets,
+          })
         : null;
     if (review) {
       review.totalRowCount = allReviewableChanges.length;

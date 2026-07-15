@@ -38,7 +38,7 @@ import { getContentDatabaseResponse } from "./_database-utils.js";
 
 export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
 
-async function withAuthoritativeBuilderTargetRows(args: {
+export async function withAuthoritativeBuilderTargetRows(args: {
   source: ContentDatabaseSource;
   changeSets: ContentDatabaseSourceChangeSet[];
 }) {

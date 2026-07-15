@@ -50,6 +50,7 @@ vi.mock("./_database-source-utils.js", async (importOriginal) => {
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
 let prepareReview: typeof import("./prepare-builder-source-review.js").default;
+let previewReview: typeof import("./preview-builder-source-review.js").default;
 let prepareExecution: typeof import("./prepare-builder-source-execution.js").default;
 let validateExecution: typeof import("./validate-builder-source-execution.js").default;
 
@@ -61,6 +62,7 @@ beforeAll(async () => {
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   prepareReview = (await import("./prepare-builder-source-review.js")).default;
+  previewReview = (await import("./preview-builder-source-review.js")).default;
   prepareExecution = (await import("./prepare-builder-source-execution.js"))
     .default;
   validateExecution = (await import("./validate-builder-source-execution.js"))
@@ -213,12 +215,39 @@ async function seedBuilderSource(args: {
   return {
     databaseId,
     databaseDocumentId,
+    rowDocumentId,
     sourceId,
     changeSetId,
   };
 }
 
 describe("Builder source review execution gates", () => {
+  it("restores authoritative Builder targets in selected read-only previews", async () => {
+    const seeded = await seedBuilderSource({
+      sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
+    });
+    heavySnapshotReads.omitTargetRows = true;
+    try {
+      const response = await asOwner(() =>
+        previewReview.run({
+          documentId: seeded.databaseDocumentId,
+          sourceId: seeded.sourceId,
+          scope: "selected",
+          documentIds: [seeded.rowDocumentId],
+        }),
+      );
+      expect(response.review?.rows).toMatchObject([
+        {
+          changeSetId: seeded.changeSetId,
+          targetEntryId: expect.stringMatching(/^entry_/),
+          effect: "autosave",
+        },
+      ]);
+    } finally {
+      heavySnapshotReads.omitTargetRows = false;
+    }
+  });
+
   it("restores a linked Builder target from authoritative row identity when the snapshot window omits it", async () => {
     const seeded = await seedBuilderSource({
       sourceTable: BUILDER_CMS_SAFE_WRITE_MODEL,
