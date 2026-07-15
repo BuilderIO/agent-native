@@ -45,6 +45,7 @@ import {
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
   getFirstVisibleOutOfOfficeDayIndex,
+  getOutOfOfficeSegment,
   isOutOfOfficeEvent,
 } from "@/lib/out-of-office";
 import {
@@ -1297,6 +1298,16 @@ export const WeekView = memo(function WeekView({
               }
             }
 
+            const visibleOutOfOfficeEvents = outOfOfficeEvents.filter(
+              (event) => {
+                const overrides = getDragOverrides(event.id);
+                return (
+                  getOutOfOfficeSegment(event, day) !== null ||
+                  (dragEventId === event.id && overrides?.dayIndex === dayIndex)
+                );
+              },
+            );
+
             return (
               <div
                 key={day.toISOString()}
@@ -1375,7 +1386,7 @@ export const WeekView = memo(function WeekView({
 
                 {/* Native Google out-of-office context sits behind meetings. */}
                 {!isLoading &&
-                  outOfOfficeEvents.map((event, markerIndex) => {
+                  visibleOutOfOfficeEvents.map((event, markerIndex) => {
                     const isBeingDragged = dragEventId === event.id;
                     const overrides = getDragOverrides(event.id);
                     const canonicalDayIndex =
