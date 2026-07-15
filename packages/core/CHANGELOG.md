@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.101.10
+
+### Patch Changes
+
+- 3453dd3: Allow review hosts to attach a composer target, anchor, metadata, and visible context while independently controlling agent dispatch, and keep comment-only composers human-routed.
+
 ## 0.101.9
 
 ### Patch Changes
