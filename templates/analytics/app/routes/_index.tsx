@@ -1,9 +1,9 @@
 import { redirect, type LoaderFunctionArgs } from "react-router";
 
 const SEO_TITLE =
-  "Agent-Native Analytics - Open Source, agent-friendly Amplitude alternative";
+  "Agent-Native Analytics - Open Source Alternative to Amplitude & FullStory";
 const SEO_DESCRIPTION =
-  "Open Source analytics app where AI agents connect to warehouses, product analytics, and CRM data to answer questions and build dashboards.";
+  "Open Source analytics app and alternative to Amplitude and FullStory where AI agents connect to warehouses, product analytics, and CRM data to answer questions and build dashboards.";
 
 export function meta() {
   return [

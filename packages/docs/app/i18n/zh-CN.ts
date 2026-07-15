@@ -472,7 +472,7 @@ const zhCN = {
         "根据提示生成完整的演示文稿。视觉或对话方式编辑。 AI 图像生成、8 种布局和内置演示模式。",
     },
     analytics: {
-      replaces: "替换或增强 Amplitude、Mixpanel、Looker",
+      replaces: "Amplitude 和 FullStory 的开源替代品",
       description:
         "连接任何数据源、提示任何图表、构建可重用的仪表板。代理编写 SQL、生成可视化并改进应用程序。",
     },
@@ -520,7 +520,7 @@ const zhCN = {
       s004: "查询浏览器",
       s005: "自然语言",
       s006: "所有模板",
-      s007: "Amplitude、Mixpanel 和 Looker 的开源替代品",
+      s007: "Amplitude 和 FullStory 的开源替代品",
       s008: "连接任何数据源，提示任何图表，构建可重复使用的仪表板 - AI 代理写入 SQL。",
       s009: "试用",
       s010: "你能做什么",

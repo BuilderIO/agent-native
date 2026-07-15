@@ -483,7 +483,7 @@ const frFR = {
         "Générez des présentations complètes à partir d’une invite. Modifiez visuellement ou conversationnellement. Génération d'images AI, 8 mises en page et mode de présentation intégrés.",
     },
     analytics: {
-      replaces: "Remplace ou augmente Amplitude, Mixpanel, Looker",
+      replaces: "Alternative open source à Amplitude et FullStory",
       description:
         "Connectez n'importe quelle source de données, demandez n'importe quel graphique, créez des tableaux de bord réutilisables. L'agent écrit SQL, génère des visualisations et fait évoluer l'application.",
     },
@@ -534,7 +534,7 @@ const frFR = {
       s004: "Explorateur de requêtes",
       s005: "Langage naturel",
       s006: "Tous les modèles",
-      s007: "L'alternative open source à Amplitude, Mixpanel et Looker",
+      s007: "L'alternative open source à Amplitude et FullStory",
       s008: "Connectez n'importe quelle source de données, demandez n'importe quel graphique, créez des tableaux de bord réutilisables: l'agent AI écrit le SQL.",
       s009: "Essayer",
       s010: "Ce que tu peux faire",
