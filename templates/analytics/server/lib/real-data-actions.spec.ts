@@ -539,6 +539,12 @@ describe("metadata and data-dictionary questions (should NOT force a provider ca
       ),
     ).toBe(true);
   });
+
+  it("flags provider payment questions as live analytics requests", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("what were our Stripe payments last week?"),
+    ).toBe(true);
+  });
 });
 
 describe("isGenericNoDataFallback", () => {

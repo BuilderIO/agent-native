@@ -56,6 +56,10 @@ describe("Analytics agent Plan mode policy", () => {
       "This does not replace or restrict external sources",
     );
     expect(guidance).toContain("When the user names an external provider");
+    expect(guidance).toContain("[Connect data sources](");
+    expect(guidance).toContain(
+      "Chat remains available when no external data source is connected",
+    );
   });
 
   it("routes built-in product metrics to the first-party query action", () => {
@@ -280,6 +284,7 @@ describe("realDataFinalGuard", () => {
     expect(result).toMatchObject({
       maxRetries: 2,
       expandToolSurface: true,
+      fallbackMessage: expect.stringContaining("[connect data sources]("),
     });
   });
 
@@ -297,7 +302,7 @@ describe("realDataFinalGuard", () => {
     });
   });
 
-  it("routes a data question to first-party Analytics after built-in status succeeds", () => {
+  it("does not mistake the built-in source for an external connection", () => {
     const result = realDataFinalGuard(
       guardContext({
         userText: "how many Builder signups did we get last week",
@@ -322,9 +327,72 @@ describe("realDataFinalGuard", () => {
     );
 
     expect(result).toMatchObject({
-      retryMessage: expect.stringContaining("First-party Analytics"),
-      fallbackMessage: expect.stringContaining("First-party Analytics"),
+      retryMessage: expect.stringContaining("no connected external providers"),
+      fallbackMessage: expect.stringContaining("[Connect data sources]("),
     });
+  });
+
+  it("guides a missing-external-source response to the real data-source setup link", () => {
+    const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our Stripe payments last week",
+        draftText:
+          "I can't retrieve Stripe payments because that source is not configured yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              dataSourcesLink: {
+                url: setupLink,
+                label: "Connect data sources",
+              },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(setupLink),
+      fallbackMessage: expect.stringContaining(setupLink),
+    });
+  });
+
+  it("accepts a contextual missing-source response when it includes the setup link", () => {
+    const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our Stripe payments last week",
+        draftText: `Stripe is not connected yet. [Connect data sources](${setupLink}) and I can pull those payments in.`,
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              dataSourcesLink: { url: setupLink },
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toBeNull();
   });
 
   it("passes through a data question backed by a successful data query attempt", () => {

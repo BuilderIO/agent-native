@@ -1,6 +1,7 @@
 import { getOrgContext } from "@agent-native/core/org";
 import {
   createAgentChatPlugin,
+  buildDeepLink,
   loadActionsFromStaticRegistry,
   type AgentLoopFinalResponseGuardContext,
 } from "@agent-native/core/server";
@@ -13,7 +14,6 @@ import {
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
 import {
   failedDataQueryAttemptMessage,
-  GENERIC_NO_DATA_FALLBACK_MESSAGE,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
@@ -29,6 +29,12 @@ import {
 } from "../lib/real-data-actions";
 
 const ANALYTICS_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
+
+const ANALYTICS_DATA_SOURCES_LINK = buildDeepLink({
+  app: "analytics",
+  view: "data-sources",
+  to: "/data-sources",
+});
 
 export const SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE =
   "SIMPLE TIME-BOUNDED METRIC FAST PATH — When the data dictionary or a known canonical source identifies the metric, run one bounded aggregate. Once it returns a valid result, answer the explicit question immediately with the source, time window, row count, and only necessary caveats. Do not schema-discover, retry, enrich, cross-check, or add breakdowns after that successful result unless the query failed or the result conflicts with the known metric definition. This does not waive the real-data requirement: never answer from a guess, stale value, or unverified result. ";
@@ -62,6 +68,7 @@ export function analyticsSourceGuidanceOpening(): string {
     SIMPLE_TIME_BOUNDED_METRIC_FAST_PATH_GUIDANCE +
     BUILT_IN_FIRST_PARTY_SOURCE_GUIDANCE +
     ANALYTICS_OBSERVABILITY_INCIDENT_GUIDANCE +
+    `DATA-SOURCE SETUP UX — Chat remains available when no external data source is connected. For a live-data request that needs an unavailable external provider, explain what is missing in the context of the user's question and guide them naturally to [Connect data sources](${ANALYTICS_DATA_SOURCES_LINK}). Use that real link from the app; do not emit a generic canned no-data sentence. For general conversation, conceptual questions, and questions the built-in first-party source can answer, continue helping normally. ` +
     "SURFACE DIFFERENTIATION — You are the analytics assistant for definitions, deep-dive analysis, and action. For questions about what a metric, model, or table means, use the Data Dictionary and configured schema tools first. For trends, comparisons, anomalies, current data, or anything that requires querying live data, answer directly in chat with the relevant provider query, dashboard analysis, and inline charts when useful. "
   );
 }
@@ -145,6 +152,118 @@ function configuredDataSourceLabels(
   return [...labels];
 }
 
+interface DataSourceStatusSummary {
+  checked: boolean;
+  externalSourceLabels: string[];
+  setupLink: string;
+}
+
+function dataSourceStatusSummary(
+  toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
+): DataSourceStatusSummary {
+  const externalSourceLabels = new Set<string>();
+  let checked = false;
+  let setupLink = ANALYTICS_DATA_SOURCES_LINK;
+
+  for (const result of toolResults ?? []) {
+    const normalizedName = String(result.name ?? "")
+      .trim()
+      .toLowerCase()
+      .replace(/[\s_]+/g, "-");
+    if (normalizedName !== "data-source-status" || result.isError) continue;
+
+    checked = true;
+    let parsed: Record<string, unknown>;
+    try {
+      const value = JSON.parse(String(result.content ?? ""));
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        continue;
+      }
+      parsed = value as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+
+    for (const candidate of [
+      parsed.dataSourcesSetupLink,
+      parsed.dataSourcesLink,
+      parsed.setupLink,
+    ]) {
+      if (
+        !candidate ||
+        typeof candidate !== "object" ||
+        Array.isArray(candidate)
+      ) {
+        continue;
+      }
+      const url = (candidate as Record<string, unknown>).url;
+      if (typeof url === "string" && url.trim()) {
+        setupLink = url.trim();
+        break;
+      }
+    }
+    if (typeof parsed.settingsPath === "string" && parsed.settingsPath.trim()) {
+      setupLink = parsed.settingsPath.trim();
+    }
+
+    const compactSources = Array.isArray(parsed.configuredDataSources)
+      ? parsed.configuredDataSources
+      : [];
+    for (const source of compactSources) {
+      if (!source || typeof source !== "object" || Array.isArray(source)) {
+        continue;
+      }
+      const record = source as Record<string, unknown>;
+      const provider = String(record.provider ?? "")
+        .trim()
+        .toLowerCase();
+      const via = String(record.via ?? "")
+        .trim()
+        .toLowerCase();
+      if (provider === "first-party" || via === "built-in") continue;
+      const label = record.label ?? record.provider;
+      if (typeof label === "string" && label.trim()) {
+        externalSourceLabels.add(label.trim());
+      }
+    }
+
+    // Backward compatibility for status responses that predate the compact
+    // configuredDataSources summary.
+    const providers = Array.isArray(parsed.providers) ? parsed.providers : [];
+    for (const provider of providers) {
+      if (
+        !provider ||
+        typeof provider !== "object" ||
+        Array.isArray(provider)
+      ) {
+        continue;
+      }
+      const record = provider as Record<string, unknown>;
+      if (record.configured !== true) continue;
+      const providerId = String(record.provider ?? "")
+        .trim()
+        .toLowerCase();
+      if (providerId === "first-party") continue;
+      const label = record.label ?? record.provider;
+      if (typeof label === "string" && label.trim()) {
+        externalSourceLabels.add(label.trim());
+      }
+    }
+  }
+
+  return {
+    checked,
+    externalSourceLabels: [...externalSourceLabels],
+    setupLink,
+  };
+}
+
+function includesDataSourcesLink(text: string, setupLink: string): boolean {
+  return (
+    text.includes(setupLink) || /\]\([^)]*\/data-sources(?:[)#?]|$)/i.test(text)
+  );
+}
+
 export function realDataFinalGuard(
   context: AgentLoopFinalResponseGuardContext,
 ) {
@@ -172,6 +291,12 @@ export function realDataFinalGuard(
     return null;
   }
   const incompleteEvidence = hasIncompleteDataEvidence(context.toolResults);
+  const dataQueryAttempted = hasDataQueryAttempt(context.toolResults);
+  const sourceStatus = dataSourceStatusSummary(context.toolResults);
+  const noConnectedExternalSources =
+    sourceStatus.checked && sourceStatus.externalSourceLabels.length === 0;
+  const needsDataSourceLink =
+    !sourceStatus.checked || noConnectedExternalSources;
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -225,8 +350,20 @@ export function realDataFinalGuard(
         "I can't make a confident exhaustive analytics claim yet because part of the source evidence was aborted, truncated, or still paginated. I need to recover the missing coverage or state the answer as partial with the inspected sample size.",
     };
   }
-  if (hasDataQueryAttempt(context.toolResults)) return null;
-  if (isSafeNoDataAnalyticsResponse(context.text)) return null;
+  if (dataQueryAttempted) return null;
+  if (isSafeNoDataAnalyticsResponse(context.text)) {
+    if (
+      needsDataSourceLink &&
+      !includesDataSourcesLink(context.text, sourceStatus.setupLink)
+    ) {
+      return {
+        retryMessage: `The response correctly explains that the requested live data is unavailable, but it needs a contextual next step. Explain which external source is missing, keep the conversation open, and include this exact markdown link: [Connect data sources](${sourceStatus.setupLink}). Do not use the generic no-grounded-data fallback.`,
+        fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+        maxRetries: 2,
+      };
+    }
+    return null;
+  }
   const failedQueryMessage = failedDataQueryAttemptMessage(context.toolResults);
   if (failedQueryMessage) {
     return {
@@ -236,6 +373,14 @@ export function realDataFinalGuard(
   }
 
   const configuredSources = configuredDataSourceLabels(context.toolResults);
+  if (noConnectedExternalSources) {
+    return {
+      retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include [Connect data sources](${sourceStatus.setupLink}). Do not use a generic canned no-data response.`,
+      fallbackMessage: `I can help with that once the relevant source is connected. [Connect data sources](${sourceStatus.setupLink})`,
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
   const configuredSourceGuidance = configuredSources.length
     ? ` \`data-source-status\` already confirmed these connected sources: ${configuredSources.join(", ")}. Do not claim that no sources are connected and do not ask the user to reconnect them. Immediately call the relevant query action for one of those sources.`
     : "";
@@ -246,7 +391,7 @@ export function realDataFinalGuard(
       " If the right response is a clarification, plan, or explicit unavailable/credentials-missing message with no metrics or source-record claims, finalize that directly instead.",
     fallbackMessage: configuredSources.length
       ? `I found connected data sources (${configuredSources.join(", ")}), but the model still did not run a real source query. Please retry the request; you do not need to reconnect those sources.`
-      : GENERIC_NO_DATA_FALLBACK_MESSAGE,
+      : `I couldn't complete a grounded answer to that request. If the relevant provider isn't connected, [connect data sources](${ANALYTICS_DATA_SOURCES_LINK}) and I'll try again with real data.`,
     // Some models use separate turns for status, schema discovery, and the
     // actual query. One corrective turn was enough for Sonnet but caused Luna
     // to hit the fallback before it reached the query.
