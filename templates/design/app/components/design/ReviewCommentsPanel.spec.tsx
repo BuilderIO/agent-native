@@ -30,7 +30,43 @@ vi.mock("@/components/ui/tabs", () => ({
   TabsTrigger: ({ children }: { children?: ReactNode }) => children,
 }));
 
-import { ReviewCommentsPanel } from "./ReviewCommentsPanel";
+import {
+  ReviewCommentsPanel,
+  resolveReviewComposerTargetId,
+} from "./ReviewCommentsPanel";
+
+describe("resolveReviewComposerTargetId", () => {
+  it("targets the active screen in This screen scope", () => {
+    expect(
+      resolveReviewComposerTargetId({
+        scope: "screen",
+        activeFileId: "screen-1",
+      }),
+    ).toBe("screen-1");
+  });
+
+  it("keeps unanchored All screens comments design-wide", () => {
+    expect(
+      resolveReviewComposerTargetId({
+        scope: "all",
+        activeFileId: "screen-1",
+      }),
+    ).toBeUndefined();
+  });
+
+  it("targets the active screen for an anchored layer in All screens scope", () => {
+    expect(
+      resolveReviewComposerTargetId({
+        scope: "all",
+        activeFileId: "screen-1",
+        commentAnchor: {
+          nodeId: "hero-title",
+          point: { xPct: 25, yPct: 30 },
+        },
+      }),
+    ).toBe("screen-1");
+  });
+});
 
 describe("ReviewCommentsPanel capabilities", () => {
   beforeEach(() => {

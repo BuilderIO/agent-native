@@ -33,6 +33,21 @@ export interface ReviewCommentsPanelProps {
   className?: string;
 }
 
+type ReviewCommentsScope = "screen" | "all";
+
+export function resolveReviewComposerTargetId({
+  scope,
+  activeFileId,
+  commentAnchor,
+}: {
+  scope: ReviewCommentsScope;
+  activeFileId?: string | null;
+  commentAnchor?: unknown | null;
+}): string | null | undefined {
+  if (commentAnchor != null) return activeFileId;
+  return scope === "screen" ? activeFileId : undefined;
+}
+
 export function ReviewCommentsPanel({
   designId,
   activeFileId,
@@ -52,8 +67,13 @@ export function ReviewCommentsPanel({
   className,
 }: ReviewCommentsPanelProps) {
   const t = useT();
-  const [scope, setScope] = useState<"screen" | "all">("screen");
+  const [scope, setScope] = useState<ReviewCommentsScope>("screen");
   const targetId = scope === "screen" ? activeFileId : undefined;
+  const composerTargetId = resolveReviewComposerTargetId({
+    scope,
+    activeFileId,
+    commentAnchor,
+  });
 
   return (
     <div
@@ -93,7 +113,7 @@ export function ReviewCommentsPanel({
           resourceType="design"
           resourceId={designId}
           targetId={targetId}
-          composerTargetId={activeFileId}
+          composerTargetId={composerTargetId}
           composerAnchor={commentAnchor}
           composerMetadata={commentMetadata}
           composerContextLabel={commentContextLabel}
