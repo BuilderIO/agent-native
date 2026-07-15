@@ -26,7 +26,7 @@ starts the `code` string for `templates/mail/server/lib/media-upload.ts`. The
 string's internal newlines are escaped as `\n`, except for its final newline:
 
 ```mdx
-code: "export const MAX_UPLOAD_BYTES = ...\n  }\n}
+code: "export const MAX_UPLOAD_BYTES = ...\n }\n}
 ",
 ```
 
