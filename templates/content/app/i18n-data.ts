@@ -2729,6 +2729,8 @@ const editorSlashMessages = {
   audio: "Audio",
   audioDescription: "Upload or embed audio",
   basicBlocks: "Basic blocks",
+  blockEquation: "Block equation",
+  blockEquationDescription: "Display a LaTeX equation on its own line",
   blocks: "Blocks",
   bulletedList: "Bulleted list",
   bulletedListDescription: "Unordered list",
@@ -2739,6 +2741,7 @@ const editorSlashMessages = {
   collapsibleBlockDescription: "Collapsible block",
   database: "Database",
   databaseDescription: "Inline database in this page",
+  cancelEquation: "Cancel",
   divider: "Divider",
   dividerDescription: "Horizontal rule",
   generate: "Generate",
@@ -2749,6 +2752,9 @@ const editorSlashMessages = {
   heading4Description: "Subheading",
   image: "Image",
   imageDescription: "Upload or embed image",
+  inlineEquation: "Inline equation",
+  inlineEquationDescription: "Add a LaTeX equation within text",
+  insertEquation: "Insert",
   localComponents: "Local components",
   media: "Media",
   numberedList: "Numbered list",
@@ -2756,6 +2762,14 @@ const editorSlashMessages = {
   page: "Page",
   pageDescription: "Create a child page",
   pages: "Pages",
+  equationInputLabel: "LaTeX equation",
+  equationInsertFailed: "Could not insert the equation.",
+  equationNeedsRepair: "Fix the LaTeX to see a preview.",
+  equationPlaceholder: String.raw`Type LaTeX, for example \frac{a}{b}`,
+  equationPreview: "Preview",
+  equationPreviewEmpty: "Your equation will appear here.",
+  equationSubmitHint:
+    "Preview updates as you type. Press Cmd/Ctrl+Enter to insert.",
   quote: "Quote",
   quoteDescription: "Block quote",
   table: "Table",
@@ -10293,6 +10307,21 @@ const contentExactEnglishTranslations = {
   "zh-CN": {
     editor: {
       failedToCreatePage: "创建页面失败",
+      slash: {
+        blockEquation: "块级公式",
+        blockEquationDescription: "在单独一行显示 LaTeX 公式",
+        cancelEquation: "取消",
+        inlineEquation: "行内公式",
+        inlineEquationDescription: "在文本中添加 LaTeX 公式",
+        insertEquation: "插入",
+        equationInputLabel: "LaTeX 公式",
+        equationInsertFailed: "无法插入公式。",
+        equationNeedsRepair: "请修正 LaTeX 以查看预览。",
+        equationPlaceholder: String.raw`输入 LaTeX，例如 \frac{a}{b}`,
+        equationPreview: "预览",
+        equationPreviewEmpty: "公式将在此处显示。",
+        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
+      },
       toolbar: {
         copiedPageLink: "已复制页面链接",
         copyPageLink: "复制页面链接",
@@ -10306,6 +10335,23 @@ const contentExactEnglishTranslations = {
   "es-ES": {
     editor: {
       failedToCreatePage: "No se pudo crear la página",
+      slash: {
+        blockEquation: "Ecuación en bloque",
+        blockEquationDescription:
+          "Muestra una ecuación LaTeX en su propia línea",
+        cancelEquation: "Cancelar",
+        inlineEquation: "Ecuación en línea",
+        inlineEquationDescription: "Añade una ecuación LaTeX dentro del texto",
+        insertEquation: "Insertar",
+        equationInputLabel: "Ecuación LaTeX",
+        equationInsertFailed: "No se pudo insertar la ecuación.",
+        equationNeedsRepair: "Corrige el LaTeX para ver la vista previa.",
+        equationPlaceholder: String.raw`Escribe LaTeX, por ejemplo \frac{a}{b}`,
+        equationPreview: "Vista previa",
+        equationPreviewEmpty: "Tu ecuación aparecerá aquí.",
+        equationSubmitHint:
+          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
+      },
       toolbar: {
         copiedPageLink: "Enlace de página copiado",
         copyPageLink: "Copiar enlace de página",
@@ -10320,6 +10366,23 @@ const contentExactEnglishTranslations = {
   "fr-FR": {
     editor: {
       failedToCreatePage: "Impossible de créer la page",
+      slash: {
+        blockEquation: "Équation en bloc",
+        blockEquationDescription:
+          "Afficher une équation LaTeX sur sa propre ligne",
+        cancelEquation: "Annuler",
+        inlineEquation: "Équation en ligne",
+        inlineEquationDescription: "Ajouter une équation LaTeX dans le texte",
+        insertEquation: "Insérer",
+        equationInputLabel: "Équation LaTeX",
+        equationInsertFailed: "Impossible d’insérer l’équation.",
+        equationNeedsRepair: "Corrigez le LaTeX pour afficher un aperçu.",
+        equationPlaceholder: String.raw`Saisissez du LaTeX, par exemple \frac{a}{b}`,
+        equationPreview: "Aperçu",
+        equationPreviewEmpty: "Votre équation apparaîtra ici.",
+        equationSubmitHint:
+          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
+      },
       toolbar: {
         copiedPageLink: "Lien de la page copié",
         copyPageLink: "Copier le lien de la page",
@@ -10334,6 +10397,24 @@ const contentExactEnglishTranslations = {
   "de-DE": {
     editor: {
       failedToCreatePage: "Seite konnte nicht erstellt werden",
+      slash: {
+        blockEquation: "Blockgleichung",
+        blockEquationDescription:
+          "Eine LaTeX-Gleichung in einer eigenen Zeile anzeigen",
+        cancelEquation: "Abbrechen",
+        inlineEquation: "Inline-Gleichung",
+        inlineEquationDescription: "Eine LaTeX-Gleichung in Text einfügen",
+        insertEquation: "Einfügen",
+        equationInputLabel: "LaTeX-Gleichung",
+        equationInsertFailed: "Die Gleichung konnte nicht eingefügt werden.",
+        equationNeedsRepair:
+          "Korrigieren Sie das LaTeX, um eine Vorschau zu sehen.",
+        equationPlaceholder: String.raw`LaTeX eingeben, zum Beispiel \frac{a}{b}`,
+        equationPreview: "Vorschau",
+        equationPreviewEmpty: "Ihre Gleichung wird hier angezeigt.",
+        equationSubmitHint:
+          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
+      },
       toolbar: {
         copiedPageLink: "Seitenlink kopiert",
         copyPageLink: "Seitenlink kopieren",
@@ -10348,6 +10429,23 @@ const contentExactEnglishTranslations = {
   "ja-JP": {
     editor: {
       failedToCreatePage: "ページを作成できませんでした",
+      slash: {
+        blockEquation: "ブロック数式",
+        blockEquationDescription: "LaTeX 数式を独立した行に表示します",
+        cancelEquation: "キャンセル",
+        inlineEquation: "インライン数式",
+        inlineEquationDescription: "テキスト内に LaTeX 数式を追加します",
+        insertEquation: "挿入",
+        equationInputLabel: "LaTeX 数式",
+        equationInsertFailed: "数式を挿入できませんでした。",
+        equationNeedsRepair:
+          "プレビューを表示するには LaTeX を修正してください。",
+        equationPlaceholder: String.raw`LaTeX を入力（例：\frac{a}{b}）`,
+        equationPreview: "プレビュー",
+        equationPreviewEmpty: "ここに数式が表示されます。",
+        equationSubmitHint:
+          "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
+      },
       toolbar: {
         copiedPageLink: "ページリンクをコピーしました",
         copyPageLink: "ページリンクをコピー",
@@ -10362,6 +10460,22 @@ const contentExactEnglishTranslations = {
   "ko-KR": {
     editor: {
       failedToCreatePage: "페이지를 만들지 못했습니다",
+      slash: {
+        blockEquation: "블록 수식",
+        blockEquationDescription: "LaTeX 수식을 별도 줄에 표시합니다",
+        cancelEquation: "취소",
+        inlineEquation: "인라인 수식",
+        inlineEquationDescription: "텍스트 안에 LaTeX 수식을 추가합니다",
+        insertEquation: "삽입",
+        equationInputLabel: "LaTeX 수식",
+        equationInsertFailed: "수식을 삽입하지 못했습니다.",
+        equationNeedsRepair: "미리 보려면 LaTeX를 수정하세요.",
+        equationPlaceholder: String.raw`LaTeX를 입력하세요. 예: \frac{a}{b}`,
+        equationPreview: "미리보기",
+        equationPreviewEmpty: "여기에 수식이 표시됩니다.",
+        equationSubmitHint:
+          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
+      },
       toolbar: {
         copiedPageLink: "페이지 링크를 복사했습니다",
         copyPageLink: "페이지 링크 복사",
@@ -10376,6 +10490,23 @@ const contentExactEnglishTranslations = {
   "pt-BR": {
     editor: {
       failedToCreatePage: "Não foi possível criar a página",
+      slash: {
+        blockEquation: "Equação em bloco",
+        blockEquationDescription:
+          "Exiba uma equação LaTeX em uma linha própria",
+        cancelEquation: "Cancelar",
+        inlineEquation: "Equação em linha",
+        inlineEquationDescription: "Adicione uma equação LaTeX dentro do texto",
+        insertEquation: "Inserir",
+        equationInputLabel: "Equação LaTeX",
+        equationInsertFailed: "Não foi possível inserir a equação.",
+        equationNeedsRepair: "Corrija o LaTeX para ver uma prévia.",
+        equationPlaceholder: String.raw`Digite LaTeX, por exemplo \frac{a}{b}`,
+        equationPreview: "Prévia",
+        equationPreviewEmpty: "Sua equação aparecerá aqui.",
+        equationSubmitHint:
+          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
+      },
       toolbar: {
         copiedPageLink: "Link da página copiado",
         copyPageLink: "Copiar link da página",
@@ -10390,6 +10521,22 @@ const contentExactEnglishTranslations = {
   "hi-IN": {
     editor: {
       failedToCreatePage: "पेज नहीं बनाया जा सका",
+      slash: {
+        blockEquation: "ब्लॉक समीकरण",
+        blockEquationDescription: "LaTeX समीकरण को अलग पंक्ति में दिखाएँ",
+        cancelEquation: "रद्द करें",
+        inlineEquation: "इनलाइन समीकरण",
+        inlineEquationDescription: "टेक्स्ट के भीतर LaTeX समीकरण जोड़ें",
+        insertEquation: "सम्मिलित करें",
+        equationInputLabel: "LaTeX समीकरण",
+        equationInsertFailed: "समीकरण सम्मिलित नहीं किया जा सका।",
+        equationNeedsRepair: "पूर्वावलोकन देखने के लिए LaTeX ठीक करें।",
+        equationPlaceholder: String.raw`LaTeX लिखें, जैसे \frac{a}{b}`,
+        equationPreview: "पूर्वावलोकन",
+        equationPreviewEmpty: "आपका समीकरण यहाँ दिखाई देगा।",
+        equationSubmitHint:
+          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
+      },
       toolbar: {
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
@@ -10403,6 +10550,22 @@ const contentExactEnglishTranslations = {
   "ar-SA": {
     editor: {
       failedToCreatePage: "تعذر إنشاء الصفحة",
+      slash: {
+        blockEquation: "معادلة مستقلة",
+        blockEquationDescription: "اعرض معادلة LaTeX في سطر مستقل",
+        cancelEquation: "إلغاء",
+        inlineEquation: "معادلة ضمن السطر",
+        inlineEquationDescription: "أضف معادلة LaTeX داخل النص",
+        insertEquation: "إدراج",
+        equationInputLabel: "معادلة LaTeX",
+        equationInsertFailed: "تعذر إدراج المعادلة.",
+        equationNeedsRepair: "صحح LaTeX لعرض المعاينة.",
+        equationPlaceholder: String.raw`اكتب LaTeX، مثل \frac{a}{b}`,
+        equationPreview: "معاينة",
+        equationPreviewEmpty: "ستظهر معادلتك هنا.",
+        equationSubmitHint:
+          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
+      },
       toolbar: {
         copiedPageLink: "تم نسخ رابط الصفحة",
         copyPageLink: "نسخ رابط الصفحة",

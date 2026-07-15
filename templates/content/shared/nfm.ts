@@ -41,6 +41,7 @@
  * exposing simple string props for the editor preview layer.
  */
 
+import { matchInlineMathAt } from "./inline-math.js";
 import { isRegistryBlockTag, registryBlockSpecByTag } from "./nfm-registry.js";
 
 // ── Shared PM JSON types ────────────────────────────────────────────
@@ -279,7 +280,7 @@ function serializeInlineAtom(node: PMNode): string {
     attrs = {};
   }
   if (tagName === "math") {
-    return "$`" + (label || attrs.latex || "") + "`$";
+    return "$" + (label || attrs.latex || "") + "$";
   }
   const attrEntries = Object.entries(attrs).filter(([k]) => k !== "latex");
   const attrStr = serializeAttrs(attrEntries);
@@ -446,19 +447,21 @@ function parseInline(input: string): PMNode[] {
       continue;
     }
 
-    // Inline math $`...`$
-    if (ch === "$" && input[i + 1] === "`") {
-      const close = input.indexOf("`$", i + 2);
-      if (close !== -1) {
-        flush();
-        const latex = input.slice(i + 2, close);
-        out.push({
-          type: "notionInlineAtom",
-          attrs: { tagName: "math", attrsJson: "{}", label: latex },
-        });
-        i = close + 2;
-        continue;
-      }
+    // Canonical inline math is $...$; GitHub's $`...`$ form remains a
+    // backwards-compatible input alias and canonicalizes on the next write.
+    const inlineMath = ch === "$" ? matchInlineMathAt(input, i) : null;
+    if (inlineMath) {
+      flush();
+      out.push({
+        type: "notionInlineAtom",
+        attrs: {
+          tagName: "math",
+          attrsJson: "{}",
+          label: inlineMath.latex,
+        },
+      });
+      i = inlineMath.to;
+      continue;
     }
 
     // Inline code `...` — CommonMark-style variable-length delimiter: the

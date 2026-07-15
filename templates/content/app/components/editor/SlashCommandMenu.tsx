@@ -1,8 +1,10 @@
 import { useSendToAgentChat, useT } from "@agent-native/core/client";
 import type { CreateInlineDatabaseResponse } from "@shared/api";
+import { renderMathToHtml } from "@shared/math-rendering";
 import { collapseExactRepeatedNfm, docToNfm } from "@shared/nfm";
 import { serializeRegistryBlockToMdx } from "@shared/nfm-registry";
 import {
+  IconCheck,
   IconTypography,
   IconH1,
   IconH2,
@@ -23,6 +25,8 @@ import {
   IconFileText,
   IconDatabase,
   IconVideo,
+  IconMathFunction,
+  IconSquareRoot2,
 } from "@tabler/icons-react";
 import { Editor } from "@tiptap/react";
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
@@ -30,6 +34,7 @@ import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
+import { Button } from "@/components/ui/button";
 import {
   Popover,
   PopoverContent,
@@ -42,6 +47,7 @@ import { localContentComponents } from "@/local-components";
 
 import { focusMostRecentEmptyToggleSummary } from "./extensions/NotionExtensions";
 import { buildLocalComponentSlashItems } from "./localComponentSlashItems";
+import { MathRenderer } from "./MathRenderer";
 import { buildRegistrySlashItems } from "./registrySlashItems";
 
 interface SlashCommandMenuProps {
@@ -62,6 +68,13 @@ interface SlashCommandMenuProps {
 interface EditorMenuPosition {
   top: number;
   left: number;
+}
+
+interface EquationDraft {
+  displayMode: boolean;
+  insertionRange: { from: number; to: number };
+  slashRange: { from: number; to: number };
+  position: EditorMenuPosition;
 }
 
 interface CommandItem {
@@ -176,6 +189,47 @@ export function insertInlineDatabaseBlock(
   return position != null
     ? chain.insertContentAt(position, content).run()
     : chain.insertContent(content).run();
+}
+
+export function equationNodeContent(latex: string, displayMode: boolean) {
+  return displayMode
+    ? {
+        type: "notionBlockAtom",
+        attrs: { tagName: "equation", attrsJson: "{}", label: latex },
+      }
+    : {
+        type: "notionInlineAtom",
+        attrs: { tagName: "math", attrsJson: "{}", label: latex },
+      };
+}
+
+export function insertEquation(
+  editor: Editor,
+  latex: string,
+  displayMode: boolean,
+  range: { from: number; to: number },
+) {
+  const content = equationNodeContent(latex, displayMode);
+  return editor
+    .chain()
+    .focus()
+    .insertContentAt(
+      range,
+      displayMode ? [content, { type: "paragraph" }] : content,
+    )
+    .run();
+}
+
+export function getEquationInsertionRange(
+  editor: Editor,
+  slashRange: { from: number; to: number },
+  displayMode: boolean,
+) {
+  if (!displayMode) return slashRange;
+  const resolved = editor.state.doc.resolve(slashRange.from);
+  return resolved.parent.isTextblock
+    ? { from: resolved.before(), to: resolved.after() }
+    : slashRange;
 }
 
 const commands: CommandTemplate[] = [
@@ -460,6 +514,16 @@ export function SlashCommandMenu({
   );
   const generateTextareaRef = useRef<HTMLTextAreaElement>(null);
 
+  const [equationDraft, setEquationDraft] = useState<EquationDraft | null>(
+    null,
+  );
+  const [equationLatex, setEquationLatex] = useState("");
+  const equationInputRef = useRef<HTMLTextAreaElement>(null);
+  const equationResult = useMemo(
+    () => renderMathToHtml(equationLatex, equationDraft?.displayMode ?? false),
+    [equationDraft?.displayMode, equationLatex],
+  );
+
   const submitGeneratePrompt = useCallback(
     (prompt: string) => {
       const trimmed = prompt.trim();
@@ -684,6 +748,80 @@ export function SlashCommandMenu({
     },
   };
 
+  const openEquationComposer = useCallback(
+    (displayMode: boolean, slashRange: { from: number; to: number } | null) => {
+      const menuPosition = position ?? getSelectionMenuPosition();
+      if (!slashRange || !menuPosition) return false;
+      setEquationLatex("");
+      setEquationDraft({
+        displayMode,
+        slashRange,
+        insertionRange: getEquationInsertionRange(
+          editor,
+          slashRange,
+          displayMode,
+        ),
+        position: menuPosition,
+      });
+      setTimeout(() => equationInputRef.current?.focus(), 0);
+      return true;
+    },
+    [editor, getSelectionMenuPosition, position],
+  );
+
+  const cancelEquation = useCallback(() => {
+    const draft = equationDraft;
+    setEquationDraft(null);
+    setEquationLatex("");
+    if (draft) {
+      editor.chain().focus().deleteRange(draft.slashRange).run();
+    }
+  }, [editor, equationDraft]);
+
+  const submitEquation = useCallback(() => {
+    if (!equationDraft || !equationResult.ok) return;
+    const latex = equationLatex.trim();
+    const { displayMode, insertionRange } = equationDraft;
+    setEquationDraft(null);
+    setEquationLatex("");
+    const inserted = insertEquation(editor, latex, displayMode, insertionRange);
+    if (!inserted) {
+      toast.error(t("editor.slash.equationInsertFailed"));
+      return;
+    }
+    void onDraftCommitted?.();
+  }, [
+    editor,
+    equationDraft,
+    equationLatex,
+    equationResult.ok,
+    onDraftCommitted,
+    t,
+  ]);
+
+  const equationCommands: CommandItem[] = isTurnInto
+    ? []
+    : [
+        {
+          title: t("editor.slash.blockEquation"),
+          description: t("editor.slash.blockEquationDescription"),
+          searchText: "latex katex math formula",
+          icon: IconMathFunction,
+          preserveSlashRange: true,
+          action: (_editor, { slashRange }) =>
+            openEquationComposer(true, slashRange),
+        },
+        {
+          title: t("editor.slash.inlineEquation"),
+          description: t("editor.slash.inlineEquationDescription"),
+          searchText: "latex katex math formula",
+          icon: IconSquareRoot2,
+          preserveSlashRange: true,
+          action: (_editor, { slashRange }) =>
+            openEquationComposer(false, slashRange),
+        },
+      ];
+
   // Registry-derived block items (the shared dev-doc / OpenAPI / structured
   // library). Filtered to Notion-compatible specs when the document is linked to
   // a Notion page. "Turn into" only converts the current text block, so these
@@ -713,9 +851,10 @@ export function SlashCommandMenu({
     title: t(cmd.titleKey),
     description: t(cmd.descriptionKey),
   });
-  const blockCommands = (isTurnInto ? turnIntoCommands : commands).map(
-    localizeCommand,
-  );
+  const blockCommands = [
+    ...(isTurnInto ? turnIntoCommands : commands).map(localizeCommand),
+    ...equationCommands,
+  ];
   const pageCommands = isTurnInto ? [] : [pageCommand, databaseCommand];
   const mediaCommands = isTurnInto
     ? []
@@ -1042,7 +1181,7 @@ export function SlashCommandMenu({
             align="start"
             side="bottom"
             className="w-[calc(100vw-2rem)] max-w-80 rounded-xl p-0"
-            onOpenAutoFocus={(e) => {
+            onOpenAutoFocus={(e: Event) => {
               e.preventDefault();
               generateTextareaRef.current?.focus();
             }}
@@ -1082,6 +1221,123 @@ export function SlashCommandMenu({
               >
                 <IconArrowUp size={14} />
               </button>
+            </div>
+          </PopoverContent>
+        </Popover>
+      )}
+
+      {equationDraft && (
+        <Popover
+          open
+          onOpenChange={(open: boolean) => {
+            if (!open) cancelEquation();
+          }}
+        >
+          <PopoverTrigger asChild>
+            <span
+              className="pointer-events-none absolute size-0"
+              style={{
+                top: equationDraft.position.top,
+                left: Math.min(equationDraft.position.left, 16),
+              }}
+            />
+          </PopoverTrigger>
+          <PopoverContent
+            align="start"
+            side="bottom"
+            className="w-[calc(100vw-2rem)] max-w-md rounded-xl p-0"
+            onOpenAutoFocus={(event: Event) => {
+              event.preventDefault();
+              equationInputRef.current?.focus();
+            }}
+          >
+            <div className="p-4">
+              <div className="flex items-center gap-2 text-sm font-semibold">
+                {equationDraft.displayMode ? (
+                  <IconMathFunction
+                    className="text-muted-foreground"
+                    size={16}
+                  />
+                ) : (
+                  <IconSquareRoot2
+                    className="text-muted-foreground"
+                    size={16}
+                  />
+                )}
+                {equationDraft.displayMode
+                  ? t("editor.slash.blockEquation")
+                  : t("editor.slash.inlineEquation")}
+              </div>
+              <textarea
+                ref={equationInputRef}
+                value={equationLatex}
+                onChange={(event) => setEquationLatex(event.target.value)}
+                onKeyDown={(event) => {
+                  if (
+                    event.key === "Enter" &&
+                    (event.metaKey || event.ctrlKey) &&
+                    equationResult.ok
+                  ) {
+                    event.preventDefault();
+                    submitEquation();
+                  }
+                  if (event.key === "Escape") {
+                    event.preventDefault();
+                    cancelEquation();
+                  }
+                }}
+                rows={equationDraft.displayMode ? 3 : 2}
+                placeholder={t("editor.slash.equationPlaceholder")}
+                aria-label={t("editor.slash.equationInputLabel")}
+                aria-invalid={equationLatex.length > 0 && !equationResult.ok}
+                aria-describedby="equation-preview-status"
+                className="mt-3 w-full resize-y rounded-lg border border-input bg-background px-3 py-2 font-mono text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              />
+              <div className="mt-3 min-h-20 rounded-lg border border-border bg-muted/30 p-3">
+                <div className="mb-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
+                  {t("editor.slash.equationPreview")}
+                </div>
+                <div className="flex min-h-9 items-center justify-center overflow-x-auto text-foreground">
+                  {equationResult.ok ? (
+                    <MathRenderer
+                      latex={equationLatex}
+                      displayMode={equationDraft.displayMode}
+                    />
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      {equationLatex
+                        ? t("editor.slash.equationNeedsRepair")
+                        : t("editor.slash.equationPreviewEmpty")}
+                    </span>
+                  )}
+                </div>
+              </div>
+              <p
+                id="equation-preview-status"
+                className={cn(
+                  "mt-2 min-h-5 text-xs",
+                  equationLatex && !equationResult.ok
+                    ? "text-destructive"
+                    : "text-muted-foreground",
+                )}
+              >
+                {equationLatex && !equationResult.ok
+                  ? equationResult.error
+                  : t("editor.slash.equationSubmitHint")}
+              </p>
+            </div>
+            <div className="flex items-center justify-end gap-2 border-t border-border px-4 py-3">
+              <Button variant="ghost" size="sm" onClick={cancelEquation}>
+                {t("editor.slash.cancelEquation")}
+              </Button>
+              <Button
+                size="sm"
+                onClick={submitEquation}
+                disabled={!equationResult.ok}
+              >
+                <IconCheck />
+                {t("editor.slash.insertEquation")}
+              </Button>
             </div>
           </PopoverContent>
         </Popover>

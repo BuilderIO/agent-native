@@ -1218,6 +1218,59 @@ div[data-notion-column] > :last-child {
   white-space: nowrap;
 }
 
+.content-inline-equation {
+  display: inline-block;
+  max-width: 100%;
+  margin: 0 0.08em;
+  vertical-align: -0.08em;
+}
+
+.content-equation {
+  display: block;
+  max-width: 100%;
+  margin: 1em 0;
+  overflow-x: auto;
+  padding: 0.25rem 0;
+}
+
+.content-math {
+  color: inherit;
+}
+
+.content-math--inline {
+  display: inline-block;
+}
+
+.content-math--block {
+  display: block;
+  min-width: max-content;
+  text-align: center;
+}
+
+.content-math-error {
+  border: 1px solid hsl(var(--destructive) / 0.3);
+  border-radius: 0.375rem;
+  background: hsl(var(--destructive) / 0.06);
+  color: hsl(var(--foreground));
+  font-family:
+    "JetBrains Mono Variable", ui-monospace, SFMono-Regular, Menlo, Consolas,
+    monospace;
+  white-space: pre-wrap;
+}
+
+.content-math-error--inline {
+  padding: 0.05rem 0.25rem;
+  font-size: 0.9em;
+}
+
+.content-math-error--block {
+  display: block;
+  width: 100%;
+  padding: 0.75rem 0.9rem;
+  overflow-wrap: anywhere;
+  text-align: left;
+}
+
 .notion-editor span[data-notion-span="true"][underline="true"] {
   text-decoration: underline;
   text-underline-offset: 3px;
