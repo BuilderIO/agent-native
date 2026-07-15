@@ -1249,11 +1249,17 @@ export default function DreamsRoute() {
       return;
     }
     if (dreamsQuery.isLoading) return;
-    const nextId = dreams[0]?.id ?? urlDreamId;
+    const nextId = dreams[0]?.id ?? null;
     setSelectedDreamId(nextId);
     if (nextId && nextId !== urlDreamId) {
       const next = new URLSearchParams(searchParams);
       next.set("dreamId", nextId);
+      setSearchParams(next, { replace: true });
+    } else if (!nextId && urlDreamId) {
+      // List settled with no rows — remove the stale URL param so
+      // dreamDetailQuery does not fire for an ID that cannot be found.
+      const next = new URLSearchParams(searchParams);
+      next.delete("dreamId");
       setSearchParams(next, { replace: true });
     }
   }, [
