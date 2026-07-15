@@ -1,5 +1,13 @@
 # @agent-native/core
 
+## 0.101.9
+
+### Patch Changes
+
+- bc29c82: Retry visual recap publishing once with a focused source-repair turn when the hosted Plan parser rejects malformed MDX.
+- Updated dependencies [bc29c82]
+  - @agent-native/recap-cli@0.4.1
+
 ## 0.101.8
 
 ### Patch Changes
