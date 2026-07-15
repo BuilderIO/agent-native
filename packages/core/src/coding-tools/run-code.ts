@@ -139,7 +139,7 @@ export function createRunCodeEntry(
         "  - `workspaceList(prefix?)` — list workspace files, returns [{ path, sizeBytes, contentType, updatedAt }].",
         "Print results with `console.log()`; only stdout+stderr are returned.",
         "Timeout defaults to 120 s (max 600 s). Output is truncated to 50 000 chars by default (max 200 000).",
-        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll by calling run-code again with just `{ executionId }` to get status and, once finished, the output. Keep quick scripts in the default foreground mode.',
+        'For LONG compute — big cross-source joins, corpus-wide sweeps, scripts that could exceed ~30 s, or anything at risk of dying with the current chat run — pass `background: true`. That enqueues a durable execution and returns `{ executionId, status: "queued" }` immediately; the code runs out-of-band with a generous budget (default 10 min) and its result survives run timeouts. Continue other work, then poll with `get-code-execution` when that dedicated tool is available; legacy hosts can call run-code again with just `{ executionId }`. Keep quick scripts in the default foreground mode.',
       ].join(" "),
       parameters: {
         type: "object",
@@ -160,12 +160,12 @@ export function createRunCodeEntry(
           background: {
             type: "boolean",
             description:
-              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with executionId for the result.',
+              'Run as a durable background execution: returns { executionId, status: "queued" } immediately and the code executes out-of-band, surviving chat-run timeouts. Use for long compute (large joins, multi-page provider sweeps, heavy analysis). Poll with get-code-execution when available.',
           },
           executionId: {
             type: "string",
             description:
-              "Poll a background execution started earlier: pass the executionId alone (no code) to get its status and, once finished, its output.",
+              "Legacy polling fallback for hosts without get-code-execution: pass the executionId alone (no code) to get status and output.",
           },
         },
         required: [],
@@ -582,12 +582,18 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
 /**
  * Standalone, access-scoped poll tool for background executions. Behaviorally
  * identical to calling `run-code` with only `executionId`; hosts that register
- * it as `get-code-execution` give the model a dedicated read tool (and the
- * enqueue guidance automatically points at it when present in the registry).
+ * it as `get-code-execution` give the model a dedicated volatile read tool (and
+ * the enqueue guidance automatically points at it when present in the
+ * registry). Keep the opt-out here rather than on `run-code`: repeated normal
+ * run-code calls may execute writes or outbound requests and must retain the
+ * agent loop's default duplicate-call protection.
  */
 export function createGetCodeExecutionEntry(): ActionEntry {
   return {
     readOnly: true,
+    // Polling with an identical executionId is the intended usage — the
+    // status changes over time, so this must not be deduped.
+    dedupe: false,
     tool: {
       description:
         "Check a background run-code execution: returns its status (queued | running | succeeded | failed | timed_out) and, once finished, its stdout/stderr output. Executions are scoped to the user who started them. While one is queued or running, continue other useful work and poll every ~15-30 seconds instead of busy-waiting.",

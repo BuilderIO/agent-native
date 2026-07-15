@@ -887,14 +887,6 @@ const messages = {
       "سيفقد {{email}} الوصول إلى هذه المؤسسة. يمكنك دائمًا دعوته مرة أخرى.",
     remove: "إزالة",
   },
-  slackShareHint: {
-    playsInline: "يعمل داخل Slack",
-    connectedDescription:
-      "الصق هذا الرابط في أي مساحة عمل متصلة لتشغيله داخلها.",
-    makeInline: "اجعله يعمل داخل Slack",
-    connectDescription: "قم بتوصيل مساحة عمل حتى يظهر هذا الرابط كفيديو.",
-    connect: "اتصال",
-  },
   commentsPanel: {
     disabled: "تم تعطيل التعليقات لهذا التسجيل.",
     beFirst: "كن أول من يعلق",

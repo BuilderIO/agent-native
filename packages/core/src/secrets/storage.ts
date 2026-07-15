@@ -163,8 +163,9 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   const now = Date.now();
   // Dual-write during rollout: old readers continue using encrypted_value,
   // while new readers prefer the nullable shared ciphertext. An app-only
-  // deployment leaves the shared column null; on an update, an existing
-  // shared ciphertext is preserved by the upsert below.
+  // deployment leaves the shared column null; on an update, a writer without
+  // shared key material clears any existing shared ciphertext rather than
+  // preserving it (see the upsert SQL below for why).
   const encrypted = encryptLegacyValue(value);
   const sharedEncrypted = hasSharedSecretEncryptionKeyMaterial()
     ? encryptValue(value)
@@ -182,11 +183,23 @@ export async function writeAppSecret(args: WriteSecretArgs): Promise<string> {
   // keeps its original id (any stored references stay stable); only a
   // genuinely new row gets the freshly generated `id`. This syntax is
   // portable across SQLite (UPSERT since 3.24) and Postgres.
+  //
+  // shared_encrypted_value is overwritten with `excluded.shared_encrypted_value`
+  // (NULL when this writer lacks shared key material) rather than preserved
+  // via COALESCE. Preserving an existing shared ciphertext across a value
+  // update would let a sibling app silently decrypt a STALE value after the
+  // owner rotates it — a material-less writer has no way to produce the new
+  // shared ciphertext, so it must clear the old one instead of leaving it
+  // pointing at data that's no longer current. Siblings then get an honest
+  // cache miss (falling back to the legacy column or reporting missing) until
+  // the owning app's next read repopulates shared_encrypted_value via
+  // `populateSharedAppSecret`, which only ever fills a NULL column. A
+  // temporary miss is safer than serving rotated-away plaintext.
   const upsertSql = `INSERT INTO app_secrets (id, scope, scope_id, key, encrypted_value, shared_encrypted_value, description, url_allowlist, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT (scope, scope_id, key) DO UPDATE SET
       encrypted_value = excluded.encrypted_value,
-      shared_encrypted_value = COALESCE(excluded.shared_encrypted_value, app_secrets.shared_encrypted_value),
+      shared_encrypted_value = excluded.shared_encrypted_value,
       description = excluded.description,
       url_allowlist = excluded.url_allowlist,
       updated_at = excluded.updated_at`;

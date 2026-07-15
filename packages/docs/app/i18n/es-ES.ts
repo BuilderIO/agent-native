@@ -483,7 +483,7 @@ const esES = {
         "Genere presentaciones completas desde un mensaje. Edite visualmente o conversacionalmente. AI generación de imágenes, 8 diseños y modo de presentación integrado.",
     },
     analytics: {
-      replaces: "Reemplaza o aumenta Amplitude, Mixpanel, Looker",
+      replaces: "Alternativa de código abierto a Amplitude y FullStory",
       description:
         "Conecte cualquier fuente de datos, solicite cualquier gráfico y cree paneles reutilizables. El agente escribe SQL, genera visualizaciones y hace evolucionar la aplicación.",
     },
@@ -533,7 +533,7 @@ const esES = {
       s004: "Explorador de consultas",
       s005: "lenguaje natural",
       s006: "Todas las plantillas",
-      s007: "La alternativa de código abierto a Amplitude, Mixpanel y Looker",
+      s007: "La alternativa de código abierto a Amplitude y FullStory",
       s008: "Conecte cualquier fuente de datos, solicite cualquier gráfico, cree paneles reutilizables: el agente AI escribe el SQL.",
       s009: "Probar",
       s010: "que puedes hacer",

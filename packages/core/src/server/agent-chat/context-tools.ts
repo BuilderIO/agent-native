@@ -241,6 +241,10 @@ export function createRefreshScreenEntry(): Record<string, ActionEntry> {
       // distinct `screen-refresh` poll event. Don't double-emit a generic
       // `action` event on top of that.
       readOnly: true,
+      // Refetching volatile on-screen state is the entire point of this
+      // tool — an identical repeat call (even with the same scope) is a
+      // legitimate re-refresh, not a redundant read to skip.
+      dedupe: false,
       tool: {
         description:
           "Manually refresh the user's current screen. The framework ALREADY auto-refreshes after any successful mutating action tool call (template actions and any enabled raw DB write tools) — you do NOT need to call this after a normal action. Use it only when (a) you mutated data via a path the framework can't detect (e.g. a direct write to an external system the app mirrors), or (b) you want to pass a `scope` hint so the UI narrows which queries to refetch. The UI re-fetches its queries without a full page reload.",

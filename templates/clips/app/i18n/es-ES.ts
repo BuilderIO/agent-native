@@ -904,15 +904,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
       "{{email}} perderá acceso a esta organización. Siempre puedes volver a invitarlo.",
     remove: "Eliminar",
   },
-  slackShareHint: {
-    playsInline: "Se reproduce inline en Slack",
-    connectedDescription:
-      "Pega este enlace en cualquier espacio conectado para reproducirlo inline.",
-    makeInline: "Haz que se reproduzca inline en Slack",
-    connectDescription:
-      "Conecta un espacio para que este enlace se despliegue como video.",
-    connect: "Conectar",
-  },
   commentsPanel: {
     disabled: "Los comentarios están desactivados para esta grabación.",
     beFirst: "Sé la primera persona en comentar",

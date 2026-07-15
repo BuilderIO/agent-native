@@ -1,5 +1,3 @@
-import fs from "fs";
-
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
@@ -15,7 +13,7 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { convertToSlideHtml } from "../server/handlers/import/html-converter.js";
 import { parsePptx } from "../server/handlers/import/pptx-parser.js";
 import { getDeckUrl } from "./_app-url.js";
-import { resolveUserUploadedFile } from "./_uploaded-files.js";
+import { readUserUploadedFile } from "./_uploaded-files.js";
 
 export default defineAction({
   description:
@@ -26,9 +24,7 @@ export default defineAction({
   schema: z.object({
     filePath: z
       .string()
-      .describe(
-        "Server path to the uploaded PPTX file (e.g. data/uploads/presentation.pptx)",
-      ),
+      .describe("Uploaded PPTX path or opaque hosted upload reference"),
     deckId: z
       .string()
       .optional()
@@ -43,9 +39,7 @@ export default defineAction({
       ),
   }),
   run: async ({ filePath, deckId, title }) => {
-    const absPath = resolveUserUploadedFile(filePath);
-
-    const fileBuffer = await fs.promises.readFile(absPath);
+    const { data: fileBuffer } = await readUserUploadedFile(filePath);
     const presentation = await parsePptx(fileBuffer);
 
     const deckTitle = title || presentation.title || "Imported Presentation";

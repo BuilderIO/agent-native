@@ -7,7 +7,6 @@ import {
 } from "@agent-native/core/client";
 import {
   IconCode,
-  IconChevronDown,
   IconExternalLink,
   IconLink,
   IconMail,
@@ -33,13 +32,7 @@ import {
   type SharesResponse,
   type Visibility,
 } from "@/components/sharing/share-ui";
-import { SlackShareHint } from "@/components/sharing/slack-share-hint";
 import { Button } from "@/components/ui/button";
-import {
-  Collapsible,
-  CollapsibleContent,
-  CollapsibleTrigger,
-} from "@/components/ui/collapsible";
 import { Dialog, DialogContent, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -317,7 +310,6 @@ function LinkTab({
   const agentLinkRequestIdRef = useRef(0);
   const [agentContextUrl, setAgentContextUrl] = useState("");
   const [agentLinkError, setAgentLinkError] = useState(false);
-  const [agentShareOpen, setAgentShareOpen] = useState(false);
 
   useEffect(() => {
     createAgentLinkAsyncRef.current = createAgentLink.mutateAsync;
@@ -352,26 +344,22 @@ function LinkTab({
     setAgentLinkError(false);
     if (!sharesLoaded) return;
 
-    if (!isPublic && agentShareOpen) {
+    if (!isPublic) {
       void loadAgentContextUrl();
     }
 
     return () => {
       agentLinkRequestIdRef.current += 1;
     };
-  }, [
-    agentShareOpen,
-    isPublic,
-    loadAgentContextUrl,
-    recordingId,
-    sharesLoaded,
-    visibility,
-  ]);
+  }, [isPublic, loadAgentContextUrl, recordingId, sharesLoaded, visibility]);
 
+  const agentLink = isPublic ? shareUrl : agentContextUrl;
   const agentShareDisabled =
-    isPending || createAgentLink.isPending || !agentContextUrl;
-  const agentPrompt = agentContextUrl
-    ? t("shareDialog.agentPrompt", { agentContextUrl })
+    visibilityPending ||
+    !sharesLoaded ||
+    (!isPublic && (isPending || createAgentLink.isPending || !agentContextUrl));
+  const agentPrompt = agentLink
+    ? t("shareDialog.agentPrompt", { agentContextUrl: agentLink })
     : "";
 
   return (
@@ -399,67 +387,42 @@ function LinkTab({
         }
       />
 
-      {/* Public links unfurl into a playable video in Slack; surface that here
-          (and a connect link) instead of leaving it buried in Settings. */}
-      {isPublic ? <SlackShareHint canManage={canManage} /> : null}
-
-      {sharesLoaded && !isPublic ? (
-        <Collapsible open={agentShareOpen} onOpenChange={setAgentShareOpen}>
-          <CollapsibleTrigger asChild>
-            <Button
-              type="button"
-              variant="ghost"
-              className="h-auto w-full justify-between px-0 py-1 text-left hover:bg-transparent"
-            >
-              <span className="min-w-0">
-                <span className="block text-xs font-medium text-foreground">
-                  {t("shareDialog.shareWithAgents")}
-                </span>
-                <span className="mt-0.5 block text-xs font-normal text-muted-foreground">
-                  {t("shareDialog.agentTokenDescription")}
-                </span>
-              </span>
-              <IconChevronDown
-                className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${
-                  agentShareOpen ? "rotate-180" : ""
-                }`}
-                aria-hidden
-              />
-            </Button>
-          </CollapsibleTrigger>
-          <CollapsibleContent className="pt-2">
-            <div className="space-y-3 rounded-md border border-border bg-muted/30 p-3">
-              <CopyField
-                label={t("shareDialog.shareWithAgents")}
-                value={agentContextUrl}
-                disabled={agentShareDisabled}
-              />
-              {agentLinkError ? (
-                <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-background px-3 py-2">
-                  <p className="text-xs text-muted-foreground">
-                    {t("shareDialog.agentLinkUnavailable")}
-                  </p>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="sm"
-                    className="h-7"
-                    onClick={() => void loadAgentContextUrl()}
-                    disabled={createAgentLink.isPending}
-                  >
-                    {t("shareDialog.retryAgentLink")}
-                  </Button>
-                </div>
-              ) : null}
-              <CopyField
-                label={t("shareDialog.copyAgentPrompt")}
-                value={agentPrompt}
-                disabled={agentShareDisabled}
-              />
-            </div>
-          </CollapsibleContent>
-        </Collapsible>
-      ) : null}
+      <div className="space-y-2">
+        <CopyField
+          label={t("shareDialog.shareWithAgents")}
+          value={agentLink}
+          disabled={agentShareDisabled}
+        />
+        {sharesLoaded && !isPublic ? (
+          <>
+            <p className="text-xs text-muted-foreground">
+              {t("shareDialog.agentTokenDescription")}
+            </p>
+            {agentLinkError ? (
+              <div className="flex items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2">
+                <p className="text-xs text-muted-foreground">
+                  {t("shareDialog.agentLinkUnavailable")}
+                </p>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7"
+                  onClick={() => void loadAgentContextUrl()}
+                  disabled={createAgentLink.isPending}
+                >
+                  {t("shareDialog.retryAgentLink")}
+                </Button>
+              </div>
+            ) : null}
+            <CopyField
+              label={t("shareDialog.copyAgentPrompt")}
+              value={agentPrompt}
+              disabled={agentShareDisabled}
+            />
+          </>
+        ) : null}
+      </div>
 
       {sharesLoaded && !isPublic && canManage ? (
         <MakePublicCard
