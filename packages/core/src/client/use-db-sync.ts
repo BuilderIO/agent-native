@@ -231,6 +231,16 @@ class SyncTransport {
   private authFailureUntil = 0;
   private consecutiveFailures = 0;
   private activeChatIds = new Set<string>();
+  // Cross-tab SSE sharing (see connectEvents): only the tab holding the Web
+  // Lock opens an EventSource; it rebroadcasts frames over a BroadcastChannel
+  // and every other tab consumes from there. Browsers cap HTTP/1.1 at ~6
+  // connections per origin, so per-tab EventSources across a handful of open
+  // tabs starve <video> elements and even page loads — one shared stream
+  // keeps the pool free.
+  private channel: BroadcastChannel | null = null;
+  private isLeader = false;
+  private leadershipRequested = false;
+  private releaseLeadership: (() => void) | null = null;
 
   constructor(
     private readonly pollUrl: string,
@@ -390,27 +400,115 @@ class SyncTransport {
     this.eventSource.close();
     this.eventSource = null;
     this.setSseConnected(false);
+    if (this.isLeader) {
+      this.channel?.postMessage({ type: "state", connected: false });
+    }
   }
 
-  private connectEvents(): void {
-    if (
-      this.stopped ||
-      !this.sseUrl ||
-      this.eventSource ||
-      typeof EventSource === "undefined" ||
-      (this.effectivePauseWhenHidden && isDocumentHidden())
-    ) {
-      return;
+  /** Parse one SSE frame body and fan it out (leader + channel followers). */
+  private handleSseData(data: string): void {
+    try {
+      const payload = JSON.parse(data);
+      const events = normalizeEventPayload(payload);
+      const version =
+        typeof payload?.version === "number" ? payload.version : undefined;
+      this.applyVersion(events, version);
+      this.fan(events, version);
+    } catch {
+      // Ignore malformed SSE frames; polling is the safety net.
     }
+  }
+
+  private static supportsSharedSse(): boolean {
+    return (
+      typeof BroadcastChannel !== "undefined" &&
+      typeof navigator !== "undefined" &&
+      typeof navigator.locks?.request === "function"
+    );
+  }
+
+  private ensureChannel(): void {
+    if (this.channel || !this.sseUrl) return;
+    this.channel = new BroadcastChannel(`agent-native-sse:${this.sseUrl}`);
+    this.channel.onmessage = (event: MessageEvent) => {
+      const msg = event.data as
+        | { type?: string; connected?: boolean; data?: string }
+        | null
+        | undefined;
+      if (!msg || typeof msg !== "object") return;
+      if (this.isLeader) {
+        // A follower joined and wants the current stream state.
+        if (msg.type === "ping") {
+          this.channel?.postMessage({
+            type: "state",
+            connected: this.sseConnected,
+          });
+        }
+        return;
+      }
+      if (msg.type === "state") {
+        this.setSseConnected(!!msg.connected);
+        this.schedulePoll();
+      } else if (msg.type === "events" && typeof msg.data === "string") {
+        this.handleSseData(msg.data);
+      }
+    };
+    // Ask whoever holds the stream for its state so a freshly joined tab
+    // relaxes to the fallback cadence immediately instead of after the first
+    // broadcast frame.
+    this.channel.postMessage({ type: "ping" });
+  }
+
+  private requestLeadership(): void {
+    if (this.leadershipRequested || this.stopped || !this.sseUrl) return;
+    this.leadershipRequested = true;
+    const lockName = `agent-native-sse:${this.sseUrl}`;
+    void navigator.locks
+      .request(lockName, { mode: "exclusive" }, async () => {
+        // The lock is granted when no other tab streams — possibly long after
+        // it was requested (the previous leader closed). If this tab should
+        // not hold the stream right now, hand the lock straight to the next
+        // queued tab; a later visibility/focus event re-requests it.
+        if (
+          this.stopped ||
+          (this.effectivePauseWhenHidden && isDocumentHidden())
+        ) {
+          this.leadershipRequested = false;
+          return;
+        }
+        this.isLeader = true;
+        this.openEventSourceAsLeader();
+        await new Promise<void>((resolve) => {
+          this.releaseLeadership = resolve;
+        });
+        this.releaseLeadership = null;
+        this.isLeader = false;
+        this.leadershipRequested = false;
+        this.closeEvents();
+      })
+      .catch(() => {
+        this.leadershipRequested = false;
+      });
+  }
+
+  /** Leader gives up the lock (tab hidden / teardown / auth failure). */
+  private releaseLeadershipNow(): void {
+    this.releaseLeadership?.();
+  }
+
+  private openEventSourceAsLeader(): void {
+    if (this.stopped || !this.sseUrl || this.eventSource) return;
 
     const source = new EventSource(this.sseUrl);
     this.eventSource = source;
     source.onopen = () => {
       this.setSseConnected(true);
+      this.channel?.postMessage({ type: "state", connected: true });
       this.schedulePoll();
     };
     source.onerror = () => {
       this.setSseConnected(false);
+      this.channel?.postMessage({ type: "state", connected: false });
       // When the browser gives up permanently (HTTP error → readyState
       // CLOSED), it won't auto-reconnect. Drop the ref so a later
       // connectEvents() (on focus/visibility) can establish a fresh stream;
@@ -422,17 +520,28 @@ class SyncTransport {
       this.schedulePoll();
     };
     source.onmessage = (message) => {
-      try {
-        const payload = JSON.parse(message.data);
-        const events = normalizeEventPayload(payload);
-        const version =
-          typeof payload?.version === "number" ? payload.version : undefined;
-        this.applyVersion(events, version);
-        this.fan(events, version);
-      } catch {
-        // Ignore malformed SSE frames; polling is the safety net.
-      }
+      this.channel?.postMessage({ type: "events", data: message.data });
+      this.handleSseData(message.data);
     };
+  }
+
+  private connectEvents(): void {
+    if (
+      this.stopped ||
+      !this.sseUrl ||
+      typeof EventSource === "undefined" ||
+      (this.effectivePauseWhenHidden && isDocumentHidden())
+    ) {
+      return;
+    }
+    if (!SyncTransport.supportsSharedSse()) {
+      // Legacy per-tab stream for environments without Web Locks or
+      // BroadcastChannel (and jsdom tests).
+      if (!this.eventSource) this.openEventSourceAsLeader();
+      return;
+    }
+    this.ensureChannel();
+    this.requestLeadership();
   }
 
   /**
@@ -469,6 +578,7 @@ class SyncTransport {
       this.consecutiveFailures++;
       if (isAuthFailure(err)) {
         this.authFailureUntil = Date.now() + POLL_AUTH_FAILURE_COOLDOWN_MS;
+        this.releaseLeadershipNow();
         this.closeEvents();
       }
       // Network error — retried on the next (backed-off) interval.
@@ -497,6 +607,9 @@ class SyncTransport {
       this.connectEvents();
       this.pollNow();
     } else if (this.effectivePauseWhenHidden) {
+      // Hand the shared stream to a visible tab instead of holding the lock
+      // from the background.
+      this.releaseLeadershipNow();
       this.closeEvents();
       if (this.timer) {
         clearTimeout(this.timer);
@@ -561,7 +674,12 @@ class SyncTransport {
 
   private teardown(): void {
     this.stopped = true;
+    this.releaseLeadershipNow();
     this.closeEvents();
+    if (this.channel) {
+      this.channel.close();
+      this.channel = null;
+    }
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;

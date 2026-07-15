@@ -1062,3 +1062,181 @@ describe("isInteractionCriticalSyncEvent", () => {
     ).toBe(false);
   });
 });
+
+describe("shared SSE leadership (Web Locks + BroadcastChannel)", () => {
+  // Fakes: one "tab" per transport instance (forced apart via distinct poll
+  // URLs — the lock and channel names derive from the shared SSE URL).
+  class FakeEventSource {
+    static readonly CONNECTING = 0;
+    static readonly OPEN = 1;
+    static readonly CLOSED = 2;
+    readyState = 0;
+    onopen: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+    onmessage: ((event: { data: string }) => void) | null = null;
+    constructor(public url: string) {
+      fakeSources.push(this);
+    }
+    close() {
+      this.readyState = FakeEventSource.CLOSED;
+    }
+    emitOpen() {
+      this.readyState = FakeEventSource.OPEN;
+      this.onopen?.();
+    }
+    emitMessage(data: string) {
+      this.onmessage?.({ data });
+    }
+  }
+  let fakeSources: FakeEventSource[] = [];
+
+  const channelRegistry = new Map<string, Set<FakeBroadcastChannel>>();
+  class FakeBroadcastChannel {
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    constructor(public name: string) {
+      let peers = channelRegistry.get(name);
+      if (!peers) {
+        peers = new Set();
+        channelRegistry.set(name, peers);
+      }
+      peers.add(this);
+    }
+    postMessage(data: unknown) {
+      for (const peer of channelRegistry.get(this.name) ?? []) {
+        if (peer !== this) peer.onmessage?.({ data });
+      }
+    }
+    close() {
+      channelRegistry.get(this.name)?.delete(this);
+    }
+  }
+
+  // Minimal exclusive Web Locks: first requester runs; later requesters queue
+  // until the holder's callback promise settles.
+  const lockHeld = new Map<string, boolean>();
+  const lockQueue = new Map<string, Array<() => void>>();
+  const fakeLocks = {
+    request: (name: string, _opts: unknown, callback: () => Promise<unknown>) =>
+      new Promise<void>((resolve) => {
+        const run = () => {
+          lockHeld.set(name, true);
+          void Promise.resolve()
+            .then(callback)
+            .finally(() => {
+              lockHeld.set(name, false);
+              resolve();
+              const next = lockQueue.get(name)?.shift();
+              if (next) next();
+            });
+        };
+        if (lockHeld.get(name)) {
+          let queue = lockQueue.get(name);
+          if (!queue) {
+            queue = [];
+            lockQueue.set(name, queue);
+          }
+          queue.push(run);
+        } else {
+          run();
+        }
+      }),
+  };
+
+  let unsubscribes: Array<() => void> = [];
+
+  beforeEach(() => {
+    fakeSources = [];
+    channelRegistry.clear();
+    lockHeld.clear();
+    lockQueue.clear();
+    unsubscribes = [];
+    _resetSyncTransportRegistryForTests();
+    vi.stubGlobal("EventSource", FakeEventSource);
+    vi.stubGlobal("BroadcastChannel", FakeBroadcastChannel);
+    Object.defineProperty(navigator, "locks", {
+      value: fakeLocks,
+      configurable: true,
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({
+        ok: true,
+        json: async () => ({ version: 0, events: [] }),
+      })),
+    );
+  });
+
+  afterEach(() => {
+    for (const unsubscribe of unsubscribes) unsubscribe();
+    vi.unstubAllGlobals();
+    _resetSyncTransportRegistryForTests();
+  });
+
+  function subscribeTab(
+    pollUrl: string,
+    onEvents: (events: SyncEvent[]) => void,
+    onSseStateChange?: (connected: boolean) => void,
+  ) {
+    const unsubscribe = subscribeSyncEvents({
+      pollUrl,
+      sseUrl: "/_agent-native/events",
+      onEvents,
+      onSseStateChange,
+    });
+    unsubscribes.push(unsubscribe);
+    return unsubscribe;
+  }
+
+  async function flush() {
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+  }
+
+  it("opens ONE EventSource across transports and fans frames to followers", async () => {
+    const leaderEvents: SyncEvent[][] = [];
+    const followerEvents: SyncEvent[][] = [];
+    const followerSseStates: boolean[] = [];
+
+    subscribeTab("/pollA", (events) => leaderEvents.push(events));
+    await flush();
+    expect(fakeSources.length).toBe(1);
+
+    subscribeTab(
+      "/pollB",
+      (events) => followerEvents.push(events),
+      (connected) => followerSseStates.push(connected),
+    );
+    await flush();
+    // The second transport must NOT open its own stream.
+    expect(fakeSources.length).toBe(1);
+
+    fakeSources[0].emitOpen();
+    await flush();
+    // Follower learns the stream is up via the channel state broadcast.
+    expect(followerSseStates).toContain(true);
+
+    fakeSources[0].emitMessage(
+      JSON.stringify({
+        version: 7,
+        events: [{ source: "action", key: "x", version: 7 }],
+      }),
+    );
+    await flush();
+    expect(leaderEvents.flat().some((e) => e.key === "x")).toBe(true);
+    expect(followerEvents.flat().some((e) => e.key === "x")).toBe(true);
+  });
+
+  it("hands the stream to the next tab when the leader tears down", async () => {
+    const unsubscribeLeader = subscribeTab("/pollA", () => {});
+    await flush();
+    subscribeTab("/pollB", () => {});
+    await flush();
+    expect(fakeSources.length).toBe(1);
+
+    unsubscribeLeader();
+    await flush();
+    // The waiting transport acquires the lock and opens its own stream.
+    expect(fakeSources.length).toBe(2);
+  });
+});
