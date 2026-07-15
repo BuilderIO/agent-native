@@ -27,7 +27,9 @@ export function createElementReviewAnchor(input: {
     Number.isFinite(rect.x) &&
     Number.isFinite(rect.y) &&
     Number.isFinite(rect.width) &&
+    rect.width > 0 &&
     Number.isFinite(rect.height) &&
+    rect.height > 0 &&
     typeof input.viewportWidth === "number" &&
     Number.isFinite(input.viewportWidth) &&
     input.viewportWidth > 0 &&

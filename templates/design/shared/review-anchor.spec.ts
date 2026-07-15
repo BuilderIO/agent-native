@@ -63,4 +63,26 @@ describe("review anchors", () => {
     });
     expect(createElementReviewAnchor({})).toBeNull();
   });
+
+  it("ignores zero-sized synthetic bounds when creating a fallback point", () => {
+    const syntheticBounds = { x: 0, y: 0, width: 0, height: 0 };
+    expect(
+      createElementReviewAnchor({
+        nodeId: "hero-title",
+        rect: syntheticBounds,
+        viewportWidth: 1_000,
+        viewportHeight: 500,
+      }),
+    ).toEqual({
+      nodeId: "hero-title",
+      point: { xPct: 50, yPct: 50 },
+    });
+    expect(
+      createElementReviewAnchor({
+        rect: syntheticBounds,
+        viewportWidth: 1_000,
+        viewportHeight: 500,
+      }),
+    ).toBeNull();
+  });
 });
