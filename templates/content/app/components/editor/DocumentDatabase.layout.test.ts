@@ -168,13 +168,13 @@ describe("document database layout", () => {
     expect(source.match(/dbText\("refreshSource"\)/g)).toHaveLength(2);
     expect(
       source.match(/onClick=\{\(\) => onRefreshSource\(source\.id\)\}/g),
-    ).toHaveLength(4);
+    ).toHaveLength(2);
     // The independent DatabaseView continuation pump still resumes an already
     // fetching snapshot after a reload; it is not a panel-open freshness read.
     expect(source).toContain(
-      'builderSourceRowFetchStatus(source) !== "fetching"',
+      'builderSourceRowFetchStatus(source) === "fetching"',
     );
-    expect(source).toContain("source.metadata.lastReadHasMore !== true");
+    expect(source).toContain("source.metadata.lastReadHasMore === true");
     expect(source).toContain("const continuationKey");
   });
 

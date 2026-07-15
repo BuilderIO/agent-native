@@ -86,6 +86,17 @@ const MINIMAL_MDX = {
   "plan.mdx": `---\ntitle: Test Recap\nbrief: A recap.\n---\n\n# Test\n\nMinimal content.`,
 };
 
+const RAW_NEWLINE_IN_JS_STRING_MDX = {
+  "plan.mdx": `---
+title: Broken Recap
+brief: The final code newline is intentionally unescaped.
+---
+
+<AnnotatedCode id="raw-newline" language="ts" code={"export const value = 1;
+"} />
+`,
+};
+
 const EMPTY_WIREFRAME_RECAP_MDX = {
   "plan.mdx": `---
 title: Empty Wireframe Recap
@@ -179,6 +190,31 @@ beforeEach(async () => {
 });
 
 describe("create-visual-recap: sourceUrl", () => {
+  it("returns the MDX file and VFile location as a 422 before writing a recap", async () => {
+    const error = await asOwner(() =>
+      createVisualRecap.run({
+        mdx: RAW_NEWLINE_IN_JS_STRING_MDX,
+        visibility: "org",
+      }),
+    ).then(
+      () => null,
+      (err) => err,
+    );
+
+    expect(error).toBeInstanceOf(Error);
+    if (!(error instanceof Error)) throw new Error("Expected an MDX error");
+    expect(error.message).toBe(
+      "plan.mdx:6:53: Could not parse expression with acorn",
+    );
+    expect((error as Error & { statusCode?: number }).statusCode).toBe(422);
+
+    // guard:allow-unscoped -- test-only assertion proves parse failures write no recap.
+    const rows = await db
+      .select({ id: planSchema.plans.id })
+      .from(planSchema.plans);
+    expect(rows).toHaveLength(0);
+  });
+
   it("stores sourceUrl on create when provided", async () => {
     const result = await asOwner(() =>
       createVisualRecap.run({

@@ -16,6 +16,7 @@ import {
   DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../../shared/agent-readable.js";
 import { getDb, schema } from "../../db/index.js";
+import { getDocumentContextPath } from "../../lib/document-context.js";
 
 function queryString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -45,7 +46,9 @@ export default defineEventHandler(async (event) => {
   const [document] = await db
     .select({
       id: schema.documents.id,
+      parentId: schema.documents.parentId,
       title: schema.documents.title,
+      description: schema.documents.description,
       content: schema.documents.content,
       icon: schema.documents.icon,
       visibility: schema.documents.visibility,
@@ -77,11 +80,13 @@ export default defineEventHandler(async (event) => {
     resourceType: "document",
     id: document.id,
     title: document.title,
+    description: document.description,
     icon: document.icon,
     content: document.content,
     visibility: document.visibility,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,
+    contextPath: await getDocumentContextPath(document),
     url: buildContentPublicDocumentUrl(document.id, {
       basePath: getConfiguredAppBasePath(),
       token: tokenAccess ? token : null,

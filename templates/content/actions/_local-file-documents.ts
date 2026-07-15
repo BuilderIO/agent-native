@@ -154,6 +154,7 @@ function documentFromFolder(folderPath: string, position: number): Document {
     parentId: folderParentId(folderPath),
     title: titleFromSegment(basename(folderPath)),
     content: "",
+    description: "",
     icon: null,
     position,
     isFavorite: false,
@@ -189,6 +190,7 @@ function documentFromLocalFile(
     parentId: parentFolderId(file.path),
     title: parsed.title,
     content: parsed.content,
+    description: parsed.description ?? "",
     icon: parsed.icon ?? null,
     position,
     isFavorite: parsed.isFavorite ?? false,
@@ -410,6 +412,33 @@ export async function getLocalFileDocument(id: string): Promise<Document> {
   return documentFromLocalFile(file, file.content, 0);
 }
 
+export async function getLocalDocumentContextPath(id: string) {
+  const documents = await listLocalFileDocuments();
+  const byId = new Map(documents.map((document) => [document.id, document]));
+  const current = byId.get(id) ?? (await getLocalFileDocument(id));
+  const path: Array<{
+    id: string;
+    kind: "page" | "database";
+    title: string;
+    description: string;
+  }> = [];
+  const seen = new Set([current.id]);
+  let parentId = current.parentId;
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId);
+    const parent = byId.get(parentId);
+    if (!parent) break;
+    path.unshift({
+      id: parent.id,
+      kind: "page",
+      title: parent.title,
+      description: parent.description ?? "",
+    });
+    parentId = parent.parentId;
+  }
+  return path;
+}
+
 function splitFrontmatter(source: string) {
   const match = source.match(FRONTMATTER_RE);
   if (!match) return { frontmatter: "", body: source };
@@ -517,12 +546,16 @@ function updateFrontmatterFields(
   titleChanged: boolean,
   iconChanged: boolean,
   favoriteChanged: boolean,
+  descriptionChanged: boolean,
 ) {
   if (usesDocsNoBookkeepingProfile(file.profile)) {
     return {
       ...(titleChanged ? { title: nextTitle || "Untitled" } : {}),
       ...(iconChanged ? { icon: args.icon ?? null } : {}),
       ...(favoriteChanged ? { isFavorite: args.isFavorite ?? false } : {}),
+      ...(descriptionChanged
+        ? { description: args.description?.trim() ?? "" }
+        : {}),
     };
   }
 
@@ -531,6 +564,10 @@ function updateFrontmatterFields(
     icon: args.icon !== undefined ? args.icon : current.icon,
     isFavorite:
       args.isFavorite !== undefined ? args.isFavorite : current.isFavorite,
+    description:
+      args.description !== undefined
+        ? args.description.trim()
+        : current.description,
     updatedAt: new Date().toISOString(),
   };
 }
@@ -544,6 +581,9 @@ function createFrontmatterFields(
     return {
       title,
       ...(args.icon !== undefined ? { icon: args.icon || null } : {}),
+      ...(args.description !== undefined
+        ? { description: args.description.trim() }
+        : {}),
     };
   }
 
@@ -551,6 +591,7 @@ function createFrontmatterFields(
     title,
     icon: args.icon || null,
     isFavorite: false,
+    description: args.description?.trim() ?? "",
     updatedAt: new Date().toISOString(),
   };
 }
@@ -576,8 +617,17 @@ export async function updateLocalFileDocument(
   const iconChanged = args.icon !== undefined && args.icon !== current.icon;
   const favoriteChanged =
     args.isFavorite !== undefined && args.isFavorite !== current.isFavorite;
+  const descriptionChanged =
+    args.description !== undefined &&
+    args.description.trim() !== current.description;
 
-  if (!titleChanged && !contentChanged && !iconChanged && !favoriteChanged) {
+  if (
+    !titleChanged &&
+    !contentChanged &&
+    !iconChanged &&
+    !favoriteChanged &&
+    !descriptionChanged
+  ) {
     return current;
   }
 
@@ -591,6 +641,7 @@ export async function updateLocalFileDocument(
       titleChanged,
       iconChanged,
       favoriteChanged,
+      descriptionChanged,
     ),
     nextContent,
   );
@@ -712,6 +763,7 @@ export async function localContentViewScreenSummary() {
       id: document.id,
       parentId: document.parentId,
       title: document.title,
+      description: document.description,
       source: document.source,
     })),
   };

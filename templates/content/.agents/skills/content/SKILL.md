@@ -101,6 +101,37 @@ inferences for confirmation, then submit once. When required information is
 missing, keep the clarification in the originating thread and retain earlier
 answers as context.
 
+### Slack Follow-ups And Corrections
+
+A follow-up in an existing Slack thread is not automatically a new intake. Read
+the thread context and inspect the prior Content artifact identity first,
+including any returned document ID or `/page/<id>` path and the canonical
+database row when available. Then choose the operation that matches the user's
+intent:
+
+- **Update** the same document for corrections, refinements, status changes, or
+  renames that still describe the same request. A rename changes the title, not
+  the artifact identity: preserve the stable Content document ID and page path.
+- **Add** new details to the same document when the follow-up extends the
+  original request without replacing it.
+- **Supersede** only when the user intends a replacement artifact or distinct
+  successor and the workspace's schema or instructions define how that
+  relationship is recorded. Preserve a concrete link to the prior artifact.
+- **Create** only when the follow-up is genuinely a separate request or the user
+  explicitly asks for a new artifact. Do not blindly submit another row merely
+  because a new Slack message arrived.
+
+Apply people fields from verified identity and intent, not from convenient
+guesswork:
+
+- When the database has a `Requester` field, default it to the verified Slack
+  sender unless the user explicitly identifies a different requester.
+- A named doer such as "for Apoorva" maps to `Assignee` when that field exists.
+  Naming an assignee never changes or replaces `Requester`.
+- Resolve named people to the database's accepted person identity before
+  writing. If a named person cannot be resolved unambiguously, clarify in the
+  originating Slack thread; never omit, downgrade, or silently drop the person.
+
 ## Local File Mode
 
 Install into an existing repo with:

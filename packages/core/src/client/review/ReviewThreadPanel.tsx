@@ -52,6 +52,14 @@ export interface ReviewThreadPanelProps {
   resourceType: string;
   resourceId: string;
   targetId?: string | null;
+  /** Persist new comments against this target while targetId continues to filter the list. */
+  composerTargetId?: string | null;
+  /** Optional element/point anchor attached to new comments from the composer. */
+  composerAnchor?: unknown | null;
+  /** Host metadata attached to new comments from the composer. */
+  composerMetadata?: Record<string, unknown>;
+  /** Visible label describing the element currently targeted by the composer. */
+  composerContextLabel?: string;
   title?: string;
   className?: string;
   includeResolved?: boolean;
@@ -89,6 +97,10 @@ export function ReviewThreadPanel({
   resourceType,
   resourceId,
   targetId,
+  composerTargetId,
+  composerAnchor,
+  composerMetadata,
+  composerContextLabel,
   title = "Review",
   className,
   includeResolved = true,
@@ -145,9 +157,11 @@ export function ReviewThreadPanel({
       {
         resourceType,
         resourceId,
-        targetId,
+        targetId: composerTargetId === undefined ? targetId : composerTargetId,
+        ...(composerAnchor !== undefined ? { anchor: composerAnchor } : {}),
+        ...(composerMetadata ? { metadata: composerMetadata } : {}),
         body,
-        ...(showComposerTargetPicker ? { resolutionTarget } : {}),
+        resolutionTarget: showComposerTargetPicker ? resolutionTarget : "human",
       },
       {
         onSuccess: (comment) => {
@@ -194,6 +208,7 @@ export function ReviewThreadPanel({
           placeholder={placeholder}
           commentLabel={composerCommentLabel}
           agentLabel={composerAgentLabel}
+          contextLabel={composerContextLabel}
         />
       ) : null}
 

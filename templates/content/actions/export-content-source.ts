@@ -39,6 +39,7 @@ export default defineAction({
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
+      description: doc.description,
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),

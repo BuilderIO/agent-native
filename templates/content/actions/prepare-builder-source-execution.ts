@@ -9,6 +9,9 @@ import type {
   PrepareBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import { buildBuilderCmsExecutionPlan } from "./_builder-cms-write-adapter.js";
+import { claimBuilderSourceExecutionGate } from "./_builder-source-execution-claim.js";
+import { shouldPreserveBuilderExecution } from "./_builder-source-execution-preservation.js";
+import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
@@ -42,81 +45,125 @@ export default defineAction({
   run: async (
     args: PrepareBuilderSourceExecutionRequest,
   ): Promise<ContentDatabaseResponse> => {
-    const database = await resolveDatabaseForSourceMutation(args);
-    if (!database) throw new Error("Database not found.");
-    await assertAccess("document", database.documentId, "editor");
-
-    const source = await getContentDatabaseSourceSnapshotForWrite(
-      database,
-      args.sourceId,
+    const timing = createBuilderSourceTiming(
+      "prepare_builder_source_execution",
     );
-    if (!source || source.sourceType !== "builder-cms") {
-      throw new Error(
-        "Attach a Builder CMS source before preparing execution.",
+    try {
+      const { database, source } = await timing.measure(
+        "snapshot_read_and_diff_load",
+        async () => {
+          const database = await resolveDatabaseForSourceMutation(args);
+          if (!database) throw new Error("Database not found.");
+          await assertAccess("document", database.documentId, "editor");
+          const source = await getContentDatabaseSourceSnapshotForWrite(
+            database,
+            args.sourceId,
+          );
+          return { database, source };
+        },
       );
-    }
+      if (!source || source.sourceType !== "builder-cms") {
+        throw new Error(
+          "Attach a Builder CMS source before preparing execution.",
+        );
+      }
 
-    const changeSet = source.changeSets.find(
-      (candidate) => candidate.id === args.changeSetId,
-    );
-    if (!changeSet) throw new Error("Source change-set not found.");
-
-    const plan = buildBuilderCmsExecutionPlan({
-      source,
-      changeSet,
-      pushModeConfirmation: args.pushModeConfirmation,
-      publicationTransition: args.publicationTransition,
-      confirmUnpublish: args.confirmUnpublish,
-    });
-    const now = new Date().toISOString();
-    const db = getDb();
-    const [existing] = await db
-      .select()
-      .from(schema.contentDatabaseSourceExecutions)
-      .where(
-        and(
-          eq(
-            schema.contentDatabaseSourceExecutions.idempotencyKey,
-            plan.idempotencyKey,
-          ),
-          eq(schema.contentDatabaseSourceExecutions.sourceId, source.id),
-        ),
+      const gateStartedAt = timing.start();
+      const changeSet = source.changeSets.find(
+        (candidate) => candidate.id === args.changeSetId,
       );
+      if (!changeSet) throw new Error("Source change-set not found.");
 
-    if (existing) {
-      await db
-        .update(schema.contentDatabaseSourceExecutions)
-        .set({
-          state: plan.state,
-          summary: plan.summary,
-          payloadJson: JSON.stringify(plan.payload),
-          lastError: plan.lastError,
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseSourceExecutions.id, existing.id));
-    } else {
-      await db.insert(schema.contentDatabaseSourceExecutions).values({
-        id: crypto.randomUUID(),
+      const plan = buildBuilderCmsExecutionPlan({
+        source,
+        changeSet,
+        pushModeConfirmation: args.pushModeConfirmation,
+        publicationTransition: args.publicationTransition,
+        confirmUnpublish: args.confirmUnpublish,
+      });
+      const now = new Date().toISOString();
+      const db = getDb();
+      const executionId = await claimBuilderSourceExecutionGate({
         ownerEmail: database.ownerEmail,
         sourceId: source.id,
-        changeSetId: changeSet.id,
-        adapter: plan.adapter,
-        pushMode: plan.pushMode,
-        state: plan.state,
         idempotencyKey: plan.idempotencyKey,
-        summary: plan.summary,
-        payloadJson: JSON.stringify(plan.payload),
-        lastError: plan.lastError,
-        createdAt: now,
-        updatedAt: now,
+        now,
       });
+      try {
+        await db.transaction(async (tx) => {
+          const [existing] = await tx
+            .select()
+            .from(schema.contentDatabaseSourceExecutions)
+            .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+            .limit(1);
+
+          const preserve =
+            existing &&
+            shouldPreserveBuilderExecution({
+              state: existing.state,
+              payloadJson: existing.payloadJson,
+            });
+
+          if (existing && !preserve) {
+            await tx
+              .update(schema.contentDatabaseSourceExecutions)
+              .set({
+                state: plan.state,
+                summary: plan.summary,
+                payloadJson: JSON.stringify(plan.payload),
+                lastError: plan.lastError,
+                updatedAt: now,
+              })
+              .where(
+                eq(schema.contentDatabaseSourceExecutions.id, existing.id),
+              );
+          } else if (!existing) {
+            await tx.insert(schema.contentDatabaseSourceExecutions).values({
+              id: executionId,
+              ownerEmail: database.ownerEmail,
+              sourceId: source.id,
+              changeSetId: changeSet.id,
+              adapter: plan.adapter,
+              pushMode: plan.pushMode,
+              state: plan.state,
+              idempotencyKey: plan.idempotencyKey,
+              summary: plan.summary,
+              payloadJson: JSON.stringify(plan.payload),
+              lastError: plan.lastError,
+              createdAt: now,
+              updatedAt: now,
+            });
+          }
+
+          if (!preserve) {
+            await tx
+              .update(schema.contentDatabaseSources)
+              .set({ updatedAt: now })
+              .where(eq(schema.contentDatabaseSources.id, source.id));
+          }
+        });
+      } catch (error) {
+        // A concurrent prepare may win the unique (source, key) race after our
+        // initial SELECT. Reuse that durable gate; rethrow unrelated failures.
+        const [winner] = await db
+          .select({ id: schema.contentDatabaseSourceExecutions.id })
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+          .limit(1);
+        if (!winner) throw error;
+      }
+      timing.record("gate_preparation_and_dry_run_validation", gateStartedAt);
+
+      const response = await timing.measure("response_load", () =>
+        getContentDatabaseResponse(database.id),
+      );
+      const result = { ...response, timings: timing.finish() };
+      timing.log("succeeded");
+      return result;
+    } catch (error) {
+      timing.ensure("gate_preparation_and_dry_run_validation");
+      timing.log("failed");
+      throw error;
     }
-
-    await db
-      .update(schema.contentDatabaseSources)
-      .set({ updatedAt: now })
-      .where(eq(schema.contentDatabaseSources.id, source.id));
-
-    return getContentDatabaseResponse(database.id);
   },
 });

@@ -34,6 +34,7 @@ import {
 } from "@/components/ui/tooltip";
 import { useUpdateEvent } from "@/hooks/use-events";
 import { useViewPreferences } from "@/hooks/use-view-preferences";
+import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import { cn } from "@/lib/utils";
 import {
   buildWorkingLocationUpdate,
@@ -135,6 +136,7 @@ export function EventDetailPanel({
     useGuestNotificationPrompt();
   const isOverlay = !!event?.overlayEmail;
   const isWorkingLocation = event ? isWorkingLocationEvent(event) : false;
+  const isOutOfOffice = event ? isOutOfOfficeEvent(event) : false;
   const isRecurringEvent = !!(
     event?.recurringEventId || event?.recurrence?.length
   );
@@ -293,7 +295,9 @@ export function EventDetailPanel({
                 <span className="text-xs font-medium uppercase tracking-wider text-muted-foreground">
                   {isWorkingLocation
                     ? t("eventForm.workingLocation")
-                    : t("eventForm.event")}
+                    : isOutOfOffice
+                      ? t("eventForm.outOfOffice")
+                      : t("eventForm.event")}
                 </span>
                 <div className="flex items-center gap-0.5">
                   <Tooltip>

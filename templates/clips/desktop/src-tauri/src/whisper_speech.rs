@@ -495,14 +495,22 @@ mod macos {
         let mut out = Vec::new();
         for segment in state.as_iter() {
             let text = segment.to_string();
-            if is_speech(&text) && segment.no_speech_probability() < MAX_NO_SPEECH_PROBABILITY {
-                // whisper timestamps are in centiseconds → ms.
-                out.push((
-                    segment.start_timestamp() * 10,
-                    segment.end_timestamp() * 10,
-                    text,
-                ));
+            if !is_speech(&text) || segment.no_speech_probability() >= MAX_NO_SPEECH_PROBABILITY {
+                continue;
             }
+            // Low average token confidence means whisper was guessing —
+            // typically a mis-detected-language hallucination that reads
+            // fluently but scores poorly. Drop it.
+            let confidence = segment_confidence(&segment);
+            if confidence < MIN_AVG_TOKEN_PROBABILITY {
+                continue;
+            }
+            // whisper timestamps are in centiseconds → ms.
+            out.push((
+                segment.start_timestamp() * 10,
+                segment.end_timestamp() * 10,
+                text,
+            ));
         }
         out
     }
@@ -530,6 +538,40 @@ mod macos {
     const VOICE_RMS_THRESHOLD: f32 = 0.006;
     /// A second, model-level gate for ambient/no-speech Whisper segments.
     const MAX_NO_SPEECH_PROBABILITY: f32 = 0.72;
+    /// Minimum average per-token probability for a segment to count as real
+    /// speech. On noisy/near-silent audio whisper mis-detects the language and
+    /// decodes fluent-looking gibberish in another language — but those tokens
+    /// are low-confidence under the hood. Dropping segments below this cutoff
+    /// removes that wrong-language garbage while keeping genuine multilingual
+    /// speech (which decodes with high confidence).
+    const MIN_AVG_TOKEN_PROBABILITY: f32 = 0.55;
+
+    /// Average the model's per-token probability across a segment. Returns 0.0
+    /// for an empty segment so it is treated as low-confidence. Special tokens
+    /// (timestamps, `[_BEG_]`, …) render as `[_…]` and are skipped so they
+    /// don't skew the average toward the text tokens we actually care about.
+    fn segment_confidence(segment: &whisper_rs::WhisperSegment<'_>) -> f32 {
+        let mut sum = 0.0f32;
+        let mut count = 0u32;
+        for i in 0..segment.n_tokens() {
+            let Some(token) = segment.get_token(i) else {
+                continue;
+            };
+            let is_special = token
+                .to_str_lossy()
+                .map(|t| t.starts_with("[_"))
+                .unwrap_or(false);
+            if is_special {
+                continue;
+            }
+            sum += token.token_probability();
+            count += 1;
+        }
+        if count == 0 {
+            return 0.0;
+        }
+        sum / count as f32
+    }
 
     fn partial_inference_due(
         emit_partials: bool,

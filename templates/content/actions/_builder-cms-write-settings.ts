@@ -1,5 +1,4 @@
 import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
   type ContentDatabaseSourceCapabilities,
   type ContentDatabaseSourcePushMode,
   type ContentDatabaseSourceWriteMode,
@@ -126,6 +125,32 @@ function pushModeForTier(
   return "none";
 }
 
+function writeModeCopy(writeMode: ContentDatabaseSourceWriteMode) {
+  if (writeMode === "publish_updates") {
+    return {
+      pushModeLabel: "Publish updates",
+      pushModeDescription:
+        "Review, update, and publish existing Builder entries. New entries are never created by this mode.",
+      notes:
+        "Builder CMS source with reviewed update-in-place publication enabled for existing entries.",
+    };
+  }
+  if (writeMode === "stage_only") {
+    return {
+      pushModeLabel: "Stage only",
+      pushModeDescription:
+        "Prepare and review local revisions without writing to Builder.",
+      notes:
+        "Builder CMS source with local review staging enabled and remote writes disabled.",
+    };
+  }
+  return {
+    pushModeLabel: "Read only",
+    pushModeDescription: "Refresh and review Builder content without writing.",
+    notes: "Builder CMS source with remote writes disabled.",
+  };
+}
+
 export function builderCmsWriteSettingsFromJson(args: {
   capabilitiesJson: string | null | undefined;
   metadataJson: string | null | undefined;
@@ -178,11 +203,6 @@ export function buildBuilderCmsWriteModeJson(
         "Live writes can only be enabled for Builder CMS sources.",
       );
     }
-    if (args.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL) {
-      throw new Error(
-        `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
-      );
-    }
   }
 
   if (
@@ -199,6 +219,7 @@ export function buildBuilderCmsWriteModeJson(
   };
   const nextMetadata: Record<string, unknown> = {
     ...metadata,
+    ...writeModeCopy(writeMode),
     writeMode,
     allowPublicationTransitions,
     allowedWriteModes,
@@ -226,7 +247,6 @@ export function mergeBuilderCmsWriteSettingsIntoJson(args: {
   });
   if (
     currentSettings.liveWritesEnabled !== true ||
-    args.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL ||
     currentSettings.writeMode === "read_only"
   ) {
     return {

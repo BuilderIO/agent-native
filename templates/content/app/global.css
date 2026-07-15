@@ -364,6 +364,21 @@
   line-height: 1.45;
 }
 
+.notion-editor h5 {
+  font-size: 1em;
+  font-weight: 600;
+  margin: 0.8em 0 0.15em;
+  line-height: 1.5;
+}
+
+.notion-editor h6 {
+  font-size: 0.95em;
+  font-weight: 600;
+  margin: 0.75em 0 0.15em;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
 /* Paragraphs */
 .notion-editor p {
   margin: 0.5em 0;
@@ -408,7 +423,9 @@
 .notion-editor h1.is-empty::before,
 .notion-editor h2.is-empty::before,
 .notion-editor h3.is-empty::before,
-.notion-editor h4.is-empty::before {
+.notion-editor h4.is-empty::before,
+.notion-editor h5.is-empty::before,
+.notion-editor h6.is-empty::before {
   content: attr(data-placeholder);
   float: left;
   color: hsl(var(--muted-foreground));

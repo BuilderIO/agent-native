@@ -3,6 +3,7 @@ import {
   getWorkspaceConnectionProvider,
   listWorkspaceConnectionProvidersForTemplate,
 } from "@agent-native/core/connections";
+import { buildDeepLink } from "@agent-native/core/server";
 import {
   listWorkspaceConnectionGrants,
   listWorkspaceConnections,
@@ -22,6 +23,11 @@ import { getGitHubAccessToken } from "../server/lib/github-oauth";
 import { resolveAnalyticsProviderCredential } from "../server/lib/provider-credentials";
 
 const APP_ID = "analytics";
+const DATA_SOURCES_SETUP_LINK = buildDeepLink({
+  app: APP_ID,
+  view: "data-sources",
+  to: "/data-sources",
+});
 
 const BUILT_IN_FIRST_PARTY_PROVIDER = {
   provider: "first-party",
@@ -68,7 +74,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
+    "List which analytics data sources are available without revealing secret values. This always includes the built-in first-party Analytics event store, which is queried with `query-agent-native-analytics`; it also reports configured credentials and granted workspace connections. The result includes `hasConnectedExternalDataSources`, `connectedExternalDataSourceCount`, and `dataSourcesSetupLink`; when a requested provider is unavailable, use that link for contextual setup guidance. The `key` arg accepts exact credential names like JIRA_API_TOKEN and provider aliases like jira, pylon, bigquery, github, hubspot, gong, or slack.",
   schema: z.object({
     key: z
       .string()
@@ -87,6 +93,7 @@ export default defineAction({
         label: "Authentication",
         message: "Sign in to view credential status.",
         settingsPath: "/data-sources",
+        dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
       };
     }
 
@@ -221,12 +228,18 @@ export default defineAction({
                 : "credentials",
         })),
     ];
+    const connectedExternalDataSources = configuredDataSources.filter(
+      (source) => source.provider !== BUILT_IN_FIRST_PARTY_PROVIDER.provider,
+    );
     return {
       // Keep a compact, explicit summary first so models do not infer source
       // availability from the much larger per-credential list below.
       hasConfiguredDataSources: configuredDataSources.length > 0,
       configuredDataSourceCount: configuredDataSources.length,
       configuredDataSources,
+      hasConnectedExternalDataSources: connectedExternalDataSources.length > 0,
+      connectedExternalDataSourceCount: connectedExternalDataSources.length,
+      dataSourcesSetupLink: DATA_SOURCES_SETUP_LINK,
       credentials: results,
       providers: [BUILT_IN_FIRST_PARTY_PROVIDER, ...providers],
       total: results.length,
@@ -238,4 +251,9 @@ export default defineAction({
       },
     };
   },
+  link: () => ({
+    url: DATA_SOURCES_SETUP_LINK,
+    label: "Open Analytics data sources",
+    view: "data-sources",
+  }),
 });

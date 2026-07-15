@@ -229,13 +229,18 @@ function looksLikeWorkflowOrAutomationRequest(lower: string): boolean {
 }
 
 const ANALYTICS_RESULT_TERMS =
-  /\b(conversion|conversions|funnel|revenue|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
+  /\b(conversion|conversions|funnel|revenue|payment|payments|traffic|pageviews?|signups?|events?|active users?|sessions?|retention|churn|pipeline|deals?|calls?|transcripts?|sentiment|themes?|objections?|cohorts?|segments?|accounts?|customers?|tickets?|issues?|leads?|opportunities|mrr|arr|ctr|cvr|cac|ltv)\b/;
 
 const ANALYTICS_INTENT_TERMS =
   /\b(analy[sz]e|measure|calculate|query|report|summari[sz]e|break ?down|compare|rank|segment|forecast|trend|count|total|average|median|percent(?:age)?|rate|top|bottom|highest|lowest|how many|how much|what (?:is|are|was|were)|which|why)\b/;
 
 const SOURCE_SEARCH_INTENT_TERMS =
   /\b(find|surface|search|scan|grep|review|inspect|check|look through|go find)\b/;
+
+const SETUP_REQUEST_TERMS =
+  /\b(connect|configure|configuration|settings?|setup|set up|credentials?|authenticate|authorization)\b/;
+const SETUP_REQUEST_FRAMING =
+  /\b(?:how (?:do|can) i|can you|help me|where can i|show me how)\b/;
 
 const ARTIFACT_TERMS = /\b(analysis|dashboard|panel|chart|metric|metrics)\b/;
 
@@ -253,6 +258,12 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   const lower = requestText.toLowerCase();
   if (!lower) return false;
   if (lower.includes(REAL_DATA_REQUIRED_MARKER.toLowerCase())) return true;
+  if (
+    SETUP_REQUEST_TERMS.test(lower) &&
+    (SETUP_REQUEST_FRAMING.test(lower) || /\bsettings?\b/.test(lower))
+  ) {
+    return false;
+  }
   if (looksLikeWorkflowOrAutomationRequest(lower)) return false;
   if (
     /\b(open|navigate|go to|rename|delete|share|favorite|unfavorite)\b/.test(
@@ -270,7 +281,8 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   }
   if (
     /\b(integration|connect|configure|settings)\b/.test(lower) &&
-    !ANALYTICS_RESULT_TERMS.test(lower)
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }
@@ -325,7 +337,7 @@ export function isGenericNoDataFallback(text: string): boolean {
 }
 
 const SAFE_NO_DATA_RESPONSE =
-  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
+  /\b(?:i can't|i cannot|can't retrieve|cannot retrieve|couldn't retrieve|unable to retrieve|don't have access|do not have access|not configured|not connected|missing credentials?|need (?:a|the)? ?data source|need to know which source|which source|which data source|clarify|can you|once (?:that'?s|it is) (?:connected|configured|available)|no data source|without a successful|query failed|source query failed|sql failed|error running|before (?:i|we) can (?:calculate|report|answer|analyze)|i need to query)\b/i;
 
 export function isSafeNoDataAnalyticsResponse(text: string): boolean {
   const trimmed = text.trim();

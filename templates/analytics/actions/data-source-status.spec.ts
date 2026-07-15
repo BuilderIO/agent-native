@@ -24,6 +24,13 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (config: unknown) => config,
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: vi.fn(
+    ({ app, view, to }: { app: string; view: string; to?: string }) =>
+      `/_agent-native/open?app=${app}&view=${view}&to=${encodeURIComponent(to ?? "")}`,
+  ),
+}));
+
 vi.mock("@agent-native/core/connections", () => ({
   getWorkspaceConnectionProvider: (provider: string) => ({
     id: provider,
@@ -105,6 +112,10 @@ describe("data-source-status", () => {
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
       configuredDataSourceCount: 1,
+      hasConnectedExternalDataSources: false,
+      connectedExternalDataSourceCount: 0,
+      dataSourcesSetupLink:
+        "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources",
       configuredDataSources: [
         {
           provider: "first-party",
@@ -123,6 +134,11 @@ describe("data-source-status", () => {
         }),
       ]),
     );
+    expect(dataSourceStatus.link?.({ args: {}, result })).toEqual({
+      url: result.dataSourcesSetupLink,
+      label: "Open Analytics data sources",
+      view: "data-sources",
+    });
   });
 
   it("treats a HubSpot private app token as configured", async () => {
@@ -143,6 +159,8 @@ describe("data-source-status", () => {
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
       configuredDataSourceCount: 2,
+      hasConnectedExternalDataSources: true,
+      connectedExternalDataSourceCount: 1,
       configuredDataSources: expect.arrayContaining([
         {
           provider: "first-party",

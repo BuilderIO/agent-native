@@ -1,5 +1,33 @@
 # @agent-native/core
 
+## 0.101.9
+
+### Patch Changes
+
+- bc29c82: Retry visual recap publishing once with a focused source-repair turn when the hosted Plan parser rejects malformed MDX.
+- Updated dependencies [bc29c82]
+  - @agent-native/recap-cli@0.4.1
+
+## 0.101.8
+
+### Patch Changes
+
+- b023dad: Keep Builder account connection available when an app does not configure the separate Builder branch-creation capability, and describe preview relay setup failures before authorization accurately.
+- b023dad: Show Builder connection setup in Settings and use a content-blocker-safe status route.
+- b023dad: Relay Builder authorization securely from an approved callback deployment into an exact allowlisted, immutable preview origin, with deploy-specific Netlify permalinks, a 32+ character shared HMAC secret, and bounded relay request bodies.
+
+## 0.101.7
+
+### Patch Changes
+
+- 70caa6f: Preserve participant-visible integration replies and verified artifact identities so threaded corrections can reliably target resources after renames.
+
+## 0.101.6
+
+### Patch Changes
+
+- dd47e0a: Clarify how to add a UI later while preserving a headless app's shared action and data contract.
+
 ## 0.101.5
 
 ### Patch Changes

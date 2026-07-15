@@ -45,6 +45,12 @@ export default defineAction({
       .describe("Pre-generated document ID (for optimistic UI)"),
     title: z.string().describe("Document title"),
     content: z.string().optional().describe("Markdown content"),
+    description: z
+      .string()
+      .optional()
+      .describe(
+        "Stable guidance describing why this page exists and what belongs in it",
+      ),
     parentId: z.string().nullish().describe("Parent document ID for nesting"),
     icon: z.string().optional().describe("Emoji icon"),
   }),
@@ -78,6 +84,7 @@ export default defineAction({
     const title = args.title;
 
     let content = args.content || "";
+    const description = args.description?.trim() ?? "";
     // Strip leading H1 that duplicates the title
     if (title && content) {
       const h1Match = content.match(/^#\s+(.+?)(\r?\n|$)/);
@@ -154,6 +161,7 @@ export default defineAction({
           parentId,
           title,
           content,
+          description,
           icon,
           position,
           isFavorite: 0,
@@ -202,6 +210,7 @@ export default defineAction({
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
+      description: doc.description,
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),

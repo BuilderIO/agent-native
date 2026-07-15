@@ -61,6 +61,7 @@ import {
 import { BuilderBodySyncingNotice } from "./BuilderBodySyncingNotice";
 import type { CommentTextAnchor } from "./comment-anchors";
 import { CommentsSidebar } from "./CommentsSidebar";
+import { DescriptionField } from "./DescriptionField";
 import { DocumentBlockFields } from "./DocumentBlockFields";
 import { DocumentDatabase } from "./DocumentDatabase";
 import { DocumentEditorSkeleton } from "./DocumentEditorSkeleton";
@@ -629,6 +630,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
       updates: {
         title?: string;
         content?: string;
+        description?: string;
         icon?: string | null;
       },
       options: DocumentSaveOptions = {},
@@ -645,6 +647,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
         ...document,
         title: updates.title ?? localTitleRef.current,
         content: updates.content ?? localContentRef.current,
+        description: updates.description ?? document.description,
         icon: updates.icon !== undefined ? updates.icon : document.icon,
         updatedAt: nextSavedAt,
         source: localSource,
@@ -1431,6 +1434,17 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
                       isDatabasePage ? "text-3xl" : "text-3xl md:text-4xl",
                     )}
                   />
+                  {!document.database ? (
+                    <DescriptionField
+                      description={document.description}
+                      canEdit={editorCanEdit}
+                      label={t("editor.properties.description")}
+                      placeholder={t("editor.properties.addPageDescription")}
+                      onSave={(description) =>
+                        persistDocumentUpdates({ description })
+                      }
+                    />
+                  ) : null}
                   {document.databaseMembership && !isLocalFileDocument ? (
                     <DocumentProperties
                       documentId={documentId}

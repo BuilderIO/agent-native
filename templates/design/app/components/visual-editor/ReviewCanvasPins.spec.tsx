@@ -50,6 +50,7 @@ vi.mock("@agent-native/core/client", () => ({
     value: string;
     onChange: (value: string) => void;
     onSubmit: (target: "human" | "agent") => void;
+    showAgentAction?: boolean;
   }) => (
     <div>
       <button
@@ -62,6 +63,9 @@ vi.mock("@agent-native/core/client", () => ({
         data-review-test-submit
         onClick={() => props.onSubmit("human")}
       />
+      {props.showAgentAction ? (
+        <button type="button" data-review-test-agent-action />
+      ) : null}
     </div>
   ),
   cn: (...values: Array<string | false | null | undefined>) =>
@@ -196,6 +200,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
 
     expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
     expect(mocks.createMutate).not.toHaveBeenCalled();
+    expect(
+      document.querySelector("[data-review-test-agent-action]"),
+    ).toBeNull();
 
     await act(async () => {
       document
@@ -214,6 +221,40 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       anchor: { point: { xPct: 37.5, yPct: 40 } },
       resolutionTarget: "human",
     });
+  });
+
+  it("shows agent dispatch only when the host provides that capability", async () => {
+    await act(async () => {
+      root.render(
+        <ReviewCanvasPins
+          active
+          onClose={vi.fn()}
+          canvasSelector=".review-test-canvas"
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          canPost
+          canResolve
+          onDispatchCommentToAgent={vi.fn()}
+        />,
+      );
+    });
+
+    await act(async () => {
+      document
+        .querySelector<HTMLElement>("[data-review-click-plane]")
+        ?.dispatchEvent(
+          new MouseEvent("click", {
+            bubbles: true,
+            clientX: 200,
+            clientY: 180,
+          }),
+        );
+    });
+
+    expect(
+      document.querySelector("[data-review-test-agent-action]"),
+    ).not.toBeNull();
   });
 
   it("enriches opaque iframe clicks with a bridge-resolved node anchor", async () => {

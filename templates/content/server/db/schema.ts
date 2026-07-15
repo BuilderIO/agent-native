@@ -5,6 +5,8 @@ import {
   now,
   ownableColumns,
   createSharesTable,
+  index,
+  uniqueIndex,
 } from "@agent-native/core/db/schema";
 
 export const documents = table("documents", {
@@ -12,6 +14,9 @@ export const documents = table("documents", {
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
+  // Stable semantic guidance for this page. Ancestry is computed at read time;
+  // never copy a parent's description here.
+  description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
@@ -34,6 +39,38 @@ export const documentVersions = table("document_versions", {
   content: text("content").notNull(),
   createdAt: text("created_at").notNull().default(now()),
 });
+
+export const documentPreviewDrafts = table(
+  "document_preview_drafts",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    documentId: text("document_id").notNull(),
+    title: text("title").notNull(),
+    content: text("content").notNull(),
+    baseDocumentUpdatedAt: text("base_document_updated_at"),
+    loadedContentWasEmpty: integer("loaded_content_was_empty")
+      .notNull()
+      .default(0),
+    deferredReason: text("deferred_reason"),
+    version: integer("version").notNull().default(1),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (draft) => [
+    uniqueIndex("document_preview_drafts_owner_org_document_unique").on(
+      draft.ownerEmail,
+      draft.orgId,
+      draft.documentId,
+    ),
+    index("document_preview_drafts_owner_org_document_idx").on(
+      draft.ownerEmail,
+      draft.orgId,
+      draft.documentId,
+    ),
+  ],
+);
 
 export const documentComments = table("document_comments", {
   id: text("id").primaryKey(),
@@ -114,6 +151,7 @@ export const documentPropertyDefinitions = table(
     databaseId: text("database_id"),
     name: text("name").notNull(),
     type: text("type").notNull(),
+    description: text("description").notNull().default(""),
     visibility: text("visibility").notNull().default("always_show"),
     optionsJson: text("options_json").notNull().default("{}"),
     position: integer("position").notNull().default(0),
@@ -295,9 +333,22 @@ export const contentDatabaseSourceExecutions = table(
     idempotencyKey: text("idempotency_key").notNull(),
     summary: text("summary").notNull(),
     payloadJson: text("payload_json").notNull().default("{}"),
+    attemptToken: text("attempt_token"),
     lastError: text("last_error"),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
+  },
+);
+
+export const contentDatabaseSourceExecutionClaims = table(
+  "content_database_source_execution_claims",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    sourceId: text("source_id").notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    executionId: text("execution_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
   },
 );
 

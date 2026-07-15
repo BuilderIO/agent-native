@@ -26,6 +26,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const toastErrorMock = vi.hoisted(() => vi.fn());
 const toastSuccessMock = vi.hoisted(() => vi.fn());
+const contentDatabaseQueryMock = vi.hoisted(() => vi.fn());
 
 vi.mock("sonner", async (importOriginal) => {
   const actual = await importOriginal<typeof import("sonner")>();
@@ -126,11 +127,14 @@ vi.mock("@agent-native/core/client", async (importOriginal) => {
 
 vi.mock("@/hooks/use-content-database", () => ({
   isContentDatabaseUnavailable: () => false,
-  useContentDatabase: () => ({
-    data: databaseResponse,
-    isLoading: false,
-    isFetching: false,
-  }),
+  useContentDatabase: (documentId: string, limit: number) => {
+    contentDatabaseQueryMock(documentId, limit);
+    return {
+      data: databaseResponse,
+      isLoading: false,
+      isFetching: limit !== databasePagination.limit,
+    };
+  },
   useAddDatabaseItem: () => addItemMutation,
   useAttachContentDatabaseSource: () => attachSourceMutation,
   useChangeContentDatabaseSourceRole: () => benignMutation,
@@ -138,7 +142,14 @@ vi.mock("@/hooks/use-content-database", () => ({
   useDisconnectContentDatabaseSource: () => benignMutation,
   useProcessBuilderBodyHydration: () => benignMutation,
   usePrepareBuilderSourceReview: () => benignMutation,
+  usePreviewBuilderSourceReview: () => ({
+    data: undefined,
+    isLoading: false,
+    isFetching: false,
+    error: null,
+  }),
   useExecuteBuilderSourceExecution: () => benignMutation,
+  useCancelPreparedBuilderSourceUpdate: () => benignMutation,
   useSetContentDatabaseSourceWriteMode: () => benignMutation,
   useContentDatabasePersonalView: () => ({ data: undefined, isLoading: false }),
   useUpdateContentDatabasePersonalView: () => benignMutation,
@@ -167,6 +178,14 @@ import { DatabaseView, defaultDatabaseViewConfig } from "./DatabaseView";
 
 const databaseViewConfig = defaultDatabaseViewConfig();
 
+const databasePagination: NonNullable<ContentDatabaseResponse["pagination"]> = {
+  offset: 0,
+  limit: 100,
+  totalItems: 0,
+  returnedItems: 0,
+  hasMore: false,
+};
+
 const databaseResponse: ContentDatabaseResponse = {
   database: {
     id: "database-1",
@@ -180,13 +199,7 @@ const databaseResponse: ContentDatabaseResponse = {
   items: [],
   source: null,
   sources: [],
-  pagination: {
-    offset: 0,
-    limit: 100,
-    totalItems: 0,
-    returnedItems: 0,
-    hasMore: false,
-  },
+  pagination: databasePagination,
 };
 
 const fakeDocument = {
@@ -230,8 +243,11 @@ describe("DatabaseView error toasts", () => {
     ).IS_REACT_ACT_ENVIRONMENT = true;
     toastErrorMock.mockReset();
     toastSuccessMock.mockReset();
+    contentDatabaseQueryMock.mockReset();
     addItemMutation.mutateAsync.mockReset();
     attachSourceMutation.mutateAsync.mockReset();
+    databasePagination.totalItems = 0;
+    databasePagination.hasMore = false;
 
     // DatabaseTable fire-and-forgets a `fetch(...).catch(() => {})` navigation
     // state PUT on every relevant render; stub it out so the test doesn't make
@@ -298,6 +314,41 @@ describe("DatabaseView error toasts", () => {
     expect(toastErrorMock).toHaveBeenCalledWith(
       failedToCreateRow,
       expect.objectContaining({ description: "network down" }),
+    );
+  });
+
+  it("requests the whole bounded search window and hides the partial no-match state", async () => {
+    databasePagination.totalItems = 571;
+    databasePagination.hasMore = true;
+    await renderDatabaseView();
+
+    await act(async () => {
+      container
+        .querySelector<HTMLButtonElement>('[aria-label="Search"]')
+        ?.click();
+    });
+    const searchInput = container.querySelector<HTMLInputElement>(
+      'input[placeholder="Search"]',
+    );
+    expect(searchInput).toBeTruthy();
+
+    await act(async () => {
+      if (!searchInput) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(searchInput, "Quiet Comet");
+      searchInput.dispatchEvent(new Event("input", { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(contentDatabaseQueryMock).toHaveBeenCalledWith("document-1", 571);
+    expect(container.textContent).toContain(
+      messagesByLocale["en-US"].database.loadingDatabase,
+    );
+    expect(container.textContent).not.toContain(
+      messagesByLocale["en-US"].database.noRowsMatchThisView,
     );
   });
 

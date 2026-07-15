@@ -89,6 +89,33 @@ export function previewBodyHydrationIsPending(args: {
   );
 }
 
+/**
+ * A draft that began from an empty source snapshot must not automatically
+ * replace a non-empty Builder body that arrived while hydration was running.
+ * Keep the draft dirty/recoverable and let the user decide which body to keep.
+ */
+export function previewDraftConflictsWithHydratedBody(args: {
+  loadedContent: string | null | undefined;
+  loadedUpdatedAt: string | null | undefined;
+  loadedContentWasEmpty: boolean | undefined;
+  pendingContent: string | null | undefined;
+  hydratedContent: string | null | undefined;
+  hydratedUpdatedAt: string | null | undefined;
+}) {
+  const sourceChangedSinceDraftLoaded =
+    (!!args.loadedUpdatedAt &&
+      !!args.hydratedUpdatedAt &&
+      args.loadedUpdatedAt !== args.hydratedUpdatedAt) ||
+    args.loadedContent !== args.hydratedContent;
+  return (
+    !isEffectivelyEmptyDocumentContent(args.pendingContent) &&
+    args.pendingContent !== args.hydratedContent &&
+    sourceChangedSinceDraftLoaded &&
+    (args.loadedContentWasEmpty === true ||
+      args.loadedContent !== args.hydratedContent)
+  );
+}
+
 export function previewBodyHydrationIsTerminalError(args: {
   item: Pick<ContentDatabaseItem, "bodyHydration" | "document">;
   document: Pick<Document, "databaseMembership"> | null | undefined;

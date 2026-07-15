@@ -51,6 +51,8 @@ import {
   databaseItemPreviewTitle,
   databaseItemsWithoutDateValue,
   databaseNavigationState,
+  databaseAttachedBuilderModelNames,
+  databaseAttachedBuilderSource,
   builderReviewableChangeSets,
   builderReviewExecutableRows,
   builderSourceLiveWriteControlState,
@@ -71,6 +73,7 @@ import {
   databaseVisibleItemSummaries,
   databaseVisibleGroups,
   databaseGridColumns,
+  databaseItemPropertyForColumn,
   databaseInlineFilterLabel,
   databaseViewSummaries,
   databaseViewItemGroups,
@@ -191,6 +194,39 @@ function builderExecution(
     ...overrides,
   };
 }
+
+describe("database row property definitions", () => {
+  it("uses the canonical column guidance with the row's own value", () => {
+    const staleRowProperty = property(
+      "status",
+      "Status",
+      "status",
+      "in-progress",
+      {
+        options: [{ id: "in-progress", name: "In progress", color: "blue" }],
+      },
+    );
+    const canonicalProperty = property("status", "Status", "status", null, {
+      options: [
+        {
+          id: "in-progress",
+          name: "In progress",
+          color: "blue",
+          description: "Use while work is underway",
+        },
+      ],
+    });
+    const row = item("row", "Row", {});
+    row.properties.push(staleRowProperty);
+
+    const resolved = databaseItemPropertyForColumn(row, canonicalProperty);
+
+    expect(resolved.value).toBe("in-progress");
+    expect(resolved.definition.options.options?.[0]?.description).toBe(
+      "Use while work is underway",
+    );
+  });
+});
 
 function builderChangeSet(
   overrides: Partial<ContentDatabaseSourceChangeSet> = {},
@@ -862,6 +898,78 @@ describe("database view filtering", () => {
 });
 
 describe("Builder source settings helpers", () => {
+  it("resolves multi-source Builder controls from the selected model instead of the legacy primary", () => {
+    const primary = builderSource({
+      id: "primary-local",
+      sourceType: "mock-local",
+      sourceName: "Primary local source",
+      sourceTable: "content_rows",
+    });
+    const attachedBuilder = builderSource({
+      id: "builder-secondary",
+      sourceName: "Blog articles",
+      sourceTable: "blog_article",
+    });
+    const attachedDocsBuilder = builderSource({
+      id: "builder-docs",
+      sourceName: "Docs",
+      sourceTable: "docs_content",
+    });
+    const sources = [primary, attachedBuilder, attachedDocsBuilder];
+
+    expect(databaseAttachedBuilderModelNames(sources, primary)).toEqual([
+      "blog_article",
+      "docs_content",
+    ]);
+    expect(
+      databaseAttachedBuilderSource(sources, primary, {
+        modelName: "blog_article",
+      })?.id,
+    ).toBe("builder-secondary");
+    expect(
+      databaseAttachedBuilderSource(sources, primary, {
+        sourceId: "builder-docs",
+      })?.sourceTable,
+    ).toBe("docs_content");
+
+    const readOnly = builderSourceLiveWriteControlState(attachedBuilder);
+    expect(readOnly).toMatchObject({
+      availableWriteModes: ["read_only", "stage_only", "publish_updates"],
+      writeMode: "read_only",
+      showPublicationTransitions: false,
+    });
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({
+          id: "builder-secondary",
+          sourceTable: "blog_article",
+          metadata: {
+            ...attachedBuilder.metadata,
+            writeMode: "stage_only",
+          },
+        }),
+      ),
+    ).toMatchObject({
+      writeMode: "stage_only",
+      showPublicationTransitions: false,
+    });
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({
+          id: "builder-secondary",
+          sourceTable: "blog_article",
+          metadata: {
+            ...attachedBuilder.metadata,
+            writeMode: "publish_updates",
+          },
+        }),
+      ),
+    ).toMatchObject({
+      writeMode: "publish_updates",
+      showPublicationTransitions: true,
+    });
+  });
+
   it("counts only outbound Builder changes that need source-settings attention", () => {
     expect(
       builderReviewableChangeSets(
@@ -870,16 +978,22 @@ describe("Builder source settings helpers", () => {
             builderChangeSet({ id: "pending", state: "pending_push" }),
             builderChangeSet({ id: "approved", state: "approved" }),
             builderChangeSet({ id: "applied", state: "applied" }),
+            builderChangeSet({
+              id: "reconciled-but-stale-state",
+              state: "approved",
+              executions: [builderExecution({ state: "succeeded" })],
+            }),
           ],
         }),
       ).map((changeSet) => changeSet.id),
     ).toEqual(["pending", "approved"]);
   });
 
-  it("shows the live-write enable action only for the safe Builder test collection", () => {
+  it("shows tiered write policy for every Builder collection", () => {
     expect(builderSourceLiveWriteControlState(builderSource())).toMatchObject({
       safeTarget: true,
       enabled: false,
+      writeMode: "read_only",
       showAction: true,
       actionLabel: "Enable",
     });
@@ -889,9 +1003,31 @@ describe("Builder source settings helpers", () => {
         builderSource({ sourceTable: "blog_article" }),
       ),
     ).toMatchObject({
-      safeTarget: false,
+      safeTarget: true,
       enabled: false,
-      showAction: false,
+      writeMode: "read_only",
+      showAction: true,
+    });
+
+    expect(
+      builderSourceLiveWriteControlState(
+        builderSource({
+          sourceTable: "blog_article",
+          capabilities: {
+            ...builderSource().capabilities,
+            liveWritesEnabled: true,
+          },
+          metadata: {
+            ...builderSource().metadata,
+            writeMode: "publish_updates",
+            allowPublicationTransitions: true,
+          },
+        }),
+      ),
+    ).toMatchObject({
+      enabled: true,
+      writeMode: "publish_updates",
+      allowPublicationTransitions: true,
     });
   });
 
