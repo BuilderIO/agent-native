@@ -104,6 +104,7 @@ function proxyResponseHeaders(
 
 export class ProtectedPreviewOAuthDoorway {
   private server: Server | null = null;
+  private listeningPromise: Promise<void> | null = null;
   private boundPort: number | null = null;
   private readonly registrations = new Map<string, DoorwayRegistration>();
 
@@ -167,11 +168,12 @@ export class ProtectedPreviewOAuthDoorway {
 
   private async ensureListening(): Promise<void> {
     if (this.server?.listening) return;
+    if (this.listeningPromise) return this.listeningPromise;
     const server = http.createServer((request, response) => {
       this.handleRequest(request, response);
     });
     this.server = server;
-    await new Promise<void>((resolve, reject) => {
+    const listeningPromise = new Promise<void>((resolve, reject) => {
       const onError = (error: NodeJS.ErrnoException) => {
         server.off("listening", onListening);
         if (this.server === server) this.server = null;
@@ -197,6 +199,14 @@ export class ProtectedPreviewOAuthDoorway {
         this.options.host ?? "127.0.0.1",
       );
     });
+    this.listeningPromise = listeningPromise;
+    try {
+      await listeningPromise;
+    } finally {
+      if (this.listeningPromise === listeningPromise) {
+        this.listeningPromise = null;
+      }
+    }
   }
 
   private handleRequest(

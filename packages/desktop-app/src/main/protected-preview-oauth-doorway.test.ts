@@ -165,6 +165,35 @@ describe("ProtectedPreviewOAuthDoorway", () => {
     ).rejects.toThrow("loopback HTTP origins");
   });
 
+  it("shares one in-flight listener startup across concurrent registrations", async () => {
+    const upstream = await listen((_request, response) => response.end("ok"));
+    const doorway = new ProtectedPreviewOAuthDoorway({ port: 0 });
+    doorways.push(doorway);
+
+    const [unregisterFirst, unregisterSecond] = await Promise.all([
+      doorway.register("concurrent-flow-one", upstream.origin),
+      doorway.register("concurrent-flow-two", upstream.origin),
+    ]);
+
+    expect(
+      (
+        await fetch(
+          `${doorway.origin}/_agent-native/google/auth-url?desktop=1&flow_id=concurrent-flow-one&redirect=1`,
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await fetch(
+          `${doorway.origin}/_agent-native/google/auth-url?desktop=1&flow_id=concurrent-flow-two&redirect=1`,
+        )
+      ).status,
+    ).toBe(200);
+
+    unregisterFirst();
+    unregisterSecond();
+  });
+
   it("fails closed without interrupting a process that already owns the doorway port", async () => {
     const existing = await listen((_request, response) =>
       response.end("still here"),
