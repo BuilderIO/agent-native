@@ -12,6 +12,7 @@ import {
   toggleStar,
   trashEmail,
   untrashEmail,
+  markAllLocalUnreadRead,
   markRead,
   markThreadRead,
 } from "./email-state.js";
@@ -660,6 +661,77 @@ describe("markRead", () => {
         ["UNREAD"],
       );
     });
+  });
+});
+
+describe("markAllLocalUnreadRead", () => {
+  it("updates every non-protected unread message in one local write and verifies", async () => {
+    let emails = [
+      ...makeLocalEmails().map((email) => ({ ...email, isRead: false })),
+      {
+        ...makeLocalEmails()[0],
+        id: "msg-protected",
+        threadId: "thread-protected",
+        isRead: false,
+      },
+    ];
+    vi.mocked(getUserSetting).mockImplementation(async (_owner, key) => {
+      if (key === "local-emails") return { emails } as any;
+      if (key === "labels") {
+        return {
+          labels: [
+            { id: "inbox", name: "Inbox", unreadCount: 3, totalCount: 3 },
+          ],
+        } as any;
+      }
+      return undefined;
+    });
+    vi.mocked(putUserSetting).mockImplementation(async (_owner, key, value) => {
+      if (key === "local-emails") emails = (value as any).emails;
+    });
+
+    const result = await markAllLocalUnreadRead({
+      ownerEmail: OWNER,
+      accountEmail: OWNER,
+      excludeThreadIds: ["thread-protected"],
+    });
+
+    expect(
+      vi
+        .mocked(putUserSetting)
+        .mock.calls.filter(([, key]) => key === "local-emails"),
+    ).toHaveLength(1);
+    expect(
+      vi
+        .mocked(putUserSetting)
+        .mock.calls.filter(([, key]) => key === "labels"),
+    ).toHaveLength(1);
+    expect(result).toMatchObject({
+      matchedMessages: 3,
+      matchedThreads: 2,
+      excludedMessages: 1,
+      excludedThreads: 1,
+      changedMessages: 2,
+      batchCount: 1,
+      remainingUnreadMessages: 1,
+      remainingUnreadThreads: 1,
+      remainingProtectedMessages: 1,
+      unexpectedUnreadMessages: 0,
+      verificationComplete: true,
+    });
+  });
+
+  it("rejects a different account before reading local mail", async () => {
+    await expect(
+      markAllLocalUnreadRead({
+        ownerEmail: OWNER,
+        accountEmail: ACCT,
+        excludeThreadIds: [],
+      }),
+    ).rejects.toThrow("authenticated owner account");
+
+    expect(getUserSetting).not.toHaveBeenCalled();
+    expect(putUserSetting).not.toHaveBeenCalled();
   });
 });
 

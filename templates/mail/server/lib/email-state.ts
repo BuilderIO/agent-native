@@ -14,6 +14,7 @@ import { getUserSetting, putUserSetting } from "@agent-native/core/settings";
  */
 import type { EmailMessage, Label } from "@shared/types.js";
 
+import type { BulkMarkReadResult } from "./bulk-mark-read.js";
 import {
   createOAuth2Client,
   gmailGetMessage,
@@ -614,6 +615,77 @@ export async function markRead(input: MarkReadInput): Promise<MarkReadResult> {
     }
   }
   throw lastErr ?? new Error("Mark read failed");
+}
+
+export async function markAllLocalUnreadRead(input: {
+  ownerEmail: string;
+  accountEmail: string;
+  excludeThreadIds: string[];
+}): Promise<BulkMarkReadResult> {
+  const { ownerEmail, accountEmail } = input;
+  if (accountEmail.toLowerCase() !== ownerEmail.toLowerCase()) {
+    throw new Error("Local mail only supports the authenticated owner account");
+  }
+
+  const excludedThreadIds = new Set(input.excludeThreadIds.filter(Boolean));
+  const emails = await readLocalEmails(ownerEmail);
+  const matched = emails.filter((email) => !email.isRead);
+  const excluded = matched.filter((email) =>
+    excludedThreadIds.has(email.threadId || email.id),
+  );
+  const selectedIds = new Set(
+    matched
+      .filter((email) => !excludedThreadIds.has(email.threadId || email.id))
+      .map((email) => email.id),
+  );
+  const updated = emails.map((email) =>
+    selectedIds.has(email.id) ? { ...email, isRead: true } : email,
+  );
+
+  if (selectedIds.size > 0) {
+    await writeLocalEmails(ownerEmail, updated);
+    await writeLocalLabels(
+      ownerEmail,
+      recomputeUnreadCounts(updated, await readLocalLabels(ownerEmail)),
+    );
+  }
+
+  const persisted = await readLocalEmails(ownerEmail);
+  const remaining = persisted.filter((email) => !email.isRead);
+  const remainingProtected = remaining.filter((email) =>
+    excludedThreadIds.has(email.threadId || email.id),
+  );
+  const unexpectedRemaining = remaining.filter(
+    (email) => !excludedThreadIds.has(email.threadId || email.id),
+  );
+
+  return {
+    mode: "all-unread",
+    accountEmail,
+    matchedMessages: matched.length,
+    matchedThreads: new Set(matched.map((email) => email.threadId || email.id))
+      .size,
+    excludedMessages: excluded.length,
+    excludedThreads: new Set(
+      excluded.map((email) => email.threadId || email.id),
+    ).size,
+    changedMessages: selectedIds.size,
+    batchCount: selectedIds.size > 0 ? 1 : 0,
+    failures: [],
+    remainingUnreadMessages: remaining.length,
+    remainingUnreadThreads: new Set(
+      remaining.map((email) => email.threadId || email.id),
+    ).size,
+    remainingProtectedMessages: remainingProtected.length,
+    remainingProtectedThreads: new Set(
+      remainingProtected.map((email) => email.threadId || email.id),
+    ).size,
+    unexpectedUnreadMessages: unexpectedRemaining.length,
+    unexpectedUnreadThreads: new Set(
+      unexpectedRemaining.map((email) => email.threadId || email.id),
+    ).size,
+    verificationComplete: unexpectedRemaining.length === 0,
+  };
 }
 
 // ---------------------------------------------------------------------------

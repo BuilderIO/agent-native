@@ -10,8 +10,14 @@ import {
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
   gmailListThreads,
+  googleFetch,
 } from "./google-api.js";
-import { getClientsWithErrors, listGmailMessages } from "./google-auth.js";
+import {
+  gmailBatchModifyByAccount,
+  getClientsWithErrors,
+  listGmailMessages,
+  markAllUnreadReadForAccount,
+} from "./google-auth.js";
 
 vi.mock("@agent-native/core/oauth-tokens", () => ({
   deleteOAuthTokens: vi.fn(),
@@ -40,6 +46,7 @@ vi.mock("./google-api.js", () => ({
   gmailListThreads: vi.fn(),
   gmailStopWatch: vi.fn(),
   gmailWatch: vi.fn(),
+  googleFetch: vi.fn(),
   peopleGetProfile: vi.fn(),
 }));
 
@@ -641,5 +648,178 @@ describe("getAuthStatus with unusable token records", () => {
       connected: true,
       accounts: [{ email: "connected@example.com" }],
     });
+  });
+});
+
+describe("markAllUnreadReadForAccount", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockAccount();
+    vi.mocked(googleFetch).mockResolvedValue({} as any);
+  });
+
+  it("paginates lightweight unread refs, preserves an excluded thread, batches once, and verifies", async () => {
+    const messages = Array.from({ length: 38 }, (_, index) => ({
+      id: `message-${index}`,
+      threadId:
+        index < 2
+          ? "thread-shared"
+          : index === 37
+            ? "thread-protected"
+            : `thread-${index}`,
+    }));
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({
+        messages: messages.slice(0, 20),
+        nextPageToken: "page-2",
+      } as any)
+      .mockResolvedValueOnce({ messages: messages.slice(20) } as any)
+      .mockResolvedValueOnce({ messages: [messages[37]] } as any);
+
+    const result = await markAllUnreadReadForAccount({
+      ownerEmail: "owner@example.com",
+      accountEmail: "connected@example.com",
+      excludeThreadIds: ["thread-protected"],
+    });
+
+    expect(gmailListMessagesApi).toHaveBeenNthCalledWith(1, "access-token", {
+      q: "is:unread",
+      maxResults: 500,
+      pageToken: undefined,
+    });
+    expect(gmailListMessagesApi).toHaveBeenNthCalledWith(2, "access-token", {
+      q: "is:unread",
+      maxResults: 500,
+      pageToken: "page-2",
+    });
+    expect(googleFetch).toHaveBeenCalledTimes(1);
+    const mutationOptions = vi.mocked(googleFetch).mock.calls[0]?.[2] as any;
+    const mutationBody = JSON.parse(mutationOptions.body);
+    expect(mutationBody.ids).toHaveLength(37);
+    expect(mutationBody.ids).not.toContain("message-37");
+    expect(mutationBody.removeLabelIds).toEqual(["UNREAD"]);
+    expect(result).toMatchObject({
+      matchedMessages: 38,
+      matchedThreads: 37,
+      excludedMessages: 1,
+      excludedThreads: 1,
+      changedMessages: 37,
+      batchCount: 1,
+      failures: [],
+      remainingUnreadMessages: 1,
+      remainingUnreadThreads: 1,
+      remainingProtectedMessages: 1,
+      remainingProtectedThreads: 1,
+      unexpectedUnreadMessages: 0,
+      unexpectedUnreadThreads: 0,
+      verificationComplete: true,
+    });
+  });
+
+  it("reports exact chunk failures and incomplete verification above Gmail's 1000-id limit", async () => {
+    const messages = Array.from({ length: 1001 }, (_, index) => ({
+      id: `message-${index}`,
+      threadId: `thread-${index}`,
+    }));
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({ messages } as any)
+      .mockResolvedValueOnce({ messages: [messages[1000]] } as any);
+    vi.mocked(googleFetch)
+      .mockResolvedValueOnce({} as any)
+      .mockRejectedValueOnce(new Error("provider unavailable"));
+
+    const result = await markAllUnreadReadForAccount({
+      ownerEmail: "owner@example.com",
+      accountEmail: "connected@example.com",
+      excludeThreadIds: [],
+    });
+
+    expect(googleFetch).toHaveBeenCalledTimes(2);
+    expect(result).toMatchObject({
+      matchedMessages: 1001,
+      changedMessages: 1000,
+      batchCount: 2,
+      remainingUnreadMessages: 1,
+      unexpectedUnreadMessages: 1,
+      verificationComplete: false,
+    });
+    expect(result.failures).toEqual([
+      { id: "message-1000", error: "provider unavailable" },
+    ]);
+  });
+
+  it("rejects an unowned account before listing or mutating Gmail", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([]);
+
+    await expect(
+      markAllUnreadReadForAccount({
+        ownerEmail: "owner@example.com",
+        accountEmail: "stranger@example.com",
+        excludeThreadIds: [],
+      }),
+    ).rejects.toThrow("not connected for this user");
+
+    expect(gmailListMessagesApi).not.toHaveBeenCalled();
+    expect(googleFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("gmailBatchModifyByAccount", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(googleFetch).mockResolvedValue({} as any);
+  });
+
+  it("resolves an explicit secondary account through the authenticated owner", async () => {
+    vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+      {
+        accountId: "primary@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "primary-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+      {
+        accountId: "secondary@example.com",
+        owner: "owner@example.com",
+        tokens: {
+          access_token: "secondary-token",
+          expiry_date: Date.now() + 60 * 60 * 1000,
+        },
+      },
+    ] as any);
+
+    const result = await gmailBatchModifyByAccount(
+      "owner@example.com",
+      [{ id: "message-secondary", accountEmail: "secondary@example.com" }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result).toEqual({ succeeded: ["message-secondary"], failed: [] });
+    expect(googleFetch).toHaveBeenCalledWith(
+      expect.stringContaining("messages/batchModify"),
+      "secondary-token",
+      expect.objectContaining({ method: "POST" }),
+    );
+  });
+
+  it("keeps the legacy default-account fallback when no account is supplied", async () => {
+    mockAccount();
+
+    const result = await gmailBatchModifyByAccount(
+      "owner@example.com",
+      [{ id: "message-default" }],
+      undefined,
+      ["UNREAD"],
+    );
+
+    expect(result).toEqual({ succeeded: ["message-default"], failed: [] });
+    expect(googleFetch).toHaveBeenCalledWith(
+      expect.stringContaining("messages/batchModify"),
+      "access-token",
+      expect.any(Object),
+    );
   });
 });
