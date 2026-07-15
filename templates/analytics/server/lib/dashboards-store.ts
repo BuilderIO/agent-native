@@ -751,16 +751,6 @@ export async function upsertDashboard(
       })
       .onConflictDoNothing();
   }
-  if (!existing) {
-    // We took the insert branch (access-scoped read found nothing). If a row
-    // with this id already existed, `onConflictDoNothing` left it untouched and
-    // our insert was a no-op. Re-run the SCOPED access check rather than trusting
-    // a raw ownerEmail match: a same-email caller in a different org must not be
-    // handed a row the normal access check would deny. If the caller genuinely
-    // can't access whatever is there now, surface a conflict.
-    const accessible = await getDashboard(id, ctx);
-    if (!accessible) throw new DashboardConflictError(id);
-  }
   const [row] = await db
     .select()
     .from(schema.dashboards)
@@ -770,6 +760,31 @@ export async function upsertDashboard(
     // or the insert was a no-op against a row that has since disappeared. Fail
     // with a conflict instead of dereferencing `undefined`.
     throw new DashboardConflictError(id);
+  }
+  if (!existing) {
+    // We took the insert branch (access-scoped read found nothing). If a row
+    // with this id already existed, `onConflictDoNothing` left it untouched and
+    // our insert was a no-op. Re-run the SCOPED access check first — that covers
+    // the normal fresh-insert success (the new row is ours) and org-shared rows.
+    const accessible = await getDashboard(id, ctx);
+    if (!accessible) {
+      // Not accessible under the current scope. Recover ONLY the caller's own
+      // PRIVATE row — e.g. a per-user demo/seed dashboard created under a
+      // now-stale org scope (`ownerMatchesActiveScope` denies owner access when
+      // the row's orgId no longer matches). A row owned by someone else, or an
+      // org/public-visibility row bound to a different org, is a genuine
+      // conflict and must never be handed back.
+      const sameOwner =
+        typeof row.ownerEmail === "string" &&
+        row.ownerEmail.trim().toLowerCase() === ctx.email.trim().toLowerCase();
+      const foreignOrgScoped =
+        row.visibility !== "private" &&
+        !!row.orgId &&
+        row.orgId !== (ctx.orgId ?? null);
+      if (!sameOwner || foreignOrgScoped) {
+        throw new DashboardConflictError(id);
+      }
+    }
   }
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)
   // so create/update propagate just like delete and the legacy-migration path.

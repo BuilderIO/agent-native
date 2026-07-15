@@ -2,9 +2,11 @@
  * Regression coverage for `upsertDashboard`'s create-branch conflict handling.
  *
  *  - Insert conflict: a row with this id already exists but the caller cannot
- *    access it under the current scope (access-scoped `getDashboard` returns
- *    null both before and after the `onConflictDoNothing` insert). The method
- *    must surface `DashboardConflictError` instead of leaking the foreign row.
+ *    access it under the current scope, and it is NOT the caller's own private
+ *    row. The method must surface `DashboardConflictError` instead of leaking
+ *    the foreign row.
+ *  - Stale-org recovery: the caller's OWN private row (e.g. a per-user demo
+ *    dashboard whose orgId no longer matches) is recovered, not rejected.
  *  - Missing post-write row: the SELECT after the write returns nothing (a
  *    concurrent delete raced the write). The method must throw
  *    `DashboardConflictError` instead of dereferencing `undefined`.
@@ -143,32 +145,37 @@ const { upsertDashboard, DashboardConflictError } =
 const ctx = { email: "alice@example.com", orgId: null };
 const body = { name: "New", panels: [] };
 
+function row(overrides: Record<string, unknown>): Record<string, unknown> {
+  return {
+    id: "id",
+    kind: "sql",
+    title: "Title",
+    config: JSON.stringify({ name: "x", panels: [] }),
+    ownerEmail: "alice@example.com",
+    orgId: null,
+    visibility: "private",
+    createdAt: "2026-07-09T00:00:00.000Z",
+    updatedAt: "2026-07-09T00:00:00.000Z",
+    updatedBy: null,
+    archivedAt: null,
+    hiddenAt: null,
+    hiddenBy: null,
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   state.access = null;
   state.selectRows = [];
 });
 
 describe("dashboards-store insert conflict", () => {
-  it("throws a conflict when the pre-existing row is not accessible to the caller", async () => {
+  it("throws a conflict when the pre-existing row belongs to another user", async () => {
     // No scoped access before OR after insert (foreign row that
-    // onConflictDoNothing left untouched), but the raw row exists.
+    // onConflictDoNothing left untouched), owned by someone else.
     state.access = null;
     state.selectRows = [
-      {
-        id: "shared-id",
-        kind: "sql",
-        title: "Someone else's",
-        config: JSON.stringify({ name: "x", panels: [] }),
-        ownerEmail: "mallory@example.com",
-        orgId: "other-org",
-        visibility: "private",
-        createdAt: "2026-07-09T00:00:00.000Z",
-        updatedAt: "2026-07-09T00:00:00.000Z",
-        updatedBy: null,
-        archivedAt: null,
-        hiddenAt: null,
-        hiddenBy: null,
-      },
+      row({ id: "shared-id", ownerEmail: "mallory@example.com", orgId: "o" }),
     ];
 
     await expect(
@@ -176,26 +183,33 @@ describe("dashboards-store insert conflict", () => {
     ).rejects.toBeInstanceOf(DashboardConflictError);
   });
 
+  it("recovers an own private row created under a stale org scope", async () => {
+    // Scoped access denies the row (its orgId no longer matches the null-org
+    // caller), but it is the caller own PRIVATE row: the per-user demo/seed
+    // recovery case. Must NOT throw; returns the existing row.
+    state.access = null;
+    state.selectRows = [
+      row({ id: "demo-abc", orgId: "stale-org", visibility: "private" }),
+    ];
+
+    const result = await upsertDashboard("demo-abc", "sql", body, ctx);
+    expect(result.id).toBe("demo-abc");
+  });
+
+  it("throws a conflict for an own row that is org-visibility in another org", async () => {
+    state.access = null;
+    state.selectRows = [
+      row({ id: "org-shared", orgId: "other-org", visibility: "org" }),
+    ];
+
+    await expect(
+      upsertDashboard("org-shared", "sql", body, ctx),
+    ).rejects.toBeInstanceOf(DashboardConflictError);
+  });
+
   it("throws a conflict when the post-write row is missing (raced delete)", async () => {
-    // Update branch: caller has access, so `existing` is truthy...
-    state.access = {
-      role: "editor",
-      resource: {
-        id: "raced",
-        kind: "sql",
-        title: "Raced",
-        config: JSON.stringify({ name: "Raced", panels: [] }),
-        ownerEmail: "alice@example.com",
-        orgId: null,
-        visibility: "private",
-        createdAt: "2026-07-09T00:00:00.000Z",
-        updatedAt: "2026-07-09T00:00:00.000Z",
-        updatedBy: null,
-        archivedAt: null,
-        hiddenAt: null,
-        hiddenBy: null,
-      },
-    };
+    // Update branch: caller has access, so existing is truthy...
+    state.access = { role: "editor", resource: row({ id: "raced" }) };
     // ...but the post-write SELECT finds nothing (concurrent delete).
     state.selectRows = [];
 
