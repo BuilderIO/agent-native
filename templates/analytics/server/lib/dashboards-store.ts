@@ -755,6 +755,17 @@ export async function upsertDashboard(
     .select()
     .from(schema.dashboards)
     .where(eq(schema.dashboards.id, id));
+  if (!existing && row) {
+    // We took the insert branch (access-scoped read found nothing) but a row with
+    // this id already exists. `onConflictDoNothing` left it untouched. Only treat
+    // this as a recoverable no-op when the pre-existing row is the caller's own
+    // (e.g. a demo/seed dashboard with a stale org scope). Otherwise it belongs
+    // to someone else — surface a conflict rather than returning their row.
+    const sameOwner =
+      typeof row.ownerEmail === "string" &&
+      row.ownerEmail.trim().toLowerCase() === ctx.email.trim().toLowerCase();
+    if (!sameOwner) throw new DashboardConflictError(id);
+  }
   // Notify any sibling tabs (sidebar list, command palette, dashboard view)
   // so create/update propagate just like delete and the legacy-migration path.
   const dashboard = rowToDashboard(row);

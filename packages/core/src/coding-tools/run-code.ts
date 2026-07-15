@@ -747,7 +747,10 @@ function handleBridgeRequest(
     // mutation. Point the caller at the native tool path instead of leaving
     // them to guess (the common trap: retrying create-extension/update-extension
     // through appAction, which cannot work).
-    const isMutatingAction = entry !== undefined && entry.agentTool !== false;
+    const isMutatingAction =
+      entry !== undefined &&
+      entry.agentTool !== false &&
+      entry.readOnly !== true;
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
