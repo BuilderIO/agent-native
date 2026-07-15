@@ -1306,20 +1306,54 @@ export function ResourceEditor({
           readOnly={readOnly}
         />
       ) : (
-        <textarea
-          value={content}
-          onChange={(e) => handleChange(e.target.value)}
-          readOnly={readOnly}
-          className="flex-1 min-h-0 resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
-          style={{
-            fontFamily:
-              'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-            lineHeight: 1.6,
-          }}
-          spellCheck={false}
-        />
+        <div className="flex-1 min-h-0 overflow-auto">
+          <AutoGrowTextarea
+            content={content}
+            onChange={handleChange}
+            readOnly={readOnly}
+          />
+        </div>
       )}
     </div>
+  );
+}
+
+/**
+ * Plain-text editor that grows to fit its full content so the entire file is
+ * visible; the surrounding container scrolls instead of the textarea.
+ */
+function AutoGrowTextarea({
+  content,
+  onChange,
+  readOnly,
+}: {
+  content: string;
+  onChange: (value: string) => void;
+  readOnly?: boolean;
+}) {
+  const ref = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [content]);
+
+  return (
+    <textarea
+      ref={ref}
+      value={content}
+      onChange={(e) => onChange(e.target.value)}
+      readOnly={readOnly}
+      className="block w-full resize-none overflow-hidden bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
+      style={{
+        fontFamily:
+          'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+        lineHeight: 1.6,
+      }}
+      spellCheck={false}
+    />
   );
 }
 
