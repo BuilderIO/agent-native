@@ -257,10 +257,15 @@ export function TranscriptDocument({
               currentMs !== null &&
               currentMs >= s.startMs &&
               currentMs < s.endMs;
+            // Frame-rounded edit boundaries can leave sub-frame slivers of
+            // nominal overlap; require meaningful coverage before treating a
+            // word as kept.
             const outsideWindow =
               coverageWindows !== null &&
-              coverageWindows.every(
-                (w) => s.endMs <= w.startMs || s.startMs >= w.endMs,
+              !coverageWindows.some(
+                (w) =>
+                  Math.min(s.endMs, w.endMs) - Math.max(s.startMs, w.startMs) >
+                  60,
               );
             return (
               <span key={`${s.startMs}-${i}`} className="inline">
