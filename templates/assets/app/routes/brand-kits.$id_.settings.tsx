@@ -94,8 +94,9 @@ export default function BrandKitSettingsRoute() {
 
   const isDirty = useMemo(() => {
     if (!library) return false;
-    if (titleDraft.trim() !== (library.title ?? "")) return true;
-    if (descriptionDraft.trim() !== (library.description ?? "")) return true;
+    if (titleDraft.trim() !== (library.title ?? "").trim()) return true;
+    if (descriptionDraft.trim() !== (library.description ?? "").trim())
+      return true;
     if (styleDescriptionDraft !== (library.styleBrief?.description ?? ""))
       return true;
     if (
