@@ -28,6 +28,10 @@ const createContentDatabaseSchema = z.object({
     .nullish()
     .describe("Parent document for a new database page"),
   title: z.string().optional().describe("Database title"),
+  description: z
+    .string()
+    .optional()
+    .describe("Stable guidance describing what belongs in this database"),
 });
 
 export default defineAction({
@@ -110,6 +114,12 @@ export async function createContentDatabaseRecord(
         .set({ title, updatedAt: now })
         .where(eq(schema.documents.id, documentId));
     }
+    if (args.description !== undefined) {
+      await db
+        .update(schema.documents)
+        .set({ description: args.description.trim(), updatedAt: now })
+        .where(eq(schema.documents.id, documentId));
+    }
   } else {
     title = databaseTitleForPage(title);
     const parentId = args.parentId || null;
@@ -163,6 +173,7 @@ export async function createContentDatabaseRecord(
           parentId,
           title,
           content: "",
+          description: args.description?.trim() ?? "",
           icon: null,
           position: (maxPos?.max ?? -1) + 1,
           isFavorite: 0,

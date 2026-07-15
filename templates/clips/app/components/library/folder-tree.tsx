@@ -182,23 +182,29 @@ function FolderItem({
                 ) : (
                   <IconFolder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-                <span className="truncate">{node.name}</span>
+                <span className="truncate" title={node.name}>
+                  {node.name}
+                </span>
               </NavLink>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuItem
               onSelect={() => {
-                setRenameValue(node.name);
-                setRenameOpen(true);
+                setTimeout(() => {
+                  setRenameValue(node.name);
+                  setRenameOpen(true);
+                }, 0);
               }}
             >
               <IconEdit className="h-3.5 w-3.5 me-2" /> {t("folderTree.rename")}
             </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => {
-                setNewValue("");
-                setNewOpen(true);
+                setTimeout(() => {
+                  setNewValue("");
+                  setNewOpen(true);
+                }, 0);
               }}
             >
               <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
@@ -206,7 +212,7 @@ function FolderItem({
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
-              onSelect={() => setConfirmDelete(true)}
+              onSelect={() => setTimeout(() => setConfirmDelete(true), 0)}
               className="text-destructive"
             >
               <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
@@ -263,7 +269,6 @@ function FolderItem({
                         ),
                     },
                   );
-                  setRenameOpen(false);
                 }}
               >
                 {t("common.save")}
@@ -311,7 +316,6 @@ function FolderItem({
                         ),
                     },
                   );
-                  setNewOpen(false);
                 }}
               >
                 {t("common.create")}
@@ -346,7 +350,6 @@ function FolderItem({
                         ),
                     },
                   );
-                  setConfirmDelete(false);
                 }}
               >
                 {t("folderTree.delete")}

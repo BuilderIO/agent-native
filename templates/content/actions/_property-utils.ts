@@ -151,11 +151,15 @@ export async function getDatabaseById(
   return database ?? null;
 }
 
-export function serializeDatabase(database: ContentDatabaseRow) {
+export function serializeDatabase(
+  database: ContentDatabaseRow,
+  description = "",
+) {
   return {
     id: database.id,
     documentId: database.documentId,
     title: database.title,
+    description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,
     updatedAt: database.updatedAt,
@@ -500,6 +504,7 @@ export async function listPropertiesForDatabase(
         databaseId: definition.databaseId,
         name: definition.name,
         type,
+        description: definition.description,
         visibility: normalizePropertyVisibility(definition.visibility),
         options,
         position: definition.position,
@@ -568,6 +573,7 @@ function serializePropertyDefinition(
     databaseId: definition.databaseId,
     name: definition.name,
     type,
+    description: definition.description,
     visibility: normalizePropertyVisibility(definition.visibility),
     options: parsePropertyOptions(definition.optionsJson),
     position: definition.position,

@@ -51,6 +51,7 @@ function subscription(): DashboardReportSubscription {
 describe("dashboard report sweep", () => {
   beforeEach(() => {
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.claimDueDashboardReportSubscriptions.mockReset();
     mocks.dashboardReportRetryAt.mockReset();
     mocks.dashboardReportRetryAt.mockReturnValue(null);
@@ -78,6 +79,7 @@ describe("dashboard report sweep", () => {
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
       skipEmailWithoutScreenshot: false,
+      allowLimitedFallback: true,
     });
     expect(console.error).toHaveBeenCalledWith(
       "[dashboard-report] Subscription sub_1 sent without a screenshot:",
@@ -102,6 +104,7 @@ describe("dashboard report sweep", () => {
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
       skipEmailWithoutScreenshot: false,
+      allowLimitedFallback: true,
     });
     expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
       sub,
@@ -129,6 +132,7 @@ describe("dashboard report sweep", () => {
     expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
       skipEmailWithoutScreenshot: true,
+      allowLimitedFallback: false,
     });
     expect(console.error).toHaveBeenCalledWith(
       "[dashboard-report] Subscription sub_1 skipped sending without a screenshot, will retry:",
@@ -160,6 +164,7 @@ describe("dashboard report sweep", () => {
     expect(result).toEqual({ processed: 1, failed: 1, remaining: 0 });
     expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
       skipEmailWithoutScreenshot: false,
+      allowLimitedFallback: true,
     });
     expect(console.error).toHaveBeenCalledWith(
       "[dashboard-report] Subscription sub_1 sent without a screenshot:",
@@ -169,6 +174,54 @@ describe("dashboard report sweep", () => {
       sub,
       "error",
       "Dashboard screenshot unavailable: dashboard render timed out",
+    );
+  });
+
+  it("requests the limited fallback attempt only once the retry window has elapsed", async () => {
+    const sub = subscription();
+    const retryAt = "2026-06-30T11:10:00.000Z";
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(retryAt);
+    mocks.sendDashboardReportSubscription.mockResolvedValue({
+      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+      recipientCount: 1,
+      screenshotAttached: false,
+      screenshotMode: "none",
+      screenshotError: "dashboard render timed out",
+      emailsSent: false,
+    });
+
+    await runDashboardReportsOnce();
+
+    expect(mocks.sendDashboardReportSubscription).toHaveBeenCalledWith(sub, {
+      skipEmailWithoutScreenshot: true,
+      allowLimitedFallback: false,
+    });
+  });
+
+  it("persists why the full screenshot failed when a later attempt succeeds", async () => {
+    const sub = subscription();
+    mocks.claimDueDashboardReportSubscriptions.mockResolvedValue([sub]);
+    mocks.dashboardReportRetryAt.mockReturnValue(null);
+    mocks.sendDashboardReportSubscription.mockResolvedValue({
+      dashboardUrl: "https://analytics.example.test/dashboards/agent-native",
+      recipientCount: 1,
+      screenshotAttached: true,
+      screenshotMode: "full-lightweight",
+      screenshotError: "full: launching the screenshot browser: chromium died",
+      emailsSent: true,
+    });
+
+    const result = await runDashboardReportsOnce();
+
+    expect(result).toEqual({ processed: 1, failed: 0, remaining: 0 });
+    expect(mocks.markDashboardReportResult).toHaveBeenCalledWith(
+      sub,
+      "success",
+      expect.stringContaining("earlier attempts failed"),
+    );
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("[dashboard-report] Subscription sub_1"),
     );
   });
 });

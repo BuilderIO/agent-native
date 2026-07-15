@@ -34,11 +34,13 @@ import {
   getContentDatabaseResponse,
   getDatabaseByDocumentId,
   getDatabaseItemByDocumentId,
+  getDocumentContextPath,
   serializeDatabaseMembership,
 } from "./_database-utils.js";
 import { serializeDocumentSource } from "./_document-source.js";
 import {
   getLocalFileDocument,
+  getLocalDocumentContextPath,
   isContentLocalFileMode,
   isLocalDocumentId,
   localContentViewScreenSummary,
@@ -675,7 +677,10 @@ export default defineAction({
         ],
       };
       if (nav?.documentId && isLocalDocumentId(nav.documentId)) {
-        screen.document = await getLocalFileDocument(nav.documentId);
+        screen.document = {
+          ...(await getLocalFileDocument(nav.documentId)),
+          contextPath: await getLocalDocumentContextPath(nav.documentId),
+        };
       } else if (nav?.documentId) {
         const access = await resolveAccess("document", nav.documentId);
         if (access) {
@@ -685,6 +690,7 @@ export default defineAction({
             parentId: doc.parentId,
             title: doc.title,
             content: doc.content,
+            description: doc.description,
             icon: doc.icon,
             position: doc.position,
             isFavorite: parseDocumentFavorite(doc.isFavorite),
@@ -693,6 +699,7 @@ export default defineAction({
             source: serializeDocumentSource(doc),
             createdAt: doc.createdAt,
             updatedAt: doc.updatedAt,
+            contextPath: await getDocumentContextPath(doc),
           };
         }
       }
@@ -725,18 +732,22 @@ export default defineAction({
           parentId: doc.parentId,
           title: doc.title,
           content: doc.content,
+          description: doc.description,
           icon: doc.icon,
           position: doc.position,
           isFavorite: parseDocumentFavorite(doc.isFavorite),
           hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
           visibility: doc.visibility,
-          database: database ? serializeDatabase(database) : undefined,
+          database: database
+            ? serializeDatabase(database, doc.description)
+            : undefined,
           databaseMembership: databaseMembership
             ? serializeDatabaseMembership(databaseMembership)
             : undefined,
           properties: await listPropertiesForDocument(doc),
           createdAt: doc.createdAt,
           updatedAt: doc.updatedAt,
+          contextPath: await getDocumentContextPath(doc),
         };
         if (database) {
           const databaseResponse = await getContentDatabaseResponse(
@@ -774,6 +785,7 @@ export default defineAction({
                   parentId: previewDoc.parentId,
                   title: previewDoc.title,
                   content: previewDoc.content,
+                  description: previewDoc.description,
                   icon: previewDoc.icon,
                   position: previewDoc.position,
                   isFavorite: parseDocumentFavorite(previewDoc.isFavorite),
@@ -786,6 +798,7 @@ export default defineAction({
                   properties: await listPropertiesForDocument(previewDoc),
                   createdAt: previewDoc.createdAt,
                   updatedAt: previewDoc.updatedAt,
+                  contextPath: await getDocumentContextPath(previewDoc),
                 },
               };
             }

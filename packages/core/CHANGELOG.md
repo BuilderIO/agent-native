@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.101.6
+
+### Patch Changes
+
+- dd47e0a: Clarify how to add a UI later while preserving a headless app's shared action and data contract.
+
 ## 0.101.5
 
 ### Patch Changes

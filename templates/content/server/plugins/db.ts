@@ -635,6 +635,12 @@ const runContentMigrations = runMigrations(
       sql: `CREATE INDEX IF NOT EXISTS document_property_values_document_property_idx ON document_property_values (document_id, property_id);
         CREATE INDEX IF NOT EXISTS document_property_values_property_document_idx ON document_property_values (property_id, document_id)`,
     },
+    {
+      version: 65,
+      name: "content-owned-descriptions",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+        ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`,
+    },
   ],
   { table: "content_migrations" },
 );

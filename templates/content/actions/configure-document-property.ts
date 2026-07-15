@@ -36,6 +36,12 @@ export default defineAction({
       .string()
       .describe("Document ID used to scope the property workspace"),
     name: z.string().min(1).describe("Property name"),
+    description: z
+      .string()
+      .optional()
+      .describe(
+        "Stable guidance describing what this property means and which value belongs here",
+      ),
     type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
     visibility: z
       .enum(DOCUMENT_PROPERTY_VISIBILITIES)
@@ -49,6 +55,7 @@ export default defineAction({
               id: z.string(),
               name: z.string(),
               color: z.string(),
+              description: z.string().optional(),
             }),
           )
           .optional(),
@@ -162,6 +169,9 @@ export default defineAction({
         .update(schema.documentPropertyDefinitions)
         .set({
           name,
+          ...(args.description === undefined
+            ? {}
+            : { description: args.description.trim() }),
           type,
           visibility:
             args.visibility === undefined
@@ -196,6 +206,7 @@ export default defineAction({
             orgId: document.orgId ?? null,
             databaseId: database.id,
             name,
+            description: args.description?.trim() ?? "",
             type,
             visibility: normalizePropertyVisibility(args.visibility),
             optionsJson,
