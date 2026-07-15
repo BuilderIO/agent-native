@@ -1,5 +1,12 @@
 # @agent-native/core
 
+## 0.101.14
+
+### Patch Changes
+
+- 866d8f0: Bundle the Chat template in the CLI package and download GitHub fallbacks directly from codeload for faster, more reliable scaffolding.
+- 866d8f0: Polish the chat sidebar header by hiding mode tabs and moving full-view navigation into the icon row.
+
 ## 0.101.13
 
 ### Patch Changes
