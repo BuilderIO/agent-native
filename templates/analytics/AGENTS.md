@@ -20,6 +20,12 @@ details live in `.agents/skills/`.
   status) and call `list-data-dictionary` with a focused search to learn what
   exists and which table/columns/join paths to use. Don't fan out blind queries
   when the catalog already answers where a fact lives.
+- `data-source-status` always includes the built-in first-party Analytics source
+  and returns `hasConnectedExternalDataSources`,
+  `dataSourcesSetupLink` (a real deep link to `/data-sources`). Chat stays
+  available when no external provider is connected; for a request that needs
+  one, explain the missing source in context and include that returned link so
+  the user can connect it. Do not replace this with a generic canned response.
 - Simple time-bounded metric fast path: when the data dictionary or a known
   canonical source already identifies the metric, run one bounded aggregate.
   Once that query returns a valid result, answer immediately with the source,

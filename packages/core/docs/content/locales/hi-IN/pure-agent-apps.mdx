@@ -68,9 +68,9 @@ Automation-first app scheduled jobs, queues, scripts, integration workers और
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
-## बाद में chat जोड़ें {#add-chat-later}
+## बाद में UI जोड़ें {#add-chat-later}
 
-`--headless` केवल शुरुआती scaffold चुनता है; कोई `agent-native` command किसी मौजूदा action-only project को in-place chat app में नहीं बदलती। जब लोगों को browser conversation चाहिए, [Chat template](/docs/template-chat) को migration reference की तरह उपयोग करें: actions, SQL data, instructions और skills रखें, फिर browser shell, server plugins, `<AgentChatSurface>` और मौजूदा actions लोड करने वाला chat plugin जोड़ें। `pnpm typecheck` और एक ऐसा chat turn जाँचें जो किसी मौजूदा action को call करे। `agent-native add` integration blueprints के लिए है, इस conversion के लिए नहीं।
+`--headless` केवल शुरुआती scaffold चुनता है; कोई `agent-native` command किसी मौजूदा action-only project को in-place browser app में नहीं बदलती। जब लोगों को UI चाहिए, [Chat template](/docs/template-chat) को migration reference की तरह उपयोग करें: actions, SQL data, instructions और skills रखें, फिर browser shell और server plugins जोड़ें। Chat surface के लिए `<AgentChatSurface>` और मौजूदा actions लोड करने वाला chat plugin भी जोड़ें। `pnpm typecheck` और एक ऐसा UI flow जाँचें जो किसी मौजूदा action को call करे। `agent-native add` integration blueprints के लिए है, इस conversion के लिए नहीं।
 
 ## आगे क्या है
 
