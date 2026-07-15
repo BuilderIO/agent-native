@@ -148,8 +148,10 @@ Notes:
 When the user asks for a copy of an existing extension-backed dashboard for a
 different customer/org (for example "make an Intuit version of the Roku usage
 dashboard"), follow this playbook. Extension bodies are frequently tens of
-thousands of characters, and the naive "download full HTML → string-replace →
-re-upload" path is slow, fragile, and does not work end-to-end.
+thousands of characters. The reliable path is to read+transform+write the body
+INSIDE `run-code` (where `workspaceRead` returns the full file) and then create
+from that written file — never by pulling the body into chat context first or
+re-typing it as a `content` argument.
 
 1. `get-sql-dashboard` with `includeConfig: true` on the source dashboard and
    confirm the target panel is `chartType: "extension"`; grab its
@@ -170,17 +172,35 @@ re-upload" path is slow, fragile, and does not work end-to-end.
    mutating actions and are NOT callable from `run-code` / `appAction` (the
    sandbox bridge only exposes read-only actions). Do not try to create or update
    an extension from inside `run-code`.
-5. **If the customized body already exists as a workspace/shared resource file**
-   (e.g. a pre-built `intuit-analytics-extension.html`), do NOT re-read it into
-   context or paste it inline. Call `create-extension` (or `update-extension`)
-   with `contentFromWorkspaceFile` set to that resource path and leave `content`
-   empty — the server reads the full file verbatim. Re-emitting an 80k+ char body
-   as the `content` argument stalls the turn (it gets cut off mid-stream), and
-   `contentFromAttachment` only sees files the user pasted into chat, not
-   workspace resources. Never route the body through `run-code`.
+5. **If the source body already exists as a workspace/shared resource file**
+   (e.g. a pre-built `intuit-analytics-extension.html`), do the read AND the
+   customer swap in ONE `run-code` call, then create from the written file:
+   - Inside `run-code`: `const src = await workspaceRead('<source>.html')`
+     returns the WHOLE file (it auto-pages; there is no 50k cap here), do the
+     small string-replace on the static config block, then
+     `await workspaceWrite('<target>.html', modified)`.
+   - Then call `create-extension` (native) with
+     `contentFromWorkspaceFile: '<target>.html'` and leave `content` empty — the
+     server reads the full file verbatim.
+   Do NOT read the source body with the `resources` read tool (or `get-extension`)
+   first just to transform it: that display is capped and wastes a turn. And do
+   NOT re-emit an 80k+ char body as the `content` argument — it gets cut off
+   mid-stream. `contentFromAttachment` only sees files the user pasted into chat,
+   not workspace resources. `create-extension`/`update-extension` are mutating and
+   cannot run from `run-code`, so only the read+write+transform happens there.
 6. Finally `update-dashboard` to save a new dashboard embedding the new
    extension panel (`chartType: "extension"`, `config.extensionId`), then
    `navigate` to it.
+
+### Display truncation is cosmetic — do not chase the "missing" tail
+
+A tool result ending in `...[truncated — full result was N chars; only first
+50,000 shown]` (from the `resources` read tool or `get-extension`) means only the
+DISPLAYED text was capped. The file is intact. `run-code`'s `workspaceRead`
+returns the full N chars, and `contentFromWorkspaceFile` hosts the full file.
+Never read the same file twice or try to "page the rest" to recover the tail —
+that is the single biggest source of wasted turns on clone requests. Decide to
+clone, then go straight to the `run-code` read+transform+write path in step 5.
 
 ## Config Shape
 
