@@ -216,7 +216,8 @@ export function looksLikeAnalyticsDataRequest(text: string): boolean {
   }
   if (
     /\b(integration|connect|configure|settings)\b/.test(lower) &&
-    !ANALYTICS_RESULT_TERMS.test(lower)
+    !ANALYTICS_INTENT_TERMS.test(lower) &&
+    !SOURCE_SEARCH_INTENT_TERMS.test(lower)
   ) {
     return false;
   }

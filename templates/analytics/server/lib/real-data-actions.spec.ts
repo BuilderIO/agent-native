@@ -545,6 +545,12 @@ describe("metadata and data-dictionary questions (should NOT force a provider ca
       looksLikeAnalyticsDataRequest("what were our Stripe payments last week?"),
     ).toBe(true);
   });
+
+  it("does not flag payment connection setup as a live analytics request", () => {
+    expect(
+      looksLikeAnalyticsDataRequest("how do I connect Stripe payments?"),
+    ).toBe(false);
+  });
 });
 
 describe("isGenericNoDataFallback", () => {

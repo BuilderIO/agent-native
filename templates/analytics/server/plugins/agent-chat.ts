@@ -158,6 +158,13 @@ interface DataSourceStatusSummary {
   setupLink: string;
 }
 
+const EXTERNAL_SOURCE_REQUEST_TERMS =
+  /\b(bigquery|hubspot|gong|slack|stripe|ga4|google analytics|mixpanel|posthog|amplitude|jira|pylon|sentry|salesforce|snowflake|segment|zendesk|intercom|warehouse|crm|payments?)\b/i;
+
+function looksLikeExternalSourceRequest(userText: string): boolean {
+  return EXTERNAL_SOURCE_REQUEST_TERMS.test(userText);
+}
+
 function dataSourceStatusSummary(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): DataSourceStatusSummary {
@@ -184,25 +191,31 @@ function dataSourceStatusSummary(
       continue;
     }
 
+    let foundSetupLink = false;
     for (const candidate of [
       parsed.dataSourcesSetupLink,
       parsed.dataSourcesLink,
       parsed.setupLink,
     ]) {
-      if (
-        !candidate ||
-        typeof candidate !== "object" ||
-        Array.isArray(candidate)
-      ) {
-        continue;
-      }
-      const url = (candidate as Record<string, unknown>).url;
+      const url =
+        typeof candidate === "string"
+          ? candidate
+          : candidate &&
+              typeof candidate === "object" &&
+              !Array.isArray(candidate)
+            ? (candidate as Record<string, unknown>).url
+            : undefined;
       if (typeof url === "string" && url.trim()) {
         setupLink = url.trim();
+        foundSetupLink = true;
         break;
       }
     }
-    if (typeof parsed.settingsPath === "string" && parsed.settingsPath.trim()) {
+    if (
+      !foundSetupLink &&
+      typeof parsed.settingsPath === "string" &&
+      parsed.settingsPath.trim()
+    ) {
       setupLink = parsed.settingsPath.trim();
     }
 
@@ -295,8 +308,12 @@ export function realDataFinalGuard(
   const sourceStatus = dataSourceStatusSummary(context.toolResults);
   const noConnectedExternalSources =
     sourceStatus.checked && sourceStatus.externalSourceLabels.length === 0;
+  const externalSourceRequest = looksLikeExternalSourceRequest(userText);
+  const firstPartySourceShouldBeTried =
+    noConnectedExternalSources && !externalSourceRequest;
   const needsDataSourceLink =
-    !sourceStatus.checked || noConnectedExternalSources;
+    !sourceStatus.checked ||
+    (noConnectedExternalSources && externalSourceRequest);
   if (
     hasFailedCorpusWorkflowEvidence(context.toolResults) &&
     looksLikeCoverageSensitiveAnalyticsRequest(userText) &&
@@ -352,6 +369,16 @@ export function realDataFinalGuard(
   }
   if (dataQueryAttempted) return null;
   if (isSafeNoDataAnalyticsResponse(context.text)) {
+    if (firstPartySourceShouldBeTried) {
+      return {
+        retryMessage:
+          "The built-in first-party Analytics source is available even though no external provider is connected. Use `query-agent-native-analytics` for the user's first-party product, usage, conversion, or observability question before explaining that data is unavailable. Only guide the user to connect a source if the request specifically needs an external provider.",
+        fallbackMessage:
+          "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
+        maxRetries: 2,
+        expandToolSurface: true,
+      };
+    }
     if (
       needsDataSourceLink &&
       !includesDataSourcesLink(context.text, sourceStatus.setupLink)
@@ -373,6 +400,16 @@ export function realDataFinalGuard(
   }
 
   const configuredSources = configuredDataSourceLabels(context.toolResults);
+  if (firstPartySourceShouldBeTried) {
+    return {
+      retryMessage:
+        "The user asked for live analytics, and the built-in first-party Analytics source is available even though no external provider is connected. Call `query-agent-native-analytics` for first-party product, usage, conversion, or observability data and answer from that result. If the request specifically names an external provider, explain what is missing and include the real Connect data sources link.",
+      fallbackMessage:
+        "I couldn't complete a grounded first-party Analytics query yet. Please retry and I'll use the built-in Analytics source before asking you to connect an external provider.",
+      maxRetries: 2,
+      expandToolSurface: true,
+    };
+  }
   if (noConnectedExternalSources) {
     return {
       retryMessage: `The user asked for live analytics, but data-source-status found no connected external providers. The built-in first-party source is still available for first-party Analytics data. If this request needs an external source, respond naturally in the context of the user's question, explain what is missing, and include [Connect data sources](${sourceStatus.setupLink}). Do not use a generic canned no-data response.`,
