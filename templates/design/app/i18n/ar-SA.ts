@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "سجّل الدخول للتعليق",
     panelTitle: "الملاحظات",
     placeholder: "اترك ملاحظاتك…",
+    commentingOn: "التعليق على {{name}}",
     emptyState: "لا توجد تعليقات مراجعة بعد.",
     clickToPin: "انقر في أي مكان لتثبيت ملاحظة",
     escToExit: "اضغط Esc للخروج",

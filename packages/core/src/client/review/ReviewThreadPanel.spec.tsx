@@ -98,6 +98,13 @@ describe("ReviewThreadPanel sidebar layout", () => {
           resourceType="design"
           resourceId="design-1"
           targetId="screen-1"
+          composerTargetId="screen-2"
+          composerAnchor={{
+            nodeId: "hero-title",
+            point: { xPct: 50, yPct: 20 },
+          }}
+          composerMetadata={{ layerName: "Hero title", tagName: "H1" }}
+          composerContextLabel="Commenting on Hero title"
           showHeader={false}
           variant="plain"
           canReply
@@ -121,6 +128,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(section?.className).not.toContain("rounded-lg");
     expect(container.textContent).not.toContain("Draft");
     expect(container.textContent).toContain("Make the heading clearer");
+    expect(container.textContent).toContain("Commenting on Hero title");
     expect(container.querySelector('[role="radiogroup"]')).toBeNull();
     expect(
       Array.from(container.querySelectorAll("button")).some(
@@ -147,7 +155,15 @@ describe("ReviewThreadPanel sidebar layout", () => {
     );
     act(() => commentButton?.click());
     expect(mutate).toHaveBeenLastCalledWith(
-      expect.objectContaining({ resolutionTarget: "human" }),
+      expect.objectContaining({
+        targetId: "screen-2",
+        anchor: {
+          nodeId: "hero-title",
+          point: { xPct: 50, yPct: 20 },
+        },
+        metadata: { layerName: "Hero title", tagName: "H1" },
+        resolutionTarget: "human",
+      }),
       expect.any(Object),
     );
     act(() => agentButton?.click());
@@ -175,6 +191,40 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(
       container.querySelector('button[aria-label="Cancel reply"]'),
     ).not.toBeNull();
+  });
+
+  it("routes the plain comment action to a human when agent dispatch is hidden", () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Leave feedback"]',
+    );
+    expect(composer).not.toBeNull();
+    setTextareaValue(composer!, "Human review note");
+    const commentButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Comment",
+    );
+    act(() => commentButton?.click());
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetId: "screen-1",
+        body: "Human review note",
+        resolutionTarget: "human",
+      }),
+      expect.any(Object),
+    );
+    expect(container.textContent).not.toContain("Send to agent");
   });
 
   it("fails closed when reply, resolve, and delete capabilities are omitted", () => {

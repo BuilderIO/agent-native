@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "コメントするにはサインイン",
     panelTitle: "フィードバック",
     placeholder: "フィードバックを入力…",
+    commentingOn: "{{name}} にコメント",
     emptyState: "レビューコメントはまだありません。",
     clickToPin: "任意の場所をクリックしてフィードバックを固定",
     escToExit: "Esc で終了",

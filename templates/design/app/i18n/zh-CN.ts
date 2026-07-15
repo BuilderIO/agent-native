@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "登录后评论",
     panelTitle: "反馈",
     placeholder: "留下反馈…",
+    commentingOn: "正在评论 {{name}}",
     emptyState: "暂无审阅评论。",
     clickToPin: "点击任意位置固定反馈",
     escToExit: "按 Esc 退出",
