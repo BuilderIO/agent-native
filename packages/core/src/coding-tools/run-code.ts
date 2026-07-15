@@ -740,8 +740,18 @@ function handleBridgeRequest(
 
   // Enforce allowlist.
   const entry = actions[toolName];
+  // Unknown/mistyped tool: report "not registered" (404) before the
+  // access-control branch below. Otherwise an undefined `entry` falls into the
+  // allowlist 403 and returns a misleading access error for a tool that simply
+  // does not exist. (Bridge-allowlisted tools always have an entry, so this
+  // cannot mask a legitimate allowlisted call.)
+  if (!entry) {
+    res.writeHead(404, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
+    return;
+  }
   const isReadOnlyAction =
-    entry?.readOnly === true &&
+    entry.readOnly === true &&
     entry.agentTool !== false &&
     entry.toolCallable !== false;
   if (
@@ -749,14 +759,13 @@ function handleBridgeRequest(
     !extraTools.has(toolName) &&
     !isReadOnlyAction
   ) {
-    // A registered, agent-exposed action that simply isn't read-only is a
-    // mutation. Point the caller at the native tool path instead of leaving
-    // them to guess (the common trap: retrying create-extension/update-extension
-    // through appAction, which cannot work).
+    // A registered, agent-exposed action that isn't read-only is a mutation.
+    // (Unknown tools already returned 404 above, so `entry` is defined here.)
+    // Point the caller at the native tool path instead of leaving them to guess
+    // (the common trap: retrying create-extension/update-extension through
+    // appAction, which cannot work).
     const isMutatingAction =
-      entry !== undefined &&
-      entry.agentTool !== false &&
-      entry.readOnly !== true;
+      entry.agentTool !== false && entry.readOnly !== true;
     res.writeHead(403, { "Content-Type": "application/json" });
     res.end(
       JSON.stringify({
@@ -765,12 +774,6 @@ function handleBridgeRequest(
           : `Tool "${toolName}" is not an agent-exposed read-only action or sandbox bridge allowlisted tool.`,
       }),
     );
-    return;
-  }
-
-  if (!entry) {
-    res.writeHead(404, { "Content-Type": "application/json" });
-    res.end(JSON.stringify({ error: `Tool "${toolName}" is not registered.` }));
     return;
   }
 
