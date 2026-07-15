@@ -544,9 +544,12 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           } catch {
             // Non-fatal — agent can still mention the path in its reply.
           }
+          const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
           return {
             ok: true,
-            extension: { ...existing, path: existingPath },
+            // Compact summary (contentLength + contentHash, no full body). Echoing
+            // the whole HTML back is pure token waste — the agent just supplied it.
+            extension: await summarizeExtension(existing, hiddenIds, false),
             path: existingPath,
             next: `Extension was already created in this session (recovered from a connection retry). The user is being navigated to it — no further navigation tool calls needed.`,
           };
@@ -576,9 +579,12 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           // Non-fatal — agent can still mention the path in its reply.
         }
 
+        const hiddenIds = await getHiddenExtensionIdsForCurrentUser();
         return {
           ok: true,
-          extension: { ...extension, path },
+          // Compact summary (contentLength + contentHash, no full body). Echoing
+          // the whole HTML back is pure token waste — the agent just supplied it.
+          extension: await summarizeExtension(extension, hiddenIds, false),
           path,
           next: `Created. The user is being navigated to the new extension automatically — no further navigation tool calls needed.`,
         };

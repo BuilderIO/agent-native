@@ -948,6 +948,10 @@ describe("extensions/actions", () => {
     expect(createExtension).toHaveBeenCalledWith(
       expect.objectContaining({ name: "Intuit Usage", content: bigHtml }),
     );
+    // The result must NOT echo the full body back — only a compact summary.
+    expect(result.extension).not.toHaveProperty("content");
+    expect(result.extension.contentLength).toBe(bigHtml.length);
+    expect(result.extension.contentHash).toBeTruthy();
     // Resolved across scopes (personal precedence first).
     expect(readResource).toHaveBeenCalledWith(
       "intuit-analytics-extension.html",

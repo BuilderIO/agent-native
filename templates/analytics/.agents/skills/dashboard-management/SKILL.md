@@ -157,7 +157,11 @@ re-upload" path is slow, fragile, and does not work end-to-end.
 2. `get-extension` for that id with `forceContent: true` **exactly once**. Reuse
    that body for the rest of the turn — a second same-run read intentionally
    omits `content` and returns `contentOmitted` instead. That is not the content
-   disappearing; use the copy you already have.
+   disappearing; use the copy you already have. Do NOT try to re-fetch the body
+   with `run-code` (`appAction('get-extension')`) to page past a display
+   truncation — the same-run omit makes it return empty `content`, wasting turns.
+   If you need the full body again, read the workspace resource file (step 5) or
+   set `forceContent: true` on a single native `get-extension`.
 3. Change ONLY the small customer-specific static config (e.g. the
    `ACCOUNT_USAGE_STATIC` block: company name, title, org-discovery filters,
    messaging). Prefer a focused `update-extension` edit/patch over regenerating
