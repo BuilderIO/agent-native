@@ -120,7 +120,6 @@ export {
   getTemplateGatewayUrl,
   normalizeProtectedPreviewOrigin,
   authorizeProtectedPreviewLaunch,
-  authorizeProtectedPreviewRequest,
   resolveFrameOAuthCallbackTarget,
   resolveProtectedPreviewOAuthRelay,
   getAppById,

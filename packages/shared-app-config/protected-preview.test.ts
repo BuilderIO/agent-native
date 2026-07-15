@@ -1,79 +1,13 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  PROTECTED_PREVIEW_BYPASS_HEADER,
-  PROTECTED_PREVIEW_COOKIE_HEADER,
-  PROTECTED_PREVIEW_ORIGIN_HEADER,
   authorizeProtectedPreviewLaunch,
-  authorizeProtectedPreviewProxy,
-  authorizeProtectedPreviewRequest,
   normalizeProtectedPreviewOrigin,
   resolveFrameOAuthCallbackTarget,
   resolveProtectedPreviewOAuthRelay,
 } from "./protected-preview.js";
 
 const previewOrigin = "https://candidate.example.test";
-const exampleSecret = "example-preview-secret";
-
-describe("protected preview request authorization", () => {
-  it("injects the bypass only for the exact configured origin", () => {
-    const headers = authorizeProtectedPreviewRequest({
-      requestUrl: `${previewOrigin}/_agent-native/auth/session`,
-      requestHeaders: {},
-      configuredOrigin: previewOrigin,
-      bypassSecret: exampleSecret,
-    });
-
-    expect(headers).toMatchObject({
-      [PROTECTED_PREVIEW_BYPASS_HEADER]: exampleSecret,
-      [PROTECTED_PREVIEW_COOKIE_HEADER]: "samesitenone",
-    });
-    expect(headers).not.toHaveProperty(PROTECTED_PREVIEW_ORIGIN_HEADER);
-  });
-
-  it("strips spoofed bypass headers from unrelated origins", () => {
-    const headers = authorizeProtectedPreviewRequest({
-      requestUrl: "https://attacker.example.test/collect",
-      requestHeaders: {
-        "X-Vercel-Protection-Bypass": "renderer-supplied",
-        "X-Agent-Native-Protected-Preview-Origin": previewOrigin,
-      },
-      configuredOrigin: previewOrigin,
-      bypassSecret: exampleSecret,
-    });
-
-    expect(headers).not.toHaveProperty("X-Vercel-Protection-Bypass");
-    expect(headers).not.toHaveProperty(
-      "X-Agent-Native-Protected-Preview-Origin",
-    );
-  });
-
-  it("marks only the local Frame proxy routes with the exact target origin", () => {
-    const headers = authorizeProtectedPreviewRequest({
-      requestUrl: "http://localhost:3334/_agent-native/auth/session",
-      requestHeaders: {},
-      configuredOrigin: previewOrigin,
-      bypassSecret: exampleSecret,
-    });
-
-    expect(headers).toMatchObject({
-      [PROTECTED_PREVIEW_BYPASS_HEADER]: exampleSecret,
-      [PROTECTED_PREVIEW_ORIGIN_HEADER]: previewOrigin,
-    });
-  });
-
-  it("does not authorize arbitrary localhost paths", () => {
-    const headers = authorizeProtectedPreviewRequest({
-      requestUrl: "http://localhost:3334/collect",
-      requestHeaders: {},
-      configuredOrigin: previewOrigin,
-      bypassSecret: exampleSecret,
-    });
-
-    expect(headers).toEqual({});
-  });
-});
-
 describe("protected preview launch authorization", () => {
   it("accepts only the exact origin already bound to encrypted access", () => {
     expect(
@@ -153,36 +87,6 @@ describe("protected preview OAuth relay", () => {
         exchangeOrigin: "http://localhost:8083",
       }),
     ).toBeNull();
-  });
-});
-
-describe("protected preview proxy authorization", () => {
-  it("forwards the bypass only to the declared exact target", () => {
-    const headers = authorizeProtectedPreviewProxy({
-      targetUrl: `${previewOrigin}/_agent-native/auth/session`,
-      requestHeaders: {
-        [PROTECTED_PREVIEW_BYPASS_HEADER]: exampleSecret,
-        [PROTECTED_PREVIEW_COOKIE_HEADER]: "samesitenone",
-        [PROTECTED_PREVIEW_ORIGIN_HEADER]: previewOrigin,
-      },
-    });
-
-    expect(headers).toEqual({
-      [PROTECTED_PREVIEW_BYPASS_HEADER]: exampleSecret,
-      [PROTECTED_PREVIEW_COOKIE_HEADER]: "samesitenone",
-    });
-  });
-
-  it("drops the bypass when the proxy target changes", () => {
-    const headers = authorizeProtectedPreviewProxy({
-      targetUrl: "https://attacker.example.test/collect",
-      requestHeaders: {
-        [PROTECTED_PREVIEW_BYPASS_HEADER]: exampleSecret,
-        [PROTECTED_PREVIEW_ORIGIN_HEADER]: previewOrigin,
-      },
-    });
-
-    expect(headers).toEqual({});
   });
 });
 

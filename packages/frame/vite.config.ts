@@ -3,7 +3,6 @@ import http from "http";
 import https from "https";
 import path from "path";
 
-import { authorizeProtectedPreviewProxy } from "@agent-native/shared-app-config";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
 import { defineConfig, createLogger } from "vite";
@@ -327,10 +326,7 @@ function framePlugin(): Plugin {
     next: (err?: unknown) => void,
   ) {
     const target = new URL(req.url || "/", `${baseUrl}/`);
-    const headers = authorizeProtectedPreviewProxy({
-      targetUrl: target.toString(),
-      requestHeaders: req.headers,
-    });
+    const headers = { ...req.headers };
     headers["x-forwarded-host"] = req.headers.host || `localhost:3334`;
     headers["x-forwarded-proto"] = "http";
     headers.host = target.host;

@@ -10,17 +10,13 @@
  * In production, this serves the built client and handles everything.
  */
 
-import {
-  authorizeProtectedPreviewProxy,
-  getTemplate,
-} from "@agent-native/shared-app-config";
+import { getTemplate } from "@agent-native/shared-app-config";
 import {
   createApp,
   createRouter,
   defineEventHandler,
   getCookie,
   getHeader,
-  getRequestHeaders,
   getQuery,
   proxyRequest,
   setResponseHeader,
@@ -120,15 +116,6 @@ function resolveCustomDevUrl(event: H3Event): string | null {
 const app = createApp();
 const router = createRouter();
 
-function protectedPreviewProxyOptions(event: H3Event, targetUrl: string) {
-  return {
-    headers: authorizeProtectedPreviewProxy({
-      targetUrl,
-      requestHeaders: getRequestHeaders(event),
-    }),
-  };
-}
-
 // CORS — allow all origins in dev
 app.use(
   defineEventHandler((event) => {
@@ -182,12 +169,7 @@ router.all(
     const appId = resolveAppId(event);
     const customDevUrl = resolveCustomDevUrl(event);
     if (customDevUrl) {
-      const targetUrl = `${customDevUrl}${event.path}`;
-      return proxyRequest(
-        event,
-        targetUrl,
-        protectedPreviewProxyOptions(event, targetUrl),
-      );
+      return proxyRequest(event, `${customDevUrl}${event.path}`);
     }
     const gatewayUrl = templateGatewayUrl();
     if (gatewayUrl) {
@@ -207,12 +189,7 @@ router.all(
     const appId = resolveAppId(event);
     const customDevUrl = resolveCustomDevUrl(event);
     if (customDevUrl) {
-      const targetUrl = `${customDevUrl}${event.path}`;
-      return proxyRequest(
-        event,
-        targetUrl,
-        protectedPreviewProxyOptions(event, targetUrl),
-      );
+      return proxyRequest(event, `${customDevUrl}${event.path}`);
     }
     const gatewayUrl = templateGatewayUrl();
     if (gatewayUrl) {
