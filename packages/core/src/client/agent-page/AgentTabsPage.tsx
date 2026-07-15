@@ -1,6 +1,4 @@
 import {
-  IconArrowsDiagonal,
-  IconArrowsDiagonalMinimize2,
   IconBrain,
   IconClock,
   IconExternalLink,
@@ -153,58 +151,13 @@ function EmptySlot({ label }: { label: string }) {
 }
 
 function FilesTab({ scope }: AgentPageTabProps) {
-  const [expanded, setExpanded] = useState(false);
-
-  useEffect(() => {
-    if (!expanded) return;
-    const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setExpanded(false);
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [expanded]);
-
-  const panel = (
-    <ResourcesPanel
-      key={scope}
-      showMcpServers={false}
-      scope={scope === "org" ? "shared" : "personal"}
-    />
-  );
-
-  if (expanded) {
-    return (
-      <div className="fixed inset-0 z-50 flex flex-col bg-background p-4 sm:p-6">
-        <div className="mb-2 flex shrink-0 items-center justify-between">
-          <span className="text-sm font-medium text-foreground">Files</span>
-          <button
-            type="button"
-            onClick={() => setExpanded(false)}
-            className="flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-          >
-            <IconArrowsDiagonalMinimize2 className="size-3.5" />
-            Collapse
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 overflow-hidden rounded-lg border border-border">
-          {panel}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="relative h-[calc(100vh-14rem)] min-h-[480px]">
-      <button
-        type="button"
-        onClick={() => setExpanded(true)}
-        aria-label="Expand files"
-        className="absolute -top-9 right-0 z-10 flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-[12px] font-medium text-muted-foreground hover:bg-accent/50 hover:text-foreground"
-      >
-        <IconArrowsDiagonal className="size-3.5" />
-        Expand
-      </button>
-      {panel}
+    <div className="h-[calc(100vh-14rem)] min-h-[480px]">
+      <ResourcesPanel
+        key={scope}
+        showMcpServers={false}
+        scope={scope === "org" ? "shared" : "personal"}
+      />
     </div>
   );
 }
