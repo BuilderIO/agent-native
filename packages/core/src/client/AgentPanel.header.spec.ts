@@ -137,9 +137,7 @@ describe("AgentPanel mode and full-view visibility", () => {
     expect(shouldShowAgentPanelFullViewAction("/agent", "resources")).toBe(
       true,
     );
-    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(
-      true,
-    );
+    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
   });
 
   it("hides the full-view action for chat, CLI, or a missing page href", () => {
