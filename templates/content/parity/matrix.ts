@@ -280,6 +280,28 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-bulk-row-reliability"],
   },
   {
+    id: "database.private-preview-drafts",
+    surface: "database",
+    label: "Persist and reconcile a user's private database-page preview draft",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-documents.ts",
+    ],
+    durableEffect:
+      "A user's private preview draft is read, saved, conflict-checked, or deleted without changing the shared database page until the normal save flow applies it.",
+    uiImplementation:
+      "The database preview uses the shared draft actions to preserve in-progress body edits across hydration and conflict states.",
+    status: "action-backed",
+    actions: ["get-preview-document-draft", "update-preview-document-draft"],
+    exception:
+      "These per-user editor-state actions are intentionally hidden from agent tools because preview drafts are a private UI recovery mechanism.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/preview-document-draft.db.test.ts"],
+  },
+  {
     id: "database.properties-and-view-config",
     surface: "database",
     label: "Configure properties, values, ordering, and saved views",
@@ -360,22 +382,25 @@ export const parityMatrix: ParityRow[] = [
   {
     id: "source-sync.builder-cms-review-and-write-gates",
     surface: "source-sync",
-    label: "Review, stage, validate, and execute Builder CMS source writes",
+    label:
+      "Review, stage, validate, cancel, and execute Builder CMS source writes",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
       "app/components/editor/database/DatabaseView.tsx",
       "app/components/editor/database-sources/BuilderSourceReviewDialog.tsx",
     ],
     durableEffect:
-      "Builder source write mode, staged reviews, validation records, and bounded execution records are created through guarded actions.",
+      "Builder source write mode, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
     uiImplementation:
       "Builder source dialogs call review, write-mode, validation, staging, and execution actions.",
     status: "action-backed",
     actions: [
+      "cancel-prepared-builder-source-update",
       "execute-builder-source-batch",
       "execute-builder-source-execution",
       "prepare-builder-source-execution",
       "prepare-builder-source-review",
+      "preview-builder-source-review",
       "review-content-database-source-change-set",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
@@ -389,6 +414,7 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
     coverageRefs: [
       "actions/builder-source-review-gates.db.test.ts",
+      "actions/cancel-prepared-builder-source-update.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
@@ -416,6 +442,28 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: ["actions/_database-source-utils.test.ts"],
+  },
+  {
+    id: "source-sync.builder-required-field-materialization",
+    surface: "source-sync",
+    label: "Add required Builder publishing fields to a connected collection",
+    uiEntrypoints: [
+      "app/components/editor/database/DatabaseView.tsx",
+      "app/hooks/use-content-database.ts",
+    ],
+    durableEffect:
+      "Required Builder fields are materialized as editable Content properties in one local mutation.",
+    uiImplementation:
+      "Connected-source settings call the shared materialization action and refresh the database cache.",
+    status: "action-backed",
+    actions: ["materialize-builder-required-fields"],
+    exception:
+      "This bounded safe-model setup action is intentionally hidden from the agent tool list; the visible source settings surface invokes it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/materialize-builder-required-fields.test.ts"],
   },
   {
     id: "source-sync.builder-documents",

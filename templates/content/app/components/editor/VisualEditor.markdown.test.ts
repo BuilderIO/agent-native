@@ -21,6 +21,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { CodeBlock } from "./extensions/CodeBlockNode";
 import { NotionToggle } from "./extensions/NotionExtensions";
+import { createPreviewDocumentSaveController } from "./previewDocumentSaveController";
 import {
   createVisualEditorExtensions,
   EmptyLineParagraph,
@@ -30,6 +31,7 @@ import {
   uploadAndInsertImageFiles,
   uploadAndInsertVideoFiles,
   shouldApplyExternalContentSync,
+  shouldPersistEffectivelyEmptyEditorUpdate,
   shouldPersistLocalFileEditorUpdate,
   shouldSeedCollaborativeContent,
   VisualEditor,
@@ -782,6 +784,52 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
+  it("renders fifth- and sixth-level headings in the collaborative editor", async () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const ydoc = new Y.Doc();
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    try {
+      act(() => {
+        root.render(
+          createElement(
+            MemoryRouter,
+            null,
+            createElement(TooltipProvider, {
+              children: createElement(
+                QueryClientProvider,
+                { client: queryClient },
+                createElement(VisualEditor, {
+                  content: "##### Verification note\n###### Final edge",
+                  contentUpdatedAt: "2026-07-14T00:00:00.000Z",
+                  onChange: () => {},
+                  ydoc,
+                  collabSynced: true,
+                  editable: true,
+                }),
+              ),
+            }),
+          ),
+        );
+      });
+      await act(() => new Promise((resolve) => setTimeout(resolve, 50)));
+
+      expect(container.querySelector("h5")?.textContent).toBe(
+        "Verification note",
+      );
+      expect(container.querySelector("h6")?.textContent).toBe("Final edge");
+    } finally {
+      await act(async () => root.unmount());
+      queryClient.clear();
+      ydoc.destroy();
+      container.remove();
+    }
+  });
+
   it("does not clear awareness owned by the shared collab connection on unmount", async () => {
     const container = document.createElement("div");
     document.body.appendChild(container);
@@ -898,6 +946,95 @@ describe("VisualEditor markdown round-tripping", () => {
     ).toBe(true);
   });
 
+  it("rejects a ghost empty transition over a rich saved body", () => {
+    expect(
+      shouldPersistEffectivelyEmptyEditorUpdate({
+        nextContent: "<empty-block/>",
+        userInitiated: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows a deliberate user clear over a rich saved body", () => {
+    expect(
+      shouldPersistEffectivelyEmptyEditorUpdate({
+        nextContent: "<empty-block/>",
+        userInitiated: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("rejects an empty preview remount emission when the render snapshot is also empty", () => {
+    // After a server restart, the preview can render an empty list snapshot for
+    // one tick while its retained per-document save controller still owns the
+    // previously confirmed rich body. The editor must not emit that lifecycle
+    // filler into the controller; Open page/unmount would flush it to SQL.
+    expect(
+      shouldPersistEffectivelyEmptyEditorUpdate({
+        nextContent: "<empty-block/>",
+        userInitiated: false,
+      }),
+    ).toBe(false);
+  });
+
+  it("allows an intentional clear even when an empty remount snapshot is visible", () => {
+    expect(
+      shouldPersistEffectivelyEmptyEditorUpdate({
+        nextContent: "<empty-block/>",
+        userInitiated: true,
+      }),
+    ).toBe(true);
+  });
+
+  it("keeps a retained rich preview controller clean across an empty remount, then permits a deliberate clear", async () => {
+    const save = vi.fn().mockResolvedValue(undefined);
+    const controller = createPreviewDocumentSaveController({
+      documentId: "builder-preview-remount",
+      initial: {
+        title: "Quiet Comet",
+        content: "Persisted rich Builder body",
+      },
+      save,
+      debounceMs: 0,
+    });
+
+    const ghostEmpty = "<empty-block/>";
+    if (
+      shouldPersistEffectivelyEmptyEditorUpdate({
+        nextContent: ghostEmpty,
+        userInitiated: false,
+      })
+    ) {
+      controller.changeContent(ghostEmpty);
+    }
+    await controller.flush();
+
+    expect(controller.pending.content).toBe("Persisted rich Builder body");
+    expect(save).not.toHaveBeenCalled();
+
+    if (
+      shouldPersistEffectivelyEmptyEditorUpdate({
+        nextContent: ghostEmpty,
+        userInitiated: true,
+      })
+    ) {
+      controller.changeContent(ghostEmpty);
+    }
+    await controller.flush();
+
+    expect(save).toHaveBeenCalledExactlyOnceWith(
+      "builder-preview-remount",
+      {
+        title: "Quiet Comet",
+        content: ghostEmpty,
+      },
+      {
+        title: "Quiet Comet",
+        content: "Persisted rich Builder body",
+      },
+    );
+  });
+
   it("applies newer external sync through the lead client", () => {
     expect(
       shouldApplyExternalContentSync({
@@ -974,7 +1111,7 @@ describe("VisualEditor markdown round-tripping", () => {
     }
   });
 
-  it("round-trips heading 4 blocks", () => {
+  it.each([4, 5, 6] as const)("round-trips heading %s blocks", (level) => {
     const editor = new Editor({
       extensions: createVisualEditorExtensions(),
       content: {
@@ -982,7 +1119,7 @@ describe("VisualEditor markdown round-tripping", () => {
         content: [
           {
             type: "heading",
-            attrs: { level: 4 },
+            attrs: { level },
             content: [{ type: "text", text: "A precise subheading" }],
           },
         ],
@@ -993,13 +1130,17 @@ describe("VisualEditor markdown round-tripping", () => {
       const json = editor.getJSON();
       expect(json.content?.[0]).toMatchObject({
         type: "heading",
-        attrs: { level: 4 },
+        attrs: { level },
         content: [{ type: "text", text: "A precise subheading" }],
       });
-      expect(docToNfm(json as any)).toBe("#### A precise subheading");
+      const marker = "#".repeat(level);
+      expect(docToNfm(json as any)).toBe(`${marker} A precise subheading`);
       expect(
         serializeEditorToNfm((editor.storage as any).markdown.getMarkdown()),
-      ).toBe("#### A precise subheading");
+      ).toBe(`${marker} A precise subheading`);
+      expect(editor.view.dom.querySelector(`h${level}`)?.textContent).toBe(
+        "A precise subheading",
+      );
     } finally {
       editor.destroy();
     }

@@ -333,12 +333,14 @@ export default defineConfig({
 
 ### Compilação/Tempo de execução {#env-runtime}
 
-| Variável                    | Descrição                                                                                                                                                         |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | Porta do servidor (somente Node.js)                                                                                                                               |
-| `NITRO_PRESET`              | Substituir predefinição de compilação no momento da compilação                                                                                                    |
-| `APP_BASE_PATH`             | Monte o aplicativo sob um prefixo (por exemplo, `/mail`). Definido automaticamente por `npx @agent-native/core@latest deploy`; deixe sem definição para autônomo. |
-| `AGENT_PROD_CODE_EXECUTION` | Modo de execução de código de produção opcional: `off` (padrão), `sandboxed` ou `trusted`. Consulte [Production Code Execution](#production-code-execution).      |
+| Variável                                    | Descrição                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `PORT`                                      | Porta do servidor (somente Node.js)                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `NITRO_PRESET`                              | Substituir predefinição de compilação no momento da compilação                                                                                                                                                                                                                                                                                                                                                                                         |
+| `APP_BASE_PATH`                             | Monte o aplicativo sob um prefixo (por exemplo, `/mail`). Definido automaticamente por `npx @agent-native/core@latest deploy`; deixe sem definição para autônomo.                                                                                                                                                                                                                                                                                      |
+| `AGENT_PROD_CODE_EXECUTION`                 | Modo de execução de código de produção opcional: `off` (padrão), `sandboxed` ou `trusted`. Consulte [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                                                                                           |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Segredo HMAC compartilhado e dedicado de 32 caracteres ou mais para a retransmissão segura da autorização do Builder para prévias. Defina o mesmo valor na implantação de callback corporativa aprovada e nas implantações de prévia somente quando a autorização precisar ser salva em um banco de dados de prévia isolado.                                                                                                                           |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Lista separada por vírgulas de origens de prévia confiáveis e exatas, exclusiva do callback corporativo (por exemplo, `https://0123456789abcdef01234567--content.netlify.app`). Defina-a somente na implantação do callback corporativo. As origens da Netlify devem usar um permalink imutável e específico da implantação com um ID hexadecimal de 24 caracteres; aliases mutáveis `deploy-preview-*`, curingas e sufixos de domínio são rejeitados. |
 
 Variáveis de conexão de banco de dados (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, `<APP_NAME>_DATABASE_URL` por aplicativo) residem em [Database](/docs/database#production).
 
@@ -373,7 +375,7 @@ Dentro de um espaço de trabalho, o `.env` raiz é carregado em cada aplicativo 
 
 ### Gerando segredos fortes {#env-generate-secrets}
 
-Para qualquer segredo marcado como "32+ caracteres aleatórios" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), gere novos valores com:
+Para qualquer segredo marcado como "32+ caracteres aleatórios" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), gere novos valores com:
 
 ```bash
 openssl rand -hex 32

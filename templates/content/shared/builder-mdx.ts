@@ -92,6 +92,11 @@ type MdxNode = {
   name?: string;
   value?: string;
   children?: MdxNode[];
+  attributes?: Array<{
+    type: string;
+    name?: string;
+    value?: string | null | { type?: string; value?: string };
+  }>;
   position?: {
     start?: { offset?: number };
     end?: { offset?: number };
@@ -270,8 +275,50 @@ export function builderEntryBlocks(entry: BuilderContentEntry): unknown[] {
   return [];
 }
 
+function isZeroDimension(value: unknown) {
+  return value === 0 || value === "0";
+}
+
+function isBuilderTrackingPixelBlock(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const block = value as Record<string, unknown>;
+  if (block["@type"] !== "@builder.io/sdk:Element" || block.tagName !== "img") {
+    return false;
+  }
+  const properties = block.properties;
+  if (
+    !properties ||
+    typeof properties !== "object" ||
+    Array.isArray(properties)
+  ) {
+    return false;
+  }
+  const props = properties as Record<string, unknown>;
+  if (
+    props.role !== "presentation" ||
+    props.alt !== "" ||
+    (props["aria-hidden"] !== true && props["aria-hidden"] !== "true") ||
+    !isZeroDimension(props.width) ||
+    !isZeroDimension(props.height) ||
+    typeof props.src !== "string"
+  ) {
+    return false;
+  }
+  try {
+    const src = new URL(props.src);
+    return (
+      (src.hostname === "builder.io" || src.hostname.endsWith(".builder.io")) &&
+      src.pathname === "/api/v1/pixel"
+    );
+  } catch {
+    return false;
+  }
+}
+
 export function builderBlocksHash(blocks: unknown[]) {
-  return stableHash(blocks);
+  return stableHash(
+    blocks.filter((block) => !isBuilderTrackingPixelBlock(block)),
+  );
 }
 
 export function builderSourceHash(entry: BuilderContentEntry) {
@@ -485,6 +532,11 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     const name = componentName(block);
     const options = componentOptions(block);
     if (name === "Text") {
+      const table = possibleNativeTableHtml(String(options.text ?? ""));
+      if (table) {
+        fingerprint.push("prose");
+        continue;
+      }
       for (const unit of markdownUnits(
         htmlToMarkdown(String(options.text ?? "")),
       )) {
@@ -498,6 +550,10 @@ async function expectedReadableLayoutFingerprint(blocks: unknown[]) {
     }
     if (name === "Image") {
       if (builderImageMarkdown(options)) fingerprint.push("prose");
+      continue;
+    }
+    if (name === "Video") {
+      if (builderVideoMdx(options)) fingerprint.push("prose");
       continue;
     }
     if (name === "Tabbed Content") {
@@ -1150,7 +1206,8 @@ async function builderBlockToReadableMdx(
   const mapping = builderSourceComponentMappingFor(name);
 
   if (name === "Text") {
-    return htmlToMarkdown(String(options.text ?? "")).trim();
+    const table = await validatedNativeTableHtml(String(options.text ?? ""));
+    return table ?? htmlToMarkdown(String(options.text ?? "")).trim();
   }
 
   if (name === "Code Block" || name === "Blog Code Block") {
@@ -1162,6 +1219,10 @@ async function builderBlockToReadableMdx(
 
   if (name === "Image") {
     return builderImageMarkdown(options);
+  }
+
+  if (name === "Video") {
+    return builderVideoMdx(options);
   }
 
   if (name === "Tabbed Content") {
@@ -1265,7 +1326,7 @@ function fencedCodeFromMarkdown(markdown: string) {
 }
 
 interface ReadableEditableSegment {
-  kind: "text" | "code" | "image" | "tab-label";
+  kind: "text" | "table" | "code" | "image" | "video" | "tab-label";
   block: Record<string, unknown>;
   baseline: string;
 }
@@ -1286,8 +1347,12 @@ function collectReadableEditableSegments(
     const name = componentName(block);
     const options = componentOptions(block);
     if (name === "Text") {
-      const baseline = htmlToMarkdown(String(options.text ?? "")).trim();
-      if (baseline) segments.push({ kind: "text", block, baseline });
+      const rawText = String(options.text ?? "").trim();
+      const table = possibleNativeTableHtml(rawText);
+      const baseline = table ?? htmlToMarkdown(rawText).trim();
+      if (baseline) {
+        segments.push({ kind: table ? "table" : "text", block, baseline });
+      }
       continue;
     }
     if (name === "Code Block" || name === "Blog Code Block") {
@@ -1298,6 +1363,11 @@ function collectReadableEditableSegments(
     if (name === "Image") {
       const baseline = builderImageMarkdown(options);
       if (baseline) segments.push({ kind: "image", block, baseline });
+      continue;
+    }
+    if (name === "Video") {
+      const baseline = builderVideoMdx(options);
+      if (baseline) segments.push({ kind: "video", block, baseline });
       continue;
     }
     if (name === "Tabbed Content") {
@@ -1342,6 +1412,9 @@ function builderBlockHasReadableOutput(block: unknown): boolean {
   if (name === "Image") {
     return builderImageMarkdown(options).trim().length > 0;
   }
+  if (name === "Video") {
+    return builderVideoMdx(options).trim().length > 0;
+  }
   if (name === "Tabbed Content") {
     const tabs = Array.isArray(options.tabs) ? options.tabs : [];
     return tabs.some((tab) => {
@@ -1367,7 +1440,8 @@ function countExpectedReadableSourceComponentMarkers(
       name === "Text" ||
       name === "Code Block" ||
       name === "Blog Code Block" ||
-      name === "Image"
+      name === "Image" ||
+      name === "Video"
     ) {
       continue;
     }
@@ -1485,6 +1559,18 @@ export async function builderReadableBodyToBuilderBlocks(args: {
     } else if (segment.kind === "text") {
       const options = ensureComponentOptions(segment.block, "Text");
       options.text = markdownToBuilderTextHtml(nextMarkdown);
+    } else if (segment.kind === "table") {
+      const table = await validatedNativeTableHtml(nextMarkdown);
+      if (!table) {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder table changed into unsupported markup; keep it as a native Content table before pushing.",
+          ],
+        };
+      }
+      const options = ensureComponentOptions(segment.block, "Text");
+      options.text = table;
     } else if (segment.kind === "image") {
       const options = ensureComponentOptions(segment.block, "Image");
       const image = parseMarkdownImage(nextMarkdown);
@@ -1498,6 +1584,22 @@ export async function builderReadableBodyToBuilderBlocks(args: {
       }
       options.image = image.src;
       options.altText = image.alt;
+    } else if (segment.kind === "video") {
+      const root = await parseMdxRoot(nextMarkdown);
+      const children = root.children ?? [];
+      const node = children.length === 1 ? children[0] : undefined;
+      if (!node || node.name !== "video") {
+        return {
+          blocks: null,
+          warnings: [
+            "Readable Builder video changed into unsupported markup; keep it as a native Content video before pushing.",
+          ],
+        };
+      }
+      const converted = freshVideoBlock(node, nextMarkdown);
+      const options = ensureComponentOptions(segment.block, "Video");
+      Object.keys(options).forEach((key) => delete options[key]);
+      Object.assign(options, componentOptions(converted));
     } else {
       const options = ensureComponentOptions(
         segment.block,
@@ -1766,9 +1868,165 @@ function freshTextBlock(markdown: string): unknown {
   };
 }
 
+const BUILDER_TABLE_TAGS = new Set([
+  "table",
+  "colgroup",
+  "col",
+  "thead",
+  "tbody",
+  "tfoot",
+  "tr",
+  "th",
+  "td",
+  "p",
+  "strong",
+  "em",
+  "code",
+  "span",
+  "a",
+  "br",
+]);
+
+function assertSafeBuilderTableAttribute(
+  tag: string,
+  name: string,
+  value: string | null,
+) {
+  if (name === "class" && tag === "table" && value === "notion-table") {
+    return;
+  }
+  if (name === "class" && tag === "span" && value === "dark-mode-invert") {
+    return;
+  }
+  if (
+    name === "style" &&
+    (tag === "table" || tag === "col") &&
+    typeof value === "string" &&
+    /^min-width:\s*\d+(?:\.\d+)?px;?$/.test(value.trim())
+  ) {
+    return;
+  }
+  if (
+    (name === "colspan" || name === "rowspan") &&
+    (tag === "th" || tag === "td") &&
+    typeof value === "string" &&
+    /^[1-9]\d*$/.test(value)
+  ) {
+    return;
+  }
+  if (
+    name === "colwidth" &&
+    (tag === "th" || tag === "td") &&
+    typeof value === "string" &&
+    /^\d+(?:,\d+)*$/.test(value)
+  ) {
+    return;
+  }
+  if (
+    name === "href" &&
+    tag === "a" &&
+    typeof value === "string" &&
+    value.trim()
+  ) {
+    const href = safeLiteralMediaUrl(value.trim(), "table link");
+    if (href.protocol === "https:" || href.protocol === "http:") return;
+  }
+  throw new Error(`Unsupported Builder table attribute: ${tag}.${name}.`);
+}
+
+function assertSafeBuilderTableNode(node: MdxNode) {
+  if (
+    node.type === "mdxFlowExpression" ||
+    node.type === "mdxTextExpression" ||
+    node.type === "mdxjsEsm"
+  ) {
+    throw new Error("Unsupported dynamic syntax inside Builder table.");
+  }
+  if (node.type === "mdxJsxFlowElement" || node.type === "mdxJsxTextElement") {
+    const tag = node.name?.toLowerCase() ?? "";
+    if (!BUILDER_TABLE_TAGS.has(tag)) {
+      throw new Error(
+        `Unsupported Builder table component: <${node.name || "unknown"}>.`,
+      );
+    }
+    for (const attribute of node.attributes ?? []) {
+      if (
+        attribute.type !== "mdxJsxAttribute" ||
+        !attribute.name ||
+        (attribute.value !== null && typeof attribute.value !== "string")
+      ) {
+        throw new Error("Builder table attributes must be literal values.");
+      }
+      assertSafeBuilderTableAttribute(
+        tag,
+        attribute.name.toLowerCase(),
+        attribute.value ?? null,
+      );
+    }
+  }
+  for (const child of node.children ?? []) {
+    assertSafeBuilderTableNode(child);
+  }
+}
+
+function possibleNativeTableHtml(value: string) {
+  const trimmed = value.trim();
+  return /^<table\b[\s\S]*<\/table>$/.test(trimmed) ? trimmed : null;
+}
+
+async function validatedNativeTableHtml(value: string) {
+  const candidate = possibleNativeTableHtml(value);
+  if (!candidate) return null;
+  const root = await parseMdxRoot(candidate);
+  const children = root.children ?? [];
+  if (children.length !== 1 || children[0]?.name !== "table") return null;
+  assertSafeBuilderTableNode(children[0]);
+  return candidate;
+}
+
+function freshTableBlock(node: MdxNode, raw: string): unknown {
+  assertSafeBuilderTableNode(node);
+  return {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: `builder-mdx-table-${stableHash(raw).slice(0, 16)}`,
+    component: {
+      name: "Text",
+      options: { text: raw },
+    },
+    responsiveStyles: {
+      large: {
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      },
+    },
+  };
+}
+
 function freshImageBlock(markdown: string): unknown | null {
   const image = parseMarkdownImage(markdown);
-  if (!image?.src) return null;
+  if (!image?.src) {
+    if (markdown.trimStart().startsWith("![")) {
+      throw new Error(
+        "Builder image must use literal Markdown image syntax with an absolute URL.",
+      );
+    }
+    return null;
+  }
+  let imageUrl: URL;
+  try {
+    imageUrl = new URL(image.src);
+  } catch {
+    throw new Error("Builder image src must be an absolute URL.");
+  }
+  if (
+    (imageUrl.protocol !== "https:" && imageUrl.protocol !== "http:") ||
+    imageUrl.username ||
+    imageUrl.password
+  ) {
+    throw new Error("Builder image src must use a safe HTTP(S) URL.");
+  }
   return {
     "@type": "@builder.io/sdk:Element",
     "@version": 2,
@@ -1776,7 +2034,7 @@ function freshImageBlock(markdown: string): unknown | null {
     component: {
       name: "Image",
       options: {
-        image: image.src,
+        image: imageUrl.toString(),
         altText: image.alt,
       },
     },
@@ -1788,6 +2046,273 @@ function freshImageBlock(markdown: string): unknown | null {
       },
     },
   };
+}
+
+function nodeBlocksWithStandaloneImages(
+  body: string,
+  node: MdxNode,
+): unknown[] | null {
+  const nodeStart = node.position?.start?.offset;
+  const nodeEnd = node.position?.end?.offset;
+  if (typeof nodeStart !== "number" || typeof nodeEnd !== "number") {
+    return null;
+  }
+  const standaloneImages: MdxNode[] = [];
+  const visit = (candidate: MdxNode) => {
+    if (candidate.type === "image") {
+      const start = candidate.position?.start?.offset;
+      const end = candidate.position?.end?.offset;
+      if (typeof start !== "number" || typeof end !== "number") return;
+      const lineStart = body.lastIndexOf("\n", Math.max(0, start - 1)) + 1;
+      const nextNewline = body.indexOf("\n", end);
+      const lineEnd = nextNewline === -1 ? body.length : nextNewline;
+      if (
+        body.slice(lineStart, start).trim() === "" &&
+        body.slice(end, lineEnd).trim() === ""
+      ) {
+        standaloneImages.push(candidate);
+      }
+      return;
+    }
+    for (const child of candidate.children ?? []) visit(child);
+  };
+  visit(node);
+  if (standaloneImages.length === 0) return null;
+
+  const blocks: unknown[] = [];
+  let cursor = nodeStart;
+  for (const imageNode of standaloneImages) {
+    const start = imageNode.position!.start!.offset!;
+    const end = imageNode.position!.end!.offset!;
+    const prose = body.slice(cursor, start).trim();
+    if (prose) blocks.push(freshTextBlock(prose));
+    const image = freshImageBlock(body.slice(start, end));
+    if (!image) {
+      throw new Error("Builder standalone image could not be converted.");
+    }
+    blocks.push(image);
+    cursor = end;
+  }
+  const trailingProse = body.slice(cursor, nodeEnd).trim();
+  if (trailingProse) blocks.push(freshTextBlock(trailingProse));
+  return blocks;
+}
+
+function isEmptyEditorBlockSentinel(node: MdxNode, raw: string) {
+  return (
+    node.name === "empty-block" &&
+    (node.attributes ?? []).length === 0 &&
+    (node.children ?? []).length === 0 &&
+    /^<empty-block\s*\/>$/.test(raw)
+  );
+}
+
+function containsUnsupportedEmptyBlockSyntax(
+  node: MdxNode,
+  raw: string,
+): boolean {
+  return node.type !== "code" && /<\/?empty-block\b/i.test(raw);
+}
+
+function safeLiteralMediaUrl(value: string, label: string) {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new Error(`Builder video ${label} must be an absolute URL.`);
+  }
+  if (
+    (parsed.protocol !== "https:" && parsed.protocol !== "http:") ||
+    parsed.username ||
+    parsed.password
+  ) {
+    throw new Error(`Builder video ${label} must use a safe HTTP(S) URL.`);
+  }
+  return parsed;
+}
+
+function literalVideoBoolean(value: string | null, name: string) {
+  if (value === null || value === "" || value === name || value === "true") {
+    return true;
+  }
+  if (value === "false") return false;
+  throw new Error(`Builder video attribute ${name} must be a literal boolean.`);
+}
+
+function freshVideoBlock(node: MdxNode, raw: string): unknown {
+  if ((node.children ?? []).length > 0) {
+    throw new Error("Builder video cannot contain child content.");
+  }
+  const allowed = new Set([
+    "src",
+    "poster",
+    "preload",
+    "controls",
+    "autoplay",
+    "muted",
+    "loop",
+    "playsinline",
+    "width",
+    "height",
+    // Content persists title for native playback, but Builder's built-in
+    // Video options do not expose it. Validate that it is literal, then omit.
+    "title",
+  ]);
+  const values = new Map<string, string | null>();
+  for (const attribute of node.attributes ?? []) {
+    if (
+      attribute.type !== "mdxJsxAttribute" ||
+      !attribute.name ||
+      (attribute.value !== null && typeof attribute.value !== "string")
+    ) {
+      throw new Error("Builder video attributes must be literal values.");
+    }
+    const name = attribute.name.toLowerCase();
+    if (!allowed.has(name)) {
+      throw new Error(`Unsupported Builder video attribute: ${name}.`);
+    }
+    if (values.has(name)) {
+      throw new Error(`Duplicate Builder video attribute: ${name}.`);
+    }
+    values.set(name, attribute.value ?? null);
+  }
+
+  const src = values.get("src");
+  if (typeof src !== "string" || !src.trim()) {
+    throw new Error("Builder video requires a literal src attribute.");
+  }
+  const videoUrl = safeLiteralMediaUrl(src.trim(), "src");
+  if (!videoUrl.pathname.toLowerCase().endsWith(".mp4")) {
+    throw new Error("Builder video src must reference an MP4 file.");
+  }
+
+  const options: Record<string, unknown> = {
+    video: videoUrl.toString(),
+    autoPlay: false,
+    controls: false,
+    muted: false,
+    loop: false,
+    playsInline: false,
+  };
+  for (const [attribute, option] of [
+    ["autoplay", "autoPlay"],
+    ["controls", "controls"],
+    ["muted", "muted"],
+    ["loop", "loop"],
+    ["playsinline", "playsInline"],
+  ] as const) {
+    if (values.has(attribute)) {
+      options[option] = literalVideoBoolean(
+        values.get(attribute) ?? null,
+        attribute,
+      );
+    }
+  }
+
+  const poster = values.get("poster");
+  if (typeof poster === "string" && poster.trim()) {
+    options.posterImage = safeLiteralMediaUrl(
+      poster.trim(),
+      "poster",
+    ).toString();
+  } else if (values.has("poster")) {
+    throw new Error("Builder video poster must be a literal URL.");
+  }
+
+  const preload = values.get("preload");
+  if (typeof preload === "string" && preload.trim()) {
+    if (!new Set(["none", "metadata", "auto"]).has(preload)) {
+      throw new Error("Builder video preload must be none, metadata, or auto.");
+    }
+    options.preload = preload;
+  } else if (values.has("preload")) {
+    throw new Error("Builder video preload must have a literal value.");
+  }
+
+  for (const dimension of ["width", "height"] as const) {
+    const value = values.get(dimension);
+    if (typeof value === "string" && /^\d+$/.test(value) && Number(value) > 0) {
+      options[dimension] = Number(value);
+      continue;
+    }
+    if (values.has(dimension)) {
+      throw new Error(`Builder video ${dimension} must be a positive integer.`);
+    }
+  }
+
+  const title = values.get("title");
+  if (title === null && values.has("title")) {
+    throw new Error("Builder video title must have a literal value.");
+  }
+
+  return {
+    "@type": "@builder.io/sdk:Element",
+    "@version": 2,
+    id: `builder-mdx-video-${stableHash(raw).slice(0, 16)}`,
+    component: {
+      name: "Video",
+      options,
+    },
+    responsiveStyles: {
+      large: {
+        display: "flex",
+        flexDirection: "column",
+        position: "relative",
+      },
+    },
+  };
+}
+
+function builderVideoMdx(options: Record<string, unknown>) {
+  const source =
+    typeof options.video === "string"
+      ? options.video.trim()
+      : typeof options.src === "string"
+        ? options.src.trim()
+        : "";
+  if (!source) return "";
+  let src: string;
+  try {
+    src = safeLiteralMediaUrl(source, "src").toString();
+  } catch {
+    return "";
+  }
+  if (!new URL(src).pathname.toLowerCase().endsWith(".mp4")) return "";
+
+  const attributes = [`src="${escapeHtml(src)}"`];
+  const poster =
+    typeof options.posterImage === "string" ? options.posterImage.trim() : "";
+  if (poster) {
+    try {
+      attributes.push(
+        `poster="${escapeHtml(safeLiteralMediaUrl(poster, "poster").toString())}"`,
+      );
+    } catch {
+      return "";
+    }
+  }
+  if (
+    typeof options.preload === "string" &&
+    new Set(["none", "metadata", "auto"]).has(options.preload)
+  ) {
+    attributes.push(`preload="${options.preload}"`);
+  }
+  for (const [option, attribute] of [
+    ["autoPlay", "autoplay"],
+    ["controls", "controls"],
+    ["muted", "muted"],
+    ["loop", "loop"],
+    ["playsInline", "playsinline"],
+  ] as const) {
+    if (options[option] === true) attributes.push(attribute);
+  }
+  for (const dimension of ["width", "height"] as const) {
+    const value = options[dimension];
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      attributes.push(`${dimension}="${value}"`);
+    }
+  }
+  return `<video ${attributes.join(" ")}></video>`;
 }
 
 function rawBlockForData(
@@ -1992,6 +2517,17 @@ export async function builderMdxBodyToBuilderBlocks(
       child.type === "mdxJsxFlowElement" ||
       child.type === "mdxJsxTextElement"
     ) {
+      if (isEmptyEditorBlockSentinel(child, raw)) {
+        continue;
+      }
+      if (child.name === "video") {
+        blocks.push(freshVideoBlock(child, raw));
+        continue;
+      }
+      if (child.name === "table") {
+        blocks.push(freshTableBlock(child, raw));
+        continue;
+      }
       const block = await blockFromMdxComponent(raw, sidecars);
       if (block) {
         blocks.push(block);
@@ -2005,6 +2541,16 @@ export async function builderMdxBodyToBuilderBlocks(
       throw new Error(
         "Unsupported Builder MDX syntax: import/export statements cannot be pushed to Builder.",
       );
+    }
+    if (containsUnsupportedEmptyBlockSyntax(child, raw)) {
+      throw new Error(
+        "Unsupported Builder MDX component: <empty-block>. Only an attribute-free, self-closing Content editor sentinel can be omitted.",
+      );
+    }
+    const splitBlocks = nodeBlocksWithStandaloneImages(body, child);
+    if (splitBlocks) {
+      blocks.push(...splitBlocks);
+      continue;
     }
     const imageBlock = freshImageBlock(raw);
     if (imageBlock) {
@@ -2071,10 +2617,134 @@ function inlineHtmlToMarkdown(value: string) {
     .trim();
 }
 
+interface HtmlListItem {
+  html: string;
+  children: HtmlList[];
+}
+
+interface HtmlList {
+  type: "ul" | "ol";
+  items: HtmlListItem[];
+}
+
+function parseHtmlList(value: string): HtmlList | null {
+  const roots: HtmlList[] = [];
+  const lists: HtmlList[] = [];
+  const items: Array<HtmlListItem | null> = [];
+  const tokenPattern = /<\/?(?:ul|ol|li)\b[^>]*>/gi;
+  let cursor = 0;
+
+  const appendText = (text: string) => {
+    const item = items[items.length - 1];
+    if (item) item.html += text;
+  };
+
+  for (const match of value.matchAll(tokenPattern)) {
+    appendText(value.slice(cursor, match.index));
+    cursor = (match.index ?? 0) + match[0].length;
+    const closing = /^<\//.test(match[0]);
+    const tag = match[0].match(/^<\/?(ul|ol|li)\b/i)?.[1]?.toLowerCase();
+    if (!tag) continue;
+
+    if ((tag === "ul" || tag === "ol") && !closing) {
+      const list: HtmlList = { type: tag, items: [] };
+      const parentItem = items[items.length - 1];
+      if (parentItem) parentItem.children.push(list);
+      else roots.push(list);
+      lists.push(list);
+      items.push(null);
+      continue;
+    }
+    if ((tag === "ul" || tag === "ol") && closing) {
+      if (lists[lists.length - 1]?.type !== tag) return null;
+      lists.pop();
+      items.pop();
+      continue;
+    }
+    if (tag === "li" && !closing) {
+      const list = lists[lists.length - 1];
+      if (!list) return null;
+      const item: HtmlListItem = { html: "", children: [] };
+      list.items.push(item);
+      items[items.length - 1] = item;
+      continue;
+    }
+    if (tag === "li" && closing) {
+      if (!items[items.length - 1]) return null;
+      items[items.length - 1] = null;
+    }
+  }
+  appendText(value.slice(cursor));
+  if (lists.length || roots.length !== 1) return null;
+  return roots[0];
+}
+
+function renderHtmlListMarkdown(list: HtmlList, depth = 0): string {
+  return list.items
+    .map((item, index) => {
+      const indent = "    ".repeat(depth);
+      const marker = list.type === "ol" ? `${index + 1}.` : "-";
+      const body = inlineHtmlToMarkdown(item.html);
+      const line = `${indent}${marker}${body ? ` ${body}` : ""}`;
+      const children = item.children.map((child) =>
+        renderHtmlListMarkdown(child, depth + 1),
+      );
+      return [line, ...children].join("\n");
+    })
+    .join("\n");
+}
+
+function replaceHtmlListsWithMarkdown(value: string) {
+  const openingPattern = /<(ul|ol)\b[^>]*>/gi;
+  const listTagPattern = /<\/?(ul|ol)\b[^>]*>/gi;
+  let result = "";
+  let cursor = 0;
+
+  while (cursor < value.length) {
+    openingPattern.lastIndex = cursor;
+    const opening = openingPattern.exec(value);
+    if (!opening) {
+      result += value.slice(cursor);
+      break;
+    }
+    result += value.slice(cursor, opening.index);
+    listTagPattern.lastIndex = opening.index;
+    let depth = 0;
+    let end = -1;
+    for (
+      let tag = listTagPattern.exec(value);
+      tag;
+      tag = listTagPattern.exec(value)
+    ) {
+      depth += /^<\//.test(tag[0]) ? -1 : 1;
+      if (depth === 0) {
+        end = listTagPattern.lastIndex;
+        break;
+      }
+    }
+    if (end < 0) {
+      result += value.slice(opening.index);
+      break;
+    }
+    const source = value.slice(opening.index, end);
+    const list = parseHtmlList(source);
+    result += list ? `\n${renderHtmlListMarkdown(list)}\n` : source;
+    cursor = end;
+  }
+  return result;
+}
+
 export function htmlToMarkdown(html: string) {
   let source = html.trim();
   if (!source) return "";
-  source = source
+  source = replaceHtmlListsWithMarkdown(source)
+    .replace(/<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi, (_match, body) => {
+      const quote = htmlToMarkdown(body);
+      return `\n${quote
+        .split("\n")
+        .map((line) => `> ${line}`.trimEnd())
+        .join("\n")}\n`;
+    })
     .replace(/<h([1-6])[^>]*>([\s\S]*?)<\/h\1>/gi, (_match, level, body) => {
       return `\n${"#".repeat(Number(level))} ${inlineHtmlToMarkdown(body)}\n`;
     })
@@ -2084,7 +2754,7 @@ export function htmlToMarkdown(html: string) {
     .replace(/<li[^>]*>([\s\S]*?)<\/li>/gi, (_match, body) => {
       return `\n- ${inlineHtmlToMarkdown(body)}\n`;
     })
-    .replace(/<\/?(ul|ol|blockquote)[^>]*>/gi, "\n");
+    .replace(/<\/?(ul|ol)[^>]*>/gi, "\n");
   return inlineHtmlToMarkdown(source)
     .split(/\n{2,}/)
     .map((part) => part.trim())
@@ -2112,10 +2782,17 @@ export function markdownToBuilderTextHtml(markdown: string) {
   const lines = markdown.trim().split(/\r?\n/);
   const html: string[] = [];
   let listItems: string[] = [];
+  let listType: "ul" | "ol" | null = null;
   const flushList = () => {
-    if (!listItems.length) return;
-    html.push(`<ul>${listItems.join("")}</ul>`);
+    if (!listItems.length || !listType) return;
+    html.push(`<${listType}>${listItems.join("")}</${listType}>`);
     listItems = [];
+    listType = null;
+  };
+  const appendListItem = (type: "ul" | "ol", value: string) => {
+    if (listType && listType !== type) flushList();
+    listType = type;
+    listItems.push(`<li>${inlineMarkdownToHtml(value)}</li>`);
   };
   for (const line of lines) {
     const trimmed = line.trim();
@@ -2130,9 +2807,22 @@ export function markdownToBuilderTextHtml(markdown: string) {
       html.push(`<h${level}>${inlineMarkdownToHtml(heading[2])}</h${level}>`);
       continue;
     }
-    const list = trimmed.match(/^[-*]\s+(.+)$/);
-    if (list) {
-      listItems.push(`<li>${inlineMarkdownToHtml(list[1])}</li>`);
+    const quote = trimmed.match(/^>\s?(.*)$/);
+    if (quote) {
+      flushList();
+      html.push(
+        `<blockquote><p>${inlineMarkdownToHtml(quote[1])}</p></blockquote>`,
+      );
+      continue;
+    }
+    const unorderedList = trimmed.match(/^[-*]\s+(.+)$/);
+    if (unorderedList) {
+      appendListItem("ul", unorderedList[1]);
+      continue;
+    }
+    const orderedList = trimmed.match(/^\d+\.\s+(.+)$/);
+    if (orderedList) {
+      appendListItem("ol", orderedList[1]);
       continue;
     }
     flushList();

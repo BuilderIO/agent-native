@@ -339,6 +339,78 @@ describe("seedDatabaseItemDocumentCaches", () => {
     });
   });
 
+  it("does not treat a non-empty source-backed list snapshot as an authoritative document", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        title: "Builder blog launch",
+        content: "Possibly stale table snapshot",
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+          sourceId: "builder-source",
+          bodyHydration: {
+            status: "hydrated",
+            attemptedAt: "2026-07-02T12:00:00.000Z",
+            error: null,
+            version: "v1",
+          },
+        },
+      },
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: "2026-07-02T12:00:00.000Z",
+        error: null,
+        version: "v1",
+      },
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
+  });
+
+  it("treats row-level body hydration alone as source-backed for cache seeding", () => {
+    const queryClient = new QueryClient();
+    const item: ContentDatabaseItem = {
+      id: "item-a",
+      databaseId: "database",
+      position: 0,
+      document: {
+        ...doc("row-page", "database-page"),
+        content: "Possibly stale hydrated body",
+        databaseMembership: {
+          databaseId: "database",
+          databaseDocumentId: "database-page",
+          databaseTitle: "Content calendar",
+          position: 0,
+        },
+      },
+      properties: [],
+      bodyHydration: {
+        status: "hydrated",
+        attemptedAt: "2026-07-02T12:00:00.000Z",
+        error: null,
+        version: "v1",
+      },
+    };
+
+    seedDatabaseItemDocumentCaches(queryClient, item);
+
+    expect(queryClient.getQueryData(documentQueryKey("row-page"))).toBe(
+      undefined,
+    );
+  });
+
   it("does not overwrite an already-warm get-document cache", () => {
     const queryClient = new QueryClient();
     queryClient.setQueryData(documentQueryKey("row-page"), {

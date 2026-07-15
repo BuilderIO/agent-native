@@ -29,4 +29,24 @@ describe("database preview sheet layout", () => {
       expect(source).toContain('data-database-preview-portal=""');
     },
   );
+
+  it("freezes a conflicting draft until the user keeps it or reloads Builder", () => {
+    const source = readEditorSource("database/DatabaseView.tsx");
+    const preview = source.slice(
+      source.indexOf("function DatabaseItemPreview({"),
+      source.indexOf("function DatabaseTableView({"),
+    );
+
+    expect(preview).toContain(
+      "canEdit && !bodyHydrationPending && !activeBodyDraftConflict",
+    );
+    expect(preview).toContain('role="status"');
+    expect(preview).toContain('dbText("keepLocalDraft")');
+    expect(preview).toContain('dbText("reloadBuilderBody")');
+    expect(preview).toContain(
+      "controller.rebasePending(activeBodyDraftConflict.serverPayload)",
+    );
+    expect(preview).toContain('controller.deferredReason === "conflict"');
+    expect(preview).toContain("controller.mark(serverPayload)");
+  });
 });

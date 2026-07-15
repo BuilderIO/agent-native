@@ -45,6 +45,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { TeamPage } from "../org/TeamPage.js";
+import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
 import { useDevMode } from "../use-dev-mode.js";
@@ -2578,6 +2579,7 @@ interface SettingsPanelContentProps extends SettingsPanelProps {
   showCapabilityStrip?: boolean;
   className?: string;
   surface?: SettingsSurface;
+  builderConnectionOwnedExternally?: boolean;
 }
 
 function SettingsPanelContent({
@@ -2591,8 +2593,11 @@ function SettingsPanelContent({
   showCapabilityStrip = true,
   className,
   surface = "sidebar",
+  builderConnectionOwnedExternally = false,
 }: SettingsPanelContentProps) {
-  const { status: builder, loading: builderLoading } = useBuilderStatus();
+  const { status: builder, loading: builderLoading } = useBuilderStatus({
+    enabled: !builderConnectionOwnedExternally,
+  });
   const connected = builder?.configured ?? false;
   const connectUrl = builder?.cliAuthUrl ?? builder?.connectUrl;
   const orgName = builder?.orgName;
@@ -2600,6 +2605,7 @@ function SettingsPanelContent({
   const credentialSource = builder?.credentialSource;
   const builderBranchesAvailable = !!builder?.builderEnabled;
   const builderFlow = useBuilderConnectFlow({
+    enabled: !builderConnectionOwnedExternally,
     popupUrl: connectUrl,
     trackingSource: "settings_panel_builder_card",
   });
@@ -2965,20 +2971,22 @@ function SettingsPanelContent({
             icon={<IconBrowser size={14} />}
             title="Browser Automation"
             subtitle="Let agents control a real browser for web tasks."
-            connected={connected}
+            connected={builderConnectionOwnedExternally ? undefined : connected}
             open={openSection === "browser"}
             onToggle={() => toggle("browser")}
           >
-            <UseBuilderCard
-              builderFlow={builderFlow}
-              connectUrl={connectUrl}
-              connected={connected}
-              orgName={orgName}
-              envManaged={envManaged}
-              credentialSource={credentialSource}
-              trackingSource="browser_settings"
-              trackingFlow="browser_automation"
-            />
+            {!builderConnectionOwnedExternally ? (
+              <UseBuilderCard
+                builderFlow={builderFlow}
+                connectUrl={connectUrl}
+                connected={connected}
+                orgName={orgName}
+                envManaged={envManaged}
+                credentialSource={credentialSource}
+                trackingSource="browser_settings"
+                trackingFlow="browser_automation"
+              />
+            ) : null}
           </SettingsSection>
         )}
 
@@ -3057,6 +3065,26 @@ export function SettingsPanel(props: SettingsPanelProps) {
   return <SettingsPanelContent {...props} />;
 }
 
+export function ConnectionsSettingsContent({
+  settingsPanelProps,
+}: {
+  settingsPanelProps: SettingsPanelProps;
+}) {
+  return (
+    <div className="mx-auto w-full max-w-2xl space-y-4">
+      <BuilderConnectCard trackingSource="settings_connections" />
+      <SettingsPanelContent
+        {...settingsPanelProps}
+        surface="page"
+        sections={CONNECTION_SETTINGS_SECTIONS}
+        showCapabilityStrip={false}
+        className="w-full"
+        builderConnectionOwnedExternally
+      />
+    </div>
+  );
+}
+
 export function useAgentSettingsTabs(): SettingsTabItem[] {
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const baseProps = useMemo<SettingsPanelProps>(
@@ -3102,15 +3130,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ...connections,
         icon: IconPlugConnected,
         group: "agent",
-        content: (
-          <SettingsPanelContent
-            {...baseProps}
-            surface="page"
-            sections={CONNECTION_SETTINGS_SECTIONS}
-            showCapabilityStrip={false}
-            className="mx-auto w-full max-w-2xl"
-          />
-        ),
+        content: <ConnectionsSettingsContent settingsPanelProps={baseProps} />,
       },
       {
         ...organization,
