@@ -1561,15 +1561,23 @@ async function workspaceRead(path, opts = {}) {
   let offset = 0;
   let out = "";
   let found = false;
+  let complete = false;
   // Bounded loop (files cap at 2 MB / 100k-char reads) so a misbehaving store
   // can never spin forever.
   for (let i = 0; i < 512; i++) {
     const parsed = await workspaceReadMeta(path, { offset, maxChars: 100000 });
+    // A failed/missing page aborts. If it failed before the first page we never
+    // found the file (return null below); if it failed part-way through a
+    // truncated read, complete stays false and we return null rather than a
+    // silently truncated body.
     if (!parsed || parsed.ok === false) break;
     found = true;
     const chunk = typeof parsed.content === "string" ? parsed.content : "";
     out += chunk;
-    if (!parsed.truncated) break;
+    if (!parsed.truncated) {
+      complete = true;
+      break;
+    }
     const next =
       typeof parsed.nextOffset === "number"
         ? parsed.nextOffset
@@ -1577,7 +1585,11 @@ async function workspaceRead(path, opts = {}) {
     if (next <= offset) break; // no forward progress; stop rather than loop
     offset = next;
   }
-  return found ? out : null;
+  if (!found) return null;
+  // Only hand back a body we know is whole. A truncated read followed by a
+  // failed/stalled page would otherwise corrupt a large clone with a partial
+  // prefix and no error signal.
+  return complete ? out : null;
 }
 
 /**

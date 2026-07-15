@@ -49,6 +49,41 @@ describe("run-code workspaceRead", () => {
     expect(result).toContain('"length":230000');
   });
 
+  it("returns null (not a truncated prefix) when a later page fails", async () => {
+    const perReadCap = 100_000;
+    const full = "y".repeat(230_000);
+    const actions: Record<string, ActionEntry> = {
+      "workspace-files": {
+        tool,
+        readOnly: false,
+        agentTool: false,
+        run: async (args) => {
+          if (args.action !== "read") return JSON.stringify({ ok: false });
+          const offset = Number(args.offset) || 0;
+          // First page succeeds and reports more content; every subsequent
+          // page fails (e.g. a transient store error mid-clone).
+          if (offset > 0) return JSON.stringify({ ok: false, error: "boom" });
+          const content = full.slice(0, perReadCap);
+          return JSON.stringify({
+            ok: true,
+            path: args.path,
+            content,
+            truncated: true,
+            nextOffset: content.length,
+          });
+        },
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+
+    const result = await entry.run({
+      code: "const c = await workspaceRead('scratch/big.html');\nconsole.log(JSON.stringify({ isNull: c === null }));",
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain('"isNull":true');
+  });
+
   it("returns null for a missing file", async () => {
     const actions: Record<string, ActionEntry> = {
       "workspace-files": {

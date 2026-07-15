@@ -4,8 +4,16 @@ import type { ActionEntry } from "../agent/production-agent.js";
 import type { AgentChatAttachment } from "../agent/types.js";
 import { writeAppState } from "../application-state/script-helpers.js";
 import { readResource } from "../resources/script-helpers.js";
-import { getRequestRunContext } from "../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestRunContext,
+  getRequestUserEmail,
+} from "../server/request-context.js";
 import { resolveAccess } from "../sharing/access.js";
+import {
+  readWorkspaceFile,
+  type WorkspaceFilesScope,
+} from "../workspace-files/store.js";
 import type {
   ExtensionContentEdit,
   ExtensionLegacyPatch,
@@ -1339,18 +1347,50 @@ function resolveExtensionContent(
 }
 
 /**
+ * Resolve the workspace-files bridge scope exactly the way run-code's
+ * workspaceRead/workspaceWrite do: org-preferred (org → shared owner) with the
+ * requesting user's email as the solo fallback. Kept in lockstep with
+ * `resolveScope` in `workspace-files/tool.ts`.
+ */
+function workspaceFilesBridgeScope(): WorkspaceFilesScope | null {
+  const orgId = getRequestOrgId();
+  if (orgId) return { scope: "org", scopeId: orgId };
+  const email = getRequestUserEmail();
+  if (email) return { scope: "user", scopeId: email };
+  return null;
+}
+
+/**
  * Read a workspace/shared/personal resource file's FULL content by path.
  *
- * Resolution mirrors resourceEffectiveContext precedence (personal override →
- * shared/org → workspace default) so a `contentFromWorkspaceFile` reference
- * resolves the same file the `resources` read tool and run-code `workspaceRead`
- * see. Unlike attachments, resource content is not capped/truncated on the way
- * in, so this is the correct path for cloning a large extension body that
- * already exists as a workspace resource (e.g. a per-customer dashboard).
+ * Precedence (single, documented rule so this never silently resolves a
+ * different file than the agent inspected):
+ *   1. The run-code `workspace-files` bridge scope (org → shared owner, else the
+ *      user's email). This is the SAME owner/scope `workspaceRead` /
+ *      `workspaceWrite` use, so a body the agent staged via `workspaceWrite` is
+ *      resolved here verbatim — the two paths cannot diverge.
+ *   2. User-managed Resources (personal override → org/shared → workspace
+ *      default) as a fallback, for pre-built resources that were created in the
+ *      Resources panel rather than staged through the bridge.
+ *
+ * Unlike attachments, resource content is not capped/truncated on the way in, so
+ * this is the correct path for cloning a large extension body that already
+ * exists as a workspace resource (e.g. a per-customer dashboard).
  */
 async function readWorkspaceFileContent(path: string): Promise<string | null> {
   const trimmed = path.trim();
   if (!trimmed) return null;
+  // 1) Bridge parity — resolve exactly the file workspaceRead/workspaceWrite see.
+  const bridgeScope = workspaceFilesBridgeScope();
+  if (bridgeScope) {
+    try {
+      const file = await readWorkspaceFile(bridgeScope, trimmed);
+      if (file && typeof file.content === "string") return file.content;
+    } catch {
+      // No identity / invalid path / store error — fall through to Resources.
+    }
+  }
+  // 2) Fallback — user-managed Resources by scope precedence.
   for (const scope of ["personal", "shared", "workspace"] as const) {
     try {
       const content = await readResource(trimmed, { scope });
