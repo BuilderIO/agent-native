@@ -461,6 +461,43 @@ describe("realDataFinalGuard", () => {
     });
   });
 
+  it("recognizes providers from the complete source status catalog", () => {
+    const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "how many GitHub issues did we close last week",
+        draftText: "GitHub is not connected yet.",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+                { provider: "hubspot", label: "HubSpot", via: "oauth" },
+              ],
+              providers: [
+                { provider: "first-party", configured: true },
+                { provider: "github", label: "GitHub", configured: false },
+                { provider: "hubspot", label: "HubSpot", configured: true },
+              ],
+              dataSourcesSetupLink: setupLink,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(setupLink),
+      fallbackMessage: expect.stringContaining(setupLink),
+    });
+  });
+
   it("does not accept a bare data-sources route instead of the generated setup link", () => {
     const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
     const result = realDataFinalGuard(
@@ -468,6 +505,37 @@ describe("realDataFinalGuard", () => {
         userText: "what were our Stripe payments last week",
         draftText:
           "Stripe is not connected yet. [Connect data sources](/data-sources)",
+        toolResults: [
+          {
+            name: "data-source-status",
+            isError: false,
+            content: JSON.stringify({
+              configuredDataSources: [
+                {
+                  provider: "first-party",
+                  label: "First-party Analytics",
+                  via: "built-in",
+                },
+              ],
+              dataSourcesSetupLink: setupLink,
+            }),
+          },
+        ],
+      }),
+    );
+
+    expect(result).toMatchObject({
+      retryMessage: expect.stringContaining(setupLink),
+      fallbackMessage: expect.stringContaining(setupLink),
+    });
+  });
+
+  it("rejects a foreign markdown destination that only contains the setup link", () => {
+    const setupLink = "/_agent-native/open?app=analytics&view=data-sources";
+    const result = realDataFinalGuard(
+      guardContext({
+        userText: "what were our Stripe payments last week",
+        draftText: `Stripe is not connected yet. [Connect data sources](https://evil.example/?next=${setupLink})`,
         toolResults: [
           {
             name: "data-source-status",

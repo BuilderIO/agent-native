@@ -12,6 +12,7 @@ import {
   INITIAL_TOOL_NAMES,
 } from "../lib/agent-chat-plan-mode";
 import { ANALYTICS_CONNECTOR_CATALOG } from "../lib/analytics-connector-catalog";
+import { credentialProviderConfigs } from "../lib/credential-keys";
 import {
   failedDataQueryAttemptMessage,
   hasExplicitPartialDisclosure,
@@ -155,37 +156,31 @@ function configuredDataSourceLabels(
 interface DataSourceStatusSummary {
   checked: boolean;
   externalSourceLabels: string[];
+  availableExternalSources: Array<{
+    aliases: string[];
+    configured: boolean;
+  }>;
   setupLink: string;
 }
 
-const EXTERNAL_SOURCE_REQUEST_TERMS =
-  /\b(bigquery|hubspot|gong|slack|stripe|ga4|google analytics|mixpanel|posthog|amplitude|jira|pylon|sentry|salesforce|snowflake|segment|zendesk|intercom|warehouse|crm|payments?)\b/i;
+const GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS = /\b(warehouse|crm|payments?)\b/i;
 
 const EXTERNAL_SOURCE_PROVIDER_ALIASES = [
-  { pattern: /\bbigquery\b/i, aliases: ["bigquery"] },
-  { pattern: /\bhubspot\b/i, aliases: ["hubspot"] },
-  { pattern: /\bgong\b/i, aliases: ["gong"] },
-  { pattern: /\bslack\b/i, aliases: ["slack"] },
-  { pattern: /\bstripe\b/i, aliases: ["stripe"] },
-  {
-    pattern: /\b(?:ga4|google analytics)\b/i,
-    aliases: ["ga4", "google analytics"],
-  },
-  { pattern: /\bmixpanel\b/i, aliases: ["mixpanel"] },
-  { pattern: /\bposthog\b/i, aliases: ["posthog"] },
-  { pattern: /\bamplitude\b/i, aliases: ["amplitude"] },
-  { pattern: /\bjira\b/i, aliases: ["jira"] },
-  { pattern: /\bpylon\b/i, aliases: ["pylon"] },
-  { pattern: /\bsentry\b/i, aliases: ["sentry"] },
-  { pattern: /\bsalesforce\b/i, aliases: ["salesforce"] },
-  { pattern: /\bsnowflake\b/i, aliases: ["snowflake"] },
-  { pattern: /\bsegment\b/i, aliases: ["segment"] },
-  { pattern: /\bzendesk\b/i, aliases: ["zendesk"] },
-  { pattern: /\bintercom\b/i, aliases: ["intercom"] },
-] as const;
+  ...credentialProviderConfigs.map(({ provider, label }) => ({
+    terms: [provider, label],
+    aliases: [provider, label],
+  })),
+  { terms: ["ga4"], aliases: ["ga4", "google analytics"] },
+  { terms: ["twitter/x", "x/twitter"], aliases: ["twitter", "x/twitter"] },
+];
 
 function looksLikeExternalSourceRequest(userText: string): boolean {
-  return EXTERNAL_SOURCE_REQUEST_TERMS.test(userText);
+  return (
+    GENERIC_EXTERNAL_SOURCE_REQUEST_TERMS.test(userText) ||
+    EXTERNAL_SOURCE_PROVIDER_ALIASES.some(({ terms }) =>
+      terms.some((term) => containsNormalizedPhrase(userText, term)),
+    )
+  );
 }
 
 function normalizeSourceLabel(value: string): string {
@@ -195,35 +190,96 @@ function normalizeSourceLabel(value: string): string {
     .trim();
 }
 
+function containsNormalizedPhrase(text: string, phrase: string): boolean {
+  const normalizedText = normalizeSourceLabel(text);
+  const normalizedPhrase = normalizeSourceLabel(phrase);
+  return Boolean(
+    normalizedPhrase &&
+    (normalizedText === normalizedPhrase ||
+      normalizedText.startsWith(`${normalizedPhrase} `) ||
+      normalizedText.endsWith(` ${normalizedPhrase}`) ||
+      normalizedText.includes(` ${normalizedPhrase} `)),
+  );
+}
+
+function sourceAliasesOverlap(left: string[], right: string[]): boolean {
+  return left.some((leftAlias) =>
+    right.some((rightAlias) => {
+      const normalizedLeft = normalizeSourceLabel(leftAlias);
+      const normalizedRight = normalizeSourceLabel(rightAlias);
+      return (
+        normalizedLeft === normalizedRight ||
+        normalizedLeft.startsWith(`${normalizedRight} `) ||
+        normalizedLeft.endsWith(` ${normalizedRight}`) ||
+        normalizedLeft.includes(` ${normalizedRight} `) ||
+        normalizedRight.startsWith(`${normalizedLeft} `) ||
+        normalizedRight.endsWith(` ${normalizedLeft}`) ||
+        normalizedRight.includes(` ${normalizedLeft} `)
+      );
+    }),
+  );
+}
+
 function hasMissingRequestedExternalSource(
   userText: string,
   configuredSourceLabels: string[],
+  availableExternalSources: DataSourceStatusSummary["availableExternalSources"] = [],
 ): boolean {
-  const configuredLabels = configuredSourceLabels.map(normalizeSourceLabel);
-  return EXTERNAL_SOURCE_PROVIDER_ALIASES.filter(({ pattern }) =>
-    pattern.test(userText),
-  ).some(
-    ({ aliases }) =>
-      !configuredLabels.some((label) =>
-        aliases.some((alias) => {
-          const normalizedAlias = normalizeSourceLabel(alias);
-          return (
-            label === normalizedAlias ||
-            label.startsWith(`${normalizedAlias} `) ||
-            label.endsWith(` ${normalizedAlias}`) ||
-            label.includes(` ${normalizedAlias} `)
-          );
-        }),
-      ),
-  );
+  const configuredAliases = [
+    ...configuredSourceLabels.map((label) => [label]),
+    ...availableExternalSources
+      .filter(({ configured }) => configured)
+      .map(({ aliases }) => aliases),
+  ];
+  const sourceAliases = [
+    ...EXTERNAL_SOURCE_PROVIDER_ALIASES,
+    ...availableExternalSources.map(({ aliases }) => ({
+      terms: aliases,
+      aliases,
+    })),
+  ];
+  return sourceAliases
+    .filter(({ terms }) =>
+      terms.some((term) => containsNormalizedPhrase(userText, term)),
+    )
+    .some(
+      ({ aliases }) =>
+        !configuredAliases.some((configured) =>
+          sourceAliasesOverlap(configured, aliases),
+        ),
+    );
 }
 
 function dataSourceStatusSummary(
   toolResults: AgentLoopFinalResponseGuardContext["toolResults"],
 ): DataSourceStatusSummary {
   const externalSourceLabels = new Set<string>();
+  const availableExternalSources = new Map<
+    string,
+    { aliases: string[]; configured: boolean }
+  >();
   let checked = false;
   let setupLink = ANALYTICS_DATA_SOURCES_LINK;
+
+  const addAvailableExternalSource = (
+    provider: unknown,
+    label: unknown,
+    configured: boolean,
+  ) => {
+    const aliases = [provider, label]
+      .filter((value): value is string => typeof value === "string")
+      .map((value) => value.trim())
+      .filter(Boolean);
+    const key = normalizeSourceLabel(aliases[0] ?? aliases[1] ?? "");
+    if (!key) return;
+    const existing = availableExternalSources.get(key);
+    if (existing) {
+      existing.configured ||= configured;
+      existing.aliases = [...new Set([...existing.aliases, ...aliases])];
+      return;
+    }
+    availableExternalSources.set(key, { aliases, configured });
+  };
 
   for (const result of toolResults ?? []) {
     const normalizedName = String(result.name ?? "")
@@ -291,6 +347,7 @@ function dataSourceStatusSummary(
       if (typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
       }
+      addAvailableExternalSource(record.provider, label, true);
     }
 
     // Backward compatibility for status responses that predate the compact
@@ -305,13 +362,46 @@ function dataSourceStatusSummary(
         continue;
       }
       const record = provider as Record<string, unknown>;
-      if (record.configured !== true) continue;
       const providerId = String(record.provider ?? "")
         .trim()
         .toLowerCase();
       if (providerId === "first-party") continue;
       const label = record.label ?? record.provider;
+      addAvailableExternalSource(
+        record.provider,
+        label,
+        record.configured === true,
+      );
+      if (record.configured !== true) continue;
       if (typeof label === "string" && label.trim()) {
+        externalSourceLabels.add(label.trim());
+      }
+    }
+
+    const workspaceConnections =
+      parsed.workspaceConnections &&
+      typeof parsed.workspaceConnections === "object" &&
+      !Array.isArray(parsed.workspaceConnections)
+        ? (parsed.workspaceConnections as Record<string, unknown>)
+        : null;
+    const workspaceProviders = Array.isArray(workspaceConnections?.providers)
+      ? workspaceConnections.providers
+      : [];
+    for (const provider of workspaceProviders) {
+      if (
+        !provider ||
+        typeof provider !== "object" ||
+        Array.isArray(provider)
+      ) {
+        continue;
+      }
+      const record = provider as Record<string, unknown>;
+      const providerId = record.id ?? record.provider;
+      const label = record.label ?? providerId;
+      const configured =
+        record.configured === true || record.grantState === "connected";
+      addAvailableExternalSource(providerId, label, configured);
+      if (configured && typeof label === "string" && label.trim()) {
         externalSourceLabels.add(label.trim());
       }
     }
@@ -320,16 +410,20 @@ function dataSourceStatusSummary(
   return {
     checked,
     externalSourceLabels: [...externalSourceLabels],
+    availableExternalSources: [...availableExternalSources.values()],
     setupLink,
   };
 }
 
 function includesDataSourcesLink(text: string, setupLink: string): boolean {
-  const normalizedText = text.replace(/&amp;/g, "&");
   const normalizedSetupLink = setupLink.trim().replace(/&amp;/g, "&");
-  return Boolean(
-    normalizedSetupLink && normalizedText.includes(normalizedSetupLink),
-  );
+  if (!normalizedSetupLink) return false;
+  const normalizedText = text.replace(/&amp;/g, "&");
+  const linkPattern = /\[[^\]]+\]\((<[^>]+>|[^\s)]+)(?:\s+["'][^)]*["'])?\)/g;
+  return [...normalizedText.matchAll(linkPattern)].some((match) => {
+    const destination = match[1]?.replace(/^<|>$/g, "");
+    return destination === normalizedSetupLink;
+  });
 }
 
 export function realDataFinalGuard(
@@ -367,6 +461,7 @@ export function realDataFinalGuard(
   const missingRequestedExternalSource = hasMissingRequestedExternalSource(
     userText,
     sourceStatus.externalSourceLabels,
+    sourceStatus.availableExternalSources,
   );
   const firstPartySourceShouldBeTried =
     noConnectedExternalSources && !externalSourceRequest;
