@@ -2864,6 +2864,43 @@ export function validateRecapRepairSource(input: {
   if (isDeepStrictEqual(originalMdx[targetFile], repairedMdx[targetFile])) {
     throw new Error(`Repair did not change targeted file ${targetFile}.`);
   }
+  const originalTarget = originalMdx[targetFile];
+  const repairedTarget = repairedMdx[targetFile];
+  if (
+    typeof originalTarget !== "string" ||
+    typeof repairedTarget !== "string"
+  ) {
+    throw new Error(`Targeted file ${targetFile} must remain an MDX string.`);
+  }
+  let prefixLength = 0;
+  while (
+    prefixLength < originalTarget.length &&
+    prefixLength < repairedTarget.length &&
+    originalTarget[prefixLength] === repairedTarget[prefixLength]
+  ) {
+    prefixLength += 1;
+  }
+  let suffixLength = 0;
+  while (
+    suffixLength < originalTarget.length - prefixLength &&
+    suffixLength < repairedTarget.length - prefixLength &&
+    originalTarget[originalTarget.length - 1 - suffixLength] ===
+      repairedTarget[repairedTarget.length - 1 - suffixLength]
+  ) {
+    suffixLength += 1;
+  }
+  const preservedLength = prefixLength + suffixLength;
+  const originalChangedLength = originalTarget.length - preservedLength;
+  const repairedChangedLength = repairedTarget.length - preservedLength;
+  if (
+    preservedLength < Math.floor(originalTarget.length * 0.9) ||
+    originalChangedLength > 2000 ||
+    repairedChangedLength > 2000
+  ) {
+    throw new Error(
+      `Repair changed too much of targeted file ${targetFile}; expected a localized parser fix.`,
+    );
+  }
   return { targetFile };
 }
 

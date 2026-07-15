@@ -679,7 +679,8 @@ describe("recap direct publish", () => {
         title: "Recap",
         brief: "Preserve me",
         mdx: {
-          "plan.mdx": "# broken",
+          "plan.mdx": `${"# Grounded recap\n\n".repeat(20)}<AnnotatedCode code={"const value = 1;
+"} />\n`,
           "canvas.mdx": "<DesignBoard />",
           "assets/": { "image.png": "base64" },
         },
@@ -689,7 +690,13 @@ describe("recap direct publish", () => {
         sourcePath,
         JSON.stringify({
           ...original,
-          mdx: { ...original.mdx, "plan.mdx": "# repaired" },
+          mdx: {
+            ...original.mdx,
+            "plan.mdx": original.mdx["plan.mdx"].replace(
+              'const value = 1;\n"',
+              'const value = 1;\\n"',
+            ),
+          },
         }),
       );
 
@@ -712,6 +719,21 @@ describe("recap direct publish", () => {
           reason: "plan.mdx:6:53: Could not parse expression with acorn",
         }),
       ).toThrow(/top-level payload structure/);
+
+      fs.writeFileSync(
+        sourcePath,
+        JSON.stringify({
+          ...original,
+          mdx: { ...original.mdx, "plan.mdx": "# Minimal replacement" },
+        }),
+      );
+      expect(() =>
+        validateRecapRepairSource({
+          originalPath,
+          sourcePath,
+          reason: "plan.mdx:6:53: Could not parse expression with acorn",
+        }),
+      ).toThrow(/localized parser fix/);
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
