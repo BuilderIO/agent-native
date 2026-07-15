@@ -92,6 +92,21 @@ describe("action discovery", () => {
     expect(registry["safe-write"].parallelSafe).toBe(true);
   });
 
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const registry = loadActionsFromStaticRegistry({
+      "poll-run": {
+        default: {
+          tool: { description: "Poll run status", parameters: {} },
+          readOnly: true,
+          dedupe: false,
+          run: async () => ({ status: "running" }),
+        },
+      },
+    });
+
+    expect(registry["poll-run"].dedupe).toBe(false);
+  });
+
   it("preserves explicit allowInPlanMode false metadata", () => {
     const registry = loadActionsFromStaticRegistry({
       "act-only-read": {

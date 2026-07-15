@@ -251,17 +251,27 @@ export async function createSsrfSafeDispatcher(): Promise<unknown | null> {
  * `httpsOnly` extends the per-hop validation to the URL scheme: redirects are
  * followed only to `https:` targets, so an HTTPS-only caller cannot be
  * downgraded to plain HTTP by a 30x from the (untrusted) origin.
+ *
+ * `assertUrlAllowed` lets callers layer a stricter destination policy (for
+ * example, a credential's origin allowlist) on top of the SSRF checks. It runs
+ * before the initial request and before every redirect hop, so sensitive
+ * headers and bodies are never forwarded to a destination the caller rejects.
  */
 export async function ssrfSafeFetch(
   url: string,
   init: RequestInit = {},
-  options: { maxRedirects?: number; httpsOnly?: boolean } = {},
+  options: {
+    maxRedirects?: number;
+    httpsOnly?: boolean;
+    assertUrlAllowed?: (url: string) => void | Promise<void>;
+  } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
   const dispatcher = (await createSsrfSafeDispatcher()) ?? undefined;
 
   let currentUrl = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    await options.assertUrlAllowed?.(currentUrl);
     if (options.httpsOnly && new URL(currentUrl).protocol !== "https:") {
       throw new Error(
         `SSRF blocked: refusing to fetch non-HTTPS address (${currentUrl})`,

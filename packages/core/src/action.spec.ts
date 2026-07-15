@@ -83,6 +83,17 @@ describe("defineAction", () => {
     expect(action.parallelSafe).toBe(true);
   });
 
+  it("preserves explicit duplicate-read opt-out metadata", () => {
+    const action = defineAction({
+      description: "volatile polling read",
+      parameters: { id: { type: "string" } },
+      readOnly: true,
+      dedupe: false,
+      run: async () => "ok",
+    });
+    expect(action.dedupe).toBe(false);
+  });
+
   it("preserves per-tool timeout and result limits", () => {
     const action = defineAction({
       description: "slow provider call",
