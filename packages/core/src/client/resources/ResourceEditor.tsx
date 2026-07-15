@@ -1319,12 +1319,10 @@ export function ResourceEditor({
   );
 }
 
-const COLLAPSED_MAX_HEIGHT = 420;
-
 /**
- * Plain-text editor that opens at a capped height and offers a "Show more"
- * toggle to reveal the full file. When expanded it grows to fit all content
- * and the surrounding container scrolls.
+ * Plain-text editor that fills the available panel height and offers a
+ * "Show more" toggle to reveal the full file. When expanded it grows to fit
+ * all content and the surrounding container scrolls.
  */
 function AutoGrowTextarea({
   content,
@@ -1342,22 +1340,26 @@ function AutoGrowTextarea({
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    const full = el.scrollHeight;
-    setOverflowing(full > COLLAPSED_MAX_HEIGHT);
-    el.style.height = expanded
-      ? `${full}px`
-      : `${Math.min(full, COLLAPSED_MAX_HEIGHT)}px`;
+    if (expanded) {
+      el.style.height = "auto";
+      el.style.height = `${el.scrollHeight}px`;
+    } else {
+      el.style.height = "";
+      setOverflowing(el.scrollHeight > el.clientHeight + 1);
+    }
   }, [content, expanded]);
 
   return (
-    <div className="flex flex-col">
+    <div className={cn("flex flex-col", !expanded && "h-full")}>
       <textarea
         ref={ref}
         value={content}
         onChange={(e) => onChange(e.target.value)}
         readOnly={readOnly}
-        className="block w-full resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50"
+        className={cn(
+          "block w-full resize-none bg-transparent p-3 text-[13px] text-foreground outline-none placeholder:text-muted-foreground/50",
+          expanded ? "shrink-0" : "min-h-0 flex-1",
+        )}
         style={{
           fontFamily:
             'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
@@ -1366,7 +1368,7 @@ function AutoGrowTextarea({
         }}
         spellCheck={false}
       />
-      {overflowing && (
+      {(overflowing || expanded) && (
         <div className="flex justify-center border-t border-border/60 py-1.5">
           <button
             type="button"
