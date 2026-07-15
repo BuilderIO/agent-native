@@ -734,6 +734,34 @@ describe("recap direct publish", () => {
           reason: "plan.mdx:6:53: Could not parse expression with acorn",
         }),
       ).toThrow(/localized parser fix/);
+
+      const largeCodeBlock = Array.from(
+        { length: 80 },
+        (_, index) => `const value${index} = ${index};`,
+      ).join("\n");
+      original.mdx["plan.mdx"] =
+        `# Grounded recap\n\n<AnnotatedCode code={"${largeCodeBlock}"} />\n\nClosing context.\n`;
+      fs.writeFileSync(originalPath, JSON.stringify(original));
+      fs.writeFileSync(
+        sourcePath,
+        JSON.stringify({
+          ...original,
+          mdx: {
+            ...original.mdx,
+            "plan.mdx": original.mdx["plan.mdx"].replace(
+              largeCodeBlock,
+              largeCodeBlock.replaceAll("\n", "\\n"),
+            ),
+          },
+        }),
+      );
+      expect(() =>
+        validateRecapRepairSource({
+          originalPath,
+          sourcePath,
+          reason: "plan.mdx:3:53: Could not parse expression with acorn",
+        }),
+      ).not.toThrow();
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }

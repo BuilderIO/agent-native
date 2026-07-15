@@ -2893,7 +2893,8 @@ export function validateRecapRepairSource(input: {
   const originalChangedLength = originalTarget.length - preservedLength;
   const repairedChangedLength = repairedTarget.length - preservedLength;
   if (
-    preservedLength < Math.floor(originalTarget.length * 0.9) ||
+    prefixLength === 0 ||
+    suffixLength === 0 ||
     originalChangedLength > 2000 ||
     repairedChangedLength > 2000
   ) {
