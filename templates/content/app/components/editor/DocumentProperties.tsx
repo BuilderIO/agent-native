@@ -1073,15 +1073,6 @@ export function PropertyManagementPopover({
       (metadata) => persistMetadataSnapshotRef.current(metadata),
     ),
   );
-  const persistOptionSnapshotRef = useRef<
-    (options: DocumentPropertyOption[]) => Promise<unknown>
-  >(async () => undefined);
-  const optionUpdateQueueRef = useRef(
-    createPropertyOptionUpdateQueue(
-      property.definition.options.options ?? [],
-      (options) => persistOptionSnapshotRef.current(options),
-    ),
-  );
   const propertyNameInputRef = useRef<HTMLInputElement>(null);
   const typeIsLocked = isComputedPropertyType(property.definition.type);
   const typeNeedsOptions =
@@ -1100,9 +1091,6 @@ export function PropertyManagementPopover({
       visibility: property.definition.visibility,
       options: property.definition.options,
     });
-    optionUpdateQueueRef.current.replace(
-      property.definition.options.options ?? [],
-    );
   }
 
   useEffect(() => {
@@ -1132,15 +1120,23 @@ export function PropertyManagementPopover({
     }));
   }
 
+  async function updateOptions(
+    update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
+  ) {
+    await metadataUpdateQueueRef.current.enqueue((current) => ({
+      ...current,
+      options: {
+        options: update(current.options.options ?? []),
+      },
+    }));
+  }
+
   persistMetadataSnapshotRef.current = (metadata) =>
     configure.mutateAsync({
       id: property.definition.id,
       documentId,
       ...metadata,
     });
-
-  persistOptionSnapshotRef.current = (options) =>
-    configureProperty({ options: { options } });
 
   async function renameProperty() {
     const nextName = name.trim();
@@ -1188,7 +1184,7 @@ export function PropertyManagementPopover({
   async function addOption() {
     const optionName = newOption.trim();
     if (!optionName) return;
-    await optionUpdateQueueRef.current.enqueue((existing) => [
+    await updateOptions((existing) => [
       ...existing,
       makeOption(
         optionName,
@@ -1200,25 +1196,25 @@ export function PropertyManagementPopover({
   }
 
   async function removeOption(id: string) {
-    await optionUpdateQueueRef.current.enqueue((options) =>
+    await updateOptions((options) =>
       options.filter((option) => option.id !== id),
     );
   }
 
   async function renameOption(id: string, optionName: string) {
-    await optionUpdateQueueRef.current.enqueue((options) =>
+    await updateOptions((options) =>
       renamePropertyOption(options, id, optionName),
     );
   }
 
   async function recolorOption(id: string, color: DocumentPropertyOptionColor) {
-    await optionUpdateQueueRef.current.enqueue((options) =>
+    await updateOptions((options) =>
       updatePropertyOptionColor(options, id, color),
     );
   }
 
   async function describeOption(id: string, description: string) {
-    await optionUpdateQueueRef.current.enqueue((options) =>
+    await updateOptions((options) =>
       updatePropertyOptionDescription(options, id, description),
     );
   }

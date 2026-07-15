@@ -42,6 +42,11 @@ export function DescriptionField({
   const skipNextBlurSaveRef = useRef(false);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
   const saveRevisionRef = useRef(0);
+  const confirmedDescriptionRef = useRef(description ?? "");
+
+  useEffect(() => {
+    confirmedDescriptionRef.current = description ?? "";
+  }, [description]);
 
   useEffect(() => {
     if (!editing) setDraft(description ?? "");
@@ -60,9 +65,10 @@ export function DescriptionField({
 
     try {
       await request;
+      confirmedDescriptionRef.current = next;
     } catch {
       if (saveRevisionRef.current === revision) {
-        setDraft(descriptionFieldEscapeDraft(description));
+        setDraft(confirmedDescriptionRef.current);
       }
     }
   };

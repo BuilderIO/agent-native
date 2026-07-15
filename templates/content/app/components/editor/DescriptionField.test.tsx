@@ -135,4 +135,38 @@ describe("DescriptionField behavior", () => {
     expect(onSave).toHaveBeenLastCalledWith("Latest edit");
     expect(persistedValues).toEqual(["First edit", "Latest edit"]);
   });
+
+  it("restores the latest confirmed save when a queued save fails before props refresh", async () => {
+    let markSecondSaveFinished!: () => void;
+    const secondSaveFinished = new Promise<void>((resolve) => {
+      markSecondSaveFinished = resolve;
+    });
+    const onSave = vi.fn(async (value: string) => {
+      if (value === "Latest edit") {
+        markSecondSaveFinished();
+        throw new Error("offline");
+      }
+    });
+    render(onSave);
+
+    act(() => {
+      textareaProps.onChange({ target: { value: "First edit" } });
+    });
+    act(() => textareaProps.onBlur());
+    act(() => {
+      textareaProps.onFocus();
+      textareaProps.onChange({ target: { value: "Latest edit" } });
+    });
+    act(() => textareaProps.onBlur());
+
+    await act(async () => {
+      await secondSaveFinished;
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSave).toHaveBeenNthCalledWith(1, "First edit");
+    expect(onSave).toHaveBeenNthCalledWith(2, "Latest edit");
+    expect(textareaProps.value).toBe("First edit");
+  });
 });

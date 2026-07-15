@@ -299,6 +299,69 @@ describe("document property metadata persistence", () => {
       },
     ]);
   });
+
+  it("keeps option edits when a property metadata save follows them", async () => {
+    const persisted: Array<{
+      description: string;
+      options: DocumentPropertyOption[];
+    }> = [];
+    const queue = createPropertyMetadataUpdateQueue(
+      {
+        name: "Status",
+        type: "select",
+        description: "",
+        visibility: "always_show",
+        options: { options },
+      },
+      async (metadata) => {
+        persisted.push({
+          description: metadata.description ?? "",
+          options: metadata.options.options ?? [],
+        });
+      },
+    );
+
+    await Promise.all([
+      queue.enqueue((current) => ({
+        ...current,
+        options: {
+          options: renamePropertyOption(
+            current.options.options ?? [],
+            "draft",
+            "In progress",
+          ),
+        },
+      })),
+      queue.enqueue((current) => ({
+        ...current,
+        options: {
+          options: updatePropertyOptionDescription(
+            current.options.options ?? [],
+            "draft",
+            "Use while active work is underway.",
+          ),
+        },
+      })),
+      queue.enqueue((current) => ({
+        ...current,
+        description: "Tracks the editorial workflow.",
+      })),
+    ]);
+
+    expect(persisted[persisted.length - 1]).toEqual({
+      description: "Tracks the editorial workflow.",
+      options: [
+        {
+          id: "draft",
+          name: "In progress",
+          color: "gray",
+          description: "Use while active work is underway.",
+        },
+        options[1],
+        options[2],
+      ],
+    });
+  });
 });
 
 describe("document date property editor", () => {
