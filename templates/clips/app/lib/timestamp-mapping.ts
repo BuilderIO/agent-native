@@ -229,6 +229,33 @@ export function getKeptRanges(
 }
 
 /**
+ * Kept ranges additionally subdivided at split markers — the segment
+ * structure the clips editor's timeline shows. Splits that fall inside an
+ * excluded range or exactly on a segment edge produce no empty segment;
+ * duplicate split points collapse.
+ */
+export function getKeptSegments(
+  durationMs: number,
+  edits: EditsJson,
+): KeptRange[] {
+  const splits = edits.trims
+    .filter((t) => !t.excluded)
+    .map((t) => t.startMs)
+    .sort((a, b) => a - b);
+  const out: KeptRange[] = [];
+  for (const range of getKeptRanges(durationMs, edits)) {
+    let cursor = range.startMs;
+    for (const at of splits) {
+      if (at <= cursor || at >= range.endMs) continue;
+      out.push({ startMs: cursor, endMs: at });
+      cursor = at;
+    }
+    out.push({ startMs: cursor, endMs: range.endMs });
+  }
+  return out;
+}
+
+/**
  * Merge a new excluded range into the edits, collapsing adjacent/overlapping
  * entries. Preserves existing non-excluded (split) markers as-is.
  */

@@ -53,7 +53,8 @@ into other repos or publish it separately). Clips-specific glue lives in
 | `save-video-project-export` | Create a ready library recording from a rendered export URL |
 
 `add-recording-to-video-project` flags: `respectEdits` (default true — imports
-the simple editor's kept ranges as sequential timeline items),
+the simple editor's kept ranges as sequential timeline items, subdivided at
+split markers so each clips-editor segment arrives as its own item),
 `includeCaptions` (maps `recording_transcripts` segments to a caption track,
 remapped to edited time).
 

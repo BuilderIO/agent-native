@@ -7,9 +7,10 @@
  * `pending_imports_json`; the editor materialises it as timeline items on next
  * load (the client owns the item shape) and then clears the queue.
  *
- * By default the simple editor's trims are respected: the clip is imported as
- * its kept ranges laid out sequentially. Transcript captions can be imported
- * as a caption track, remapped to the edited timeline.
+ * By default the simple editor's edits are respected: the clip is imported as
+ * its kept ranges laid out sequentially, subdivided at split markers so each
+ * clips-editor segment becomes its own timeline item. Transcript captions can
+ * be imported as a caption track, remapped to the edited timeline.
  *
  * Usage:
  *   pnpm action add-recording-to-video-project --recordingId=<id>
@@ -25,6 +26,7 @@ import { z } from "zod";
 
 import {
   getKeptRanges,
+  getKeptSegments,
   originalToEdited,
   parseEdits,
 } from "../app/lib/timestamp-mapping.js";
@@ -40,7 +42,7 @@ const MIN_CAPTION_MS = 80;
 
 export default defineAction({
   description:
-    "Add a recording as a source in a video project (full multi-track editor). Omit projectId to create a new project named after the recording. Respects the recording's simple-editor trims by default (respectEdits=false imports the raw clip). Set includeCaptions=true to also add the transcript as a caption track. Returns the projectId; open it at /video-projects/:id.",
+    "Add a recording as a source in a video project (full multi-track editor). Omit projectId to create a new project named after the recording. Respects the recording's simple-editor edits by default: trimmed ranges are dropped and split markers carry over as separate timeline items (respectEdits=false imports the raw clip). Set includeCaptions=true to also add the transcript as a caption track. Returns the projectId; open it at /video-projects/:id.",
   schema: z.object({
     recordingId: z.string().describe("Recording to add as a source"),
     projectId: z
@@ -108,8 +110,16 @@ export default defineAction({
 
     const edits = parseEdits(recording.editsJson);
     const respectEdits = args.respectEdits ?? true;
+    // Captions clamp against merged kept ranges (a split must not slice a
+    // caption in two); timeline items use split-subdivided segments so the
+    // clips editor's segmentation carries over as separate items.
     const keptRanges = respectEdits
       ? getKeptRanges(recording.durationMs, edits).filter(
+          (range) => range.endMs > range.startMs,
+        )
+      : null;
+    const keptSegments = respectEdits
+      ? getKeptSegments(recording.durationMs, edits).filter(
           (range) => range.endMs > range.startMs,
         )
       : null;
@@ -169,7 +179,7 @@ export default defineAction({
       width: recording.width,
       height: recording.height,
       hasAudio: recording.hasAudio,
-      keptRanges,
+      keptRanges: keptSegments,
       captions,
     };
 
@@ -234,7 +244,7 @@ export default defineAction({
       projectId,
       created,
       recordingId: recording.id,
-      importedRanges: keptRanges?.length ?? 1,
+      importedRanges: keptSegments?.length ?? 1,
       includedCaptions: Boolean(captions),
       url: `/video-projects/${projectId}`,
     };
