@@ -2709,7 +2709,11 @@ export class RecapPublishHttpError extends Error {
 export function isRepairableRecapPublishError(
   error: unknown,
 ): error is RecapPublishHttpError {
-  return error instanceof RecapPublishHttpError && error.status === 422;
+  return (
+    error instanceof RecapPublishHttpError &&
+    error.status === 422 &&
+    /(?:plan|canvas|prototype)\.mdx:\d+:\d+:/.test(error.message)
+  );
 }
 
 type RecapSourceFilePayload = {

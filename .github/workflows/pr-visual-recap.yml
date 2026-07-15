@@ -649,6 +649,7 @@ jobs:
           CLAUDE_REPAIR_STATUS="$?"
           set -e
           echo "$CLAUDE_REPAIR_STATUS" > claude-repair-exit-code.txt
+          if [ "$CLAUDE_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Repair recap source (Codex)
         id: codex_repair
@@ -673,6 +674,7 @@ jobs:
           CODEX_REPAIR_STATUS="${PIPESTATUS[0]}"
           set -e
           echo "$CODEX_REPAIR_STATUS" > codex-repair-exit-code.txt
+          if [ "$CODEX_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Repair recap source (OpenAI-compatible)
         id: openai_compatible_repair
@@ -693,10 +695,32 @@ jobs:
           OPENAI_COMPATIBLE_REPAIR_STATUS="$?"
           set -e
           echo "$OPENAI_COMPATIBLE_REPAIR_STATUS" > openai-compatible-repair-exit-code.txt
+          if [ "$OPENAI_COMPATIBLE_REPAIR_STATUS" -eq 0 ]; then echo "ok=true" >> "$GITHUB_OUTPUT"; else echo "ok=false" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Validate repaired recap source
+        id: repaired_source
+        if: steps.publish.outputs.repairable == 'true'
+        env:
+          REPAIR_AGENT_OK: ${{ steps.claude_repair.outputs.ok || steps.codex_repair.outputs.ok || steps.openai_compatible_repair.outputs.ok }}
+        run: |
+          set -uo pipefail
+          if [ "${REPAIR_AGENT_OK:-false}" != "true" ]; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if cmp -s recap-source.initial.json recap-source.json; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          if ! node -e 'const fs = require("node:fs"); const value = JSON.parse(fs.readFileSync("recap-source.json", "utf8")); if (!value || typeof value !== "object" || !value.mdx || typeof value.mdx["plan.mdx"] !== "string" || !value.mdx["plan.mdx"].trim()) process.exit(1);'; then
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "ok=true" >> "$GITHUB_OUTPUT"
 
       - name: Publish repaired recap source
         id: publish_repair
-        if: steps.publish.outputs.repairable == 'true'
+        if: steps.repaired_source.outputs.ok == 'true'
         continue-on-error: true
         env:
           PREV_PLAN_ID: ${{ steps.prev.outputs.plan_id }}
@@ -789,6 +813,7 @@ jobs:
         continue-on-error: true
         env:
           RECAP_AGENT: ${{ needs.gate.outputs.agent }}
+          RECAP_REPAIR_ATTEMPTED: ${{ steps.repair_prompt.outcome == 'success' }}
           RECAP_BLOCK_REFERENCE_SUMMARY: ${{ steps.block_reference.outputs.summary }}
           RECAP_PUBLISH_REASON: ${{ steps.publish_repair.outputs.reason || steps.publish.outputs.reason }}
         run: |
@@ -804,6 +829,20 @@ jobs:
             RESULT=openai-compatible-result.txt
             STDERR=openai-compatible-stderr.log
             EXIT_CODE=openai-compatible-exit-code.txt
+          fi
+          if [ "$RECAP_REPAIR_ATTEMPTED" = "true" ]; then
+            RESULT=claude-repair-result.json
+            STDERR=claude-repair-stderr.log
+            EXIT_CODE=claude-repair-exit-code.txt
+            if [ "$RECAP_AGENT" = "codex" ]; then
+              RESULT=codex-repair-events.jsonl
+              STDERR=codex-repair-stderr.log
+              EXIT_CODE=codex-repair-exit-code.txt
+            elif [ "$RECAP_AGENT" = "openai-compatible" ]; then
+              RESULT=openai-compatible-repair-result.txt
+              STDERR=openai-compatible-repair-stderr.log
+              EXIT_CODE=openai-compatible-repair-exit-code.txt
+            fi
           fi
           SUMMARY_JSON="$(GITHUB_OUTPUT=/dev/null $RECAP_CLI recap agent-summary --agent "$RECAP_AGENT" --result-file "$RESULT" --stderr-file "$STDERR" --exit-code-file "$EXIT_CODE" || echo '{}')"
           SUMMARY="$(node -e 'try { const value = JSON.parse(process.argv[1]).summary; process.stdout.write(typeof value === "string" ? value : ""); } catch {}' "$SUMMARY_JSON")"

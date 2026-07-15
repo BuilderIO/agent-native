@@ -9,6 +9,7 @@ import { PR_VISUAL_RECAP_WORKFLOW_YML } from "./pr-visual-recap-workflow.js";
 import {
   PR_VISUAL_RECAP_SETUP,
   RECAP_DIFF_BYTE_CAP,
+  RecapPublishHttpError,
   appendGateSkipLine,
   buildRecapFailureDiagnostic,
   buildRecapSetupPlan,
@@ -637,6 +638,14 @@ describe("recap direct publish", () => {
     } finally {
       fs.rmSync(dir, { recursive: true, force: true });
     }
+  });
+
+  it("does not classify a non-parser 422 as content-repairable", () => {
+    const error = new RecapPublishHttpError(
+      422,
+      "create-visual-recap failed 422: empty wireframes",
+    );
+    expect(isRepairableRecapPublishError(error)).toBe(false);
   });
 
   it("builds a narrow repair prompt from the hosted parser diagnostic", () => {
@@ -2798,6 +2807,10 @@ describe("bundled PR visual recap workflow", () => {
       expect(workflow).toContain("Repair recap source (Codex)");
       expect(workflow).toContain("Repair recap source (OpenAI-compatible)");
       expect(workflow).toContain("Publish repaired recap source");
+      expect(workflow).toContain("Validate repaired recap source");
+      expect(workflow).toContain("steps.repaired_source.outputs.ok == 'true'");
+      expect(workflow).toContain("RECAP_REPAIR_ATTEMPTED");
+      expect(workflow).toContain("claude-repair-result.json");
       expect(workflow).toContain("recap-source.initial.json");
       const artifactBlock = workflow.slice(
         workflow.indexOf("Upload recap source artifact"),
