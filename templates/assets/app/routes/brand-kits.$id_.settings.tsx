@@ -224,7 +224,7 @@ export default function BrandKitSettingsRoute() {
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6">
-      <div className="grid items-start gap-4 md:grid-cols-2">
+      <div className="flex flex-col gap-4">
         <div className="space-y-4 rounded-lg border border-border p-4">
           <Label htmlFor="brand-kit-title">{t("brandKitDetail.name")}</Label>
           <Input
