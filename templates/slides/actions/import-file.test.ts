@@ -1,25 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockReadFile = vi.hoisted(() => vi.fn());
+const mockReadUserUploadedFile = vi.hoisted(() => vi.fn());
 const mockPdfText = vi.hoisted(() => vi.fn());
 const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
-
-vi.mock("fs", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("fs")>();
-  return {
-    ...actual,
-    default: {
-      ...actual.default,
-      promises: {
-        ...actual.default.promises,
-        readFile: (...args: unknown[]) => mockReadFile(...args),
-      },
-    },
-  };
-});
 
 vi.mock("pdf-parse", () => ({
   PDFParse: class {
@@ -30,7 +16,8 @@ vi.mock("pdf-parse", () => ({
 }));
 
 vi.mock("./_uploaded-files.js", () => ({
-  resolveUserUploadedFile: (filePath: string) => `/uploads/${filePath}`,
+  readUserUploadedFile: (...args: unknown[]) =>
+    mockReadUserUploadedFile(...args),
 }));
 
 vi.mock("../server/db/index.js", () => ({
@@ -69,7 +56,10 @@ import action from "./import-file";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mockReadFile.mockResolvedValue(Buffer.from("%PDF-1.7\n"));
+  mockReadUserUploadedFile.mockImplementation(async (filePath: string) => ({
+    data: Buffer.from("%PDF-1.7\n"),
+    filename: filePath,
+  }));
   mockStartBuilderDesignSystemIndex.mockResolvedValue({
     ok: true,
     source: "builder",
@@ -153,7 +143,10 @@ describe("import-file PDF source extraction", () => {
     const figBuffer = Buffer.from([
       0x66, 0x69, 0x67, 0x2d, 0x6b, 0x69, 0x77, 0x69, 0, 0, 0, 0,
     ]);
-    mockReadFile.mockResolvedValue(figBuffer);
+    mockReadUserUploadedFile.mockResolvedValue({
+      data: figBuffer,
+      filename: "brand.fig",
+    });
 
     const result = (await action.run({
       filePath: "brand.fig",

@@ -44,6 +44,15 @@ import {
   type ExtensionRow,
 } from "./store.js";
 
+// A 200k extension body containing JSON-sensitive HTML/JS characters (quotes,
+// backslashes, and newlines) expands to about 400k characters when pretty-JSON
+// serialized by the agent loop. A history detail can carry the current and
+// previous bodies plus both bodies again in its line diff (about 1.6M chars in
+// the same worst-common-case fixture). These caps add roughly 25% headroom for
+// the surrounding metadata and indentation while still bounding tool context.
+const GET_EXTENSION_MAX_RESULT_CHARS = 500_000;
+const GET_EXTENSION_HISTORY_MAX_RESULT_CHARS = 2_000_000;
+
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
     "list-extensions": {
@@ -185,6 +194,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ),
         };
       },
+      // Result is JSON including the full Alpine content; account for JSON
+      // escaping and envelope metadata instead of matching the source cap.
+      maxResultChars: GET_EXTENSION_MAX_RESULT_CHARS,
       readOnly: true,
     },
 
@@ -276,6 +288,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           ),
         };
       },
+      // With includeContent, history can contain current + previous source and
+      // repeat both in the diff, so it needs more headroom than get-extension.
+      maxResultChars: GET_EXTENSION_HISTORY_MAX_RESULT_CHARS,
       readOnly: true,
     },
 

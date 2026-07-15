@@ -197,6 +197,28 @@ describe("extensions/actions", () => {
     });
   });
 
+  it("declares serialization-safe result caps for extension source reads", async () => {
+    mockExtensionModules();
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const jsonSensitiveSource = '"\\\n'
+      .repeat(Math.ceil(200_000 / 3))
+      .slice(0, 200_000);
+    const serializedSourceChars = JSON.stringify(jsonSensitiveSource).length;
+
+    expect(actions["get-extension"].maxResultChars).toBe(500_000);
+    expect(actions["get-extension"].maxResultChars).toBeGreaterThanOrEqual(
+      serializedSourceChars + 50_000,
+    );
+    expect(actions["get-extension-history-version"].maxResultChars).toBe(
+      2_000_000,
+    );
+    expect(
+      actions["get-extension-history-version"].maxResultChars,
+    ).toBeGreaterThanOrEqual(serializedSourceChars * 4 + 100_000);
+  });
+
   it("omits repeated unchanged extension content within one agent run", async () => {
     const getExtension = vi.fn(async () => ({
       ...extensionRow,

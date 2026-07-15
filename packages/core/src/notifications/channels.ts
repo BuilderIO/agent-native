@@ -29,9 +29,10 @@
 
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
+  getKeyAllowlist,
+  getResolvedKeyAllowlist,
   resolveKeyReferencesWithRequestScopes,
   validateUrlAllowlist,
-  getKeyAllowlist,
 } from "../secrets/substitution.js";
 import { sendEmail } from "../server/email.js";
 import { registerNotificationChannel } from "./registry.js";
@@ -72,7 +73,7 @@ function createWebhookChannel(
       // No-op when neither a per-notification nor workspace URL is set —
       // mirrors email's empty-recipients behavior so notify-all stays quiet.
       if (!urlTemplate) return false;
-      const { url, headers } = await resolveWebhookRequest(
+      const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
         urlTemplate,
         overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
@@ -92,7 +93,7 @@ function createWebhookChannel(
             emittedAt: new Date().toISOString(),
           }),
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, assertUrlAllowed },
       );
       if (!res.ok) {
         throw new Error(
@@ -121,7 +122,7 @@ function createSlackWebhookChannel(
         metadataString(input.metadata, "slackWebhookUrl") ??
         envUrlTemplate?.trim();
       if (!urlTemplate) return false;
-      const { url, headers } = await resolveWebhookRequest(
+      const { url, headers, assertUrlAllowed } = await resolveWebhookRequest(
         urlTemplate,
         overrideUrlTemplate ? undefined : authTemplate,
         meta.owner,
@@ -165,7 +166,7 @@ function createSlackWebhookChannel(
             ],
           }),
         },
-        { maxRedirects: 3 },
+        { maxRedirects: 3, assertUrlAllowed },
       );
       if (!res.ok) {
         throw new Error(
@@ -214,7 +215,11 @@ async function resolveWebhookRequest(
   authTemplate: string | undefined,
   owner: string,
   label: string,
-): Promise<{ url: string; headers: Record<string, string> }> {
+): Promise<{
+  url: string;
+  headers: Record<string, string>;
+  assertUrlAllowed: (url: string) => void;
+}> {
   // Resolve `${keys.NAME}` references through the same request-scope
   // cascade already used by extension fetches (extensions/routes.ts) and
   // automation connector headers (automation/index.ts): user scope first
@@ -229,46 +234,72 @@ async function resolveWebhookRequest(
   // strict superset of the previous user-scope-only behavior.
   // Missing keys throw — the error surfaces in logs and the channel is marked
   // un-delivered, but other channels still run.
-  const { resolved: url } = await resolveKeyReferencesWithRequestScopes(
+  const urlResult = await resolveKeyReferencesWithRequestScopes(
     urlTemplate,
     owner,
   );
+  const url = urlResult.resolved;
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
+  let authResult:
+    | Awaited<ReturnType<typeof resolveKeyReferencesWithRequestScopes>>
+    | undefined;
   if (authTemplate) {
-    const { resolved: auth } = await resolveKeyReferencesWithRequestScopes(
+    authResult = await resolveKeyReferencesWithRequestScopes(
       authTemplate,
       owner,
     );
-    headers.Authorization = auth;
+    headers.Authorization = authResult.resolved;
   }
 
   // If the user set an allowlist on a referenced key, enforce it here —
   // origin-level check, same rule the automations fetch-tool applies.
-  // NOTE: this still checks the allowlist at user scope only (unlike the
-  // fetch tool's validateUrl, which now consults getResolvedKeyAllowlist at
-  // the scope the key actually resolved at — see agent-chat-plugin.ts). A
-  // key that resolves at org/workspace scope with an allowlist configured
-  // on that org/workspace row will not have it enforced here.
-  const keyNames = Array.from(
-    new Set(
-      Array.from(urlTemplate.matchAll(/\$\{keys\.([A-Za-z0-9_-]+)\}/g), (m) =>
-        String(m[1]),
-      ),
+  // Validate URL and Authorization keys independently so an allowlisted auth
+  // token cannot be sent to a metadata-provided destination. Keep scope in the
+  // dedupe key because the same key name can resolve at a different scope if a
+  // credential changes between the two substitutions.
+  type ResolvedKey = NonNullable<typeof urlResult.resolvedKeys>[number];
+  const keyUsages = new Map<
+    string,
+    { name: string; resolvedKey?: ResolvedKey }
+  >();
+  for (const result of authResult ? [urlResult, authResult] : [urlResult]) {
+    for (const name of result.usedKeys) {
+      const resolved = (result.resolvedKeys ?? []).filter(
+        (ref) => ref.name === name,
+      );
+      if (resolved.length === 0) {
+        keyUsages.set(`user:${owner}:${name}`, { name });
+        continue;
+      }
+      for (const resolvedKey of resolved) {
+        keyUsages.set(`${resolvedKey.scope}:${resolvedKey.scopeId}:${name}`, {
+          name,
+          resolvedKey,
+        });
+      }
+    }
+  }
+  const usages = Array.from(keyUsages.values());
+  const allowlists = await Promise.all(
+    usages.map(({ name, resolvedKey }) =>
+      resolvedKey
+        ? getResolvedKeyAllowlist(resolvedKey)
+        : getKeyAllowlist(name, "user", owner),
     ),
   );
-  const allowlists = await Promise.all(
-    keyNames.map((name) => getKeyAllowlist(name, "user", owner)),
-  );
-  keyNames.forEach((name, i) => {
-    if (!validateUrlAllowlist(url, allowlists[i])) {
-      throw new Error(
-        `[notifications] ${label} URL ${new URL(url).origin} is not in the allowlist for key "${name}"`,
-      );
-    }
-  });
-  return { url, headers };
+  const assertUrlAllowed = (candidateUrl: string): void => {
+    usages.forEach(({ name }, i) => {
+      if (!validateUrlAllowlist(candidateUrl, allowlists[i])) {
+        throw new Error(
+          `[notifications] ${label} URL ${new URL(candidateUrl).origin} is not in the allowlist for key "${name}"`,
+        );
+      }
+    });
+  };
+  assertUrlAllowed(url);
+  return { url, headers, assertUrlAllowed };
 }
 
 function metadataString(
