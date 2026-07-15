@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  hasDismissedDesktopPromo,
   hasDownloadedDesktopApp,
   markDesktopAppDownloaded,
+  markDesktopPromoDismissed,
   resolveClipsChromeExtensionEnabled,
   supportsPublishedClipsChromeExtensionHost,
 } from "./capture-install-options";
@@ -24,6 +26,22 @@ describe("capture install options", () => {
     expect(hasDownloadedDesktopApp()).toBe(false);
     markDesktopAppDownloaded();
     expect(hasDownloadedDesktopApp()).toBe(true);
+    // Downloading also hides the promo.
+    expect(hasDismissedDesktopPromo()).toBe(true);
+  });
+
+  it("dismissing the promo does not mark the app as downloaded", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+
+    markDesktopPromoDismissed();
+    expect(hasDismissedDesktopPromo()).toBe(true);
+    expect(hasDownloadedDesktopApp()).toBe(false);
   });
 
   it("enables the published Chrome extension on supported first-party/local hosts", () => {

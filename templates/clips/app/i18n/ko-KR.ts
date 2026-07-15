@@ -1094,6 +1094,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     desktopTitle: "Desktop app (현지화됨)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (현지화됨)",
+    openDesktopApp: "Open desktop app (현지화됨)",
   },
   editableTitle: {
     untitled: "Untitled Clip (현지화됨)",

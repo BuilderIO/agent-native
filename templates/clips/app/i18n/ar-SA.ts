@@ -1097,6 +1097,7 @@ const messages = {
     desktopTitle: "Desktop app (مترجم)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (مترجم)",
+    openDesktopApp: "Open desktop app (مترجم)",
   },
   editableTitle: {
     untitled: "Untitled Clip (مترجم)",

@@ -1093,6 +1093,7 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     desktopTitle: "Desktop app",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures.",
+    openDesktopApp: "Open desktop app",
   },
   editableTitle: {
     untitled: "Untitled Clip",

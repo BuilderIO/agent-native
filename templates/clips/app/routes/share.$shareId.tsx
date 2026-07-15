@@ -1213,6 +1213,12 @@ function PublicAgentEmptyState({
           className="w-full gap-2"
           align="center"
           onClick={() => onCtaClick("download")}
+          downloadedChildren={
+            <>
+              <IconDownload className="h-4 w-4" />
+              {t("captureInstall.openDesktopApp")}
+            </>
+          }
         >
           <IconDownload className="h-4 w-4" />
           {downloadLabel}
