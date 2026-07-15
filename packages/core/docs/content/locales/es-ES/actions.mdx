@@ -618,6 +618,44 @@ export default defineAction({
 });
 ```
 
++## Proteger funciones por etapas {#feature-flags}
+
+Usa indicadores de funciones de Core cuando una acción sea segura para desplegar, pero deba llegar gradualmente a producción. Declara una vez el indicador desactivado por defecto, regístralo desde un plugin de Nitro y evalúalo dentro de cada acción protegida. Ocultar el botón correspondiente es presentación; la comprobación de la acción es la aplicación de la regla.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Usa `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar o mostrar la superficie del cliente. Core proporciona `get-feature-flags`, `list-feature-flags` y `set-feature-flag`; la pestaña compartida de configuración de indicadores de funciones usa esas mismas actions para despliegues por usuario exacto, organización, porcentaje y globales. La administración comprueba los permisos y queda auditada. Nunca canalices escrituras de indicadores mediante endpoints genéricos de configuración o SQL sin procesar, ni coloques la autenticación, autorización, auditoría, secretos o el comportamiento de caché SSR detrás de un indicador en tiempo de ejecución. Lee la skill `feature-flags` para obtener orientación sobre el despliegue y la retirada.
+
 ## actions estilo CLI heredado {#legacy-cli-actions}
 
 El marco aún admite `export default async function(args)` actions más antiguos que no están incluidos en `defineAction`, lo que resulta útil para scripts de desarrollo únicos que no necesitan exposición al agente/HTTP. Estos son solo para CLI; no aparecen como herramientas de agente, no montan puntos finales HTTP y no obtienen enlaces de interfaz con seguridad tipográfica.

@@ -156,6 +156,7 @@ Skills in `.agents/skills/` provide detailed guidance for each architectural rul
 | ---------------------- | --------------------------------------------------------------------------------- |
 | `agent-native-docs`    | Before using advanced Agent Native framework APIs or generated-app features       |
 | `adding-a-feature`     | **Read first when adding ANY new feature** — the four-area parity checklist       |
+| `feature-flags`        | Before shipping a staged production rollout or replacing a compile-time switch    |
 | `real-time-sync`       | Before wiring data fetching for anything the agent can mutate (must auto-refresh) |
 | `storing-data`         | Before storing or reading any app state                                           |
 | `internationalization` | Before adding or editing visible UI copy, prompts, toasts, labels, or formatting  |

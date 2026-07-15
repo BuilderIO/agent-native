@@ -10,6 +10,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { sendFusionBranchMessage } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -19,10 +20,7 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import {
-  FULL_APP_BUILDING_ENABLED,
-  readFusionApp,
-} from "../shared/full-app.js";
+import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 function parseTarget(raw: string | null): Record<string, unknown> | null {
   if (!raw) return null;
@@ -72,8 +70,8 @@ export default defineAction({
           "Omit to apply all pending edits for this design.",
       ),
   }),
-  run: async ({ designId, editIds }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, editIds }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

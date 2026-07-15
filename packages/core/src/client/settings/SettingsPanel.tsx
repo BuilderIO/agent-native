@@ -24,6 +24,7 @@ import {
   IconUserCircle,
   IconApps,
   IconUsersGroup,
+  IconFlag,
 } from "@tabler/icons-react";
 import React, {
   Suspense,
@@ -44,6 +45,12 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import {
+  FeatureFlagsPanel,
+  hasManageableFeatureFlags,
+  useFeatureFlagsSettings,
+} from "../feature-flags/index.js";
+import { useT } from "../i18n.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { callAction } from "../use-action.js";
 import { uploadAvatar, useAvatarUrl } from "../use-avatar.js";
@@ -3058,7 +3065,9 @@ export function SettingsPanel(props: SettingsPanelProps) {
 }
 
 export function useAgentSettingsTabs(): SettingsTabItem[] {
+  const t = useT();
   const { isDevMode, canToggle, setDevMode } = useDevMode();
+  const featureFlagsQuery = useFeatureFlagsSettings();
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
       isDevMode,
@@ -3083,7 +3092,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     const connections = searchTab("connections");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
-    return [
+    const tabs: SettingsTabItem[] = [
       {
         ...agent,
         icon: IconBrain,
@@ -3137,5 +3146,23 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
     ];
-  }, [baseProps]);
+    const featureFlagsData = featureFlagsQuery.data;
+    if (hasManageableFeatureFlags(featureFlagsData)) {
+      tabs.push({
+        id: "feature-flags",
+        label: t("featureFlags.title"),
+        icon: IconFlag,
+        group: "workspace",
+        keywords: "rollout targeting experiments staged releases",
+        searchEntries: featureFlagsData.flags.map((flag) => ({
+          id: `feature-flag-${flag.key}`,
+          label: flag.displayName ?? flag.key,
+          keywords: [flag.key, flag.description].filter(Boolean).join(" "),
+          hash: `feature-flag-${flag.key}`,
+        })),
+        content: <FeatureFlagsPanel flags={featureFlagsData.flags} />,
+      });
+    }
+    return tabs;
+  }, [baseProps, featureFlagsQuery.data, t]);
 }

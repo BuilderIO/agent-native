@@ -20,7 +20,7 @@ first-party template patterns ships in `node_modules/@agent-native/core/corpus`.
   `node_modules/@agent-native/core/corpus/` for source examples.
 - For advanced workspace features, start with `workspace`, `multi-app-workspace`,
   `a2a-protocol`, `pure-agent-apps`, `automations`, `recurring-jobs`,
-  `external-agents`, `mcp-protocol`, `sharing`, and `security`.
+  `external-agents`, `mcp-protocol`, `feature-flags`, `sharing`, and `security`.
 
 Use package docs for framework APIs, the package corpus for reusable
 framework/template patterns, and this `AGENTS.md` plus `.agents/skills/` for

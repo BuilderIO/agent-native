@@ -614,6 +614,44 @@ export default defineAction({
 });
 ```
 
++## 保護分階段功能 {#feature-flags}
+
+當某個 action 可以安全部署、但需要逐步進入生產環境時，請使用 Core 功能旗標。只需宣告一次預設關閉的旗標，從 Nitro 外掛程式註冊它，並在每個受保護的 action 中評估。隱藏對應按鈕只是介面呈現；action 檢查才是強制執行。
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+使用 `@agent-native/core/client` 中的 `useFeatureFlag(FULL_APP_BUILDING.key)` 隱藏或顯示用戶端介面。Core 提供 `get-feature-flags`、`list-feature-flags` 和 `set-feature-flag`；共用的功能旗標設定分頁使用相同的 actions，支援依特定使用者、組織、百分比和全域逐步推出。管理操作會檢查權限並記錄稽核日誌。切勿透過通用設定 endpoint 或原始 SQL 寫入旗標，也不要將驗證、授權、稽核、secret 或 SSR 快取行為置於 runtime flag 之後。如需推出與移除的指引，請閱讀 `feature-flags` skill。
+
 ## 舊版 CLI 樣式 actions {#legacy-cli-actions}
 
 此框架仍然支援未包含在 `defineAction` 中的較舊的 `export default async function(args)` actions - 對於不需要代理/HTTP 暴露的一次性開發指令碼很有用。這些僅限 CLI；它們不會顯示為代理工具，不會掛載 HTTP 端點，也不會獲得型別安全的前端掛鉤。
