@@ -2,6 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { getOutOfOfficeSegment, isOutOfOfficeEvent } from "./out-of-office";
 
+function localIso(day: number, hour: number): string {
+  return new Date(2026, 6, day, hour).toISOString();
+}
+
 describe("out-of-office display", () => {
   it("recognizes native Google out-of-office events", () => {
     expect(isOutOfOfficeEvent({ eventType: "outOfOffice" })).toBe(true);
@@ -12,10 +16,10 @@ describe("out-of-office display", () => {
     expect(
       getOutOfOfficeSegment(
         {
-          start: "2026-07-22T09:00:00-04:00",
-          end: "2026-07-22T17:00:00-04:00",
+          start: localIso(22, 9),
+          end: localIso(22, 17),
         },
-        new Date("2026-07-22T12:00:00-04:00"),
+        new Date(2026, 6, 22, 12),
       ),
     ).toEqual({
       topMinutes: 9 * 60,
@@ -29,10 +33,10 @@ describe("out-of-office display", () => {
     expect(
       getOutOfOfficeSegment(
         {
-          start: "2026-07-21T12:00:00-04:00",
-          end: "2026-07-23T12:00:00-04:00",
+          start: localIso(21, 12),
+          end: localIso(23, 12),
         },
-        new Date("2026-07-22T12:00:00-04:00"),
+        new Date(2026, 6, 22, 12),
       ),
     ).toEqual({
       topMinutes: 0,
@@ -46,10 +50,10 @@ describe("out-of-office display", () => {
     expect(
       getOutOfOfficeSegment(
         {
-          start: "2026-07-22T09:00:00-04:00",
-          end: "2026-07-22T17:00:00-04:00",
+          start: localIso(22, 9),
+          end: localIso(22, 17),
         },
-        new Date("2026-07-23T12:00:00-04:00"),
+        new Date(2026, 6, 23, 12),
       ),
     ).toBeNull();
   });
