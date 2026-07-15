@@ -68,5 +68,3 @@ build
 /e2e/.auth/
 /e2e/.report.json
 test-results/
-.vercel
-.env*.local

@@ -131,28 +131,6 @@ export const parityMatrix: ParityRow[] = [
     followUpPR: null,
   },
   {
-    id: "editor.collaboration-recovery",
-    surface: "editor",
-    label: "Reset a closed document's persisted collaboration snapshot",
-    uiEntrypoints: [
-      "actions/reset-document-collaboration.ts",
-      "app/components/editor/DocumentEditor.tsx",
-    ],
-    durableEffect:
-      "A stale persisted Yjs snapshot is removed only after editor access and active-collaborator safety checks, allowing the next editor to reseed from canonical document content.",
-    uiImplementation:
-      "This is an operator-only recovery action for a closed document; ordinary editing and collaboration remain automatic in the editor.",
-    status: "host-only",
-    actions: ["reset-document-collaboration"],
-    exception:
-      "The recovery action is intentionally hidden from model tools with agentTool: false because deleting live collaboration state is unsafe as a routine autonomous capability.",
-    reliabilityRisk: "none",
-    spinePriority: "P2",
-    testCoverage: "covered",
-    followUpPR: null,
-    coverageRefs: ["actions/reset-document-collaboration.test.ts"],
-  },
-  {
     id: "editor.agent-assist-prompts",
     surface: "editor",
     label: "Ask AI from slash generation or comment context",
@@ -486,41 +464,6 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "covered",
     followUpPR: null,
     coverageRefs: ["actions/materialize-builder-required-fields.test.ts"],
-  },
-  {
-    id: "source-sync.builder-safe-intent-lookup",
-    surface: "source-sync",
-    label: "Reconcile a safe Builder write by durable marker or exact title",
-    uiEntrypoints: ["actions/lookup-builder-safe-model-intent.ts"],
-    durableEffect: null,
-    uiImplementation:
-      "Agents use the read-only lookup action to determine the safe model's exact matching entry and publication state before deciding the next step.",
-    status: "action-backed",
-    actions: ["lookup-builder-safe-model-intent"],
-    exception: null,
-    reliabilityRisk: "none",
-    spinePriority: "P1",
-    testCoverage: "covered",
-    followUpPR: null,
-    coverageRefs: ["actions/_builder-cms-intent-lookup.test.ts"],
-  },
-  {
-    id: "source-sync.builder-safe-fixture-repair",
-    surface: "source-sync",
-    label: "Repair the safe Builder fixture from the source blog collection",
-    uiEntrypoints: ["actions/builder-safe-fixture-repair.ts"],
-    durableEffect:
-      "The guarded repair plans or applies resumable, provenance-verified draft cloning into the safe Builder test model.",
-    uiImplementation:
-      "This is an agent/action-facing maintenance operation with a safe-model-only schema and explicit apply gate.",
-    status: "action-backed",
-    actions: ["builder-safe-fixture-repair"],
-    exception: null,
-    reliabilityRisk: "none",
-    spinePriority: "P1",
-    testCoverage: "covered",
-    followUpPR: null,
-    coverageRefs: ["actions/builder-safe-fixture-repair.test.ts"],
   },
   {
     id: "source-sync.builder-documents",

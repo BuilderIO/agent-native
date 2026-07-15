@@ -2108,7 +2108,19 @@ function DateValueEditor({
     return () => cancelAnimationFrame(frame);
   }, []);
 
-  async function save(nextValue: DocumentPropertyDateValue | null) {
+  function buildValue(
+    nextStartValue = startValue,
+    nextEndValue = endValue,
+    nextIncludeTime = includeTime,
+  ): DocumentPropertyDateValue | null {
+    return normalizeDatePropertyValue({
+      start: nextStartValue,
+      end: nextEndValue || null,
+      includeTime: nextIncludeTime,
+    });
+  }
+
+  async function save(nextValue = buildValue()) {
     await mutation.mutateAsync({
       documentId,
       propertyId: property.definition.id,
@@ -2131,14 +2143,7 @@ function DateValueEditor({
       className="grid gap-2"
       onSubmit={(event) => {
         event.preventDefault();
-        const formData = new FormData(event.currentTarget);
-        void save(
-          normalizeDatePropertyValue({
-            start: formData.get("property-start-value"),
-            end: formData.get("property-end-value"),
-            includeTime: formData.has("property-include-time"),
-          }),
-        );
+        void save();
       }}
     >
       <div className="grid grid-cols-2 gap-1">
@@ -2233,7 +2238,6 @@ function DateValueEditor({
       </label>
       <label className="flex items-center gap-2 rounded-md border px-2.5 py-2 text-sm">
         <input
-          name="property-include-time"
           type="checkbox"
           checked={includeTime}
           onChange={(event) => {

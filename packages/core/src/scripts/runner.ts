@@ -23,7 +23,7 @@ import {
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
-import { resolveDevOrgId, resolveDevUserEmail } from "./dev-session.js";
+import { resolveDevUserEmail } from "./dev-session.js";
 import { loadEnv } from "./utils.js";
 
 // Load .env from cwd so DATABASE_URL and other vars are available to all actions.
@@ -125,7 +125,7 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   // boundaries — see the cautionary comment in
   // `server/request-context.ts` about exactly that pattern.
   const userEmail = await resolveDevUserEmail();
-  const orgId = await resolveDevOrgId(userEmail);
+  const orgId = process.env.AGENT_ORG_ID || undefined;
 
   return runWithRequestContext({ userEmail, orgId }, () =>
     dispatchAction(actionName, args, options),

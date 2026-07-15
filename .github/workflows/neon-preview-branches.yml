@@ -8,10 +8,6 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: neon-preview-${{ github.event.pull_request.number }}
-  cancel-in-progress: true
-
 # Map each Netlify site to its Neon project. When a PR opens, we create a
 # Neon branch per project and inject NETLIFY_DATABASE_URL into the Netlify
 # site's deploy-preview context. Netlify's auto-deploy picks it up via the
@@ -77,39 +73,20 @@ jobs:
           ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
           BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
           AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
-          BRANCH="${{ github.event.pull_request.head.ref }}"
-
-          set_branch_value() {
-            local key="$1"
-            local value="$2"
-            local payload
-            payload="$(jq -n \
-              --arg value "$value" \
-              --arg branch "$BRANCH" \
-              '{value: $value, context: "branch", context_parameter: $branch}')"
-
-            if curl --fail-with-body -sS -X PATCH \
-              -H "$AUTH" -H "Content-Type: application/json" \
-              "$BASE/$key?site_id=$SITE" \
-              -d "$payload" >/dev/null; then
-              return
-            fi
-
-            jq -n \
-              --arg key "$key" \
-              --arg value "$value" \
-              --arg branch "$BRANCH" \
-              '[{key: $key, scopes: ["builds", "functions", "runtime"], values: [{value: $value, context: "branch", context_parameter: $branch}]}]' \
-              | curl --fail-with-body -sS -X POST \
-                -H "$AUTH" -H "Content-Type: application/json" \
-                "$BASE?site_id=$SITE" \
-                --data-binary @- >/dev/null
-          }
 
           for pair in "NETLIFY_DATABASE_URL:$NEON_DB_URL_POOLED" "NETLIFY_DATABASE_URL_UNPOOLED:$NEON_DB_URL_UNPOOLED"; do
             KEY="${pair%%:*}"
             VAL="${pair#*:}"
-            set_branch_value "$KEY" "$VAL"
+            # Try POST (create); if it already exists, PATCH (update)
+            curl -s -X POST -H "$AUTH" -H "Content-Type: application/json" \
+              "$BASE?site_id=$SITE" \
+              -d '[{"key":"'"$KEY"'","scopes":["builds","functions","runtime"],"values":[{"value":"'"$VAL"'","context":"deploy-preview"}]}]' \
+              -o /dev/null -w '' \
+              || curl -s -X PATCH -H "$AUTH" -H "Content-Type: application/json" \
+                "$BASE/$KEY?site_id=$SITE" \
+                -d '{"value":"'"$VAL"'","context":"deploy-preview"}' \
+                -o /dev/null -w '' \
+              || true
           done
 
   delete-branches:
@@ -161,19 +138,8 @@ jobs:
           SITE="${{ matrix.netlify_site }}"
           ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
           AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
-          BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
-          BRANCH="${{ github.event.pull_request.head.ref }}"
-
           for KEY in NETLIFY_DATABASE_URL NETLIFY_DATABASE_URL_UNPOOLED; do
-            VALUE_ID="$(
-              curl --fail-with-body -sS -H "$AUTH" \
-                "$BASE/$KEY?site_id=$SITE" \
-                | jq -r --arg branch "$BRANCH" \
-                  '.values[] | select(.context == "branch" and .context_parameter == $branch) | .id' \
-                | head -n 1
-            )"
-            if [ -n "$VALUE_ID" ]; then
-              curl --fail-with-body -sS -X DELETE -H "$AUTH" \
-                "$BASE/$KEY/value/$VALUE_ID?site_id=$SITE" >/dev/null
-            fi
+            curl -s -X DELETE -H "$AUTH" \
+              "https://api.netlify.com/api/v1/accounts/$ACCT/env/$KEY?site_id=$SITE" \
+              || true
           done

@@ -93,7 +93,7 @@ describe("Builder CMS write client", () => {
   it("falls back to BUILDER_CMS_PRIVATE_KEY and sends POST writes", async () => {
     process.env.BUILDER_CMS_API_HOST = "https://cms-write.test";
     resolveBuilderCredentialMock.mockImplementation(async (key) =>
-      key === "BUILDER_CMS_PRIVATE_KEY" ? "example" : null,
+      key === "BUILDER_CMS_PRIVATE_KEY" ? "example-cms-private-key" : null,
     );
     const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
       expect(input.href).toBe(
@@ -101,7 +101,7 @@ describe("Builder CMS write client", () => {
       );
       expect(init?.method).toBe("POST");
       expect(init?.headers).toMatchObject({
-        authorization: "Bearer example",
+        authorization: "Bearer example-cms-private-key",
       });
       expect(JSON.parse(String(init?.body))).toEqual({
         name: "Created title",
