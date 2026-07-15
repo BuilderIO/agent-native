@@ -2799,6 +2799,10 @@ describe("bundled PR visual recap workflow", () => {
       expect(workflow).toContain("Repair recap source (OpenAI-compatible)");
       expect(workflow).toContain("Publish repaired recap source");
       expect(workflow).toContain("recap-source.initial.json");
+      const artifactBlock = workflow.slice(
+        workflow.indexOf("Upload recap source artifact"),
+      );
+      expect(artifactBlock).toContain("recap-url-reason.txt");
       expect(workflow).toContain(
         "steps.publish_repair.outputs.reason || steps.publish.outputs.reason",
       );

@@ -980,6 +980,7 @@ jobs:
           path: |
             recap-source.json
             recap-source.initial.json
+            recap-url-reason.txt
             recap-repair-prompt.md
             claude-result.json
             claude-stderr.log
