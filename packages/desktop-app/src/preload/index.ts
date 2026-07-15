@@ -47,6 +47,7 @@ import {
   type DesktopShortcutUpsertRequest,
   type InterAppMessage,
   type LocalAppFolderSelectResult,
+  type ProtectedPreviewAccessStatus,
   type UpdateStatus,
 } from "@shared/ipc-channels";
 import { isDesktopSentryConfigured } from "@shared/sentry-config";
@@ -186,6 +187,20 @@ const electronAPI = {
       ipcRenderer.on(IPC.APP_STATUS, handler);
       return () => ipcRenderer.removeListener(IPC.APP_STATUS, handler);
     },
+  },
+
+  /** Exact-origin access for protected hosted previews. */
+  protectedPreview: {
+    get: (appId: string): Promise<ProtectedPreviewAccessStatus> =>
+      ipcRenderer.invoke(IPC.PROTECTED_PREVIEW_GET, appId),
+    save: (
+      appId: string,
+      origin: string,
+      secret: string,
+    ): Promise<ProtectedPreviewAccessStatus> =>
+      ipcRenderer.invoke(IPC.PROTECTED_PREVIEW_SAVE, appId, origin, secret),
+    clear: (appId: string): Promise<ProtectedPreviewAccessStatus> =>
+      ipcRenderer.invoke(IPC.PROTECTED_PREVIEW_CLEAR, appId),
   },
 
   /** Tell main process which app webview is currently active (for DevTools targeting) */
@@ -348,6 +363,7 @@ const electronAPI = {
       ipcRenderer.on(IPC.DEEP_LINK_OPEN, handler);
       return () => ipcRenderer.removeListener(IPC.DEEP_LINK_OPEN, handler);
     },
+    readyForOpenRequests: () => ipcRenderer.send(IPC.DEEP_LINK_READY),
   },
 
   /** Inter-app communication — relay messages between loaded apps */

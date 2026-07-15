@@ -38,6 +38,9 @@ export const IPC = {
   APPS_UPDATE_CREATION_SETTINGS: "apps:update-creation-settings",
   APPS_CREATE_FROM_PROMPT: "apps:create-from-prompt",
   APPS_SHOW_CONTEXT_MENU: "apps:show-context-menu",
+  PROTECTED_PREVIEW_GET: "protected-preview:get",
+  PROTECTED_PREVIEW_SAVE: "protected-preview:save",
+  PROTECTED_PREVIEW_CLEAR: "protected-preview:clear",
 
   /** Hosted Plan app local-file sync (Plan webview ↔ main) */
   PLAN_FILES_GET_FOLDER: "plan-files:get-folder",
@@ -109,6 +112,7 @@ export const IPC = {
 
   /** Deep links (main → renderer) */
   DEEP_LINK_OPEN: "deep-link:open",
+  DEEP_LINK_READY: "deep-link:ready",
 
   /** Local desktop app-launch shortcuts (renderer ↔ main) */
   SHORTCUTS_ACTIVATE: "shortcuts:activate",
@@ -169,6 +173,15 @@ export interface LocalAppFolderSelectResult {
 
 export interface DesktopAppCreationSettings {
   appsRoot: string;
+}
+
+export interface ProtectedPreviewAccessStatus {
+  available: boolean;
+  configured: boolean;
+  origin?: string;
+  kind?: "shareable-link";
+  restoreApp?: import("@agent-native/shared-app-config").AppConfig;
+  error?: string;
 }
 
 export interface DesktopCreateAppRequest {
@@ -811,6 +824,7 @@ export interface DesktopOpenRequest {
   app?: string;
   goalId?: string;
   path?: string;
+  previewUrl?: string;
   softOpen?: boolean;
   runId?: string;
 }

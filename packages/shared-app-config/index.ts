@@ -12,6 +12,19 @@ export {
   allTemplateNames,
 } from "./templates.js";
 export type { TemplateMeta } from "./templates.js";
+export {
+  PROTECTED_PREVIEW_BYPASS_HEADER,
+  PROTECTED_PREVIEW_COOKIE_HEADER,
+  PROTECTED_PREVIEW_ORIGIN_HEADER,
+  authorizeProtectedPreviewLaunch,
+  authorizeProtectedPreviewProxy,
+  authorizeProtectedPreviewRequest,
+  normalizeProtectedPreviewOrigin,
+  resolveFrameOAuthCallbackTarget,
+  resolveProtectedPreviewOAuthRelay,
+  type ProtectedPreviewOAuthRelay,
+  type RequestHeaders,
+} from "./protected-preview.js";
 
 export interface AppDefinition {
   id: string;

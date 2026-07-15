@@ -510,6 +510,7 @@ type DesktopOpenRequest = {
   app?: string;
   goalId?: string;
   path?: string;
+  previewUrl?: string;
   softOpen?: boolean;
   runId?: string;
 };
@@ -588,6 +589,15 @@ type LocalAppFolderSelectResult = {
 
 type DesktopAppCreationSettings = {
   appsRoot: string;
+};
+
+type ProtectedPreviewAccessStatus = {
+  available: boolean;
+  configured: boolean;
+  origin?: string;
+  kind?: "shareable-link";
+  restoreApp?: import("@agent-native/shared-app-config").AppConfig;
+  error?: string;
 };
 
 type DesktopCreateAppRequest = {
@@ -749,6 +759,7 @@ interface ElectronAPI {
     ): Promise<CodeAgentProviderSettingsUpdateResult>;
     connectBuilderProvider(): Promise<CodeAgentProviderSettingsUpdateResult>;
     onOpenRequest(cb: (request: DesktopOpenRequest) => void): () => void;
+    readyForOpenRequests(): void;
   };
 
   appConfig: {
@@ -778,6 +789,16 @@ interface ElectronAPI {
     ): Promise<DesktopCreateAppResult>;
     showContextMenu(appId: string): Promise<DesktopAppContextAction | null>;
     onRuntimeStatus(cb: (status: DesktopAppRuntimeStatus) => void): () => void;
+  };
+
+  protectedPreview: {
+    get(appId: string): Promise<ProtectedPreviewAccessStatus>;
+    save(
+      appId: string,
+      origin: string,
+      secret: string,
+    ): Promise<ProtectedPreviewAccessStatus>;
+    clear(appId: string): Promise<ProtectedPreviewAccessStatus>;
   };
 }
 

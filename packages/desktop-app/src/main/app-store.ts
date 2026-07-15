@@ -6,6 +6,7 @@ import {
   DESKTOP_DEFAULT_APPS,
   TEMPLATE_APPS,
   sortDesktopApps,
+  normalizeProtectedPreviewOrigin,
   type AppConfig,
   type FrameSettings,
 } from "@shared/app-registry";
@@ -20,6 +21,7 @@ import type {
   CodeAgentProviderSettings,
   CodeAgentProviderSettingsUpdate,
   CodeAgentProviderStatus,
+  ProtectedPreviewAccessStatus,
 } from "@shared/ipc-channels";
 import { app, safeStorage } from "electron";
 
@@ -27,6 +29,7 @@ const STORE_FILE = "app-config.json";
 const FRAME_STORE_FILE = "frame-config.json";
 const REMOTE_CONNECTOR_STORE_FILE = "remote-connector-config.json";
 const CODE_AGENT_PROVIDER_STORE_FILE = "code-agent-providers.json";
+const PROTECTED_PREVIEW_STORE_FILE = "protected-preview-access.json";
 const SHORTCUT_STORE_FILE = "shortcut-config.json";
 const DESKTOP_APP_PREFERENCES_STORE_FILE = "desktop-app-preferences.json";
 const REMOVED_DESKTOP_APP_IDS = new Set(["starter"]);
@@ -39,6 +42,43 @@ type StoredSecret =
 interface CodeAgentProviderStore {
   version: 1;
   credentials: Partial<Record<CodeAgentProviderCredentialKey, StoredSecret>>;
+}
+
+interface ProtectedPreviewStore {
+  version: 1;
+  entries: Record<
+    string,
+    {
+      origin: string;
+      kind?: ProtectedPreviewAccessKind;
+      secret: StoredSecret;
+    }
+  >;
+}
+
+export type ProtectedPreviewAccessKind = "shareable-link";
+
+export interface ProtectedPreviewAccess {
+  origin: string;
+  kind: ProtectedPreviewAccessKind;
+  secret: string;
+}
+
+const protectedPreviewAccessEpochs = new Map<string, number>();
+
+function bumpProtectedPreviewAccessEpoch(appId: string): void {
+  protectedPreviewAccessEpochs.set(
+    appId,
+    (protectedPreviewAccessEpochs.get(appId) ?? 0) + 1,
+  );
+}
+
+export function getProtectedPreviewAccessEpoch(appId: string): number {
+  return protectedPreviewAccessEpochs.get(appId) ?? 0;
+}
+
+export function invalidateProtectedPreviewAccess(appId: string): void {
+  bumpProtectedPreviewAccessEpoch(appId);
 }
 
 export interface CodeAgentProviderCredentialApplyResult {
@@ -178,6 +218,10 @@ function getCodeAgentProviderStorePath(): string {
   return path.join(app.getPath("userData"), CODE_AGENT_PROVIDER_STORE_FILE);
 }
 
+function getProtectedPreviewStorePath(): string {
+  return path.join(app.getPath("userData"), PROTECTED_PREVIEW_STORE_FILE);
+}
+
 function getShortcutStorePath(): string {
   return path.join(app.getPath("userData"), SHORTCUT_STORE_FILE);
 }
@@ -243,6 +287,34 @@ function loadCodeAgentProviderStore(): CodeAgentProviderStore {
 
 function saveCodeAgentProviderStore(store: CodeAgentProviderStore): void {
   writeJsonFileAtomic(getCodeAgentProviderStorePath(), store, { mode: 0o600 });
+}
+
+let protectedPreviewStoreCache: ProtectedPreviewStore | null = null;
+
+function defaultProtectedPreviewStore(): ProtectedPreviewStore {
+  return { version: 1, entries: {} };
+}
+
+function loadProtectedPreviewStore(): ProtectedPreviewStore {
+  if (protectedPreviewStoreCache) return protectedPreviewStoreCache;
+  try {
+    const raw = JSON.parse(
+      fs.readFileSync(getProtectedPreviewStorePath(), "utf-8"),
+    ) as Partial<ProtectedPreviewStore>;
+    protectedPreviewStoreCache = {
+      version: 1,
+      entries:
+        raw.entries && typeof raw.entries === "object" ? raw.entries : {},
+    };
+  } catch {
+    protectedPreviewStoreCache = defaultProtectedPreviewStore();
+  }
+  return protectedPreviewStoreCache;
+}
+
+function saveProtectedPreviewStore(store: ProtectedPreviewStore): void {
+  protectedPreviewStoreCache = store;
+  writeJsonFileAtomic(getProtectedPreviewStorePath(), store, { mode: 0o600 });
 }
 
 function defaultShortcutStore(): ShortcutStore {
@@ -343,6 +415,126 @@ function decryptProviderSecret(
   } catch {
     return null;
   }
+}
+
+function encryptProtectedPreviewSecret(value: string): StoredSecret | null {
+  if (!canUseSafeStorage()) return null;
+  try {
+    return {
+      encoding: "safeStorage-v1",
+      value: safeStorage.encryptString(value).toString("base64"),
+      updatedAt: new Date().toISOString(),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export function loadProtectedPreviewAccess(
+  appId: string,
+): ProtectedPreviewAccess | null {
+  const entry = loadProtectedPreviewStore().entries[appId];
+  const origin = normalizeProtectedPreviewOrigin(entry?.origin);
+  if (!entry || !origin || entry.secret.encoding !== "safeStorage-v1") {
+    return null;
+  }
+  const secret = decryptProviderSecret(entry.secret);
+  return secret && entry.kind === "shareable-link"
+    ? {
+        origin,
+        kind: "shareable-link",
+        secret,
+      }
+    : null;
+}
+
+export function getProtectedPreviewAccessStatus(
+  appId: string,
+): ProtectedPreviewAccessStatus {
+  const entry = loadProtectedPreviewStore().entries[appId];
+  const access = loadProtectedPreviewAccess(appId);
+  const available = canUseSafeStorage();
+  return {
+    available,
+    configured: Boolean(access),
+    ...(entry?.origin ? { origin: entry.origin } : {}),
+    ...(access ? { kind: access.kind } : {}),
+    ...(!available
+      ? { error: "Secure operating-system credential storage is unavailable." }
+      : entry && !access
+        ? { error: "The stored preview credential could not be decrypted." }
+        : {}),
+  };
+}
+
+export function saveProtectedPreviewAccess(
+  appId: string,
+  originValue: string,
+  secretValue: string,
+): ProtectedPreviewAccessStatus {
+  const id = appId.trim();
+  const origin = normalizeProtectedPreviewOrigin(originValue);
+  const credential = secretValue.trim();
+  if (!id || !origin || !credential) {
+    return {
+      available: canUseSafeStorage(),
+      configured: false,
+      error: "An app, exact HTTPS preview origin, and credential are required.",
+    };
+  }
+  let shareUrl: URL;
+  try {
+    shareUrl = new URL(credential);
+  } catch {
+    return {
+      available: canUseSafeStorage(),
+      configured: false,
+      error: "Enter the deployment-specific Vercel Shareable Link.",
+    };
+  }
+  const secret = shareUrl.searchParams.get("_vercel_share")?.trim();
+  if (shareUrl.protocol !== "https:" || shareUrl.origin !== origin || !secret) {
+    return {
+      available: canUseSafeStorage(),
+      configured: false,
+      error:
+        "The Shareable Link must target this exact HTTPS preview origin and include _vercel_share.",
+    };
+  }
+  const encrypted = encryptProtectedPreviewSecret(secret);
+  if (!encrypted) {
+    return {
+      available: false,
+      configured: false,
+      error: "Secure operating-system credential storage is unavailable.",
+    };
+  }
+  const store = loadProtectedPreviewStore();
+  saveProtectedPreviewStore({
+    version: 1,
+    entries: {
+      ...store.entries,
+      [id]: { origin, kind: "shareable-link", secret: encrypted },
+    },
+  });
+  bumpProtectedPreviewAccessEpoch(id);
+  return {
+    available: true,
+    configured: true,
+    origin,
+    kind: "shareable-link",
+  };
+}
+
+export function clearProtectedPreviewAccess(
+  appId: string,
+): ProtectedPreviewAccessStatus {
+  const store = loadProtectedPreviewStore();
+  const entries = { ...store.entries };
+  delete entries[appId];
+  saveProtectedPreviewStore({ version: 1, entries });
+  bumpProtectedPreviewAccessEpoch(appId);
+  return { available: canUseSafeStorage(), configured: false };
 }
 
 function migrateDecryptableProviderSecrets(
@@ -781,6 +973,7 @@ export function removeApp(id: string): AppConfig[] {
     managedAppIds: preferences.managedAppIds.filter((appId) => appId !== id),
     appOrder: preferences.appOrder.filter((appId) => appId !== id),
   });
+  clearProtectedPreviewAccess(id);
   return apps;
 }
 
@@ -814,8 +1007,12 @@ export function updateApp(
 }
 
 export function resetToDefaults(): AppConfig[] {
+  for (const appId of Object.keys(loadProtectedPreviewStore().entries)) {
+    bumpProtectedPreviewAccessEpoch(appId);
+  }
   const apps = defaultApps();
   saveApps(apps);
   saveDesktopAppPreferences({ managedAppIds: [], appOrder: [] });
+  saveProtectedPreviewStore(defaultProtectedPreviewStore());
   return apps;
 }

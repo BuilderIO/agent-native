@@ -3,6 +3,7 @@ import {
   type AppDefinition,
   type AppConfig,
   type FrameSettings,
+  normalizeProtectedPreviewOrigin,
   toAppDefinition,
 } from "@shared/app-registry";
 import {
@@ -742,9 +743,29 @@ export default function App() {
   useEffect(() => {
     if (!window.electronAPI?.codeAgents?.onOpenRequest) return;
     return window.electronAPI.codeAgents.onOpenRequest((request) => {
-      setPendingDesktopOpenRequest(request);
+      const previewUrl = normalizeProtectedPreviewOrigin(request.previewUrl);
+      if (!previewUrl || !request.app) {
+        setPendingDesktopOpenRequest(request);
+        return;
+      }
+      setApps((current) =>
+        current.map((app) =>
+          app.id === request.app
+            ? { ...app, devUrl: previewUrl, mode: "dev" }
+            : app,
+        ),
+      );
+      setPendingDesktopOpenRequest({
+        ...request,
+        previewUrl: undefined,
+      });
     });
   }, []);
+
+  useEffect(() => {
+    if (loading) return;
+    window.electronAPI?.codeAgents?.readyForOpenRequests?.();
+  }, [loading]);
 
   useEffect(() => {
     const shortcutApi = window.electronAPI?.shortcuts;

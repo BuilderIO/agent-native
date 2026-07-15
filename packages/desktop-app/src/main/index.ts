@@ -14,9 +14,12 @@ import { fileURLToPath } from "url";
 
 import {
   FRAME_PORT,
+  authorizeProtectedPreviewLaunch,
   getDesktopTemplateGatewayAppUrl,
   getTemplate,
   isDefaultDesktopTemplateDevTarget,
+  resolveFrameOAuthCallbackTarget,
+  resolveProtectedPreviewOAuthRelay,
 } from "@shared/app-registry";
 import type { AppConfig } from "@shared/app-registry";
 import {
@@ -163,6 +166,7 @@ import {
   registerUpdatesIpc,
 } from "./ipc/updates";
 import { registerWindowIpc } from "./ipc/window";
+import { ProtectedPreviewOAuthDoorway } from "./protected-preview-oauth-doorway";
 import {
   initializeDesktopSentry,
   installSentryWebContentsInstrumentation,
@@ -229,8 +233,9 @@ if (IS_DEV) {
   app.setAsDefaultProtocolClient(DEEP_LINK_PROTOCOL);
 }
 
-let pendingDeepLink: string | null = null;
+const pendingDeepLinks: string[] = [];
 let mainWindow: BrowserWindow | null = null;
+let deepLinkReadyWebContentsId: number | null = null;
 let desktopDesignPreviewManager: DesktopDesignPreviewManager | null = null;
 let desktopComputerMcpBridge: DesktopComputerMcpBridge | null = null;
 let desktopBrowserControlBridge: BrowserControlLoopbackBridge | null = null;
@@ -325,10 +330,17 @@ function isDeepLinkArg(arg: string): boolean {
   return arg.startsWith(`${DEEP_LINK_PROTOCOL}:`);
 }
 
+const initialDeepLink = process.argv.find(isDeepLinkArg);
+if (initialDeepLink) pendingDeepLinks.push(initialDeepLink);
+
 function handleSecondInstance(_event: Electron.Event, argv: string[]): void {
   const deepLink = argv.find(isDeepLinkArg);
   if (deepLink) {
-    void handleDeepLink(deepLink);
+    if (app.isReady()) {
+      void handleDeepLink(deepLink);
+    } else {
+      pendingDeepLinks.push(deepLink);
+    }
   } else {
     focusMainWindow();
   }
@@ -367,6 +379,13 @@ interface PendingOAuthState extends OAuthInjectionTarget {
 }
 
 const pendingOAuthStates = new Map<string, PendingOAuthState>();
+const protectedPreviewOAuthFlows = new Map<
+  string,
+  { flowId: string; origin: string; accessEpoch: number }
+>();
+const protectedPreviewOAuthDoorway = new ProtectedPreviewOAuthDoorway();
+const PROTECTED_PREVIEW_OAUTH_TIMEOUT_MS = 5 * 60 * 1000;
+const PROTECTED_PREVIEW_OAUTH_POLL_MS = 750;
 
 function prunePendingOAuthStates(now = Date.now()) {
   for (const [state, pending] of pendingOAuthStates) {
@@ -561,7 +580,14 @@ function consumeOAuthState(state: string | null): OAuthInjectionTarget | null {
 }
 
 function flushPendingOpenRequests(win = mainWindow) {
-  if (!win || win.isDestroyed() || win.webContents.isLoading()) return;
+  if (
+    !win ||
+    win.isDestroyed() ||
+    win.webContents.isLoading() ||
+    deepLinkReadyWebContentsId !== win.webContents.id
+  ) {
+    return;
+  }
   while (pendingOpenRequests.length > 0) {
     const request = pendingOpenRequests.shift();
     if (request) win.webContents.send(IPC.DEEP_LINK_OPEN, request);
@@ -601,7 +627,12 @@ function sendOpenRequestToRenderer(
   options: { stealFocus?: boolean } = {},
 ) {
   const win = focusMainWindow(options);
-  if (!win || win.isDestroyed() || win.webContents.isLoading()) {
+  if (
+    !win ||
+    win.isDestroyed() ||
+    win.webContents.isLoading() ||
+    deepLinkReadyWebContentsId !== win.webContents.id
+  ) {
     pendingOpenRequests.push(request);
     return;
   }
@@ -691,6 +722,38 @@ async function handleDeepLink(url: string) {
           runId,
         });
       } else if (targetApp && getInjectionTargetForAppId(targetApp)) {
+        const requestedPreview = parsed.searchParams.get("preview");
+        if (parsed.searchParams.has("preview")) {
+          const access = AppStore.loadProtectedPreviewAccess(targetApp);
+          const previewUrl = authorizeProtectedPreviewLaunch(
+            requestedPreview,
+            access?.origin,
+          );
+          if (!previewUrl) {
+            console.warn(
+              `[main] rejected protected preview launch for ${targetApp}: no exact-origin credential binding`,
+            );
+            focusMainWindow();
+            return;
+          }
+          const authentication = await ensureProtectedPreviewAuthentication(
+            targetApp,
+            previewUrl,
+          );
+          if (authentication === "blocked") {
+            console.warn(
+              `[main] protected preview preflight blocked navigation for ${targetApp}`,
+            );
+            focusMainWindow();
+            return;
+          }
+          sendOpenRequestToRenderer({
+            app: targetApp,
+            previewUrl,
+            path: parsed.searchParams.get("path") ?? undefined,
+          });
+          return;
+        }
         sendOpenRequestToRenderer({
           app: targetApp,
           path: buildAppOpenRoutePath(parsed),
@@ -798,12 +861,16 @@ async function injectSessionAndReload(
 
   for (const { session: sess, origin, cookieName } of targets) {
     try {
+      const isHostedHttps = new URL(origin).protocol === "https:";
       await sess.cookies.set({
         url: origin,
         name: cookieName,
         value: token,
         httpOnly: true,
         path: "/",
+        ...(isHostedHttps
+          ? { secure: true, sameSite: "no_restriction" as const }
+          : {}),
         expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
       });
     } catch (err) {
@@ -864,7 +931,7 @@ app.on("open-url", (event, url) => {
   if (app.isReady()) {
     handleDeepLink(url);
   } else {
-    pendingDeepLink = url;
+    pendingDeepLinks.push(url);
   }
 });
 
@@ -974,11 +1041,19 @@ function createWindow(): BrowserWindow {
   });
   desktopDesignPreviewManager?.destroy();
   desktopDesignPreviewManager = new DesktopDesignPreviewManager(win);
+  const shellWebContentsId = win.webContents.id;
+  const resetDeepLinkReadiness = () => {
+    if (deepLinkReadyWebContentsId === shellWebContentsId) {
+      deepLinkReadyWebContentsId = null;
+    }
+  };
 
   // Avoid white flash — show window once content is ready
   win.once("ready-to-show", () => win.show());
+  win.webContents.on("did-start-loading", resetDeepLinkReadiness);
+  win.webContents.on("render-process-gone", resetDeepLinkReadiness);
+  win.webContents.on("destroyed", resetDeepLinkReadiness);
   win.webContents.on("did-finish-load", () => {
-    flushPendingOpenRequests(win);
     flushPendingDesktopShortcutActivations(win);
   });
 
@@ -992,6 +1067,7 @@ function createWindow(): BrowserWindow {
 
   mainWindow = win;
   win.on("closed", () => {
+    resetDeepLinkReadiness();
     desktopDesignPreviewManager?.destroy();
     desktopDesignPreviewManager = null;
     if (mainWindow === win) mainWindow = null;
@@ -1149,6 +1225,12 @@ function scheduleDesktopShortcutActivationRetry(requestId: string) {
     );
   }, delay);
 }
+
+ipcMain.on(IPC.DEEP_LINK_READY, (event: IpcMainEvent) => {
+  if (!mainWindow || event.sender.id !== mainWindow.webContents.id) return;
+  deepLinkReadyWebContentsId = event.sender.id;
+  flushPendingOpenRequests(mainWindow);
+});
 
 ipcMain.on(IPC.SET_ACTIVE_APP, (_event: IpcMainEvent, appId: string) => {
   activeAppId = appId;
@@ -8482,6 +8564,490 @@ function installWebviewReloadGuard(contents: Electron.WebContents) {
   });
 }
 
+async function injectProtectedPreviewSession(input: {
+  token: string;
+  appId: string;
+  origin: string;
+  accessSecret: string;
+  accessEpoch: number;
+  session: Electron.Session;
+}): Promise<boolean> {
+  const cookieNames = new Set([getCookieNameForApp(input.appId), "an_session"]);
+  const removeInjectedCookies = async () => {
+    await Promise.allSettled(
+      [...cookieNames].map((cookieName) =>
+        input.session.cookies.remove(input.origin, cookieName),
+      ),
+    );
+  };
+
+  try {
+    for (const cookieName of cookieNames) {
+      await input.session.cookies.set({
+        url: input.origin,
+        name: cookieName,
+        value: input.token,
+        httpOnly: true,
+        path: "/",
+        secure: true,
+        sameSite: "no_restriction",
+        expirationDate: Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+      });
+    }
+
+    const currentAccess = AppStore.loadProtectedPreviewAccess(input.appId);
+    const currentTarget = getInjectionTargetForAppId(input.appId);
+    if (
+      currentAccess?.kind !== "shareable-link" ||
+      currentAccess.origin !== input.origin ||
+      currentAccess.secret !== input.accessSecret ||
+      AppStore.getProtectedPreviewAccessEpoch(input.appId) !==
+        input.accessEpoch ||
+      currentTarget?.session !== input.session
+    ) {
+      await removeInjectedCookies();
+      return false;
+    }
+
+    reloadWebviewsForTarget({
+      ...currentTarget,
+      appId: input.appId,
+      origin: input.origin,
+      session: input.session,
+    });
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
+    }
+    return true;
+  } catch {
+    await removeInjectedCookies();
+    return false;
+  }
+}
+
+async function pollProtectedPreviewOAuthRelay(input: {
+  appId: string;
+  origin: string;
+  accessSecret: string;
+  accessEpoch: number;
+  session: Electron.Session;
+  exchangeUrl: string;
+  flowId: string;
+}) {
+  const deadline = Date.now() + PROTECTED_PREVIEW_OAUTH_TIMEOUT_MS;
+
+  while (Date.now() < deadline) {
+    try {
+      const response = await fetch(input.exchangeUrl, {
+        headers: { Accept: "application/json" },
+        signal: AbortSignal.timeout(5_000),
+      });
+      const body = (await response.json().catch(() => null)) as {
+        token?: unknown;
+        error?: unknown;
+      } | null;
+      if (response.ok && typeof body?.token === "string" && body.token) {
+        const currentAccess = AppStore.loadProtectedPreviewAccess(input.appId);
+        const currentTarget = getInjectionTargetForAppId(input.appId);
+        if (
+          currentAccess?.kind !== "shareable-link" ||
+          currentAccess.origin !== input.origin ||
+          currentAccess.secret !== input.accessSecret ||
+          AppStore.getProtectedPreviewAccessEpoch(input.appId) !==
+            input.accessEpoch ||
+          currentTarget?.session !== input.session
+        ) {
+          console.warn(
+            `[main] discarded stale protected preview OAuth completion for ${input.appId}`,
+          );
+          return;
+        }
+        const injected = await injectProtectedPreviewSession({
+          token: body.token,
+          appId: input.appId,
+          origin: input.origin,
+          accessSecret: input.accessSecret,
+          accessEpoch: input.accessEpoch,
+          session: input.session,
+        });
+        if (!injected) {
+          console.warn(
+            `[main] discarded stale protected preview OAuth injection for ${input.appId}`,
+          );
+        }
+        return;
+      }
+      if (body?.error) {
+        console.warn(
+          `[main] protected preview OAuth failed for ${input.appId}:`,
+          body.error,
+        );
+        return;
+      }
+    } catch {
+      // The local app server may still be waking up. Keep the bounded poll
+      // alive; the preview remains untouched if the server never appears.
+    }
+    await new Promise((resolve) =>
+      setTimeout(resolve, PROTECTED_PREVIEW_OAUTH_POLL_MS),
+    );
+  }
+  console.warn(
+    `[main] protected preview OAuth timed out for ${input.appId} (flow ${input.flowId.slice(-10)})`,
+  );
+}
+
+async function runProtectedPreviewOAuthRelay(input: {
+  appId: string;
+  origin: string;
+  accessSecret: string;
+  accessEpoch: number;
+  session: Electron.Session;
+  starterUrl: string;
+  exchangeUrl: string;
+  flowId: string;
+  exchangeOrigin: string;
+}) {
+  let unregister: (() => void) | null = null;
+  try {
+    unregister = await protectedPreviewOAuthDoorway.register(
+      input.flowId,
+      input.exchangeOrigin,
+    );
+    openExternalUrl(input.starterUrl);
+    await pollProtectedPreviewOAuthRelay(input);
+  } catch (error) {
+    console.warn(
+      `[main] could not start protected preview OAuth for ${input.appId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  } finally {
+    unregister?.();
+    if (protectedPreviewOAuthFlows.get(input.appId)?.flowId === input.flowId) {
+      protectedPreviewOAuthFlows.delete(input.appId);
+    }
+  }
+}
+
+function openProtectedPreviewOAuthFromWebview(
+  url: string,
+  sourceContents: Electron.WebContents,
+): boolean {
+  const appConfig = findAppForSourceUrl(sourceContents.getURL());
+  if (!appConfig) return false;
+  const access = AppStore.loadProtectedPreviewAccess(appConfig.id);
+  const exchangeOrigin = appConfig.devPort
+    ? `http://127.0.0.1:${appConfig.devPort}`
+    : null;
+  if (!access || !exchangeOrigin) return false;
+
+  const relay = resolveProtectedPreviewOAuthRelay({
+    requestUrl: url,
+    configuredOrigin: access.origin,
+    doorwayOrigin: protectedPreviewOAuthDoorway.origin,
+    exchangeOrigin,
+  });
+  if (!relay) return false;
+  const accessEpoch = AppStore.getProtectedPreviewAccessEpoch(appConfig.id);
+  const activeFlow = protectedPreviewOAuthFlows.get(appConfig.id);
+  if (
+    activeFlow?.origin === access.origin &&
+    activeFlow.accessEpoch === accessEpoch
+  ) {
+    return true;
+  }
+  protectedPreviewOAuthFlows.set(appConfig.id, {
+    flowId: relay.flowId,
+    origin: access.origin,
+    accessEpoch,
+  });
+
+  void runProtectedPreviewOAuthRelay({
+    appId: appConfig.id,
+    origin: access.origin,
+    accessSecret: access.secret,
+    accessEpoch,
+    session: sourceContents.session,
+    starterUrl: relay.starterUrl,
+    exchangeUrl: relay.exchangeUrl,
+    flowId: relay.flowId,
+    exchangeOrigin,
+  });
+  return true;
+}
+
+async function ensureProtectedPreviewAuthentication(
+  appId: string,
+  previewUrl: string,
+): Promise<"authenticated" | "needs-auth" | "blocked"> {
+  const access = AppStore.loadProtectedPreviewAccess(appId);
+  const accessEpoch = AppStore.getProtectedPreviewAccessEpoch(appId);
+  const target = getInjectionTargetForAppId(appId);
+  if (!access || access.origin !== previewUrl || !target?.session) {
+    return "blocked";
+  }
+
+  type SessionProbe = {
+    status: number;
+    state: "authenticated" | "not-authenticated" | "inconclusive";
+  };
+  let sessionProbe: SessionProbe | null = null;
+  const hasCurrentAccessBinding = () => {
+    const currentAccess = AppStore.loadProtectedPreviewAccess(appId);
+    const currentTarget = getInjectionTargetForAppId(appId);
+    return (
+      currentAccess?.kind === "shareable-link" &&
+      currentAccess.origin === access.origin &&
+      currentAccess.secret === access.secret &&
+      AppStore.getProtectedPreviewAccessEpoch(appId) === accessEpoch &&
+      currentTarget?.session === target.session
+    );
+  };
+
+  if (access.kind === "shareable-link") {
+    const removeVercelAccessCookies = async () => {
+      const cookies = await target.session!.cookies.get({
+        url: previewUrl,
+        name: "_vercel_jwt",
+      });
+      await Promise.all(
+        cookies.map((cookie) =>
+          target.session!.cookies.remove(
+            new URL(cookie.path || "/", previewUrl).toString(),
+            cookie.name,
+          ),
+        ),
+      );
+    };
+    const bootstrapUrl = new URL("/", previewUrl);
+    bootstrapUrl.searchParams.set("_vercel_share", access.secret);
+    const bootstrapWindow = new BrowserWindow({
+      show: false,
+      webPreferences: {
+        session: target.session,
+        sandbox: true,
+        contextIsolation: true,
+        nodeIntegration: false,
+      },
+    });
+    bootstrapWindow.webContents.setWindowOpenHandler(() => ({
+      action: "deny",
+    }));
+    try {
+      await removeVercelAccessCookies();
+      await bootstrapWindow.loadURL(bootstrapUrl.toString());
+      const finalUrl = new URL(bootstrapWindow.webContents.getURL());
+      const installedCookies = await target.session.cookies.get({
+        url: previewUrl,
+        name: "_vercel_jwt",
+      });
+      if (
+        finalUrl.origin !== previewUrl ||
+        finalUrl.searchParams.has("_vercel_share") ||
+        installedCookies.length === 0 ||
+        !hasCurrentAccessBinding()
+      ) {
+        await removeVercelAccessCookies();
+        console.warn(
+          `[main] shareable-link bootstrap did not authorize ${appId}`,
+        );
+        return "blocked";
+      }
+      await Promise.all(
+        installedCookies.map((cookie) =>
+          target.session!.cookies.set({
+            url: previewUrl,
+            name: cookie.name,
+            value: cookie.value,
+            httpOnly: cookie.httpOnly,
+            path: cookie.path || "/",
+            secure: true,
+            sameSite: "no_restriction",
+            expirationDate:
+              cookie.expirationDate ??
+              Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60,
+          }),
+        ),
+      );
+      if (
+        !hasCurrentAccessBinding() ||
+        bootstrapWindow.webContents.isDestroyed() ||
+        new URL(bootstrapWindow.webContents.getURL()).origin !== previewUrl
+      ) {
+        await removeVercelAccessCookies();
+        console.warn(
+          `[main] discarded stale shareable-link bootstrap for ${appId}`,
+        );
+        return "blocked";
+      }
+      sessionProbe =
+        (await bootstrapWindow.webContents.executeJavaScriptInIsolatedWorld(
+          999,
+          [
+            {
+              code: `fetch("/_agent-native/auth/session", {
+              credentials: "include",
+              headers: { Accept: "application/json" },
+            }).then(async (response) => {
+              const body = await response.json().catch(() => null);
+              const state = response.ok &&
+                body &&
+                typeof body.email === "string" &&
+                typeof body.token === "string"
+                  ? "authenticated"
+                  : body && body.error === "Not authenticated"
+                    ? "not-authenticated"
+                    : "inconclusive";
+              return { status: response.status, state };
+            })`,
+            },
+          ],
+        )) as SessionProbe;
+      if (
+        !hasCurrentAccessBinding() ||
+        bootstrapWindow.webContents.isDestroyed() ||
+        new URL(bootstrapWindow.webContents.getURL()).origin !== previewUrl
+      ) {
+        await removeVercelAccessCookies();
+        console.warn(
+          `[main] discarded stale protected preview session probe for ${appId}`,
+        );
+        return "blocked";
+      }
+      reloadWebviewsForTarget({ ...target, appId, origin: previewUrl });
+    } catch (error) {
+      await removeVercelAccessCookies().catch(() => undefined);
+      console.warn(
+        `[main] shareable-link bootstrap failed for ${appId}:`,
+        error instanceof Error ? error.message : String(error),
+      );
+      return "blocked";
+    } finally {
+      bootstrapWindow.destroy();
+    }
+  }
+
+  try {
+    const cookies = await target.session.cookies.get({ url: previewUrl });
+    const sessionCookies = cookies.filter(
+      (cookie) =>
+        cookie.name === "an_session" ||
+        cookie.name === "an_session_workspace" ||
+        cookie.name.startsWith("an_session_"),
+    );
+    if (sessionCookies.length > 0) {
+      const removeSessionCookies = async () => {
+        await Promise.allSettled(
+          sessionCookies.map((cookie) =>
+            target.session!.cookies.remove(
+              new URL(cookie.path || "/", previewUrl).toString(),
+              cookie.name,
+            ),
+          ),
+        );
+      };
+      if (!hasCurrentAccessBinding()) {
+        await removeSessionCookies();
+        return "blocked";
+      }
+      if (sessionProbe?.state === "authenticated") {
+        try {
+          await Promise.all(
+            sessionCookies.map((cookie) =>
+              target.session!.cookies.set({
+                url: previewUrl,
+                name: cookie.name,
+                value: cookie.value,
+                httpOnly: true,
+                path: "/",
+                secure: true,
+                sameSite: "no_restriction",
+                expirationDate:
+                  cookie.expirationDate ??
+                  Math.floor(Date.now() / 1000) + 30 * 24 * 60 * 60,
+              }),
+            ),
+          );
+        } catch {
+          await removeSessionCookies();
+          return "blocked";
+        }
+        if (!hasCurrentAccessBinding()) {
+          await removeSessionCookies();
+          return "blocked";
+        }
+        reloadWebviewsForTarget({ ...target, appId, origin: previewUrl });
+        return "authenticated";
+      }
+
+      if (sessionProbe?.state === "not-authenticated") {
+        await removeSessionCookies();
+        console.warn(
+          `[main] discarded an explicitly unauthenticated protected preview session for ${appId}`,
+        );
+      } else {
+        console.warn(
+          `[main] protected preview session probe was inconclusive for ${appId} (HTTP ${sessionProbe?.status ?? "unknown"}); preserving cookies`,
+        );
+        return "blocked";
+      }
+    }
+  } catch (error) {
+    console.warn(
+      `[main] could not inspect protected preview session for ${appId}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+    return "blocked";
+  }
+
+  const appConfig = AppStore.loadApps().find((app) => app.id === appId);
+  const exchangeOrigin = appConfig?.devPort
+    ? `http://127.0.0.1:${appConfig.devPort}`
+    : null;
+  if (!hasCurrentAccessBinding()) return "blocked";
+  if (!exchangeOrigin) return "needs-auth";
+  const activeFlow = protectedPreviewOAuthFlows.get(appId);
+  if (
+    activeFlow?.origin === access.origin &&
+    activeFlow.accessEpoch === accessEpoch
+  ) {
+    return "needs-auth";
+  }
+
+  const requestUrl = new URL("/_agent-native/google/auth-url", previewUrl);
+  requestUrl.searchParams.set("desktop", "1");
+  requestUrl.searchParams.set("redirect", "1");
+  requestUrl.searchParams.set("flow_id", randomUUID());
+  requestUrl.searchParams.set("return", "/");
+  const relay = resolveProtectedPreviewOAuthRelay({
+    requestUrl: requestUrl.toString(),
+    configuredOrigin: access.origin,
+    doorwayOrigin: protectedPreviewOAuthDoorway.origin,
+    exchangeOrigin,
+  });
+  if (!relay) return "blocked";
+
+  protectedPreviewOAuthFlows.set(appId, {
+    flowId: relay.flowId,
+    origin: access.origin,
+    accessEpoch,
+  });
+  void runProtectedPreviewOAuthRelay({
+    appId,
+    origin: access.origin,
+    accessSecret: access.secret,
+    accessEpoch,
+    session: target.session,
+    starterUrl: relay.starterUrl,
+    exchangeUrl: relay.exchangeUrl,
+    flowId: relay.flowId,
+    exchangeOrigin,
+  });
+  return "needs-auth";
+}
+
 function openOAuthFromWebviewNavigation(
   url: string,
   sourceContents: Electron.WebContents,
@@ -8564,6 +9130,9 @@ function handleWindowOpenForContents(
   if (handleDesktopProtocolUrl(url)) {
     return { action: "deny" as const };
   }
+  if (openProtectedPreviewOAuthFromWebview(url, contents)) {
+    return { action: "deny" as const };
+  }
 
   try {
     const parsed = new URL(url);
@@ -8604,6 +9173,10 @@ function installWebviewOAuthNavigationHandler(contents: Electron.WebContents) {
     options: { isMainFrame: boolean },
   ) => {
     if (handleDesktopProtocolUrl(url)) {
+      event.preventDefault();
+      return;
+    }
+    if (openProtectedPreviewOAuthFromWebview(url, contents)) {
       event.preventDefault();
       return;
     }
@@ -8953,9 +9526,8 @@ function configurePermissionHandlers(
 app.whenReady().then(async () => {
   await initializeDesktopComputerMcpBridge();
   // Process any deep link that arrived before the app was ready
-  if (pendingDeepLink) {
-    handleDeepLink(pendingDeepLink);
-    pendingDeepLink = null;
+  for (const deepLink of pendingDeepLinks.splice(0)) {
+    await handleDeepLink(deepLink);
   }
 
   // Webviews now run in per-app persisted partitions (persist:app-<id>), so
@@ -8989,7 +9561,12 @@ app.whenReady().then(async () => {
     // Each partition is bound to a specific app, so route to that app's port
     // rather than falling back to a hardcoded mail/calendar preference.
     sess.webRequest.onBeforeRequest(
-      { urls: [`http://localhost:${FRAME_PORT}/api/google/*`] },
+      {
+        urls: [
+          `http://localhost:${FRAME_PORT}/api/google/*`,
+          `http://localhost:${FRAME_PORT}/_agent-native/google/*`,
+        ],
+      },
       (details, callback) => {
         let apps: AppConfig[] = [];
         try {
@@ -9004,12 +9581,15 @@ app.whenReady().then(async () => {
           apps.find((a) => a.id === "mail") ||
           apps.find((a) => a.id === "calendar");
         if (app) {
-          const gatewayAppUrl = resolveDesktopTemplateGatewayUrl(app);
-          const appUrl = details.url.replace(
-            `http://localhost:${FRAME_PORT}`,
-            gatewayAppUrl || `http://localhost:${app.devPort}`,
-          );
-          callback({ redirectURL: appUrl });
+          const baseUrl = resolveAppBaseUrl(app);
+          const appUrl = baseUrl
+            ? resolveFrameOAuthCallbackTarget({
+                appBaseUrl: baseUrl,
+                callbackUrl: details.url,
+                framePort: FRAME_PORT,
+              })
+            : null;
+          callback(appUrl ? { redirectURL: appUrl } : {});
         } else {
           callback({});
         }
