@@ -1242,16 +1242,27 @@ export default function DreamsRoute() {
       setSelectedDreamId(urlDreamId);
       return;
     }
-    if (selectedDreamId && dreams.some((dream) => dream.id === selectedDreamId))
+    if (
+      selectedDreamId &&
+      dreams.some((dream) => dream.id === selectedDreamId)
+    ) {
       return;
-    const nextId = dreams[0]?.id ?? null;
+    }
+    if (dreamsQuery.isLoading) return;
+    const nextId = dreams[0]?.id ?? urlDreamId;
     setSelectedDreamId(nextId);
     if (nextId && nextId !== urlDreamId) {
       const next = new URLSearchParams(searchParams);
       next.set("dreamId", nextId);
       setSearchParams(next, { replace: true });
     }
-  }, [dreams, searchParams, selectedDreamId, setSearchParams]);
+  }, [
+    dreams,
+    dreamsQuery.isLoading,
+    searchParams,
+    selectedDreamId,
+    setSearchParams,
+  ]);
 
   function selectDream(dreamId: string) {
     setSelectedDreamId(dreamId);
@@ -1403,8 +1414,8 @@ export default function DreamsRoute() {
       description="Review agent runs, propose memory improvements, and apply evidence-backed learning changes."
     >
       <div className="space-y-4">
-        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-          <div className="grid flex-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="grid gap-3 grid-cols-1 lg:grid-cols-2 xl:grid-cols-[1fr_auto] items-center w-full">
+          <div className="grid gap-2 grid-cols-2 sm:grid-cols-4 w-full">
             <StatTile
               label="Dream passes"
               value={dreams.length}
@@ -1426,7 +1437,7 @@ export default function DreamsRoute() {
               icon={IconCheck}
             />
           </div>
-          <div className="flex shrink-0 flex-wrap gap-2">
+          <div className="flex flex-wrap items-center gap-2 w-full lg:justify-end">
             {dreamSettings ? (
               <Badge variant="outline" className="h-9 px-3">
                 {dreamSettings.enabled ? "Enabled" : "Paused"} ·{" "}
