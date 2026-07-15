@@ -193,6 +193,40 @@ describe("ReviewThreadPanel sidebar layout", () => {
     ).not.toBeNull();
   });
 
+  it("routes the plain comment action to a human when agent dispatch is hidden", () => {
+    act(() => {
+      root.render(
+        <ReviewThreadPanel
+          resourceType="design"
+          resourceId="design-1"
+          targetId="screen-1"
+          showHeader={false}
+          placeholder="Leave feedback"
+        />,
+      );
+    });
+
+    const composer = container.querySelector<HTMLTextAreaElement>(
+      'textarea[placeholder="Leave feedback"]',
+    );
+    expect(composer).not.toBeNull();
+    setTextareaValue(composer!, "Human review note");
+    const commentButton = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.trim() === "Comment",
+    );
+    act(() => commentButton?.click());
+
+    expect(mutate).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        targetId: "screen-1",
+        body: "Human review note",
+        resolutionTarget: "human",
+      }),
+      expect.any(Object),
+    );
+    expect(container.textContent).not.toContain("Send to agent");
+  });
+
   it("fails closed when reply, resolve, and delete capabilities are omitted", () => {
     act(() => {
       root.render(

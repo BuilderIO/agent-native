@@ -161,7 +161,7 @@ export function ReviewThreadPanel({
         ...(composerAnchor !== undefined ? { anchor: composerAnchor } : {}),
         ...(composerMetadata ? { metadata: composerMetadata } : {}),
         body,
-        ...(showComposerTargetPicker ? { resolutionTarget } : {}),
+        resolutionTarget: showComposerTargetPicker ? resolutionTarget : "human",
       },
       {
         onSuccess: (comment) => {

@@ -769,6 +769,7 @@ import {
   resolveEscapePopSelectionAction,
   sameStringIds,
   shouldClearBridgeSelectionOnEmptyMarquee,
+  shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
   shouldIgnoreOverviewLayerCreationEcho,
   shouldLimitEditorChromeUntilContentReady,
@@ -10462,22 +10463,37 @@ function DesignEditor() {
     ],
   );
 
-  const handleReviewThreadSelect = useCallback((thread: ReviewThread) => {
-    const targetId = thread.root.targetId;
-    if (targetId) {
-      viewModeRef.current = "single";
-      setViewMode("single");
-      setScreenZoom(FOCUSED_SCREEN_ZOOM);
-      setActiveFileId(targetId);
-    }
-    setActiveInspectorTab("comments");
-    reviewFocusNonceRef.current += 1;
-    setReviewFocusRequest({
-      nonce: reviewFocusNonceRef.current,
-      anchor: thread.root.anchor,
-      targetId: targetId ?? undefined,
-    });
-  }, []);
+  const handleReviewThreadSelect = useCallback(
+    (thread: ReviewThread) => {
+      const targetId = thread.root.targetId;
+      if (
+        shouldClearSelectionForReviewThreadTarget({
+          activeFileId: activeFile?.id,
+          targetId,
+        })
+      ) {
+        setSelectedElement(null);
+        setSelectedLayerIdsState([]);
+        setHoveredElement(null);
+        setHoveredElementScreenId(null);
+        setOverviewClearSelectionRequest((request) => request + 1);
+      }
+      if (targetId) {
+        viewModeRef.current = "single";
+        setViewMode("single");
+        setScreenZoom(FOCUSED_SCREEN_ZOOM);
+        setActiveFileId(targetId);
+      }
+      setActiveInspectorTab("comments");
+      reviewFocusNonceRef.current += 1;
+      setReviewFocusRequest({
+        nonce: reviewFocusNonceRef.current,
+        anchor: thread.root.anchor,
+        targetId: targetId ?? undefined,
+      });
+    },
+    [activeFile?.id],
+  );
 
   const selectedReviewLayerContext = useMemo(() => {
     if (!activeFile?.id || !selectedElement) return null;
