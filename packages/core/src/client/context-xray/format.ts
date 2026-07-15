@@ -41,6 +41,9 @@ export function groupColor(group: string): string {
   if (group === "Files read") return "bg-sky-500";
   if (group === "Thinking") return "bg-violet-500";
   if (group === "Task & instructions") return "bg-rose-500";
+  if (group === "System · required") return "bg-slate-700";
+  if (group === "System · inherited") return "bg-indigo-500";
+  if (group === "System · user") return "bg-teal-500";
   return "bg-slate-400";
 }
 
@@ -50,5 +53,8 @@ export function groupFill(group: string): string {
   if (group === "Files read") return "#0ea5e9";
   if (group === "Thinking") return "#8b5cf6";
   if (group === "Task & instructions") return "#f43f5e";
+  if (group === "System · required") return "#334155";
+  if (group === "System · inherited") return "#6366f1";
+  if (group === "System · user") return "#14b8a6";
   return "#94a3b8";
 }

@@ -80,7 +80,7 @@ describe("isBlockedExtensionUrlWithDns (DNS rebinding guard)", () => {
   });
 });
 
-describe("ssrfSafeFetch httpsOnly", () => {
+describe("ssrfSafeFetch per-hop policies", () => {
   // Public IP literals skip the DNS lookup, so these tests stay offline.
   const httpsOrigin = "https://93.184.216.34/image.png";
   const httpOrigin = "http://93.184.216.34/image.png";
@@ -127,6 +127,39 @@ describe("ssrfSafeFetch httpsOnly", () => {
     expect(response.status).toBe(200);
     expect(fetchMock).toHaveBeenCalledTimes(2);
     // The followed hop's body must be drained so its connection is released.
+    expect(redirectResponse.bodyUsed).toBe(true);
+  });
+
+  it("rejects a caller-disallowed redirect before forwarding sensitive request data", async () => {
+    const redirectUrl = "https://93.184.216.35/steal";
+    const redirectResponse = new Response("moved", {
+      status: 302,
+      headers: { location: redirectUrl },
+    });
+    const fetchMock = vi.fn(async () => redirectResponse);
+    const assertUrlAllowed = vi.fn((url: string) => {
+      if (url !== httpsOrigin) {
+        throw new Error(`URL ${url} is not in the credential allowlist`);
+      }
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      ssrfSafeFetch(
+        httpsOrigin,
+        {
+          method: "POST",
+          headers: { Authorization: "Bearer example-token" },
+          body: "sensitive payload",
+        },
+        { assertUrlAllowed },
+      ),
+    ).rejects.toThrow(/not in the credential allowlist/);
+
+    expect(assertUrlAllowed).toHaveBeenNthCalledWith(1, httpsOrigin);
+    expect(assertUrlAllowed).toHaveBeenNthCalledWith(2, redirectUrl);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0][0]).toBe(httpsOrigin);
     expect(redirectResponse.bodyUsed).toBe(true);
   });
 });

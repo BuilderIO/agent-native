@@ -14,6 +14,9 @@ export const documents = table("documents", {
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
+  // Stable semantic guidance for this page. Ancestry is computed at read time;
+  // never copy a parent's description here.
+  description: text("description").notNull().default(""),
   icon: text("icon"),
   position: integer("position").notNull().default(0),
   isFavorite: integer("is_favorite").notNull().default(0),
@@ -148,6 +151,7 @@ export const documentPropertyDefinitions = table(
     databaseId: text("database_id"),
     name: text("name").notNull(),
     type: text("type").notNull(),
+    description: text("description").notNull().default(""),
     visibility: text("visibility").notNull().default("always_show"),
     optionsJson: text("options_json").notNull().default("{}"),
     position: integer("position").notNull().default(0),

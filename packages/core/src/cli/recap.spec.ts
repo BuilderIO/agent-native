@@ -1171,7 +1171,7 @@ describe("recap prompt builder", () => {
 
   it("builds the latest bundled skill with sibling reference files", () => {
     const bundle = readVisualRecapSkillBundle(repoRoot, "latest");
-    expect(bundle.source).toBe("bundled:@agent-native/core/visual-recap");
+    expect(bundle.source).toBe("bundled:@agent-native/recap-cli/visual-recap");
     expect(bundle.text).toContain("Bundled visual-recap reference files");
     expect(bundle.text).toContain("references/wireframe.md");
     expect(bundle.text).toContain("HTML wireframe quality");
@@ -2656,13 +2656,29 @@ describe("bundled PR visual recap workflow", () => {
         "utf8",
       ),
     ]) {
+      // Claude backend always pins a model: default to claude-sonnet-5 (a
+      // cost-efficient model) when VISUAL_RECAP_MODEL is unset, instead of
+      // falling through to the CLI's own (expensive Opus-tier) default.
+      expect(workflow).toContain(
+        'CLAUDE_ARGS+=(--model "${VISUAL_RECAP_MODEL:-claude-sonnet-5}")',
+      );
+      expect(workflow).not.toContain(
+        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CLAUDE_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      );
+      // Codex backend keeps its own conditional — no forced default model.
+      expect(workflow).toContain(
+        'if [ -n "${VISUAL_RECAP_MODEL:-}" ]; then CODEX_ARGS+=(--model "$VISUAL_RECAP_MODEL"); fi',
+      );
       expect(workflow).toContain(
         "AGENT_NATIVE_CODE_TOOL_PROFILE: recap-source",
       );
       expect(workflow).toContain(
-        "$RECAP_CLI code exec --permission-mode auto-edit",
+        "$CODE_CLI code exec --permission-mode auto-edit",
       );
-      expect(workflow).not.toContain("$RECAP_CLI code exec --full-auto");
+      expect(workflow).not.toContain("$CODE_CLI code exec --full-auto");
+      expect(workflow).toContain("@agent-native/recap-cli@$VERSION");
+      expect(workflow).toContain("--ignore-scripts");
+      expect(workflow).not.toContain("@agent-native/core@$VERSION");
     }
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain("mcp__plan__");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).not.toContain(
@@ -2804,8 +2820,9 @@ describe("bundled workflow — RECAP_CLI_VERSION pinning", () => {
   it("uses vars.RECAP_CLI_VERSION in the Resolve recap CLI step", () => {
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("RECAP_CLI_VERSION");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
-      "@agent-native/core@$VERSION",
+      "@agent-native/recap-cli@$VERSION",
     );
+    expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain("--ignore-scripts");
     expect(PR_VISUAL_RECAP_WORKFLOW_YML).toContain(
       "vars.RECAP_CLI_VERSION || 'latest'",
     );
@@ -3051,6 +3068,12 @@ describe("reusable caller workflow builder", () => {
       "PLAN_RECAP_APP_URL: ${{ secrets.PLAN_RECAP_APP_URL }}",
     );
     expect(yml).toContain("agent: ${{ vars.VISUAL_RECAP_AGENT || 'claude' }}");
+    expect(yml).toContain(
+      "cli-version: ${{ vars.RECAP_CLI_VERSION || 'latest' }}",
+    );
+    expect(yml).toContain(
+      "core-cli-version: ${{ vars.CORE_CLI_VERSION || 'latest' }}",
+    );
     expect(yml).toContain("model: ${{ vars.VISUAL_RECAP_MODEL || '' }}");
     expect(yml).toContain("base-url: ${{ vars.VISUAL_RECAP_BASE_URL || '' }}");
     expect(yml).toContain(
@@ -3214,6 +3237,7 @@ describe("reusable workflow file structure", () => {
     expect(content).toContain("workflow_call:");
     // Required inputs are present.
     expect(content).toContain("cli-version:");
+    expect(content).toContain("core-cli-version:");
     expect(content).toContain("agent:");
     expect(content).toContain("model:");
     expect(content).toContain("plan-url:");
@@ -3276,7 +3300,9 @@ describe("reusable workflow file structure", () => {
     // always use the published CLI — consumer repos don't have packages/core.
     expect(content).not.toContain("pnpm exec tsx");
     expect(content).toContain("Install published recap CLI");
-    expect(content).toContain("@agent-native/core@$VERSION");
+    expect(content).toContain("@agent-native/recap-cli@$VERSION");
+    expect(content).toContain("--ignore-scripts");
+    expect(content).not.toContain("@agent-native/core@$VERSION");
     expect(content).toContain("node_modules/.bin/agent-native");
     expect(content).toContain("RECAP_PLAYWRIGHT");
   });

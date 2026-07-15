@@ -373,6 +373,14 @@ interface DefineActionWithSchema<
    *  Only set this for mutating actions that are internally concurrency-safe
    *  and order-independent for same-turn execution. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the agent loop's duplicate
+   *  read-only call guard (per-turn result cache + "Skipped duplicate..."
+   *  repeat detection). Default true (deduped). Use this for volatile/polling
+   *  reads where an identical call is expected to return a different result
+   *  each time — e.g. polling a code-execution status by id, or re-fetching
+   *  current on-screen state. Has no effect on non-read-only actions, which
+   *  are never deduped in the first place. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)` — see `packages/core/docs/content/actions.mdx`
    *  ("Tools Callability"). **Default-allow opt-out**: undefined / `true` both
@@ -493,6 +501,9 @@ interface DefineActionWithParams<
   /** If true, the agent may execute this action concurrently with other
    *  read-only or parallel-safe tool calls emitted in the same model turn. */
   parallelSafe?: boolean;
+  /** Set false to exempt a read-only tool from the duplicate read-only call
+   *  guard. Default true. See the schema overload above. */
+  dedupe?: boolean;
   /** Whether this action may be invoked from the tools (Alpine iframe) bridge
    *  via `appAction(name, params)`. See the schema overload above for details
    *  and the `toolCallable` section in actions.md. */
@@ -557,6 +568,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly readOnly?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly parallelSafe?: boolean;
+  readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
   readonly publicAgent?: PublicAgentActionConfig;
   readonly link?: ActionLinkBuilder;
@@ -752,6 +764,8 @@ export function defineAction(options: any) {
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
       : undefined;
+  const dedupe: boolean | undefined =
+    typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
     options.publicAgent &&
     typeof options.publicAgent === "object" &&
@@ -806,6 +820,7 @@ export function defineAction(options: any) {
       ? { allowInPlanMode: options.allowInPlanMode }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
+    ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
     ...(publicAgent ? { publicAgent } : {}),
     ...(link ? { link } : {}),

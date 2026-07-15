@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Opérations",
     commandSearch: "Rechercher",
+    openAgent: "Ouvrir l’agent",
     commandAppearance: "Apparence",
     toggleTheme: "Changer de thème",
     extensionSignedInTitle: "Connecté",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "Dicter",
     archive: "Archiver",
     trash: "Corbeille",
+    agent: "Agent",
     settings: "Paramètres",
     notifications: "Alertes",
     insights: "Analyses",
@@ -903,15 +905,6 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     removeDescription:
       "{{email}} perdra l’accès à cette organisation. Vous pourrez toujours l’inviter à nouveau.",
     remove: "Retirer",
-  },
-  slackShareHint: {
-    playsInline: "Lecture inline dans Slack",
-    connectedDescription:
-      "Collez ce lien dans n’importe quel espace connecté pour le lire inline.",
-    makeInline: "Le lire inline dans Slack",
-    connectDescription:
-      "Connectez un espace pour que ce lien se déplie en vidéo.",
-    connect: "Connecter",
   },
   commentsPanel: {
     disabled: "Les commentaires sont désactivés pour cet enregistrement.",

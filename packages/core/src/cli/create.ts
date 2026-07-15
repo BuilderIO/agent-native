@@ -480,21 +480,7 @@ async function scaffoldWorkspaceRoot(
     }
   }
 
-  const localToolkit = localToolkitOverride();
-  if (localToolkit) {
-    const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
-    const existing = fs.existsSync(wsPath)
-      ? fs.readFileSync(wsPath, "utf-8")
-      : "";
-    const updated = mergeWorkspaceYamlSections(existing, {
-      overrides: {
-        '"@agent-native/toolkit"': JSON.stringify(localToolkit),
-      },
-    });
-    if (updated !== existing) {
-      fs.writeFileSync(wsPath, updated);
-    }
-  }
+  applyLocalWorkspaceOverrides(targetDir);
 
   const corePackageDir = path.join(targetDir, "packages", "shared");
   fs.mkdirSync(path.join(targetDir, "packages"), { recursive: true });
@@ -578,6 +564,8 @@ export async function addAppToWorkspace(
     );
     process.exit(1);
   }
+
+  applyLocalWorkspaceOverrides(workspace.workspaceRoot);
 
   clack.intro("Add an app to your workspace");
 
@@ -1101,6 +1089,12 @@ function postProcessStandalone(
       sections.overrides['"@agent-native/toolkit"'] =
         JSON.stringify(localToolkit);
     }
+    const localRecapCli = localRecapCliOverride();
+    if (localRecapCli) {
+      sections.overrides ??= {};
+      sections.overrides['"@agent-native/recap-cli"'] =
+        JSON.stringify(localRecapCli);
+    }
     let updated = mergeWorkspaceYamlSections(existing, sections);
     updated = mergeWorkspaceYamlListItems(
       updated,
@@ -1399,6 +1393,11 @@ async function downloadGitHubSubdir(
 ): Promise<void> {
   validateRepoName(repo);
   const refs = getGitHubTemplateRefCandidates();
+  if (refs.length === 0) {
+    throw new Error(
+      "Cannot download first-party scaffold files without a versioned @agent-native/core package.",
+    );
+  }
   const errors: string[] = [];
   for (const ref of refs) {
     const tarUrl = `https://api.github.com/repos/${repo}/tarball/${encodeURIComponent(ref)}`;
@@ -1660,6 +1659,34 @@ function localToolkitOverride(): string | null {
   return localToolkit ? pathToFileURL(localToolkit).href : null;
 }
 
+function localRecapCliOverride(): string | null {
+  if (process.env.AGENT_NATIVE_CREATE_USE_LOCAL_CORE !== "1") return null;
+  const localRecapCli = findLocalPackage("recap-cli");
+  return localRecapCli ? pathToFileURL(localRecapCli).href : null;
+}
+
+function applyLocalWorkspaceOverrides(targetDir: string): void {
+  const localToolkit = localToolkitOverride();
+  const localRecapCli = localRecapCliOverride();
+  if (!localToolkit && !localRecapCli) return;
+
+  const wsPath = path.join(targetDir, "pnpm-workspace.yaml");
+  const existing = fs.existsSync(wsPath)
+    ? fs.readFileSync(wsPath, "utf-8")
+    : "";
+  const updated = mergeWorkspaceYamlSections(existing, {
+    overrides: {
+      ...(localToolkit
+        ? { '"@agent-native/toolkit"': JSON.stringify(localToolkit) }
+        : {}),
+      ...(localRecapCli
+        ? { '"@agent-native/recap-cli"': JSON.stringify(localRecapCli) }
+        : {}),
+    },
+  });
+  if (updated !== existing) fs.writeFileSync(wsPath, updated);
+}
+
 function getCorePackageVersion(): string | undefined {
   try {
     const packageRoot = path.resolve(__dirname, "../..");
@@ -1680,9 +1707,11 @@ function getCorePackageVersion(): string | undefined {
  *   - ≥ 0.8.0:  changesets per-package tags
  *               `@agent-native/core@<version>` (current).
  *
- * `main` is the final fallback so dev builds and brand-new releases (where
- * the tag has not propagated yet) still work — at the cost of pulling
- * potentially newer template code than the running CLI was built against.
+ * Published CLIs intentionally use only immutable version tags. Falling back
+ * to mutable `main` can copy a template that imports exports not present in
+ * the installed core package, leaving a generated app broken at SSR startup.
+ * Local framework development uses the checkout's templates and packages
+ * before this downloader runs, so it does not need a mutable fallback.
  */
 function getGitHubTemplateRefCandidates(): string[] {
   const version = getCorePackageVersion();
@@ -1691,7 +1720,6 @@ function getGitHubTemplateRefCandidates(): string[] {
     candidates.push(`@agent-native/core@${version}`);
     candidates.push(`v${version}`);
   }
-  candidates.push("main");
   return candidates;
 }
 

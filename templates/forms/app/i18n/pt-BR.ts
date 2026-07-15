@@ -4,6 +4,7 @@ const messages = {
     searchForms: "Pesquisar formularios",
     appearance: "Aparencia",
     toggleTheme: "Alternar tema",
+    openAgent: "Abrir agente",
   },
   header: {
     settings: "Configurações",
@@ -19,6 +20,7 @@ const messages = {
     askForms: "Perguntar ao Forms",
     allForms: "Todos os formulários",
     team: "Equipe",
+    agent: "Agente",
   },
   settings: {
     title: "Configurações",
@@ -195,6 +197,9 @@ const messages = {
       anonymousResponses: "Respostas anônimas",
       anonymousResponsesDescription:
         "Não guardar endereços IP, identidade do respondente nem metadados de origem.",
+      emailNewResponses: "Enviar-me um e-mail sobre novas respostas",
+      emailNewResponsesDescription:
+        "Envie uma notificação para o e-mail da conta proprietária do formulário sempre que alguém responder.",
       saveSettings: "Salvar configurações",
     },
     integrations: {

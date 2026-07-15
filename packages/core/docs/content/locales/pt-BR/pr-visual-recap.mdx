@@ -102,13 +102,13 @@ explicitamente a qualquer momento:
 npx @agent-native/core@latest skills add visual-plan --with-github-action
 ```
 
-Isso instala a habilidade `visual-plan` (que inclui a habilidade `visual-recap` que a ação executa) e grava `.github/workflows/pr-visual-recap.yml` em seu repositório. O fluxo de trabalho chama **subcomandos CLI publicados** por meio de `npx @agent-native/core@latest recap <subcommand>` — incluindo `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check` e `usage` – portanto, nada é copiado em seu repositório como scripts auxiliares. `setup` e `doctor` são os auxiliares interativos que você executa localmente; `gate` é a etapa de segurança que o fluxo de trabalho executa antes de cada recapitulação.
+Isso instala a habilidade `visual-plan` (que inclui a habilidade `visual-recap` que a ação executa) e grava `.github/workflows/pr-visual-recap.yml` em seu repositório. O fluxo de trabalho chama **subcomandos CLI publicados** por meio de `npx @agent-native/recap-cli@latest recap <subcommand>` — incluindo `gate`, `collect-diff`, `block-reference`, `scan`, `build-prompt`, `publish`, `shot`, `comment`, `check` e `usage` – portanto, nada é copiado em seu repositório como scripts auxiliares. `setup` e `doctor` são os auxiliares interativos que você executa localmente; `gate` é a etapa de segurança que o fluxo de trabalho executa antes de cada recapitulação.
 
 Em seguida, execute o assistente de configuração guiada:
 
 ```bash
-npx @agent-native/core@latest recap setup
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 `recap setup` atualiza o fluxo de trabalho, usa `gh` para definir GitHub Actions
@@ -118,7 +118,7 @@ conjunto. Os valores secretos são enviados para `gh` por meio de stdin, não po
 o arquivo de fluxo de trabalho gerado e abra um PR para vê-lo ser executado.
 
 Por padrão, o fluxo de trabalho cria seu prompt de agente a partir do pacote mais recente
-Orientação `visual-recap` em `@agent-native/core@latest`, incluindo qualquer irmão
+Orientação `visual-recap` em `@agent-native/recap-cli@latest`, incluindo qualquer irmão
 arquivos de referência que acompanham a habilidade. Se o seu repositório for personalizado intencionalmente e
 fixa sua pasta `visual-recap` comprometida, defina a variável do repositório
 `VISUAL_RECAP_SKILL_SOURCE=repo`.
@@ -135,8 +135,8 @@ Por padrão, o fluxo de trabalho é executado em executores `ubuntu-latest` hosp
 As aspas JSON são obrigatórias. Esse valor seleciona o executor do trabalho completo `recap`. Para configurá-lo durante a instalação guiada, passe o mesmo valor JSON para `--runs-on` e depois valide o fluxo de trabalho e a disponibilidade do executor com `doctor`:
 
 ```bash
-npx @agent-native/core@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
-npx @agent-native/core@latest recap doctor
+npx @agent-native/recap-cli@latest recap setup --runs-on '["self-hosted","linux","x64","visual-recap"]'
+npx @agent-native/recap-cli@latest recap doctor
 ```
 
 O gate leve usa `ubuntu-latest` separadamente. Repositórios sem executores hospedados pelo GitHub podem definir `VISUAL_RECAP_GATE_RUNS_ON` como um único rótulo de texto simples, sem JSON, ou usar `--gate-runs-on visual-recap-gate`. O rótulo personalizado só vale para autores `OWNER`, `MEMBER` ou `COLLABORATOR` do mesmo repositório; forks e outros autores são forçados para `ubuntu-latest` e podem ficar sem agendamento se os executores hospedados estiverem desativados. Use um executor dedicado e, de preferência, efêmero: o gate padrão não baixa a árvore do PR e avalia a lógica do fluxo de trabalho e os metadados do PR.
@@ -160,11 +160,29 @@ Se a variável não estiver definida, a ação usará `claude`.
 
 Além do back-end, duas variáveis de repositório ajustam _como_ o agente é executado:
 
-- **`VISUAL_RECAP_MODEL`** fixa o modelo passado para CLI (`--model`) — por exemplo, `gpt-5.6-sol` para Codex ou um ID de modelo Claude. Deixe-o desativado para usar o modelo padrão do próprio CLI.
+- **`VISUAL_RECAP_MODEL`** fixa o modelo passado para CLI (`--model`) — por exemplo, `gpt-5.6-luna` para Codex, um ID de modelo Claude, ou `deepseek-chat` para DeepSeek. É obrigatória para `openai-compatible`. Para o back-end **Claude**, se a variável não estiver definida, o padrão agora é `claude-sonnet-5`; defina-a explicitamente para usar um modelo Claude diferente, como o mais barato `claude-haiku-4-5`. Para o back-end **Codex**, se não estiver definida, é usado o modelo padrão do próprio CLI do Codex.
 - **`VISUAL_RECAP_REASONING`** define a profundidade do raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao backend Codex; O raciocínio de Claude é baseado em modelo, então esta variável é ignorada lá.
 - **`VISUAL_RECAP_SKILL_SOURCE`** controla a atualização do prompt: `auto`/unset usa o pacote de orientação de habilidades mais recente, enquanto `repo` fixa-se à pasta de habilidades `visual-recap` do repositório local confirmado.
 
 Por exemplo, para executar a recapitulação em Codex com GPT-5.6 Sol com raciocínio alto, defina as variáveis de repositório `VISUAL_RECAP_AGENT=codex`, `VISUAL_RECAP_MODEL=gpt-5.6-sol` e `VISUAL_RECAP_REASONING=high`.
+
+## Custo
+
+Cada execução de recapitulação é uma sessão completa de agente de codificação lendo um diff real, não um resumo barato baseado em modelo, então seu custo acompanha a escolha do modelo e a frequência com que é executada:
+
+- **Uma sessão completa por push no PR.** O gatilho padrão dispara em `synchronize`, então um PR que recebe dez pushes executa o agente dez vezes.
+- **O PR inteiro a cada vez**, não apenas os commits desde a última execução — o custo escala com o tamanho total do PR, não com o tamanho incremental do diff.
+- **Entrada do diff limitada a ~600KB.** Isso limita o pior caso por execução, mas diffs grandes ainda custam significativamente mais do que os pequenos.
+- **Uma nova tentativa automática em caso de falha**, o que pode aproximadamente dobrar o custo de uma execução que falha de forma transitória.
+
+Para reduzir o custo:
+
+- **Fixe um modelo mais barato.** Para Claude, defina `VISUAL_RECAP_MODEL=claude-haiku-4-5` para repositórios simples ou pequenos — é o nível Claude mais barato; `claude-sonnet-5` (o padrão) é o nível equilibrado.
+- **Mude para Codex com um modelo mais barato.** Defina `VISUAL_RECAP_AGENT=codex` com `VISUAL_RECAP_MODEL=gpt-5.6-luna` (o nível GPT-5.6 mais barato) ou `gpt-5.6-terra` (nível intermediário), e defina `VISUAL_RECAP_REASONING=low` para reduzir ainda mais o gasto com tokens de raciocínio. A profundidade de raciocínio só se aplica ao Codex.
+- **Aponte para um provedor mais barato compatível com OpenAI.** Defina `VISUAL_RECAP_AGENT=openai-compatible` com `VISUAL_RECAP_BASE_URL`/`VISUAL_RECAP_MODEL`/`VISUAL_RECAP_API_KEY` direcionados ao DeepSeek, Kimi ou qualquer outro endpoint compatível com OpenAI.
+- **Recapitule com menos frequência.** Edite o `on.pull_request.types` do fluxo de trabalho instalado de `[opened, synchronize, reopened, ready_for_review, closed]` para `[opened, ready_for_review, closed]` para que ele só recapitule quando um PR é aberto e quando é mesclado, em vez de a cada push.
+
+Cada execução registra o que realmente foi gasto: a etapa `recap usage` do fluxo de trabalho anexa o uso de tokens e custo ao plano publicado, para que você possa ver o gasto real por execução em vez de adivinhar.
 
 ## Segredos e variáveis
 
@@ -196,11 +214,11 @@ Aplicativo Planos.
 
 **Solo: um token pessoal ainda funciona.** Crie-o com `npx @agent-native/core@latest connect`
 em seu aplicativo Planos. Para o aplicativo hospedado, isso também grava um local
-arquivo de token de publicação que `npx @agent-native/core@latest recap setup` pode ler:
+arquivo de token de publicação que `npx @agent-native/recap-cli@latest recap setup` pode ler:
 
 ```bash
 npx @agent-native/core@latest connect https://plan.agent-native.com --client codex
-npx @agent-native/core@latest recap setup
+npx @agent-native/recap-cli@latest recap setup
 ```
 
 Se preferir a configuração manual, cole o token no segredo GitHub. Utilize um
@@ -209,16 +227,16 @@ token real.
 
 ### Opcional (somente se você alterar os padrões)
 
-| Segredo/variável         | Padrão                          | Quando você precisar                                                                                                                                                |
-| ------------------------ | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `OPENAI_API_KEY`         | —                               | Segredo. Defina junto com `VISUAL_RECAP_AGENT=codex` para executar a recapitulação com Codex.                                                                       |
-| `VISUAL_RECAP_AGENT`     | `claude`                        | Variável. Seleciona o back-end do agente de codificação (`claude` ou `codex`).                                                                                      |
-| `VISUAL_RECAP_MODEL`     | padrão de cada CLI              | Variável. Fixa o modelo - por ex. `gpt-5.6-sol` para Codex ou um ID de modelo Claude. Unset usa o próprio padrão do CLI.                                            |
-| `VISUAL_RECAP_REASONING` | padrão de cada modelo           | Variável. Profundidade de raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao back-end Codex.                                           |
-| `RECAP_CLI_VERSION`      | `latest`                        | Variável. Fixa a versão `@agent-native/core` CLI que o fluxo de trabalho instala - por exemplo. `1.5.0`. Consulte [Version pinning](#version-pinning-copy-variant). |
-| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com` | Segredo. Somente ao auto-hospedar o aplicativo Planos em uma origem diferente.                                                                                      |
+| Segredo/variável         | Padrão                                                                | Quando você precisar                                                                                                                                                                                                                                                                                                    |
+| ------------------------ | --------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `OPENAI_API_KEY`         | —                                                                     | Segredo. Defina junto com `VISUAL_RECAP_AGENT=codex` para executar a recapitulação com Codex.                                                                                                                                                                                                                           |
+| `VISUAL_RECAP_AGENT`     | `claude`                                                              | Variável. Seleciona o back-end do agente de codificação (`claude` ou `codex`).                                                                                                                                                                                                                                          |
+| `VISUAL_RECAP_MODEL`     | `claude-sonnet-5` para Claude; obrigatório para o back-end compatível | Variável. ID do modelo do provedor para back-ends compatíveis com OpenAI (obrigatório nesse caso). Para Claude, se não definida, o padrão agora é `claude-sonnet-5` — defina-a para substituir, por ex. `claude-haiku-4-5` para o nível mais barato. Para Codex, se não definida, usa o próprio padrão do CLI do Codex. |
+| `VISUAL_RECAP_REASONING` | padrão de cada modelo                                                 | Variável. Profundidade de raciocínio: `none`, `minimal`, `low`, `medium`, `high` ou `xhigh`. Aplica-se ao back-end Codex.                                                                                                                                                                                               |
+| `RECAP_CLI_VERSION`      | `latest`                                                              | Variável. Fixa a versão `@agent-native/recap-cli` CLI que o fluxo de trabalho instala - por exemplo. `1.5.0`. Consulte [Version pinning](#version-pinning-copy-variant).                                                                                                                                                |
+| `PLAN_RECAP_APP_URL`     | `https://plan.agent-native.com`                                       | Segredo. Somente ao auto-hospedar o aplicativo Planos em uma origem diferente.                                                                                                                                                                                                                                          |
 
-O fluxo de trabalho detecta automaticamente como invocar seu auxiliar CLI (fonte local dentro deste monorepo, o `@agent-native/core` publicado em outro lugar), portanto, não há variável `RECAP_CLI` a ser definida.
+O fluxo de trabalho detecta automaticamente como invocar seu auxiliar CLI (fonte local dentro deste monorepo, o `@agent-native/recap-cli` publicado em outro lugar), portanto, não há variável `RECAP_CLI` a ser definida.
 
 ## Captura de tela embutida no comentário
 
@@ -359,9 +377,9 @@ recapitular sem enviar conteúdo de recapitulação para o banco de dados do Pla
 mesmo fluxo auxiliar localmente no modo de arquivos locais:
 
 ```bash
-npx @agent-native/core@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
-npx @agent-native/core@latest recap scan --diff recap.diff
-npx @agent-native/core@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
+npx @agent-native/recap-cli@latest recap collect-diff --base main --head HEAD --out recap.diff --stat recap.stat
+npx @agent-native/recap-cli@latest recap scan --diff recap.diff
+npx @agent-native/recap-cli@latest recap build-prompt --pr 123 --diff recap.diff --stat recap.stat --local-files --local-dir plans/pr-123-visual-recap
 ```
 
 Entregue o `recap-prompt.md` gerado ao seu agente de codificação. No modo de arquivos locais
@@ -391,7 +409,7 @@ A recapitulação é um auxílio de revisão que se sobrepõe ao fluxo normal de
 
 ## Fixação de versão (variante de cópia) {#version-pinning-copy-variant}
 
-Por padrão, o fluxo de trabalho da variante de cópia instala o `@agent-native/core@latest` em tempo de execução para que cada execução de recapitulação selecione automaticamente o CLI mais recente. Se seu CI precisar de ferramentas reproduzíveis, defina a variável de repositório **`RECAP_CLI_VERSION`** para fixar a versão instalada:
+Por padrão, o fluxo de trabalho da variante de cópia instala o `@agent-native/recap-cli@latest` em tempo de execução para que cada execução de recapitulação selecione automaticamente o CLI mais recente. Se seu CI precisar de ferramentas reproduzíveis, defina a variável de repositório **`RECAP_CLI_VERSION`** para fixar a versão instalada:
 
 1. Vá para **Configurações → Segredos e variáveis → Actions → Variáveis** do seu repositório.
 2. Crie uma variável chamada `RECAP_CLI_VERSION` com um valor como `1.5.0`.
@@ -402,7 +420,7 @@ Para a variante do chamador reutilizável, use a entrada `cli-version` (consulte
 
 ## Lista de permissões de verificação secreta
 
-Antes de publicar uma recapitulação, o fluxo de trabalho executa `npx @agent-native/core@latest recap scan` para detectar prováveis segredos na comparação. Qualquer PR cuja comparação corresponda a um padrão de segredo conhecido é bloqueado com um comentário explicativo — a recapitulação não é publicada e nenhum conteúdo de comparação é enviado ao agente de codificação.
+Antes de publicar uma recapitulação, o fluxo de trabalho executa `npx @agent-native/recap-cli@latest recap scan` para detectar prováveis segredos na comparação. Qualquer PR cuja comparação corresponda a um padrão de segredo conhecido é bloqueado com um comentário explicativo — a recapitulação não é publicada e nenhum conteúdo de comparação é enviado ao agente de codificação.
 
 Em casos raros, um repositório possui acessórios de teste intencionais ou strings não secretas que se assemelham superficialmente a padrões secretos (por exemplo, uma chave de acessório em um arquivo de teste). Para suprimir um falso positivo, crie `.github/recap-scan-allowlist` na raiz do seu repositório.
 
@@ -436,7 +454,7 @@ A lista de permissões só é consultada pelo portão de varredura secreta. Isso
 
 ### Por que usar a variante reutilizável?
 
-O instalador padrão copia o fluxo de trabalho completo de aproximadamente 360 linhas YAML em seu repositório (a opção **copiar**). Esta é a escolha certa para repositórios isolados ou repositórios que precisam auditar cada linha do que é executado. A desvantagem é que as correções de bugs e melhorias nunca chegam até você – você precisa executar novamente o `npx @agent-native/core@latest recap setup` manualmente após cada lançamento.
+O instalador padrão copia o fluxo de trabalho completo de aproximadamente 360 linhas YAML em seu repositório (a opção **copiar**). Esta é a escolha certa para repositórios isolados ou repositórios que precisam auditar cada linha do que é executado. A desvantagem é que as correções de bugs e melhorias nunca chegam até você – você precisa executar novamente o `npx @agent-native/recap-cli@latest recap setup` manualmente após cada lançamento.
 
 A opção **reutilizável** grava um chamador fino de aproximadamente 20 linhas. Delega para `BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml` via `uses:`. Cada chamador seleciona automaticamente a lógica mais recente quando o fluxo de trabalho é executado, sem necessidade de atualização local.
 
@@ -449,7 +467,7 @@ A opção **reutilizável** grava um chamador fino de aproximadamente 20 linhas.
 
 ### Snippet do autor da chamada
 
-Isso é o que `npx @agent-native/core@latest recap setup --reusable` escreve (ou você pode colá-lo manualmente):
+Isso é o que `npx @agent-native/recap-cli@latest recap setup --reusable` escreve (ou você pode colá-lo manualmente):
 
 ```yaml
 name: PR Visual Recap
@@ -484,7 +502,7 @@ jobs:
       skill-source: ${{ vars.VISUAL_RECAP_SKILL_SOURCE || 'auto' }}
       runs-on: ${{ vars.VISUAL_RECAP_RUNS_ON || '"ubuntu-latest"' }}
       gate-runs-on: ${{ vars.VISUAL_RECAP_GATE_RUNS_ON || 'ubuntu-latest' }}
-      # cli-version: "latest"  # pin to a specific @agent-native/core version
+      # cli-version: "latest"  # pin to a specific @agent-native/recap-cli version
 ```
 
 Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](#secrets-and-variables). O chamador reutilizável encaminha `VISUAL_RECAP_RUNS_ON` como `runs-on` para o trabalho completo e `VISUAL_RECAP_GATE_RUNS_ON` como o rótulo simples `gate-runs-on` para o gate. Ambos usam `ubuntu-latest` quando omitidos.
@@ -493,15 +511,15 @@ Aplicam-se os mesmos segredos e variáveis descritos em [Secrets and variables](
 
 ```bash
 # Escreva o chamador thin em vez da cópia completa:
-npx @agent-native/core@latest recap setup --reusable
+npx @agent-native/recap-cli@latest recap setup --reusable
 
 # Ou com uma referência fixada para reprodutibilidade:
-npx @agent-native/core@latest recap setup --reusable --ref v1.2.3
+npx @agent-native/recap-cli@latest recap setup --reusable --ref v1.2.3
 ```
 
 Ambas as variantes gravam o fluxo de trabalho em `.github/workflows/pr-visual-recap.yml`. Se um fluxo de trabalho existente já existir e for diferente, o comando recusará e solicitará que você passe `--force` para substituição.
 
-Depois de escrever, execute `npx @agent-native/core@latest recap doctor` normalmente para confirmar se os segredos estão configurados.
+Depois de escrever, execute `npx @agent-native/recap-cli@latest recap doctor` normalmente para confirmar se os segredos estão configurados.
 
 ### Fixação de versão
 
@@ -511,7 +529,7 @@ Por padrão, o chamador faz referência a `@main`, que sempre usa a versão publ
 uses: BuilderIO/agent-native/.github/workflows/pr-visual-recap-reusable.yml@v1.2.3
 ```
 
-A entrada `cli-version` controla qual versão do `@agent-native/core` CLI é executada dentro do fluxo de trabalho. Deixe-a em `"latest"` para rastrear a versão mais recente ou fixe-a em uma string de versão (por exemplo, `"1.5.0"`) para reprodutibilidade total.
+A entrada `cli-version` controla qual versão do `@agent-native/recap-cli` CLI é executada dentro do fluxo de trabalho. Deixe-a em `"latest"` para rastrear a versão mais recente ou fixe-a em uma string de versão (por exemplo, `"1.5.0"`) para reprodutibilidade total.
 
 ### contexto do evento workflow_call
 

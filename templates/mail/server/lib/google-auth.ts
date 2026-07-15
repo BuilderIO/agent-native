@@ -375,12 +375,23 @@ export async function getClients(
  * handler uses this to return a 502 with the underlying reason instead
  * of silently rendering an empty inbox.
  */
-export async function getClientsWithErrors(forEmail?: string): Promise<{
+export async function getClientsWithErrors(
+  forEmail?: string,
+  accountEmails?: string[],
+): Promise<{
   clients: Array<{ email: string; accessToken: string; refreshToken: string }>;
   errors: Array<{ email: string; error: string }>;
 }> {
   if (!forEmail) return { clients: [], errors: [] };
-  const accounts = await listOAuthAccountsByOwner("google", forEmail);
+  const requested = accountEmails
+    ? new Set(accountEmails.map((email) => email.toLowerCase()))
+    : null;
+  // Filtering happens before getValidAccessToken. This is important: token
+  // refreshes are writes and an explicitly scoped inventory read must not
+  // refresh unrelated accounts.
+  const accounts = (await listOAuthAccountsByOwner("google", forEmail)).filter(
+    (account) => !requested || requested.has(account.accountId.toLowerCase()),
+  );
 
   const clients: Array<{
     email: string;
@@ -571,6 +582,13 @@ type ListOptions = {
    * without hydrating a large metadata ranking window on every inbox poll.
    */
   threadRecentMessageCandidateLimit?: number;
+  /**
+   * Restrict this read before OAuth refreshes or provider calls.  This is
+   * deliberately an account-id allow-list rather than a post-fetch filter:
+   * a Mail user can have several connected inboxes and an explicitly scoped
+   * read must not wake up the others.
+   */
+  accountEmails?: string[];
 };
 
 const LIST_CACHE_TTL = 45_000;
@@ -791,6 +809,10 @@ async function fetchThreadBatchWithRefill(
     }
   }
 
+  if (batchResults.some((result) => !result.data)) {
+    throw new Error("Gmail thread metadata response was incomplete");
+  }
+
   return batchResults;
 }
 
@@ -852,7 +874,11 @@ function listCacheKey(
         .join("|")
     : "";
   const queryPart = query === undefined ? "<default>" : query;
-  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.messageFormat ?? ""}::${options?.threadCandidateLimit ?? ""}::${options?.threadRecentMessageCandidateLimit ?? ""}`;
+  const accounts = options?.accountEmails
+    ?.map((email) => email.toLowerCase())
+    .sort()
+    .join(",");
+  return `${forEmail ?? ""}::${queryPart}::${maxResults}::${tokenPart}::${options?.mode ?? "messages"}::${options?.threadFormat ?? ""}::${options?.messageFormat ?? ""}::${options?.threadCandidateLimit ?? ""}::${options?.threadRecentMessageCandidateLimit ?? ""}::${accounts ?? ""}`;
 }
 
 export async function listGmailMessages(
@@ -1542,8 +1568,10 @@ async function listGmailMessagesUncached(
   pageTokens?: Record<string, string>,
   options?: ListOptions,
 ): Promise<ListResult> {
-  const { clients, errors: refreshErrors } =
-    await getClientsWithErrors(forEmail);
+  const { clients, errors: refreshErrors } = await getClientsWithErrors(
+    forEmail,
+    options?.accountEmails,
+  );
   // Seed the per-fetch error list with refresh failures so a fully-dead
   // connection (every account's refresh_token revoked or invalidated by a
   // GOOGLE_CLIENT_ID rotation) reaches the handler — otherwise the list

@@ -7,6 +7,7 @@ import {
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
+  IconBrain,
   IconCalendar,
   IconSettings,
   IconLink,
@@ -97,6 +98,7 @@ const navItems = [
     labelKey: "navigation.bookingLinks",
     icon: IconLink,
   },
+  { path: "/agent", labelKey: "settings.agentTitle", icon: IconBrain },
   { path: "/settings", labelKey: "navigation.settings", icon: IconSettings },
 ];
 

@@ -392,6 +392,7 @@ export function AppLayout({ children }: AppLayoutProps) {
               position="right"
               defaultOpen
               emptyStateText={t("agentSidebar.emptyState")}
+              agentPageHref="/agent"
               suggestions={[
                 t("agentSidebar.suggestions.today"),
                 t("agentSidebar.suggestions.findSlot"),

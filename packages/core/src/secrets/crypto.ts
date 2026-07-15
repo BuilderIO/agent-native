@@ -1,21 +1,34 @@
 /**
  * Shared AES-256-GCM encryption for secret values at rest.
  *
- * Used by both the framework secrets vault (`app_secrets`) and per-user/per-org
- * credentials (`resolveCredential` / `saveCredential`, stored in `settings`) so
- * there is a single crypto implementation and a single key story.
+ * Used by the framework secrets vault, per-user/per-org credentials
+ * (`resolveCredential` / `saveCredential`, stored in `settings`), and other
+ * column-level encrypted values. The `app_secrets` storage layer uses the
+ * shared-key variant below because workspace-scoped vault rows are readable by
+ * sibling apps in the same workspace. When a deployment has not been given
+ * shared key material yet, that variant falls back to the app-scoped key so
+ * existing single-app deployments can keep reading and writing secrets while
+ * they migrate to the shared key.
  *
- * The encryption key is derived from `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when
- * set, then `SECRETS_ENCRYPTION_KEY`, then `BETTER_AUTH_SECRET`. The app-scoped
- * key lets a local multi-app workspace read one app's encrypted production data
- * without replacing the shared local auth secret. In production we refuse to
- * start without configured key material — a CWD-derived fallback would be
- * effectively static (e.g. `/var/task` on Lambda), so anyone with read access
- * to the DB could decrypt every secret.
+ * The default encryption key is derived from
+ * `<APP_NAME>_SECRETS_ENCRYPTION_KEY` when set, then `SECRETS_ENCRYPTION_KEY`,
+ * then `BETTER_AUTH_SECRET`. The app-scoped key lets a local multi-app
+ * workspace read one app's encrypted production data without replacing the
+ * shared local auth secret. Hosted workspace deploys (`AGENT_NATIVE_WORKSPACE`)
+ * typically set none of those literal env vars per app; in that case the
+ * shared-key variant falls back further to material derived from the
+ * workspace-wide `A2A_SECRET` (see `getWorkspaceA2ADerivedSecret`), so sibling
+ * apps in the same workspace still land on the same shared key without any
+ * extra configuration. In production we refuse to start without configured
+ * key material — a CWD-derived fallback would be effectively static (e.g.
+ * `/var/task` on Lambda), so anyone with read access to the DB could decrypt
+ * every secret.
  *
  * Encrypted values are tagged `v1:<iv-hex>:<ct-hex>:<tag-hex>`. The `v1:` prefix
  * lets readers distinguish ciphertext from legacy plaintext during migration.
  */
+
+import { getWorkspaceA2ADerivedSecret } from "../server/derived-secret.js";
 
 type NodeCryptoModule = typeof import("node:crypto");
 
@@ -67,45 +80,30 @@ function appScopedEncryptionKey(): string | undefined {
     : undefined;
 }
 
-/**
- * Derive a 32-byte AES key from the configured secret material via SHA-256.
- * Re-derived per call (cheap, stateless, and makes rotation easy).
- */
-export function getSecretEncryptionKey(): Buffer {
+function sharedEncryptionKeyMaterial(): string | undefined {
+  if (typeof process === "undefined") return undefined;
+  return (
+    process.env.SECRETS_ENCRYPTION_KEY ||
+    process.env.BETTER_AUTH_SECRET ||
+    getWorkspaceA2ADerivedSecret("secrets-encryption")
+  );
+}
+
+function deriveSecretEncryptionKey(
+  explicit: string | undefined,
+  errorMessage: string,
+  warningMessage: string,
+): Buffer {
   const { createHash } = requireNodeCrypto();
-  const explicit =
-    appScopedEncryptionKey() ||
-    (typeof process === "undefined"
-      ? undefined
-      : process.env.SECRETS_ENCRYPTION_KEY) ||
-    (typeof process === "undefined"
-      ? undefined
-      : process.env.BETTER_AUTH_SECRET);
 
   if (!explicit) {
     if (processNodeEnv() === "production") {
-      const appName =
-        typeof process === "undefined"
-          ? undefined
-          : process.env.APP_NAME?.trim() // guard:allow-env-credential — deploy-level app configuration selects the scoped encryption key.
-              .toUpperCase()
-              .replace(/[^A-Z0-9]+/g, "_")
-              .replace(/^_+|_+$/g, "");
-      throw new Error(
-        "[agent-native/secrets] Refusing to start in production without an encryption key. " +
-          `Set ${appName ? `${appName}_SECRETS_ENCRYPTION_KEY, ` : ""}SECRETS_ENCRYPTION_KEY, or BETTER_AUTH_SECRET in the deploy environment. ` +
-          "The previous CWD-derived fallback was effectively static (e.g. `/var/task` on Lambda), " +
-          "which means anyone with read access to the secrets table could decrypt every user's secrets.",
-      );
+      throw new Error(errorMessage);
     }
     if (!_warnedFallback) {
       _warnedFallback = true;
       // eslint-disable-next-line no-console
-      console.warn(
-        "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback. " +
-          "Set an app-scoped *_SECRETS_ENCRYPTION_KEY, SECRETS_ENCRYPTION_KEY, or BETTER_AUTH_SECRET for production. " +
-          "Production deploys without one of these env vars now hard-fail.",
-      );
+      console.warn(warningMessage);
     }
   }
 
@@ -113,10 +111,61 @@ export function getSecretEncryptionKey(): Buffer {
   return createHash("sha256").update(material).digest();
 }
 
-/** Encrypt a plain-text value. Returns `v1:<iv-hex>:<ct-hex>:<tag-hex>`. */
-export function encryptSecretValue(plaintext: string): string {
+/**
+ * Derive the key used by generic encrypted values such as credentials and
+ * OAuth tokens. App-specific key material is allowed for these app-local
+ * values.
+ */
+export function getSecretEncryptionKey(): Buffer {
+  const appName =
+    typeof process === "undefined"
+      ? undefined
+      : process.env.APP_NAME?.trim() // guard:allow-env-credential — deploy-level app configuration selects the scoped encryption key.
+          .toUpperCase()
+          .replace(/[^A-Z0-9]+/g, "_")
+          .replace(/^_+|_+$/g, "");
+  return deriveSecretEncryptionKey(
+    appScopedEncryptionKey() || sharedEncryptionKeyMaterial(),
+    "[agent-native/secrets] Refusing to start in production without an encryption key. " +
+      `Set ${appName ? `${appName}_SECRETS_ENCRYPTION_KEY, ` : ""}SECRETS_ENCRYPTION_KEY, or BETTER_AUTH_SECRET in the deploy environment. ` +
+      "The previous CWD-derived fallback was effectively static (e.g. `/var/task` on Lambda), " +
+      "which means anyone with read access to the DB could decrypt every secret.",
+    "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using a machine-local fallback. " +
+      "Set an app-scoped *_SECRETS_ENCRYPTION_KEY, SECRETS_ENCRYPTION_KEY, or BETTER_AUTH_SECRET for production. " +
+      "Production deploys without one of these env vars now hard-fail.",
+  );
+}
+
+/**
+ * Derive the preferred workspace-shared key used by `app_secrets` rows.
+ * Unlike generic column-level encryption, workspace vault data should decrypt
+ * in sibling apps, so `SECRETS_ENCRYPTION_KEY` / `BETTER_AUTH_SECRET` take
+ * precedence. Hosted workspace deploys (`AGENT_NATIVE_WORKSPACE`) that set
+ * neither literal var still get stable shared material derived from the
+ * workspace-wide `A2A_SECRET` before falling further back. The app-scoped key
+ * remains a compatibility fallback for deployments that have not configured
+ * shared material yet; once the shared key is configured, writes use it and
+ * reads still fall back to old rows.
+ */
+export function getSharedSecretEncryptionKey(): Buffer {
+  return deriveSecretEncryptionKey(
+    sharedEncryptionKeyMaterial() || appScopedEncryptionKey(),
+    "[agent-native/secrets] Refusing to start in production without encryption key material for workspace secrets. " +
+      "Set SECRETS_ENCRYPTION_KEY, BETTER_AUTH_SECRET, or the app-scoped *_SECRETS_ENCRYPTION_KEY in the deploy environment " +
+      "— or, on a hosted workspace deploy, ensure A2A_SECRET is set so shared material can be derived from it.",
+    "[agent-native/secrets] SECRETS_ENCRYPTION_KEY not set — using app-scoped or machine-local fallback for workspace secrets. " +
+      "Set SECRETS_ENCRYPTION_KEY or BETTER_AUTH_SECRET in every workspace app so sibling apps share vault rows, " +
+      "or rely on A2A_SECRET-derived material on hosted workspace deploys.",
+  );
+}
+
+/** Whether this deployment has stable workspace-shared key material. */
+export function hasSharedSecretEncryptionKeyMaterial(): boolean {
+  return Boolean(sharedEncryptionKeyMaterial());
+}
+
+function encryptWithKey(plaintext: string, key: Buffer): string {
   const { createCipheriv, randomBytes } = requireNodeCrypto();
-  const key = getSecretEncryptionKey();
   const iv = randomBytes(12);
   const cipher = createCipheriv("aes-256-gcm", key, iv);
   const ct = Buffer.concat([cipher.update(plaintext, "utf8"), cipher.final()]);
@@ -124,8 +173,7 @@ export function encryptSecretValue(plaintext: string): string {
   return `v1:${iv.toString("hex")}:${ct.toString("hex")}:${tag.toString("hex")}`;
 }
 
-/** Decrypt a value produced by `encryptSecretValue`. Throws on tampering. */
-export function decryptSecretValue(encrypted: string): string {
+function decryptWithKey(encrypted: string, key: Buffer): string {
   const { createDecipheriv } = requireNodeCrypto();
   if (!encrypted.startsWith("v1:")) {
     throw new Error("Unrecognised secret encoding");
@@ -134,7 +182,6 @@ export function decryptSecretValue(encrypted: string): string {
   if (!ivHex || !ctHex || !tagHex) {
     throw new Error("Corrupt secret payload");
   }
-  const key = getSecretEncryptionKey();
   const decipher = createDecipheriv(
     "aes-256-gcm",
     key,
@@ -146,6 +193,26 @@ export function decryptSecretValue(encrypted: string): string {
     decipher.final(),
   ]);
   return pt.toString("utf8");
+}
+
+/** Encrypt a plain-text value with the generic app-local key. */
+export function encryptSecretValue(plaintext: string): string {
+  return encryptWithKey(plaintext, getSecretEncryptionKey());
+}
+
+/** Decrypt a value produced by `encryptSecretValue`. Throws on tampering. */
+export function decryptSecretValue(encrypted: string): string {
+  return decryptWithKey(encrypted, getSecretEncryptionKey());
+}
+
+/** Encrypt a workspace-shared `app_secrets` value. */
+export function encryptSharedSecretValue(plaintext: string): string {
+  return encryptWithKey(plaintext, getSharedSecretEncryptionKey());
+}
+
+/** Decrypt a workspace-shared `app_secrets` value. */
+export function decryptSharedSecretValue(encrypted: string): string {
+  return decryptWithKey(encrypted, getSharedSecretEncryptionKey());
 }
 
 /**

@@ -81,6 +81,7 @@ export function Layout({ children }: LayoutProps) {
     ? `show-questions:${designScope.id}`
     : "show-questions";
   const { questions: pendingDesignQuestions } = useGuidedQuestionFlow({
+    enabled: hasSession,
     stateKey: designQuestionStateKey,
     queryKey: [designQuestionStateKey],
     browserTabId,
@@ -149,6 +150,7 @@ export function Layout({ children }: LayoutProps) {
         <AgentSidebar
           position="right"
           storageKey={DESIGN_CHAT_STORAGE_KEY}
+          agentPageHref="/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[
             t("chat.suggestionLandingPage"),

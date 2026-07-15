@@ -51,6 +51,7 @@ import {
   parsePropertyOptions,
   serializePropertyOptions,
   serializePropertyValue,
+  type DocumentPropertyOption,
   type DocumentPropertyOptionColor,
 } from "../shared/properties.js";
 import { sanitizeNormalizationFormula } from "../shared/properties.js";
@@ -6080,6 +6081,34 @@ const SOURCE_OPTION_PALETTE: DocumentPropertyOptionColor[] = [
   "red",
 ];
 
+export function sourcePropertyOptionsForSources(
+  sources: Array<{ id: string; sourceName: string }>,
+  priorOptions: DocumentPropertyOption[],
+) {
+  const priorById = new Map(priorOptions.map((option) => [option.id, option]));
+  const retainDescription = (id: string) => {
+    const description = priorById.get(id)?.description;
+    return description ? { description } : {};
+  };
+  return [
+    ...sources.map((source, index) => ({
+      id: source.id,
+      name: source.sourceName,
+      color:
+        priorById.get(source.id)?.color ??
+        SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
+      ...retainDescription(source.id),
+    })),
+    {
+      id: SOURCE_LOCAL_OPTION_ID,
+      name: "Local",
+      color: (priorById.get(SOURCE_LOCAL_OPTION_ID)?.color ??
+        "gray") as DocumentPropertyOptionColor,
+      ...retainDescription(SOURCE_LOCAL_OPTION_ID),
+    },
+  ];
+}
+
 /**
  * Ensure a "Source" select property exists tagging each row with the collection
  * it belongs to, and (re)set every item's value. Rows with no source binding are
@@ -6120,22 +6149,7 @@ export async function ensureDatabaseSourceProperty(args: {
   // that can't collide with a UUID source id). Resolving a row's tag back to a
   // source is then pure id matching — no source-name hop — so duplicate display
   // names or a collection literally named "Local" can never misroute a row.
-  const priorById = new Map(priorOptions.map((option) => [option.id, option]));
-  const options = [
-    ...sources.map((source, index) => ({
-      id: source.id,
-      name: source.sourceName,
-      color:
-        priorById.get(source.id)?.color ??
-        SOURCE_OPTION_PALETTE[index % SOURCE_OPTION_PALETTE.length],
-    })),
-    {
-      id: SOURCE_LOCAL_OPTION_ID,
-      name: "Local",
-      color: (priorById.get(SOURCE_LOCAL_OPTION_ID)?.color ??
-        "gray") as DocumentPropertyOptionColor,
-    },
-  ];
+  const options = sourcePropertyOptionsForSources(sources, priorOptions);
   const optionsJson = serializePropertyOptions({ options });
 
   let propertyId: string;

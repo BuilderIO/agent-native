@@ -578,6 +578,103 @@ async function drain(iterable: AsyncIterable<unknown>) {
   return results;
 }
 
+describe("SSE replay render pacing", () => {
+  it("yields to the browser event loop during a dense replay burst", async () => {
+    const textEvents = Array.from({ length: 60 }, (_, index) => ({
+      type: "text",
+      text: `${index}|`,
+    }));
+    const results: any[] = [];
+    let eventLoopAdvanced = false;
+    let firstResultAfterEventLoopAdvance: number | null = null;
+    const eventLoopTurn = new Promise<void>((resolve) => {
+      setTimeout(() => {
+        eventLoopAdvanced = true;
+        resolve();
+      }, 0);
+    });
+
+    for await (const result of readSSEStream(
+      eventStream([...textEvents, { type: "done" }]),
+      [],
+      { value: 0 },
+      undefined,
+    )) {
+      results.push(result);
+      if (eventLoopAdvanced && firstResultAfterEventLoopAdvance === null) {
+        firstResultAfterEventLoopAdvance = results.length - 1;
+      }
+    }
+    await eventLoopTurn;
+
+    expect(firstResultAfterEventLoopAdvance).not.toBeNull();
+    expect(firstResultAfterEventLoopAdvance!).toBeLessThan(textEvents.length);
+    expect(results).toHaveLength(textEvents.length + 1);
+    expect(results.at(-1)?.content).toEqual([
+      {
+        type: "text",
+        text: textEvents.map((event) => event.text).join(""),
+      },
+    ]);
+  });
+
+  it("preserves event order and tool content across cooperative yields", async () => {
+    const before = Array.from({ length: 24 }, (_, index) => ({
+      type: "text",
+      text: `before-${index}|`,
+    }));
+    const after = Array.from({ length: 24 }, (_, index) => ({
+      type: "text",
+      text: `after-${index}|`,
+    }));
+    const events = [
+      ...before,
+      {
+        type: "tool_start",
+        id: "tool-1",
+        tool: "query-data",
+        input: { query: "select 1" },
+      },
+      {
+        type: "tool_done",
+        id: "tool-1",
+        tool: "query-data",
+        result: "one row",
+      },
+      ...after,
+      { type: "done" },
+    ].map((event, seq) => ({ ...event, seq }));
+    const seenSeq: number[] = [];
+
+    const results = (await drain(
+      readSSEStream(eventStream(events), [], { value: 0 }, undefined, (seq) =>
+        seenSeq.push(seq),
+      ),
+    )) as any[];
+
+    expect(seenSeq).toEqual(events.map((event) => event.seq));
+    expect(results).toHaveLength(events.length);
+    expect(results.at(-1)?.content).toEqual([
+      {
+        type: "text",
+        text: before.map((event) => event.text).join(""),
+      },
+      {
+        type: "tool-call",
+        toolCallId: "tool-1",
+        toolName: "query-data",
+        argsText: JSON.stringify({ query: "select 1" }),
+        args: { query: "select 1" },
+        result: "one row",
+      },
+      {
+        type: "text",
+        text: after.map((event) => event.text).join(""),
+      },
+    ]);
+  });
+});
+
 describe("SSE event processor no-progress recovery", () => {
   afterEach(() => {
     vi.useRealTimers();

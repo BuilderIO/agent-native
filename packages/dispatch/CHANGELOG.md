@@ -1,5 +1,19 @@
 # @agent-native/dispatch
 
+## 0.14.10
+
+### Patch Changes
+
+- 7cfb087: Re-sync all vault secrets into the shared credential store at startup so upgraded encryption formats propagate without manually re-saving each key.
+- 7cfb087: Resolve provider credentials from encrypted Dispatch vault secrets, keep hosted A2A agent discovery distinct from mounted workspace app inventory, and run long Analytics A2A tasks on the durable background worker.
+
+## 0.14.9
+
+### Patch Changes
+
+- 8e6f022: Allow Dispatch hosts to link the AgentSidebar to a full-page Agent surface.
+- 8e6f022: Improve collapsed Dispatch navigation spacing and sizing.
+
 ## 0.14.8
 
 ### Patch Changes

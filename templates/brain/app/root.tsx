@@ -10,7 +10,7 @@ import {
   useT,
 } from "@agent-native/core/client";
 import { configureTracking } from "@agent-native/core/client";
-import { IconMoon, IconSun } from "@tabler/icons-react";
+import { IconBrain, IconMoon, IconSun } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import { useCallback, useState } from "react";
@@ -183,6 +183,20 @@ function AppContent() {
           </CommandMenu.Item>
           <CommandMenu.Item onSelect={() => navigate("/settings")}>
             {t("navigation.settings")}
+          </CommandMenu.Item>
+          <CommandMenu.Item
+            onSelect={() => navigate("/agent")}
+            keywords={[
+              "agent",
+              "context",
+              "files",
+              "connections",
+              "jobs",
+              "access",
+            ]}
+          >
+            <IconBrain size={16} />
+            {t("settings.openAgentSettings")}
           </CommandMenu.Item>
         </CommandMenu.Group>
         <CommandMenu.Group heading={t("root.commandAppearance")}>

@@ -192,6 +192,9 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   if (typeof entry.parallelSafe === "boolean") {
     out.parallelSafe = entry.parallelSafe;
   }
+  if (typeof entry.dedupe === "boolean") {
+    out.dedupe = entry.dedupe;
+  }
   if (typeof entry.toolCallable === "boolean") {
     out.toolCallable = entry.toolCallable;
   }
@@ -567,9 +570,32 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
+    // recurring jobs and personal automations. The agent-facing native tools
+    // remain the canonical conversational surface.
+    [
+      "list-recurring-jobs",
+      () => import("../jobs/actions/list-recurring-jobs.js"),
+    ],
+    [
+      "manage-recurring-job",
+      () => import("../jobs/actions/manage-recurring-job.js"),
+    ],
+    [
+      "list-automations",
+      () => import("../triggers/actions/list-automations.js"),
+    ],
+    [
+      "manage-automation",
+      () => import("../triggers/actions/manage-automation.js"),
+    ],
     [
       "context-manifest-get",
       () => import("../agent/context-xray/actions/context-manifest-get.js"),
+    ],
+    [
+      "context-preview-get",
+      () => import("../agent/context-xray/actions/context-preview-get.js"),
     ],
     [
       "context-pin",
@@ -663,6 +689,10 @@ export async function mergeCoreSharingActions(
       "set-review-status",
       () => import("../review/actions/set-review-status.js"),
     ],
+    [
+      "send-review-thread-to-agent",
+      () => import("../review/actions/send-review-thread-to-agent.js"),
+    ],
     // Org service tokens (CI credentials, e.g. PLAN_RECAP_TOKEN). Mint/revoke
     // are toolCallable:false — preserved via preserveActionFlags below.
     [
@@ -689,7 +719,7 @@ export async function mergeCoreSharingActions(
           run: def.run,
           ...(def.http !== undefined ? { http: def.http } : {}),
           // Carry security-relevant flags (toolCallable, publicAgent, link,
-          // mcpApp) plus readOnly/parallelSafe. Without this, the sharing
+          // mcpApp) plus readOnly/parallelSafe/dedupe. Without this, the sharing
           // actions' `toolCallable: false` (audit-H5) is dropped and the
           // tools-iframe bridge 403 in action-routes.ts never fires.
           ...preserveActionFlags(def),

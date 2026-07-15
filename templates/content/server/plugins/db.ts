@@ -637,6 +637,12 @@ const runContentMigrations = runMigrations(
     },
     {
       version: 65,
+      name: "content-owned-descriptions",
+      sql: `ALTER TABLE documents ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT '';
+        ALTER TABLE document_property_definitions ADD COLUMN IF NOT EXISTS description TEXT NOT NULL DEFAULT ''`,
+    },
+    {
+      version: 66,
       name: "document-preview-drafts-private-cas",
       sql: `CREATE TABLE IF NOT EXISTS document_preview_drafts (
         id TEXT PRIMARY KEY,
@@ -656,12 +662,12 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_preview_drafts_owner_org_document_idx ON document_preview_drafts (owner_email, org_id, document_id)`,
     },
     {
-      version: 66,
+      version: 67,
       name: "builder-source-execution-attempt-token",
       sql: `ALTER TABLE content_database_source_executions ADD COLUMN IF NOT EXISTS attempt_token TEXT`,
     },
     {
-      version: 67,
+      version: 68,
       name: "builder-source-execution-claims",
       // Non-destructive concurrency fence. Existing duplicate execution rows
       // remain intact as ambiguity evidence; the claim chooses one canonical
@@ -678,7 +684,7 @@ const runContentMigrations = runMigrations(
         ON content_database_source_execution_claims (source_id, idempotency_key)`,
     },
     {
-      version: 68,
+      version: 69,
       name: "builder-source-execution-claims-owner-scope",
       sql: `ALTER TABLE content_database_source_execution_claims ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
       UPDATE content_database_source_execution_claims

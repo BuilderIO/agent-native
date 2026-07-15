@@ -117,6 +117,16 @@ https://<your-app>.agent-native.com/mcp
 `https://&lt;app&gt;/mcp/connect` とコピー可能な URL および
 Claude、ChatGPT、カーソル、Claude コード、Codex、その他のホスト固有のタブ。
 
+### アプリ内の Access タブ {#access-tab}
+
+`AgentTabsPage` をマウントするアプリでは、同じ接続フローを **Access** タブ
+から利用できます。MCP URL、利用可能な場合は A2A エージェント カード、Claude、
+ChatGPT、Cursor、Claude Code、Codex、その他のクライアント向けの共通設定ガイドを
+表示します。アプリ内の開始点として使い、完全なフローとトークンのフォールバック
+には `/mcp/connect` を開きます。これは接続設定 UI であり、一般的なアクセス管理
+コンソールではありません。grants、スコープ編集、revoke はこのタブではまだ管理
+できません。
+
 ### Claude および ChatGPT OAuth {#oauth}
 
 Claude / Claude デスクトップ: カスタム コネクタを追加し、MCP URL を貼り付け、クリックします

@@ -5,6 +5,7 @@ import {
   useBuilderStatus,
   useCodeMode,
   useSession,
+  useT,
 } from "@agent-native/core/client";
 import {
   AlertDialog,
@@ -209,6 +210,7 @@ import {
   BuilderSourceReviewDialog,
   type BuilderReviewPublicationTransitions,
 } from "../database-sources/BuilderSourceReviewDialog";
+import { DescriptionField } from "../DescriptionField";
 import { DocumentBlockFields } from "../DocumentBlockFields";
 import {
   AddProperty,
@@ -660,6 +662,7 @@ function DatabaseTable({
   canEdit: boolean;
   isActive: boolean;
 }) {
+  const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [databaseItemLimit, setDatabaseItemLimit] = useState(
@@ -679,6 +682,7 @@ function DatabaseTable({
   );
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id, document.id);
+  const updateDatabaseDocument = useUpdateDocument();
   const updateView = useUpdateContentDatabaseView(document.id);
   // A deleted/missing database resolves to the unavailable union (no
   // `database` field) — treat it as no data; the inline-block wrapper owns
@@ -2124,6 +2128,19 @@ function DatabaseTable({
 
   return (
     <div className="mt-4 min-w-0 w-full max-w-[calc(100vw-var(--content-sidebar-width,0px)-1.5rem)]">
+      <DescriptionField
+        description={document.description}
+        canEdit={canEdit}
+        label={t("editor.properties.description")}
+        placeholder={t("editor.properties.addDatabaseDescription")}
+        className="mb-3"
+        onSave={(description) =>
+          updateDatabaseDocument.mutateAsync({
+            id: document.id,
+            description,
+          })
+        }
+      />
       <div className="mb-1 flex min-h-8 flex-wrap items-center justify-between gap-x-3 gap-y-1 pb-1">
         <DatabaseViewTabs
           viewConfig={viewConfig}
@@ -13906,8 +13923,10 @@ export function databaseBulkMultiSelectFilteredOptions(
 ) {
   const normalizedQuery = query.trim().toLowerCase();
   if (!normalizedQuery) return options;
-  return options.filter((option) =>
-    option.name.trim().toLowerCase().includes(normalizedQuery),
+  return options.filter(
+    (option) =>
+      option.name.trim().toLowerCase().includes(normalizedQuery) ||
+      option.description?.trim().toLowerCase().includes(normalizedQuery),
   );
 }
 
@@ -15288,7 +15307,14 @@ function DatabaseBulkOptionValueEditor({
                   )
                 }
               >
-                <DatabaseBulkOptionPill option={option} />
+                <span className="min-w-0 flex-1">
+                  <DatabaseBulkOptionPill option={option} />
+                  {option.description ? (
+                    <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                      {option.description}
+                    </span>
+                  ) : null}
+                </span>
                 {presence.presentInAll ? (
                   <IconCheck className="size-4 shrink-0 text-muted-foreground" />
                 ) : presence.presentInAny ? (
@@ -15337,7 +15363,14 @@ function DatabaseBulkOptionValueEditor({
             disabled={disabled}
             onClick={() => void onApply({ kind: "set", value: option.id })}
           >
-            <DatabaseBulkOptionPill option={option} />
+            <span className="min-w-0 flex-1">
+              <DatabaseBulkOptionPill option={option} />
+              {option.description ? (
+                <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                  {option.description}
+                </span>
+              ) : null}
+            </span>
           </button>
         ))}
       </div>
@@ -17635,6 +17668,24 @@ function DatabaseGroupedTableSection({
   );
 }
 
+export function databaseItemPropertyForColumn(
+  item: ContentDatabaseItem,
+  columnProperty: DocumentProperty,
+): DocumentProperty {
+  const itemProperty = item.properties.find(
+    (candidate) => candidate.definition.id === columnProperty.definition.id,
+  );
+  if (!itemProperty) return columnProperty;
+
+  // Row payloads own values, not schema meaning. Always pair the row's value
+  // with the database's current canonical definition so a recently described
+  // option cannot remain invisible in an older row snapshot.
+  return {
+    ...itemProperty,
+    definition: columnProperty.definition,
+  };
+}
+
 function DatabaseTableRow({
   item,
   properties,
@@ -17719,10 +17770,7 @@ function DatabaseTableRow({
         onPreview={onPreview}
       />
       {properties.map((property) => {
-        const itemProperty =
-          item.properties.find(
-            (candidate) => candidate.definition.id === property.definition.id,
-          ) ?? property;
+        const itemProperty = databaseItemPropertyForColumn(item, property);
         const bodyCellHydrationPending =
           itemProperty.definition.type === "blocks" &&
           databaseItemBodyHydrationIsPending(item);

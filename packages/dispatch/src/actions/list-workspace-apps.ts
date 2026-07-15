@@ -13,7 +13,7 @@ const httpBoolean = z.preprocess((value) => {
 
 export default defineAction({
   description:
-    "List apps installed in this workspace, including mounted paths, absolute URLs, audience (internal/public), page route access overrides, and agent-card/A2A metadata for ready apps by default. UI polling callers can pass includeAgentCards=false to skip network probes.",
+    "List apps mounted inside this workspace deployment, including paths, absolute URLs, audience (internal/public), page route access overrides, and agent-card/A2A metadata for ready mounted apps by default. This is not the hosted/connected A2A agent registry; use list-connected-agents to discover agents such as Analytics or Content. UI polling callers can pass includeAgentCards=false to skip network probes.",
   schema: z.object({
     includeAgentCards: httpBoolean
       .default(true)

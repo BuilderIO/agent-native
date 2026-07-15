@@ -99,6 +99,7 @@ import {
 import {
   getDesignToolActivationState,
   getMoveGroupToolPresentation,
+  shouldAutoEnableDrawOverlay,
 } from "./design-editor/tool-state";
 
 describe("DesignEditor overview selection state", () => {
@@ -164,6 +165,23 @@ describe("DesignEditor command tool activation", () => {
       drawMode: false,
       pinMode: false,
     });
+  });
+
+  it("does not auto-enable the draw overlay while comment pins are active", () => {
+    expect(
+      shouldAutoEnableDrawOverlay({
+        mode: "annotate",
+        activeTool: "comment",
+        pinMode: true,
+      }),
+    ).toBe(false);
+    expect(
+      shouldAutoEnableDrawOverlay({
+        mode: "annotate",
+        activeTool: "draw",
+        pinMode: false,
+      }),
+    ).toBe(true);
   });
 });
 

@@ -17,6 +17,7 @@ mod native_speech;
 mod notifications;
 mod permission_status;
 mod recording_indicator;
+mod remote_flags;
 mod screen_memory;
 mod sentry_report;
 mod shortcuts;
@@ -268,6 +269,9 @@ pub fn run() {
             // Granola-style adhoc Zoom/Teams detection — shares session
             // credentials with the calendar watcher above.
             adhoc_meetings_watcher::spawn_watcher(app.handle().clone());
+            // Server-controlled desktop capture feature flags — own poll
+            // loop, reuses the calendar watcher's session credentials.
+            remote_flags::spawn_watcher(app.handle().clone());
 
             // Pre-download the Whisper model in the background so the first
             // meeting doesn't pay the ~142 MB download cost mid-call. Skipped

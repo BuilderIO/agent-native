@@ -235,4 +235,30 @@ describe("listInboxEmails", () => {
     expect(result.isQuotaError).toBe(false);
     expect(result.retryAfterSeconds).toBeUndefined();
   });
+
+  it("preserves successful empty accounts when a sibling account fails", async () => {
+    vi.mocked(listGmailMessages).mockResolvedValue({
+      messages: [],
+      errors: [{ email: "failed@example.com", error: "provider unavailable" }],
+    } as any);
+
+    const result = await listInboxEmails({
+      ownerEmail: OWNER,
+      view: "inbox",
+      limit: 50,
+      accountTokens: [
+        { email: "empty@example.com", accessToken: "empty-token" },
+        { email: "failed@example.com", accessToken: "failed-token" },
+      ],
+      accountEmails: ["empty@example.com", "failed@example.com"],
+      labelMap: new Map(),
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error("expected partial success result");
+    expect(result.emails).toEqual([]);
+    expect(result.errors).toEqual([
+      { email: "failed@example.com", error: "provider unavailable" },
+    ]);
+  });
 });

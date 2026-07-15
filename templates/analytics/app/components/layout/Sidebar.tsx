@@ -27,6 +27,7 @@ import {
   IconPlayerPlay,
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
+  IconBrain,
 } from "@tabler/icons-react";
 import {
   useQuery,
@@ -183,6 +184,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 
 const bottomItems = [
+  { icon: IconBrain, labelKey: "settings.agentTitle", href: "/agent" },
   { icon: IconSettings, labelKey: "navigation.settings", href: "/settings" },
 ];
 
@@ -2444,6 +2446,12 @@ export function Sidebar({ mobile }: { mobile?: boolean } = {}) {
       label: t("navigation.dataDictionary"),
       href: "/data-dictionary",
       active: location.pathname.startsWith("/data-dictionary"),
+    },
+    {
+      icon: IconBrain,
+      label: t("settings.agentTitle"),
+      href: "/agent",
+      active: location.pathname === "/agent",
     },
     {
       icon: IconSettings,

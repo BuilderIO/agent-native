@@ -8,6 +8,7 @@ const enUS = {
     commandSearch: "Search",
     commandAppearance: "Appearance",
     toggleTheme: "Toggle theme",
+    openAgent: "Open Agent",
   },
   routeTitles: {
     chat: "Chat — Dispatch",
@@ -272,6 +273,7 @@ const enUS = {
       vault: "Vault",
       audit: "Audit",
       operations: "Operations",
+      agent: "Agent",
     },
     pages: {
       dataLoadFailed: "Couldn't load data",
@@ -410,6 +412,7 @@ export const messagesByLocale = {
       commandSearch: "搜索",
       commandAppearance: "外观",
       toggleTheme: "切换主题",
+      openAgent: "打开代理",
     },
     settings: {
       title: "设置",
@@ -656,6 +659,7 @@ export const messagesByLocale = {
         vault: "保险库",
         audit: "审计",
         operations: "运营",
+        agent: "代理",
       },
       pages: {
         dataLoadFailed: "无法加载数据",
@@ -701,6 +705,7 @@ export const messagesByLocale = {
       commandSearch: "Buscar",
       commandAppearance: "Apariencia",
       toggleTheme: "Cambiar tema",
+      openAgent: "Abrir agente",
     },
     settings: {
       title: "Ajustes",
@@ -975,6 +980,7 @@ export const messagesByLocale = {
         vault: "Bóveda",
         audit: "Auditoría",
         operations: "Operaciones",
+        agent: "Agente",
       },
       pages: {
         dataLoadFailed: "No se pudieron cargar los datos",
@@ -1025,6 +1031,7 @@ export const messagesByLocale = {
       commandSearch: "Rechercher",
       commandAppearance: "Apparence",
       toggleTheme: "Changer de thème",
+      openAgent: "Ouvrir l’agent",
     },
     settings: {
       title: "Paramètres",
@@ -1299,6 +1306,7 @@ export const messagesByLocale = {
         vault: "Coffre",
         audit: "Audit",
         operations: "Opérations",
+        agent: "Agent",
       },
       pages: {
         dataLoadFailed: "Impossible de charger les données",
@@ -1349,6 +1357,7 @@ export const messagesByLocale = {
       commandSearch: "Suchen",
       commandAppearance: "Darstellung",
       toggleTheme: "Theme wechseln",
+      openAgent: "Agent öffnen",
     },
     settings: {
       title: "Einstellungen",
@@ -1612,6 +1621,7 @@ export const messagesByLocale = {
         vault: "Tresor",
         audit: "Audit",
         operations: "Betrieb",
+        agent: "Agent",
       },
       pages: {
         dataLoadFailed: "Daten konnten nicht geladen werden",
@@ -1661,6 +1671,7 @@ export const messagesByLocale = {
       commandSearch: "検索",
       commandAppearance: "外観",
       toggleTheme: "テーマを切り替え",
+      openAgent: "エージェントを開く",
     },
     settings: {
       title: "設定",
@@ -1921,6 +1932,7 @@ export const messagesByLocale = {
         vault: "ボールト",
         audit: "監査",
         operations: "運用",
+        agent: "エージェント",
       },
       pages: {
         dataLoadFailed: "データを読み込めませんでした",
@@ -1969,6 +1981,7 @@ export const messagesByLocale = {
       commandSearch: "검색",
       commandAppearance: "모양",
       toggleTheme: "테마 전환",
+      openAgent: "에이전트 열기",
     },
     settings: {
       title: "설정",
@@ -2226,6 +2239,7 @@ export const messagesByLocale = {
         vault: "볼트",
         audit: "감사",
         operations: "운영",
+        agent: "에이전트",
       },
       pages: {
         dataLoadFailed: "데이터를 불러올 수 없습니다",
@@ -2273,6 +2287,7 @@ export const messagesByLocale = {
       commandSearch: "Buscar",
       commandAppearance: "Aparência",
       toggleTheme: "Alternar tema",
+      openAgent: "Abrir agente",
     },
     settings: {
       title: "Configurações",
@@ -2543,6 +2558,7 @@ export const messagesByLocale = {
         vault: "Cofre",
         audit: "Auditoria",
         operations: "Operações",
+        agent: "Agente",
       },
       pages: {
         dataLoadFailed: "Não foi possível carregar os dados",
@@ -2593,6 +2609,7 @@ export const messagesByLocale = {
       commandSearch: "खोजें",
       commandAppearance: "रूप",
       toggleTheme: "थीम बदलें",
+      openAgent: "एजेंट खोलें",
     },
     settings: {
       title: "सेटिंग्स",
@@ -2845,6 +2862,7 @@ export const messagesByLocale = {
         vault: "वॉल्ट",
         audit: "ऑडिट",
         operations: "संचालन",
+        agent: "एजेंट",
       },
       pages: {
         dataLoadFailed: "डेटा लोड नहीं हो सका",
@@ -2891,6 +2909,7 @@ export const messagesByLocale = {
       commandSearch: "بحث",
       commandAppearance: "المظهر",
       toggleTheme: "تبديل السمة",
+      openAgent: "فتح الوكيل",
     },
     settings: {
       title: "الإعدادات",
@@ -3182,6 +3201,7 @@ export const messagesByLocale = {
         vault: "الخزنة",
         audit: "التدقيق",
         operations: "التشغيل",
+        agent: "الوكيل",
       },
       pages: {
         dataLoadFailed: "تعذر تحميل البيانات",

@@ -34,6 +34,7 @@ vi.mock("@agent-native/core/server", () => ({
 
 vi.mock("@agent-native/core/shared", () => ({
   EMBED_MODE_QUERY_PARAM: "__an_embed",
+  EMBED_SESSION_COOKIE: "an_embed_session",
   EMBED_TOKEN_QUERY_PARAM: "__an_embed_token",
 }));
 
@@ -99,6 +100,9 @@ function createBrowser(
     waitForFails?: boolean;
     gotoError?: Error;
     captureBox?: { width: number; height: number };
+    /** The diagnostics responsiveness probe (`page.evaluate("1")`) never resolves. */
+    unresponsive?: boolean;
+    pageUrl?: string;
   } = {},
 ) {
   const captureBox = options.captureBox ?? { width: 960, height: 1200 };
@@ -112,6 +116,7 @@ function createBrowser(
     scrollIntoViewIfNeeded: vi.fn(async () => {}),
     screenshot: vi.fn(async () => Buffer.from("png")),
   };
+  const addCookies = vi.fn(async () => {});
   const page = {
     setDefaultTimeout: vi.fn(),
     emulateMedia: vi.fn(async () => {}),
@@ -121,21 +126,34 @@ function createBrowser(
     }),
     locator: vi.fn(() => locator),
     waitForFunction: vi.fn(async () => {}),
-    evaluate: vi.fn(async () => {}),
+    evaluate: vi.fn(async (script: string) => {
+      if (options.unresponsive) return new Promise(() => {});
+      if (typeof script === "string" && script.includes("document.title")) {
+        return { title: "Mock Dashboard", bodyText: "Loading forever" };
+      }
+      return undefined;
+    }),
     waitForTimeout: vi.fn(async () => {}),
     setViewportSize: vi.fn(async () => {}),
+    url: vi.fn(
+      () =>
+        options.pageUrl ?? "https://analytics.example.test/dashboards/example",
+    ),
+    on: vi.fn(),
+    context: vi.fn(() => ({ addCookies })),
   };
   const browser = {
     newPage: vi.fn(async () => page),
     close: vi.fn(async () => {}),
   };
-  return { browser, page, locator };
+  return { browser, page, locator, addCookies };
 }
 
 describe("dashboard report email", () => {
   beforeEach(() => {
     vi.stubEnv("PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH", process.execPath);
     vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.existsSync.mockReset();
     mocks.existsSync.mockImplementation(
       (candidate: string) => candidate === process.execPath,
@@ -175,6 +193,10 @@ describe("dashboard report email", () => {
       screenshotMode: "full-lightweight",
     });
     expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(full.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
     expect(lightweight.page.goto).toHaveBeenCalledWith(
       expect.not.stringContaining("reportPanelLimit"),
       expect.any(Object),
@@ -215,6 +237,115 @@ describe("dashboard report email", () => {
     expect(emailArgs.html).not.toContain("border:1px solid #e5e7eb");
     expect(emailArgs.html).toContain("border:0;outline:0;border-radius:0");
     expect(emailArgs.text).toContain("reportSettings=1");
+  });
+
+  it("does not run a limited fallback attempt unless explicitly requested", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser({ waitForFails: true });
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      screenshotMode: "none",
+    });
+    expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(full.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+    expect(lightweight.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+  });
+
+  it("runs a third panel-limited attempt when allowLimitedFallback is set and earlier attempts fail", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser({ waitForFails: true });
+    const limited = createBrowser();
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser)
+      .mockResolvedValueOnce(limited.browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      allowLimitedFallback: true,
+    });
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "limited",
+    });
+    expect(mocks.launch).toHaveBeenCalledTimes(3);
+    expect(limited.page.goto).toHaveBeenCalledWith(
+      expect.stringContaining("reportPanelLimit=8"),
+      expect.any(Object),
+    );
+    const emailArgs = mocks.sendEmail.mock.calls[0]?.[0];
+    expect(emailArgs.html).toContain("limited fallback image");
+    expect(emailArgs.html).toContain("Open the full dashboard");
+    expect(emailArgs.text).toContain("limited fallback image");
+  });
+
+  it("carries the earlier attempt's error forward when a later attempt succeeds", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser();
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full-lightweight",
+    });
+    expect(result.screenshotError).toEqual(expect.stringContaining("full:"));
+  });
+
+  it("pre-seeds the signed embed token as a session cookie before navigating", async () => {
+    const full = createBrowser();
+    mocks.launch.mockResolvedValueOnce(full.browser);
+
+    await sendDashboardReportSubscription(subscription());
+
+    expect(full.addCookies).toHaveBeenCalledWith([
+      expect.objectContaining({
+        name: "an_embed_session",
+        value: "signed-embed-token",
+        url: "https://analytics.example.test/",
+      }),
+    ]);
+    expect(full.addCookies.mock.invocationCallOrder[0]).toBeLessThan(
+      full.page.goto.mock.invocationCallOrder[0],
+    );
+    // The query token remains too — the cookie is belt-and-braces, not a
+    // replacement.
+    expect(full.page.goto).toHaveBeenCalledWith(
+      expect.stringContaining("__an_embed_token=signed-embed-token"),
+      expect.any(Object),
+    );
+  });
+
+  it("does not abort the capture when pre-seeding the embed cookie fails", async () => {
+    const full = createBrowser();
+    full.addCookies.mockRejectedValueOnce(new Error("context closed"));
+    mocks.launch.mockResolvedValueOnce(full.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full",
+    });
+    expect(console.warn).toHaveBeenCalledWith(
+      "[dashboard-report] Failed to pre-seed embed session cookie:",
+      expect.stringContaining("context closed"),
+    );
   });
 
   it("captures tall dashboards without expanding the Chromium render surface", async () => {
@@ -367,14 +498,14 @@ describe("dashboard report email", () => {
         .mockRejectedValueOnce(new Error("lightweight launch failed"));
 
       const sendPromise = sendDashboardReportSubscription(subscription());
-      await vi.advanceTimersByTimeAsync(125_000);
+      await vi.advanceTimersByTimeAsync(110_000);
       const result = await sendPromise;
 
       expect(result).toMatchObject({
         screenshotAttached: false,
         screenshotMode: "none",
         screenshotError: expect.stringContaining(
-          "full capture exceeded 125000ms while launching the screenshot browser",
+          "full capture exceeded 110000ms while launching the screenshot browser",
         ),
       });
       resolveLateLaunch(late.browser);
@@ -440,6 +571,60 @@ describe("dashboard report email", () => {
       expect.anything(),
       expect.stringContaining("example-signed-token"),
     );
+  });
+
+  it("records page diagnostics when the report surface never becomes visible", async () => {
+    const stuck = createBrowser({
+      waitForFails: true,
+      pageUrl:
+        "https://analytics.example.test/dashboards/example?__an_embed_token=super-secret-token&embedded=1",
+    });
+    const fallback = createBrowser({ waitForFails: true });
+    mocks.launch
+      .mockResolvedValueOnce(stuck.browser)
+      .mockResolvedValueOnce(fallback.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      screenshotMode: "none",
+    });
+    expect(result.screenshotError).toContain("page state:");
+    expect(result.screenshotError).toContain("Mock Dashboard");
+    expect(result.screenshotError).toContain("Loading forever");
+    expect(result.screenshotError).toContain("__an_embed_token=[REDACTED]");
+    expect(result.screenshotError).not.toContain("super-secret-token");
+  });
+
+  it("reports the page as unresponsive when the diagnostics probe hangs", async () => {
+    vi.useFakeTimers();
+    try {
+      const stuck = createBrowser({ waitForFails: true, unresponsive: true });
+      const fallback = createBrowser({
+        waitForFails: true,
+        unresponsive: true,
+      });
+      mocks.launch
+        .mockResolvedValueOnce(stuck.browser)
+        .mockResolvedValueOnce(fallback.browser);
+
+      const sendPromise = sendDashboardReportSubscription(subscription());
+      // One diagnostics probe timeout (2s) per failed attempt.
+      await vi.advanceTimersByTimeAsync(2_000);
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await sendPromise;
+
+      expect(result).toMatchObject({
+        screenshotAttached: false,
+        screenshotMode: "none",
+      });
+      expect(result.screenshotError).toContain(
+        "page unresponsive (renderer hung or crashed)",
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("fails before sending when the caller requires a screenshot", async () => {

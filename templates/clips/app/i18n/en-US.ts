@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
+    openAgent: "Open Agent",
     commandAppearance: "Appearance",
     toggleTheme: "Toggle theme",
     extensionSignedInTitle: "Signed in",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "Dictate",
     archive: "Archive",
     trash: "Trash",
+    agent: "Agent",
     settings: "Settings",
     notifications: "Notifications",
     insights: "Insights",
@@ -879,14 +881,6 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     removeDescription:
       "{{email}} will lose access to this organization. You can always invite them back.",
     remove: "Remove",
-  },
-  slackShareHint: {
-    playsInline: "Plays inline in Slack",
-    connectedDescription:
-      "Paste this link in any connected workspace to play it inline.",
-    makeInline: "Make it play inline in Slack",
-    connectDescription: "Connect a workspace so this link unfurls as a video.",
-    connect: "Connect",
   },
   commentsPanel: {
     disabled: "Comments are disabled for this recording.",

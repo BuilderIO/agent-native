@@ -160,6 +160,7 @@ export interface CodeAgentsHost {
   openTerminal?(
     request?: CodeAgentTerminalRequest,
   ): Promise<CodeAgentTerminalResult>;
+  openCodexLogin?(): Promise<CodeAgentTerminalResult>;
   getRemoteConnectorStatus?(): Promise<CodeAgentRemoteConnectorStatus>;
   setRemoteConnectorEnabled?(
     enabled: boolean,
@@ -735,6 +736,67 @@ export default function CodeAgentsApp({
     transcriptEvents,
   ]);
 
+  const connectLocalRuntime = useCallback(
+    async (engine: string) => {
+      if (engine !== "codex-cli") return;
+      if (!host.openCodexLogin) {
+        toast("Local sign-in is only available in Agent Native Desktop", {
+          description: "Open Settings to manage hosted providers instead.",
+        });
+        onOpenSettings?.();
+        return;
+      }
+      try {
+        const result = await host.openCodexLogin();
+        if (!result.ok) {
+          toast("Codex sign-in was not opened", {
+            description: result.error,
+          });
+          return;
+        }
+        toast("Codex sign-in opened", {
+          description:
+            "Finish the ChatGPT sign-in in Terminal. The runtime picker will refresh when it is ready.",
+          duration: 4800,
+        });
+
+        let attempts = 0;
+        const refresh = async (): Promise<void> => {
+          const modelResult = await host.listModels?.();
+          if (modelResult?.status === "ok" && modelResult.models.length > 0) {
+            setModelOptions(modelResult.models);
+            if (modelResult.selected) {
+              setModelSelection((current) =>
+                current.model && current.model !== "auto"
+                  ? current
+                  : { ...modelResult.selected!, effort: current.effort },
+              );
+            }
+            if (
+              modelResult.models.some(
+                (option) =>
+                  option.engine === "codex-cli" && option.configured === true,
+              )
+            ) {
+              toast("ChatGPT subscription connected", {
+                description: "This computer is ready for local Agent tasks.",
+              });
+              return;
+            }
+          }
+          attempts += 1;
+          if (attempts < 30) window.setTimeout(() => void refresh(), 2_000);
+        };
+        void refresh();
+      } catch (err) {
+        toast("Codex sign-in was not opened", {
+          description: err instanceof Error ? err.message : String(err),
+        });
+      }
+    },
+    [host, onOpenSettings],
+  );
+
   useEffect(() => {
     if (!isActive || !host.getRemoteConnectorStatus) return;
     void loadRemoteConnectorStatus();
@@ -776,6 +838,12 @@ export default function CodeAgentsApp({
   const providerGate = useMemo(
     () => getProviderGate(hostMetadata),
     [hostMetadata],
+  );
+  // `listModels` only includes Codex when the local CLI is installed. Keep
+  // sign-in hidden until that capability has been confirmed by the host so a
+  // fresh install does not offer a command that cannot launch.
+  const codexCliAvailable = modelOptions.some(
+    (option) => option.engine === "codex-cli",
   );
   const normalizedSearchQuery = searchQuery.trim();
   const searchResults = useMemo(
@@ -1689,6 +1757,9 @@ export default function CodeAgentsApp({
                         onConnectBuilder={connectBuilderProvider}
                         onOpenSettings={onOpenSettings}
                         onConnectProvider={connectBuilderProvider}
+                        onConnectLocalRuntime={
+                          codexCliAvailable ? connectLocalRuntime : undefined
+                        }
                       />
                     ) : (
                       <div className="code-agents-start">
@@ -1700,6 +1771,11 @@ export default function CodeAgentsApp({
                             message={builderConnectMessage}
                             onConnectBuilder={connectBuilderProvider}
                             onOpenSettings={onOpenSettings}
+                            onConnectLocalRuntime={
+                              codexCliAvailable
+                                ? () => void connectLocalRuntime("codex-cli")
+                                : undefined
+                            }
                           />
                         )}
                         <NewSessionComposer
@@ -1718,6 +1794,9 @@ export default function CodeAgentsApp({
                           onSlashCommand={handleSlashCommand}
                           onSubmit={createRunFromPrompt}
                           onConnectProvider={connectBuilderProvider}
+                          onConnectLocalRuntime={
+                            codexCliAvailable ? connectLocalRuntime : undefined
+                          }
                         />
                         {(projects.length > 0 || canChooseProjectFolder) && (
                           <ProjectFolderPicker
@@ -2128,6 +2207,7 @@ function NewSessionComposer({
   onSlashCommand,
   onSubmit,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   prompt: string;
   promptSeed: number;
@@ -2147,6 +2227,7 @@ function NewSessionComposer({
     attachments: CodeAgentPromptAttachment[],
   ) => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   return (
     <CodeAgentComposer
@@ -2167,6 +2248,7 @@ function NewSessionComposer({
       onSlashCommand={onSlashCommand}
       onSubmit={onSubmit}
       onConnectProvider={onConnectProvider}
+      onConnectLocalRuntime={onConnectLocalRuntime}
     />
   );
 }
@@ -2191,6 +2273,7 @@ function CodeAgentComposer({
   onSubmit,
   onStop,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   prompt: string;
   promptSeed?: string | number;
@@ -2215,6 +2298,7 @@ function CodeAgentComposer({
   ) => void;
   onStop?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const availableModels = groupCodeAgentModelOptions(modelOptions);
@@ -2297,6 +2381,7 @@ function CodeAgentComposer({
       voiceEnabled
       preserveDraftOnSubmit={false}
       onConnectProvider={onConnectProvider}
+      onConnectLocalRuntime={onConnectLocalRuntime}
     />
   );
 }
@@ -2339,7 +2424,7 @@ function getProviderGate(metadata: CodeAgentHostMetadata | null): {
     return {
       blocked: true,
       description:
-        "Connect Builder.io, run codex login for Codex CLI, or add your own API key.",
+        "Connect Builder.io, sign in with your ChatGPT subscription, or add an API key.",
     };
   }
   return {
@@ -2354,12 +2439,14 @@ function ProviderGateNotice({
   message,
   onConnectBuilder,
   onOpenSettings,
+  onConnectLocalRuntime,
 }: {
   description: string;
   connecting: boolean;
   message: string | null;
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
+  onConnectLocalRuntime?: () => void;
 }) {
   return (
     <CodeProviderNotice
@@ -2369,6 +2456,8 @@ function ProviderGateNotice({
       primaryActionLabel={connecting ? "Waiting..." : "Connect Builder.io"}
       primaryDisabled={connecting}
       onPrimaryAction={onConnectBuilder}
+      localRuntimeActionLabel="Sign in with ChatGPT"
+      onConnectLocalRuntime={onConnectLocalRuntime}
       secondaryActionLabel="API keys"
       onOpenSettings={onOpenSettings}
     />
@@ -2382,6 +2471,8 @@ function CodeProviderNotice({
   primaryActionLabel,
   primaryDisabled,
   onPrimaryAction,
+  localRuntimeActionLabel,
+  onConnectLocalRuntime,
   secondaryActionLabel,
   onOpenSettings,
 }: {
@@ -2391,6 +2482,8 @@ function CodeProviderNotice({
   primaryActionLabel?: string;
   primaryDisabled?: boolean;
   onPrimaryAction?: () => void;
+  localRuntimeActionLabel?: string;
+  onConnectLocalRuntime?: () => void;
   secondaryActionLabel?: string;
   onOpenSettings?: () => void;
 }) {
@@ -2410,6 +2503,16 @@ function CodeProviderNotice({
             disabled={primaryDisabled}
           >
             {primaryActionLabel}
+          </button>
+        )}
+        {onConnectLocalRuntime && localRuntimeActionLabel && (
+          <button
+            type="button"
+            className="code-agents-button"
+            onClick={onConnectLocalRuntime}
+          >
+            <IconTerminal2 size={14} strokeWidth={1.8} />
+            {localRuntimeActionLabel}
           </button>
         )}
         {onOpenSettings && secondaryActionLabel && (
@@ -3281,6 +3384,7 @@ function RunDetailCard({
   onConnectBuilder,
   onOpenSettings,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   host: CodeAgentsHost;
   run: CodeAgentRun | null;
@@ -3304,6 +3408,7 @@ function RunDetailCard({
   onConnectBuilder: () => void;
   onOpenSettings?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const runIsActive = run ? isRunActive(run) : false;
 
@@ -3365,6 +3470,12 @@ function RunDetailCard({
           }
           primaryDisabled={builderConnecting}
           onPrimaryAction={onConnectBuilder}
+          localRuntimeActionLabel="Sign in with ChatGPT"
+          onConnectLocalRuntime={
+            onConnectLocalRuntime
+              ? () => onConnectLocalRuntime("codex-cli")
+              : undefined
+          }
           secondaryActionLabel="API keys"
           onOpenSettings={onOpenSettings}
         />
@@ -3427,6 +3538,7 @@ function RunDetailCard({
         onDeny={onDeny}
         onApproveAlways={onApproveAlways}
         onConnectProvider={onConnectProvider}
+        onConnectLocalRuntime={onConnectLocalRuntime}
       />
     </div>
   );
@@ -3450,6 +3562,7 @@ function TranscriptPanel({
   onDeny,
   onApproveAlways,
   onConnectProvider,
+  onConnectLocalRuntime,
 }: {
   host: CodeAgentsHost;
   goal: CodeAgentGoalDefinition;
@@ -3470,6 +3583,7 @@ function TranscriptPanel({
   /** Resolves the run's pending approval as approved and allowlists the exact command — same command the banner uses. */
   onApproveAlways?: () => void;
   onConnectProvider?: () => void;
+  onConnectLocalRuntime?: (engine: string) => void;
 }) {
   const normalizedModel = normalizeModelSelection(modelSelection, modelOptions);
   const selectedModel = normalizedModel.model ?? "auto";
@@ -3596,6 +3710,7 @@ function TranscriptPanel({
             runIsActive ? <CodeAgentStopButton onStop={onStop} /> : undefined
           }
           onConnectProvider={onConnectProvider}
+          onConnectLocalRuntime={onConnectLocalRuntime}
         />
       )}
     </div>

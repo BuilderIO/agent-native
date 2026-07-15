@@ -13,6 +13,7 @@ const messages = {
     commandLocalFilesHeading: "本機檔案",
     commandDatabaseResultDescription: "開啟資料庫頁面",
     commandAppearance: "外觀",
+    openAgent: "開啟代理",
     toggleTheme: "切換主題",
     metaTitle:
       "Agent-Native Content - 開放原始碼且代理友善的 Obsidian 替代方案",
@@ -26,6 +27,7 @@ const messages = {
   },
   navigation: {
     openSidebar: "開啟側邊欄",
+    agent: "代理",
     settings: "設定",
   },
   team: {
@@ -355,6 +357,11 @@ const messages = {
       pasteFileOrMediaLink: "貼上檔案或媒體連結",
       personOrEmail: "個人或電子郵件",
       propertyMenuFor: "{{name}} 的屬性選單",
+      description: "說明",
+      addPageDescription: "新增此頁面的說明…",
+      addDatabaseDescription: "新增此資料庫的說明…",
+      addPropertyDescription: "說明此屬性應包含的內容…",
+      addOptionDescription: "何時應使用此選項？",
       propertyName: "物業名稱",
       readOnly: "唯讀",
       remove: "刪除",

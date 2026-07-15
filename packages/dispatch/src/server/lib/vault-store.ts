@@ -763,6 +763,64 @@ export async function syncSecretsToCredentialStore(
   return { ...target, keys: syncedKeys };
 }
 
+/**
+ * Re-sync every vault secret across every tenant into the shared credential
+ * store, regardless of which request/ctx is currently active.
+ *
+ * `syncSecretsToCredentialStore` normally only runs on `createSecret` /
+ * `updateSecret`, so it only re-encrypts the rows a user happens to touch.
+ * When the shared `app_secrets` encryption format changes underneath it
+ * (e.g. a new dual-write format, or a change to how key material is
+ * derived), existing rows are stuck on the old format until someone
+ * manually re-saves each vault secret. This walks every `vault_secrets`
+ * row directly — bypassing the ctx-scoped `listSecrets()` — groups them by
+ * their (orgId, ownerEmail) tenant, and re-runs the sync per group so every
+ * row regains fresh ciphertext.
+ *
+ * A failure syncing one tenant's group is caught and logged (key NAMES
+ * only, never values) so it can't block the rest of the resync.
+ */
+export async function resyncAllVaultSecretsToCredentialStore(): Promise<{
+  groups: number;
+  failedGroups: number;
+  syncedKeys: number;
+}> {
+  const db = getDb();
+  const rows = await db.select().from(schema.vaultSecrets);
+
+  const groups = new Map<string, { ctx: VaultCtx; rows: VaultSecretRow[] }>();
+  for (const row of rows) {
+    if (!row.credentialKey || !row.value) continue;
+    const ctx: VaultCtx = { ownerEmail: row.ownerEmail, orgId: row.orgId };
+    const groupKey = `${ctx.orgId ?? ""} ${ctx.ownerEmail}`;
+    const group = groups.get(groupKey);
+    if (group) {
+      group.rows.push(row);
+    } else {
+      groups.set(groupKey, { ctx, rows: [row] });
+    }
+  }
+
+  let failedGroups = 0;
+  let syncedKeys = 0;
+
+  for (const { ctx, rows: groupRows } of groups.values()) {
+    try {
+      const result = await syncSecretsToCredentialStore(groupRows, ctx);
+      syncedKeys += result.keys.length;
+    } catch (error) {
+      failedGroups++;
+      const keyNames = groupRows.map((row) => row.credentialKey).join(", ");
+      console.warn(
+        `[dispatch] vault boot resync failed for org=${ctx.orgId ?? "(solo)"} owner=${ctx.ownerEmail}; affected keys: ${keyNames}`,
+        error instanceof Error ? error.message : error,
+      );
+    }
+  }
+
+  return { groups: groups.size, failedGroups, syncedKeys };
+}
+
 export async function cleanupSyncedCredentialKeysIfUnused(
   ctx: VaultCtx,
   candidateKeys?: string[],

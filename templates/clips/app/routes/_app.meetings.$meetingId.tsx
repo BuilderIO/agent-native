@@ -797,19 +797,11 @@ export default function MeetingDetailRoute() {
       </PageHeader>
 
       {showDesktopRecordHint && (
-        <div className="mb-4 flex flex-wrap items-center gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
-          <IconDeviceDesktop className="h-4 w-4 shrink-0 text-muted-foreground" />
-          <span className="text-sm">{t("meetingDetail.desktopHint")}</span>
-          {!isDesktopApp && (
-            <CaptureInstallButton
-              size="sm"
-              variant="secondary"
-              className="ml-auto h-8 gap-1.5 cursor-pointer"
-            >
-              <IconExternalLink className="h-3.5 w-3.5" />
-              {t("meetingDetail.getDesktopApp")}
-            </CaptureInstallButton>
-          )}
+        <div className="mb-4 flex items-start gap-3 rounded-md border border-border bg-accent/20 px-3 py-2.5">
+          <IconDeviceDesktop className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0 flex-1 text-sm">
+            {t("meetingDetail.desktopHint")}
+          </span>
         </div>
       )}
 

@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "Acciones",
     commandSearch: "Buscar",
+    openAgent: "Abrir agente",
     commandAppearance: "Apariencia",
     toggleTheme: "Cambiar tema",
     extensionSignedInTitle: "Sesión iniciada",
@@ -54,6 +55,7 @@ const messages = {
     dictate: "Dictar",
     archive: "Archivo",
     trash: "Papelera",
+    agent: "Agente",
     settings: "Ajustes",
     notifications: "Notificaciones",
     insights: "Información",
@@ -901,15 +903,6 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     removeDescription:
       "{{email}} perderá acceso a esta organización. Siempre puedes volver a invitarlo.",
     remove: "Eliminar",
-  },
-  slackShareHint: {
-    playsInline: "Se reproduce inline en Slack",
-    connectedDescription:
-      "Pega este enlace en cualquier espacio conectado para reproducirlo inline.",
-    makeInline: "Haz que se reproduzca inline en Slack",
-    connectDescription:
-      "Conecta un espacio para que este enlace se despliegue como video.",
-    connect: "Conectar",
   },
   commentsPanel: {
     disabled: "Los comentarios están desactivados para esta grabación.",

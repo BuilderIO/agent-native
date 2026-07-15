@@ -152,6 +152,10 @@ export default defineAction({
     id: z.string().optional().describe("Document ID (required)"),
     title: z.string().optional().describe("New title"),
     content: z.string().optional().describe("New markdown content"),
+    description: z
+      .string()
+      .optional()
+      .describe("Stable page guidance; this does not alter page content"),
     icon: z.string().nullable().optional().describe("New emoji icon"),
     isFavorite: z.coerce
       .boolean()
@@ -285,8 +289,15 @@ export default defineAction({
     const favoriteChanged =
       args.isFavorite !== undefined &&
       (args.isFavorite ? 1 : 0) !== (existing.isFavorite ?? 0);
+    const descriptionChanged =
+      args.description !== undefined &&
+      args.description.trim() !== existing.description;
     const anyChange =
-      titleChanged || contentChanged || iconChanged || favoriteChanged;
+      titleChanged ||
+      contentChanged ||
+      iconChanged ||
+      favoriteChanged ||
+      descriptionChanged;
 
     // Snapshot the current state before applying content/title changes.
     // Versions are scoped to the document owner, not the caller — an editor
@@ -338,6 +349,8 @@ export default defineAction({
       };
 
       if (titleChanged) updates.title = args.title;
+      if (args.description !== undefined)
+        updates.description = args.description.trim();
       if (contentChanged) updates.content = content;
       if (iconChanged) updates.icon = args.icon;
       if (favoriteChanged) updates.isFavorite = args.isFavorite ? 1 : 0;
@@ -373,6 +386,7 @@ export default defineAction({
               parentId: current.parentId,
               title: current.title,
               content: current.content,
+              description: current.description,
               icon: current.icon,
               position: current.position,
               isFavorite: parseDocumentFavorite(current.isFavorite),
@@ -449,6 +463,7 @@ export default defineAction({
       parentId: doc.parentId,
       title: doc.title,
       content: doc.content,
+      description: doc.description,
       icon: doc.icon,
       position: doc.position,
       isFavorite: parseDocumentFavorite(doc.isFavorite),

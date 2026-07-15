@@ -713,6 +713,37 @@ describe("server/auth", () => {
       );
     });
 
+    it("relays mounted-app callbacks when only the workspace app id survives", async () => {
+      vi.stubEnv("NODE_ENV", "production");
+      vi.stubEnv("ACCESS_TOKEN", "my-secret");
+      vi.stubEnv("APP_NAME", "dispatch");
+      vi.stubEnv("APP_BASE_PATH", "/dispatch");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "dispatch");
+      const { autoMountAuth } = await import("./auth.js");
+
+      const app = createMockApp();
+      await autoMountAuth(app);
+
+      const guard = app.use.mock.calls
+        .map((call: any[]) => call[0])
+        .find((arg: unknown) => typeof arg === "function");
+      expect(guard).toBeTypeOf("function");
+
+      const state = `${Buffer.from(JSON.stringify({ app: "calendar" })).toString("base64url")}.sig`;
+      const result = await guard(
+        createMockEvent({
+          path: "/_agent-native/google/callback",
+          query: { code: "abc", state },
+        }),
+      );
+
+      expect(result).toBeInstanceOf(Response);
+      expect((result as Response).status).toBe(302);
+      expect((result as Response).headers.get("location")).toBe(
+        `/calendar/_agent-native/google/callback?code=abc&state=${state}`,
+      );
+    });
+
     it("lets signed Builder connect URLs bypass the global auth guard", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("ACCESS_TOKEN", "my-secret");
@@ -4218,6 +4249,23 @@ describe("server/auth", () => {
       const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
       const event = createMockEvent({
         path: "/calendar/_agent-native/google/auth-url",
+        headers: {
+          host: "agent-workspace.builder.io",
+          "x-forwarded-proto": "https",
+        },
+      });
+
+      expect(resolveOAuthRedirectUri(event)).toBe(
+        "https://agent-workspace.builder.io/_agent-native/google/callback",
+      );
+    });
+
+    it("uses the root callback when the workspace app id survives without the relay flag", async () => {
+      vi.stubEnv("APP_BASE_PATH", "/coach");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ID", "coach");
+      const { resolveOAuthRedirectUri } = await import("./google-oauth.js");
+      const event = createMockEvent({
+        path: "/coach/_agent-native/google/auth-url",
         headers: {
           host: "agent-workspace.builder.io",
           "x-forwarded-proto": "https",

@@ -204,6 +204,7 @@ export function Layout({ children }: LayoutProps) {
             chatViewTransition
             storageKey="plans"
             openOnChatRunning={chatHomeHandoffActive}
+            agentPageHref="/agent"
             emptyStateText={t("agent.emptyState")}
             suggestions={[
               t("agent.suggestionShipped"),

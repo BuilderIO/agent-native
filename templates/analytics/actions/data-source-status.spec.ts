@@ -24,6 +24,13 @@ vi.mock("@agent-native/core", () => ({
   defineAction: (config: unknown) => config,
 }));
 
+vi.mock("@agent-native/core/server", () => ({
+  buildDeepLink: vi.fn(
+    ({ app, view, to }: { app: string; view: string; to?: string }) =>
+      `/_agent-native/open?app=${app}&view=${view}&to=${encodeURIComponent(to ?? "")}`,
+  ),
+}));
+
 vi.mock("@agent-native/core/connections", () => ({
   getWorkspaceConnectionProvider: (provider: string) => ({
     id: provider,
@@ -99,6 +106,41 @@ describe("data-source-status", () => {
     };
   });
 
+  it("reports the built-in first-party analytics store without external credentials", async () => {
+    const result = (await dataSourceStatus.run({})) as any;
+
+    expect(result).toMatchObject({
+      hasConfiguredDataSources: true,
+      configuredDataSourceCount: 1,
+      hasConnectedExternalDataSources: false,
+      connectedExternalDataSourceCount: 0,
+      dataSourcesSetupLink:
+        "/_agent-native/open?app=analytics&view=data-sources&to=%2Fdata-sources",
+      configuredDataSources: [
+        {
+          provider: "first-party",
+          label: "First-party Analytics",
+          via: "built-in",
+          queryAction: "query-agent-native-analytics",
+        },
+      ],
+    });
+    expect(result.providers).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          provider: "first-party",
+          configured: true,
+          configuredKeys: [],
+        }),
+      ]),
+    );
+    expect(dataSourceStatus.link?.({ args: {}, result })).toEqual({
+      url: result.dataSourcesSetupLink,
+      label: "Open Analytics data sources",
+      view: "data-sources",
+    });
+  });
+
   it("treats a HubSpot private app token as configured", async () => {
     mocks.hasCredential.mockImplementation(async (key: string) =>
       key === "HUBSPOT_PRIVATE_APP_TOKEN" ? true : false,
@@ -116,14 +158,22 @@ describe("data-source-status", () => {
     });
     expect(result).toMatchObject({
       hasConfiguredDataSources: true,
-      configuredDataSourceCount: 1,
-      configuredDataSources: [
+      configuredDataSourceCount: 2,
+      hasConnectedExternalDataSources: true,
+      connectedExternalDataSourceCount: 1,
+      configuredDataSources: expect.arrayContaining([
+        {
+          provider: "first-party",
+          label: "First-party Analytics",
+          via: "built-in",
+          queryAction: "query-agent-native-analytics",
+        },
         {
           provider: "hubspot",
           label: "HubSpot",
           via: "credentials",
         },
-      ],
+      ]),
     });
   });
 
@@ -189,12 +239,20 @@ describe("data-source-status", () => {
         connectionCount: 1,
       },
     });
-    expect(result.configuredDataSources).toEqual([
-      {
-        provider: "hubspot",
-        label: "HubSpot",
-        via: "workspace",
-      },
-    ]);
+    expect(result.configuredDataSources).toEqual(
+      expect.arrayContaining([
+        {
+          provider: "first-party",
+          label: "First-party Analytics",
+          via: "built-in",
+          queryAction: "query-agent-native-analytics",
+        },
+        {
+          provider: "hubspot",
+          label: "HubSpot",
+          via: "workspace",
+        },
+      ]),
+    );
   });
 });

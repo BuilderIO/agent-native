@@ -13,6 +13,7 @@ const messages = {
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",
+    openAgent: "開啟代理",
     commandAppearance: "外觀",
     toggleTheme: "切換主題",
     extensionSignedInTitle: "已登入",
@@ -52,6 +53,7 @@ const messages = {
     dictate: "聽寫",
     archive: "封存",
     trash: "廢紙簍",
+    agent: "代理",
     settings: "設定",
     notifications: "通知",
     insights: "洞察",
@@ -839,13 +841,6 @@ const messages = {
     removeDescription:
       "{{email}} 將失去對此組織的存取權限。你隨時可以重新邀請他們。",
     remove: "移除",
-  },
-  slackShareHint: {
-    playsInline: "可在 Slack 中行內播放",
-    connectedDescription: "將此連結貼上到任何已連線工作區即可行內播放。",
-    makeInline: "讓它在 Slack 中行內播放",
-    connectDescription: "連線一個工作區，讓此連結展開為影片。",
-    connect: "連線",
   },
   commentsPanel: {
     disabled: "此錄製已停用評論。",

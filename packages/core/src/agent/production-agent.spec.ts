@@ -14,6 +14,7 @@ import {
 import type {
   AgentEngine,
   EngineEvent,
+  EngineMessage,
   EngineStreamOptions,
 } from "./engine/types.js";
 import { EngineError } from "./engine/types.js";
@@ -26,6 +27,7 @@ import {
   claimBackgroundWorkerRunEarly,
   createPlanModeActionRegistry,
   isPlanModeToolCallAllowed,
+  isCachedToolResultVisibleInContext,
   isContextTooLongError,
   isRetryableError,
   actionsToEngineTools,
@@ -35,6 +37,7 @@ import {
   markBackgroundContinuationChunkTerminal,
   resolveAgentOwnerEmail,
   resolveBackgroundDispatchOutcome,
+  resolveFinalResponseGuardRequestText,
   resolveAgentRequestReasoningEffort,
   resolveSkillReferenceContent,
   runAgentLoop,
@@ -1454,6 +1457,7 @@ describe("runAgentLoop", () => {
       },
     };
     const events: AgentChatEvent[] = [];
+    const guard = vi.fn(() => null);
     const messages = [
       {
         role: "user" as const,
@@ -1473,6 +1477,7 @@ describe("runAgentLoop", () => {
         },
         send: (event) => events.push(event),
         signal: new AbortController().signal,
+        finalResponseGuard: guard,
       });
     } finally {
       dateNow.mockRestore();
@@ -1491,6 +1496,8 @@ describe("runAgentLoop", () => {
     expect(events).toContainEqual({ type: "clear" });
     expect(events).toContainEqual({ type: "text", text: "continued" });
     expect(events).toContainEqual({ type: "done" });
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0].requestText).toBe("go");
     expect(events).not.toContainEqual({
       type: "auto_continue",
       reason: "no_progress",
@@ -3399,6 +3406,581 @@ describe("runAgentLoop", () => {
     });
   });
 
+  it("stops the run after 3 duplicate repeats of a visible read-only result", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        // The model keeps asking for the exact same read-only context on
+        // every iteration — the result stays visible in `contextMessages`
+        // the whole time (no threadId is passed, so contextMessages ===
+        // messages), so every repeat past the first should strike-count.
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `call-${streamCalls}`,
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+      },
+    };
+    const readAction = vi.fn(async () => "the document");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // Iteration 1 executes for real; iterations 2-4 are duplicates (repeats
+    // 1, 2, 3) and the 3rd repeat triggers the stop — the engine must not be
+    // called a 5th time.
+    expect(readAction).toHaveBeenCalledTimes(1);
+    expect(streamCalls).toBe(4);
+    expect(events).toContainEqual({
+      type: "text",
+      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+    });
+  });
+
+  it("stops after the third visible duplicate across continuation invocations", async () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "user",
+        content: [{ type: "text", text: "read the document" }],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "original-call",
+            name: "get-document",
+            input: { id: "doc-1" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "original-call",
+            toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
+            content: "the document",
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+      },
+    ];
+    const readAction = vi.fn(async () => "fresh document");
+
+    const runContinuation = async (chunk: number) => {
+      let streamCalls = 0;
+      const events: any[] = [];
+      const engine: AgentEngine = {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: true,
+        },
+        async *stream(): AsyncIterable<EngineEvent> {
+          streamCalls += 1;
+          if (streamCalls === 1) {
+            yield {
+              type: "assistant-content",
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `repeat-${chunk}`,
+                  name: "get-document",
+                  input: { id: "doc-1" },
+                },
+              ],
+            };
+            yield { type: "stop", reason: "tool_use" };
+            return;
+          }
+          yield {
+            type: "assistant-content",
+            parts: [{ type: "text" as const, text: `chunk ${chunk} done` }],
+          };
+          yield { type: "stop", reason: "end_turn" };
+        },
+      };
+
+      await runAgentLoop({
+        engine,
+        model: "test-model",
+        systemPrompt: "system",
+        tools: [],
+        messages,
+        actions: {
+          "get-document": {
+            ...actionEntry({ readOnly: true }),
+            run: readAction,
+          },
+        },
+        send: (event) => events.push(event),
+        signal: new AbortController().signal,
+      });
+
+      return { events, streamCalls };
+    };
+
+    const first = await runContinuation(1);
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+    });
+    const second = await runContinuation(2);
+    messages.push({
+      role: "user",
+      content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+    });
+    const third = await runContinuation(3);
+
+    expect(readAction).not.toHaveBeenCalled();
+    expect(first.streamCalls).toBe(2);
+    expect(second.streamCalls).toBe(2);
+    expect(third.streamCalls).toBe(1);
+    expect(third.events).toContainEqual({
+      type: "text",
+      text: "I stopped because the agent kept asking for the same read-only context it already had. Please send the request again if you want me to retry from a fresh turn.",
+    });
+  });
+
+  it("does not cache repeated reads when the action opts out of deduping", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls <= 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `poll-${streamCalls}`,
+                name: "poll-run",
+                input: { id: "run-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "complete" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const pollAction = vi
+      .fn()
+      .mockResolvedValueOnce({ status: "running" })
+      .mockResolvedValueOnce({ status: "complete" });
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "wait" }] }],
+      actions: {
+        "poll-run": {
+          ...actionEntry({ readOnly: true }),
+          dedupe: false,
+          run: pollAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(pollAction).toHaveBeenCalledTimes(2);
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+    expect(events).toContainEqual({ type: "text", text: "complete" });
+  });
+
+  it("does not treat a suffix collision as the visible cached read result", () => {
+    const contextMessages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "matching-call",
+            name: "get-document",
+            input: { id: "doc-1" },
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "matching-call",
+            toolName: "get-document",
+            toolInput: '{"id":"doc-1"}',
+            content: "not ok",
+          },
+        ],
+      },
+    ];
+
+    expect(
+      isCachedToolResultVisibleInContext(
+        contextMessages,
+        { name: "get-document", input: { id: "doc-1" } },
+        "ok",
+      ),
+    ).toBe(false);
+  });
+
+  it("re-serves a duplicate read-only result without a strike once it is trimmed out of the model's visible context", async () => {
+    let streamCalls = 0;
+    const PADDING_ITERATIONS = 8;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "orig-call",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        // Pad the transcript with unrelated read-only calls so the ORIGINAL
+        // get-document tool-result (message index 2) falls outside
+        // trimOldToolResults' protected tail window and gets stubbed out the
+        // next time a context-length-exceeded recovery runs.
+        if (streamCalls <= 1 + PADDING_ITERATIONS) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: `pad-${streamCalls}`,
+                name: "get-other",
+                input: { n: streamCalls },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        if (streamCalls === 2 + PADDING_ITERATIONS) {
+          // Simulate the provider rejecting this attempt as too-long — the
+          // one-shot recovery in runAgentLoop trims old tool results from
+          // contextMessages and retries.
+          throw new Error("context_length_exceeded: too many tokens");
+        }
+        if (streamCalls === 3 + PADDING_ITERATIONS) {
+          // Retry after trim: the model asks for the exact same read-only
+          // context again. Its earlier result is no longer visible in
+          // contextMessages (it was stubbed by the trim above).
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "dup-call",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const readAction = vi.fn(async () => "ORIGINAL_RESULT_TEXT");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+        "get-other": actionEntry({ readOnly: true }),
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The tool ran fresh exactly once — the later repeat was re-served from
+    // cache, not re-executed.
+    expect(readAction).toHaveBeenCalledTimes(1);
+    // No kill: the repeat wasn't visible in context, so it isn't a strike.
+    expect(JSON.stringify(events)).not.toContain(
+      "I stopped because the agent kept asking",
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: expect.stringContaining(
+          "Its earlier result is no longer in view",
+        ),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: expect.stringContaining("ORIGINAL_RESULT_TEXT"),
+      }),
+    );
+  });
+
+  it("keeps the original cached body across a continuation with a pointer-only duplicate result", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          throw new Error("context_length_exceeded: too many tokens");
+        }
+        if (streamCalls === 2) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "continuation-repeat",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const readAction = vi.fn(async () => "fresh result");
+    const events: any[] = [];
+    const paddingMessages: EngineMessage[] = Array.from(
+      { length: 8 },
+      (_, index): EngineMessage[] => [
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: `padding-call-${index}`,
+              name: "get-other",
+              input: { index },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: `padding-call-${index}`,
+              toolName: "get-other",
+              toolInput: JSON.stringify({ index }),
+              content: `padding result ${index}`,
+            },
+          ],
+        },
+      ],
+    ).flat();
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "summarize this doc" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "original-call",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "original-call",
+              toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
+              content: "ORIGINAL_RESULT_TEXT",
+            },
+          ],
+        },
+        ...paddingMessages,
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "pointer-call",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "pointer-call",
+              toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
+              content:
+                "Skipped duplicate read-only call to get-document: identical input already ran in this turn. Use the previous result already in the conversation instead of calling this tool again.",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+        "get-other": actionEntry({ readOnly: true }),
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(readAction).not.toHaveBeenCalled();
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: expect.stringContaining(
+          "Its earlier result is no longer in view",
+        ),
+      }),
+    );
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: expect.stringContaining("ORIGINAL_RESULT_TEXT"),
+      }),
+    );
+  });
+
   it("adds stop-and-report guidance to provider rate-limit tool errors", async () => {
     let streamCalls = 0;
     const engine: AgentEngine = {
@@ -3915,6 +4497,249 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("does not treat a read-only call from a PRIOR turn as a seeded duplicate", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "turn2-call",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "answered fresh" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const readAction = vi.fn(async () => "fresh document for turn 2");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        // Turn 1: real user prompt, a read, and a final answer.
+        {
+          role: "user",
+          content: [{ type: "text", text: "read the doc" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "turn1-call",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "turn1-call",
+              toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
+              content: "doc content from turn 1",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "Here it is." }],
+        },
+        // Turn 2: a NEW real user prompt (not a continuation of turn 1),
+        // followed by an internal-continue prompt for this request.
+        {
+          role: "user",
+          content: [{ type: "text", text: "read it again" }],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The prior turn's read must not seed the duplicate-skip cache for a
+    // request that starts a new turn — the tool must run fresh.
+    expect(readAction).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: "fresh document for turn 2",
+      }),
+    );
+  });
+
+  it("does not treat a read-only call seeded before an intervening write as a duplicate", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call" as const,
+                id: "read-again",
+                name: "get-document",
+                input: { id: "doc-1" },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "done" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const readAction = vi.fn(async () => "fresh document after write");
+    const writeAction = vi.fn(async () => "updated");
+    const events: any[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        {
+          role: "user",
+          content: [{ type: "text", text: "update the doc" }],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "read-1",
+              name: "get-document",
+              input: { id: "doc-1" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "read-1",
+              toolName: "get-document",
+              toolInput: '{"id":"doc-1"}',
+              content: "doc content before write",
+            },
+          ],
+        },
+        {
+          role: "assistant",
+          content: [
+            {
+              type: "tool-call",
+              id: "write-1",
+              name: "update-document",
+              input: { id: "doc-1", text: "new text" },
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [
+            {
+              type: "tool-result",
+              toolCallId: "write-1",
+              toolName: "update-document",
+              toolInput: '{"id":"doc-1","text":"new text"}',
+              content: "updated",
+            },
+          ],
+        },
+        {
+          role: "user",
+          content: [{ type: "text", text: AGENT_INTERNAL_CONTINUE_PROMPT }],
+        },
+      ],
+      actions: {
+        "get-document": {
+          ...actionEntry({ readOnly: true }),
+          run: readAction,
+        },
+        "update-document": {
+          ...actionEntry({ readOnly: false }),
+          run: writeAction,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    // The successful write between the seeded read and the continuation
+    // invalidates the seeded cache, so the repeat read must run fresh.
+    expect(readAction).toHaveBeenCalledTimes(1);
+    expect(JSON.stringify(events)).not.toContain("Skipped duplicate read-only");
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        type: "tool_done",
+        tool: "get-document",
+        result: "fresh document after write",
+      }),
+    );
+  });
+
   it("stops after repeated identical tool errors", async () => {
     let streamCalls = 0;
     const run = vi.fn(async () => {
@@ -4095,6 +4920,43 @@ describe("runAgentLoop", () => {
         })),
       }),
     ).toBeNull();
+  });
+
+  it("keeps the Docs lookup family out of the aggregate convergence budget", () => {
+    const actions = {
+      "list-docs": actionEntry({ readOnly: true }),
+      "read-doc": actionEntry({ readOnly: true }),
+      "search-source": actionEntry({ readOnly: true }),
+      "read-source-file": actionEntry({ readOnly: true }),
+      "search-docs": actionEntry({ readOnly: true }),
+    };
+    const priorToolCalls = Array.from({ length: 12 }, (_, i) => ({
+      name: Object.keys(actions)[i % Object.keys(actions).length],
+      input: { query: `term-${i + 1}` },
+    }));
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-docs",
+        entry: actions["search-docs"],
+        actions,
+        priorToolCalls,
+      }),
+    ).toBeNull();
+
+    expect(
+      shouldGuardRepeatedSourceSweep({
+        toolName: "search-docs",
+        entry: actions["search-docs"],
+        priorToolCalls: Array.from({ length: 12 }, () => ({
+          name: "search-docs",
+          input: {},
+        })),
+      }),
+    ).toMatchObject({
+      toolName: "search-docs",
+      priorCalls: 12,
+    });
   });
 
   it("allows a bulk strategy change instead of continuing a repeated source sweep", async () => {
@@ -5929,6 +6791,15 @@ describe("runAgentLoop", () => {
       },
     };
     const events: any[] = [];
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.text.trim()
+        ? null
+        : {
+            retryMessage: "Misclassified empty response.",
+            fallbackMessage: "Wrong app fallback.",
+            maxRetries: 0,
+          },
+    );
 
     await runAgentLoop({
       engine,
@@ -5939,10 +6810,16 @@ describe("runAgentLoop", () => {
       actions: {},
       send: (event) => events.push(event),
       signal: new AbortController().signal,
+      finalResponseGuard: guard,
     });
 
     expect(streamCalls).toBe(2);
     expect(seenMessages.at(-1)).toContain("output-token cap");
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0]).toMatchObject({
+      requestText: "go",
+      text: "Recovered answer.",
+    });
     expect(events.map((event) => event.type)).toEqual([
       "thinking",
       "clear",
@@ -5952,6 +6829,77 @@ describe("runAgentLoop", () => {
     const textEvents = events.filter((e) => e.type === "text");
     expect(textEvents).toHaveLength(1);
     expect(textEvents[0].text).toBe("Recovered answer.");
+  });
+
+  it("recovers repeated Luna reasoning-only turns before an app guard classifies the continuation", async () => {
+    const seenReasoningEfforts: Array<EngineStreamOptions["reasoningEffort"]> =
+      [];
+    const engine: AgentEngine = {
+      name: "builder",
+      label: "Builder.io Gateway",
+      defaultModel: "gpt-5-6-luna",
+      supportedModels: ["gpt-5-6-luna"],
+      capabilities: {
+        thinking: true,
+        promptCaching: true,
+        vision: true,
+        computerUse: false,
+        parallelToolCalls: true,
+      },
+      async *stream(opts): AsyncIterable<EngineEvent> {
+        seenReasoningEfforts.push(opts.reasoningEffort);
+        if (seenReasoningEfforts.length < 3) {
+          yield { type: "thinking-delta", text: "final-only reasoning" };
+          yield {
+            type: "assistant-content",
+            parts: [
+              { type: "thinking" as const, text: "final-only reasoning" },
+            ],
+          };
+          yield { type: "stop", reason: "end_turn" };
+          return;
+        }
+        yield { type: "text-delta", text: "Hello! How can I help?" };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: "Hello! How can I help?" }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const events: AgentChatEvent[] = [];
+    const guard = vi.fn((context: AgentLoopFinalResponseGuardContext) =>
+      context.requestText === "hello"
+        ? null
+        : {
+            retryMessage: "Query a real source.",
+            fallbackMessage: "Wrong data-source fallback.",
+          },
+    );
+
+    await runAgentLoop({
+      engine,
+      model: "gpt-5-6-luna",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "hello" }] }],
+      actions: {},
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+      reasoningEffort: "medium",
+      finalResponseGuard: guard,
+    });
+
+    expect(seenReasoningEfforts).toEqual(["medium", "low", "minimal"]);
+    expect(guard).toHaveBeenCalledTimes(1);
+    expect(guard.mock.calls[0]?.[0].requestText).toBe("hello");
+    expect(events).toContainEqual({
+      type: "text",
+      text: "Hello! How can I help?",
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ text: "Wrong data-source fallback." }),
+    );
   });
 
   it("surfaces a fallback message after an empty-response retry also ends empty", async () => {
@@ -6854,6 +7802,144 @@ describe("trimOldToolResults", () => {
   });
 });
 
+describe("isCachedToolResultVisibleInContext", () => {
+  const cachedToolCall = {
+    name: "get-document",
+    input: { id: "doc-1" },
+  };
+
+  function contextWithMatchingToolResult(content: string): EngineMessage[] {
+    return [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc1",
+            ...cachedToolCall,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tc1",
+            toolName: cachedToolCall.name,
+            toolInput: JSON.stringify(cachedToolCall.input),
+            content,
+          },
+        ],
+      },
+    ];
+  }
+
+  it("is visible when a user tool-result part exactly matches the cached result", () => {
+    const messages = contextWithMatchingToolResult("the document body");
+    expect(
+      isCachedToolResultVisibleInContext(
+        messages,
+        cachedToolCall,
+        "the document body",
+      ),
+    ).toBe(true);
+  });
+
+  it("is visible when the matching result contains the exact re-serve wrapper", () => {
+    const wrapped =
+      "Skipped duplicate read-only call to get-document: identical input already ran in this turn. " +
+      "Its earlier result is no longer in view, so here it is again:\n\nthe document body";
+    const messages = contextWithMatchingToolResult(wrapped);
+    expect(
+      isCachedToolResultVisibleInContext(
+        messages,
+        cachedToolCall,
+        "the document body",
+      ),
+    ).toBe(true);
+  });
+
+  it("is not visible when no tool-result part matches (evicted or summarized placeholder)", () => {
+    const messages = contextWithMatchingToolResult(
+      "[older tool results trimmed to save context]",
+    );
+    expect(
+      isCachedToolResultVisibleInContext(
+        messages,
+        cachedToolCall,
+        "the document body",
+      ),
+    ).toBe(false);
+  });
+
+  it("treats an empty cached result as always visible", () => {
+    expect(isCachedToolResultVisibleInContext([], cachedToolCall, "")).toBe(
+      true,
+    );
+  });
+
+  it("ignores tool-result-shaped content on assistant-role messages", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc1",
+            ...cachedToolCall,
+          },
+        ],
+      },
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-result",
+            toolCallId: "tc1",
+            toolName: "get-document",
+            toolInput: "{}",
+            content: "the document body",
+          },
+        ],
+      },
+    ];
+    expect(
+      isCachedToolResultVisibleInContext(
+        messages,
+        cachedToolCall,
+        "the document body",
+      ),
+    ).toBe(false);
+  });
+
+  it("ignores non-tool-result parts even when the text matches", () => {
+    const messages: EngineMessage[] = [
+      {
+        role: "assistant",
+        content: [
+          {
+            type: "tool-call",
+            id: "tc1",
+            ...cachedToolCall,
+          },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "text", text: "the document body" }],
+      },
+    ];
+    expect(
+      isCachedToolResultVisibleInContext(
+        messages,
+        cachedToolCall,
+        "the document body",
+      ),
+    ).toBe(false);
+  });
+});
+
 describe("shouldChainBackgroundContinuation (server-driven background chain)", () => {
   function makeRun(
     events: AgentChatEvent[],
@@ -7302,6 +8388,18 @@ describe("appendAgentLoopContinuation", () => {
     expect(text).toContain("reuse the existing `fileId`");
     expect(text).toContain("do not call `list-files`");
     expect(text).toContain("`replacementContent`");
+  });
+
+  it("resolves the real request behind internal continuations", () => {
+    const messages: any[] = [
+      { role: "user", content: [{ type: "text", text: "hello" }] },
+    ];
+    appendAgentLoopContinuation(messages, "max_tokens");
+
+    expect(resolveFinalResponseGuardRequestText(messages)).toBe("hello");
+    expect(
+      resolveFinalResponseGuardRequestText([messages.at(-1)]),
+    ).toBeUndefined();
   });
 });
 

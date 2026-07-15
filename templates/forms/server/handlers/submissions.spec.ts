@@ -7,6 +7,10 @@ const state = vi.hoisted(() => ({
   session: null as null | { email?: string; orgId?: string },
 }));
 
+const sendEmail = vi.hoisted(() =>
+  vi.fn(async (_args: Record<string, unknown>) => {}),
+);
+
 const publishedForm = {
   id: "form_1",
   title: "Agent Native Feedback",
@@ -34,6 +38,12 @@ vi.mock("@agent-native/core/server", () => ({
   readBody: async () => state.body,
   runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
   verifyCaptcha: async () => ({ success: true }),
+  emailStrong: (value: string) => value,
+  renderEmail: ({ paragraphs }: { paragraphs: string[] }) => ({
+    html: paragraphs.join("\n"),
+    text: paragraphs.join("\n"),
+  }),
+  sendEmail,
 }));
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -71,6 +81,7 @@ describe("submitForm pageUrl pass-through", () => {
     state.inserted.length = 0;
     state.session = null;
     publishedForm.settings = JSON.stringify({});
+    sendEmail.mockClear();
   });
 
   it("persists the page URL and client surface forwarded in _meta", async () => {
@@ -99,6 +110,42 @@ describe("submitForm pageUrl pass-through", () => {
     expect(state.inserted).toHaveLength(1);
     expect(state.inserted[0]!.pageUrl).toBeNull();
     expect(state.inserted[0]!.clientSurface).toBeNull();
+  });
+
+  it("emails the form owner when new response emails are enabled", async () => {
+    publishedForm.settings = JSON.stringify({ emailOnNewResponses: true });
+
+    const res = await submit({ data: { msg: "Please call me" } });
+
+    expect(res).toMatchObject({ success: true });
+    expect(sendEmail).toHaveBeenCalledTimes(1);
+    expect(sendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({
+        to: "owner@example.com",
+        subject: "New response: Agent Native Feedback",
+      }),
+    );
+    const emailArgs = sendEmail.mock.calls[0]?.[0] as
+      | { text?: string }
+      | undefined;
+    expect(emailArgs?.text).toContain("Please call me");
+  });
+
+  it("does not email the owner by default", async () => {
+    const res = await submit({ data: { msg: "No email please" } });
+
+    expect(res).toMatchObject({ success: true });
+    expect(sendEmail).not.toHaveBeenCalled();
+  });
+
+  it("keeps the submission successful when email delivery fails", async () => {
+    publishedForm.settings = JSON.stringify({ emailOnNewResponses: true });
+    sendEmail.mockRejectedValueOnce(new Error("provider unavailable"));
+
+    const res = await submit({ data: { msg: "Still saved" } });
+
+    expect(res).toMatchObject({ success: true });
+    expect(state.inserted).toHaveLength(1);
   });
 
   it("drops an unknown client surface to null", async () => {

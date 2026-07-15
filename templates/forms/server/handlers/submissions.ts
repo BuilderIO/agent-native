@@ -29,6 +29,7 @@ import type {
 } from "../../shared/types.js";
 import { getDb, schema } from "../db/index.js";
 import { fireIntegrations } from "../lib/integrations.js";
+import { sendNewResponseEmail } from "../lib/response-email.js";
 import {
   isEmptySubmissionValue,
   validateSubmissionField,
@@ -263,6 +264,22 @@ export const submitForm = defineEventHandler(async (event: H3Event) => {
     });
   } catch {
     // Non-critical — don't fail the submission
+  }
+
+  if (settings.emailOnNewResponses === true && form.ownerEmail) {
+    try {
+      await sendNewResponseEmail({
+        to: form.ownerEmail,
+        formTitle: form.title,
+        fields,
+        data,
+        submittedAt: now,
+      });
+    } catch (error) {
+      // Email is best-effort — a provider outage must not reject a public
+      // submission that was already persisted successfully.
+      console.warn("[forms] new response email failed:", error);
+    }
   }
 
   // Fire integrations best-effort and never fail the submission. Keep this

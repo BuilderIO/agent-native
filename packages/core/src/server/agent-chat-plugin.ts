@@ -134,6 +134,7 @@ import {
   WORKSPACE_OWNER,
 } from "../resources/store.js";
 import { normalizeDatabaseToolsMode } from "../scripts/db/tool-mode.js";
+import type { ResolvedKeyReference } from "../secrets/substitution.js";
 import { getSetting, putSetting } from "../settings/store.js";
 import {
   handleSharedThreadRequest,
@@ -189,6 +190,10 @@ async function lazyFs(): Promise<typeof import("fs")> {
   return _fs;
 }
 
+import {
+  buildSystemManifestSections,
+  setContextXraySystemSections,
+} from "../agent/context-xray/manifest.js";
 // ---------------------------------------------------------------------------
 // The bulk of this file's former implementation now lives in focused sibling
 // modules under `./agent-chat/`. This file re-imports them (and re-exports
@@ -233,6 +238,7 @@ import {
 import { finalizeClaimedAgentChatProcessRunFailure } from "./agent-chat/process-run-failure.js";
 import {
   loadResourcesForPrompt,
+  promptResourceManifestSections,
   resourceScopeForOwner,
 } from "./agent-chat/prompt-resources.js";
 import { shouldDisableRecurringJobsRuntime } from "./agent-chat/recurring-jobs-runtime.js";
@@ -264,6 +270,13 @@ export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+export function buildLeanRunPolicyPrompt(
+  codeEditingSurfaceRestriction: string,
+  prodCodeExecPromptNote: string,
+): string {
+  return codeEditingSurfaceRestriction + prodCodeExecPromptNote;
+}
 
 /**
  * Returns whether `owner` has already finished (or explicitly skipped) the
@@ -310,6 +323,41 @@ const generateTitleRateLimit = new Map<string, number[]>();
 /** Only sweep drained rate-limit entries once the map grows past this size,
  * so the common small-map case stays O(1). */
 const RATE_LIMIT_SWEEP_THRESHOLD = 1000;
+
+/**
+ * Pick the URL allowlist to enforce for a `${keys.NAME}` reference used by
+ * the agent fetch tool.
+ *
+ * SECURITY (audit 05 H2 alignment): the allowlist check must stay
+ * consistent with the scope a key actually resolved at (see the
+ * `getKeyAllowlist` docstring in secrets/substitution.ts). Since the fetch
+ * tool now resolves keys via `resolveKeyReferencesWithRequestScopes` — which
+ * cascades user → org → workspace scope — a plain user-scope-only allowlist
+ * lookup would silently miss an allowlist configured on the org/workspace
+ * row that actually supplied the value. When `resolvedKeys` reports which
+ * scope a key resolved at, look up the allowlist there; only fall back to
+ * the legacy user-scope lookup for a key the resolver didn't report (should
+ * not normally happen — every key the cascade resolves reports a ref).
+ */
+export async function resolveFetchToolKeyAllowlist(
+  keyName: string,
+  resolvedKeys: ResolvedKeyReference[] | undefined,
+  owner: string,
+  deps: {
+    getKeyAllowlist: (
+      name: string,
+      scope: "user",
+      scopeId: string,
+    ) => Promise<string[] | null>;
+    getResolvedKeyAllowlist: (
+      ref: ResolvedKeyReference,
+    ) => Promise<string[] | null>;
+  },
+): Promise<string[] | null> {
+  const ref = resolvedKeys?.find((candidate) => candidate.name === keyName);
+  if (ref) return deps.getResolvedKeyAllowlist(ref);
+  return deps.getKeyAllowlist(keyName, "user", owner);
+}
 
 export function createAgentChatPlugin(
   options?: AgentChatPluginOptions,
@@ -781,21 +829,38 @@ export function createAgentChatPlugin(
       try {
         const { createFetchToolEntry } =
           await import("../extensions/fetch-tool.js");
-        const { resolveKeyReferences, validateUrlAllowlist, getKeyAllowlist } =
-          await import("../secrets/substitution.js");
+        // Resolve `${keys.NAME}` through the same request-scope cascade
+        // already used by extension fetches (extensions/routes.ts) and
+        // automation connector headers (automation/index.ts): user scope
+        // first (personal overrides win), then the active org scope (the
+        // Dispatch vault syncs workspace secrets here), then workspace
+        // scope. Org/workspace vault rows are write-gated (org-admin +
+        // Dispatch vault UI), so this is safe to read by default — unlike
+        // the opt-in-only user→workspace fallback in resolveKeyReferences
+        // (see audit 05 H2 in secrets/substitution.ts), which stays off.
+        // Previously this tool only looked at scope "user", so a
+        // ${keys.NAME} reference to a key synced into the org/workspace
+        // vault could never resolve here even though the same key already
+        // worked for extension fetches and automations.
+        const {
+          resolveKeyReferencesWithRequestScopes,
+          validateUrlAllowlist,
+          getKeyAllowlist,
+          getResolvedKeyAllowlist,
+        } = await import("../secrets/substitution.js");
         fetchTool = createFetchToolEntry({
           resolveKeys: async (text) =>
-            resolveKeyReferences(
+            resolveKeyReferencesWithRequestScopes(
               text,
-              "user",
               requireCurrentRunOwner("resolve key references"),
             ),
-          validateUrl: async (url, usedKeys) => {
+          validateUrl: async (url, usedKeys, resolvedKeys) => {
             for (const keyName of usedKeys) {
-              const allowlist = await getKeyAllowlist(
+              const allowlist = await resolveFetchToolKeyAllowlist(
                 keyName,
-                "user",
+                resolvedKeys,
                 requireCurrentRunOwner("validate URL allowlist"),
+                { getKeyAllowlist, getResolvedKeyAllowlist },
               );
               if (allowlist && !validateUrlAllowlist(url, allowlist)) {
                 return false;
@@ -1792,6 +1857,7 @@ export function createAgentChatPlugin(
           getOwnerFromEvent,
           getUserNameFromEvent,
           resolveOrgId: options?.resolveOrgId,
+          actionRouteAuth: options?.actionRouteAuth,
         });
       }
 
@@ -2329,6 +2395,104 @@ export function createAgentChatPlugin(
         return prompt;
       };
 
+      const emitContextXraySystemSections = async (
+        event: any,
+        input: {
+          frameworkPrompt?: string;
+          actionsPrompt?: string;
+          resources?: string;
+          schemaBlock?: string;
+          modelOverlay?: string;
+          runtimeContext?: string;
+          additionalFramework?: string;
+          extra?: string;
+        },
+      ): Promise<void> => {
+        const sections = await buildSystemManifestSections([
+          ...(input.frameworkPrompt
+            ? [
+                {
+                  label: "Framework core",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.frameworkPrompt,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.actionsPrompt
+            ? [
+                {
+                  label: "Available actions prompt",
+                  provenance: "actions-prompt" as const,
+                  governance: "required" as const,
+                  content: input.actionsPrompt,
+                  sourceRef: { scope: "actions" },
+                },
+              ]
+            : []),
+          ...(input.resources
+            ? promptResourceManifestSections(input.resources)
+            : []),
+          ...(input.schemaBlock
+            ? [
+                {
+                  label: "SQL schema",
+                  provenance: "db-schema" as const,
+                  governance: "required" as const,
+                  content: input.schemaBlock,
+                  sourceRef: { scope: "sql" },
+                },
+              ]
+            : []),
+          ...(input.additionalFramework
+            ? [
+                {
+                  label: "Framework run policy",
+                  provenance: "framework-core" as const,
+                  governance: "required" as const,
+                  content: input.additionalFramework,
+                  sourceRef: { scope: "framework" },
+                },
+              ]
+            : []),
+          ...(input.extra
+            ? [
+                {
+                  label: "App runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "inherited" as const,
+                  content: input.extra,
+                  sourceRef: { scope: "app" },
+                },
+              ]
+            : []),
+          ...(input.modelOverlay
+            ? [
+                {
+                  label: "Model overlay",
+                  provenance: "model-overlay" as const,
+                  governance: "required" as const,
+                  content: input.modelOverlay,
+                  sourceRef: { scope: "model" },
+                },
+              ]
+            : []),
+          ...(input.runtimeContext
+            ? [
+                {
+                  label: "Runtime context",
+                  provenance: "runtime-context" as const,
+                  governance: "required" as const,
+                  content: input.runtimeContext,
+                  sourceRef: { scope: "runtime" },
+                },
+              ]
+            : []),
+        ]);
+        setContextXraySystemSections(event, sections);
+      };
+
       /**
        * Read the model family overlay for the currently-resolved model.
        * onEngineResolved sets runCtx.model before systemPrompt is called, so
@@ -2420,10 +2584,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           // everything that follows it — putting it last means a day
           // rollover invalidates as little of the prefix as possible.
           if (leanPrompt) {
+            const leanRunPolicyPrompt = buildLeanRunPolicyPrompt(
+              codeEditingSurfaceRestriction,
+              prodCodeExecPromptNote,
+            );
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: leanBasePrompt.slice(
+                0,
+                Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+              ),
+              actionsPrompt: prodActionsPrompt,
+              additionalFramework: leanRunPolicyPrompt,
+              extra,
+              modelOverlay,
+              runtimeContext,
+            });
             return setSystemPromptOnContext(
               leanBasePrompt +
-                codeEditingSurfaceRestriction +
-                prodCodeExecPromptNote +
+                leanRunPolicyPrompt +
                 extra +
                 modelOverlay +
                 runtimeContext,
@@ -2439,6 +2617,22 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
           const schemaBlock = lazyContext
             ? ""
             : await buildSchemaBlock(owner, databaseToolsMode);
+          await emitContextXraySystemSections(event, {
+            frameworkPrompt: basePrompt.slice(
+              0,
+              Math.max(0, basePrompt.length - prodActionsPrompt.length),
+            ),
+            actionsPrompt: prodActionsPrompt,
+            resources,
+            schemaBlock,
+            extra,
+            modelOverlay,
+            runtimeContext,
+            additionalFramework:
+              personalizationBlock +
+              codeEditingSurfaceRestriction +
+              prodCodeExecPromptNote,
+          });
           return setSystemPromptOnContext(
             basePrompt +
               personalizationBlock +
@@ -2548,6 +2742,11 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               actions: anonymousReadOnlyActions,
               systemPrompt: async (event: any) => {
                 const { extra } = await prepareRun(event);
+                await emitContextXraySystemSections(event, {
+                  frameworkPrompt: anonymousReadOnlyPrompt,
+                  extra,
+                  runtimeContext: runtimeContextForEvent(event),
+                });
                 return setSystemPromptOnContext(
                   anonymousReadOnlyPrompt +
                     extra +
@@ -2668,6 +2867,16 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             // cached prompt prefix as possible. See the prod handler above
             // for the same pattern.
             if (leanPrompt) {
+              await emitContextXraySystemSections(event, {
+                frameworkPrompt: leanBasePrompt.slice(
+                  0,
+                  Math.max(0, leanBasePrompt.length - prodActionsPrompt.length),
+                ),
+                actionsPrompt: prodActionsPrompt,
+                extra,
+                modelOverlay,
+                runtimeContext,
+              });
               return setSystemPromptOnContext(
                 leanBasePrompt + extra + modelOverlay + runtimeContext,
               );
@@ -2681,6 +2890,24 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               lazyContext || !databaseToolsEnabled
                 ? ""
                 : await buildSchemaBlock(owner, databaseToolsMode);
+            await emitContextXraySystemSections(event, {
+              frameworkPrompt: devNative
+                ? basePrompt.slice(
+                    0,
+                    Math.max(0, basePrompt.length - prodActionsPrompt.length),
+                  )
+                : devPrompt.slice(
+                    0,
+                    Math.max(0, devPrompt.length - devActionsPrompt.length),
+                  ),
+              actionsPrompt: devNative ? prodActionsPrompt : devActionsPrompt,
+              resources,
+              schemaBlock,
+              extra,
+              modelOverlay,
+              runtimeContext,
+              additionalFramework: personalizationBlock,
+            });
             return setSystemPromptOnContext(
               devPrompt +
                 personalizationBlock +

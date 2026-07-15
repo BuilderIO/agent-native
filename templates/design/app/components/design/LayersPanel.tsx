@@ -11,9 +11,9 @@ import {
   IconFrame,
   IconLayersSubtract,
   IconLayersUnion,
+  IconLayoutGrid,
   IconLock,
   IconLockOpen,
-  IconLayoutGrid,
   IconPencil,
   IconPlus,
   IconSearch,
@@ -30,8 +30,8 @@ import {
   useMemo,
   useRef,
   useState,
-  type KeyboardEvent,
   type DragEvent,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
   type Ref,
@@ -2047,7 +2047,7 @@ const LayerRow = memo(function LayerRow({
           aria-expanded={hasChildren ? isExpanded : undefined}
           aria-level={depth + 1}
           aria-selected={selectable ? isSelected : undefined}
-          className="relative min-w-full"
+          className="relative w-max min-w-full"
           draggable={draggable}
           onDragStart={handleDragStart}
           onDragOver={handleDragOver}
@@ -2087,7 +2087,7 @@ const LayerRow = memo(function LayerRow({
           ) : null}
           <div
             className={cn(
-              "group flex h-8 min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px]",
+              "group flex h-7 w-max min-w-full items-center gap-1 rounded-[5px] pr-1 text-[12px] bg-[var(--design-editor-panel-bg)]",
               activeDrop === "inside" &&
                 "ring-1 ring-inset ring-[var(--design-editor-accent-color)]",
               isSelected &&
@@ -2233,67 +2233,80 @@ const LayerRow = memo(function LayerRow({
               ) : null}
             </button>
 
-            {lockable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.locked && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.locked ? labels.unlock : labels.lock}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleLocked?.(node.id, !node.locked);
-                    }}
-                  >
-                    {node.locked ? (
-                      <IconLock className="size-3" />
-                    ) : (
-                      <IconLockOpen className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.locked ? labels.unlock : labels.lock}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+            {(lockable || hideable) && (
+              <div
+                className={cn(
+                  "sticky right-0 z-10 ml-auto flex shrink-0 items-center gap-1 bg-inherit",
+                  node.locked || node.hidden
+                    ? "w-auto overflow-visible pl-2 pr-1"
+                    : "w-0 overflow-hidden pl-0 pr-0 group-hover:w-auto group-hover:overflow-visible group-hover:pl-2 group-hover:pr-1 focus-within:w-auto focus-within:overflow-visible focus-within:pl-2 focus-within:pr-1",
+                )}
+              >
+                <div className="absolute inset-0 -z-20 bg-[var(--design-editor-panel-bg)]" />
+                <div className="absolute inset-0 -z-10 bg-inherit" />
+                {lockable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.locked && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.locked ? labels.unlock : labels.lock}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleLocked?.(node.id, !node.locked);
+                        }}
+                      >
+                        {node.locked ? (
+                          <IconLock className="size-3" />
+                        ) : (
+                          <IconLockOpen className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.locked ? labels.unlock : labels.lock}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
 
-            {hideable ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(
-                      "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
-                      node.hidden && "opacity-100",
-                      isSelected && "text-foreground",
-                    )}
-                    aria-label={node.hidden ? labels.show : labels.hide}
-                    onClick={(event) => {
-                      event.stopPropagation();
-                      onToggleHidden?.(node.id, !node.hidden);
-                    }}
-                  >
-                    {node.hidden ? (
-                      <IconEyeOff className="size-3" />
-                    ) : (
-                      <IconEye className="size-3" />
-                    )}
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>
-                  {node.hidden ? labels.show : labels.hide}
-                </TooltipContent>
-              </Tooltip>
-            ) : null}
+                {hideable ? (
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="icon"
+                        className={cn(
+                          "size-5 shrink-0 rounded-sm p-0 text-muted-foreground opacity-0 hover:bg-transparent hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100",
+                          node.hidden && "opacity-100",
+                          isSelected && "text-foreground",
+                        )}
+                        aria-label={node.hidden ? labels.show : labels.hide}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          onToggleHidden?.(node.id, !node.hidden);
+                        }}
+                      >
+                        {node.hidden ? (
+                          <IconEyeOff className="size-3" />
+                        ) : (
+                          <IconEye className="size-3" />
+                        )}
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {node.hidden ? labels.show : labels.hide}
+                    </TooltipContent>
+                  </Tooltip>
+                ) : null}
+              </div>
+            )}
           </div>
         </div>
       </ContextMenuTrigger>
