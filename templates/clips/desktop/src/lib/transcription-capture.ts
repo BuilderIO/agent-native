@@ -33,8 +33,12 @@ function wait(ms: number): Promise<void> {
 export interface CapturedTranscript {
   /** Speaker-labelled text, lines joined by blank lines. */
   text: string;
-  /** Real whisper segments with verbatim timestamps. */
+  /** Real whisper segments with verbatim timestamps (sentence-ish). */
   segments: SourcedTranscriptSegment[];
+  /** Word-level timestamps when the engine provides them (whisper). The
+   *  saved recording transcript prefers these — the editors highlight,
+   *  seek, and delete per word. */
+  words?: SourcedTranscriptSegment[];
   /** Source stored with `save-browser-transcript`. */
   source?: "web-speech" | "macos-native" | "whisper";
 }
@@ -298,6 +302,7 @@ export async function startTranscriptionCapture(
 ): Promise<TranscriptionCapture | null> {
   const lines: string[] = [];
   const segments: SourcedTranscriptSegment[] = [];
+  const words: SourcedTranscriptSegment[] = [];
   let disposed = false;
   let paused = false;
   let desiredPaused = false;
@@ -322,6 +327,7 @@ export async function startTranscriptionCapture(
   const captured = (): CapturedTranscript => ({
     text: lines.join("\n\n").trim(),
     segments,
+    words,
   });
 
   let engine: TranscriptionEngine;
@@ -329,7 +335,7 @@ export async function startTranscriptionCapture(
     unlistens.push(
       await onFinalTranscript((event) => {
         if (disposed) return;
-        appendFinalTranscript(event, lines, segments);
+        appendFinalTranscript(event, lines, segments, words);
       }),
     );
 

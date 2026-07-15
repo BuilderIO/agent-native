@@ -34,7 +34,11 @@ export interface FinalTranscriptEvent {
   /** Raw text (not trimmed); callers decide whether to skip empties. */
   text: string;
   source: TranscriptSource;
+  /** Sentence-ish segments (meeting notes / overlay granularity). */
   segments: TranscriptSegment[];
+  /** Word-level timestamps (whisper token timestamps); empty on engines
+   *  without word timing (SFSpeech, Web Speech). */
+  words: TranscriptSegment[];
 }
 
 export interface PartialTranscriptEvent {
@@ -80,6 +84,7 @@ export function appendFinalTranscript(
   event: FinalTranscriptEvent,
   lines: string[],
   segments: SourcedTranscriptSegment[],
+  words?: SourcedTranscriptSegment[],
 ): boolean {
   const text = event.text.trim();
   if (!text) return false;
@@ -93,6 +98,18 @@ export function appendFinalTranscript(
       text: segText,
       source: event.source,
     });
+  }
+  if (words) {
+    for (const word of event.words) {
+      const wordText = word.text?.trim();
+      if (!wordText) continue;
+      words.push({
+        startMs: word.startMs,
+        endMs: word.endMs,
+        text: wordText,
+        source: event.source,
+      });
+    }
   }
   return true;
 }
@@ -205,11 +222,13 @@ export function onFinalTranscript(
     text?: string;
     source?: TranscriptSource;
     segments?: TranscriptSegment[];
+    words?: TranscriptSegment[];
   }>("voice:final-transcript", (event) => {
     cb({
       text: event.payload?.text ?? "",
       source: normalizeSource(event.payload?.source),
       segments: event.payload?.segments ?? [],
+      words: event.payload?.words ?? [],
     });
   });
 }

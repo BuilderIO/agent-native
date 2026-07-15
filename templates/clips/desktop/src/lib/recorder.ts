@@ -1154,7 +1154,12 @@ async function saveRecordingTranscript(
       body: JSON.stringify({
         recordingId,
         fullText: text,
-        segments: transcript.segments,
+        // Word-level timestamps when the engine provides them — the editors
+        // highlight/seek/delete per word. Sentence segments are the fallback.
+        segments:
+          transcript.words && transcript.words.length > 0
+            ? transcript.words
+            : transcript.segments,
         source: transcript.source ?? "whisper",
       }),
       signal: AbortSignal.timeout(TRANSCRIPT_SAVE_TIMEOUT_MS),

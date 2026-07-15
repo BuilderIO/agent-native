@@ -211,8 +211,13 @@ mod macos {
         /// Joined text of all segments (back-compat for the live overlay).
         text: String,
         source: &'static str,
-        /// Per-segment real timestamps (empty for the SFSpeech fallback path).
+        /// Sentence-ish segments (words grouped at sentence punctuation) —
+        /// the granularity meeting notes and the live overlay expect.
         segments: Vec<Segment>,
+        /// Word-level timestamps (whisper token timestamps, max_len=1). The
+        /// recording transcript stores THESE so the editors can highlight,
+        /// seek, and delete at word precision like Descript.
+        words: Vec<Segment>,
     }
 
     struct StreamTimeline {
@@ -428,8 +433,9 @@ mod macos {
 
         /// Clean an inference result and, if it survives, emit it on `event`
         /// (`voice:partial-transcript` / `voice:final-transcript`) tagged with
-        /// this stream's source. `raw_segs` are whisper segments with
-        /// buffer-relative ms; `offset_ms` shifts them onto the meeting timeline.
+        /// this stream's source. `raw_segs` are per-WORD whisper segments
+        /// (token timestamps, max_len=1) with buffer-relative ms; `offset_ms`
+        /// shifts them onto the meeting timeline.
         fn emit_transcript(
             &self,
             event: &'static str,
@@ -449,14 +455,16 @@ mod macos {
             let Some(clean) = clean_transcript(&joined) else {
                 return;
             };
-            let segments = raw_segs
+            let words: Vec<Segment> = raw_segs
                 .iter()
+                .filter(|(_, _, t)| !t.trim().is_empty())
                 .map(|(s, e, t)| Segment {
                     start_ms: offset_ms + s,
                     end_ms: offset_ms + e,
                     text: t.trim().to_string(),
                 })
                 .collect();
+            let segments = group_words_into_sentences(&words);
             crate::whisper_speech::FINALS_EMITTED
                 .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             let _ = self.app.emit(
@@ -465,9 +473,49 @@ mod macos {
                     text: clean,
                     source: self.source,
                     segments,
+                    words,
                 },
             );
         }
+    }
+
+    /// Group word-level segments into sentence-ish chunks: close a chunk at
+    /// sentence-final punctuation or once it spans 12 s. Meeting notes, the
+    /// live overlay, and summaries expect this granularity; the editors take
+    /// the raw words instead.
+    fn group_words_into_sentences(words: &[Segment]) -> Vec<Segment> {
+        const MAX_SENTENCE_SPAN_MS: i64 = 12_000;
+        let mut out: Vec<Segment> = Vec::new();
+        let mut chunk: Vec<&Segment> = Vec::new();
+        let flush = |chunk: &mut Vec<&Segment>, out: &mut Vec<Segment>| {
+            if chunk.is_empty() {
+                return;
+            }
+            out.push(Segment {
+                start_ms: chunk[0].start_ms,
+                end_ms: chunk[chunk.len() - 1].end_ms,
+                text: chunk
+                    .iter()
+                    .map(|w| w.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            });
+            chunk.clear();
+        };
+        for word in words {
+            chunk.push(word);
+            let ends_sentence = word
+                .text
+                .chars()
+                .last()
+                .is_some_and(|c| matches!(c, '.' | '!' | '?' | '…' | '。' | '！' | '？'));
+            let span = word.end_ms - chunk[0].start_ms;
+            if ends_sentence || span > MAX_SENTENCE_SPAN_MS {
+                flush(&mut chunk, &mut out);
+            }
+        }
+        flush(&mut chunk, &mut out);
+        out
     }
 
     /// Run whisper over `samples` (16 kHz mono f32), returning each speech
@@ -488,6 +536,12 @@ mod macos {
         params.set_print_progress(false);
         params.set_print_realtime(false);
         params.set_print_timestamps(false);
+        // Word-level output: token timestamps + one word per segment. The
+        // chunk-level 2-6s segments whisper emits otherwise cap the editors'
+        // highlight/click/delete precision at whole sentences.
+        params.set_token_timestamps(true);
+        params.set_max_len(1);
+        params.set_split_on_word(true);
         if state.full(params, samples).is_err() {
             return Vec::new();
         }

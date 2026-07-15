@@ -89,3 +89,60 @@ describe("meeting microphone capture", () => {
     expect(invokeMock).toHaveBeenCalledTimes(2);
   });
 });
+
+describe("appendFinalTranscript word-level timestamps", () => {
+  it("collects words into the optional sink and keeps sentence segments intact", async () => {
+    const { appendFinalTranscript } = await import("./transcription-engine");
+    const lines: string[] = [];
+    const segments: never[] & any[] = [] as any;
+    const words: any[] = [];
+    const appended = appendFinalTranscript(
+      {
+        text: "Hello there. Nice one.",
+        source: "mic",
+        segments: [
+          { startMs: 0, endMs: 900, text: "Hello there." },
+          { startMs: 950, endMs: 1800, text: "Nice one." },
+        ],
+        words: [
+          { startMs: 0, endMs: 400, text: "Hello" },
+          { startMs: 410, endMs: 900, text: "there." },
+          { startMs: 950, endMs: 1300, text: "Nice" },
+          { startMs: 1310, endMs: 1800, text: "one." },
+          { startMs: 1810, endMs: 1810, text: "  " },
+        ],
+      },
+      lines,
+      segments,
+      words,
+    );
+    expect(appended).toBe(true);
+    expect(lines).toEqual(["Me: Hello there. Nice one."]);
+    expect(segments).toHaveLength(2);
+    // Words land with the event source attached; blank entries are dropped.
+    expect(words).toHaveLength(4);
+    expect(words[1]).toEqual({
+      startMs: 410,
+      endMs: 900,
+      text: "there.",
+      source: "mic",
+    });
+  });
+
+  it("stays backward-compatible when no words sink is passed", async () => {
+    const { appendFinalTranscript } = await import("./transcription-engine");
+    const lines: string[] = [];
+    const segments: any[] = [];
+    appendFinalTranscript(
+      {
+        text: "Hi.",
+        source: "system",
+        segments: [{ startMs: 0, endMs: 500, text: "Hi." }],
+        words: [{ startMs: 0, endMs: 500, text: "Hi." }],
+      },
+      lines,
+      segments,
+    );
+    expect(segments).toHaveLength(1);
+  });
+});

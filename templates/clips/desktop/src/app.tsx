@@ -98,7 +98,6 @@ import {
   useUpdateStatus,
   type UpdateStatus,
 } from "./lib/updater";
-import { normalizeServerUrl } from "./lib/url";
 import {
   installDesktopVoiceDictation,
   type VoiceMode,
@@ -1976,7 +1975,6 @@ export function App() {
         });
       }
       await loadPendingUploads();
-      await fetchRecent();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       console.error("[clips-tray] retry saved upload failed:", err);
