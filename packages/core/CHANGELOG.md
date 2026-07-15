@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.102.1
+
+### Patch Changes
+
+- ab33ae7: Make the Agent Files tab taller and viewport-responsive, and let file previews fill the panel height with natural scrolling.
+
 ## 0.102.0
 
 ### Minor Changes
