@@ -31,6 +31,7 @@ vi.mock("../db/index.js", () => ({
 import {
   getPublicFormBySlugOrId,
   invalidatePublicFormCache,
+  renderPublicFormHtml,
   renderPublicForm,
 } from "./public-form-ssr";
 
@@ -151,5 +152,48 @@ describe("public form SSR", () => {
     await expect(
       getPublicFormBySlugOrId("new-cache-slug"),
     ).resolves.toMatchObject({ title: "After second update" });
+  });
+
+  it("uses the version query in the SSR cache key and embeds revalidation", async () => {
+    const rows = [
+      {
+        id: "form-versioned-123",
+        slug: "versioned-cache-slug",
+        title: "Before version bump",
+        description: null,
+        ownerEmail: "owner@example.test",
+        updatedAt: "2026-07-14T12:00:00.000Z",
+        fields: "[]",
+        settings: "{}",
+        status: "published",
+        deletedAt: null,
+      },
+    ];
+    mockGetDb.mockReturnValue(createDbWithRows(rows));
+
+    const first = await renderPublicFormHtml(
+      "https://forms.example.test/f/versioned-cache-slug",
+    );
+    expect(first.html).toContain("<title>Before version bump</title>");
+    expect(first.html).toContain(
+      'var FORM_VERSION = "2026-07-14T12:00:00.000Z";',
+    );
+    expect(first.html).toContain(
+      'fetch(PUBLIC_FORM_API, { cache: "no-store" })',
+    );
+
+    rows[0] = {
+      ...rows[0],
+      title: "After version bump",
+      updatedAt: "2026-07-14T12:01:00.000Z",
+    };
+
+    const refreshed = await renderPublicFormHtml(
+      "https://forms.example.test/f/versioned-cache-slug?v=2026-07-14T12%3A01%3A00.000Z",
+    );
+    expect(refreshed.html).toContain("<title>After version bump</title>");
+    expect(refreshed.html).toContain(
+      'var FORM_VERSION = "2026-07-14T12:01:00.000Z";',
+    );
   });
 });

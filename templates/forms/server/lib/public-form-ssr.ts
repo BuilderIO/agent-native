@@ -31,8 +31,14 @@ export function invalidatePublicFormCache(
   ...forms: Array<PublicFormCacheKeys | null | undefined>
 ) {
   for (const form of forms) {
-    if (form?.id) cache.delete(form.id);
-    if (form?.slug) cache.delete(form.slug);
+    for (const key of [form?.id, form?.slug]) {
+      if (!key) continue;
+      cache.delete(key);
+      const versionPrefix = `${key}?v=`;
+      for (const cachedKey of cache.keys()) {
+        if (cachedKey.startsWith(versionPrefix)) cache.delete(cachedKey);
+      }
+    }
   }
 }
 
@@ -42,8 +48,12 @@ function getCached(key: string) {
   return null;
 }
 
-export async function getPublicFormBySlugOrId(slugOrId: string) {
-  const cached = getCached(slugOrId);
+export async function getPublicFormBySlugOrId(
+  slugOrId: string,
+  version?: string,
+) {
+  const cacheKey = version ? `${slugOrId}?v=${version}` : slugOrId;
+  const cached = getCached(cacheKey);
   if (cached) return cached;
 
   const db = getDb();
@@ -80,7 +90,7 @@ export async function getPublicFormBySlugOrId(slugOrId: string) {
     settings: toPublicFormSettings(settings),
   };
 
-  cache.set(slugOrId, { data: result, ts: Date.now() });
+  cache.set(cacheKey, { data: result, ts: Date.now() });
   return result;
 }
 
@@ -117,6 +127,7 @@ const FALLBACK_PUBLIC_FORM_ORIGIN = "http://agent-native.local";
 function parsePublicFormUrl(url: string): {
   pathname: string;
   origin?: string;
+  version?: string;
 } {
   try {
     const parsed = new URL(url, FALLBACK_PUBLIC_FORM_ORIGIN);
@@ -124,6 +135,7 @@ function parsePublicFormUrl(url: string): {
     return {
       pathname: parsed.pathname,
       origin: isAbsolute ? parsed.origin : undefined,
+      version: parsed.searchParams.get("v") || undefined,
     };
   } catch {
     return { pathname: url.split("?")[0] || "/" };
@@ -275,7 +287,9 @@ export async function renderPublicFormHtml(
       ? pathname.slice(basePath.length)
       : pathname;
   const slugOrId = decodeURIComponent(pathWithoutBase.replace(/^\/f\//, ""));
-  const form = slugOrId ? await getPublicFormBySlugOrId(slugOrId) : null;
+  const form = slugOrId
+    ? await getPublicFormBySlugOrId(slugOrId, parsedUrl.version)
+    : null;
 
   if (!form) {
     return { html: notFoundPage(parsedUrl.origin), status: 404 };
@@ -416,9 +430,24 @@ function renderFormPage(
 <script>
 (function(){
   var FORM_ID = ${JSON.stringify(form.id)};
+  var FORM_VERSION = ${JSON.stringify(form.updatedAt || "")};
+  var PUBLIC_FORM_API = ${JSON.stringify(`${appBasePath}/api/forms/public/${encodeURIComponent(form.slug || form.id)}`)};
   var REDIRECT = ${JSON.stringify(safeRedirectUrl(settings.redirectUrl))};
   var TURNSTILE_KEY = ${JSON.stringify(turnstileSiteKey)};
   var FIELDS = ${JSON.stringify(fields.map((f) => ({ id: f.id, type: f.type, required: f.required, validation: f.validation, label: f.label, conditional: f.conditional })))};
+
+  function revalidateFormVersion() {
+    fetch(PUBLIC_FORM_API, { cache: "no-store" })
+      .then(function(response) { return response.ok ? response.json() : null; })
+      .then(function(latest) {
+        if (!latest || typeof latest.updatedAt !== "string" || !latest.updatedAt || latest.updatedAt === FORM_VERSION) return;
+        var currentUrl = new URL(window.location.href);
+        currentUrl.searchParams.set("v", latest.updatedAt);
+        window.location.replace(currentUrl.toString());
+      })
+      .catch(function() {});
+  }
+  revalidateFormVersion();
 
   // Theme toggle
   var html = document.documentElement;
