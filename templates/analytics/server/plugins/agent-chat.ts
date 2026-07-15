@@ -17,6 +17,7 @@ import {
   draftClaimsAnalyticsMetrics,
   failedDataQueryAttemptMessage,
   hasDashboardConstructionAttempt,
+  hasDashboardMutationAttempt,
   hasExplicitPartialDisclosure,
   hasFailedCorpusWorkflowEvidence,
   hasDataQueryAttempt,
@@ -524,6 +525,20 @@ export function realDataFinalGuard(
       fallbackMessage:
         "I can't make a confident exhaustive analytics claim yet because part of the source evidence was aborted, truncated, or still paginated. I need to recover the missing coverage or state the answer as partial with the inspected sample size.",
     };
+  }
+  // Dashboard EDIT turns: the user asked to change an existing dashboard and
+  // the agent actually saved a mutation (mutate-dashboard/update-dashboard/
+  // etc.). This is a legitimate non-query completion regardless of how the
+  // request was phrased ("update the panels" does not match the construction
+  // intent regex), so it must not be steered into a data-source query. Anchor
+  // on tool evidence, not user wording, and still block any draft that states
+  // invented numbers via draftClaimsAnalyticsMetrics. A saved SQL panel the
+  // user runs themselves is not a fabricated metric.
+  if (
+    hasDashboardMutationAttempt(context.toolResults) &&
+    !draftClaimsAnalyticsMetrics(context.text)
+  ) {
+    return null;
   }
   // Dashboard construction/template-clone turns may inspect and clone an
   // existing dashboard/extension without running a metric query, as long as
