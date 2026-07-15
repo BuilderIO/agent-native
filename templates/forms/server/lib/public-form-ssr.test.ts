@@ -15,7 +15,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("drizzle-orm", () => ({
-  eq: vi.fn(),
+  eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
 vi.mock("../db/index.js", () => ({
@@ -38,7 +38,16 @@ function createDbWithRows(rows: unknown[]) {
   return {
     select: vi.fn(() => ({
       from: vi.fn(() => ({
-        where: vi.fn(() => Promise.resolve(rows)),
+        where: vi.fn((condition: { column: unknown; value: unknown }) => {
+          const key = condition.column === "forms.id" ? "id" : "slug";
+          return Promise.resolve(
+            rows.filter(
+              (row) =>
+                (row as { id?: unknown; slug?: unknown })[key] ===
+                condition.value,
+            ),
+          );
+        }),
       })),
     })),
   };
@@ -129,11 +138,18 @@ describe("public form SSR", () => {
       { id: "form-cache-123", slug: "new-cache-slug" },
     );
 
+    await expect(getPublicFormBySlugOrId("old-cache-slug")).resolves.toBeNull();
     await expect(
-      getPublicFormBySlugOrId("old-cache-slug"),
+      getPublicFormBySlugOrId("new-cache-slug"),
     ).resolves.toMatchObject({ title: "After update", slug: "new-cache-slug" });
     await expect(
       getPublicFormBySlugOrId("form-cache-123"),
     ).resolves.toMatchObject({ title: "After update", slug: "new-cache-slug" });
+
+    rows[0] = { ...rows[0], title: "After second update" };
+    invalidatePublicFormCache({ id: "form-cache-123", slug: "new-cache-slug" });
+    await expect(
+      getPublicFormBySlugOrId("new-cache-slug"),
+    ).resolves.toMatchObject({ title: "After second update" });
   });
 });
