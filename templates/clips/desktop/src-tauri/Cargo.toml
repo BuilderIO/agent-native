@@ -34,6 +34,11 @@ tauri = { version = "2", features = [
 tauri-plugin-shell = "2"
 tauri-plugin-global-shortcut = "2"
 tauri-plugin-single-instance = "2"
+# Registers the `clips://` custom URL scheme so a web "Open desktop app"
+# click can launch/focus the running tray app. macOS registration is baked
+# into Info.plist at build time from `plugins.deep-link` in tauri.conf.json;
+# Windows/Linux register at runtime via `register_all()`.
+tauri-plugin-deep-link = "2"
 tauri-plugin-updater = "2"
 tauri-plugin-process = "2"
 tauri-plugin-autostart = "2.5.1"
