@@ -110,6 +110,7 @@ export function assembleA2AFinalResponse(
   const finalText = appendA2AArtifactLinks(responseText, [...toolResults], {
     baseUrl: options.baseUrl ?? resolveArtifactBaseUrl(options.event),
     includeReferencedArtifacts: true,
+    includePersistedArtifactMarker: true,
   });
   if (terminalError && !finalText.trim()) {
     throw new Error(formatA2ATerminalError(terminalError));

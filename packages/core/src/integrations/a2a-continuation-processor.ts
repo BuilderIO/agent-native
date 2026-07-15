@@ -1,4 +1,8 @@
-import { appendA2AArtifactLinks } from "../a2a/artifact-response.js";
+import {
+  appendA2AArtifactLinks,
+  extractA2AArtifactIdentities,
+  stripA2APersistedArtifactMarkers,
+} from "../a2a/artifact-response.js";
 import { A2AClient, signA2AToken } from "../a2a/client.js";
 import type { Task } from "../a2a/types.js";
 import {
@@ -6,6 +10,8 @@ import {
   isLlmCredentialError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
 } from "../agent/engine/credential-errors.js";
+import { extractThreadMeta } from "../agent/thread-data-builder.js";
+import { getThread, updateThreadData } from "../chat-threads/store.js";
 import { withConfiguredAppBasePath } from "../server/app-base-path.js";
 import { FRAMEWORK_ROUTE_PREFIX } from "../server/core-routes-plugin.js";
 import {
@@ -19,9 +25,11 @@ import {
   type A2AContinuation,
 } from "./a2a-continuations-store.js";
 import { signInternalToken } from "./internal-token.js";
+import { getThreadMapping } from "./thread-mapping-store.js";
 import type {
   OutgoingMessage,
   PlatformAdapter,
+  PlatformDeliveryReceipt,
   PlatformRunProgress,
 } from "./types.js";
 
@@ -359,8 +367,10 @@ async function deliverAndCompleteA2AContinuation(
   if (!deliveryContinuation) return;
 
   try {
-    const outgoing = adapter.formatAgentResponse(text);
-    await withTimeout(
+    const outgoing = adapter.formatAgentResponse(
+      stripA2APersistedArtifactMarkers(text),
+    );
+    const deliveryReceipt = await withTimeout(
       deliverA2AContinuationResponse(
         adapter,
         deliveryContinuation,
@@ -371,6 +381,27 @@ async function deliverAndCompleteA2AContinuation(
       PLATFORM_SEND_TIMEOUT_MS,
       `${deliveryContinuation.platform} response delivery timed out`,
     );
+    let persistenceError: unknown;
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        await persistA2AContinuationDelivery(
+          deliveryContinuation,
+          outgoing,
+          deliveryReceipt,
+          text,
+        );
+        persistenceError = undefined;
+        break;
+      } catch (err) {
+        persistenceError = err;
+      }
+    }
+    if (persistenceError) {
+      console.error(
+        `[integrations] Delivered A2A continuation ${deliveryContinuation.id} but could not persist its thread history:`,
+        persistenceError,
+      );
+    }
   } catch (err) {
     if (deliveryContinuation.attempts >= MAX_ATTEMPTS) {
       await failA2AContinuation(
@@ -392,7 +423,7 @@ async function deliverA2AContinuationResponse(
   message: OutgoingMessage,
   progress: PlatformRunProgress | null,
   status: "done" | "error",
-): Promise<void> {
+): Promise<PlatformDeliveryReceipt> {
   if (progress) {
     try {
       await progress.onEvent({
@@ -400,8 +431,9 @@ async function deliverA2AContinuationResponse(
         agent: continuation.agentName,
         status,
       });
-      await progress.complete(message);
-      return;
+      const receipt = await progress.complete(message);
+      if (receipt?.status === "delivered") return receipt;
+      throw new Error("Continuation progress completed without delivery proof");
     } catch {
       // A resumed Slack stream can no longer be finalized (for example when
       // chat.stopStream rejects). Preserve the final answer with the same
@@ -417,9 +449,69 @@ async function deliverA2AContinuationResponse(
       }
     }
   }
-  await adapter.sendResponse(message, continuation.incoming, {
+  const receipt = await adapter.sendResponse(message, continuation.incoming, {
     placeholderRef: continuation.placeholderRef ?? undefined,
   });
+  if (receipt?.status !== "delivered") {
+    throw new Error("Continuation response completed without delivery proof");
+  }
+  return receipt;
+}
+
+async function persistA2AContinuationDelivery(
+  continuation: A2AContinuation,
+  outgoing: OutgoingMessage,
+  receipt: PlatformDeliveryReceipt,
+  artifactText: string,
+): Promise<void> {
+  const mapping = await getThreadMapping(
+    continuation.platform,
+    continuation.externalThreadId,
+  );
+  if (!mapping) return;
+  const thread = await getThread(mapping.internalThreadId);
+  if (!thread) return;
+
+  let repo: any;
+  try {
+    repo = JSON.parse(thread.threadData || "{}");
+  } catch {
+    repo = {};
+  }
+  if (!Array.isArray(repo.messages)) repo.messages = [];
+
+  const artifacts = extractA2AArtifactIdentities([
+    { tool: "call-agent", result: artifactText },
+  ]);
+  const metadata: Record<string, unknown> = {
+    integrationDeliveryAttempted: true,
+    integrationDelivery: {
+      platform: continuation.platform,
+      status: "delivered",
+      text: outgoing.text,
+      deliveredAt: new Date().toISOString(),
+      ...(receipt.messageRefs?.length
+        ? { messageRefs: receipt.messageRefs }
+        : {}),
+    },
+  };
+  if (artifacts.length > 0) metadata.integrationArtifacts = artifacts;
+
+  repo.messages.push({
+    id: `msg-${Date.now()}-assistant-continuation`,
+    role: "assistant",
+    content: [{ type: "text", text: outgoing.text }],
+    createdAt: new Date().toISOString(),
+    metadata,
+  });
+  const meta = extractThreadMeta(repo);
+  await updateThreadData(
+    mapping.internalThreadId,
+    JSON.stringify(repo),
+    meta.title || thread.title || "Integration Chat",
+    meta.preview || thread.preview || "",
+    repo.messages.length,
+  );
 }
 
 async function rescheduleAndRedispatchA2AContinuation(
