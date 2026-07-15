@@ -36,3 +36,10 @@ export function getOutOfOfficeSegment(
     endsOnDay: eventEnd > dayStart && eventEnd <= dayEnd,
   };
 }
+
+export function getFirstVisibleOutOfOfficeDayIndex(
+  event: Pick<CalendarEvent, "start" | "end">,
+  days: Date[],
+): number {
+  return days.findIndex((day) => getOutOfOfficeSegment(event, day) !== null);
+}

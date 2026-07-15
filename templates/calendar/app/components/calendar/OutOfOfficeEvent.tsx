@@ -13,6 +13,16 @@ interface OutOfOfficeEventProps {
   label: string;
   markerIndex?: number;
   compactMarker?: boolean;
+  canDrag?: boolean;
+  isBeingDragged?: boolean;
+  isDragging?: boolean;
+  isDragTargetDay?: boolean;
+  overrideTop?: number | null;
+  overrideHeight?: number | null;
+  onMovePointerDown?: (event: React.PointerEvent, startsOnDay: boolean) => void;
+  onResizeTopPointerDown?: (event: React.PointerEvent) => void;
+  onResizeBottomPointerDown?: (event: React.PointerEvent) => void;
+  shouldSuppressClick?: () => boolean;
   onDelete: (eventId: string) => void;
   isDraft: boolean;
   defaultOpen: boolean;
@@ -46,6 +56,16 @@ export function OutOfOfficeEvent({
   label,
   markerIndex = 0,
   compactMarker = false,
+  canDrag = false,
+  isBeingDragged = false,
+  isDragging = false,
+  isDragTargetDay = false,
+  overrideTop = null,
+  overrideHeight = null,
+  onMovePointerDown,
+  onResizeTopPointerDown,
+  onResizeBottomPointerDown,
+  shouldSuppressClick,
   onDelete,
   isDraft,
   defaultOpen,
@@ -57,11 +77,24 @@ export function OutOfOfficeEvent({
   onOpenChange,
 }: OutOfOfficeEventProps) {
   const segment = getOutOfOfficeSegment(event, day);
-  if (!segment) return null;
+  const hasDragOverride =
+    isBeingDragged &&
+    isDragTargetDay &&
+    overrideTop !== null &&
+    overrideHeight !== null;
+  if (isBeingDragged && !isDragTargetDay) return null;
+  if (!segment && !hasDragOverride) return null;
 
-  const top = (segment.topMinutes / 60) * hourHeight;
-  const height = (segment.durationMinutes / 60) * hourHeight;
+  const top = hasDragOverride
+    ? overrideTop
+    : ((segment?.topMinutes ?? 0) / 60) * hourHeight;
+  const height = hasDragOverride
+    ? overrideHeight
+    : ((segment?.durationMinutes ?? 1) / 60) * hourHeight;
   const title = event.title || label;
+  const startsOnDay = hasDragOverride || segment?.startsOnDay === true;
+  const endsOnDay = hasDragOverride || segment?.endsOnDay === true;
+  const canManipulate = canDrag && startsOnDay;
 
   return (
     <>
@@ -81,7 +114,9 @@ export function OutOfOfficeEvent({
       </div>
       <div
         data-out-of-office-trigger={event.id}
-        className="pointer-events-auto absolute z-40"
+        className={`pointer-events-auto absolute ${
+          isBeingDragged && isDragging ? "z-[100]" : "z-40"
+        }`}
         style={{
           top: `${top + 4}px`,
           right: `${4 + (compactMarker ? markerIndex * 24 : 0)}px`,
@@ -101,10 +136,21 @@ export function OutOfOfficeEvent({
           onOpenChange={onOpenChange}
         >
           <button
+            onPointerDown={(pointerEvent) =>
+              onMovePointerDown?.(pointerEvent, startsOnDay)
+            }
+            onClick={(clickEvent) => {
+              if (shouldSuppressClick?.()) {
+                clickEvent.preventDefault();
+                clickEvent.stopPropagation();
+              }
+            }}
             className={`flex h-5 max-w-full items-center truncate rounded-sm text-[10px] font-medium text-foreground outline-none transition-[filter,box-shadow] hover:brightness-110 focus-visible:ring-1 focus-visible:ring-ring focus-visible:ring-offset-1 ${
               compactMarker
                 ? "w-5 justify-center px-0"
                 : "gap-1 px-1.5 text-left"
+            } ${canManipulate ? "cursor-grab" : ""} ${
+              isBeingDragged && isDragging ? "cursor-grabbing shadow-lg" : ""
             }`}
             aria-label={`${label}: ${title}`}
             style={{
@@ -121,6 +167,30 @@ export function OutOfOfficeEvent({
           </button>
         </EventDetailPopover>
       </div>
+      {canManipulate && endsOnDay && (
+        <>
+          <div
+            data-resize-handle="true"
+            data-out-of-office-resize="top"
+            onPointerDown={(pointerEvent) => {
+              pointerEvent.stopPropagation();
+              onResizeTopPointerDown?.(pointerEvent);
+            }}
+            className="pointer-events-auto absolute right-1 z-40 h-1.5 w-5 cursor-n-resize"
+            style={{ top: `${top}px`, touchAction: "none" }}
+          />
+          <div
+            data-resize-handle="true"
+            data-out-of-office-resize="bottom"
+            onPointerDown={(pointerEvent) => {
+              pointerEvent.stopPropagation();
+              onResizeBottomPointerDown?.(pointerEvent);
+            }}
+            className="pointer-events-auto absolute right-1 z-40 h-1.5 w-5 cursor-s-resize"
+            style={{ top: `${top + height - 6}px`, touchAction: "none" }}
+          />
+        </>
+      )}
     </>
   );
 }

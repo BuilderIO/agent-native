@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vitest";
 
-import { getOutOfOfficeSegment, isOutOfOfficeEvent } from "./out-of-office";
+import {
+  getFirstVisibleOutOfOfficeDayIndex,
+  getOutOfOfficeSegment,
+  isOutOfOfficeEvent,
+} from "./out-of-office";
 
 function localIso(day: number, hour: number): string {
   return new Date(2026, 6, day, hour).toISOString();
@@ -56,5 +60,15 @@ describe("out-of-office display", () => {
         new Date(2026, 6, 23, 12),
       ),
     ).toBeNull();
+  });
+
+  it("selects one canonical visible segment for multi-day details", () => {
+    const event = {
+      start: localIso(21, 12),
+      end: localIso(24, 12),
+    };
+    const days = [22, 23, 24].map((day) => new Date(2026, 6, day, 12));
+
+    expect(getFirstVisibleOutOfOfficeDayIndex(event, days)).toBe(0);
   });
 });

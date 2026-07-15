@@ -43,7 +43,10 @@ import {
   partitionAllDayEvents,
 } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
-import { isOutOfOfficeEvent } from "@/lib/out-of-office";
+import {
+  getFirstVisibleOutOfOfficeDayIndex,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
 import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
@@ -1372,32 +1375,70 @@ export const WeekView = memo(function WeekView({
 
                 {/* Native Google out-of-office context sits behind meetings. */}
                 {!isLoading &&
-                  outOfOfficeEvents.map((event, markerIndex) => (
-                    <OutOfOfficeEvent
-                      key={`${event._tempId ?? event.id}:${day.toISOString()}`}
-                      event={event}
-                      day={day}
-                      hourHeight={HOUR_HEIGHT}
-                      color={
-                        getEventDisplayColor(event, prefs) ??
-                        "hsl(var(--primary))"
-                      }
-                      label={t("eventForm.outOfOffice")}
-                      markerIndex={markerIndex}
-                      compactMarker
-                      onDelete={onDeleteEvent}
-                      isDraft={draftEventIds.includes(event.id)}
-                      defaultOpen={quickEditEventId === event.id}
-                      onTitleSave={onQuickEditSave}
-                      onDismissNew={onQuickEditCancel}
-                      onDraftUpdate={onDraftUpdate}
-                      onDraftCreate={onDraftCreate}
-                      onDraftDiscard={onDraftDiscard}
-                      onOpenChange={(open) =>
-                        handleEventPopoverOpenChange(event, open)
-                      }
-                    />
-                  ))}
+                  outOfOfficeEvents.map((event, markerIndex) => {
+                    const isBeingDragged = dragEventId === event.id;
+                    const overrides = getDragOverrides(event.id);
+                    const canonicalDayIndex =
+                      getFirstVisibleOutOfOfficeDayIndex(event, days);
+                    return (
+                      <OutOfOfficeEvent
+                        key={`${event._tempId ?? event.id}:${day.toISOString()}`}
+                        event={event}
+                        day={day}
+                        hourHeight={HOUR_HEIGHT}
+                        color={
+                          getEventDisplayColor(event, prefs) ??
+                          "hsl(var(--primary))"
+                        }
+                        label={t("eventForm.outOfOffice")}
+                        markerIndex={markerIndex}
+                        compactMarker
+                        canDrag={canDrag}
+                        isBeingDragged={isBeingDragged}
+                        isDragging={isDragging}
+                        isDragTargetDay={overrides?.dayIndex === dayIndex}
+                        overrideTop={overrides?.top ?? null}
+                        overrideHeight={overrides?.height ?? null}
+                        onMovePointerDown={(pointerEvent, startsOnDay) =>
+                          handleEventPointerDown(
+                            pointerEvent,
+                            event,
+                            startsOnDay,
+                            dayIndex,
+                          )
+                        }
+                        onResizeTopPointerDown={(pointerEvent) =>
+                          handleResizeTopPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        onResizeBottomPointerDown={(pointerEvent) =>
+                          handleResizeBottomPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        shouldSuppressClick={shouldSuppressClick}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={
+                          quickEditEventId === event.id &&
+                          dayIndex === canonicalDayIndex
+                        }
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                        onOpenChange={(open) =>
+                          handleEventPopoverOpenChange(event, open)
+                        }
+                      />
+                    );
+                  })}
 
                 {/* Skeleton events when loading */}
                 {isLoading &&

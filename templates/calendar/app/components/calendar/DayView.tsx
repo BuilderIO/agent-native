@@ -1032,30 +1032,50 @@ export const DayView = memo(function DayView({
 
           {/* Native Google out-of-office context sits behind meetings. */}
           {!isLoading &&
-            outOfOfficeEvents.map((event, markerIndex) => (
-              <OutOfOfficeEvent
-                key={event._tempId ?? event.id}
-                event={event}
-                day={date}
-                hourHeight={HOUR_HEIGHT}
-                color={
-                  getEventDisplayColor(event, prefs) ?? "hsl(var(--primary))"
-                }
-                label={t("eventForm.outOfOffice")}
-                markerIndex={markerIndex}
-                onDelete={onDeleteEvent}
-                isDraft={draftEventIds.includes(event.id)}
-                defaultOpen={quickEditEventId === event.id}
-                onTitleSave={onQuickEditSave}
-                onDismissNew={onQuickEditCancel}
-                onDraftUpdate={onDraftUpdate}
-                onDraftCreate={onDraftCreate}
-                onDraftDiscard={onDraftDiscard}
-                onOpenChange={(open) =>
-                  handleEventPopoverOpenChange(event, open)
-                }
-              />
-            ))}
+            outOfOfficeEvents.map((event, markerIndex) => {
+              const isBeingDragged = dragEventId === event.id;
+              const overrides = getDragOverrides(event.id);
+              return (
+                <OutOfOfficeEvent
+                  key={event._tempId ?? event.id}
+                  event={event}
+                  day={date}
+                  hourHeight={HOUR_HEIGHT}
+                  color={
+                    getEventDisplayColor(event, prefs) ?? "hsl(var(--primary))"
+                  }
+                  label={t("eventForm.outOfOffice")}
+                  markerIndex={markerIndex}
+                  canDrag={canDrag}
+                  isBeingDragged={isBeingDragged}
+                  isDragging={isDragging}
+                  isDragTargetDay={isBeingDragged}
+                  overrideTop={overrides?.top ?? null}
+                  overrideHeight={overrides?.height ?? null}
+                  onMovePointerDown={(pointerEvent, startsOnDay) =>
+                    handleEventPointerDown(pointerEvent, event, startsOnDay)
+                  }
+                  onResizeTopPointerDown={(pointerEvent) =>
+                    handleResizeTopPointerDown(pointerEvent, event.id)
+                  }
+                  onResizeBottomPointerDown={(pointerEvent) =>
+                    handleResizeBottomPointerDown(pointerEvent, event.id)
+                  }
+                  shouldSuppressClick={shouldSuppressClick}
+                  onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
+                  defaultOpen={quickEditEventId === event.id}
+                  onTitleSave={onQuickEditSave}
+                  onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
+                  onOpenChange={(open) =>
+                    handleEventPopoverOpenChange(event, open)
+                  }
+                />
+              );
+            })}
 
           {/* Skeleton events when loading */}
           {isLoading &&
