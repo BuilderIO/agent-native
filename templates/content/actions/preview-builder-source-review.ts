@@ -40,18 +40,20 @@ export default defineAction({
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
 
+    const selectedDocumentIds = new Set(args.documentIds ?? []);
+    if (args.scope === "selected" && selectedDocumentIds.size === 0) {
+      throw new Error("Select at least one Builder row before reviewing it.");
+    }
+
     const source = await getContentDatabaseSourceSnapshotForWrite(
       database,
       args.sourceId,
+      args.scope === "selected" ? args.documentIds : undefined,
     );
     if (!source || source.sourceType !== "builder-cms") {
       throw new Error("Attach a Builder CMS source before reviewing updates.");
     }
 
-    const selectedDocumentIds = new Set(args.documentIds ?? []);
-    if (args.scope === "selected" && selectedDocumentIds.size === 0) {
-      throw new Error("Select at least one Builder row before reviewing it.");
-    }
     const allReviewableChanges = source.changeSets.filter((changeSet) => {
       if (
         changeSet.direction !== "outbound" ||

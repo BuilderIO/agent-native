@@ -3017,6 +3017,7 @@ export async function getContentDatabaseSourceSnapshotById(
 export async function getContentDatabaseSourceSnapshotForWrite(
   database: ContentDatabaseRow | ContentDatabase,
   sourceId?: string | null,
+  documentIds?: string[],
 ): Promise<ContentDatabaseSource | null> {
   const db = getDb();
   if (sourceId) {
@@ -3032,6 +3033,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
     return source
       ? loadSourceSnapshot(source, database, {
           includeHeavyBuilderBodyValues: true,
+          documentIds,
         })
       : null;
   }
@@ -3046,6 +3048,7 @@ export async function getContentDatabaseSourceSnapshotForWrite(
   return source
     ? loadSourceSnapshot(source, database, {
         includeHeavyBuilderBodyValues: true,
+        documentIds,
       })
     : null;
 }
@@ -3086,8 +3089,12 @@ async function readSourceSnapshotRowsOnce(args: {
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
   includeHeavyBuilderBodyValues: boolean;
+  documentIds?: string[];
 }) {
   const db = getDb();
+  const documentScope = args.documentIds?.length
+    ? new Set(args.documentIds)
+    : null;
   const rowRows = await db
     .select(
       sourceSnapshotRowSelection({
@@ -3096,7 +3103,16 @@ async function readSourceSnapshotRowsOnce(args: {
       }),
     )
     .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id))
+    .where(
+      documentScope
+        ? and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            inArray(schema.contentDatabaseSourceRows.documentId, [
+              ...documentScope,
+            ]),
+          )
+        : eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+    )
     .orderBy(asc(schema.contentDatabaseSourceRows.createdAt));
   // For Builder sources, load ALL database items (not just synced source rows)
   // so brand-new local rows (no source link) can become create_draft change-sets.
@@ -3112,6 +3128,13 @@ async function readSourceSnapshotRowsOnce(args: {
           and(
             eq(schema.contentDatabaseItems.databaseId, args.database.id),
             eq(schema.contentDatabaseItems.ownerEmail, args.source.ownerEmail),
+            ...(documentScope
+              ? [
+                  inArray(schema.contentDatabaseItems.documentId, [
+                    ...documentScope,
+                  ]),
+                ]
+              : []),
           ),
         )
     : [];
@@ -3180,8 +3203,12 @@ async function sourceSnapshotConsistencyMarker(args: {
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
   includeHeavyBuilderBodyValues: boolean;
+  documentIds?: string[];
 }) {
   const db = getDb();
+  const documentScope = args.documentIds?.length
+    ? new Set(args.documentIds)
+    : null;
   const [rows] = await db
     .select({
       count: sql<number>`COUNT(*)`,
@@ -3190,7 +3217,16 @@ async function sourceSnapshotConsistencyMarker(args: {
       >`MAX(${schema.contentDatabaseSourceRows.updatedAt})`,
     })
     .from(schema.contentDatabaseSourceRows)
-    .where(eq(schema.contentDatabaseSourceRows.sourceId, args.source.id));
+    .where(
+      documentScope
+        ? and(
+            eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+            inArray(schema.contentDatabaseSourceRows.documentId, [
+              ...documentScope,
+            ]),
+          )
+        : eq(schema.contentDatabaseSourceRows.sourceId, args.source.id),
+    );
   const [items] = args.isBuilderSource
     ? await db
         .select({
@@ -3204,6 +3240,13 @@ async function sourceSnapshotConsistencyMarker(args: {
           and(
             eq(schema.contentDatabaseItems.databaseId, args.database.id),
             eq(schema.contentDatabaseItems.ownerEmail, args.source.ownerEmail),
+            ...(documentScope
+              ? [
+                  inArray(schema.contentDatabaseItems.documentId, [
+                    ...documentScope,
+                  ]),
+                ]
+              : []),
           ),
         )
     : [{ count: 0, maxUpdatedAt: null }];
@@ -3232,6 +3275,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
   database: ContentDatabaseRow | ContentDatabase;
   isBuilderSource: boolean;
   includeHeavyBuilderBodyValues: boolean;
+  documentIds?: string[];
 }) {
   let latest: Awaited<ReturnType<typeof readSourceSnapshotRowsOnce>> | null =
     null;
@@ -3247,7 +3291,7 @@ async function loadSourceSnapshotRowsOptimistically(args: {
 async function loadSourceSnapshot(
   source: ContentDatabaseSourceRowDb,
   database: ContentDatabaseRow | ContentDatabase,
-  options: { includeHeavyBuilderBodyValues: boolean },
+  options: { includeHeavyBuilderBodyValues: boolean; documentIds?: string[] },
 ): Promise<ContentDatabaseSource> {
   const db = getDb();
   const [fieldRows, changeRows, reviewRows, executionRows, propertyDefs] =
@@ -3260,7 +3304,17 @@ async function loadSourceSnapshot(
       db
         .select()
         .from(schema.contentDatabaseSourceChangeSets)
-        .where(eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id))
+        .where(
+          options.documentIds?.length
+            ? and(
+                eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
+                inArray(
+                  schema.contentDatabaseSourceChangeSets.documentId,
+                  options.documentIds,
+                ),
+              )
+            : eq(schema.contentDatabaseSourceChangeSets.sourceId, source.id),
+        )
         .orderBy(asc(schema.contentDatabaseSourceChangeSets.createdAt)),
       db
         .select()
@@ -3341,6 +3395,7 @@ async function loadSourceSnapshot(
     database,
     isBuilderSource,
     includeHeavyBuilderBodyValues: options.includeHeavyBuilderBodyValues,
+    documentIds: options.documentIds,
   });
   const rows = rowRows.map((row) =>
     serializeSourceRowRecord(row, {
