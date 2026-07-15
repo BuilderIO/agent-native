@@ -4,14 +4,28 @@ import {
   useActionQuery,
   useT,
 } from "@agent-native/core/client";
-import { IconArrowLeft } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
-import { Link, useParams } from "react-router";
+import {
+  IconArrowLeft,
+  IconBulb,
+  IconListCheck,
+  IconPhoto,
+  IconTextCaption,
+} from "@tabler/icons-react";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router";
 import { toast } from "sonner";
 
 import { GenerationPresetsPanel } from "@/components/library/GenerationPresetsPanel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Separator } from "@/components/ui/separator";
@@ -41,6 +55,7 @@ function parsePaletteDraft(value: string): string[] {
 
 export default function BrandKitSettingsRoute() {
   const t = useT();
+  const navigate = useNavigate();
   const { id } = useParams();
   const libraryId = id ?? "";
   const { data } = useActionQuery("get-library", { id: libraryId }) as any;
@@ -58,6 +73,7 @@ export default function BrandKitSettingsRoute() {
   const [styleDescriptionDraft, setStyleDescriptionDraft] = useState("");
   const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
   const [paletteDraft, setPaletteDraft] = useState("");
+  const [confirmExitOpen, setConfirmExitOpen] = useState(false);
 
   useEffect(() => {
     if (!library) return;
@@ -68,11 +84,46 @@ export default function BrandKitSettingsRoute() {
     setPaletteDraft(paletteDraftFromColors(library.styleBrief?.palette));
   }, [library]);
 
-  function saveTitle() {
-    const trimmed = titleDraft.trim();
-    if (!library || !trimmed || trimmed === library.title) return;
+  const isDirty = useMemo(() => {
+    if (!library) return false;
+    if (titleDraft.trim() !== (library.title ?? "")) return true;
+    if (descriptionDraft.trim() !== (library.description ?? "")) return true;
+    if (styleDescriptionDraft !== (library.styleBrief?.description ?? ""))
+      return true;
+    if (customInstructionsDraft !== (library.customInstructions ?? ""))
+      return true;
+    if (
+      parsePaletteDraft(paletteDraft).join(", ") !==
+      paletteDraftFromColors(library.styleBrief?.palette)
+    )
+      return true;
+    return false;
+  }, [
+    library,
+    titleDraft,
+    descriptionDraft,
+    styleDescriptionDraft,
+    customInstructionsDraft,
+    paletteDraft,
+  ]);
+
+  function saveAll() {
+    if (!library || !isDirty) return;
+    const trimmedTitle = titleDraft.trim();
+    const palette = parsePaletteDraft(paletteDraft);
+    setPaletteDraft(palette.join(", "));
     updateLibrary.mutate(
-      { id: library.id, title: trimmed },
+      {
+        id: library.id,
+        title: trimmedTitle || library.title,
+        description: descriptionDraft.trim() || null,
+        customInstructions: customInstructionsDraft,
+        styleBrief: {
+          ...library.styleBrief,
+          description: styleDescriptionDraft,
+          palette,
+        },
+      },
       {
         onSuccess: () => toast.success(t("brandKits.updated")),
         onError: (error: Error) =>
@@ -81,17 +132,12 @@ export default function BrandKitSettingsRoute() {
     );
   }
 
-  function saveDescription() {
-    if (!library || descriptionDraft.trim() === (library.description ?? ""))
+  function handleBack() {
+    if (isDirty) {
+      setConfirmExitOpen(true);
       return;
-    updateLibrary.mutate(
-      { id: library.id, description: descriptionDraft.trim() || null },
-      {
-        onSuccess: () => toast.success(t("brandKits.updated")),
-        onError: (error: Error) =>
-          toast.error(error.message || t("brandKits.updateFailed")),
-      },
-    );
+    }
+    navigate(`/library/${libraryId}`);
   }
 
   function analyzeBrand() {
@@ -131,12 +177,20 @@ export default function BrandKitSettingsRoute() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-6 py-6">
       <div className="border-b border-border pb-5">
-        <Button variant="ghost" className="-ms-3 mb-3 gap-2" asChild>
-          <Link to={`/library/${libraryId}`}>
+        <div className="flex items-start justify-between gap-3">
+          <Button variant="ghost" className="-ms-3 mb-3 gap-2" onClick={handleBack}>
             <IconArrowLeft className="h-4 w-4" />
             {t("brandKitDetail.backToLibrary")}
-          </Link>
-        </Button>
+          </Button>
+          <Button
+            onClick={saveAll}
+            disabled={!isDirty || updateLibrary.isPending}
+          >
+            {updateLibrary.isPending
+              ? t("brandKitDetail.saving")
+              : t("brandKitDetail.save")}
+          </Button>
+        </div>
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="truncate text-2xl font-semibold tracking-tight">
             {t("library.settings")}
@@ -145,30 +199,26 @@ export default function BrandKitSettingsRoute() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <div className="space-y-4 rounded-lg border border-border p-4">
-          <Label htmlFor="brand-kit-title">{t("brandKitDetail.name")}</Label>
-          <Input
-            id="brand-kit-title"
-            value={titleDraft}
-            onChange={(event) => setTitleDraft(event.target.value)}
-            onBlur={saveTitle}
-            placeholder={t("brandKits.namePlaceholder")}
-          />
-          <Separator />
-          <Label htmlFor="brand-kit-description">
-            {t("assetDetail.description")}
-          </Label>
-          <Textarea
-            id="brand-kit-description"
-            value={descriptionDraft}
-            onChange={(event) => setDescriptionDraft(event.target.value)}
-            onBlur={saveDescription}
-            placeholder={t("brandKits.editDescriptionPlaceholder")}
-          />
-        </div>
-
-        <div className="rounded-lg border border-border p-4">
+      <div className="space-y-4 rounded-lg border border-border p-4">
+        <Label htmlFor="brand-kit-title">{t("brandKitDetail.name")}</Label>
+        <Input
+          id="brand-kit-title"
+          value={titleDraft}
+          onChange={(event) => setTitleDraft(event.target.value)}
+          placeholder={t("brandKits.namePlaceholder")}
+        />
+        <Separator />
+        <Label htmlFor="brand-kit-description">
+          {t("assetDetail.description")}
+        </Label>
+        <Textarea
+          id="brand-kit-description"
+          value={descriptionDraft}
+          onChange={(event) => setDescriptionDraft(event.target.value)}
+          placeholder={t("brandKits.editDescriptionPlaceholder")}
+        />
+        <Separator />
+        <div>
           <h3 className="text-sm font-semibold">
             {t("brandKitDetail.agentUsage")}
           </h3>
@@ -179,86 +229,137 @@ export default function BrandKitSettingsRoute() {
             {library.id}
           </code>
         </div>
+      </div>
 
-        <div className="space-y-4 rounded-lg border border-border p-4">
-          <Label>{t("brandKitDetail.styleDescription")}</Label>
-          <Textarea
-            value={styleDescriptionDraft}
-            onChange={(event) => setStyleDescriptionDraft(event.target.value)}
-            onBlur={() =>
-              updateLibrary.mutate({
-                id: library.id,
-                styleBrief: {
-                  ...library.styleBrief,
-                  description: styleDescriptionDraft,
-                },
-              })
-            }
-            className="min-h-40"
-          />
-          <Separator />
-          <Label>{t("brandKitDetail.customInstructions")}</Label>
-          <Textarea
-            value={customInstructionsDraft}
-            onChange={(event) =>
-              setCustomInstructionsDraft(event.target.value)
-            }
-            onBlur={() =>
-              updateLibrary.mutate({
-                id: library.id,
-                customInstructions: customInstructionsDraft,
-              })
-            }
-            placeholder={t("brandKitDetail.customInstructionsPlaceholder")}
-            className="min-h-28"
-          />
-          <Separator />
-          <div className="flex items-center justify-between gap-3">
+      <div className="space-y-4 rounded-lg border border-border p-4">
+        <Label>{t("brandKitDetail.styleDescription")}</Label>
+        <Textarea
+          value={styleDescriptionDraft}
+          onChange={(event) => setStyleDescriptionDraft(event.target.value)}
+          className="min-h-40"
+        />
+        <Separator />
+        <Label>{t("brandKitDetail.customInstructions")}</Label>
+        <Textarea
+          value={customInstructionsDraft}
+          onChange={(event) => setCustomInstructionsDraft(event.target.value)}
+          placeholder={t("brandKitDetail.customInstructionsPlaceholder")}
+          className="min-h-28"
+        />
+        <Separator />
+        <div className="flex items-center justify-between gap-3">
+          <div>
+            <div className="text-sm font-medium">
+              {t("brandKitDetail.palette")}
+            </div>
+            <div className="mt-2 flex flex-wrap gap-2">
+              {(library.styleBrief?.palette ?? []).map((color: string) => (
+                <span
+                  key={color}
+                  className="h-7 w-7 rounded-md border border-border"
+                  style={{ backgroundColor: color }}
+                  title={color}
+                />
+              ))}
+            </div>
+            <Input
+              value={paletteDraft}
+              onChange={(event) => setPaletteDraft(event.target.value)}
+              placeholder={"#111827, #f8fafc, #2563eb"}
+              className="mt-3 h-9 max-w-md text-xs"
+            />
+          </div>
+          <Button variant="outline" onClick={analyzeBrand}>
+            {library.settings?.brandAnalysis?.analyzedAt
+              ? t("brandKitDetail.refreshBrand")
+              : t("brandKitDetail.analyzeBrand")}
+          </Button>
+        </div>
+      </div>
+
+      <div className="space-y-4 rounded-lg border border-border p-4">
+        <div>
+          <h3 className="text-sm font-semibold">
+            {t("brandKitDetail.setupGuide")}
+          </h3>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("brandKitDetail.setupGuideDescription")}
+          </p>
+        </div>
+        <ul className="space-y-3">
+          <li className="flex gap-3">
+            <IconPhoto className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
             <div>
               <div className="text-sm font-medium">
-                {t("brandKitDetail.palette")}
+                {t("brandKitDetail.setupGuideReferences")}
               </div>
-              <div className="mt-2 flex flex-wrap gap-2">
-                {(library.styleBrief?.palette ?? []).map((color: string) => (
-                  <span
-                    key={color}
-                    className="h-7 w-7 rounded-md border border-border"
-                    style={{ backgroundColor: color }}
-                    title={color}
-                  />
-                ))}
-              </div>
-              <Input
-                value={paletteDraft}
-                onChange={(event) => setPaletteDraft(event.target.value)}
-                onBlur={() => {
-                  const palette = parsePaletteDraft(paletteDraft);
-                  setPaletteDraft(palette.join(", "));
-                  updateLibrary.mutate({
-                    id: library.id,
-                    styleBrief: {
-                      ...library.styleBrief,
-                      palette,
-                    },
-                  });
-                }}
-                placeholder={"#111827, #f8fafc, #2563eb"}
-                className="mt-3 h-9 max-w-md text-xs"
-              />
+              <p className="text-sm text-muted-foreground">
+                {t("brandKitDetail.setupGuideReferencesHint")}
+              </p>
             </div>
-            <Button variant="outline" onClick={analyzeBrand}>
-              {library.settings?.brandAnalysis?.analyzedAt
-                ? t("brandKitDetail.refreshBrand")
-                : t("brandKitDetail.analyzeBrand")}
-            </Button>
-          </div>
-        </div>
-
-        <GenerationPresetsPanel
-          libraryId={libraryId}
-          presets={generationPresets}
-        />
+          </li>
+          <li className="flex gap-3">
+            <IconTextCaption className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+              <div className="text-sm font-medium">
+                {t("brandKitDetail.setupGuideStyleDescription")}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t("brandKitDetail.setupGuideStyleDescriptionHint")}
+              </p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <IconListCheck className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+              <div className="text-sm font-medium">
+                {t("brandKitDetail.setupGuideInstructions")}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t("brandKitDetail.setupGuideInstructionsHint")}
+              </p>
+            </div>
+          </li>
+          <li className="flex gap-3">
+            <IconBulb className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <div>
+              <div className="text-sm font-medium">
+                {t("brandKitDetail.setupGuidePresets")}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {t("brandKitDetail.setupGuidePresetsHint")}
+              </p>
+            </div>
+          </li>
+        </ul>
       </div>
+
+      <GenerationPresetsPanel libraryId={libraryId} presets={generationPresets} />
+
+      <Dialog open={confirmExitOpen} onOpenChange={setConfirmExitOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t("brandKitDetail.unsavedChangesTitle")}</DialogTitle>
+            <DialogDescription>
+              {t("brandKitDetail.unsavedChangesDescription")}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirmExitOpen(false)}>
+              {t("brandKitDetail.keepEditing")}
+            </Button>
+            <Button
+              variant="destructive"
+              onClick={() => {
+                setConfirmExitOpen(false);
+                navigate(`/library/${libraryId}`);
+              }}
+            >
+              {t("brandKitDetail.discardChanges")}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

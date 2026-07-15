@@ -456,6 +456,26 @@ const brandKitDetailEnUS = {
     "Clears the live candidates panel and deletes any unsaved candidate rows.",
   couldNotClearLiveCandidates: "Could not clear live candidates.",
   liveCandidatesActions: "Live candidates actions",
+  unsavedChangesTitle: "Unsaved changes",
+  unsavedChangesDescription:
+    "You have unsaved changes to this brand kit. Discard them or keep editing?",
+  discardChanges: "Discard changes",
+  keepEditing: "Keep editing",
+  setupGuide: "Setup guide",
+  setupGuideDescription:
+    "Recommendations for the most consistent, on-brand generations from this kit.",
+  setupGuideReferences: "Upload reference assets",
+  setupGuideReferencesHint:
+    "Mark 3-5 strong examples as References so Analyze brand can learn palette and visual traits from real work, not guesses.",
+  setupGuideStyleDescription: "Write a specific style description",
+  setupGuideStyleDescriptionHint:
+    "Name concrete traits (lighting, composition, texture) instead of vague adjectives so every generation stays on-brand.",
+  setupGuideInstructions: "Use custom instructions for hard constraints",
+  setupGuideInstructionsHint:
+    "Put things that must always be true (logo placement, banned colors, legal copy) here so the agent never forgets them.",
+  setupGuidePresets: "Create a preset per recurring format",
+  setupGuidePresetsHint:
+    "Save aspect ratio, model, and skeleton/reference setup as a preset so the same output shape is reused every time.",
 } satisfies Record<string, string>;
 
 const assetPickerEnUS = {
