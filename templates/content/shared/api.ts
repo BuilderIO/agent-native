@@ -1018,6 +1018,7 @@ export interface PrepareBuilderSourceReviewRequest {
   documentId?: string;
   sourceId?: string;
   changeSetIds?: string[];
+  documentIds?: string[];
   pushModeConfirmation?: ContentDatabaseSourcePushMode;
   publicationTransition?: BuilderCmsPublicationTransitionIntent;
   confirmUnpublish?: boolean;
