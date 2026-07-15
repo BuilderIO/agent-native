@@ -318,8 +318,8 @@ export async function handleMcpRequest(
     // OAuth-native hosts (Kiro, Claude Code, etc.) receive the standard 401
     // challenge and open browser approval instead of silently getting the
     // sparse anonymous dev surface. The stdio proxy remains zero-config for
-    // local installs because it forwards an owner hint; an explicit opt-out
-    // is available for local diagnostics.
+    // local installs because it forwards an owner hint; an explicit opt-in is
+    // available for local diagnostics.
     allowDevOpen:
       isLoopbackRequest(event) &&
       isLoopbackOrigin(requestMeta.origin) &&
