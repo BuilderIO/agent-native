@@ -44,6 +44,111 @@ export interface BuilderCmsEntryLiveState {
   id: string | null;
 }
 
+export interface BuilderCmsEntryFidelitySummary {
+  topLevelBlockCount: number;
+  componentCount: number;
+  textBlockCount: number;
+  imageBlockCount: number;
+  htmlImageCount: number;
+  markdownImageSyntaxCount: number;
+  videoBlockCount: number;
+  headingCount: number;
+  unorderedListCount: number;
+  orderedListCount: number;
+  listItemCount: number;
+  linkCount: number;
+  tableCount: number;
+  escapedTableMarkupCount: number;
+  codeCount: number;
+  blockquoteCount: number;
+  escapedBlockquoteMarkupCount: number;
+  hasYouTubeLink: boolean;
+}
+
+function countMatches(value: string, pattern: RegExp) {
+  return value.match(pattern)?.length ?? 0;
+}
+
+export function summarizeBuilderCmsEntryFidelity(
+  entry: BuilderCmsSourceEntry,
+): BuilderCmsEntryFidelitySummary {
+  const blocks = entry.rawEntry ? builderEntryBlocks(entry.rawEntry) : [];
+  const summary: BuilderCmsEntryFidelitySummary = {
+    topLevelBlockCount: blocks.length,
+    componentCount: 0,
+    textBlockCount: 0,
+    imageBlockCount: 0,
+    htmlImageCount: 0,
+    markdownImageSyntaxCount: 0,
+    videoBlockCount: 0,
+    headingCount: 0,
+    unorderedListCount: 0,
+    orderedListCount: 0,
+    listItemCount: 0,
+    linkCount: 0,
+    tableCount: 0,
+    escapedTableMarkupCount: 0,
+    codeCount: 0,
+    blockquoteCount: 0,
+    escapedBlockquoteMarkupCount: 0,
+    hasYouTubeLink: false,
+  };
+  const visit = (value: unknown) => {
+    if (!value || typeof value !== "object") return;
+    if (Array.isArray(value)) {
+      for (const child of value) visit(child);
+      return;
+    }
+    const record = value as Record<string, unknown>;
+    const component =
+      record.component &&
+      typeof record.component === "object" &&
+      !Array.isArray(record.component)
+        ? (record.component as Record<string, unknown>)
+        : null;
+    if (component) {
+      summary.componentCount += 1;
+      const name = typeof component.name === "string" ? component.name : "";
+      if (name === "Image") summary.imageBlockCount += 1;
+      if (name === "Video") summary.videoBlockCount += 1;
+      if (name === "Text") {
+        summary.textBlockCount += 1;
+        const options =
+          component.options &&
+          typeof component.options === "object" &&
+          !Array.isArray(component.options)
+            ? (component.options as Record<string, unknown>)
+            : {};
+        const html = typeof options.text === "string" ? options.text : "";
+        summary.headingCount += countMatches(html, /<h[1-6]\b/gi);
+        summary.htmlImageCount += countMatches(html, /<img\b/gi);
+        summary.markdownImageSyntaxCount += countMatches(
+          html,
+          /!\[[^\]]*\]\(/g,
+        );
+        summary.unorderedListCount += countMatches(html, /<ul\b/gi);
+        summary.orderedListCount += countMatches(html, /<ol\b/gi);
+        summary.listItemCount += countMatches(html, /<li\b/gi);
+        summary.linkCount += countMatches(html, /<a\b/gi);
+        summary.tableCount += countMatches(html, /<table\b/gi);
+        summary.escapedTableMarkupCount += countMatches(html, /&lt;table\b/gi);
+        summary.codeCount += countMatches(html, /<code\b/gi);
+        summary.blockquoteCount += countMatches(html, /<blockquote\b/gi);
+        summary.escapedBlockquoteMarkupCount += countMatches(
+          html,
+          /&lt;blockquote\b/gi,
+        );
+        if (/youtube\.com|youtu\.be/i.test(html)) {
+          summary.hasYouTubeLink = true;
+        }
+      }
+    }
+    for (const child of Object.values(record)) visit(child);
+  };
+  visit(blocks);
+  return summary;
+}
+
 type FetchLike = typeof fetch;
 
 type BuilderMcpContentPart = {
@@ -128,6 +233,15 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
 
 const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
 const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
+
+function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("includeUnpublished", "true");
+  url.searchParams.set("enrich", "true");
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+}
 
 function builderContentApiHost() {
   return (
@@ -250,13 +364,14 @@ function sleep(ms: number) {
 async function fetchBuilderContentPage(args: {
   fetchImpl: FetchLike;
   url: URL;
+  privateKey?: string;
 }): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
     try {
-      const response = await args.fetchImpl(args.url, {
-        headers: { accept: "application/json" },
-      });
+      const headers: Record<string, string> = { accept: "application/json" };
+      if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
+      const response = await args.fetchImpl(args.url, { headers });
       if (
         !retryableBuilderReadStatus(response.status) ||
         attempt === BUILDER_CMS_READ_RETRIES
@@ -403,6 +518,10 @@ function normalizeBuilderCmsModel(
                   fieldRecord.friendlyName.trim()
                 ? fieldRecord.friendlyName.trim()
                 : undefined;
+          const model =
+            typeof fieldRecord.model === "string" && fieldRecord.model.trim()
+              ? fieldRecord.model.trim()
+              : undefined;
           const enumOptions = stringOptionsFromUnknown(fieldRecord.enum);
           const options = stringOptionsFromUnknown(
             fieldRecord.options ?? fieldRecord.allowedValues,
@@ -415,6 +534,7 @@ function normalizeBuilderCmsModel(
                 ? fieldRecord.type.trim()
                 : "unknown",
             ...(inputType ? { inputType } : {}),
+            ...(model ? { model } : {}),
             ...(enumOptions ? { enum: enumOptions } : {}),
             ...(options ? { options } : {}),
             required: fieldRecord.required === true,
@@ -511,6 +631,7 @@ async function initializeBuilderMcp(args: {
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
   fieldPaths?: readonly string[];
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -531,7 +652,9 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       ? Math.max(0, Math.floor(args.offset))
       : 0;
   const contentEntries: BuilderCmsSourceEntry[] = [];
-  const fields = builderCmsListEntryFields(args.fieldPaths);
+  const fields = args.rawData
+    ? undefined
+    : builderCmsListEntryFields(args.fieldPaths);
   const seenContentIds = new Set<string>();
   let pagesRead = 0;
   let hasMore = false;
@@ -556,8 +679,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: pageLimit,
             offset,
-            fields,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -663,8 +786,8 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
             modelName: args.model,
             limit: 1,
             query: { id: entry.id },
-            fields,
-            enrich: true,
+            ...(fields ? { fields } : {}),
+            enrich: args.rawData !== true,
           },
         },
       },
@@ -697,11 +820,13 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
 async function readBuilderCmsContentEntriesViaContentApi(args: {
   model: string;
   fieldPaths?: readonly string[];
+  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
   fetchImpl: FetchLike;
   publicKey: string;
+  privateKey?: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const url = new URL(
@@ -709,12 +834,19 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     builderContentApiHost(),
   );
   url.searchParams.set("apiKey", args.publicKey);
-  // Enrich expands reference fields (e.g. blog-article -> blog-author) inline so
-  // mapped source columns can show the referenced entry's name instead of a
-  // bare reference id.
-  url.searchParams.set("enrich", "true");
+  // Normal list reads enrich references and project away heavyweight bodies.
+  // Fidelity reads intentionally do neither: Builder's raw data object is the
+  // clone contract, including unresolved references and every nested field.
+  url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
   url.searchParams.set("noCache", "true");
-  url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+  url.searchParams.set(
+    "cachebust",
+    args.rawData === true ? String(Date.now()) : "true",
+  );
+  url.searchParams.set("includeUnpublished", "true");
+  if (args.rawData !== true) {
+    url.searchParams.set("fields", builderCmsListEntryFields(args.fieldPaths));
+  }
 
   const limit = readLimit(args.limit);
   const startOffset =
@@ -740,6 +872,7 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
       response = await fetchBuilderContentPage({
         fetchImpl: args.fetchImpl,
         url: pageUrl,
+        privateKey: args.privateKey,
       });
     } catch (error) {
       return {
@@ -829,9 +962,7 @@ export async function readBuilderCmsEntryLiveState(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -874,12 +1005,7 @@ export async function readBuilderCmsContentEntry(args: {
     )}`,
     builderContentApiHost(),
   );
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("enrich", "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
+  applyBuilderCmsBodyEntryReadParams(url, publicKey);
 
   const response = await fetchBuilderContentPage({
     fetchImpl: args.fetchImpl ?? fetch,
@@ -984,6 +1110,8 @@ export async function readBuilderCmsModelFields(args: {
 export async function readBuilderCmsContentEntries(args: {
   model: string;
   fieldPaths?: readonly string[];
+  rawData?: boolean;
+  requirePrivateKey?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
@@ -993,19 +1121,38 @@ export async function readBuilderCmsContentEntries(args: {
   const privateKey = await readBuilderPrivateKey();
   const fetchImpl = args.fetchImpl ?? fetch;
   const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
+  if (args.requirePrivateKey === true && !privateKey) {
+    return {
+      state: "unconfigured",
+      entries: [],
+      fetchedAt,
+      message:
+        "Builder CMS authenticated read skipped because BUILDER_PRIVATE_KEY is not configured.",
+      progress: {
+        requestedLimit: readLimit(args.limit),
+        pageSize: BUILDER_CMS_PAGE_SIZE,
+        startOffset: 0,
+        nextOffset: 0,
+        fetchedEntryCount: 0,
+        hasMore: false,
+        partial: false,
+        readMode: "none",
+      },
+    };
+  }
   if (publicKey) {
     const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
       model: args.model,
       fieldPaths: args.fieldPaths,
+      rawData: args.rawData,
       limit: args.limit,
       maxPages: args.maxPages,
       offset: args.offset,
       fetchImpl,
       publicKey,
+      privateKey: privateKey ?? undefined,
     });
-    if (contentApiRead.state === "live" && contentApiRead.entries.length > 0) {
-      return contentApiRead;
-    }
+    if (contentApiRead.state === "live") return contentApiRead;
     if (!privateKey) return contentApiRead;
   }
 
@@ -1014,6 +1161,7 @@ export async function readBuilderCmsContentEntries(args: {
       return await readBuilderCmsContentEntriesViaMcp({
         model: args.model,
         fieldPaths: args.fieldPaths,
+        rawData: args.rawData,
         limit: args.limit,
         maxPages: args.maxPages,
         offset: args.offset,

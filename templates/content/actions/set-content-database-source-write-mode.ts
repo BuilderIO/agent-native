@@ -38,7 +38,7 @@ function executableWriteModes(
 
 export default defineAction({
   description:
-    "Set the tiered Builder CMS write mode for one source. Writes stay off by default and can only be enabled for the safe Builder test collection.",
+    "Set the tiered Builder CMS write mode for one source. Writes stay off by default and require document administrator access to enable or change.",
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),
@@ -79,7 +79,7 @@ export default defineAction({
   ): Promise<ContentDatabaseResponse> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
-    await assertAccess("document", database.documentId, "editor");
+    await assertAccess("document", database.documentId, "admin");
 
     const db = getDb();
     const source = await getExistingSourceForWrite(database.id, args.sourceId);

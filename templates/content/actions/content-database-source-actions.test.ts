@@ -26,6 +26,7 @@ import prepareReview, {
   BUILDER_SOURCE_REVIEW_PREPARE_LIMIT,
   buildBuilderSourceReviewPayload,
 } from "./prepare-builder-source-review";
+import previewReview from "./preview-builder-source-review";
 import refreshSource from "./refresh-content-database-source";
 import reviewChangeSet from "./review-content-database-source-change-set";
 import setWriteMode from "./set-content-database-source-write-mode";
@@ -40,6 +41,22 @@ describe("content database source actions", () => {
     });
     expect(getSource.schema.parse({ databaseId: "database" })).toEqual({
       databaseId: "database",
+    });
+  });
+
+  it("bounds Builder review previews to an explicit selected scope", () => {
+    expect(
+      previewReview.schema.parse({
+        documentId: "database-page",
+        sourceId: "source-1",
+        scope: "selected",
+        documentIds: ["document-1"],
+      }),
+    ).toEqual({
+      documentId: "database-page",
+      sourceId: "source-1",
+      scope: "selected",
+      documentIds: ["document-1"],
     });
   });
 
@@ -559,16 +576,24 @@ describe("content database source actions", () => {
       prepareReview.schema.parse({
         documentId: "database-page",
         changeSetIds: ["change-set"],
-        pushModeConfirmation: "autosave",
-        publicationTransition: "unpublish",
-        confirmUnpublish: true,
+        pushModeConfirmation: "publish",
+        transitions: {
+          "change-set": {
+            publicationTransition: "unpublish",
+            confirmUnpublish: true,
+          },
+        },
       }),
     ).toEqual({
       documentId: "database-page",
       changeSetIds: ["change-set"],
-      pushModeConfirmation: "autosave",
-      publicationTransition: "unpublish",
-      confirmUnpublish: true,
+      pushModeConfirmation: "publish",
+      transitions: {
+        "change-set": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: true,
+        },
+      },
     });
   });
 
@@ -735,6 +760,7 @@ describe("content database source actions", () => {
 
     expect(review.summary).toBe("1 Builder row has changes ready to review.");
     expect(review.rows[0]?.title).toBe("New title");
+    expect(review.rows[0]?.targetEntryId).toBe("builder-row");
     expect(review.rows[0]?.fieldChanges[0]?.sourceFieldKey).toBe("data.title");
     expect(review.result.message).toContain("Push will check the update only");
     expect(BUILDER_SOURCE_REVIEW_PREPARE_LIMIT).toBe(100);

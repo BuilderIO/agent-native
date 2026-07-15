@@ -461,12 +461,14 @@ export default defineConfig({
 
 ### Build / Runtime {#env-runtime}
 
-| Variable                    | Description                                                                                                                                       |
-| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | Server port (Node.js only)                                                                                                                        |
-| `NITRO_PRESET`              | Override build preset at build time                                                                                                               |
-| `APP_BASE_PATH`             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.             |
-| `AGENT_PROD_CODE_EXECUTION` | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution). |
+| Variable                                    | Description                                                                                                                                                                                                                                                                                                                                                             |
+| ------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | Server port (Node.js only)                                                                                                                                                                                                                                                                                                                                              |
+| `NITRO_PRESET`                              | Override build preset at build time                                                                                                                                                                                                                                                                                                                                     |
+| `APP_BASE_PATH`                             | Mount the app under a prefix (e.g. `/mail`). Set automatically by `npx @agent-native/core@latest deploy`; leave unset for standalone.                                                                                                                                                                                                                                   |
+| `AGENT_PROD_CODE_EXECUTION`                 | Optional production code-execution mode: `off` (default), `sandboxed`, or `trusted`. See [Production Code Execution](#production-code-execution).                                                                                                                                                                                                                       |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | Dedicated 32+ char shared HMAC secret for preview-safe Builder authorization relay. Set the same value on the approved corporate callback deployment and preview deployments only when authorization must land in an isolated preview database.                                                                                                                         |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | Corporate callback-only, comma-separated allowlist of exact trusted preview origins (for example, `https://0123456789abcdef01234567--content.netlify.app`). Set it only on the corporate callback deployment. Netlify origins must use an immutable, deploy-specific 24-hex permalink; mutable `deploy-preview-*` aliases, wildcards, and domain suffixes are rejected. |
 
 Database connection variables (`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, per-app `<APP_NAME>_DATABASE_URL`) live in [Database](/docs/database#production).
 
@@ -501,7 +503,7 @@ Inside a workspace, the root `.env` is loaded into every app automatically, so s
 
 ### Generating Strong Secrets {#env-generate-secrets}
 
-For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`), generate fresh values with:
+For any secret marked "32+ char random" (`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`), generate fresh values with:
 
 ```bash
 openssl rand -hex 32

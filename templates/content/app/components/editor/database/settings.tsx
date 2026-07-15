@@ -449,6 +449,9 @@ export function builderReviewableChangeSets(
   return source.changeSets.filter(
     (changeSet) =>
       changeSet.direction === "outbound" &&
+      !changeSet.executions.some(
+        (execution) => execution.state === "succeeded",
+      ) &&
       (changeSet.state === "pending_push" ||
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
@@ -530,6 +533,7 @@ export function buildClientBuilderReviewPayload(
       (field) => field.localFieldKey === "title",
     );
     const proposedTitle = titleChange?.proposedValue;
+    const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
 
     return {
       changeSetId: changeSet.id,
@@ -539,12 +543,14 @@ export function buildClientBuilderReviewPayload(
         typeof proposedTitle === "string" && proposedTitle.trim()
           ? proposedTitle
           : sourceRow?.sourceDisplayKey || "Untitled",
+      targetEntryId:
+        effect === "create_draft" ? null : (sourceRow?.sourceRowId ?? null),
       fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
-      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
+      effect,
       execution: latestExecution,
     };
   });
@@ -667,16 +673,13 @@ function DatabaseSettingsSourcePanel({
   onSetBuilderLiveWrites: (enabled: boolean) => void;
   sourceActionPending: boolean;
 }) {
+  const reviewableBuilderChangeSets = builderReviewableChangeSets(source);
   const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
+    source?.sourceType === "builder-cms"
+      ? reviewableBuilderChangeSets
+      : (source?.changeSets.filter(
+          (changeSet) => changeSet.direction === "outbound",
+        ) ?? []);
   const conflictChangeSets =
     source?.changeSets.filter(
       (changeSet) => changeSet.conflictState === "source_changed",

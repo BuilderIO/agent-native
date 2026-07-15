@@ -36,6 +36,32 @@ type DatabaseMembershipRow = {
   bodyHydrationQueueId?: string | null;
 };
 
+type DocumentListRow = Omit<typeof schema.documents.$inferSelect, "content">;
+
+// Database grids render row metadata and properties. Fetching the document body
+// here would transfer it only for serializeDocument to replace it with an empty
+// string below; opened documents use their dedicated document read path instead.
+export const contentDatabaseListDocumentSelection = {
+  id: schema.documents.id,
+  parentId: schema.documents.parentId,
+  title: schema.documents.title,
+  description: schema.documents.description,
+  icon: schema.documents.icon,
+  position: schema.documents.position,
+  isFavorite: schema.documents.isFavorite,
+  hideFromSearch: schema.documents.hideFromSearch,
+  sourceMode: schema.documents.sourceMode,
+  sourceKind: schema.documents.sourceKind,
+  sourcePath: schema.documents.sourcePath,
+  sourceRootPath: schema.documents.sourceRootPath,
+  sourceUpdatedAt: schema.documents.sourceUpdatedAt,
+  visibility: schema.documents.visibility,
+  ownerEmail: schema.documents.ownerEmail,
+  orgId: schema.documents.orgId,
+  createdAt: schema.documents.createdAt,
+  updatedAt: schema.documents.updatedAt,
+};
+
 export function serializeBodyHydration(
   item: typeof schema.contentDatabaseItems.$inferSelect,
   options: { queued?: boolean } = {},
@@ -46,6 +72,7 @@ export function serializeBodyHydration(
       status === "pending" ||
       status === "hydrating" ||
       status === "hydrated" ||
+      status === "unavailable" ||
       status === "error"
         ? status
         : options.queued
@@ -123,16 +150,61 @@ export function normalizeContentDatabasePageOptions(options: {
   return { limit, offset };
 }
 
+export function filterContentDatabaseSourceRowsForPage<
+  TRow extends { documentId: string; databaseItemId: string },
+  TChangeSet extends {
+    documentId: string | null;
+    databaseItemId: string | null;
+    direction: string;
+    state: string;
+    executions: Array<{ state: string }>;
+  },
+>(args: {
+  rows: TRow[];
+  changeSets: TChangeSet[];
+  visibleDocumentIds: ReadonlySet<string>;
+}) {
+  const actionableChangeSets = args.changeSets.filter(
+    (changeSet) =>
+      changeSet.direction === "outbound" &&
+      !changeSet.executions.some(
+        (execution) => execution.state === "succeeded",
+      ) &&
+      (changeSet.state === "pending_push" ||
+        changeSet.state === "staged_revision" ||
+        changeSet.state === "approved"),
+  );
+  const actionableDocumentIds = new Set(
+    actionableChangeSets.flatMap((changeSet) =>
+      changeSet.documentId ? [changeSet.documentId] : [],
+    ),
+  );
+  const actionableItemIds = new Set(
+    actionableChangeSets.flatMap((changeSet) =>
+      changeSet.databaseItemId ? [changeSet.databaseItemId] : [],
+    ),
+  );
+
+  return args.rows.filter(
+    (row) =>
+      !row.documentId ||
+      args.visibleDocumentIds.has(row.documentId) ||
+      actionableDocumentIds.has(row.documentId) ||
+      actionableItemIds.has(row.databaseItemId),
+  );
+}
+
 function serializeDocument(
-  doc: typeof schema.documents.$inferSelect,
+  doc: DocumentListRow,
   membership?: DatabaseMembershipRow,
-  options: { includeContent?: boolean } = {},
 ) {
   return {
     id: doc.id,
     parentId: doc.parentId,
     title: doc.title,
-    content: options.includeContent === true ? doc.content : "",
+    // List reads deliberately project no `documents.content`; opened documents
+    // use their dedicated read path.
+    content: "",
     description: doc.description,
     icon: doc.icon,
     position: doc.position,
@@ -196,7 +268,7 @@ export async function getContentDatabaseResponse(
   const documents =
     items.length > 0
       ? await db
-          .select()
+          .select(contentDatabaseListDocumentSelection)
           .from(schema.documents)
           .where(
             and(
@@ -211,7 +283,9 @@ export async function getContentDatabaseResponse(
   const documentById = new Map(documents.map((doc) => [doc.id, doc]));
   const propertiesByDocumentId = await listPropertiesForDatabaseDocuments(
     databaseId,
-    documents,
+    // Property serialization uses metadata only; this list projection carries
+    // every document field it consumes except the deliberately omitted body.
+    documents as Array<typeof schema.documents.$inferSelect>,
   );
   const queuedBodyHydrationItemIds =
     items.length > 0
@@ -259,17 +333,20 @@ export async function getContentDatabaseResponse(
     serializedItems.map((item) => item.document.id),
   );
   // When paginating, scope every DOCUMENT-BACKED source's rows to the visible
-  // page — that's the primary AND any row-union secondary (each row maps to a
-  // real document). Federated join rows carry no document (empty documentId),
-  // so they're kept intact — only matched ones overlay anyway.
+  // page, plus the small set referenced by actionable reviews. The dialog gets
+  // change sets independently of the item page and needs those rows to retain
+  // the linked provider target instead of misclassifying an off-page update as
+  // a create. Federated join rows carry no document (empty documentId), so
+  // they're kept intact — only matched ones overlay anyway.
   const pagedSources =
     limit !== null
       ? sources.map((source) => ({
           ...source,
-          rows: source.rows.filter(
-            (row) =>
-              !row.documentId || serializedDocumentIds.has(row.documentId),
-          ),
+          rows: filterContentDatabaseSourceRowsForPage({
+            rows: source.rows,
+            changeSets: source.changeSets,
+            visibleDocumentIds: serializedDocumentIds,
+          }),
         }))
       : sources;
   const pagedPrimary = pagedSources[0] ?? null;

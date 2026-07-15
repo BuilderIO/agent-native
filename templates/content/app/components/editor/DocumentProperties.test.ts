@@ -18,6 +18,8 @@ import {
   formatPropertyDateEndInputValue,
   formatPropertyDateInputValue,
   formatPropertyDateTimeInputValue,
+  isValidFilesMediaLink,
+  mergeFilesMediaItems,
   nextPropertyOption,
   personItems,
   personLabel,
@@ -136,6 +138,26 @@ describe("document files media property display", () => {
       "Image",
     );
     expect(filesMediaKind("clip.mov")).toBe("Video");
+  });
+
+  it("accepts only explicit HTTP(S) links", () => {
+    expect(isValidFilesMediaLink(" https://example.com/brief.pdf ")).toBe(true);
+    expect(isValidFilesMediaLink("http://example.com/image.png")).toBe(true);
+    expect(isValidFilesMediaLink("ftp://example.com/image.png")).toBe(false);
+    expect(isValidFilesMediaLink("image.png")).toBe(false);
+    expect(isValidFilesMediaLink("not a link")).toBe(false);
+  });
+
+  it("merges a valid pending link once for saving", () => {
+    const items = ["https://example.com/one.png"];
+
+    expect(
+      mergeFilesMediaItems(items, " https://example.com/two.png "),
+    ).toEqual(["https://example.com/one.png", "https://example.com/two.png"]);
+    expect(mergeFilesMediaItems(items, "HTTPS://EXAMPLE.COM/ONE.PNG")).toBe(
+      items,
+    );
+    expect(mergeFilesMediaItems(items, "file:///tmp/two.png")).toBe(items);
   });
 });
 

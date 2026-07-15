@@ -49,7 +49,6 @@ import {
   TooltipTrigger,
 } from "@agent-native/toolkit/ui/tooltip";
 import {
-  BUILDER_CMS_SAFE_WRITE_MODEL,
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseResponse,
@@ -57,6 +56,8 @@ import {
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
   type ContentDatabaseSourceReviewPayload,
+  type ContentDatabaseSourceWriteMode,
+  type ProcessBuilderBodyHydrationResponse,
   type SourceJoinSuggestion,
   type ContentDatabasePersonalViewOverrides,
   type ContentDatabaseView,
@@ -132,6 +133,7 @@ import {
 import { useQueryClient } from "@tanstack/react-query";
 import {
   useEffect,
+  useCallback,
   useMemo,
   useRef,
   useState,
@@ -149,6 +151,7 @@ import {
   useAddContentDatabaseSourceFieldProperty,
   useAttachContentDatabaseSource,
   useBuilderCmsModels,
+  useCancelPreparedBuilderSourceUpdate,
   useChangeContentDatabaseSourceRole,
   useContentDatabase,
   useContentDatabasePersonalView,
@@ -160,8 +163,10 @@ import {
   useDuplicateDatabaseItems,
   useExecuteBuilderSourceExecution,
   useMoveDatabaseItem,
+  useMaterializeBuilderRequiredFields,
   useNotionDatabaseSources,
   usePrepareBuilderSourceReview,
+  usePreviewBuilderSourceReview,
   useProcessBuilderBodyHydration,
   useRefreshContentDatabaseSource,
   useSetContentDatabaseSourceWriteMode,
@@ -174,9 +179,12 @@ import {
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import {
+  isDocumentUpdateConflict,
   useDeleteDocument,
   useDocument,
   seedDatabaseItemDocumentCaches,
+  usePreviewDocumentDraft,
+  useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
 import { messagesByLocale } from "@/i18n-data";
@@ -189,6 +197,7 @@ import {
   isEffectivelyEmptyDocumentContent,
   previewBodyHydrationIsPending,
   previewBodyHydrationIsTerminalError,
+  previewDraftConflictsWithHydratedBody,
   shouldIgnorePreviewEmptyNormalization,
 } from "../body-hydration";
 import {
@@ -227,7 +236,8 @@ import {
 import { EmojiPicker } from "../EmojiPicker";
 import {
   createPreviewDocumentSaveController,
-  skippedPreviewDocumentSave,
+  deferredPreviewDocumentSave,
+  type PreviewDocumentSaveAdapter,
 } from "../previewDocumentSaveController";
 import {
   acquirePreviewDocumentSaveController,
@@ -251,6 +261,26 @@ export interface DatabaseViewProps {
 
 const CONTENT_DATABASE_PAGE_SIZE = 100;
 const CONTENT_DATABASE_MAX_ITEM_LIMIT = 5_000;
+
+export function databaseSearchExpandedItemLimit(
+  searchQuery: string,
+  currentLimit: number,
+  totalItemCount: number,
+) {
+  if (!searchQuery.trim()) return currentLimit;
+  return Math.max(
+    currentLimit,
+    Math.min(totalItemCount, CONTENT_DATABASE_MAX_ITEM_LIMIT),
+  );
+}
+
+export function databaseSearchExpansionIsPending(
+  searchQuery: string,
+  requestedLimit: number,
+  responseLimit: number,
+) {
+  return !!searchQuery.trim() && responseLimit < requestedLimit;
+}
 
 export type SortDirection = ContentDatabaseSortDirection;
 export type DatabaseSort = ContentDatabaseSort;
@@ -291,6 +321,32 @@ export const BUILDER_SOURCE_CONTINUATION_MAX_BACKOFF_MS = 30_000;
 export type PersonalDatabaseViewOverrides =
   ContentDatabasePersonalViewOverrides;
 
+type BuilderSourceWriteSettingsInput = {
+  sourceId: string;
+  writeMode: ContentDatabaseSourceWriteMode;
+  allowPublicationTransitions?: boolean;
+};
+
+export function previewDraftNeedsConflict(args: {
+  returnedDraft: { title: string; content: string };
+  pending: { title: string; content: string };
+}) {
+  return (
+    args.returnedDraft.title !== args.pending.title ||
+    args.returnedDraft.content !== args.pending.content
+  );
+}
+
+export function previewDraftMissingCasRecovery(args: {
+  operation: "upsert" | "delete";
+  allowCreateRetry: boolean;
+}) {
+  if (args.operation === "delete") return "converged" as const;
+  return args.allowCreateRetry
+    ? ("retry-create" as const)
+    : ("failed" as const);
+}
+
 type DatabaseMessageKey = keyof (typeof messagesByLocale)["en-US"]["database"];
 
 export function dbText(
@@ -315,6 +371,96 @@ export function dbText(
 export type CreateDatabaseRowHandler = (
   title?: string,
 ) => Promise<ContentDatabaseItem | null>;
+
+export function databaseCreatedItemForImmediatePreview(
+  response: ContentDatabaseResponse,
+  args: {
+    databaseId: string;
+    parentDocument: Document;
+    title: string;
+    propertyValues: Record<string, DocumentPropertyValue>;
+    now?: string;
+  },
+): ContentDatabaseItem | null {
+  const returnedItem = response.items.find(
+    (item) => item.id === response.createdItemId,
+  );
+  if (returnedItem) return returnedItem;
+  if (!response.createdItemId || !response.createdDocumentId) return null;
+
+  const now = args.now ?? new Date().toISOString();
+  const position = Math.max(
+    0,
+    (response.pagination?.totalItems ?? response.items.length + 1) - 1,
+  );
+  return {
+    id: response.createdItemId,
+    databaseId: args.databaseId,
+    position,
+    properties: response.properties.map((property) => ({
+      ...property,
+      value: Object.prototype.hasOwnProperty.call(
+        args.propertyValues,
+        property.definition.id,
+      )
+        ? args.propertyValues[property.definition.id]
+        : null,
+    })),
+    document: {
+      id: response.createdDocumentId,
+      parentId: args.parentDocument.id,
+      title: args.title.trim(),
+      content: "",
+      icon: null,
+      position,
+      isFavorite: false,
+      hideFromSearch: args.parentDocument.hideFromSearch,
+      visibility: args.parentDocument.visibility,
+      accessRole: args.parentDocument.accessRole,
+      canEdit: true,
+      canManage: args.parentDocument.canManage,
+      createdAt: now,
+      updatedAt: now,
+    },
+  };
+}
+
+export function databaseBuilderHydrationSourceForItem(
+  item: ContentDatabaseItem,
+  sources: ContentDatabaseSource[],
+) {
+  const sourceId = item.document.databaseMembership?.sourceId;
+  if (!sourceId) return null;
+  const itemSource = sources.find((candidate) => candidate.id === sourceId);
+  return itemSource?.sourceType === "builder-cms" ? itemSource : null;
+}
+
+export function databasePreviewItem(
+  items: ContentDatabaseItem[],
+  previewDocumentId: string | null,
+  createdPreviewItem: ContentDatabaseItem | null,
+) {
+  return (
+    items.find((item) => item.document.id === previewDocumentId) ??
+    (createdPreviewItem?.document.id === previewDocumentId
+      ? createdPreviewItem
+      : null)
+  );
+}
+
+export function databaseCreatedItemNeedsPreview(
+  items: ContentDatabaseItem[],
+  createdItem: ContentDatabaseItem,
+  options: {
+    openAfterCreate?: boolean;
+    focusInlineTitle?: boolean;
+  },
+) {
+  if (options.openAfterCreate !== false) return true;
+  if (!options.focusInlineTitle) return false;
+  return !items.some((item) => item.id === createdItem.id);
+}
+
 type DatabaseDragPreviewState =
   | {
       kind: "view";
@@ -531,6 +677,9 @@ function DatabaseTable({
   const processBuilderBodies = useProcessBuilderBodyHydration(document.id);
   const prepareBuilderReview = usePrepareBuilderSourceReview(document.id);
   const executeBuilderExecution = useExecuteBuilderSourceExecution(document.id);
+  const cancelPreparedBuilderUpdate = useCancelPreparedBuilderSourceUpdate(
+    document.id,
+  );
   const setSourceWriteMode = useSetContentDatabaseSourceWriteMode(document.id);
   const setProperty = useSetDocumentProperty(document.id, document.id);
   const updateDatabaseDocument = useUpdateDocument();
@@ -554,10 +703,19 @@ function DatabaseTable({
   const personalView = useContentDatabasePersonalView(databaseId);
   const updatePersonalView = useUpdateContentDatabasePersonalView(databaseId);
   const source = data?.source ?? null;
-  const sources = data?.sources ?? (source ? [source] : []);
+  const sources = useMemo(
+    () => databaseAttachedSources(data?.sources, source),
+    [data?.sources, source],
+  );
+  const builderSources = useMemo(
+    () => databaseAttachedBuilderSources(sources, source),
+    [sources, source],
+  );
   const [previewDocumentId, setPreviewDocumentId] = useState<string | null>(
     null,
   );
+  const [createdPreviewItem, setCreatedPreviewItem] =
+    useState<ContentDatabaseItem | null>(null);
   const [selectedItemIds, setSelectedItemIds] = useState<string[]>([]);
   const [previewTitleFocusDocumentId, setPreviewTitleFocusDocumentId] =
     useState<string | null>(null);
@@ -566,6 +724,18 @@ function DatabaseTable({
   >(null);
   const [searchOpen, setSearchOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const searchExpandedItemLimit = databaseSearchExpandedItemLimit(
+    searchQuery,
+    databaseItemLimit,
+    totalItemCount,
+  );
+  const isSearchExpansionPending = databaseSearchExpansionIsPending(
+    searchQuery,
+    searchExpandedItemLimit,
+    data?.pagination?.limit ?? items.length,
+  );
+  const isDatabaseViewLoading =
+    isDatabaseInitialLoading || isSearchExpansionPending;
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [inlineFilterControlsOpen, setInlineFilterControlsOpen] =
     useState(false);
@@ -580,11 +750,28 @@ function DatabaseTable({
     null,
   );
   const [builderReviewOpen, setBuilderReviewOpen] = useState(false);
+
+  useEffect(() => {
+    if (searchExpandedItemLimit === databaseItemLimit) return;
+    setDatabaseItemLimit(searchExpandedItemLimit);
+  }, [databaseItemLimit, searchExpandedItemLimit]);
+  const [builderReviewSourceId, setBuilderReviewSourceId] = useState<
+    string | null
+  >(null);
   const [builderReviewResult, setBuilderReviewResult] =
     useState<ContentDatabaseSourceReviewPayload | null>(null);
   const [builderReviewCheckedAt, setBuilderReviewCheckedAt] = useState<
     string | null
   >(null);
+  const [builderReviewError, setBuilderReviewError] = useState<string | null>(
+    null,
+  );
+  const [
+    preparedBuilderReviewConfirmation,
+    setPreparedBuilderReviewConfirmation,
+  ] = useState<PreparedBuilderReviewConfirmation | null>(null);
+  const [builderReviewSelectionRemap, setBuilderReviewSelectionRemap] =
+    useState<Record<string, string> | null>(null);
   const [settingsPanel, setSettingsPanel] =
     useState<DatabaseSettingsPanel>("main");
   const [viewConfig, setViewConfig] = useState<ContentDatabaseViewConfig>(
@@ -629,29 +816,22 @@ function DatabaseTable({
   const personalViewSaveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
     null,
   );
-  const autoContinueBuilderSourceRef = useRef<string | null>(null);
-  const builderContinuationWatchdogRef = useRef<{
-    key: string | null;
-    refires: number;
-  }>({ key: null, refires: 0 });
+  const autoContinueBuilderSourceRef = useRef<Set<string>>(new Set());
+  const builderContinuationWatchdogRef = useRef<Map<string, number>>(new Map());
+  const refreshSourceInFlightRef = useRef<string | null>(null);
+  const hydrationSourceInFlightRef = useRef<string | null>(null);
+  const builderReviewGenerationRef = useRef(0);
+  const builderReviewSessionRef = useRef<BuilderReviewSession | null>(null);
   const [
-    builderContinuationClientErrorKey,
-    setBuilderContinuationClientErrorKey,
-  ] = useState<string | null>(null);
-  const autoPumpBuilderBodiesRef = useRef<string | null>(null);
-  const [builderHydrationClientErrorKey, setBuilderHydrationClientErrorKey] =
-    useState<string | null>(null);
-  const [builderProgressHighWater, setBuilderProgressHighWater] = useState<{
-    sourceId: string | null;
-    fetchedCount: number;
-    hydratedCount: number;
-    rowsComplete: boolean;
-  }>({
-    sourceId: null,
-    fetchedCount: 0,
-    hydratedCount: 0,
-    rowsComplete: false,
-  });
+    builderContinuationClientErrorKeys,
+    setBuilderContinuationClientErrorKeys,
+  ] = useState<string[]>([]);
+  const autoPumpBuilderBodiesRef = useRef<Set<string>>(new Set());
+  const [builderHydrationClientErrorKeys, setBuilderHydrationClientErrorKeys] =
+    useState<string[]>([]);
+  const [builderProgressHighWater, setBuilderProgressHighWater] = useState<
+    Record<string, BuilderSourceProgressHighWater>
+  >({});
   const previewStateRef = useRef<{
     documentId: string | null;
     visibleItems: ContentDatabaseItem[];
@@ -708,8 +888,11 @@ function DatabaseTable({
     activeFilters.length === 0 &&
     !databaseGroupProperty;
   const hasResultConstraints = !!searchQuery.trim() || activeFilters.length > 0;
-  const previewItem =
-    items.find((item) => item.document.id === previewDocumentId) ?? null;
+  const previewItem = databasePreviewItem(
+    items,
+    previewDocumentId,
+    createdPreviewItem,
+  );
   const previousPreviewItem = previewItem
     ? databaseItemPreviewNeighbor(
         screenVisibleItems,
@@ -731,18 +914,136 @@ function DatabaseTable({
     () => databaseSelectedItems(visibleItems, selectedItemIds),
     [visibleItems, selectedItemIds],
   );
+  const builderReviewSource = databaseBuilderReviewSource(
+    sources,
+    source,
+    builderReviewSourceId,
+  );
+  const builderReviewPreviewQuery = usePreviewBuilderSourceReview({
+    documentId: document.id,
+    sourceId: builderReviewSourceId,
+    scope: selectedItemIds.length > 0 ? "selected" : "all",
+    documentIds: selectedItems.map((item) => item.document.id),
+    enabled: builderReviewOpen,
+  });
+  const completeBuilderReviewPreview =
+    builderReviewPreviewQuery.data &&
+    builderReviewSource &&
+    builderReviewPreviewQuery.data.sourceId === builderReviewSource.id &&
+    builderReviewPreviewQuery.data.sourceTable ===
+      builderReviewSource.sourceTable
+      ? builderReviewPreviewQuery.data
+      : null;
   const builderReviewChangeSets = useMemo(
-    () => builderReviewableChangeSets(source),
-    [source],
+    () => builderReviewableChangeSets(builderReviewSource),
+    [builderReviewSource],
   );
   const builderReviewPreview = useMemo(
     () =>
-      source?.sourceType === "builder-cms" && builderReviewChangeSets.length > 0
-        ? buildClientBuilderReviewPayload(source, builderReviewChangeSets)
+      builderReviewSource && builderReviewChangeSets.length > 0
+        ? buildClientBuilderReviewPayload(
+            builderReviewSource,
+            builderReviewChangeSets,
+          )
         : null,
-    [builderReviewChangeSets, source],
+    [builderReviewChangeSets, builderReviewSource],
   );
-  const activeBuilderReview = builderReviewResult ?? builderReviewPreview;
+  const activeBuilderReview =
+    builderReviewResult ??
+    (builderReviewOpen
+      ? (completeBuilderReviewPreview?.review ?? null)
+      : builderReviewPreview);
+  const sourcePendingOperations: DatabaseSourcePendingOperations = {
+    attach: attachSource.isPending,
+    changeRole: changeSourceRole.isPending,
+    refresh:
+      refreshSource.isPending || refreshSourceInFlightRef.current !== null,
+    hydration:
+      processBuilderBodies.isPending ||
+      hydrationSourceInFlightRef.current !== null,
+    disconnect: disconnectSource.isPending,
+    review: prepareBuilderReview.isPending,
+    execute: executeBuilderExecution.isPending,
+    writeMode: setSourceWriteMode.isPending,
+    changeRoleSourceId: pendingMutationSourceId(
+      changeSourceRole.isPending,
+      changeSourceRole.variables,
+    ),
+    refreshSourceId:
+      refreshSourceInFlightRef.current ??
+      pendingMutationSourceId(refreshSource.isPending, refreshSource.variables),
+    hydrationSourceId:
+      hydrationSourceInFlightRef.current ??
+      pendingMutationSourceId(
+        processBuilderBodies.isPending,
+        processBuilderBodies.variables,
+      ),
+    disconnectSourceId: pendingMutationSourceId(
+      disconnectSource.isPending,
+      disconnectSource.variables,
+    ),
+    reviewSourceId: pendingMutationSourceId(
+      prepareBuilderReview.isPending,
+      prepareBuilderReview.variables,
+    ),
+    executeSourceId: pendingMutationSourceId(
+      executeBuilderExecution.isPending,
+      executeBuilderExecution.variables,
+    ),
+    writeModeSourceId: pendingMutationSourceId(
+      setSourceWriteMode.isPending,
+      setSourceWriteMode.variables,
+    ),
+  };
+  const runSourceRefresh = useCallback(
+    (sourceId: string, onError?: () => void) => {
+      if (!acquireDatabaseSourceOperation(refreshSourceInFlightRef, sourceId)) {
+        return false;
+      }
+      refreshSource.mutate(
+        { documentId: document.id, sourceId },
+        {
+          onError,
+          onSettled: () => {
+            releaseDatabaseSourceOperation(refreshSourceInFlightRef, sourceId);
+          },
+        },
+      );
+      return true;
+    },
+    [document.id, refreshSource.mutate],
+  );
+  const runBuilderHydration = useCallback(
+    (
+      sourceId: string,
+      options: {
+        onSuccess?: (result: ProcessBuilderBodyHydrationResponse) => void;
+        onError?: () => void;
+      } = {},
+      request: { documentId?: string; limit?: number } = {},
+    ) => {
+      if (
+        !acquireDatabaseSourceOperation(hydrationSourceInFlightRef, sourceId)
+      ) {
+        return false;
+      }
+      processBuilderBodies.mutate(
+        { sourceId, ...request },
+        {
+          onSuccess: options.onSuccess,
+          onError: options.onError,
+          onSettled: () => {
+            releaseDatabaseSourceOperation(
+              hydrationSourceInFlightRef,
+              sourceId,
+            );
+          },
+        },
+      );
+      return true;
+    },
+    [processBuilderBodies.mutate],
+  );
 
   useEffect(() => {
     previewStateRef.current = {
@@ -758,191 +1059,125 @@ function DatabaseTable({
   }, [visibleItems]);
 
   useEffect(() => {
-    if (!source || source.sourceType !== "builder-cms") {
-      autoPumpBuilderBodiesRef.current = null;
-      setBuilderHydrationClientErrorKey(null);
-      setBuilderProgressHighWater({
-        sourceId: null,
-        fetchedCount: 0,
-        hydratedCount: 0,
-        rowsComplete: false,
-      });
-      return;
-    }
-    const rawFetchedCount =
-      typeof source.metadata.lastReadFetchedEntryCount === "number"
-        ? source.metadata.lastReadFetchedEntryCount
-        : typeof source.metadata.lastReadEntryCount === "number"
-          ? source.metadata.lastReadEntryCount
-          : 0;
-    const fetchedCount =
-      source.metadata.lastReadHasMore === false
-        ? Math.max(rawFetchedCount, source.bodyHydration?.total ?? 0)
-        : rawFetchedCount;
-    const hydratedCount = source.bodyHydration?.hydrated ?? 0;
-    const rowsComplete = source.metadata.lastReadHasMore === false;
-    setBuilderProgressHighWater((current) => {
-      if (current.sourceId !== source.id) {
-        return {
-          sourceId: source.id,
-          fetchedCount,
-          hydratedCount,
-          rowsComplete,
-        };
-      }
-      const next = {
-        sourceId: source.id,
-        fetchedCount: Math.max(current.fetchedCount, fetchedCount),
-        hydratedCount: Math.max(current.hydratedCount, hydratedCount),
-        rowsComplete: current.rowsComplete || rowsComplete,
-      };
-      return next.fetchedCount === current.fetchedCount &&
-        next.hydratedCount === current.hydratedCount &&
-        next.rowsComplete === current.rowsComplete
-        ? current
-        : next;
-    });
-  }, [source]);
+    setBuilderProgressHighWater((current) =>
+      databaseBuilderProgressHighWater(builderSources, current),
+    );
+  }, [builderSources]);
 
   useEffect(() => {
-    if (
-      !isActive ||
-      !canEdit ||
-      !source ||
-      source.sourceType !== "builder-cms" ||
-      sourceAddsDetails(source) ||
-      refreshSource.isPending
-    ) {
-      return;
-    }
-    const sourceStatus = builderSourceRowFetchStatus(source);
-    if (
-      sourceStatus !== "fetching" ||
-      source.metadata.lastReadHasMore !== true
-    ) {
-      return;
-    }
-    const continuationKey = builderSourceContinuationKey(source);
+    if (!isActive || !canEdit || refreshSource.isPending) return;
+    const candidate = databaseNextBuilderContinuationSource(builderSources, {
+      attemptedKeys: autoContinueBuilderSourceRef.current,
+      errorKeys: new Set(builderContinuationClientErrorKeys),
+    });
+    if (!candidate) return;
+    const continuationKey = builderSourceContinuationKey(candidate);
     if (!continuationKey) return;
-    if (builderContinuationClientErrorKey === continuationKey) return;
-    if (autoContinueBuilderSourceRef.current === continuationKey) return;
-    autoContinueBuilderSourceRef.current = continuationKey;
-    refreshSource.mutate(
-      {
-        documentId: document.id,
-        sourceId: source.id,
-      },
-      {
-        onError: () => setBuilderContinuationClientErrorKey(continuationKey),
-      },
+    databaseRecordBuilderContinuationAttempt(
+      autoContinueBuilderSourceRef.current,
+      continuationKey,
     );
+    if (
+      !runSourceRefresh(candidate.id, () =>
+        setBuilderContinuationClientErrorKeys((current) =>
+          addUniqueKey(current, continuationKey),
+        ),
+      )
+    ) {
+      autoContinueBuilderSourceRef.current.delete(continuationKey);
+    }
   }, [
-    builderContinuationClientErrorKey,
+    builderContinuationClientErrorKeys,
+    builderSources,
     canEdit,
-    document.id,
     isActive,
-    refreshSource.mutate,
     refreshSource.isPending,
-    source,
+    runSourceRefresh,
   ]);
 
   useEffect(() => {
+    if (!isActive || !canEdit || processBuilderBodies.isPending) return;
+    const candidate = databaseNextBuilderHydrationSource(builderSources, {
+      attemptedKeys: autoPumpBuilderBodiesRef.current,
+      errorKeys: new Set(builderHydrationClientErrorKeys),
+    });
+    if (!candidate) return;
+    const hydrationKey = builderBodyHydrationPumpKey(candidate);
+    if (!hydrationKey) return;
+    autoPumpBuilderBodiesRef.current.add(hydrationKey);
     if (
-      !isActive ||
-      !canEdit ||
-      !source ||
-      !shouldPumpBuilderBodyHydration(
-        source,
-        processBuilderBodies.isPending,
-        builderHydrationClientErrorKey,
-      )
-    ) {
-      return;
-    }
-    const hydrationKey = builderBodyHydrationPumpKey(source);
-    if (!hydrationKey || autoPumpBuilderBodiesRef.current === hydrationKey) {
-      return;
-    }
-    autoPumpBuilderBodiesRef.current = hydrationKey;
-    processBuilderBodies.mutate(
-      { sourceId: source.id },
-      {
+      !runBuilderHydration(candidate.id, {
         onSuccess: (result) => {
           if (!builderBodyHydrationMutationMadeProgress(result)) {
-            setBuilderHydrationClientErrorKey(hydrationKey);
+            setBuilderHydrationClientErrorKeys((current) =>
+              addUniqueKey(current, hydrationKey),
+            );
           }
         },
-        onError: () => setBuilderHydrationClientErrorKey(hydrationKey),
-      },
-    );
+        onError: () =>
+          setBuilderHydrationClientErrorKeys((current) =>
+            addUniqueKey(current, hydrationKey),
+          ),
+      })
+    ) {
+      autoPumpBuilderBodiesRef.current.delete(hydrationKey);
+    }
   }, [
-    builderHydrationClientErrorKey,
+    builderHydrationClientErrorKeys,
+    builderSources,
     canEdit,
     isActive,
     processBuilderBodies.isPending,
-    processBuilderBodies.mutate,
-    source,
+    runBuilderHydration,
   ]);
 
   useEffect(() => {
-    const continuationKey =
-      source?.sourceType === "builder-cms"
-        ? builderSourceContinuationKey(source)
-        : null;
-    if (
-      !isActive ||
-      !canEdit ||
-      !source ||
-      source.sourceType !== "builder-cms" ||
-      sourceAddsDetails(source) ||
-      refreshSource.isPending ||
-      builderSourceRowFetchStatus(source) !== "fetching" ||
-      source.metadata.lastReadHasMore !== true ||
-      !continuationKey ||
-      builderContinuationClientErrorKey === continuationKey
-    ) {
-      return;
-    }
-    if (builderContinuationWatchdogRef.current.key !== continuationKey) {
-      builderContinuationWatchdogRef.current = {
-        key: continuationKey,
-        refires: 0,
-      };
-    }
-    const refireDelay = builderSourceContinuationWatchdogDelay(
-      builderContinuationWatchdogRef.current.refires,
+    if (!isActive || !canEdit || refreshSource.isPending) return;
+    const candidate = databaseNextBuilderContinuationWatchdogSource(
+      builderSources,
+      {
+        attemptedKeys: autoContinueBuilderSourceRef.current,
+        errorKeys: new Set(builderContinuationClientErrorKeys),
+        refiresByKey: builderContinuationWatchdogRef.current,
+      },
     );
+    if (!candidate) return;
+    const continuationKey = builderSourceContinuationKey(candidate);
+    if (!continuationKey) return;
+    const refires =
+      builderContinuationWatchdogRef.current.get(continuationKey) ?? 0;
     const timer = window.setTimeout(() => {
-      const watchdog = builderContinuationWatchdogRef.current;
-      if (watchdog.key !== continuationKey) return;
       if (
-        builderSourceContinuationWatchdogDecision(watchdog.refires) !== "refire"
-      )
+        builderSourceContinuationWatchdogDecision(refires) !== "refire" ||
+        refreshSource.isPending
+      ) {
         return;
-      builderContinuationWatchdogRef.current = {
-        key: continuationKey,
-        refires: watchdog.refires + 1,
-      };
-      autoContinueBuilderSourceRef.current = null;
-      refreshSource.mutate(
-        {
-          documentId: document.id,
-          sourceId: source.id,
-        },
-        {
-          onError: () => setBuilderContinuationClientErrorKey(continuationKey),
-        },
-      );
-    }, refireDelay);
+      }
+      if (
+        runSourceRefresh(candidate.id, () =>
+          setBuilderContinuationClientErrorKeys((current) =>
+            addUniqueKey(current, continuationKey),
+          ),
+        )
+      ) {
+        builderContinuationWatchdogRef.current.set(
+          continuationKey,
+          refires + 1,
+        );
+        databaseRecordBuilderContinuationAttempt(
+          autoContinueBuilderSourceRef.current,
+          continuationKey,
+        );
+      }
+    }, builderSourceContinuationWatchdogDelay(refires));
     return () => window.clearTimeout(timer);
   }, [
-    builderContinuationClientErrorKey,
+    builderContinuationClientErrorKeys,
+    builderSources,
     canEdit,
-    document.id,
     isActive,
-    refreshSource.mutate,
     refreshSource.isPending,
-    source,
+    runSourceRefresh,
   ]);
 
   useEffect(() => {
@@ -1047,19 +1282,20 @@ function DatabaseTable({
   }
 
   function prioritizeBuilderBodyHydrationForItem(item: ContentDatabaseItem) {
-    const sourceId = item.document.databaseMembership?.sourceId ?? source?.id;
-    if (!sourceId) return;
-    const builderSource =
-      sources.find((candidate) => candidate.id === sourceId) ?? source;
-    if (builderSource?.sourceType !== "builder-cms") return;
+    const builderSource = databaseBuilderHydrationSourceForItem(item, sources);
+    if (!builderSource) return;
+    const sourceId = builderSource.id;
     const hydration =
       item.bodyHydration ?? item.document.databaseMembership?.bodyHydration;
     if (hydration && !databaseItemBodyHydrationIsPending(item)) return;
-    processBuilderBodies.mutate({
+    runBuilderHydration(
       sourceId,
-      documentId: item.document.id,
-      limit: 1,
-    });
+      {},
+      {
+        documentId: item.document.id,
+        limit: 1,
+      },
+    );
   }
 
   async function createRow(
@@ -1090,14 +1326,21 @@ function DatabaseTable({
       });
       return null;
     }
-    const createdItem = response.items.find(
-      (item) => item.id === response.createdItemId,
-    );
-    if (createdItem && options.openAfterCreate !== false) {
+    const createdItem = databaseCreatedItemForImmediatePreview(response, {
+      databaseId,
+      parentDocument: document,
+      title,
+      propertyValues,
+    });
+    const needsPreview =
+      !!createdItem &&
+      databaseCreatedItemNeedsPreview(items, createdItem, options);
+    if (createdItem && needsPreview) {
+      setCreatedPreviewItem(createdItem);
       setPreviewDocumentId(createdItem.document.id);
       setPreviewTitleFocusDocumentId(createdItem.document.id);
     }
-    if (createdItem && options.focusInlineTitle) {
+    if (createdItem && options.focusInlineTitle && !needsPreview) {
       setInlineTitleFocusDocumentId(createdItem.document.id);
     }
     return createdItem ?? null;
@@ -1372,61 +1615,290 @@ function DatabaseTable({
     updateActiveView((view) => ({ ...view, hideEmptyGroups }));
   }
 
-  async function handleBuilderReviewPush(
-    transitions: BuilderReviewPublicationTransitions = {},
-  ) {
+  function openBuilderReview(sourceId: string) {
+    if (
+      prepareBuilderReview.isPending ||
+      executeBuilderExecution.isPending ||
+      cancelPreparedBuilderUpdate.isPending
+    ) {
+      return;
+    }
+    const session = {
+      sourceId,
+      generation: builderReviewGenerationRef.current + 1,
+    };
+    builderReviewGenerationRef.current = session.generation;
+    builderReviewSessionRef.current = session;
+    setBuilderReviewSourceId(sourceId);
     setBuilderReviewResult(null);
     setBuilderReviewCheckedAt(null);
-    const scopedChangeSetIds =
-      activeBuilderReview && activeBuilderReview.rows.length > 0
-        ? activeBuilderReview.rows.map((row) => row.changeSetId)
-        : undefined;
-    try {
-      const prepared = await prepareBuilderReview.mutateAsync({
-        documentId: document.id,
-        sourceId: source?.id,
-        changeSetIds: scopedChangeSetIds,
-        pushModeConfirmation: "autosave",
-      });
-      let nextReview = prepared.review;
+    setBuilderReviewError(null);
+    setPreparedBuilderReviewConfirmation(null);
+    setBuilderReviewSelectionRemap(null);
+    setBuilderReviewOpen(true);
+  }
 
-      if (
-        nextReview.liveWritesEnabled &&
-        nextReview.result.status === "validated"
-      ) {
-        const executableRows = builderReviewExecutableRows(nextReview);
-        let executedResponse: ContentDatabaseResponse | null = null;
-        for (const row of executableRows) {
-          if (!row.execution?.idempotencyKey) continue;
-          const transition = transitions[row.changeSetId];
-          executedResponse = await executeBuilderExecution.mutateAsync({
-            documentId: document.id,
-            changeSetId: row.changeSetId,
-            idempotencyKey: row.execution.idempotencyKey,
-            pushModeConfirmation: nextReview.pushMode,
-            publicationTransition: transition?.publicationTransition,
-            confirmUnpublish: transition?.confirmUnpublish,
-          });
+  function closeBuilderReview(force = false) {
+    if (
+      !force &&
+      (prepareBuilderReview.isPending ||
+        executeBuilderExecution.isPending ||
+        cancelPreparedBuilderUpdate.isPending)
+    ) {
+      return;
+    }
+    builderReviewGenerationRef.current += 1;
+    builderReviewSessionRef.current = null;
+    setBuilderReviewOpen(false);
+    setBuilderReviewSourceId(null);
+    setBuilderReviewResult(null);
+    setBuilderReviewCheckedAt(null);
+    setBuilderReviewError(null);
+    setPreparedBuilderReviewConfirmation(null);
+    setBuilderReviewSelectionRemap(null);
+  }
+
+  async function handleBuilderReviewPush(selection: {
+    changeSetIds: string[];
+    transitions: BuilderReviewPublicationTransitions;
+  }) {
+    const session = builderReviewSessionRef.current;
+    const reviewSource = builderReviewSource;
+    if (
+      !session ||
+      !reviewSource ||
+      session.sourceId !== reviewSource.id ||
+      !databaseBuilderReviewSessionIsCurrent(
+        builderReviewSessionRef.current,
+        session,
+      )
+    ) {
+      return;
+    }
+    if (
+      !activeBuilderReview ||
+      !databaseBuilderReviewSelectedChangeSetIds(
+        activeBuilderReview,
+        reviewSource,
+        selection.changeSetIds,
+        !builderReviewResult
+          ? completeBuilderReviewPreview?.changeSetIds
+          : undefined,
+      )
+    ) {
+      toast.error(dbText("builderUpdateFailed"), {
+        description: dbText("needsAFreshReview"),
+      });
+      return;
+    }
+    const selectedChangeSetIds = databaseBuilderReviewSelectedChangeSetIds(
+      activeBuilderReview,
+      reviewSource,
+      selection.changeSetIds,
+      !builderReviewResult
+        ? completeBuilderReviewPreview?.changeSetIds
+        : undefined,
+    )!;
+    const selectedChangeSetIdSet = new Set(selectedChangeSetIds);
+    const selectionFingerprint = builderReviewSelectionFingerprint({
+      changeSetIds: selectedChangeSetIds,
+      transitions: selection.transitions,
+    });
+    const shouldExecute = preparedBuilderReviewMatches(
+      preparedBuilderReviewConfirmation,
+      session,
+      selectionFingerprint,
+    );
+
+    if (!shouldExecute) {
+      setBuilderReviewResult(null);
+      setBuilderReviewCheckedAt(null);
+      setBuilderReviewError(null);
+      setPreparedBuilderReviewConfirmation(null);
+      try {
+        const prepared = await prepareBuilderReview.mutateAsync({
+          documentId: document.id,
+          sourceId: session.sourceId,
+          changeSetIds: selectedChangeSetIds,
+          pushModeConfirmation:
+            activeBuilderReview.pushMode === "none"
+              ? undefined
+              : activeBuilderReview.pushMode,
+          transitions: selection.transitions,
+        });
+        if (
+          !databaseBuilderReviewSessionIsCurrent(
+            builderReviewSessionRef.current,
+            session,
+          )
+        ) {
+          return;
         }
-        const executedSource = executedResponse?.source ?? null;
-        if (executedSource) {
-          const reviewedIds = new Set(
-            nextReview.rows.map((row) => row.changeSetId),
+        const preparedSelection = databaseBuilderPreparedReviewSelection(
+          prepared.review,
+          reviewSource,
+          selectedChangeSetIds,
+          prepared.preparedChangeSetMappings,
+        );
+        if (!preparedSelection) {
+          throw new Error(
+            "The prepared Builder review returned changes from another source.",
           );
-          const reviewedChangeSets = executedSource.changeSets.filter(
-            (changeSet) => reviewedIds.has(changeSet.id),
+        }
+
+        const preparedTransitions = Object.fromEntries(
+          Object.entries(selection.transitions).map(
+            ([changeSetId, transition]) => [
+              preparedSelection.changeSetIdMap[changeSetId] ?? changeSetId,
+              transition,
+            ],
+          ),
+        );
+        const preparedSelectionFingerprint = builderReviewSelectionFingerprint({
+          changeSetIds: preparedSelection.preparedChangeSetIds,
+          transitions: preparedTransitions,
+        });
+        setBuilderReviewSelectionRemap(preparedSelection.changeSetIdMap);
+        setBuilderReviewResult(prepared.review);
+        const executableRows = builderReviewExecutableRows(
+          prepared.review,
+          new Set(preparedSelection.preparedChangeSetIds),
+        );
+        if (
+          prepared.review.liveWritesEnabled &&
+          executableRows.length ===
+            preparedSelection.preparedChangeSetIds.length
+        ) {
+          setPreparedBuilderReviewConfirmation({
+            ...session,
+            selectionFingerprint: preparedSelectionFingerprint,
+          });
+          toast.info(dbText("ready"), {
+            description: dbText("reviewBuilderUpdate"),
+          });
+          return;
+        }
+
+        setBuilderReviewCheckedAt(new Date().toISOString());
+        toast.success(dbText("checkedStatus"), {
+          description: prepared.review.result.message,
+        });
+      } catch (error) {
+        if (
+          !databaseBuilderReviewSessionIsCurrent(
+            builderReviewSessionRef.current,
+            session,
+          )
+        ) {
+          return;
+        }
+        const message =
+          error instanceof Error ? error.message : dbText("tryAgain");
+        setBuilderReviewError(message);
+        toast.error(dbText("builderUpdateFailed"), {
+          description: message,
+        });
+      }
+      return;
+    }
+
+    const preparedReview = builderReviewResult;
+    if (
+      !preparedReview ||
+      !databaseBuilderReviewExactSelectionIsValid(
+        preparedReview,
+        selectedChangeSetIds,
+      )
+    ) {
+      setPreparedBuilderReviewConfirmation(null);
+      setBuilderReviewError(dbText("needsAFreshReview"));
+      return;
+    }
+
+    setBuilderReviewCheckedAt(null);
+    setBuilderReviewError(null);
+    let preparedReviewForError = activeBuilderReview;
+    try {
+      let nextReview = preparedReview;
+      preparedReviewForError = nextReview;
+
+      const executableRows = builderReviewExecutableRows(
+        nextReview,
+        selectedChangeSetIdSet,
+      );
+      let executedResponse: ContentDatabaseResponse | null = null;
+      for (const row of executableRows) {
+        if (!row.execution?.idempotencyKey) continue;
+        if (
+          !databaseBuilderReviewSessionIsCurrent(
+            builderReviewSessionRef.current,
+            session,
+          )
+        ) {
+          return;
+        }
+        const transition = selection.transitions[row.changeSetId];
+        executedResponse = await executeBuilderExecution.mutateAsync({
+          documentId: document.id,
+          sourceId: session.sourceId,
+          changeSetId: row.changeSetId,
+          idempotencyKey: row.execution.idempotencyKey,
+          pushModeConfirmation: nextReview.pushMode,
+          publicationTransition: transition?.publicationTransition,
+          confirmUnpublish: transition?.confirmUnpublish,
+        });
+        if (
+          !databaseBuilderReviewSessionIsCurrent(
+            builderReviewSessionRef.current,
+            session,
+          )
+        ) {
+          return;
+        }
+      }
+      const executedSource = executedResponse
+        ? databaseAttachedBuilderSource(
+            databaseAttachedSources(
+              executedResponse.sources,
+              executedResponse.source,
+            ),
+            executedResponse.source,
+            { sourceId: session.sourceId },
+          )
+        : null;
+      if (executedSource) {
+        const reviewedIds = new Set(
+          nextReview.rows.map((row) => row.changeSetId),
+        );
+        const reviewedChangeSets = executedSource.changeSets.filter(
+          (changeSet) => reviewedIds.has(changeSet.id),
+        );
+        if (reviewedChangeSets.length > 0) {
+          nextReview = buildClientBuilderReviewPayload(
+            executedSource,
+            reviewedChangeSets,
           );
-          if (reviewedChangeSets.length > 0) {
-            nextReview = buildClientBuilderReviewPayload(
-              executedSource,
-              reviewedChangeSets,
-            );
-          }
         }
       }
 
+      if (
+        !databaseBuilderReviewSessionIsCurrent(
+          builderReviewSessionRef.current,
+          session,
+        )
+      ) {
+        return;
+      }
       setBuilderReviewResult(nextReview);
       setBuilderReviewCheckedAt(new Date().toISOString());
+      setBuilderReviewError(null);
+      setPreparedBuilderReviewConfirmation(null);
+      if (nextReview.result.status === "running") {
+        toast.info(dbText("working"), {
+          description: dbText("builderPushAlreadyRunning"),
+        });
+        return;
+      }
       toast.success(
         nextReview.result.status === "succeeded"
           ? "Builder update pushed"
@@ -1436,9 +1908,83 @@ function DatabaseTable({
         },
       );
     } catch (error) {
+      if (
+        !databaseBuilderReviewSessionIsCurrent(
+          builderReviewSessionRef.current,
+          session,
+        )
+      ) {
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : dbText("tryAgain");
+      setPreparedBuilderReviewConfirmation(null);
+      const ambiguousReview = databaseBuilderReviewAfterExecutionError(
+        preparedReviewForError,
+        message,
+      );
+      if (ambiguousReview) {
+        setBuilderReviewResult(ambiguousReview);
+        setBuilderReviewCheckedAt(new Date().toISOString());
+        if (ambiguousReview.result.status === "running") {
+          setBuilderReviewError(null);
+          toast.info(dbText("working"), {
+            description: ambiguousReview.result.message,
+          });
+          return;
+        }
+      }
+      setBuilderReviewError(message);
       toast.error(dbText("builderUpdateFailed"), {
-        description:
-          error instanceof Error ? error.message : dbText("tryAgain"),
+        description: message,
+      });
+    }
+  }
+
+  async function handleCancelPreparedBuilderUpdate(changeSetId: string) {
+    const session = builderReviewSessionRef.current;
+    if (
+      !session ||
+      !builderReviewSource ||
+      session.sourceId !== builderReviewSource.id
+    ) {
+      return;
+    }
+    setBuilderReviewError(null);
+    try {
+      const result = await cancelPreparedBuilderUpdate.mutateAsync({
+        documentId: document.id,
+        sourceId: session.sourceId,
+        changeSetId,
+      });
+      if (
+        !databaseBuilderReviewSessionIsCurrent(
+          builderReviewSessionRef.current,
+          session,
+        )
+      ) {
+        return;
+      }
+      toast.success(
+        result.cancellation.status === "already_cancelled"
+          ? dbText("preparedUpdateAlreadyCancelled")
+          : dbText("preparedUpdateCancelled"),
+      );
+      closeBuilderReview(true);
+    } catch (error) {
+      if (
+        !databaseBuilderReviewSessionIsCurrent(
+          builderReviewSessionRef.current,
+          session,
+        )
+      ) {
+        return;
+      }
+      const message =
+        error instanceof Error ? error.message : dbText("tryAgain");
+      setBuilderReviewError(message);
+      toast.error(dbText("cancelPreparedUpdateFailed"), {
+        description: message,
       });
     }
   }
@@ -1810,41 +2356,40 @@ function DatabaseTable({
         onSaveForEveryone={() => void savePersonalQueryForEveryone()}
       />
 
-      <BuilderSourceContinuationBar
-        source={source}
-        canEdit={canEdit}
-        pending={refreshSource.isPending}
-        clientError={
-          source
-            ? builderContinuationClientErrorKey ===
-              builderSourceContinuationKey(source)
-            : false
-        }
-        progressHighWater={builderProgressHighWater}
-        onRetry={() => {
-          if (!source) return;
-          const continuationKey = builderSourceContinuationKey(source);
-          setBuilderContinuationClientErrorKey(null);
-          autoContinueBuilderSourceRef.current = null;
-          builderContinuationWatchdogRef.current = {
-            key: continuationKey,
-            refires: 0,
-          };
-          refreshSource.mutate(
-            {
-              documentId: document.id,
-              sourceId: source.id,
-            },
-            {
-              onError: () => {
-                if (continuationKey) {
-                  setBuilderContinuationClientErrorKey(continuationKey);
-                }
-              },
-            },
-          );
-        }}
-      />
+      {builderSources.map((builderSource) => {
+        const continuationKey = builderSourceContinuationKey(builderSource);
+        return (
+          <BuilderSourceContinuationBar
+            key={builderSource.id}
+            source={builderSource}
+            canEdit={canEdit}
+            pending={
+              sourcePendingOperations.refreshSourceId === builderSource.id
+            }
+            clientError={
+              !!continuationKey &&
+              builderContinuationClientErrorKeys.includes(continuationKey)
+            }
+            progressHighWater={builderProgressHighWater[builderSource.id]}
+            onRetry={() => {
+              if (!continuationKey) return;
+              setBuilderContinuationClientErrorKeys((current) =>
+                current.filter((key) => key !== continuationKey),
+              );
+              databaseRecordBuilderContinuationAttempt(
+                autoContinueBuilderSourceRef.current,
+                continuationKey,
+              );
+              builderContinuationWatchdogRef.current.set(continuationKey, 0);
+              runSourceRefresh(builderSource.id, () =>
+                setBuilderContinuationClientErrorKeys((current) =>
+                  addUniqueKey(current, continuationKey),
+                ),
+              );
+            }}
+          />
+        );
+      })}
 
       {activeView.type === "form" ? (
         <DatabaseFormView
@@ -1863,7 +2408,7 @@ function DatabaseTable({
           groupProperty={boardGroupProperty}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={isDatabaseInitialLoading}
+          isLoading={isDatabaseViewLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           hasActiveConstraints={!!searchQuery || activeFilters.length > 0}
           isMoving={setProperty.isPending}
@@ -1891,7 +2436,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={isDatabaseInitialLoading}
+          isLoading={isDatabaseViewLoading}
           isCreating={addItem.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1914,7 +2459,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={isDatabaseInitialLoading}
+          isLoading={isDatabaseViewLoading}
           isCreating={addItem.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1937,7 +2482,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={isDatabaseInitialLoading}
+          isLoading={isDatabaseViewLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1963,7 +2508,7 @@ function DatabaseTable({
           items={visibleItems}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={isDatabaseInitialLoading}
+          isLoading={isDatabaseViewLoading}
           isCreating={addItem.isPending || setProperty.isPending}
           activeFilters={activeFilters}
           hasSearch={!!searchQuery}
@@ -1997,7 +2542,7 @@ function DatabaseTable({
           sources={sources}
           databaseDocumentId={document.id}
           canEdit={canEdit}
-          isLoading={isDatabaseInitialLoading}
+          isLoading={isDatabaseViewLoading}
           isCreating={addItem.isPending}
           columnWidths={columnWidths}
           sorts={sorts}
@@ -2044,7 +2589,7 @@ function DatabaseTable({
         />
       )}
 
-      {hasMoreItems ? (
+      {hasMoreItems && !isSearchExpansionPending ? (
         <div className="flex items-center justify-center border-t border-border/45 py-3">
           <Button
             type="button"
@@ -2080,6 +2625,7 @@ function DatabaseTable({
           if (!open) {
             setPreviewDocumentId(null);
             setPreviewTitleFocusDocumentId(null);
+            setCreatedPreviewItem(null);
           }
         }}
         onPreviewItem={(item) => {
@@ -2097,6 +2643,7 @@ function DatabaseTable({
         panel={settingsPanel}
         documentId={document.id}
         canEdit={canEdit}
+        canManage={document.canManage === true}
         activeView={activeView}
         properties={orderedProperties}
         items={items}
@@ -2142,15 +2689,11 @@ function DatabaseTable({
         onDisconnectSecondary={(sourceId) =>
           disconnectSource.mutate({ documentId: document.id, sourceId })
         }
-        onRefreshSource={(sourceId) =>
-          refreshSource.mutate({
-            documentId: document.id,
-            sourceId,
-          })
-        }
-        onHydrateBuilderBodies={(sourceId) =>
-          processBuilderBodies.mutate({ sourceId })
-        }
+        onRefreshSource={(sourceId) => {
+          const targetSourceId = sourceId ?? source?.id;
+          if (targetSourceId) runSourceRefresh(targetSourceId);
+        }}
+        onHydrateBuilderBodies={(sourceId) => runBuilderHydration(sourceId)}
         onDisconnectSource={(sourceId) =>
           disconnectSource.mutate(
             {
@@ -2178,30 +2721,29 @@ function DatabaseTable({
             },
           )
         }
-        onReviewBuilderUpdate={() => {
-          setBuilderReviewResult(null);
-          setBuilderReviewCheckedAt(null);
-          setBuilderReviewOpen(true);
+        onReviewBuilderUpdate={(sourceId) => {
+          openBuilderReview(sourceId);
         }}
-        onSetBuilderLiveWrites={(enabled) =>
+        onSetBuilderLiveWrites={(settings) =>
           setSourceWriteMode.mutate(
             {
               documentId: document.id,
-              liveWritesEnabled: enabled,
-              allowedWriteModes: enabled ? ["autosave"] : [],
+              sourceId: settings.sourceId,
+              writeMode: settings.writeMode,
+              allowPublicationTransitions:
+                settings.writeMode === "publish_updates" &&
+                settings.allowPublicationTransitions === true,
             },
             {
               onSuccess: () => {
-                toast.success(
-                  enabled
-                    ? "Builder live writes enabled"
-                    : "Builder live writes disabled",
-                  {
-                    description: enabled
-                      ? "Only autosave writes to the Agent Native test collection can run."
-                      : "Push will return to local validation only.",
-                  },
-                );
+                toast.success(dbText("builderWriteModeUpdated"), {
+                  description:
+                    settings.writeMode === "publish_updates"
+                      ? "Approved updates can write through to Builder while preserving publication state."
+                      : settings.writeMode === "stage_only"
+                        ? "Approved updates will stage Builder autosave revisions."
+                        : "Builder writes are disabled for this source.",
+                });
               },
               onError: (error) => {
                 toast.error(dbText("builderWriteModeWasNotChanged"), {
@@ -2220,8 +2762,10 @@ function DatabaseTable({
           disconnectSource.isPending ||
           prepareBuilderReview.isPending ||
           executeBuilderExecution.isPending ||
+          cancelPreparedBuilderUpdate.isPending ||
           setSourceWriteMode.isPending
         }
+        sourcePendingOperations={sourcePendingOperations}
         onViewTypeChange={(type) =>
           setViewConfig(updateDatabaseViewType(viewConfig, activeView.id, type))
         }
@@ -2242,14 +2786,36 @@ function DatabaseTable({
       <BuilderSourceReviewDialog
         open={builderReviewOpen}
         review={activeBuilderReview}
-        source={source}
+        source={builderReviewSource}
         canEdit={canEdit}
         pending={
-          prepareBuilderReview.isPending || executeBuilderExecution.isPending
+          builderReviewPreviewQuery.isFetching ||
+          prepareBuilderReview.isPending ||
+          executeBuilderExecution.isPending ||
+          cancelPreparedBuilderUpdate.isPending
+        }
+        error={
+          builderReviewError ??
+          (builderReviewPreviewQuery.error instanceof Error
+            ? builderReviewPreviewQuery.error.message
+            : null)
         }
         checkedAt={builderReviewCheckedAt}
-        onClose={() => setBuilderReviewOpen(false)}
-        onValidate={(transitions) => void handleBuilderReviewPush(transitions)}
+        preparedForExecution={preparedBuilderReviewConfirmation !== null}
+        autoSelectReviewRows={selectedItemIds.length > 0}
+        selectionChangeSetIdMap={builderReviewSelectionRemap}
+        onClose={closeBuilderReview}
+        onValidate={(selection) => void handleBuilderReviewPush(selection)}
+        onCancelPrepared={(changeSetId) =>
+          void handleCancelPreparedBuilderUpdate(changeSetId)
+        }
+        onSelectionChange={() => {
+          setBuilderReviewResult(null);
+          setBuilderReviewCheckedAt(null);
+          setBuilderReviewError(null);
+          setPreparedBuilderReviewConfirmation(null);
+          setBuilderReviewSelectionRemap(null);
+        }}
       />
 
       {!isDatabaseInitialLoading ? (
@@ -2541,6 +3107,518 @@ export function databaseBuilderBulkUpdateSource(
   );
 }
 
+export function databaseAttachedSources(
+  sources: ContentDatabaseSource[] | undefined,
+  primarySource: ContentDatabaseSource | null,
+) {
+  const attached = sources ? [...sources] : [];
+  if (
+    primarySource &&
+    !attached.some((source) => source.id === primarySource.id)
+  ) {
+    attached.unshift(primarySource);
+  }
+  return attached;
+}
+
+export function databaseAttachedBuilderSources(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+) {
+  return databaseAttachedSources(sources, primarySource).filter(
+    (source) => source.sourceType === "builder-cms",
+  );
+}
+
+export function databaseAttachedBuilderModelNames(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+) {
+  return Array.from(
+    new Set(
+      databaseAttachedBuilderSources(sources, primarySource).map(
+        (source) => source.sourceTable,
+      ),
+    ),
+  );
+}
+
+export function databaseAttachedBuilderSource(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+  selection: { sourceId?: string | null; modelName?: string | null },
+) {
+  const builderSources = databaseAttachedBuilderSources(sources, primarySource);
+  if (selection.sourceId) {
+    return (
+      builderSources.find((source) => source.id === selection.sourceId) ?? null
+    );
+  }
+  if (selection.modelName) {
+    return (
+      builderSources.find(
+        (source) => source.sourceTable === selection.modelName,
+      ) ?? null
+    );
+  }
+  return null;
+}
+
+export function databaseBuilderReviewSource(
+  sources: ContentDatabaseSource[],
+  primarySource: ContentDatabaseSource | null,
+  sourceId: string | null,
+) {
+  return sourceId
+    ? databaseAttachedBuilderSource(sources, primarySource, { sourceId })
+    : null;
+}
+
+export type BuilderReviewSession = {
+  sourceId: string;
+  generation: number;
+};
+
+export type PreparedBuilderReviewConfirmation = BuilderReviewSession & {
+  selectionFingerprint: string;
+};
+
+export type PreparedBuilderChangeSetMapping = {
+  requestedChangeSetId: string;
+  preparedChangeSetId: string;
+};
+
+export function builderReviewSelectionFingerprint(selection: {
+  changeSetIds: string[];
+  transitions: BuilderReviewPublicationTransitions;
+}) {
+  return JSON.stringify({
+    changeSetIds: [...selection.changeSetIds].sort(),
+    transitions: Object.entries(selection.transitions)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([changeSetId, transition]) => [changeSetId, transition]),
+  });
+}
+
+export function preparedBuilderReviewMatches(
+  confirmation: PreparedBuilderReviewConfirmation | null,
+  session: BuilderReviewSession,
+  selectionFingerprint: string,
+) {
+  return (
+    confirmation?.sourceId === session.sourceId &&
+    confirmation.generation === session.generation &&
+    confirmation.selectionFingerprint === selectionFingerprint
+  );
+}
+
+export function databaseBuilderReviewSessionIsCurrent(
+  current: BuilderReviewSession | null,
+  captured: BuilderReviewSession,
+) {
+  return (
+    current?.sourceId === captured.sourceId &&
+    current.generation === captured.generation
+  );
+}
+
+export function databaseBuilderExecutionRequiresReconciliation(
+  message: string,
+) {
+  return /reconciliation required|requires reconciliation|remote outcome is unknown|write timed out/i.test(
+    message,
+  );
+}
+
+export function databaseBuilderReviewAfterExecutionError(
+  review: ContentDatabaseSourceReviewPayload | null,
+  message: string,
+) {
+  if (!review) return null;
+  if (databaseBuilderExecutionRequiresReconciliation(message)) {
+    return {
+      ...review,
+      result: {
+        status: "reconciliation_required" as const,
+        message,
+      },
+    };
+  }
+  if (/execution is already running/i.test(message)) {
+    return {
+      ...review,
+      result: {
+        status: "running" as const,
+        message: dbText("builderPushAlreadyRunning"),
+      },
+    };
+  }
+  return null;
+}
+
+export function databaseBuilderReviewBelongsToSource(
+  review: ContentDatabaseSourceReviewPayload,
+  source: ContentDatabaseSource,
+  authoritativeChangeSetIds?: string[],
+) {
+  const sourceChangeSetIds = new Set(
+    authoritativeChangeSetIds ??
+      source.changeSets.map((changeSet) => changeSet.id),
+  );
+  return review.rows.every((row) => sourceChangeSetIds.has(row.changeSetId));
+}
+
+export function databaseBuilderReviewSelectionIsValid(
+  review: ContentDatabaseSourceReviewPayload,
+  source: ContentDatabaseSource,
+  changeSetIds: string[],
+  requireExactReviewRows = false,
+  authoritativeChangeSetIds?: string[],
+) {
+  if (changeSetIds.length === 0) return false;
+  const selectedIds = new Set(changeSetIds);
+  if (selectedIds.size !== changeSetIds.length) return false;
+  if (
+    !databaseBuilderReviewBelongsToSource(
+      review,
+      source,
+      authoritativeChangeSetIds,
+    )
+  ) {
+    return false;
+  }
+  const reviewIds = new Set(review.rows.map((row) => row.changeSetId));
+  if (reviewIds.size !== review.rows.length) return false;
+  if (!changeSetIds.every((changeSetId) => reviewIds.has(changeSetId))) {
+    return false;
+  }
+  return !requireExactReviewRows || reviewIds.size === selectedIds.size;
+}
+
+export function databaseBuilderReviewExactSelectionIsValid(
+  review: ContentDatabaseSourceReviewPayload,
+  changeSetIds: string[],
+) {
+  if (changeSetIds.length === 0) return false;
+  const selectedIds = new Set(changeSetIds);
+  const reviewIds = new Set(review.rows.map((row) => row.changeSetId));
+  return (
+    selectedIds.size === changeSetIds.length &&
+    reviewIds.size === review.rows.length &&
+    reviewIds.size === selectedIds.size &&
+    changeSetIds.every((changeSetId) => reviewIds.has(changeSetId))
+  );
+}
+
+export function databaseBuilderPreparedReviewSelection(
+  review: ContentDatabaseSourceReviewPayload,
+  source: ContentDatabaseSource,
+  requestedChangeSetIds: string[],
+  mappings: PreparedBuilderChangeSetMapping[],
+) {
+  if (review.sourceTable !== source.sourceTable) return null;
+  if (mappings.length !== requestedChangeSetIds.length) return null;
+  const requestedIds = new Set(requestedChangeSetIds);
+  const mappedRequestedIds = new Set(
+    mappings.map((mapping) => mapping.requestedChangeSetId),
+  );
+  const preparedChangeSetIds = mappings.map(
+    (mapping) => mapping.preparedChangeSetId,
+  );
+  if (
+    requestedIds.size !== requestedChangeSetIds.length ||
+    mappedRequestedIds.size !== mappings.length ||
+    !requestedChangeSetIds.every((id) => mappedRequestedIds.has(id)) ||
+    !databaseBuilderReviewExactSelectionIsValid(review, preparedChangeSetIds)
+  ) {
+    return null;
+  }
+  return {
+    preparedChangeSetIds,
+    changeSetIdMap: Object.fromEntries(
+      mappings.map((mapping) => [
+        mapping.requestedChangeSetId,
+        mapping.preparedChangeSetId,
+      ]),
+    ),
+  };
+}
+
+export function databaseBuilderReviewSelectedChangeSetIds(
+  review: ContentDatabaseSourceReviewPayload,
+  source: ContentDatabaseSource,
+  changeSetIds: string[],
+  authoritativeChangeSetIds?: string[],
+) {
+  return databaseBuilderReviewSelectionIsValid(
+    review,
+    source,
+    changeSetIds,
+    false,
+    authoritativeChangeSetIds,
+  )
+    ? [...changeSetIds]
+    : null;
+}
+
+export type BuilderSourceProgressHighWater = {
+  fetchedCount: number;
+  hydratedCount: number;
+  rowsComplete: boolean;
+  generation: number;
+  observedFetchedCount: number;
+  observedHydratedCount: number;
+  hydrationTotal: number;
+  lastRefreshedAt: string | null;
+  sourceFetchState: "idle" | "fetching" | "error" | null;
+};
+
+export function databaseBuilderProgressHighWater(
+  sources: ContentDatabaseSource[],
+  current: Record<string, BuilderSourceProgressHighWater>,
+) {
+  const next: Record<string, BuilderSourceProgressHighWater> = {};
+  for (const source of sources) {
+    const rawFetchedCount =
+      typeof source.metadata.lastReadFetchedEntryCount === "number"
+        ? source.metadata.lastReadFetchedEntryCount
+        : typeof source.metadata.lastReadEntryCount === "number"
+          ? source.metadata.lastReadEntryCount
+          : 0;
+    const fetchedCount =
+      source.metadata.lastReadHasMore === false
+        ? Math.max(rawFetchedCount, source.bodyHydration?.total ?? 0)
+        : rawFetchedCount;
+    const previous = current[source.id];
+    const observedHydratedCount = source.bodyHydration?.hydrated ?? 0;
+    const hydrationTotal = source.bodyHydration?.total ?? 0;
+    const sourceFetchState = source.metadata.sourceFetchState ?? null;
+    const lifecycleTimestampChanged =
+      !!previous &&
+      previous.lastRefreshedAt !== (source.lastRefreshedAt ?? null);
+    const fetchRestarted =
+      !!previous &&
+      previous.rowsComplete &&
+      source.metadata.lastReadHasMore !== false &&
+      (sourceFetchState === "fetching" || lifecycleTimestampChanged);
+    const countsRewound =
+      !!previous && rawFetchedCount < previous.observedFetchedCount;
+    const hydrationQueueRestarted =
+      !!previous &&
+      (observedHydratedCount < previous.observedHydratedCount ||
+        hydrationTotal < previous.hydrationTotal) &&
+      (source.bodyHydration?.pending ?? 0) > 0;
+    const resetLifecycle =
+      fetchRestarted || countsRewound || hydrationQueueRestarted;
+    const baseline = resetLifecycle ? undefined : previous;
+    next[source.id] = {
+      fetchedCount: Math.max(baseline?.fetchedCount ?? 0, fetchedCount),
+      hydratedCount: Math.max(
+        baseline?.hydratedCount ?? 0,
+        observedHydratedCount,
+      ),
+      rowsComplete:
+        baseline?.rowsComplete === true ||
+        source.metadata.lastReadHasMore === false,
+      generation: (previous?.generation ?? 0) + (resetLifecycle ? 1 : 0),
+      observedFetchedCount: rawFetchedCount,
+      observedHydratedCount,
+      hydrationTotal,
+      lastRefreshedAt: source.lastRefreshedAt ?? null,
+      sourceFetchState,
+    };
+  }
+  const currentIds = Object.keys(current);
+  const nextIds = Object.keys(next);
+  return currentIds.length === nextIds.length &&
+    nextIds.every(
+      (sourceId) =>
+        current[sourceId]?.fetchedCount === next[sourceId]?.fetchedCount &&
+        current[sourceId]?.hydratedCount === next[sourceId]?.hydratedCount &&
+        current[sourceId]?.rowsComplete === next[sourceId]?.rowsComplete &&
+        current[sourceId]?.generation === next[sourceId]?.generation &&
+        current[sourceId]?.observedFetchedCount ===
+          next[sourceId]?.observedFetchedCount &&
+        current[sourceId]?.observedHydratedCount ===
+          next[sourceId]?.observedHydratedCount &&
+        current[sourceId]?.hydrationTotal === next[sourceId]?.hydrationTotal &&
+        current[sourceId]?.lastRefreshedAt ===
+          next[sourceId]?.lastRefreshedAt &&
+        current[sourceId]?.sourceFetchState ===
+          next[sourceId]?.sourceFetchState,
+    )
+    ? current
+    : next;
+}
+
+type BuilderSourcePumpSelection = {
+  attemptedKeys: ReadonlySet<string>;
+  errorKeys: ReadonlySet<string>;
+};
+
+export function databaseRecordBuilderContinuationAttempt(
+  attemptedKeys: Set<string>,
+  continuationKey: string,
+) {
+  attemptedKeys.add(continuationKey);
+}
+
+export function databaseNextBuilderContinuationSource(
+  sources: ContentDatabaseSource[],
+  selection: BuilderSourcePumpSelection,
+) {
+  return (
+    sources.find((source) => {
+      const key = builderSourceContinuationKey(source);
+      return (
+        source.sourceType === "builder-cms" &&
+        !sourceAddsDetails(source) &&
+        builderSourceRowFetchStatus(source) === "fetching" &&
+        source.metadata.lastReadHasMore === true &&
+        !!key &&
+        !selection.attemptedKeys.has(key) &&
+        !selection.errorKeys.has(key)
+      );
+    }) ?? null
+  );
+}
+
+export function databaseNextBuilderContinuationWatchdogSource(
+  sources: ContentDatabaseSource[],
+  selection: BuilderSourcePumpSelection & {
+    refiresByKey: ReadonlyMap<string, number>;
+  },
+) {
+  return (
+    sources
+      .filter((source) => {
+        const key = builderSourceContinuationKey(source);
+        return (
+          source.sourceType === "builder-cms" &&
+          !sourceAddsDetails(source) &&
+          builderSourceRowFetchStatus(source) === "fetching" &&
+          source.metadata.lastReadHasMore === true &&
+          !!key &&
+          selection.attemptedKeys.has(key) &&
+          !selection.errorKeys.has(key)
+        );
+      })
+      .sort((left, right) => {
+        const leftKey = builderSourceContinuationKey(left) ?? "";
+        const rightKey = builderSourceContinuationKey(right) ?? "";
+        return (
+          (selection.refiresByKey.get(leftKey) ?? 0) -
+          (selection.refiresByKey.get(rightKey) ?? 0)
+        );
+      })[0] ?? null
+  );
+}
+
+export function databaseNextBuilderHydrationSource(
+  sources: ContentDatabaseSource[],
+  selection: BuilderSourcePumpSelection,
+) {
+  return (
+    sources.find((source) => {
+      const key = builderBodyHydrationPumpKey(source);
+      return (
+        !!key &&
+        !selection.attemptedKeys.has(key) &&
+        !selection.errorKeys.has(key) &&
+        shouldPumpBuilderBodyHydration(source, false, null)
+      );
+    }) ?? null
+  );
+}
+
+export type DatabaseSourcePendingOperation =
+  | "changeRole"
+  | "refresh"
+  | "hydration"
+  | "disconnect"
+  | "review"
+  | "execute"
+  | "writeMode";
+
+export type DatabaseSourcePendingOperations = {
+  attach: boolean;
+  changeRole: boolean;
+  refresh: boolean;
+  hydration: boolean;
+  disconnect: boolean;
+  review: boolean;
+  execute: boolean;
+  writeMode: boolean;
+  changeRoleSourceId: string | null;
+  refreshSourceId: string | null;
+  hydrationSourceId: string | null;
+  disconnectSourceId: string | null;
+  reviewSourceId: string | null;
+  executeSourceId: string | null;
+  writeModeSourceId: string | null;
+};
+
+export function acquireDatabaseSourceOperation(
+  lock: { current: string | null },
+  sourceId: string,
+) {
+  if (lock.current !== null) return false;
+  lock.current = sourceId;
+  return true;
+}
+
+export function releaseDatabaseSourceOperation(
+  lock: { current: string | null },
+  sourceId: string,
+) {
+  if (lock.current === sourceId) lock.current = null;
+}
+
+export function pendingMutationSourceId(
+  isPending: boolean,
+  variables: { sourceId?: string } | undefined,
+) {
+  return isPending ? (variables?.sourceId ?? null) : null;
+}
+
+export function databaseSourceOperationIsPending(
+  pending: DatabaseSourcePendingOperations,
+  sourceId: string,
+  operations: DatabaseSourcePendingOperation[],
+) {
+  const sourceIds: Record<DatabaseSourcePendingOperation, string | null> = {
+    changeRole: pending.changeRoleSourceId,
+    refresh: pending.refreshSourceId,
+    hydration: pending.hydrationSourceId,
+    disconnect: pending.disconnectSourceId,
+    review: pending.reviewSourceId,
+    execute: pending.executeSourceId,
+    writeMode: pending.writeModeSourceId,
+  };
+  return operations.some((operation) => sourceIds[operation] === sourceId);
+}
+
+export function databaseBuilderWriteModeOperationPending(
+  pending: DatabaseSourcePendingOperations,
+  sourceId: string,
+) {
+  return (
+    pending.writeMode ||
+    databaseSourceOperationIsPending(pending, sourceId, [
+      "changeRole",
+      "refresh",
+      "disconnect",
+      "review",
+      "execute",
+      "writeMode",
+    ])
+  );
+}
+
+function addUniqueKey(current: string[], key: string) {
+  return current.includes(key) ? current : [...current, key];
+}
+
 export function databaseBulkScalarInputState(
   type: DocumentPropertyType,
   input: string,
@@ -2799,19 +3877,44 @@ function DatabaseItemPreview({
   const deleteDocument = useDeleteDocument();
   const duplicateItem = useDuplicateDatabaseItem(databaseDocumentId);
   const { data: document, isLoading } = useDocument(item.document.id);
+  const { data: persistedPreviewDraft } = usePreviewDocumentDraft(
+    item.document.id,
+  );
+  const updatePreviewDraft = useUpdatePreviewDocumentDraft();
   const previewDocument = document ?? item.document;
   const previewTitle = databaseItemPreviewTitle(item);
+  const [bodyDraftConflict, setBodyDraftConflict] = useState<{
+    documentId: string;
+    serverPayload: {
+      title: string;
+      content: string;
+      loadedUpdatedAt?: string;
+      loadedContentWasEmpty?: boolean;
+    };
+  } | null>(null);
+  const activeBodyDraftConflict =
+    bodyDraftConflict?.documentId === item.document.id
+      ? bodyDraftConflict
+      : null;
   const canEdit = document?.canEdit ?? item.document.canEdit ?? true;
   const canManage = document?.canManage ?? item.document.canManage ?? false;
-  const bodyHydrationPending = previewBodyHydrationIsPending({
-    item,
-    document,
-  });
+  const sourceBackedPreview = Boolean(
+    item.bodyHydration ||
+    item.document.databaseMembership?.sourceId ||
+    document?.databaseMembership?.sourceId,
+  );
+  const bodyHydrationPending =
+    (sourceBackedPreview && (isLoading || !document)) ||
+    previewBodyHydrationIsPending({
+      item,
+      document,
+    });
   const bodyHydrationError = previewBodyHydrationIsTerminalError({
     item,
     document,
   });
-  const previewCanEdit = canEdit && !bodyHydrationPending;
+  const previewCanEdit =
+    canEdit && !bodyHydrationPending && !activeBodyDraftConflict;
   const location = useLocation();
   // Seed the displayed title/content from a RETAINED dirty controller's pending
   // edit if one exists for this doc (reopen-before-evict), so an unsaved peek
@@ -2856,16 +3959,237 @@ function DatabaseItemPreview({
   queryClientRef.current = queryClient;
   const bodyHydrationPendingRef = useRef(bodyHydrationPending);
   bodyHydrationPendingRef.current = bodyHydrationPending;
+  const draftVersionsRef = useRef<Map<string, number | null>>(new Map());
+  const draftWriteChainsRef = useRef<Map<string, Promise<void>>>(new Map());
+  const draftSaveTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(
+    new Map(),
+  );
+  const updatePreviewDraftRef = useRef(updatePreviewDraft);
+  updatePreviewDraftRef.current = updatePreviewDraft;
   // Doc ids that have been deleted in this peek's lifetime. A pending save must
   // never resurrect a deleted document, so dispatch is suppressed for these.
   const deletedIdsRef = useRef<Set<string>>(new Set());
 
   const documentId = item.document.id;
 
-  // Build the factory for THIS row's controller. It closes over the stable
-  // component-scoped refs (updateDocument, queryClient, deletedIds), so the
-  // freshest mutation impl is always used while the controller's save TARGET
-  // (`documentId`) is fixed by the registry key.
+  function enqueueDraftWrite(
+    controller: ReturnType<typeof createPreviewDocumentSaveController>,
+    operation: "upsert" | "delete",
+    expectedPayload?: { title: string; content: string },
+    allowCreateRetry = true,
+  ) {
+    const snapshot = controller.draftSnapshot();
+    const previous =
+      draftWriteChainsRef.current.get(documentId) ?? Promise.resolve();
+    const next = previous
+      .catch(() => undefined)
+      .then(async () => {
+        const expectedVersion =
+          draftVersionsRef.current.get(documentId) ?? null;
+        if (operation === "delete") {
+          if (expectedVersion === null) return;
+          if (!expectedPayload) return;
+          const result = await updatePreviewDraftRef.current.mutateAsync({
+            operation: "delete",
+            documentId,
+            expectedVersion,
+            expectedTitle: expectedPayload.title,
+            expectedContent: expectedPayload.content,
+          });
+          if (result.status === "deleted")
+            draftVersionsRef.current.set(documentId, null);
+          else if (result.draft) {
+            draftVersionsRef.current.set(documentId, result.draft.version);
+            if (
+              previewDraftNeedsConflict({
+                returnedDraft: result.draft,
+                pending: controller.pending,
+              })
+            ) {
+              controller.notifyDraftConflict({
+                lastSaved: snapshot.lastSaved,
+                pending: {
+                  title: result.draft.title,
+                  content: result.draft.content,
+                  loadedUpdatedAt:
+                    result.draft.baseDocumentUpdatedAt ?? undefined,
+                  loadedContentWasEmpty:
+                    result.draft.loadedContentWasEmpty === 1,
+                },
+                deferredReason: "conflict",
+              });
+            }
+          } else {
+            // Another tab already removed the row. Treat the stale delete as
+            // converged instead of retaining a version that can never match.
+            draftVersionsRef.current.set(documentId, null);
+          }
+          return;
+        }
+        const result = await updatePreviewDraftRef.current.mutateAsync({
+          operation: "upsert",
+          documentId,
+          expectedVersion,
+          draft: {
+            title: snapshot.pending.title,
+            content: snapshot.pending.content,
+            baseDocumentUpdatedAt: snapshot.pending.loadedUpdatedAt ?? null,
+            loadedContentWasEmpty:
+              snapshot.pending.loadedContentWasEmpty === true,
+            deferredReason: snapshot.deferredReason,
+          },
+        });
+        if (result.status === "saved" && result.draft) {
+          draftVersionsRef.current.set(documentId, result.draft.version);
+        } else if (result.draft) {
+          draftVersionsRef.current.set(documentId, result.draft.version);
+          if (
+            previewDraftNeedsConflict({
+              returnedDraft: result.draft,
+              pending: controller.pending,
+            })
+          ) {
+            controller.notifyDraftConflict({
+              lastSaved: snapshot.lastSaved,
+              pending: {
+                title: result.draft.title,
+                content: result.draft.content,
+                loadedUpdatedAt:
+                  result.draft.baseDocumentUpdatedAt ?? undefined,
+                loadedContentWasEmpty: result.draft.loadedContentWasEmpty === 1,
+              },
+              deferredReason: "conflict",
+            });
+          }
+        } else {
+          // A competing tab deleted the version we tried to update. Reset to
+          // create mode and enqueue the latest pending payload once; keeping
+          // the stale version would make every later upsert conflict forever.
+          draftVersionsRef.current.set(documentId, null);
+          const recovery = previewDraftMissingCasRecovery({
+            operation: "upsert",
+            allowCreateRetry,
+          });
+          if (recovery === "retry-create") {
+            enqueueDraftWrite(controller, "upsert", undefined, false);
+          } else {
+            toast.error(dbText("failedToSavePagePreview"), {
+              description: dbText("somethingWentWrong"),
+            });
+          }
+        }
+      });
+    draftWriteChainsRef.current.set(
+      documentId,
+      next.catch((error) => {
+        toast.error(dbText("failedToSavePagePreview"), {
+          description:
+            error instanceof Error
+              ? error.message
+              : dbText("somethingWentWrong"),
+        });
+      }),
+    );
+  }
+
+  function scheduleDraftWrite(
+    controller: ReturnType<typeof createPreviewDocumentSaveController>,
+  ) {
+    const existing = draftSaveTimersRef.current.get(documentId);
+    if (existing) clearTimeout(existing);
+    const timer = setTimeout(() => {
+      draftSaveTimersRef.current.delete(documentId);
+      enqueueDraftWrite(controller, "upsert");
+    }, 250);
+    draftSaveTimersRef.current.set(documentId, timer);
+  }
+
+  // Adapters are replaced whenever a document is acquired. A controller can
+  // outlive one preview mount while its final flush settles, but it must never
+  // retain that old mount's hydration refs, mutation callback, or conflict UI.
+  const makeSaveAdapter = (): PreviewDocumentSaveAdapter => ({
+    save: (id, payload, baseline) =>
+      new Promise((resolve, reject) => {
+        // A just-deleted doc must not be re-dispatched (resurrection guard).
+        if (deletedIdsRef.current.has(id)) {
+          resolve(undefined);
+          return;
+        }
+        const titleChanged = payload.title !== baseline?.title;
+        const contentChanged = payload.content !== baseline?.content;
+        if (bodyHydrationPendingRef.current && contentChanged) {
+          resolve(deferredPreviewDocumentSave());
+          return;
+        }
+        updateDocumentRef.current.mutate(
+          {
+            id,
+            ...(titleChanged ? { title: payload.title } : {}),
+            ...(contentChanged
+              ? {
+                  content: payload.content,
+                  loadedUpdatedAt: payload.loadedUpdatedAt,
+                  loadedContentWasEmpty: payload.loadedContentWasEmpty,
+                }
+              : {}),
+            ...(contentChanged && payload.loadedUpdatedAt
+              ? { baseUpdatedAt: payload.loadedUpdatedAt }
+              : {}),
+          },
+          {
+            onSuccess: (result) => {
+              if (isDocumentUpdateConflict(result)) {
+                resolve(
+                  deferredPreviewDocumentSave("conflict", {
+                    lastSaved: baseline ?? payload,
+                    pending: {
+                      title: result.document.title,
+                      content: result.document.content,
+                      loadedUpdatedAt: result.document.updatedAt,
+                      loadedContentWasEmpty: isEffectivelyEmptyDocumentContent(
+                        result.document.content,
+                      ),
+                    },
+                    deferredReason: "conflict",
+                  }),
+                );
+                return;
+              }
+              resolve(undefined);
+            },
+            onError: reject,
+          },
+        );
+      }),
+    onSaved: (persistedPayload) => {
+      const controller = peekPreviewDocumentSaveController(documentId);
+      if (controller) enqueueDraftWrite(controller, "delete", persistedPayload);
+      void queryClientRef.current.invalidateQueries({
+        queryKey: contentDatabaseQueryKey(databaseDocumentId),
+      });
+      void queryClientRef.current.invalidateQueries({
+        queryKey: ["action", "list-documents"],
+      });
+    },
+    onError: (err) => {
+      toast.error(dbText("failedToSavePagePreview"), {
+        description:
+          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+      });
+    },
+    onDraftConflict: (snapshot) => {
+      setBodyDraftConflict({
+        documentId,
+        serverPayload: {
+          title: snapshot.pending.title,
+          content: snapshot.pending.content,
+          loadedUpdatedAt: snapshot.pending.loadedUpdatedAt,
+          loadedContentWasEmpty: snapshot.pending.loadedContentWasEmpty,
+        },
+      });
+    },
+  });
+
   const makeController = () =>
     createPreviewDocumentSaveController({
       documentId,
@@ -2877,42 +4201,7 @@ function DatabaseItemPreview({
           item.document.content,
         ),
       },
-      save: (id, payload) =>
-        new Promise((resolve, reject) => {
-          // A just-deleted doc must not be re-dispatched (resurrection guard).
-          if (deletedIdsRef.current.has(id)) {
-            resolve(undefined);
-            return;
-          }
-          if (bodyHydrationPendingRef.current) {
-            resolve(skippedPreviewDocumentSave());
-            return;
-          }
-          updateDocumentRef.current.mutate(
-            {
-              id,
-              title: payload.title,
-              content: payload.content,
-              loadedUpdatedAt: payload.loadedUpdatedAt,
-              loadedContentWasEmpty: payload.loadedContentWasEmpty,
-            },
-            { onSuccess: () => resolve(undefined), onError: reject },
-          );
-        }),
-      onSaved: () => {
-        void queryClientRef.current.invalidateQueries({
-          queryKey: contentDatabaseQueryKey(databaseDocumentId),
-        });
-        void queryClientRef.current.invalidateQueries({
-          queryKey: ["action", "list-documents"],
-        });
-      },
-      onError: (err) => {
-        toast.error(dbText("failedToSavePagePreview"), {
-          description:
-            err instanceof Error ? err.message : dbText("somethingWentWrong"),
-        });
-      },
+      ...makeSaveAdapter(),
     });
 
   // Acquire the controller for the current row, and release it on row-switch /
@@ -2946,8 +4235,21 @@ function DatabaseItemPreview({
     saveControllerRef.current = acquirePreviewDocumentSaveController(
       documentId,
       makeController,
+      (controller) => controller.replaceSaveAdapter(makeSaveAdapter()),
     );
     return () => {
+      const controller = saveControllerRef.current;
+      const draftTimer = draftSaveTimersRef.current.get(documentId);
+      if (draftTimer) {
+        clearTimeout(draftTimer);
+        draftSaveTimersRef.current.delete(documentId);
+      }
+      if (
+        controller &&
+        !previewPayloadsEqual(controller.pending, controller.lastSaved)
+      ) {
+        enqueueDraftWrite(controller, "upsert");
+      }
       saveControllerRef.current = null;
       releasePreviewDocumentSaveController(documentId);
     };
@@ -2956,6 +4258,58 @@ function DatabaseItemPreview({
     // (the registry key) is the only thing that should drive re-acquire.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [documentId]);
+
+  useEffect(() => {
+    const draft = persistedPreviewDraft?.draft;
+    if (!draft) {
+      if (!draftVersionsRef.current.has(documentId)) {
+        draftVersionsRef.current.set(documentId, null);
+      }
+      return;
+    }
+    draftVersionsRef.current.set(documentId, draft.version);
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller) return;
+    const controllerDirty = !previewPayloadsEqual(
+      controller.pending,
+      controller.lastSaved,
+    );
+    const snapshot = {
+      lastSaved: controller.lastSaved,
+      pending: {
+        title: draft.title,
+        content: draft.content,
+        loadedUpdatedAt: draft.baseDocumentUpdatedAt ?? undefined,
+        loadedContentWasEmpty: draft.loadedContentWasEmpty === 1,
+      },
+      deferredReason:
+        draft.deferredReason === "hydration" ||
+        draft.deferredReason === "conflict"
+          ? draft.deferredReason
+          : null,
+    } as const;
+    if (controllerDirty) {
+      if (
+        previewDraftNeedsConflict({
+          returnedDraft: draft,
+          pending: controller.pending,
+        })
+      ) {
+        controller.notifyDraftConflict(snapshot);
+      } else {
+        setBodyDraftConflict((current) =>
+          current?.documentId === documentId ? null : current,
+        );
+      }
+      return;
+    }
+    controller.restoreDraft(snapshot);
+    setLocalTitle(snapshot.pending.title);
+    setLocalContent(snapshot.pending.content);
+    if (snapshot.deferredReason === "conflict") {
+      controller.notifyDraftConflict(snapshot);
+    }
+  }, [documentId, persistedPreviewDraft?.draft]);
 
   // Sync displayed state to the current row, and adopt fresh server content
   // (e.g. an agent edit) as the controller's new confirmed baseline. mark()
@@ -2990,12 +4344,31 @@ function DatabaseItemPreview({
       controller.lastSaved.loadedContentWasEmpty === true &&
       isEffectivelyEmptyDocumentContent(controller.pending.content) &&
       !isEffectivelyEmptyDocumentContent(nextContent);
+    const hydratedBodyConflictsWithDraft =
+      !!controller &&
+      dirty &&
+      (controller.deferredReason === "conflict" ||
+        previewDraftConflictsWithHydratedBody({
+          loadedContent: controller.lastSaved.content,
+          loadedUpdatedAt: controller.lastSaved.loadedUpdatedAt,
+          loadedContentWasEmpty: controller.lastSaved.loadedContentWasEmpty,
+          pendingContent: controller.pending.content,
+          hydratedContent: nextContent,
+          hydratedUpdatedAt: nextLoadedUpdatedAt,
+        }));
     // Only adopt the server's title/content — into BOTH the displayed editor
     // state and the controller baseline — when the user hasn't typed something
     // newer on this row. If a dirty in-progress edit exists, preserve it: don't
     // clobber the visible text (the controller already holds the unsaved edit,
     // so nothing is lost, but the editor must keep showing what the user typed).
-    if (staleEmptyPendingOverFreshServer || (!dirty && !savedAheadOfServer)) {
+    if (hydratedBodyConflictsWithDraft) {
+      setBodyDraftConflict({ documentId, serverPayload });
+      setLocalTitle(controller.pending.title);
+      setLocalContent(controller.pending.content);
+    } else if (
+      staleEmptyPendingOverFreshServer ||
+      (!dirty && !savedAheadOfServer)
+    ) {
       setLocalTitle(nextTitle);
       setLocalContent(nextContent);
       controller?.mark(serverPayload);
@@ -3018,6 +4391,36 @@ function DatabaseItemPreview({
     item.document.updatedAt,
   ]);
 
+  // If hydration began after a keystroke, the controller deferred that save
+  // without discarding it. Retry once the authoritative document is ready —
+  // unless a non-empty Builder body arrived over an empty baseline. In that
+  // conflict case the draft remains dirty in the registry instead of silently
+  // overwriting either side; the update action's CAS is a final fail-closed
+  // guard if the source changed between this check and the write.
+  useEffect(() => {
+    if (bodyHydrationPending || !document) return;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller || controller.deferredReason !== "hydration") return;
+    if (
+      previewDraftConflictsWithHydratedBody({
+        loadedContent: controller.lastSaved.content,
+        loadedUpdatedAt: controller.lastSaved.loadedUpdatedAt,
+        loadedContentWasEmpty: controller.lastSaved.loadedContentWasEmpty,
+        pendingContent: controller.pending.content,
+        hydratedContent: document.content,
+        hydratedUpdatedAt: document.updatedAt,
+      })
+    ) {
+      return;
+    }
+    void controller.flush();
+  }, [
+    bodyHydrationPending,
+    document?.content,
+    document?.updatedAt,
+    documentId,
+  ]);
+
   useEffect(() => {
     if (!focusTitle || !previewCanEdit || isLoading || !document) return;
 
@@ -3033,7 +4436,9 @@ function DatabaseItemPreview({
   function handleTitleChange(nextTitle: string) {
     setLocalTitle(nextTitle);
     if (!previewCanEdit || !document) return;
-    saveControllerRef.current?.changeTitle(nextTitle);
+    const controller = saveControllerRef.current;
+    controller?.changeTitle(nextTitle);
+    if (controller) scheduleDraftWrite(controller);
   }
 
   function handleContentChange(nextContent: string) {
@@ -3048,7 +4453,31 @@ function DatabaseItemPreview({
     }
     setLocalContent(nextContent);
     if (!previewCanEdit || !document) return;
-    saveControllerRef.current?.changeContent(nextContent);
+    const controller = saveControllerRef.current;
+    controller?.changeContent(nextContent);
+    if (controller) scheduleDraftWrite(controller);
+  }
+
+  function keepLocalBodyDraft() {
+    if (!activeBodyDraftConflict) return;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller) return;
+    controller.rebasePending(activeBodyDraftConflict.serverPayload);
+    setBodyDraftConflict(null);
+    void controller.flush();
+  }
+
+  function reloadBuilderBody() {
+    if (!activeBodyDraftConflict) return;
+    const controller = peekPreviewDocumentSaveController(documentId);
+    if (!controller) return;
+    const serverPayload = activeBodyDraftConflict.serverPayload;
+    const discardedPayload = controller.pending;
+    controller.mark(serverPayload);
+    enqueueDraftWrite(controller, "delete", discardedPayload);
+    setLocalTitle(serverPayload.title);
+    setLocalContent(serverPayload.content);
+    setBodyDraftConflict(null);
   }
 
   function handleIconChange(nextIcon: string | null) {
@@ -3343,6 +4772,37 @@ function DatabaseItemPreview({
 
                 return (
                   <div className="grid gap-4">
+                    {activeBodyDraftConflict ? (
+                      <div
+                        role="status"
+                        className="rounded-lg border border-amber-500/35 bg-amber-500/10 px-4 py-4 text-sm"
+                      >
+                        <div className="flex items-center gap-2 font-medium text-foreground">
+                          <IconLock className="size-4 text-amber-600 dark:text-amber-400" />
+                          {dbText("builderDraftConflictTitle")}
+                        </div>
+                        <p className="mt-2 max-w-2xl leading-6 text-muted-foreground">
+                          {dbText("builderDraftConflictDescription")}
+                        </p>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Button
+                            type="button"
+                            size="sm"
+                            onClick={keepLocalBodyDraft}
+                          >
+                            {dbText("keepLocalDraft")}
+                          </Button>
+                          <Button
+                            type="button"
+                            size="sm"
+                            variant="outline"
+                            onClick={reloadBuilderBody}
+                          >
+                            {dbText("reloadBuilderBody")}
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
                     {bodyHydrationError ? (
                       <BuilderBodySyncingNotice
                         title={dbText("builderBodySyncFailedNotice")}
@@ -5407,7 +6867,12 @@ type PendingSourceCandidate = {
 type SourceNavStep =
   | { kind: "provider"; providerId: "builder" }
   | { kind: "space"; spaceId: string; spaceName: string }
-  | { kind: "model"; model: BuilderCmsModelSummary }
+  | {
+      kind: "model";
+      model?: BuilderCmsModelSummary;
+      sourceId?: string;
+      sourceName?: string;
+    }
   | { kind: "addSource" }
   | { kind: "secondarySource"; sourceId: string; sourceName: string }
   | { kind: "keyConfirm"; candidate: PendingSourceCandidate }
@@ -5422,7 +6887,7 @@ function sourceNavTitle(stack: SourceNavStep[]): string {
   if (top.kind === "secondarySource") return top.sourceName;
   if (top.kind === "keyConfirm") return dbText("matchExistingItemsToDetails");
   if (top.kind === "fieldPicker") return dbText("chooseFields");
-  return top.model.displayName;
+  return top.model?.displayName ?? top.sourceName ?? "Builder";
 }
 
 // The Builder "B" brand mark (first glyph of the wordmark), drawn with
@@ -5470,6 +6935,7 @@ function DatabaseSettingsPanelSheet({
   panel,
   documentId,
   canEdit,
+  canManage,
   activeView,
   properties,
   items,
@@ -5489,6 +6955,7 @@ function DatabaseSettingsPanelSheet({
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
+  sourcePendingOperations,
   onViewTypeChange,
   onWrapCellsChange,
   onOpenPagesInChange,
@@ -5503,6 +6970,7 @@ function DatabaseSettingsPanelSheet({
   panel: DatabaseSettingsPanel;
   documentId: string;
   canEdit: boolean;
+  canManage: boolean;
   activeView: ContentDatabaseView;
   properties: DocumentProperty[];
   items: ContentDatabaseItem[];
@@ -5529,9 +6997,10 @@ function DatabaseSettingsPanelSheet({
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
   onDisconnectSource: (sourceId?: string) => void;
-  onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onReviewBuilderUpdate: (sourceId: string) => void;
+  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
+  sourcePendingOperations: DatabaseSourcePendingOperations;
   onViewTypeChange: (type: ContentDatabaseViewType) => void;
   onWrapCellsChange: (wrapCells: boolean) => void;
   onOpenPagesInChange: (openPagesIn: ContentDatabaseOpenPagesIn) => void;
@@ -5615,6 +7084,7 @@ function DatabaseSettingsPanelSheet({
             documentId={documentId}
             itemCount={items.length}
             canEdit={canEdit}
+            canManage={canManage}
             nav={sourceNavStack}
             onNavPush={(step) => setSourceNavStack((stack) => [...stack, step])}
             onNavReplace={setSourceNavStack}
@@ -5631,6 +7101,7 @@ function DatabaseSettingsPanelSheet({
             onReviewBuilderUpdate={onReviewBuilderUpdate}
             onSetBuilderLiveWrites={onSetBuilderLiveWrites}
             sourceActionPending={sourceActionPending}
+            sourcePendingOperations={sourcePendingOperations}
           />
         ) : panel === "layout" ? (
           <DatabaseSettingsLayoutPanel
@@ -5745,6 +7216,9 @@ export function builderReviewableChangeSets(
   return source.changeSets.filter(
     (changeSet) =>
       changeSet.direction === "outbound" &&
+      !changeSet.executions.some(
+        (execution) => execution.state === "succeeded",
+      ) &&
       (changeSet.state === "pending_push" ||
         changeSet.state === "staged_revision" ||
         changeSet.state === "approved"),
@@ -5770,12 +7244,33 @@ function maxSourceReviewRisk(
 
 export function builderReviewExecutableRows(
   review: ContentDatabaseSourceReviewPayload,
+  selectedChangeSetIds: ReadonlySet<string> = new Set(
+    review.rows.map((row) => row.changeSetId),
+  ),
 ) {
-  if (!review.liveWritesEnabled || review.result.status !== "validated") {
-    return [];
-  }
+  if (!review.liveWritesEnabled) return [];
   return review.rows.filter(
-    (row) => row.execution?.state === "ready" && row.execution.idempotencyKey,
+    (row) =>
+      selectedChangeSetIds.has(row.changeSetId) &&
+      row.execution?.idempotencyKey &&
+      (row.execution.state === "ready" ||
+        row.execution.state === "running" ||
+        row.execution.state === "response_received" ||
+        row.execution.state === "reconciliation_required" ||
+        (row.execution.state === "failed" &&
+          builderExecutionPayloadHasSuccessfulResponse(row.execution.payload))),
+  );
+}
+
+function builderExecutionPayloadHasSuccessfulResponse(
+  payload: Record<string, unknown>,
+) {
+  const response = payload.response;
+  return (
+    !!response &&
+    typeof response === "object" &&
+    !Array.isArray(response) &&
+    (response as Record<string, unknown>).ok === true
   );
 }
 
@@ -5783,22 +7278,65 @@ export function builderSourceLiveWriteControlState(
   source: ContentDatabaseSource | null,
 ) {
   const isBuilderSource = source?.sourceType === "builder-cms";
-  const safeTarget =
-    isBuilderSource && source?.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
-  const enabled = source?.capabilities.liveWritesEnabled === true;
+  const legacyAllowedWriteModes = source?.metadata.allowedWriteModes ?? [];
+  const writeMode =
+    source?.metadata.writeMode ??
+    (source?.capabilities.liveWritesEnabled === true
+      ? legacyAllowedWriteModes.some((mode) => mode !== "autosave")
+        ? "publish_updates"
+        : "stage_only"
+      : "read_only");
+  const enabled = writeMode !== "read_only";
   return {
-    safeTarget,
+    safeTarget: isBuilderSource,
     enabled,
-    showAction: safeTarget,
+    writeMode,
+    allowPublicationTransitions:
+      writeMode === "publish_updates" &&
+      source?.metadata.allowPublicationTransitions === true,
+    availableWriteModes: BUILDER_WRITE_MODE_OPTIONS.map(
+      (option) => option.mode,
+    ),
+    showPublicationTransitions: writeMode === "publish_updates",
+    showAction: isBuilderSource,
     actionLabel: enabled ? "Disable" : "Enable",
     description: enabled
-      ? "Enabled for autosave writes to the Agent Native test collection."
-      : safeTarget
-        ? "Off by default. Enable only when you are ready to send autosave writes to the Agent Native test collection."
-        : isBuilderSource
-          ? "Unavailable here; live writes are locked to the Agent Native test collection."
-          : "Live writes are not available for this source.",
+      ? writeMode === "publish_updates"
+        ? "Approved updates can write through to Builder while preserving publication state."
+        : "Approved updates can create Builder autosave revisions."
+      : isBuilderSource
+        ? "Off by default. An administrator can choose a guarded write tier for this source."
+        : "Live writes are not available for this source.",
   };
+}
+
+const BUILDER_WRITE_MODE_OPTIONS: Array<{
+  mode: ContentDatabaseSourceWriteMode;
+  labelKey: DatabaseMessageKey;
+  descriptionKey: DatabaseMessageKey;
+}> = [
+  {
+    mode: "read_only",
+    labelKey: "readOnly",
+    descriptionKey: "noBuilderWrites",
+  },
+  {
+    mode: "stage_only",
+    labelKey: "stageOnly",
+    descriptionKey: "savesDraftsNeverPublishes",
+  },
+  {
+    mode: "publish_updates",
+    labelKey: "publishUpdates",
+    descriptionKey: "writesUpdatesToLiveEntries",
+  },
+];
+
+function builderWriteModeSummary(mode: ContentDatabaseSourceWriteMode) {
+  return dbText(
+    BUILDER_WRITE_MODE_OPTIONS.find((option) => option.mode === mode)
+      ?.descriptionKey ?? "noBuilderWrites",
+  );
 }
 
 export function buildClientBuilderReviewPayload(
@@ -5826,6 +7364,7 @@ export function buildClientBuilderReviewPayload(
       (field) => field.localFieldKey === "title",
     );
     const proposedTitle = titleChange?.proposedValue;
+    const effect = resolveBuilderCmsWriteEffect({ source, changeSet });
 
     return {
       changeSetId: changeSet.id,
@@ -5835,12 +7374,14 @@ export function buildClientBuilderReviewPayload(
         typeof proposedTitle === "string" && proposedTitle.trim()
           ? proposedTitle
           : sourceRow?.sourceDisplayKey || "Untitled",
+      targetEntryId:
+        effect === "create_draft" ? null : (sourceRow?.sourceRowId ?? null),
       fieldChanges: changeSet.fieldChanges,
       bodyChange: changeSet.bodyChange,
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
-      effect: resolveBuilderCmsWriteEffect({ source, changeSet }),
+      effect,
       execution: latestExecution,
     };
   });
@@ -5863,19 +7404,22 @@ export function buildClientBuilderReviewPayload(
     executionStates.length > 0 &&
     executionStates.every((state) => state === "succeeded")
       ? "succeeded"
-      : executionStates.includes("failed")
-        ? "failed"
-        : executionStates.includes("running")
-          ? "running"
-          : statuses.some((status) => status.status === "stale")
-            ? "stale"
-            : statuses.some((status) => status.status === "blocked")
-              ? "blocked"
-              : statuses.some((status) => status.status === "validated")
-                ? "validated"
-                : source.capabilities.liveWritesEnabled
+      : executionStates.includes("reconciliation_required") ||
+          executionStates.includes("response_received")
+        ? "reconciliation_required"
+        : executionStates.includes("failed")
+          ? "failed"
+          : executionStates.includes("running")
+            ? "running"
+            : statuses.some((status) => status.status === "stale")
+              ? "stale"
+              : statuses.some((status) => status.status === "blocked")
+                ? "blocked"
+                : statuses.some((status) => status.status === "validated")
                   ? "validated"
-                  : "write_disabled";
+                  : source.capabilities.liveWritesEnabled
+                    ? "validated"
+                    : "write_disabled";
 
   return {
     summary:
@@ -5897,19 +7441,21 @@ export function buildClientBuilderReviewPayload(
           ? "Pushed to Builder and reconciled locally."
           : resultStatus === "failed"
             ? "Builder push failed. The change remains retryable."
-            : resultStatus === "running"
-              ? "Builder push is running."
-              : resultStatus === "validated"
-                ? source.capabilities.liveWritesEnabled
-                  ? hasExecutionEvidence
-                    ? "Push checked successfully. Ready to send to Builder."
-                    : "Ready to send to Builder."
-                  : "Push checked successfully. Nothing was sent to Builder."
-                : resultStatus === "blocked"
-                  ? "Push needs attention before anything can be sent to Builder."
-                  : resultStatus === "stale"
-                    ? "Push needs a fresh review because the plan changed."
-                    : "Builder writes are off in this local build. Push will check the update only.",
+            : resultStatus === "reconciliation_required"
+              ? "Builder reconciliation is required. Do not retry this write."
+              : resultStatus === "running"
+                ? "Builder push is running."
+                : resultStatus === "validated"
+                  ? source.capabilities.liveWritesEnabled
+                    ? hasExecutionEvidence
+                      ? "Push checked successfully. Ready to send to Builder."
+                      : "Ready to send to Builder."
+                    : "Push checked successfully. Nothing was sent to Builder."
+                  : resultStatus === "blocked"
+                    ? "Push needs attention before anything can be sent to Builder."
+                    : resultStatus === "stale"
+                      ? "Push needs a fresh review because the plan changed."
+                      : "Builder writes are off in this local build. Push will check the update only.",
     },
   };
 }
@@ -5920,6 +7466,7 @@ function DatabaseSettingsSourcePanel({
   documentId,
   itemCount,
   canEdit,
+  canManage,
   nav,
   onNavPush,
   onNavReplace,
@@ -5933,12 +7480,14 @@ function DatabaseSettingsSourcePanel({
   onReviewBuilderUpdate,
   onSetBuilderLiveWrites,
   sourceActionPending,
+  sourcePendingOperations,
 }: {
   source: ContentDatabaseSource | null;
   sources: ContentDatabaseSource[];
   documentId: string;
   itemCount: number;
   canEdit: boolean;
+  canManage: boolean;
   nav: SourceNavStep[];
   onNavPush: (step: SourceNavStep) => void;
   onNavReplace: (stack: SourceNavStep[]) => void;
@@ -5959,26 +7508,13 @@ function DatabaseSettingsSourcePanel({
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
   onDisconnectSource: (sourceId?: string) => void;
-  onReviewBuilderUpdate: () => void;
-  onSetBuilderLiveWrites: (enabled: boolean) => void;
+  onReviewBuilderUpdate: (sourceId: string) => void;
+  onSetBuilderLiveWrites: (settings: BuilderSourceWriteSettingsInput) => void;
   sourceActionPending: boolean;
+  sourcePendingOperations: DatabaseSourcePendingOperations;
 }) {
-  const outboundChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.direction === "outbound",
-    ) ?? [];
-  const reviewableBuilderChangeSets = outboundChangeSets.filter(
-    (changeSet) =>
-      changeSet.state === "pending_push" ||
-      changeSet.state === "staged_revision" ||
-      changeSet.state === "approved",
-  );
-  const conflictChangeSets =
-    source?.changeSets.filter(
-      (changeSet) => changeSet.conflictState === "source_changed",
-    ) ?? [];
   const { isCodeMode } = useCodeMode();
-  const isBuilderSource = source?.sourceType === "builder-cms";
+  const builderSources = databaseAttachedBuilderSources(sources, source);
   const builderStatus = useBuilderStatus();
   const builderConfigured = builderStatus.status?.configured === true;
   const builderOrgName = builderStatus.status?.orgName ?? null;
@@ -5997,10 +7533,6 @@ function DatabaseSettingsSourcePanel({
       void builderStatus.refetch();
     },
   });
-  const builderSyncFailed =
-    isBuilderSource &&
-    (source?.syncState === "error" || Boolean(source?.lastError));
-
   const top = nav[nav.length - 1];
 
   // ── Sources list (root) ───────────────────────────────────────────────
@@ -6011,9 +7543,21 @@ function DatabaseSettingsSourcePanel({
         sources={sources}
         builderConfigured={builderConfigured}
         builderSpaceLabel={builderSpaceLabel}
-        reviewableCount={reviewableBuilderChangeSets.length}
-        onOpenBuilder={() =>
-          onNavPush({ kind: "provider", providerId: "builder" })
+        reviewableCount={builderSources.reduce(
+          (total, candidate) =>
+            total + builderReviewableChangeSets(candidate).length,
+          0,
+        )}
+        onOpenBuilder={(builderSource) =>
+          onNavPush(
+            builderSource
+              ? {
+                  kind: "model",
+                  sourceId: builderSource.id,
+                  sourceName: builderSource.sourceName,
+                }
+              : { kind: "provider", providerId: "builder" },
+          )
         }
         onOpenNotion={() => onNavPush({ kind: "addSource" })}
         onOpenSecondary={(secondary) =>
@@ -6217,22 +7761,28 @@ function DatabaseSettingsSourcePanel({
   if (top.kind === "space") {
     return (
       <BuilderSpaceModelsView
-        attachedModelName={
-          isBuilderSource ? (source?.sourceTable ?? null) : null
-        }
-        onOpenModel={(model) => onNavPush({ kind: "model", model })}
+        attachedModelNames={databaseAttachedBuilderModelNames(sources, source)}
+        onOpenModel={(model) => {
+          const attached = databaseAttachedBuilderSource(sources, source, {
+            modelName: model.name,
+          });
+          onNavPush({ kind: "model", model, sourceId: attached?.id });
+        }}
       />
     );
   }
 
   // ── Model leaf ────────────────────────────────────────────────────────
   const model = top.model;
-  const isAttachedModel =
-    Boolean(source) && isBuilderSource && source?.sourceTable === model.name;
+  const selectedBuilderSource = databaseAttachedBuilderSource(sources, source, {
+    sourceId: top.sourceId,
+    modelName: model?.name,
+  });
 
   // Unattached model → the attach affordance (the model is already chosen by
   // drilling in, so there's no model picker here).
-  if (!isAttachedModel || !source) {
+  if (!selectedBuilderSource) {
+    if (!model) return null;
     return (
       <div className="grid min-w-0 gap-3">
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
@@ -6311,41 +7861,91 @@ function DatabaseSettingsSourcePanel({
     );
   }
 
-  // Attached model → the minimal read-only leaf panel.
+  const selectedSource = selectedBuilderSource;
+  const reviewableBuilderChangeSets =
+    builderReviewableChangeSets(selectedSource);
+  const outboundChangeSets = reviewableBuilderChangeSets;
+  const conflictChangeSets = selectedSource.changeSets.filter(
+    (changeSet) => changeSet.conflictState === "source_changed",
+  );
+  const builderSyncFailed =
+    selectedSource.syncState === "error" || Boolean(selectedSource.lastError);
+  const liveWriteControl = builderSourceLiveWriteControlState(selectedSource);
+  const builderWriteMode = liveWriteControl.writeMode;
+  const selectedSourceMutationPending = databaseSourceOperationIsPending(
+    sourcePendingOperations,
+    selectedSource.id,
+    [
+      "changeRole",
+      "refresh",
+      "hydration",
+      "disconnect",
+      "review",
+      "execute",
+      "writeMode",
+    ],
+  );
+  const selectedSourceReviewPending = databaseSourceOperationIsPending(
+    sourcePendingOperations,
+    selectedSource.id,
+    ["refresh", "disconnect", "review", "execute", "writeMode"],
+  );
+  const selectedSourceHydrationPending = databaseSourceOperationIsPending(
+    sourcePendingOperations,
+    selectedSource.id,
+    ["refresh", "hydration", "disconnect"],
+  );
+  const selectedSourceRefreshControlPending =
+    sourcePendingOperations.refresh || selectedSourceMutationPending;
+  const selectedSourceReviewControlPending =
+    sourcePendingOperations.review ||
+    sourcePendingOperations.execute ||
+    selectedSourceReviewPending;
+  const selectedSourceHydrationControlPending =
+    sourcePendingOperations.hydration || selectedSourceHydrationPending;
+  const selectedSourceRoleControlPending =
+    sourcePendingOperations.changeRole || selectedSourceMutationPending;
+  const selectedSourceDisconnectControlPending =
+    sourcePendingOperations.disconnect || selectedSourceMutationPending;
+  const builderWriteModeDisabled =
+    !canManage ||
+    databaseBuilderWriteModeOperationPending(
+      sourcePendingOperations,
+      selectedSource.id,
+    );
+
+  // Attached model → source details and guarded write policy.
   return (
     <div className="grid min-w-0 gap-4">
       <>
         <div className="grid min-w-0 gap-1.5 rounded-lg border border-border bg-background p-3 text-sm">
           <div className="flex min-w-0 items-center justify-between gap-2">
-            <span className="truncate font-medium" title={source.sourceName}>
-              {source.sourceName}
+            <span
+              className="truncate font-medium"
+              title={selectedSource.sourceName}
+            >
+              {selectedSource.sourceName}
             </span>
             <div className="flex shrink-0 items-center gap-1">
-              {isBuilderSource ? (
-                source.capabilities.liveWritesEnabled ? (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
-                    <IconPencil className="size-3" />
-                    {dbText("liveWritesOn")}
-                  </span>
-                ) : (
-                  <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
-                    <IconLock className="size-3" />
-                    {dbText("readOnly")}
-                  </span>
-                )
+              {selectedSource.capabilities.liveWritesEnabled ? (
+                <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-foreground">
+                  <IconPencil className="size-3" />
+                  {dbText("liveWritesOn")}
+                </span>
               ) : (
-                <span className="rounded-full border border-border px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted-foreground">
-                  {source.syncState}
+                <span className="inline-flex items-center gap-1 rounded-full border border-border px-2 py-0.5 text-[11px] font-medium text-muted-foreground">
+                  <IconLock className="size-3" />
+                  {dbText("readOnly")}
                 </span>
               )}
-              {isBuilderSource && !builderSyncFailed ? (
+              {!builderSyncFailed ? (
                 <Button
                   type="button"
                   variant="ghost"
                   size="sm"
                   className="h-7 gap-1 px-2 text-xs"
-                  disabled={!canEdit || sourceActionPending}
-                  onClick={() => onRefreshSource(source.id)}
+                  disabled={!canEdit || selectedSourceRefreshControlPending}
+                  onClick={() => onRefreshSource(selectedSource.id)}
                 >
                   <IconRefresh className="size-3" />
                   {dbText("refreshSource")}
@@ -6358,109 +7958,186 @@ function DatabaseSettingsSourcePanel({
               <button
                 type="button"
                 className="inline-flex items-center gap-1 text-destructive hover:underline disabled:opacity-60"
-                disabled={!canEdit || sourceActionPending}
-                onClick={() => onRefreshSource(source.id)}
+                disabled={!canEdit || selectedSourceRefreshControlPending}
+                onClick={() => onRefreshSource(selectedSource.id)}
               >
                 <IconRefresh className="size-3" />
                 {dbText("couldntSyncRetry")}
               </button>
-            ) : isBuilderSource ? (
+            ) : (
               [
                 builderConfigured ? (builderSpaceLabel ?? "Connected") : null,
-                source.lastRefreshedAt
+                selectedSource.lastRefreshedAt
                   ? `synced ${
-                      formatRelativeSyncTime(source.lastRefreshedAt) ??
-                      source.freshness
+                      formatRelativeSyncTime(selectedSource.lastRefreshedAt) ??
+                      selectedSource.freshness
                     }`
-                  : source.freshness,
-                typeof source.metadata.lastReadFetchedEntryCount === "number"
+                  : selectedSource.freshness,
+                typeof selectedSource.metadata.lastReadFetchedEntryCount ===
+                "number"
                   ? dbText("builderRowsFetched", {
-                      count: source.metadata.lastReadFetchedEntryCount,
+                      count: selectedSource.metadata.lastReadFetchedEntryCount,
                     })
                   : null,
-                builderSourceRowFetchStatus(source) === "error"
+                builderSourceRowFetchStatus(selectedSource) === "error"
                   ? dbText("builderRowsFetchFailed")
-                  : builderSourceRowFetchStatus(source) === "fetching"
+                  : builderSourceRowFetchStatus(selectedSource) === "fetching"
                     ? dbText("builderRowsFetchingMore")
                     : null,
               ]
                 .filter(Boolean)
                 .join(" · ")
-            ) : (
-              `Local snapshot · ${source.freshness}`
             )}
+          </div>
+          <div className="grid min-w-0 gap-2 border-t border-border pt-3 text-xs text-muted-foreground">
+            <div className="flex items-center justify-between gap-3">
+              <span className="font-medium text-foreground">
+                {dbText("builderWriteMode")}
+              </span>
+              <span>{builderWriteModeSummary(builderWriteMode)}</span>
+            </div>
+            <div
+              className="grid grid-cols-3 gap-0.5 rounded-md border border-border bg-muted/35 p-0.5"
+              aria-label={dbText("builderWriteMode")}
+            >
+              {BUILDER_WRITE_MODE_OPTIONS.map((option) => {
+                const selected = builderWriteMode === option.mode;
+                return (
+                  <button
+                    key={option.mode}
+                    type="button"
+                    aria-pressed={selected}
+                    title={dbText(option.descriptionKey)}
+                    disabled={builderWriteModeDisabled}
+                    className={cn(
+                      "min-w-0 rounded px-2 py-1.5 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60",
+                      selected
+                        ? "bg-[#2383e2] text-white shadow-sm"
+                        : "text-muted-foreground hover:bg-background hover:text-foreground",
+                    )}
+                    onClick={() =>
+                      onSetBuilderLiveWrites({
+                        sourceId: selectedSource.id,
+                        writeMode: option.mode,
+                        allowPublicationTransitions:
+                          option.mode === "publish_updates"
+                            ? liveWriteControl.allowPublicationTransitions
+                            : false,
+                      })
+                    }
+                  >
+                    <span className="block truncate">
+                      {dbText(option.labelKey)}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+            {liveWriteControl.showPublicationTransitions ? (
+              <button
+                type="button"
+                role="checkbox"
+                aria-checked={liveWriteControl.allowPublicationTransitions}
+                disabled={builderWriteModeDisabled}
+                className="flex min-w-0 items-start gap-2 rounded px-1 py-1 text-left transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:cursor-default disabled:opacity-60"
+                onClick={() =>
+                  onSetBuilderLiveWrites({
+                    sourceId: selectedSource.id,
+                    writeMode: "publish_updates",
+                    allowPublicationTransitions:
+                      !liveWriteControl.allowPublicationTransitions,
+                  })
+                }
+              >
+                <span
+                  className={cn(
+                    "mt-0.5 inline-flex size-4 shrink-0 items-center justify-center rounded border",
+                    liveWriteControl.allowPublicationTransitions
+                      ? "border-[#2383e2] bg-[#2383e2] text-white"
+                      : "border-muted-foreground/40 bg-background text-transparent",
+                  )}
+                >
+                  {liveWriteControl.allowPublicationTransitions ? (
+                    <IconCheck className="size-3" />
+                  ) : null}
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-foreground">
+                    {dbText("allowPublishUnpublishPerItem")}
+                  </span>
+                </span>
+              </button>
+            ) : null}
           </div>
         </div>
 
-        {reviewableBuilderChangeSets.length > 0 ||
-        conflictChangeSets.length > 0 ? (
-          <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
-            <div className="flex items-center justify-between gap-3">
-              <div className="min-w-0">
-                <div className="text-sm font-medium">
-                  {conflictChangeSets.length > 0
-                    ? `${conflictChangeSets.length} change${
-                        conflictChangeSets.length === 1 ? "" : "s"
-                      } need review`
-                    : `${reviewableBuilderChangeSets.length} change${
+        <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-muted/30 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div className="min-w-0">
+              <div className="text-sm font-medium">
+                {conflictChangeSets.length > 0
+                  ? `${conflictChangeSets.length} change${
+                      conflictChangeSets.length === 1 ? "" : "s"
+                    } need review`
+                  : reviewableBuilderChangeSets.length > 0
+                    ? `${reviewableBuilderChangeSets.length} change${
                         reviewableBuilderChangeSets.length === 1 ? "" : "s"
-                      } ready to push`}
-                </div>
-                <div className="mt-0.5 break-words text-xs text-muted-foreground">
-                  {dbText("reviewBeforeTheyReachBuilder")}
-                </div>
+                      } ready to push`
+                    : "Check for local content changes"}
               </div>
-              <Button
-                type="button"
-                size="sm"
-                className="shrink-0"
-                disabled={!canEdit || sourceActionPending}
-                onClick={onReviewBuilderUpdate}
-              >
-                <IconCheck className="mr-1.5 size-3.5" />
-                {dbText("reviewDiff")}
-              </Button>
+              <div className="mt-0.5 break-words text-xs text-muted-foreground">
+                {dbText("reviewDiffDescription")}
+              </div>
             </div>
+            <Button
+              type="button"
+              size="sm"
+              className="shrink-0"
+              disabled={!canEdit || selectedSourceReviewControlPending}
+              onClick={() => onReviewBuilderUpdate(selectedSource.id)}
+            >
+              <IconCheck className="mr-1.5 size-3.5" />
+              {dbText("reviewDiff")}
+            </Button>
           </div>
-        ) : null}
+        </div>
 
-        {isBuilderSource && source.bodyHydration ? (
+        {selectedSource.bodyHydration ? (
           <BuilderBodyHydrationCard
-            source={source}
+            source={selectedSource}
             canEdit={canEdit}
-            pending={sourceActionPending}
-            onHydrate={() => onHydrateBuilderBodies(source.id)}
+            pending={selectedSourceHydrationControlPending}
+            onHydrate={() => onHydrateBuilderBodies(selectedSource.id)}
           />
         ) : null}
+
+        <BuilderRequiredFieldsCard
+          documentId={documentId}
+          source={selectedSource}
+          canEdit={canEdit}
+          pending={selectedSourceMutationPending}
+        />
 
         {isCodeMode ? (
           <>
             <div className="grid min-w-0 gap-2 rounded-lg border border-border bg-background p-3 text-sm">
-              <div className="font-medium">
-                {source.sourceType === "builder-cms"
-                  ? "Local Builder changes"
-                  : "Local outbound changes"}
-              </div>
+              <div className="font-medium">{dbText("builderChanges")}</div>
               <div className="text-xs text-muted-foreground">
-                {source.sourceType === "builder-cms"
-                  ? source.capabilities.liveWritesEnabled
-                    ? "Local edits can be reviewed and sent through the guarded Builder autosave path."
-                    : "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."
-                  : "No local outbound push lane is active for this mock source."}
+                {selectedSource.capabilities.liveWritesEnabled
+                  ? "Local edits can be reviewed and sent through the guarded Builder autosave path."
+                  : "Local edits can be staged as a Builder save revision/autosave record. Live Builder writes are disabled."}
               </div>
               <div className="grid min-w-0 gap-2">
                 {outboundChangeSets.slice(0, 6).map((changeSet) => (
                   <SourceChangeSetReviewCard
                     key={changeSet.id}
                     changeSet={changeSet}
-                    source={source}
+                    source={selectedSource}
                   />
                 ))}
                 {outboundChangeSets.length === 0 ? (
                   <div className="text-xs text-muted-foreground">
-                    {source.sourceType === "builder-cms"
-                      ? "No pending local Builder changes yet. Rename a source-backed row to see a local outbound diff."
-                      : "No local outbound changes yet."}
+                    {dbText("noPendingChangesEditASourceBackedRow")}
                   </div>
                 ) : null}
               </div>
@@ -6469,33 +8146,33 @@ function DatabaseSettingsSourcePanel({
         ) : null}
 
         <SourceRoleCard
-          source={source}
+          source={selectedSource}
           canAddDetails={sources.some(
-            (item) => item.id !== source.id && !sourceAddsDetails(item),
+            (item) => item.id !== selectedSource.id && !sourceAddsDetails(item),
           )}
           canEdit={canEdit}
-          pending={sourceActionPending}
+          pending={selectedSourceRoleControlPending}
           onAddDetails={() =>
             onNavPush({
               kind: "keyConfirm",
               candidate: {
-                sourceType: source.sourceType,
-                sourceName: source.sourceName,
-                sourceTable: source.sourceTable,
-                displayName: source.sourceName,
-                existingSourceId: source.id,
+                sourceType: selectedSource.sourceType,
+                sourceName: selectedSource.sourceName,
+                sourceTable: selectedSource.sourceTable,
+                displayName: selectedSource.sourceName,
+                existingSourceId: selectedSource.id,
               },
             })
           }
           onAddItems={async () => {
-            await onChangeSourceRole(source.id, "items");
+            await onChangeSourceRole(selectedSource.id, "items");
             onNavReplace([]);
           }}
           onChooseFields={() =>
             onNavPush({
               kind: "fieldPicker",
-              sourceId: source.id,
-              sourceName: source.sourceName,
+              sourceId: selectedSource.id,
+              sourceName: selectedSource.sourceName,
             })
           }
         />
@@ -6512,10 +8189,10 @@ function DatabaseSettingsSourcePanel({
             size="sm"
             variant="outline"
             className="mt-2 h-8 text-xs text-destructive hover:text-destructive"
-            disabled={!canEdit || sourceActionPending}
-            onClick={() => onDisconnectSource(source.id)}
+            disabled={!canEdit || selectedSourceDisconnectControlPending}
+            onClick={() => onDisconnectSource(selectedSource.id)}
           >
-            {sourceActionPending ? (
+            {selectedSourceDisconnectControlPending ? (
               <Spinner className="mr-1 size-3.5" />
             ) : (
               <IconX className="mr-1 size-3.5" />
@@ -6546,7 +8223,7 @@ function SourcesListView({
   builderConfigured: boolean;
   builderSpaceLabel: string | null;
   reviewableCount: number;
-  onOpenBuilder: () => void;
+  onOpenBuilder: (source?: ContentDatabaseSource) => void;
   onOpenNotion: () => void;
   onOpenSecondary: (source: ContentDatabaseSource) => void;
   onAddSource: () => void;
@@ -6581,7 +8258,7 @@ function SourcesListView({
                 connected.metadata.federation?.role === "secondary"
                   ? () => onOpenSecondary(connected)
                   : connected.sourceType === "builder-cms"
-                    ? onOpenBuilder
+                    ? () => onOpenBuilder(connected)
                     : undefined
               }
               disabled={
@@ -7211,12 +8888,7 @@ function BuilderSourceContinuationBar({
   canEdit: boolean;
   pending: boolean;
   clientError: boolean;
-  progressHighWater: {
-    sourceId: string | null;
-    fetchedCount: number;
-    hydratedCount: number;
-    rowsComplete: boolean;
-  };
+  progressHighWater?: BuilderSourceProgressHighWater;
   onRetry: () => void;
 }) {
   if (
@@ -7228,8 +8900,7 @@ function BuilderSourceContinuationBar({
   }
   const rowsComplete =
     source.metadata.lastReadHasMore === false ||
-    (progressHighWater.sourceId === source.id &&
-      progressHighWater.rowsComplete);
+    progressHighWater?.rowsComplete === true;
   const rawStatus = clientError ? "error" : builderSourceRowFetchStatus(source);
   const status = rowsComplete && rawStatus === "fetching" ? null : rawStatus;
   const bodyHydration = source.bodyHydration;
@@ -7242,10 +8913,7 @@ function BuilderSourceContinuationBar({
   const hydratedCount = bodyHydration
     ? builderBodyHydrationDisplayHydratedCount({
         summary: bodyHydration,
-        highWaterCount:
-          progressHighWater.sourceId === source.id
-            ? progressHighWater.hydratedCount
-            : 0,
+        highWaterCount: progressHighWater?.hydratedCount ?? 0,
       })
     : 0;
   const fetchedCount =
@@ -7253,9 +8921,7 @@ function BuilderSourceContinuationBar({
       ? Math.max(
           rawFetchedCount ?? 0,
           bodyHydration.total,
-          progressHighWater.sourceId === source.id
-            ? progressHighWater.fetchedCount
-            : 0,
+          progressHighWater?.fetchedCount ?? 0,
         )
       : rawFetchedCount;
   const hasMore = source.metadata.lastReadHasMore === true && !rowsComplete;
@@ -7502,6 +9168,105 @@ function sourceFieldIconType(
   return "text";
 }
 
+export function builderMissingRequiredFields(
+  source: ContentDatabaseSource | null | undefined,
+) {
+  if (
+    source?.sourceType !== "builder-cms" ||
+    source.sourceTable !== "agent-native-blog-article-test"
+  ) {
+    return [];
+  }
+
+  const requiredFieldKeys = new Set(
+    (source.metadata.builderModelFields ?? [])
+      .filter(
+        (field) =>
+          field.required &&
+          field.name !== "title" &&
+          field.name !== "blocks" &&
+          field.name !== "blocksString",
+      )
+      .map((field) => `data.${field.name}`),
+  );
+
+  return source.fields.filter(
+    (field) =>
+      !field.propertyId &&
+      field.mappingType !== "system" &&
+      field.mappingType !== "title" &&
+      requiredFieldKeys.has(field.sourceFieldKey),
+  );
+}
+
+export function BuilderRequiredFieldsCard({
+  documentId,
+  source,
+  canEdit,
+  pending,
+  onDone,
+}: {
+  documentId: string;
+  source: ContentDatabaseSource;
+  canEdit: boolean;
+  pending: boolean;
+  onDone?: () => void;
+}) {
+  const addRequiredFields = useMaterializeBuilderRequiredFields(documentId);
+  const missingRequiredFields = builderMissingRequiredFields(source);
+
+  if (missingRequiredFields.length === 0) return null;
+
+  const addRequired = async () => {
+    try {
+      await addRequiredFields.mutateAsync({
+        documentId,
+        sourceId: source.id,
+      });
+      toast.success(dbText("publishingFieldsAdded"), {
+        description: dbText("requiredBuilderFieldsReady", {
+          count: missingRequiredFields.length,
+        }),
+      });
+      onDone?.();
+    } catch (error) {
+      toast.error(dbText("fieldsWereNotAdded"), {
+        description:
+          error instanceof Error ? error.message : dbText("tryAgain"),
+      });
+    }
+  };
+
+  return (
+    <div className="grid gap-2 rounded-lg border border-border bg-muted/30 p-3">
+      <div className="text-sm font-medium">
+        {dbText("requiredPublishingFields")}
+      </div>
+      <div className="text-xs text-muted-foreground">
+        {dbText("requiredPublishingFieldsDescription", {
+          fields: missingRequiredFields
+            .map((field) => field.sourceFieldLabel)
+            .join(", "),
+        })}
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="justify-self-start"
+        disabled={!canEdit || pending || addRequiredFields.isPending}
+        onClick={addRequired}
+      >
+        {addRequiredFields.isPending ? (
+          <Spinner className="mr-1.5 size-3.5" />
+        ) : (
+          <IconPlus className="mr-1.5 size-3.5" />
+        )}
+        {dbText("addRequiredFields")}
+      </Button>
+    </div>
+  );
+}
+
 function SourceDetailsFieldPicker({
   documentId,
   source,
@@ -7586,7 +9351,6 @@ function SourceDetailsFieldPicker({
       });
     }
   };
-
   return (
     <div className="grid min-w-0 gap-3">
       <div className="grid min-w-0 gap-1 rounded-lg border border-border bg-background p-3">
@@ -7597,6 +9361,13 @@ function SourceDetailsFieldPicker({
           {dbText("pickDetailsBecomeColumns")}
         </div>
       </div>
+      <BuilderRequiredFieldsCard
+        documentId={documentId}
+        source={source}
+        canEdit={canEdit}
+        pending={pending}
+        onDone={onDone}
+      />
       {fields.length === 0 ? (
         <div className="break-words text-xs text-muted-foreground">
           {dbText("allAvailableDetailFieldsAlreadyVisible")}
@@ -7667,10 +9438,10 @@ function SourceDetailsFieldPicker({
 // A Builder space's data models, as drill-in rows. The attached model (if any)
 // is marked; selecting a row opens that model's leaf.
 function BuilderSpaceModelsView({
-  attachedModelName,
+  attachedModelNames,
   onOpenModel,
 }: {
-  attachedModelName: string | null;
+  attachedModelNames: string[];
   onOpenModel: (model: BuilderCmsModelSummary) => void;
 }) {
   const modelsQuery = useBuilderCmsModels(true);
@@ -7678,22 +9449,27 @@ function BuilderSpaceModelsView({
   const [query, setQuery] = useState("");
 
   if (modelsQuery.isLoading) {
-    if (attachedModelName) {
+    if (attachedModelNames.length > 0) {
       return (
         <div className="grid min-w-0 gap-2">
           <div className="grid min-w-0 gap-1.5">
             <div className="px-2 text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
               {dbText("alreadyAttached")}
             </div>
-            <div className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm">
-              <span className="flex min-w-0 items-center gap-2">
-                <IconLayoutGrid className="size-4 shrink-0 text-muted-foreground" />
-                <span className="min-w-0 truncate">{attachedModelName}</span>
-              </span>
-              <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
-                attached
-              </span>
-            </div>
+            {attachedModelNames.map((attachedModelName) => (
+              <div
+                key={attachedModelName}
+                className="flex min-w-0 items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm"
+              >
+                <span className="flex min-w-0 items-center gap-2">
+                  <IconLayoutGrid className="size-4 shrink-0 text-muted-foreground" />
+                  <span className="min-w-0 truncate">{attachedModelName}</span>
+                </span>
+                <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">
+                  attached
+                </span>
+              </div>
+            ))}
           </div>
           <div className="flex min-w-0 items-center gap-2 px-2 text-xs text-muted-foreground">
             <Spinner className="size-3.5" />
@@ -7767,15 +9543,16 @@ function BuilderSpaceModelsView({
     model.displayName.toLowerCase().includes(normalizedQuery) ||
     model.name.toLowerCase().includes(normalizedQuery);
   const filtered = models.filter(matchesQuery);
-  const attachedModels = filtered.filter(
-    (model) => attachedModelName === model.name,
+  const attachedModelNameSet = new Set(attachedModelNames);
+  const attachedModels = filtered.filter((model) =>
+    attachedModelNameSet.has(model.name),
   );
   const otherModels = filtered.filter(
-    (model) => attachedModelName !== model.name,
+    (model) => !attachedModelNameSet.has(model.name),
   );
 
   const renderRow = (model: BuilderCmsModelSummary) => {
-    const isAttached = attachedModelName === model.name;
+    const isAttached = attachedModelNameSet.has(model.name);
     return (
       <button
         key={model.id}

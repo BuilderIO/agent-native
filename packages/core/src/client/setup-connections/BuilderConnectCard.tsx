@@ -30,9 +30,7 @@ export function BuilderConnectCard({
     ? "Checking"
     : flow.configured
       ? connectedLabel
-      : flow.builderEnabled
-        ? "Ready to connect"
-        : "Project not configured";
+      : "Ready to connect";
 
   return (
     <section
@@ -73,10 +71,7 @@ export function BuilderConnectCard({
             <button
               type="button"
               onClick={() => flow.start()}
-              disabled={
-                flow.connecting ||
-                (!flow.builderEnabled && flow.hasFetchedStatus)
-              }
+              disabled={flow.connecting}
               className="mt-3 inline-flex h-8 items-center gap-2 rounded-md border border-border bg-foreground px-3 text-xs font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {flow.connecting ? (

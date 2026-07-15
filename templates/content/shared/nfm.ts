@@ -115,7 +115,7 @@ function unescapeInlineText(text: string): string {
 // paragraph instead of being reparsed as that block type. These are matched
 // against the raw (untrimmed) text because the corresponding block parsers
 // (heading/list/task) also match against the untrimmed dedented line.
-const LEADING_BLOCK_MARKER = /^(#{1,4} |[-*+] |\d+[.)] |\[[ xX]\] )/;
+const LEADING_BLOCK_MARKER = /^(#{1,6} |[-*+] |\d+[.)] |\[[ xX]\] )/;
 
 // Divider lookalikes ("---", "***", "___", 3+ repeats) — matched separately
 // because the divider parser trims the line before testing
@@ -865,7 +865,7 @@ function serializeBlock(node: PMNode, indent: number): string[] {
       ];
     }
     case "heading": {
-      const level = Math.min(4, Math.max(1, Number(node.attrs?.level) || 1));
+      const level = Math.min(6, Math.max(1, Number(node.attrs?.level) || 1));
       const inline = serializeInline(node.content);
       return [
         indentStr(ind) +
@@ -1480,7 +1480,7 @@ function parseSingleBlock(
   // Heading (possibly a toggle heading)
   const headingMatch = dedent.match(/^(#{1,6})\s+(.*)$/);
   if (headingMatch) {
-    const level = Math.min(4, headingMatch[1].length);
+    const level = headingMatch[1].length;
     const { text, toggle, color } = splitBlockAttrs(headingMatch[2]);
     if (toggle) {
       const childRes = parseBlockSequence(lines, start + 1, indent + 1);

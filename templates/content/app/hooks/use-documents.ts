@@ -92,13 +92,15 @@ export function seedDatabaseItemDocumentCaches(
   // Seed only cold caches. Overwriting an existing entry would bump its
   // freshness with possibly older table-snapshot data (a background database
   // refetch can lag a just-saved document edit) and suppress the correcting
-  // refetch for the whole staleTime window. Rows whose Builder body has not
-  // hydrated yet, or whose source-backed list snapshot intentionally omits the
-  // body, are never seeded: their empty table-snapshot `content` would render as
-  // an authoritative empty document.
+  // refetch for the whole staleTime window. Source-backed rows are never seeded:
+  // list snapshots are not authoritative enough to unlock the body editor, even
+  // when they happen to contain non-empty content. The dedicated get-document
+  // response owns that decision and prevents an edit from racing hydration.
   if (
     !databaseItemBodyHydrationIsPending(item) &&
     !sourceBackedEmptyBody &&
+    !item.bodyHydration &&
+    !item.document.databaseMembership?.sourceId &&
     queryClient.getQueryData(documentQueryKey(item.document.id)) === undefined
   ) {
     queryClient.setQueryData<Document>(documentQueryKey(item.document.id), {
@@ -137,6 +139,53 @@ export function useDocument(id: string | null) {
     // the spinner up for ~7s before the UI can render "Not found".
     retry: false,
   });
+}
+
+export interface PreviewDocumentDraftRecord {
+  documentId: string;
+  title: string;
+  content: string;
+  baseDocumentUpdatedAt: string | null;
+  loadedContentWasEmpty: number;
+  deferredReason: string | null;
+  version: number;
+  updatedAt: string;
+}
+
+export function usePreviewDocumentDraft(documentId: string | null) {
+  return useActionQuery<{ draft: PreviewDocumentDraftRecord | null }>(
+    "get-preview-document-draft",
+    documentId ? { documentId } : undefined,
+    { enabled: !!documentId, retry: false },
+  );
+}
+
+export function useUpdatePreviewDocumentDraft() {
+  return useActionMutation<
+    {
+      status: "saved" | "deleted" | "conflict";
+      draft: PreviewDocumentDraftRecord | null;
+    },
+    | {
+        operation: "upsert";
+        documentId: string;
+        expectedVersion: number | null;
+        draft: {
+          title: string;
+          content: string;
+          baseDocumentUpdatedAt: string | null;
+          loadedContentWasEmpty: boolean;
+          deferredReason: "hydration" | "conflict" | null;
+        };
+      }
+    | {
+        operation: "delete";
+        documentId: string;
+        expectedVersion: number;
+        expectedTitle: string;
+        expectedContent: string;
+      }
+  >("update-preview-document-draft");
 }
 
 export function useCreateDocument() {

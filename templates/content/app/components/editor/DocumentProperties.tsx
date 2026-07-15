@@ -489,6 +489,24 @@ export function filesMediaEditorValue(value: DocumentProperty["value"]) {
   return filesMediaItems(value).join("\n");
 }
 
+export function isValidFilesMediaLink(value: string) {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function mergeFilesMediaItems(items: string[], pendingLink: string) {
+  const trimmed = pendingLink.trim();
+  if (!trimmed || !isValidFilesMediaLink(trimmed)) return items;
+  if (items.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
+    return items;
+  }
+  return [...items, trimmed];
+}
+
 export function filesMediaLabel(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "File";
@@ -2060,16 +2078,8 @@ function FilesMediaValueEditor({
   }, []);
 
   function addItem(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    setItems((current) => {
-      if (
-        current.some((item) => item.toLowerCase() === trimmed.toLowerCase())
-      ) {
-        return current;
-      }
-      return [...current, trimmed];
-    });
+    if (!isValidFilesMediaLink(value)) return;
+    setItems((current) => mergeFilesMediaItems(current, value));
     setLinkValue("");
   }
 
@@ -2126,11 +2136,11 @@ function FilesMediaValueEditor({
       className="grid gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        if (linkValue.trim()) {
-          addItem(linkValue);
+        if (linkValue.trim() && !isValidFilesMediaLink(linkValue)) {
+          linkInputRef.current?.reportValidity();
           return;
         }
-        void save();
+        void save(mergeFilesMediaItems(items, linkValue));
       }}
     >
       <div className="grid max-h-48 gap-1 overflow-auto">
@@ -2174,9 +2184,11 @@ function FilesMediaValueEditor({
       <div className="flex gap-1">
         <Input
           ref={linkInputRef}
-          aria-label={t("editor.properties.addPropertyLink", {
+          aria-label={t("editor.properties.editValue", {
             name: property.definition.name,
           })}
+          type="url"
+          pattern="[hH][tT][tT][pP][sS]?://.*"
           value={linkValue}
           placeholder={t("editor.properties.pasteFileOrMediaLink")}
           onChange={(event) => setLinkValue(event.target.value)}
@@ -2193,7 +2205,7 @@ function FilesMediaValueEditor({
           size="sm"
           className="shrink-0"
           onClick={() => addItem(linkValue)}
-          disabled={!linkValue.trim() || mutation.isPending}
+          disabled={!isValidFilesMediaLink(linkValue) || mutation.isPending}
         >
           <IconPlus className="size-3.5" />
           {t("editor.properties.add")}
