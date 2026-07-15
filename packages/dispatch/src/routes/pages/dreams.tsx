@@ -1242,16 +1242,38 @@ export default function DreamsRoute() {
       setSelectedDreamId(urlDreamId);
       return;
     }
-    if (selectedDreamId && dreams.some((dream) => dream.id === selectedDreamId))
+    if (
+      selectedDreamId &&
+      dreams.some((dream) => dream.id === selectedDreamId)
+    ) {
       return;
+    }
+    if (dreamsQuery.isLoading) return;
+    // If the query failed, normalizeArray returns [] but the list is not
+    // confirmed empty — preserve the current selection so dreamDetailQuery
+    // can still load the detail from the URL param.
+    if (dreamsQuery.error) return;
     const nextId = dreams[0]?.id ?? null;
     setSelectedDreamId(nextId);
     if (nextId && nextId !== urlDreamId) {
       const next = new URLSearchParams(searchParams);
       next.set("dreamId", nextId);
       setSearchParams(next, { replace: true });
+    } else if (!nextId && urlDreamId) {
+      // List settled successfully with no rows — remove the stale URL param
+      // so dreamDetailQuery does not fire for an ID that cannot be found.
+      const next = new URLSearchParams(searchParams);
+      next.delete("dreamId");
+      setSearchParams(next, { replace: true });
     }
-  }, [dreams, searchParams, selectedDreamId, setSearchParams]);
+  }, [
+    dreams,
+    dreamsQuery.isLoading,
+    dreamsQuery.error,
+    searchParams,
+    selectedDreamId,
+    setSearchParams,
+  ]);
 
   function selectDream(dreamId: string) {
     setSelectedDreamId(dreamId);
