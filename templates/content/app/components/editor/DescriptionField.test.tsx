@@ -98,6 +98,8 @@ describe("DescriptionField behavior", () => {
     await act(async () => {
       textareaProps.onKeyDown({
         key: "Enter",
+        nativeEvent: { isComposing: false },
+        keyCode: 13,
         preventDefault,
         currentTarget: { blur: () => textareaProps.onBlur() },
       });
@@ -106,6 +108,27 @@ describe("DescriptionField behavior", () => {
 
     expect(preventDefault).toHaveBeenCalledOnce();
     expect(onSave).toHaveBeenCalledWith("Updated guidance");
+  });
+
+  it("does not blur or save when Enter is committing IME composition", () => {
+    const onSave = render();
+    const preventDefault = vi.fn();
+    const blur = vi.fn();
+
+    act(() => {
+      textareaProps.onChange({ target: { value: "Composing guidance" } });
+      textareaProps.onKeyDown({
+        key: "Enter",
+        nativeEvent: { isComposing: true },
+        keyCode: 229,
+        preventDefault,
+        currentTarget: { blur },
+      });
+    });
+
+    expect(preventDefault).not.toHaveBeenCalled();
+    expect(blur).not.toHaveBeenCalled();
+    expect(onSave).not.toHaveBeenCalled();
   });
 
   it("restores the stored value when a blur save fails", async () => {

@@ -107,6 +107,7 @@ export function DescriptionField({
       }}
       onKeyDown={(event) => {
         if (event.key === "Enter") {
+          if (event.nativeEvent.isComposing || event.keyCode === 229) return;
           event.preventDefault();
           event.currentTarget.blur();
           return;
