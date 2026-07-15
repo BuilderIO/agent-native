@@ -30,7 +30,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { resolvePlayerVideoUrl } from "../server/lib/player-video-url.js";
-import { canOpenDirectRecordingPage } from "../server/lib/recording-page-access.js";
+import {
+  canOpenDirectRecordingPage,
+  isRecordingExpired,
+} from "../server/lib/recording-page-access.js";
 import { parseSpaceIds } from "../server/lib/recordings.js";
 import { parseBrowserDiagnosticsRow } from "../shared/browser-diagnostics.js";
 import {
@@ -110,6 +113,10 @@ export default defineAction({
 
     const db = getDb();
     const rec: any = access.resource;
+
+    if (isRecordingExpired(rec.expiresAt)) {
+      throw new ForbiddenError("Recording has expired");
+    }
 
     let hasExplicitShare = access.role !== "owner";
     if (rec.visibility === "public" && access.role === "viewer") {

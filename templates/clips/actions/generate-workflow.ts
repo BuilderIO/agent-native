@@ -54,6 +54,11 @@ Output markdown.`,
 Keep it concise, warm, and professional.`,
 } as const;
 
+// Actions for the same recording can arrive concurrently when the player and
+// agent both retry a request. Keep the read-check-write/enqueue sequence
+// single-flight within this runtime so only one request can claim generation.
+const workflowGenerationLocks = new Set<string>();
+
 export default defineAction({
   description:
     "Ask the agent to generate a structured workflow doc (pr/sop/ticket/email) from this recording's transcript (and the full video when Include full video is enabled). The agent writes the result to clips-workflow-<recordingId> in application_state.",
@@ -64,87 +69,106 @@ export default defineAction({
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "viewer");
 
-    const db = getDb();
-    const [rec] = await db
-      .select()
-      .from(schema.recordings)
-      .where(eq(schema.recordings.id, args.recordingId))
-      .limit(1);
-    if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
-
-    const [transcript] = await db
-      .select()
-      .from(schema.recordingTranscripts)
-      .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
-      .limit(1);
-
     const stateKey = `clips-workflow-${args.recordingId}`;
-    const includeFullVideoInAi = await readIncludeFullVideoInAi();
-
-    const existing = await readAppState(stateKey).catch(() => null);
-    if (existing?.status === "generating") {
-      const requestedAt = Date.parse(String(existing.requestedAt ?? ""));
-      const isRecent =
-        !Number.isFinite(requestedAt) || Date.now() - requestedAt < 10 * 60_000;
-      if (isRecent) {
-        return {
-          queued: false,
-          duplicate: true,
-          recordingId: args.recordingId,
-          kind: existing.kind ?? args.kind,
-          stateKey,
-        };
-      }
+    if (workflowGenerationLocks.has(stateKey)) {
+      return {
+        queued: false,
+        duplicate: true,
+        recordingId: args.recordingId,
+        kind: args.kind,
+        stateKey,
+      };
     }
+    workflowGenerationLocks.add(stateKey);
 
-    // Seed the output state with a "generating" placeholder so the UI can show
-    // a loading state immediately.
-    await writeAppState(stateKey, {
-      kind: args.kind,
-      status: "generating",
-      recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
-    } as any);
+    try {
+      const db = getDb();
+      const [rec] = await db
+        .select()
+        .from(schema.recordings)
+        .where(eq(schema.recordings.id, args.recordingId))
+        .limit(1);
+      if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
 
-    const baseMessage =
-      `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
-      `(title: "${rec.title}"). Read the transcript from this request's context. ` +
-      `${KIND_PROMPTS[args.kind]} ` +
-      `Then write the final markdown to application_state key "${stateKey}" as ` +
-      `\`{ kind: "${args.kind}", status: "ready", content: "...", recordingId: "${args.recordingId}" }\`. ` +
-      `Finish by replying in chat with the same generated markdown so the user can read it immediately.`;
+      const [transcript] = await db
+        .select()
+        .from(schema.recordingTranscripts)
+        .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
+        .limit(1);
 
-    const request = {
-      kind: "generate-workflow" as const,
-      workflowKind: args.kind,
-      recordingId: args.recordingId,
-      requestedAt: new Date().toISOString(),
-      recordingTitle: rec.title,
-      recordingDescription: rec.description,
-      transcriptStatus: transcript?.status ?? "pending",
-      transcriptText: transcript?.fullText ?? "",
-      stateKey,
-      instructions: KIND_PROMPTS[args.kind],
-      includeFullVideoInAi,
-      message: withFullVideoAiInstructions(
-        baseMessage,
-        args.recordingId,
+      const includeFullVideoInAi = await readIncludeFullVideoInAi();
+
+      const existing = await readAppState(stateKey).catch(() => null);
+      if (existing?.status === "generating") {
+        const requestedAt = Date.parse(String(existing.requestedAt ?? ""));
+        const isRecent =
+          !Number.isFinite(requestedAt) ||
+          Date.now() - requestedAt < 10 * 60_000;
+        if (isRecent) {
+          return {
+            queued: false,
+            duplicate: true,
+            recordingId: args.recordingId,
+            kind: existing.kind ?? args.kind,
+            stateKey,
+          };
+        }
+      }
+
+      // Seed the output state with a "generating" placeholder so the UI can show
+      // a loading state immediately.
+      await writeAppState(stateKey, {
+        kind: args.kind,
+        status: "generating",
+        recordingId: args.recordingId,
+        requestedAt: new Date().toISOString(),
+      } as any);
+
+      const baseMessage =
+        `Generate a ${args.kind.toUpperCase()} workflow document from recording ${args.recordingId} ` +
+        `(title: "${rec.title}"). Read the transcript from this request's context. ` +
+        `${KIND_PROMPTS[args.kind]} ` +
+        `Then write the final markdown to application_state key "${stateKey}" as ` +
+        `\`{ kind: "${args.kind}", status: "ready", content: "...", recordingId: "${args.recordingId}" }\`. ` +
+        `Finish by replying in chat with the same generated markdown so the user can read it immediately.`;
+
+      const request = {
+        kind: "generate-workflow" as const,
+        workflowKind: args.kind,
+        recordingId: args.recordingId,
+        requestedAt: new Date().toISOString(),
+        recordingTitle: rec.title,
+        recordingDescription: rec.description,
+        transcriptStatus: transcript?.status ?? "pending",
+        transcriptText: transcript?.fullText ?? "",
+        stateKey,
+        instructions: KIND_PROMPTS[args.kind],
         includeFullVideoInAi,
-      ),
-    };
+        message: withFullVideoAiInstructions(
+          baseMessage,
+          args.recordingId,
+          includeFullVideoInAi,
+        ),
+      };
 
-    await writeAppState(`clips-ai-request-${args.recordingId}`, request as any);
-    await writeAppState("refresh-signal", { ts: Date.now() });
+      await writeAppState(
+        `clips-ai-request-${args.recordingId}`,
+        request as any,
+      );
+      await writeAppState("refresh-signal", { ts: Date.now() });
 
-    console.log(
-      `Delegation queued: generate-workflow (${args.kind}) for ${args.recordingId}`,
-    );
-    return {
-      queued: true,
-      recordingId: args.recordingId,
-      kind: args.kind,
-      stateKey,
-      includeFullVideoInAi,
-    };
+      console.log(
+        `Delegation queued: generate-workflow (${args.kind}) for ${args.recordingId}`,
+      );
+      return {
+        queued: true,
+        recordingId: args.recordingId,
+        kind: args.kind,
+        stateKey,
+        includeFullVideoInAi,
+      };
+    } finally {
+      workflowGenerationLocks.delete(stateKey);
+    }
   },
 });
