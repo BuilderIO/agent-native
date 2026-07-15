@@ -61,7 +61,6 @@ type DashboardScreenshotAttempt = {
   readyTimeout?: number;
   secondReadyTimeout?: number;
   totalTimeout?: number;
-  reportPanelLimit?: number;
 };
 
 type LaunchedScreenshotBrowser = {
@@ -580,12 +579,6 @@ async function captureDashboardPng(
   const screenshotUrl = new URL(targetPath, `${dashboardBaseUrl()}/`);
   screenshotUrl.searchParams.set(EMBED_MODE_QUERY_PARAM, "1");
   screenshotUrl.searchParams.set(EMBED_TOKEN_QUERY_PARAM, token);
-  if (attempt.reportPanelLimit) {
-    screenshotUrl.searchParams.set(
-      "reportPanelLimit",
-      String(attempt.reportPanelLimit),
-    );
-  }
 
   let browser: any;
   let cleanup = async () => {};
@@ -792,7 +785,6 @@ async function captureDashboardPngWithFallback(
       label: "full-lightweight",
       viewport: { width: 1200, height: 1400 },
       captureScale: 0.7,
-      reportPanelLimit: 8,
       ...(serverless
         ? {
             readyTimeout: 55_000,

@@ -198,7 +198,7 @@ describe("dashboard report email", () => {
       expect.any(Object),
     );
     expect(lightweight.page.goto).toHaveBeenCalledWith(
-      expect.stringContaining("reportPanelLimit=8"),
+      expect.not.stringContaining("reportPanelLimit"),
       expect.any(Object),
     );
     expect(lightweight.browser.newPage).toHaveBeenCalledWith({
