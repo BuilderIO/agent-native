@@ -1634,31 +1634,34 @@ export default function BookingLinksPage({
                         <div className="flex shrink-0 items-center gap-2">
                           {link.isActive && (
                             <>
-                              <button
+                              <Button
                                 type="button"
+                                variant="outline"
+                                size="sm"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   void copyPreviewUrl(link.slug);
                                 }}
-                                className={cn(
-                                  "flex items-center gap-1.5 rounded-full border px-3 py-1.5 text-xs sm:px-4 sm:text-sm",
-                                  BRAND_PILL_LINK_CLASS,
-                                )}
+                                className="rounded-full"
                               >
                                 <IconLink className="h-3.5 w-3.5" />
                                 {t("bookingLinks.copyLink")}
-                              </button>
-                              <a
-                                href={bookingPreviewPath(link.slug)}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className={cn(
-                                  "flex h-9 w-9 items-center justify-center rounded-full border",
-                                  BRAND_PILL_LINK_CLASS,
-                                )}
+                              </Button>
+                              <Button
+                                asChild
+                                variant="outline"
+                                size="icon"
+                                className="h-9 w-9 rounded-full"
+                                aria-label={t("bookingLinks.openBookingLink")}
                               >
-                                <IconExternalLink className="h-4 w-4" />
-                              </a>
+                                <a
+                                  href={bookingPreviewPath(link.slug)}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                >
+                                  <IconExternalLink className="h-4 w-4" />
+                                </a>
+                              </Button>
                             </>
                           )}
 

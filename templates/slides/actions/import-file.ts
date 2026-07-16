@@ -211,13 +211,14 @@ export default defineAction({
     }
 
     if (detectedFormat === "pdf") {
+      const { CanvasFactory } = await import("pdf-parse/worker");
       const { PDFParse } = await import("pdf-parse");
       const { convertSectionsToSlides } =
         await import("../server/handlers/import/html-converter.js");
-      // pdf-parse v2 expects a LoadParameters object. Passing the byte array
-      // directly uses the old v1 shape and can fail while pdf.js initializes
-      // in production (the reported DOMMatrix error).
-      const pdf = new PDFParse({ data: new Uint8Array(fileBuffer) });
+      const pdf = new PDFParse({
+        data: new Uint8Array(fileBuffer),
+        CanvasFactory,
+      });
       const result = await pdf.getText();
       const pages = normalizePdfPages(result);
       const textPages = pages.filter((p) => p.text.trim());
