@@ -150,6 +150,12 @@ import {
   SwiftDesktopHelperClient,
 } from "./computer-control";
 import { DesktopDesignPreviewManager } from "./design-preview-manager";
+import {
+  captureWebviewLogs,
+  initializeDesktopLogger,
+  revealLogFolder,
+  getLogFilePath,
+} from "./desktop-logger";
 import { registerAppsIpc } from "./ipc/apps";
 import { registerCodeAgentsIpc } from "./ipc/code-agents";
 import { registerContentFilesIpc } from "./ipc/content-files";
@@ -170,6 +176,7 @@ import {
 } from "./sentry";
 
 initializeDesktopSentry();
+initializeDesktopLogger();
 
 // ---------- stdout/stderr pipe resilience ----------
 // The main process logs spawned dev-server / code-agent child output via
@@ -1567,8 +1574,19 @@ function isTrustedPermissionRequest(
   const appConfig = loadAppsForAuthContext().find(
     (candidate) => candidate.id === targetAppId && candidate.enabled !== false,
   );
-  const trustedOrigin = appConfig ? getAppOrigin(appConfig) : null;
-  if (!trustedOrigin) return false;
+  if (!appConfig) return false;
+
+  // In dev mode, first-party templates load through the frame
+  // (http://localhost:FRAME_PORT), so the actual document origin differs from
+  // the resolved app base origin (dev port or template gateway). Trust the
+  // frame origin only in dev; production loads the real app URL directly.
+  const appOrigin = getAppOrigin(appConfig);
+  const frameOrigin =
+    appConfig.mode === "dev" ? `http://localhost:${FRAME_PORT}` : null;
+  const trustedOrigins = new Set(
+    [appOrigin, frameOrigin].filter((value): value is string => Boolean(value)),
+  );
+  if (trustedOrigins.size === 0) return false;
 
   const detailUrl = isObject(details)
     ? firstStringValue(details.requestingUrl, details.embeddingOrigin)
@@ -1577,10 +1595,10 @@ function isTrustedPermissionRequest(
     originFromUrl(requestingOrigin) ??
     originFromUrl(detailUrl) ??
     originFromUrl(contents?.getURL());
-  if (requestOrigin !== trustedOrigin) return false;
+  if (!requestOrigin || !trustedOrigins.has(requestOrigin)) return false;
 
   const contentsOrigin = originFromUrl(contents?.getURL());
-  return !contentsOrigin || contentsOrigin === trustedOrigin;
+  return !contentsOrigin || trustedOrigins.has(contentsOrigin);
 }
 
 function remoteDeviceConfigPath(): string {
@@ -8843,10 +8861,19 @@ function installApplicationMenu() {
     ],
   };
 
+  const openLogsMenuItem: Electron.MenuItemConstructorOptions = {
+    label: "Open Logs Folder",
+    click: () => revealLogFolder(),
+  };
+
   const helpMenu: Electron.MenuItemConstructorOptions = {
     role: "help" as const,
     submenu: isMac
-      ? [buildCurrentVersionMenuItem()]
+      ? [
+          buildCurrentVersionMenuItem(),
+          { type: "separator" as const },
+          openLogsMenuItem,
+        ]
       : [
           buildUpdateMenuItem(),
           buildCurrentVersionMenuItem(),
@@ -8855,6 +8882,8 @@ function installApplicationMenu() {
             label: "Learn More",
             click: () => void shell.openExternal("https://agent-native.com"),
           },
+          { type: "separator" as const },
+          openLogsMenuItem,
         ],
   };
 
@@ -8936,14 +8965,21 @@ function configurePermissionHandlers(
   );
 
   if (targetAppId === "clips") {
+    console.info("[display-capture] registering clips display media handler", {
+      platform: process.platform,
+      osRelease: os.release(),
+    });
     sess.setDisplayMediaRequestHandler(
       (_request, callback) => {
-        // The handler is only reached when Electron cannot provide the trusted
-        // system picker. Never choose a display without explicit user selection.
+        // Only reached when Electron cannot provide the system picker. Log as a
+        // warning because it means native screen selection did not engage.
+        console.warn(
+          "[display-capture] system picker did not engage — denying capture request",
+        );
         callback({});
       },
       {
-        // Electron currently supports its native display picker on macOS 15+.
+        // Uses the OS-native screen picker (macOS 15+ / ScreenCaptureKit).
         useSystemPicker: process.platform === "darwin",
       },
     );
@@ -9049,9 +9085,14 @@ app.whenReady().then(async () => {
       } catch {}
     }
     configureWebviewSession(wc.session, id);
+    // Capture renderer console messages to the log file so they survive
+    // across sessions without DevTools needing to be open.
+    captureWebviewLogs(wc, id ?? "webview");
   });
 
   installApplicationMenu();
+
+  console.info("[main] log file:", getLogFilePath());
 
   reconcileInterruptedCodeAgentRuns("startup");
   registerDesktopShortcutBindings();
