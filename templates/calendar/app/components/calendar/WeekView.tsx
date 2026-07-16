@@ -44,6 +44,11 @@ import {
 } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
 import {
+  getFirstVisibleOutOfOfficeDayIndex,
+  getOutOfOfficeSegment,
+  isOutOfOfficeEvent,
+} from "@/lib/out-of-office";
+import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
 } from "@/lib/popover-click-guard";
@@ -56,6 +61,7 @@ import {
 } from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
+import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 import { shouldRenderWeekDragSegment } from "./week-drag-segment";
 
 interface WeekViewProps {
@@ -285,6 +291,7 @@ interface WeekEventCardProps {
   onDraftUpdate?: WeekViewProps["onDraftUpdate"];
   onDraftCreate?: WeekViewProps["onDraftCreate"];
   onDraftDiscard?: WeekViewProps["onDraftDiscard"];
+  onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
 }
 
 /**
@@ -320,6 +327,7 @@ const WeekEventCard = memo(function WeekEventCard({
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
+  onPopoverOpenChange,
 }: WeekEventCardProps) {
   const t = useT();
   const li = layout.get(event.id) ?? {
@@ -558,6 +566,7 @@ const WeekEventCard = memo(function WeekEventCard({
       onDraftUpdate={onDraftUpdate}
       onDraftCreate={onDraftCreate}
       onDraftDiscard={onDraftDiscard}
+      onOpenChange={(open) => onPopoverOpenChange(event, open)}
     >
       {eventButton}
     </EventDetailPopover>
@@ -618,6 +627,7 @@ export const WeekView = memo(function WeekView({
   const GUTTER_WIDTH = isMobile ? MOBILE_GUTTER_WIDTH : DESKTOP_GUTTER_WIDTH;
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
+  const focusedEventIdRef = useRef<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const allDayContainerRef = useRef<HTMLDivElement>(null);
@@ -628,6 +638,7 @@ export const WeekView = memo(function WeekView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        focusedEventIdRef.current = null;
         setFocusedEventId(null);
         setFocusedEvent(null);
       }
@@ -675,7 +686,15 @@ export const WeekView = memo(function WeekView({
   // Separate all-day and timed events
   const allDayEvents = useMemo(() => events.filter((e) => e.allDay), [events]);
 
-  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
+  const outOfOfficeEvents = useMemo(
+    () => events.filter((event) => !event.allDay && isOutOfOfficeEvent(event)),
+    [events],
+  );
+
+  const timedEvents = useMemo(
+    () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
+    [events],
+  );
 
   const { workingLocations, regularEvents } = useMemo(
     () => partitionAllDayEvents(allDayEvents),
@@ -849,6 +868,22 @@ export const WeekView = memo(function WeekView({
 
   const canDrag = !!onEventTimeChange;
 
+  const handleEventPopoverOpenChange = useCallback(
+    (event: CalendarEvent, open: boolean) => {
+      if (open) {
+        focusedEventIdRef.current = event.id;
+        setFocusedEventId(event.id);
+        setFocusedEvent(event);
+        return;
+      }
+      if (focusedEventIdRef.current !== event.id) return;
+      focusedEventIdRef.current = null;
+      setFocusedEventId(null);
+      setFocusedEvent(null);
+    },
+    [setFocusedEvent],
+  );
+
   const handleEventPointerDown = useCallback(
     (
       e: React.PointerEvent,
@@ -856,6 +891,7 @@ export const WeekView = memo(function WeekView({
       isStart: boolean,
       dayIndex: number,
     ) => {
+      focusedEventIdRef.current = event.id;
       setFocusedEventId(event.id);
       setFocusedEvent(event);
       if (
@@ -1262,6 +1298,16 @@ export const WeekView = memo(function WeekView({
               }
             }
 
+            const visibleOutOfOfficeEvents = outOfOfficeEvents.filter(
+              (event) => {
+                const overrides = getDragOverrides(event.id);
+                return (
+                  getOutOfOfficeSegment(event, day) !== null ||
+                  (dragEventId === event.id && overrides?.dayIndex === dayIndex)
+                );
+              },
+            );
+
             return (
               <div
                 key={day.toISOString()}
@@ -1338,6 +1384,73 @@ export const WeekView = memo(function WeekView({
                   </div>
                 )}
 
+                {/* Native Google out-of-office context sits behind meetings. */}
+                {!isLoading &&
+                  visibleOutOfOfficeEvents.map((event, markerIndex) => {
+                    const isBeingDragged = dragEventId === event.id;
+                    const overrides = getDragOverrides(event.id);
+                    const canonicalDayIndex =
+                      getFirstVisibleOutOfOfficeDayIndex(event, days);
+                    return (
+                      <OutOfOfficeEvent
+                        key={`${event._tempId ?? event.id}:${day.toISOString()}`}
+                        event={event}
+                        day={day}
+                        hourHeight={HOUR_HEIGHT}
+                        color={
+                          getEventDisplayColor(event, prefs) ??
+                          "hsl(var(--primary))"
+                        }
+                        label={t("eventForm.outOfOffice")}
+                        markerIndex={markerIndex}
+                        compactMarker
+                        canDrag={canDrag}
+                        isBeingDragged={isBeingDragged}
+                        isDragging={isDragging}
+                        isDragTargetDay={overrides?.dayIndex === dayIndex}
+                        overrideTop={overrides?.top ?? null}
+                        overrideHeight={overrides?.height ?? null}
+                        onMovePointerDown={(pointerEvent, startsOnDay) =>
+                          handleEventPointerDown(
+                            pointerEvent,
+                            event,
+                            startsOnDay,
+                            dayIndex,
+                          )
+                        }
+                        onResizeTopPointerDown={(pointerEvent) =>
+                          handleResizeTopPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        onResizeBottomPointerDown={(pointerEvent) =>
+                          handleResizeBottomPointerDown(
+                            pointerEvent,
+                            event.id,
+                            dayIndex,
+                          )
+                        }
+                        shouldSuppressClick={shouldSuppressClick}
+                        onDelete={onDeleteEvent}
+                        isDraft={draftEventIds.includes(event.id)}
+                        defaultOpen={
+                          quickEditEventId === event.id &&
+                          dayIndex === canonicalDayIndex
+                        }
+                        onTitleSave={onQuickEditSave}
+                        onDismissNew={onQuickEditCancel}
+                        onDraftUpdate={onDraftUpdate}
+                        onDraftCreate={onDraftCreate}
+                        onDraftDiscard={onDraftDiscard}
+                        onOpenChange={(open) =>
+                          handleEventPopoverOpenChange(event, open)
+                        }
+                      />
+                    );
+                  })}
+
                 {/* Skeleton events when loading */}
                 {isLoading &&
                   WEEK_SKELETONS[dayIndex]?.map(
@@ -1402,6 +1515,7 @@ export const WeekView = memo(function WeekView({
                         onDraftUpdate={onDraftUpdate}
                         onDraftCreate={onDraftCreate}
                         onDraftDiscard={onDraftDiscard}
+                        onPopoverOpenChange={handleEventPopoverOpenChange}
                       />
                     );
                   })}

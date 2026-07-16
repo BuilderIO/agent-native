@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "댓글을 작성하려면 로그인",
     panelTitle: "피드백",
     placeholder: "피드백을 남겨 주세요…",
+    commentingOn: "{{name}}에 댓글 작성",
     emptyState: "아직 검토 댓글이 없습니다.",
     clickToPin: "아무 곳이나 클릭하여 피드백 고정",
     escToExit: "Esc를 눌러 종료",

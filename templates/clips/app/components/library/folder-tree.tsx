@@ -6,6 +6,7 @@ import {
   IconFolderPlus,
   IconTrash,
   IconEdit,
+  IconDots,
 } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
 import { NavLink } from "react-router";
@@ -33,6 +34,13 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import {
   useCreateFolder,
   useDeleteFolder,
@@ -182,23 +190,73 @@ function FolderItem({
                 ) : (
                   <IconFolder className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
                 )}
-                <span className="truncate">{node.name}</span>
+                <span className="truncate" title={node.name}>
+                  {node.name}
+                </span>
               </NavLink>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={`${node.name}: ${t("root.commandActions")}`}
+                    title={`${node.name}: ${t("root.commandActions")}`}
+                    className="rounded p-0.5 text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 data-[state=open]:opacity-100"
+                  >
+                    <IconDots className="h-3.5 w-3.5" />
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" side="right">
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setTimeout(() => {
+                        setRenameValue(node.name);
+                        setRenameOpen(true);
+                      }, 0);
+                    }}
+                  >
+                    <IconEdit className="h-3.5 w-3.5 me-2" />{" "}
+                    {t("folderTree.rename")}
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onSelect={() => {
+                      setTimeout(() => {
+                        setNewValue("");
+                        setNewOpen(true);
+                      }, 0);
+                    }}
+                  >
+                    <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
+                    {t("folderTree.newSubfolder")}
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => setTimeout(() => setConfirmDelete(true), 0)}
+                    className="text-destructive"
+                  >
+                    <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
+                    {t("folderTree.delete")}
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             </div>
           </ContextMenuTrigger>
           <ContextMenuContent>
             <ContextMenuItem
               onSelect={() => {
-                setRenameValue(node.name);
-                setRenameOpen(true);
+                setTimeout(() => {
+                  setRenameValue(node.name);
+                  setRenameOpen(true);
+                }, 0);
               }}
             >
               <IconEdit className="h-3.5 w-3.5 me-2" /> {t("folderTree.rename")}
             </ContextMenuItem>
             <ContextMenuItem
               onSelect={() => {
-                setNewValue("");
-                setNewOpen(true);
+                setTimeout(() => {
+                  setNewValue("");
+                  setNewOpen(true);
+                }, 0);
               }}
             >
               <IconFolderPlus className="h-3.5 w-3.5 me-2" />{" "}
@@ -206,7 +264,7 @@ function FolderItem({
             </ContextMenuItem>
             <ContextMenuSeparator />
             <ContextMenuItem
-              onSelect={() => setConfirmDelete(true)}
+              onSelect={() => setTimeout(() => setConfirmDelete(true), 0)}
               className="text-destructive"
             >
               <IconTrash className="h-3.5 w-3.5 me-2" />{" "}
@@ -263,7 +321,6 @@ function FolderItem({
                         ),
                     },
                   );
-                  setRenameOpen(false);
                 }}
               >
                 {t("common.save")}
@@ -311,7 +368,6 @@ function FolderItem({
                         ),
                     },
                   );
-                  setNewOpen(false);
                 }}
               >
                 {t("common.create")}
@@ -346,7 +402,6 @@ function FolderItem({
                         ),
                     },
                   );
-                  setConfirmDelete(false);
                 }}
               >
                 {t("folderTree.delete")}

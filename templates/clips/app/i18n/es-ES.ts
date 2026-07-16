@@ -454,6 +454,7 @@ const messages = {
     invite: "Invitar",
     embed: "Insertar",
     shareLink: "Enlace para compartir",
+    shareWithHumans: "Compartir con personas",
     shareWithAgents: "Compartir con agentes",
     copyAgentPrompt: "Copiar indicación para agente",
     agentPrompt:
@@ -464,6 +465,8 @@ const messages = {
     retryAgentLink: "Reintentar",
     gifPreview: "vista previa de GIF",
     openPlayer: "jugador abierto",
+    chooseFile: "Elige el archivo",
+    remove: "Eliminar",
     downloadMp4: "Descargar MP4",
     embedsNeedPublic: "Los elementos insertados necesitan un clip público",
     embedPublicDescription:
@@ -1243,9 +1246,11 @@ Todos los cambios visibles para los usuarios de Clips se documentan aquí. Puede
     visibilityOrg: "Organization (Localizado)",
     visibilityPublic: "Public (Localizado)",
     passwordProtection: "Password protection (Localizado)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Localizado)",
+    passwordSetPlaceholder: "Password is set — type to replace (Localizado)",
     noPasswordPlaceholder: "No password (Localizado)",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (Localizado)",
+    removePassword: "Remove (Localizado)",
     expiry: "Expiry (Localizado)",
     viewerOptions: "Viewer options (Localizado)",
     comments: "Comments (Localizado)",

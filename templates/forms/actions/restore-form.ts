@@ -4,6 +4,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { invalidatePublicFormCache } from "../server/lib/public-form-ssr.js";
 
 export default defineAction({
   description:
@@ -30,6 +31,8 @@ export default defineAction({
       .update(schema.forms)
       .set({ deletedAt: null, updatedAt: now })
       .where(eq(schema.forms.id, args.id));
+
+    invalidatePublicFormCache(existing);
 
     return { success: true };
   },

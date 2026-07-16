@@ -282,6 +282,41 @@ describe("handleJsonRpc", () => {
     expect(task.status.message.parts[0].text).toBe("custom response");
   });
 
+  it("preserves an approval pause as input-required", async () => {
+    const event = mockEvent();
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "send it" }],
+          },
+        },
+      },
+      event,
+      {
+        ...customHandler,
+        handler: async function* () {
+          yield {
+            role: "agent",
+            metadata: { agentNativeTaskState: "input-required" },
+            parts: [{ type: "text", text: "Approval required" }],
+          };
+        },
+      },
+    );
+
+    expect(result.result).toMatchObject({
+      status: {
+        state: "input-required",
+        message: { parts: [{ type: "text", text: "Approval required" }] },
+      },
+    });
+  });
+
   it("uses the receiving request origin instead of metadata for sync calls", async () => {
     const event = mockEvent();
     event.req = {
@@ -1316,6 +1351,7 @@ describe("handleJsonRpc", () => {
         requestOrigin: "https://workspace.example.test",
       }),
     );
+    expect(result.result.metadata?.__a2a_processor).toBeUndefined();
 
     const { processA2ATaskFromQueue } = await import("./handlers.js");
     await processA2ATaskFromQueue(result.result.id, contextConfig);
@@ -1337,6 +1373,95 @@ describe("handleJsonRpc", () => {
     expect(followup.result.status.message.parts[0].text).toBe(
       "alice+qa@agent-native.test|https://workspace.example.test",
     );
+  });
+
+  it("preserves exact action grants across an authenticated async processor hop", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.approvedActions ?? []),
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    const approvedActions = [
+      { tool: "send-email", input: { to: "alice@example.test" } },
+    ];
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          approvedActions,
+          message: { role: "user", parts: [{ type: "text", text: "send" }] },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      event,
+      contextConfig,
+    );
+    expect(JSON.parse(followup.result.status.message.parts[0].text)).toEqual(
+      approvedActions,
+    );
+    expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
+  });
+
+  it("drops action grants when the A2A caller has no verified user identity", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.approvedActions ?? []),
+            },
+          ],
+        },
+      }),
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          approvedActions: [
+            { tool: "send-email", input: { to: "victim@example.test" } },
+          ],
+          message: { role: "user", parts: [{ type: "text", text: "send" }] },
+        },
+      },
+      mockEvent(),
+      contextConfig,
+    );
+
+    expect(result.result.status.message.parts[0].text).toBe("[]");
   });
 
   it("captures the inbound origin for legacy async callers without metadata", async () => {

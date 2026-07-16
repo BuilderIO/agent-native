@@ -1,3 +1,4 @@
+import { findTrailingPlainInlineMath } from "@shared/inline-math";
 import {
   escapeHtml,
   indentMarkdown,
@@ -10,6 +11,7 @@ import {
   IconExternalLink,
   IconFileText,
 } from "@tabler/icons-react";
+import { InputRule } from "@tiptap/core";
 import type { Fragment, Node as ProseMirrorNode } from "@tiptap/pm/model";
 import {
   Mark,
@@ -20,6 +22,8 @@ import {
   mergeAttributes,
   type NodeViewProps,
 } from "@tiptap/react";
+
+import { MathRenderer } from "../MathRenderer";
 
 const BLOCK_ATOM_TAGS = [
   "page",
@@ -452,6 +456,17 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
   const canOpenLocalPage = Boolean(pageLink && options.onOpenPageLink);
   const externalUrl = safeExternalPageUrl(attrs.url || attrs.href || null);
 
+  if (tagName === "equation") {
+    return (
+      <NodeViewWrapper
+        className="content-equation"
+        data-latex={label || attrs.latex || ""}
+      >
+        <MathRenderer latex={label || attrs.latex || ""} displayMode={true} />
+      </NodeViewWrapper>
+    );
+  }
+
   if (tagName === "page") {
     const openPage = () => {
       if (pageLink && options.onOpenPageLink) {
@@ -507,6 +522,36 @@ function BlockAtomView({ node, extension }: NodeViewProps) {
         {humanizeTag(tagName)}
       </div>
       <div className="notion-atom__label">{primary}</div>
+    </NodeViewWrapper>
+  );
+}
+
+function InlineAtomView({ node }: NodeViewProps) {
+  const tagName = (node.attrs.tagName || "mention") as string;
+  const label = (node.attrs.label || "") as string;
+  const attrs = parseAttrsJson(node.attrs.attrsJson as string);
+
+  if (tagName === "math") {
+    const latex = label || attrs.latex || "";
+    return (
+      <NodeViewWrapper
+        as="span"
+        className="content-inline-equation"
+        contentEditable={false}
+        data-latex={latex}
+      >
+        <MathRenderer latex={latex} displayMode={false} />
+      </NodeViewWrapper>
+    );
+  }
+
+  return (
+    <NodeViewWrapper
+      as="span"
+      className="notion-inline-atom"
+      contentEditable={false}
+    >
+      {label || humanizeTag(tagName)}
     </NodeViewWrapper>
   );
 }
@@ -975,6 +1020,35 @@ export const NotionInlineAtom = Node.create({
   atom: true,
   selectable: false,
 
+  addInputRules() {
+    return [
+      new InputRule({
+        find: (text) => {
+          const match = findTrailingPlainInlineMath(text);
+          if (!match) return null;
+          return {
+            index: match.from,
+            text: text.slice(match.from, match.to),
+            data: { latex: match.latex },
+          };
+        },
+        handler: ({ state, range, match }) => {
+          const latex = match.data?.latex;
+          if (typeof latex !== "string") return null;
+
+          const mathNode = state.schema.nodes.notionInlineAtom?.create({
+            tagName: "math",
+            attrsJson: "{}",
+            label: latex,
+          });
+          if (!mathNode) return null;
+
+          state.tr.replaceWith(range.from, range.to, mathNode).scrollIntoView();
+        },
+      }),
+    ];
+  },
+
   addAttributes() {
     return {
       tagName: { default: "mention-user" },
@@ -1021,6 +1095,10 @@ export const NotionInlineAtom = Node.create({
       }),
       HTMLAttributes.label || humanizeTag(HTMLAttributes.tagName || "mention"),
     ];
+  },
+
+  addNodeView() {
+    return ReactNodeViewRenderer(InlineAtomView);
   },
 
   addStorage() {

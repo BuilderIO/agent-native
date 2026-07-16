@@ -855,6 +855,8 @@ export default function ShareRoute() {
               <Button variant="ghost" size="sm" asChild>
                 <a
                   href={appPath("/")}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="gap-1.5"
                   onClick={() => fireShareCtaClick("try_clips")}
                 >
@@ -965,7 +967,7 @@ export default function ShareRoute() {
                 </h2>
               )}
               {recording.description ? (
-                <p className="text-sm text-muted-foreground line-clamp-2">
+                <p className="whitespace-pre-wrap break-words text-sm text-muted-foreground">
                   {recording.description}
                 </p>
               ) : null}
@@ -1063,6 +1065,7 @@ export default function ShareRoute() {
                   t("recordingPage.draftQuestions"),
                 ]}
                 browserTabId={getBrowserTabId()}
+                showHeader={false}
               />
             ) : (
               <PublicAgentEmptyState

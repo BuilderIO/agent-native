@@ -3392,7 +3392,13 @@ export function createAgentChatAdapter(
                   text: formatChatErrorText(
                     message,
                     preservedError?.upgradeUrl,
-                    errorCode,
+                    // `message` is already user-facing here: either a
+                    // recovery-specific explanation from exhaustedRecoveryMessage
+                    // or a normalized gateway message from errorInfo. Passing
+                    // the fallback connection_error code back through the
+                    // formatter would replace the useful recovery guidance
+                    // with the generic interruption copy.
+                    preservedError ? errorCode : undefined,
                   ),
                 });
                 yield {

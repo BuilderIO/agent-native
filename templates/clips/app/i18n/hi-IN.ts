@@ -437,6 +437,7 @@ const messages = {
     invite: "आमंत्रित करें",
     embed: "एम्बेड",
     shareLink: "शेयर लिंक",
+    shareWithHumans: "लोगों के साथ साझा करें",
     shareWithAgents: "एजेंटों के साथ साझा करें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
@@ -447,6 +448,8 @@ const messages = {
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
     openPlayer: "खुला खिलाड़ी",
+    chooseFile: "फ़ाइल चुनें",
+    remove: "हटाएं",
     downloadMp4: "MP4 डाउनलोड करें",
     embedsNeedPublic: "एंबेड को एक सार्वजनिक क्लिप की आवश्यकता है",
     embedPublicDescription:
@@ -1211,9 +1214,10 @@ Clips में उपयोगकर्ताओं को दिखने व�
     visibilityOrg: "Organization (स्थानीयकृत)",
     visibilityPublic: "Public (स्थानीयकृत)",
     passwordProtection: "Password protection (स्थानीयकृत)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (स्थानीयकृत)",
+    passwordSetPlaceholder: "Password is set — type to replace (स्थानीयकृत)",
     noPasswordPlaceholder: "No password (स्थानीयकृत)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (स्थानीयकृत)",
+    removePassword: "Remove (स्थानीयकृत)",
     expiry: "Expiry (स्थानीयकृत)",
     viewerOptions: "Viewer options (स्थानीयकृत)",
     comments: "Comments (स्थानीयकृत)",

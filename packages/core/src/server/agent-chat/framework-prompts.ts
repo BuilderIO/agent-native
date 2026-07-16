@@ -45,9 +45,6 @@ export function buildFrameworkPrompts(
   PROD_FRAMEWORK_PROMPT_COMPACT: string;
   DEV_FRAMEWORK_PROMPT_COMPACT: string;
 } {
-  // Note: FIRST_SESSION_PERSONALIZATION is NOT appended here — it is injected
-  // at per-request prompt-assembly time only for new threads (no prior messages).
-  // This prevents the ~1.5KB block from appearing on every request forever.
   const FRAMEWORK_CORE = buildFrameworkCore(examples, options);
   const FRAMEWORK_CORE_COMPACT = buildFrameworkCoreCompact(examples, options);
   const extensionToolsEnabled = options?.extensionTools !== false;

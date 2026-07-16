@@ -41,6 +41,26 @@ function stopStream(stream: MediaStream | null): void {
 
 type MicrophonePermissionState = PermissionState | "unknown";
 
+function isDesktopShell(): boolean {
+  if (typeof window === "undefined") return false;
+  const w = window as typeof window & {
+    electronAPI?: unknown;
+    __TAURI_INTERNALS__?: unknown;
+    __TAURI__?: unknown;
+  };
+  if (w.electronAPI || w.__TAURI_INTERNALS__ || w.__TAURI__) return true;
+  return (
+    typeof navigator !== "undefined" && /Electron/i.test(navigator.userAgent)
+  );
+}
+
+function micBlockedMessage(): string {
+  if (isDesktopShell()) {
+    return "Microphone access is blocked for this app. Enable the microphone for the app in your system Privacy settings, then reopen the recorder.";
+  }
+  return "Your browser has blocked microphone access for this site, so it won't prompt. Allow the microphone in this site's settings, then reload.";
+}
+
 function isMicrophoneBlockedByPolicy(): boolean {
   const policy =
     (
@@ -96,7 +116,7 @@ export async function friendlyMicError(err: unknown): Promise<string> {
     return "Microphone prompts require HTTPS or localhost. Open this app on localhost or an HTTPS URL, then try again.";
   }
   if (permissionState === "denied") {
-    return "This site is blocked from using the microphone. Open the browser site settings, set Microphone to Allow, then reload.";
+    return micBlockedMessage();
   }
   if (/NotAllowedError|Permission denied|denied|blocked/i.test(combined)) {
     return "The browser or operating system denied microphone access. Check this site's microphone setting and your system privacy settings for this browser, then reload.";
@@ -328,8 +348,7 @@ export function MicrophoneVisualizer({
     const permissionState = await getMicrophonePermissionState();
     if (runIdRef.current !== runId) return;
     if (permissionState === "denied") {
-      const message =
-        "Brave already has Microphone set to Block for this site, so it will not show the popup. Click the lock/tune icon in the address bar → Site settings → Microphone → Allow, then reload.";
+      const message = micBlockedMessage();
       setError(message);
       setStatus("error");
       onStatusChange?.("error", { error: message });

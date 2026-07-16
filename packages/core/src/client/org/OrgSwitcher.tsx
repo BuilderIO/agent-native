@@ -14,6 +14,7 @@ import {
   IconCode,
   IconFileText,
   IconLayoutBoard,
+  IconListCheck,
   IconLoader2,
   IconLogout,
   IconMail,
@@ -122,6 +123,7 @@ const APP_ICON_MAP: Record<string, typeof IconApps> = {
   CalendarTime: IconCalendarTime,
   Globe: IconWorld,
   Photo: IconPhoto,
+  ListCheck: IconListCheck,
 };
 
 function appMenuIcon(app: OrgSwitcherAppLink): typeof IconApps {

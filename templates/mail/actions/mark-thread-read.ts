@@ -7,7 +7,7 @@ import { markThreadRead } from "../server/lib/email-state.js";
 
 export default defineAction({
   description:
-    "Mark all messages in a thread as read or unread. Prefer this over mark-read when acting on a whole conversation.",
+    'Mark one conversation thread as read or unread. For broad unread cleanup across many threads, call mark-read once with scope "all-unread" instead of looping this action.',
   schema: z.object({
     threadId: z.string().describe("Thread ID to mark read/unread"),
     unread: z.coerce

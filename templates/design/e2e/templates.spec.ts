@@ -70,7 +70,7 @@ function watchBrowserErrors(page: Page) {
   return { consoleErrors, pageErrors, failedResponses, failedRequests };
 }
 
-test("starter template preserves its dimensions and locks and can be saved again", async ({
+test("built-in template preserves its dimensions and locks and can be saved again", async ({
   page,
   request,
 }) => {
@@ -88,20 +88,22 @@ test("starter template preserves its dimensions and locks and can be saved again
       page.getByRole("link", { name: "Templates", exact: true }),
     ).toBeVisible();
     await expect(
-      page.getByRole("heading", { name: "Starter templates", exact: true }),
+      page.getByRole("heading", { name: "Built-in templates", exact: true }),
     ).toBeVisible();
     await expect(page.locator("article")).toHaveCount(4);
 
-    const starterCard = page.locator("article").filter({
+    const builtInCard = page.locator("article").filter({
       has: page.getByRole("heading", {
         name: "Social ad — square",
         exact: true,
       }),
     });
-    await expect(starterCard).toContainText("1080 × 1080");
-    await expect(starterCard).toContainText("2 locked");
+    await expect(builtInCard).toContainText("Built-in");
+    await expect(builtInCard.locator("iframe")).toHaveCount(1);
+    await expect(builtInCard).toContainText("1080 × 1080");
+    await expect(builtInCard).toContainText("2 locked");
 
-    await starterCard
+    await builtInCard
       .getByRole("button", { name: "Use template", exact: true })
       .click();
 
@@ -221,6 +223,116 @@ test("starter template preserves its dimensions and locks and can be saved again
       await postAction(request, "delete-design", { id: createdDesignId }).catch(
         () => {},
       );
+    }
+  }
+});
+
+test("New Design picker searches and copies a built-in template without prompt text", async ({
+  page,
+  request,
+}) => {
+  test.setTimeout(120_000);
+  let createdDesignId: string | undefined;
+  const designSystemIds: string[] = [];
+  const suffix = Date.now();
+  const selectedSystemTitle = `E2E selected template system ${suffix}`;
+
+  try {
+    for (const title of [
+      `E2E fallback template system ${suffix}`,
+      selectedSystemTitle,
+    ]) {
+      const system = await postAction(request, "create-design-system", {
+        title,
+        data: JSON.stringify({ colors: { primary: "#3366ff" } }),
+      });
+      const systemId = system.id ?? system.data?.id;
+      expect(systemId).toBeTruthy();
+      designSystemIds.push(systemId);
+    }
+
+    await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("load");
+    await page.getByRole("button", { name: "New Design", exact: true }).click();
+
+    const promptPopover = page.locator("[data-agent-native-prompt-popover]");
+    await expect(promptPopover).toBeVisible();
+    const designSystemControl = promptPopover.getByRole("combobox");
+    await designSystemControl.click();
+    await page
+      .getByRole("option", { name: selectedSystemTitle, exact: true })
+      .click();
+
+    const templateControl = promptPopover.locator(
+      "[data-template-picker-trigger]",
+    );
+    await expect(templateControl).toContainText("Template · Blank");
+    await templateControl.click();
+
+    const picker = page.locator("[data-agent-native-template-popover]");
+    await expect(picker).toBeVisible();
+    await picker.getByPlaceholder("Search templates...").fill("Social ad");
+    await picker
+      .locator('[data-template-option="preset-social-square"]')
+      .click();
+
+    await expect(templateControl).toContainText(
+      "Template · Social ad — square",
+    );
+    await expect(templateControl).toContainText("Built-in");
+    await expect(designSystemControl).toContainText(selectedSystemTitle);
+    await expect(
+      promptPopover.locator(
+        '.ProseMirror p[data-placeholder="Describe how to adapt Social ad — square..."]',
+      ),
+    ).toBeVisible();
+
+    const createResponse = page.waitForResponse(
+      (response) =>
+        response
+          .url()
+          .includes("/_agent-native/actions/create-design-from-template") &&
+        response.request().method() === "POST",
+    );
+    await promptPopover.getByText("Use template", { exact: true }).click();
+    const response = await createResponse;
+    expect(response.ok()).toBe(true);
+    expect(response.request().postDataJSON()).not.toHaveProperty("prompt");
+    expect(response.request().postDataJSON()).toMatchObject({
+      designSystemId: designSystemIds[1],
+    });
+    const payload = await response.json();
+    createdDesignId = payload.id ?? payload.data?.id;
+    expect(createdDesignId).toBeTruthy();
+
+    await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
+      timeout: 30_000,
+    });
+    expect(
+      await page.evaluate(
+        (designId) =>
+          window.sessionStorage.getItem(
+            `design.pending-generation.${designId}`,
+          ),
+        createdDesignId,
+      ),
+    ).toBeNull();
+    const copiedDesign = await getAction(request, "get-design", {
+      id: createdDesignId!,
+    });
+    expect(copiedDesign.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ filename: "social-square.html" }),
+      ]),
+    );
+  } finally {
+    if (createdDesignId) {
+      await postAction(request, "delete-design", { id: createdDesignId }).catch(
+        () => {},
+      );
+    }
+    for (const id of designSystemIds.reverse()) {
+      await postAction(request, "delete-design-system", { id }).catch(() => {});
     }
   }
 });

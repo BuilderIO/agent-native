@@ -103,6 +103,7 @@ const messages = {
     searchImagesPlaceholder: "Buscar imagens...",
     searchForLogosImagesIcons: "Buscar logos, imagens, ícones...",
     search: "खोजें",
+    searchFailed: "खोज विफल",
     logoSearchTitle: "लोगो खोज",
     searchCompanyLogo: "Busque uma empresa para encontrar seu logo",
     searchCompanyPlaceholder: "Buscar nome da empresa (ex.: Intuit)",

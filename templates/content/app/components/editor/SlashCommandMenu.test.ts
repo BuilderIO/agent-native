@@ -8,7 +8,12 @@ import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildHeadingCommands,
+  CONTENT_HEADING_LEVELS,
+  equationNodeContent,
+  getEquationInsertionRange,
   inlineDatabaseBlockContent,
+  insertEquation,
   insertInlineDatabaseBlock,
   parseSlashCommandQuery,
   parseInlineGeneratePrompt,
@@ -78,6 +83,137 @@ describe("slash command menu trigger", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+});
+
+describe("heading slash commands", () => {
+  it("offers all six HTML heading levels for insert and turn-into flows", () => {
+    expect(CONTENT_HEADING_LEVELS).toEqual([1, 2, 3, 4, 5, 6]);
+
+    const toggleCommands = buildHeadingCommands("toggle");
+    const setCommands = buildHeadingCommands("set");
+
+    expect(toggleCommands.map((command) => command.titleKey)).toEqual([
+      "editor.heading1",
+      "editor.heading2",
+      "editor.heading3",
+      "editor.heading4",
+      "editor.heading5",
+      "editor.heading6",
+    ]);
+    expect(toggleCommands.map((command) => command.shortcut)).toEqual([
+      "#",
+      "##",
+      "###",
+      "####",
+      "#####",
+      "######",
+    ]);
+    expect(setCommands.map((command) => command.titleKey)).toEqual(
+      toggleCommands.map((command) => command.titleKey),
+    );
+  });
+
+  it("runs the matching heading command for levels five and six", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      toggleHeading: vi.fn(() => chain),
+      setHeading: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+    const editor = { chain: () => chain } as any;
+
+    buildHeadingCommands("toggle")[4]?.action(editor, {
+      slashRange: null,
+    });
+    buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
+
+    expect(chain.toggleHeading).toHaveBeenCalledWith({ level: 5 });
+    expect(chain.setHeading).toHaveBeenCalledWith({ level: 6 });
+  });
+});
+
+describe("equation slash commands", () => {
+  it("builds the canonical inline and block atom payloads", () => {
+    expect(equationNodeContent("E = mc^2", false)).toEqual({
+      type: "notionInlineAtom",
+      attrs: { tagName: "math", attrsJson: "{}", label: "E = mc^2" },
+    });
+    expect(equationNodeContent("E = mc^2", true)).toEqual({
+      type: "notionBlockAtom",
+      attrs: { tagName: "equation", attrsJson: "{}", label: "E = mc^2" },
+    });
+  });
+
+  it("replaces only the slash range for inline equations", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertEquation({ chain: () => chain } as any, "x^2", false, {
+        from: 4,
+        to: 11,
+      }),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith(
+      { from: 4, to: 11 },
+      equationNodeContent("x^2", false),
+    );
+  });
+
+  it("replaces the paragraph and leaves a trailing paragraph for block equations", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      insertContentAt: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+
+    expect(
+      insertEquation({ chain: () => chain } as any, "x^2", true, {
+        from: 0,
+        to: 9,
+      }),
+    ).toBe(true);
+    expect(chain.insertContentAt).toHaveBeenCalledWith({ from: 0, to: 9 }, [
+      equationNodeContent("x^2", true),
+      { type: "paragraph" },
+    ]);
+  });
+
+  it("expands block insertion to the containing paragraph", () => {
+    const editor = new Editor({
+      extensions: [StarterKit],
+      content: {
+        type: "doc",
+        content: [
+          { type: "paragraph", content: [{ type: "text", text: "/equation" }] },
+        ],
+      },
+    });
+
+    try {
+      expect(
+        getEquationInsertionRange(editor as any, { from: 1, to: 10 }, true),
+      ).toEqual({ from: 0, to: 11 });
+      expect(
+        getEquationInsertionRange(editor as any, { from: 1, to: 10 }, false),
+      ).toEqual({ from: 1, to: 10 });
+    } finally {
+      editor.destroy();
+    }
+  });
+
+  it("wires two searchable equation commands to a validated preview", () => {
+    const source = readSlashCommandMenuSource();
+
+    expect(source).toContain('title: t("editor.slash.blockEquation")');
+    expect(source).toContain('title: t("editor.slash.inlineEquation")');
+    expect(source).toContain('searchText: "latex katex math formula"');
+    expect(source).toContain("renderMathToHtml(");
+    expect(source).toContain("disabled={!equationResult.ok}");
   });
 });
 

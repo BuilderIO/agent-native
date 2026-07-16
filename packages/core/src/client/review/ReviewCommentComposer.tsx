@@ -1,7 +1,7 @@
 import { Button } from "@agent-native/toolkit/ui/button";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
-import { IconMessageCircle, IconSend } from "@tabler/icons-react";
+import { IconFocus2, IconMessageCircle, IconSend } from "@tabler/icons-react";
 
 import type { ReviewResolutionTarget } from "../../review/types.js";
 import { cn } from "../utils.js";
@@ -16,6 +16,7 @@ export interface ReviewCommentComposerProps {
   placeholder?: string;
   commentLabel?: string;
   agentLabel?: string;
+  contextLabel?: string;
   autoFocus?: boolean;
   submitOnEnter?: boolean;
   onEscape?: () => void;
@@ -32,6 +33,7 @@ export function ReviewCommentComposer({
   placeholder = "Add a comment...",
   commentLabel = "Comment",
   agentLabel = "Send to agent",
+  contextLabel,
   autoFocus = false,
   submitOnEnter = false,
   onEscape,
@@ -51,6 +53,12 @@ export function ReviewCommentComposer({
         submit("human");
       }}
     >
+      {contextLabel ? (
+        <div className="mb-2 flex min-w-0 items-center gap-1.5 text-xs text-muted-foreground">
+          <IconFocus2 className="size-3.5 shrink-0" />
+          <span className="truncate">{contextLabel}</span>
+        </div>
+      ) : null}
       <Textarea
         autoFocus={autoFocus}
         value={value}

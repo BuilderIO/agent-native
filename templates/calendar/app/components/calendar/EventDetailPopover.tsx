@@ -97,6 +97,7 @@ import {
   type ReminderMode,
   validateAttachmentDrafts,
 } from "@/lib/event-form-utils";
+import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   createEventDetailPopoverToken,
   markPopoverInteractOutside,
@@ -473,6 +474,8 @@ interface EventDetailPopoverProps {
   onTitleSave?: (eventId: string, title: string, accountEmail?: string) => void;
   /** Called when the popover is dismissed for a new event (to clean up if no title was set) */
   onDismissNew?: (eventId: string, accountEmail?: string) => void;
+  /** Called after the popover's visible open state changes through its normal lifecycle. */
+  onOpenChange?: (open: boolean) => void;
   onDraftUpdate?: (
     eventId: string,
     updates: Partial<CalendarEvent> & {
@@ -500,6 +503,7 @@ export function EventDetailPopover({
   defaultOpen = false,
   onTitleSave,
   onDismissNew,
+  onOpenChange,
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
@@ -520,11 +524,13 @@ export function EventDetailPopover({
   }
   const {
     eventDetailSidebar,
+    sidebarEvent,
     setEventDetailSidebar,
     setSidebarEvent,
     setFocusedEvent,
   } = useCalendarContext();
   const isWorkingLocation = isWorkingLocationEvent(event);
+  const isOutOfOffice = isOutOfOfficeEvent(event);
   const isSingleDayWorkingLocation = isWorkingLocation && event.allDay;
   const editableLocationValue = event.location || "";
 
@@ -1274,6 +1280,9 @@ export function EventDetailPopover({
       (isRecurringEvent ? t("eventForm.repeats") : null);
   const handleOpenChange = useCallback(
     (newOpen: boolean) => {
+      const isPopoverSuppressed =
+        eventDetailSidebar && !isNewEventRef.current && !isDraft;
+      if (newOpen && isPopoverSuppressed) return;
       if (!newOpen && open) {
         const trimmedTitle = editingTitle.trim();
         let savedPendingChange = false;
@@ -1330,11 +1339,27 @@ export function EventDetailPopover({
       handleSaveMeetingLink,
       handleSaveReminders,
       handleSaveAttachments,
+      eventDetailSidebar,
+      isDraft,
     ],
   );
 
   const popoverOpen =
     eventDetailSidebar && !isNewEventRef.current && !isDraft ? false : open;
+  const sidebarDetailsOpen =
+    eventDetailSidebar &&
+    !isNewEventRef.current &&
+    !isDraft &&
+    sidebarEvent?.id === event.id &&
+    sidebarEvent.accountEmail === event.accountEmail;
+  const detailsOpen = popoverOpen || sidebarDetailsOpen;
+  const previousDetailsOpenRef = useRef(false);
+
+  useEffect(() => {
+    if (previousDetailsOpenRef.current === detailsOpen) return;
+    previousDetailsOpenRef.current = detailsOpen;
+    onOpenChange?.(detailsOpen);
+  }, [detailsOpen, onOpenChange]);
 
   useEffect(() => {
     const token = popoverTokenRef.current;
@@ -1386,9 +1411,11 @@ export function EventDetailPopover({
               <span>
                 {isWorkingLocation
                   ? t("eventForm.workingLocation")
-                  : isDraft
-                    ? t("eventForm.draftEvent")
-                    : t("eventForm.event")}
+                  : isOutOfOffice
+                    ? t("eventForm.outOfOffice")
+                    : isDraft
+                      ? t("eventForm.draftEvent")
+                      : t("eventForm.event")}
               </span>
             </div>
             <div className="flex items-center gap-0.5">

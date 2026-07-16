@@ -104,6 +104,7 @@ const messages = {
     searchImagesPlaceholder: "画像を検索...",
     searchForLogosImagesIcons: "ロゴ、画像、アイコンを検索...",
     search: "검색",
+    searchFailed: "검색 실패",
     logoSearchTitle: "로고 검색",
     searchCompanyLogo: "会社を検索してロゴを見つける",
     searchCompanyPlaceholder: "会社名を検索（例: Intuit）",

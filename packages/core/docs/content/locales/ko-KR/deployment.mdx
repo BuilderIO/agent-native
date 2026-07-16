@@ -333,12 +333,14 @@ export default defineConfig({
 
 ### 빌드/런타임 {#env-runtime}
 
-| 변수                        | 설명                                                                                                                                                             |
-| --------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | 서버 포트(Node.js만 해당)                                                                                                                                        |
-| `NITRO_PRESET`              | 빌드 시 빌드 사전 설정 재정의                                                                                                                                    |
-| `APP_BASE_PATH`             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다. |
-| `AGENT_PROD_CODE_EXECUTION` | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요.                 |
+| 변수                                        | 설명                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | 서버 포트(Node.js만 해당)                                                                                                                                                                                                                                                                                                                                                  |
+| `NITRO_PRESET`                              | 빌드 시 빌드 사전 설정 재정의                                                                                                                                                                                                                                                                                                                                              |
+| `APP_BASE_PATH`                             | 접두사(예: `/mail`) 아래에 앱을 마운트합니다. `npx @agent-native/core@latest deploy`에 의해 자동으로 설정됩니다. 독립 실행형의 경우 설정하지 않은 상태로 둡니다.                                                                                                                                                                                                           |
+| `AGENT_PROD_CODE_EXECUTION`                 | 선택적 프로덕션 코드 실행 모드: `off`(기본값), `sandboxed` 또는 `trusted`. [Production Code Execution](#production-code-execution)를 참조하세요.                                                                                                                                                                                                                           |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | 미리 보기에서 안전한 Builder 권한 부여 릴레이를 위한 전용 32자 이상의 공유 HMAC 비밀입니다. 권한 부여 결과가 격리된 미리 보기 데이터베이스에 저장되어야 할 때만 승인된 기업 콜백 배포와 미리 보기 배포 양쪽에 동일한 값을 설정하세요.                                                                                                                                      |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 기업 콜백 전용으로, 정확히 일치하는 신뢰할 수 있는 미리 보기 origin을 쉼표로 구분한 허용 목록입니다(예: `https://0123456789abcdef01234567--content.netlify.app`). 기업 콜백 배포에만 설정하세요. Netlify origin은 24자리 16진수 ID를 포함한 변경 불가능한 배포별 영구 링크를 사용해야 합니다. 변경 가능한 `deploy-preview-*` 별칭, 와일드카드, 도메인 접미사는 거부됩니다. |
 
 데이터베이스 연결 변수(`DATABASE_URL`, `DATABASE_AUTH_TOKEN`, 앱별 `<APP_NAME>_DATABASE_URL`)는 [Database](/docs/database#production)에 있습니다.
 
@@ -373,7 +375,7 @@ OAuth 공급자 자격 증명(Google, GitHub), 정적 MCP 전달자 대체(`ACCE
 
 ### 강력한 비밀 생성 {#env-generate-secrets}
 
-"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
+"32자 이상의 무작위"로 표시된 비밀(`BETTER_AUTH_SECRET`, `OAUTH_STATE_SECRET`, `A2A_SECRET`, `SECRETS_ENCRYPTION_KEY`, `AGENT_NATIVE_BUILDER_RELAY_SECRET`)의 경우 다음을 사용하여 새로운 값을 생성하세요.
 
 ```bash
 openssl rand -hex 32

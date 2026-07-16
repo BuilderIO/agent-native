@@ -1220,6 +1220,28 @@ body[data-clips-route="recording-pill"] #root {
   flex-direction: column;
   gap: 6px;
   margin-bottom: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.popover-list::-webkit-scrollbar {
+  width: 4px;
+}
+
+.popover-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.popover-list::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border-radius: 999px;
+}
+
+.popover-list::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-subtle);
 }
 
 .popover-list-item {
@@ -1471,7 +1493,7 @@ body[data-clips-route="recording-pill"] #root {
    content isn't flush with the panel edge. Must follow `.setup` so it wins
    over the shorthand padding above. */
 .setup.popover-view {
-  padding-bottom: 26px;
+  padding-bottom: 16px;
 }
 
 .setup h2 {

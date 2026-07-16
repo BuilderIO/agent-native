@@ -1,11 +1,14 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
+  extractA2AArtifactIdentities,
+  stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
 
 describe("appendA2AArtifactLinks", () => {
+  afterEach(() => vi.unstubAllEnvs());
   it("appends a document URL from a successful create-document result", () => {
     const text = appendA2AArtifactLinks(
       "Created the brief.",
@@ -58,6 +61,197 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).toContain(
       "- Document: https://content.agent.test/page/request_123 (ID: request_123)",
     );
+  });
+
+  it("extracts a compact stable identity from a Content form submission", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Is this thing on",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+            ignoredPayload: "not retained",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Is this thing on",
+        url: "/page/request_123",
+      },
+    ]);
+  });
+
+  it("trusts delegated identity only through the persisted-artifact marker", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-artifact-provenance");
+    const downstream = appendA2AArtifactLinks(
+      "Filed the design ask.",
+      [
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_123",
+            createdDocumentTitle: "Launch ask v1.2",
+            urlPath: "/page/request_123",
+            verification: { found: true },
+          }),
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includePersistedArtifactMarker: true,
+      },
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        { tool: "call-agent", result: downstream },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_123",
+        sourceAction: "call-agent",
+        titleAtAction: "Launch ask v1.2",
+        url: "/page/request_123",
+      },
+    ]);
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result:
+            "Artifacts:\n- Document: https://content.agent.test/page/read_only (ID: read_only)",
+        },
+      ]),
+    ).toEqual([]);
+
+    expect(stripA2APersistedArtifactMarkers(downstream)).toBe(
+      'Filed the design ask.\n\nArtifacts:\n- Document "Launch ask v1.2": https://content.agent.test/page/request_123 (ID: request_123)',
+    );
+
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "call-agent",
+          result: downstream.replace(/\.[a-f0-9]{64}\s*-->/, ".deadbeef -->"),
+        },
+      ]),
+    ).toEqual([]);
+  });
+
+  it("excludes lookup artifacts from the stable identity ledger", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "get-content-database",
+          result: JSON.stringify({
+            items: Array.from({ length: 20 }, (_, index) => ({
+              documentId: `lookup_${index}`,
+              title: `Lookup ${index}`,
+            })),
+          }),
+        },
+        {
+          tool: "submit-content-database-form",
+          result: JSON.stringify({
+            createdDocumentId: "request_target",
+            createdDocumentTitle: "Target request",
+            urlPath: "/page/request_target",
+            verification: { found: true },
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "document",
+        id: "request_target",
+        sourceAction: "submit-content-database-form",
+        titleAtAction: "Target request",
+        url: "/page/request_target",
+      },
+    ]);
+  });
+
+  it.each(["edit-image", "restyle-image", "save-generated-asset"])(
+    "retains image identity from the %s write alias",
+    (tool) => {
+      expect(
+        extractA2AArtifactIdentities([
+          {
+            tool,
+            result: JSON.stringify({
+              assetId: "asset_target",
+              title: "Target image",
+              pageUrl: "/assets/asset_target",
+            }),
+          },
+        ]),
+      ).toEqual([
+        {
+          resourceType: "image",
+          id: "asset_target",
+          sourceAction: tool,
+          titleAtAction: "Target image",
+          url: "/assets/asset_target",
+        },
+      ]);
+    },
+  );
+
+  it("retains image exports but excludes video exports from image identity", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "image_target",
+            artifactType: "image",
+            pageUrl: "/assets/image_target",
+          }),
+        },
+        {
+          tool: "export-asset",
+          result: JSON.stringify({
+            assetId: "video_target",
+            artifactType: "video",
+            pageUrl: "/assets/video_target",
+          }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "image",
+        id: "image_target",
+        sourceAction: "export-asset",
+        url: "/assets/image_target",
+      },
+    ]);
+  });
+
+  it("retains the stable identity of an empty design shell", () => {
+    expect(
+      extractA2AArtifactIdentities([
+        {
+          tool: "create-design",
+          result: JSON.stringify({ id: "design_shell", title: "Launch" }),
+        },
+      ]),
+    ).toEqual([
+      {
+        resourceType: "design",
+        id: "design_shell",
+        sourceAction: "create-design",
+        titleAtAction: "Launch",
+      },
+    ]);
   });
 
   it("appends the focused Analytics URL returned by save-monitor", () => {

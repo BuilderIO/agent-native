@@ -509,6 +509,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     delete process.env.ACCESS_TOKENS;
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     // Inline MCP App embeds are off by default; these tests assert the embed
@@ -522,6 +524,8 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
   afterEach(() => {
     delete process.env.ACCESS_TOKEN;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
     delete process.env.APP_BASE_PATH;
     delete process.env.VITE_APP_BASE_PATH;
     delete process.env.AGENT_NATIVE_MCP_APPS_INLINE;
@@ -3320,6 +3324,63 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     expect((res as any).message).toContain(
       "npx -y @agent-native/core@latest reconnect https://mail.agent-native.com",
     );
+  });
+
+  it("challenges bare loopback MCP URLs so OAuth-native hosts can authenticate", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 11, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({
+      error: "Unauthorized",
+      authenticate: {
+        mcpUrl: "http://localhost:8100/mcp",
+      },
+    });
+  });
+
+  it("does not treat a server owner env var as a local owner hint", async () => {
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    delete process.env.A2A_SECRET;
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    delete process.env.AGENT_NATIVE_MCP_DEV_OPEN;
+
+    const event = makeWebEvent({
+      method: "POST",
+      ip: "127.0.0.1",
+      body: { jsonrpc: "2.0", id: 12, method: "initialize", params: {} },
+      headers: {
+        authorization: "",
+        host: "localhost:8100",
+        "x-forwarded-proto": "http",
+      },
+    });
+    const res = await handleMcpRequest(event, config as any);
+
+    expect(event._status).toBe(401);
+    expect(event._responseHeaders?.["www-authenticate"]).toContain(
+      'resource_metadata="http://localhost:8100/.well-known/oauth-protected-resource"',
+    );
+    expect(res).toMatchObject({ error: "Unauthorized" });
   });
 
   it("uses forwarded host for tunneled OAuth challenges instead of opening dev mode", async () => {

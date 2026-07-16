@@ -61,12 +61,39 @@ export interface PreviewDocumentPayload {
   loadedContentWasEmpty?: boolean;
 }
 
-export interface PreviewDocumentSaveSkipped {
-  skipped: true;
+export interface PreviewDocumentSaveDeferred {
+  outcome: "deferred";
+  reason: "hydration" | "conflict";
+  conflictSnapshot?: PreviewDocumentDraftSnapshot;
 }
 
-export function skippedPreviewDocumentSave(): PreviewDocumentSaveSkipped {
-  return { skipped: true };
+export interface PreviewDocumentSaveAdapter {
+  save: (
+    documentId: string,
+    payload: PreviewDocumentPayload,
+    baseline?: PreviewDocumentPayload,
+  ) => Promise<unknown>;
+  onSaved?: (payload: PreviewDocumentPayload) => void;
+  onError?: (error: unknown) => void;
+  onDraftConflict?: (snapshot: PreviewDocumentDraftSnapshot) => void;
+}
+
+export interface PreviewDocumentDraftSnapshot {
+  lastSaved: PreviewDocumentPayload;
+  pending: PreviewDocumentPayload;
+  deferredReason: PreviewDocumentSaveDeferred["reason"] | null;
+}
+
+/**
+ * The save could not run yet, but the payload is still user-owned and must stay
+ * dirty until a later flush can persist it. This is intentionally different
+ * from success: callers must never advance or reset the confirmed baseline.
+ */
+export function deferredPreviewDocumentSave(
+  reason: PreviewDocumentSaveDeferred["reason"] = "hydration",
+  conflictSnapshot?: PreviewDocumentDraftSnapshot,
+): PreviewDocumentSaveDeferred {
+  return { outcome: "deferred", reason, conflictSnapshot };
 }
 
 export interface PreviewDocumentSaveController {
@@ -89,6 +116,19 @@ export interface PreviewDocumentSaveController {
   cancel(): void;
   /** Adopt `payload` as the confirmed-saved baseline (no save scheduled). */
   mark(payload: PreviewDocumentPayload): void;
+  /**
+   * Adopt a fresher server baseline while retaining the user's pending title
+   * and content. Used only after an explicit "keep local draft" choice.
+   */
+  rebasePending(payload: PreviewDocumentPayload): void;
+  /** Replace callbacks captured by an older preview mount. */
+  replaceSaveAdapter(adapter: PreviewDocumentSaveAdapter): void;
+  /** Serializable dirty state for bounded browser draft storage. */
+  draftSnapshot(): PreviewDocumentDraftSnapshot;
+  /** Restore a previously persisted dirty draft into a fresh controller. */
+  restoreDraft(snapshot: PreviewDocumentDraftSnapshot): void;
+  /** Notify whichever preview mount currently owns this controller. */
+  notifyDraftConflict(snapshot: PreviewDocumentDraftSnapshot): void;
   /** The payload last CONFIRMED persisted. */
   readonly lastSaved: PreviewDocumentPayload;
   /** The latest payload the user has typed (may differ from lastSaved). */
@@ -97,6 +137,8 @@ export interface PreviewDocumentSaveController {
   readonly hasPendingTimer: boolean;
   /** Whether a save() call is currently outstanding (in flight). */
   readonly isSaving: boolean;
+  /** Why the latest attempted save remains dirty, if it was deferred. */
+  readonly deferredReason: PreviewDocumentSaveDeferred["reason"] | null;
   /**
    * Whether this controller has confirmed at least one local save since creation.
    * Until the server query echoes that payload, clean local state is newer than
@@ -109,25 +151,21 @@ function payloadsEqual(a: PreviewDocumentPayload, b: PreviewDocumentPayload) {
   return a.title === b.title && a.content === b.content;
 }
 
-export function createPreviewDocumentSaveController(args: {
-  /**
-   * The document id this controller persists to, fixed for its entire life. A
-   * controller NEVER changes which document it targets — switching rows acquires
-   * a different controller (see previewDocumentSaveRegistry).
-   */
-  documentId: string;
-  initial: PreviewDocumentPayload;
-  /** Persist `payload` to this controller's document. */
-  save: (
-    documentId: string,
-    payload: PreviewDocumentPayload,
-  ) => Promise<unknown>;
-  onSaved?: (payload: PreviewDocumentPayload) => void;
-  onError?: (error: unknown) => void;
-  debounceMs?: number;
-  setTimeoutFn?: typeof setTimeout;
-  clearTimeoutFn?: typeof clearTimeout;
-}): PreviewDocumentSaveController {
+export function createPreviewDocumentSaveController(
+  args: PreviewDocumentSaveAdapter & {
+    /**
+     * The document id this controller persists to, fixed for its entire life. A
+     * controller NEVER changes which document it targets — switching rows acquires
+     * a different controller (see previewDocumentSaveRegistry).
+     */
+    documentId: string;
+    initial: PreviewDocumentPayload;
+    /** Persist `payload` to this controller's document. */
+    debounceMs?: number;
+    setTimeoutFn?: typeof setTimeout;
+    clearTimeoutFn?: typeof clearTimeout;
+  },
+): PreviewDocumentSaveController {
   const documentId = args.documentId;
   const debounceMs = args.debounceMs ?? 450;
   const setTimeoutFn = args.setTimeoutFn ?? setTimeout;
@@ -137,6 +175,13 @@ export function createPreviewDocumentSaveController(args: {
   let pending: PreviewDocumentPayload = { ...args.initial };
   let timer: ReturnType<typeof setTimeout> | null = null;
   let hasSavedLocally = false;
+  let deferredReason: PreviewDocumentSaveDeferred["reason"] | null = null;
+  let saveAdapter: PreviewDocumentSaveAdapter = {
+    save: args.save,
+    onSaved: args.onSaved,
+    onError: args.onError,
+    onDraftConflict: args.onDraftConflict,
+  };
 
   // The single in-flight save, or null when idle. A debounced edit made while
   // this is set does NOT start a new save; it updates `pending` and a trailing
@@ -161,29 +206,42 @@ export function createPreviewDocumentSaveController(args: {
     if (payloadsEqual(pending, lastSaved)) return; // nothing dirty.
 
     const attempted = { ...pending };
-    const promise = Promise.resolve(args.save(documentId, attempted))
+    const promise = Promise.resolve(
+      saveAdapter.save(documentId, attempted, { ...lastSaved }),
+    )
       .then((result) => {
         if (
           result &&
           typeof result === "object" &&
-          "skipped" in result &&
-          result.skipped === true
+          "outcome" in result &&
+          result.outcome === "deferred" &&
+          "reason" in result &&
+          (result.reason === "hydration" || result.reason === "conflict")
         ) {
-          pending = { ...lastSaved };
+          // Hydration can begin after a keystroke but before the debounce fires.
+          // Keep the attempted payload dirty so the registry can retain it across
+          // close/reopen and a later flush can retry it. A deferred save is not a
+          // successful save, and user-authored content is never disposable.
+          deferredReason = result.reason;
           inFlight = null;
+          const deferredResult = result as PreviewDocumentSaveDeferred;
+          if (deferredResult.conflictSnapshot) {
+            saveAdapter.onDraftConflict?.(deferredResult.conflictSnapshot);
+          }
           return;
         }
         lastSaved = attempted;
         hasSavedLocally = true;
+        deferredReason = null;
         inFlight = null;
-        args.onSaved?.(attempted);
+        saveAdapter.onSaved?.(attempted);
         // A trailing edit may have landed while this save was in flight. Issue
         // exactly one more for the LATEST payload. Bounded: stops once quiescent.
         kick();
       })
       .catch((error) => {
         inFlight = null;
-        args.onError?.(error);
+        saveAdapter.onError?.(error);
       });
     inFlight = promise;
   }
@@ -201,10 +259,12 @@ export function createPreviewDocumentSaveController(args: {
     documentId,
     changeTitle(title: string) {
       pending = { ...pending, title };
+      deferredReason = null;
       schedule();
     },
     changeContent(content: string) {
       pending = { ...pending, content };
+      deferredReason = null;
       schedule();
     },
     flush() {
@@ -233,6 +293,38 @@ export function createPreviewDocumentSaveController(args: {
       lastSaved = { ...payload };
       pending = { ...payload };
       hasSavedLocally = false;
+      deferredReason = null;
+    },
+    rebasePending(payload: PreviewDocumentPayload) {
+      clearTimer();
+      lastSaved = { ...payload };
+      pending = {
+        ...pending,
+        loadedUpdatedAt: payload.loadedUpdatedAt,
+        loadedContentWasEmpty: payload.loadedContentWasEmpty,
+      };
+      hasSavedLocally = false;
+      deferredReason = null;
+    },
+    replaceSaveAdapter(adapter: PreviewDocumentSaveAdapter) {
+      saveAdapter = adapter;
+    },
+    draftSnapshot() {
+      return {
+        lastSaved: { ...lastSaved },
+        pending: { ...pending },
+        deferredReason,
+      };
+    },
+    restoreDraft(snapshot: PreviewDocumentDraftSnapshot) {
+      clearTimer();
+      lastSaved = { ...snapshot.lastSaved };
+      pending = { ...snapshot.pending };
+      deferredReason = snapshot.deferredReason;
+      hasSavedLocally = false;
+    },
+    notifyDraftConflict(snapshot: PreviewDocumentDraftSnapshot) {
+      saveAdapter.onDraftConflict?.(snapshot);
     },
     get lastSaved() {
       return { ...lastSaved };
@@ -245,6 +337,9 @@ export function createPreviewDocumentSaveController(args: {
     },
     get isSaving() {
       return inFlight !== null;
+    },
+    get deferredReason() {
+      return deferredReason;
     },
     get hasSavedLocally() {
       return hasSavedLocally;

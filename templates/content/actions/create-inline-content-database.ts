@@ -22,10 +22,12 @@ export default defineAction({
   schema: z.object({
     hostDocumentId: z.string().describe("Host page document ID"),
     title: z.string().optional().describe("Database title"),
+    description: z.string().optional().describe("Stable database guidance"),
   }),
   run: async ({
     hostDocumentId,
     title,
+    description,
   }): Promise<CreateInlineDatabaseResponse> => {
     const db = getDb();
     const ownerBlockId = createInlineDatabaseBlockId();
@@ -37,6 +39,7 @@ export default defineAction({
         {
           parentId: hostDocumentId,
           title: databaseTitleForPage(title),
+          description,
         },
         { db: tx },
       );

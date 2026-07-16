@@ -442,6 +442,7 @@ const messages = {
     invite: "초대",
     embed: "임베드",
     shareLink: "공유 링크",
+    shareWithHumans: "사람과 공유",
     shareWithAgents: "상담원과 공유",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
@@ -452,6 +453,8 @@ const messages = {
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
     openPlayer: "플레이어 열기",
+    chooseFile: "파일 선택",
+    remove: "제거",
     downloadMp4: "MP4 다운로드",
     embedsNeedPublic: "퍼가기에는 공개 클립이 필요합니다",
     embedPublicDescription:
@@ -1221,9 +1224,10 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     visibilityOrg: "Organization (현지화됨)",
     visibilityPublic: "Public (현지화됨)",
     passwordProtection: "Password protection (현지화됨)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (현지화됨)",
+    passwordSetPlaceholder: "Password is set — type to replace (현지화됨)",
     noPasswordPlaceholder: "No password (현지화됨)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (현지화됨)",
+    removePassword: "Remove (현지화됨)",
     expiry: "Expiry (현지화됨)",
     viewerOptions: "Viewer options (현지화됨)",
     comments: "Comments (현지화됨)",

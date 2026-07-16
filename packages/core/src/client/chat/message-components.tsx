@@ -848,6 +848,25 @@ export function shouldShowAssistantMessageFooter({
   return !chatRunning && statusIsTerminal;
 }
 
+export function shouldShowAssistantWorkSummary({
+  isLast,
+  isComplete,
+  hasCollapsibleWork,
+  hasUnresolvedTool,
+}: {
+  isLast: boolean;
+  isComplete: boolean;
+  hasCollapsibleWork: boolean;
+  hasUnresolvedTool: boolean;
+}): boolean {
+  if (!hasCollapsibleWork || hasUnresolvedTool) return false;
+
+  // Keep completed historical work wrapped while a later turn is running.
+  // Removing the wrapper exposes/remounts ReasoningCell and resets its
+  // disclosure state to the default-open value on every new submission.
+  return isComplete || !isLast;
+}
+
 function ReasoningMessagePart() {
   const part = useMessagePartReasoning();
   const partRuntime = useMessagePartRuntime();
@@ -882,6 +901,7 @@ function ReasoningMessagePart() {
     <ReasoningCell
       text={part.text}
       isStreaming={isStreaming}
+      resetKey={`message-reasoning-${partIndex}`}
       durationMs={durationMs}
       defaultOpen={partIndex === latestReasoningPartIndex}
       collapseWhenReplaced={partIndex < latestReasoningPartIndex}
@@ -889,10 +909,24 @@ function ReasoningMessagePart() {
   );
 }
 
+const ALWAYS_VISIBLE_ASSISTANT_TOOLS = new Set(["connect-builder"]);
+
+export function isCollapsibleAssistantWorkPart(part: {
+  type?: string;
+  toolName?: string;
+}): boolean {
+  if (part.type === "reasoning") return true;
+  return (
+    part.type === "tool-call" &&
+    !ALWAYS_VISIBLE_ASSISTANT_TOOLS.has(part.toolName ?? "")
+  );
+}
+
 function groupAssistantWorkParts(part: {
   type?: string;
+  toolName?: string;
 }): ["group-work"] | null {
-  if (part.type === "reasoning" || part.type === "tool-call") {
+  if (isCollapsibleAssistantWorkPart(part)) {
     return ["group-work"];
   }
   return null;
@@ -1024,8 +1058,8 @@ export function AssistantMessage() {
     Array.isArray(msgContent) &&
     msgContent.some(
       (p) =>
-        p.type === "reasoning" ||
-        (p.type === "tool-call" && p.activity !== true),
+        (p.type !== "tool-call" || p.activity !== true) &&
+        isCollapsibleAssistantWorkPart(p),
     );
 
   if (!hasRenderableContent) return null;
@@ -1040,8 +1074,12 @@ export function AssistantMessage() {
           {({ part, children }) => {
             switch (part.type) {
               case "group-work": {
-                const showSummary =
-                  isComplete && !chatRunning && hasCollapsibleWork;
+                const showSummary = shouldShowAssistantWorkSummary({
+                  isLast,
+                  isComplete,
+                  hasCollapsibleWork,
+                  hasUnresolvedTool,
+                });
                 if (!showSummary) return <>{children}</>;
                 return (
                   <WorkedForSummary

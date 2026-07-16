@@ -150,6 +150,120 @@ describe("task-store lifecycle (real sqlite)", () => {
     });
   });
 
+  describe("A2A human approvals", () => {
+    it("binds approval to owner and org, claims it once, and settles the paused task", async () => {
+      const {
+        claimA2AApproval,
+        claimA2ATaskForProcessing,
+        createA2AApproval,
+        createTask,
+        getA2AApprovalForOwner,
+        getTask,
+        pauseProcessingA2ATask,
+        settleA2AApproval,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await claimA2ATaskForProcessing(task.id);
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        orgId: "org-1",
+        tool: "send-email",
+        toolInput: { to: "recipient@example.com" },
+        approvalKey: "private-key",
+        callId: "call-1",
+      });
+      await pauseProcessingA2ATask(
+        task.id,
+        makeMessage("Approval required", "agent"),
+      );
+
+      expect(
+        await getA2AApprovalForOwner(approval.id, "other@example.com"),
+      ).toBeNull();
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com", "wrong-org"),
+      ).toBeNull();
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
+      ).toMatchObject({ status: "processing", approvalKey: "private-key" });
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com", "org-1"),
+      ).toBeNull();
+
+      await settleA2AApproval(approval.id, "completed", "Email sent");
+      expect(await getTask(task.id)).toMatchObject({
+        status: {
+          state: "completed",
+          message: { parts: [{ type: "text", text: "Email sent" }] },
+        },
+      });
+    });
+
+    it("refuses an expired approval", async () => {
+      const { claimA2AApproval, createA2AApproval, createTask } =
+        await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        tool: "send-email",
+        toolInput: {},
+        approvalKey: "private-key",
+        callId: "call-1",
+        ttlMs: -1,
+      });
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com"),
+      ).toBeNull();
+    });
+
+    it("refuses approval after the linked task is canceled", async () => {
+      const {
+        claimA2AApproval,
+        claimA2ATaskForProcessing,
+        createA2AApproval,
+        createTask,
+        pauseProcessingA2ATask,
+        updateTask,
+      } = await loadStore();
+      const task = await createTask(
+        makeMessage("send it"),
+        undefined,
+        undefined,
+        "owner@example.com",
+      );
+      await claimA2ATaskForProcessing(task.id);
+      const approval = await createA2AApproval({
+        taskId: task.id,
+        ownerEmail: "owner@example.com",
+        tool: "send-email",
+        toolInput: {},
+        approvalKey: "private-key",
+        callId: "call-1",
+      });
+      await pauseProcessingA2ATask(
+        task.id,
+        makeMessage("Approval required", "agent"),
+      );
+      await updateTask(task.id, { state: "canceled" });
+
+      expect(
+        await claimA2AApproval(approval.id, "owner@example.com"),
+      ).toBeNull();
+    });
+  });
+
   describe("getA2ATaskDispatchState", () => {
     it("returns id/state/metadata/updatedAt/createdAt for an existing task", async () => {
       const { createTask, getA2ATaskDispatchState } = await loadStore();

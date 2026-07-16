@@ -105,6 +105,12 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import { applySourceFieldPropertyToDatabaseResponse } from "@/hooks/use-content-database";
 import {
   useConfigureDocumentProperty,
@@ -483,6 +489,24 @@ export function filesMediaEditorValue(value: DocumentProperty["value"]) {
   return filesMediaItems(value).join("\n");
 }
 
+export function isValidFilesMediaLink(value: string) {
+  try {
+    const url = new URL(value.trim());
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
+}
+
+export function mergeFilesMediaItems(items: string[], pendingLink: string) {
+  const trimmed = pendingLink.trim();
+  if (!trimmed || !isValidFilesMediaLink(trimmed)) return items;
+  if (items.some((item) => item.toLowerCase() === trimmed.toLowerCase())) {
+    return items;
+  }
+  return [...items, trimmed];
+}
+
 export function filesMediaLabel(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return "File";
@@ -551,7 +575,8 @@ export function filterPropertyOptions(
   return options.filter(
     (option) =>
       option.name.toLowerCase().includes(normalizedQuery) ||
-      option.id.toLowerCase().includes(normalizedQuery),
+      option.id.toLowerCase().includes(normalizedQuery) ||
+      option.description?.toLowerCase().includes(normalizedQuery),
   );
 }
 
@@ -610,6 +635,76 @@ export function updatePropertyOptionColor(
   return options.map((option) =>
     option.id === optionId ? { ...option, color } : option,
   );
+}
+
+export function updatePropertyOptionDescription(
+  options: DocumentPropertyOption[],
+  optionId: string,
+  description: string,
+) {
+  return options.map((option) =>
+    option.id === optionId ? { ...option, description } : option,
+  );
+}
+
+/**
+ * Keeps successive option edits based on the same local truth until the
+ * server catches up. A rename followed immediately by a usage-description
+ * edit must not let either request erase the other.
+ */
+export function createPropertyOptionUpdateQueue(
+  initialOptions: DocumentPropertyOption[],
+  persist: (options: DocumentPropertyOption[]) => Promise<unknown>,
+) {
+  let current = initialOptions;
+  let tail: Promise<unknown> = Promise.resolve();
+
+  return {
+    replace(options: DocumentPropertyOption[]) {
+      current = options;
+    },
+    enqueue(
+      update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
+    ) {
+      current = update(current);
+      const snapshot = current;
+      tail = tail.catch(() => undefined).then(() => persist(snapshot));
+      return tail;
+    },
+  };
+}
+
+type PropertyMetadataSnapshot = Pick<
+  DocumentProperty["definition"],
+  "name" | "type" | "description" | "visibility" | "options"
+>;
+
+/**
+ * Serializes property-definition edits against one local snapshot. The action
+ * accepts the complete definition, so composing each request from render-time
+ * props would let a fast description save restore the name from before an
+ * overlapping rename completed.
+ */
+export function createPropertyMetadataUpdateQueue(
+  initialMetadata: PropertyMetadataSnapshot,
+  persist: (metadata: PropertyMetadataSnapshot) => Promise<unknown>,
+) {
+  let current = initialMetadata;
+  let tail: Promise<unknown> = Promise.resolve();
+
+  return {
+    replace(metadata: PropertyMetadataSnapshot) {
+      current = metadata;
+    },
+    enqueue(
+      update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
+    ) {
+      current = update(current);
+      const snapshot = current;
+      tail = tail.catch(() => undefined).then(() => persist(snapshot));
+      return tail;
+    },
+  };
 }
 
 export function removePropertyOption(
@@ -833,7 +928,23 @@ function PropertyRow({
       ) : (
         <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
           <Icon className="size-4 shrink-0" />
-          <span className="truncate">{property.definition.name}</span>
+          {property.definition.description ? (
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="truncate text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                >
+                  {property.definition.name}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent className="max-w-64">
+                {property.definition.description}
+              </TooltipContent>
+            </Tooltip>
+          ) : (
+            <span className="truncate">{property.definition.name}</span>
+          )}
         </div>
       )}
       {canEdit && property.editable ? (
@@ -961,7 +1072,25 @@ export function PropertyManagementPopover({
   const [open, setOpen] = useState(false);
   const [confirmDeleteOpen, setConfirmDeleteOpen] = useState(false);
   const [name, setName] = useState(property.definition.name);
+  const [description, setDescription] = useState(
+    property.definition.description,
+  );
   const [newOption, setNewOption] = useState("");
+  const persistMetadataSnapshotRef = useRef<
+    (metadata: PropertyMetadataSnapshot) => Promise<unknown>
+  >(async () => undefined);
+  const metadataUpdateQueueRef = useRef(
+    createPropertyMetadataUpdateQueue(
+      {
+        name: property.definition.name,
+        type: property.definition.type,
+        description: property.definition.description,
+        visibility: property.definition.visibility,
+        options: property.definition.options,
+      },
+      (metadata) => persistMetadataSnapshotRef.current(metadata),
+    ),
+  );
   const propertyNameInputRef = useRef<HTMLInputElement>(null);
   const typeIsLocked = isComputedPropertyType(property.definition.type);
   const typeNeedsOptions =
@@ -971,7 +1100,15 @@ export function PropertyManagementPopover({
 
   function resetDraft() {
     setName(property.definition.name);
+    setDescription(property.definition.description);
     setNewOption("");
+    metadataUpdateQueueRef.current.replace({
+      name: property.definition.name,
+      type: property.definition.type,
+      description: property.definition.description,
+      visibility: property.definition.visibility,
+      options: property.definition.options,
+    });
   }
 
   useEffect(() => {
@@ -990,22 +1127,45 @@ export function PropertyManagementPopover({
     type?: DocumentPropertyType;
     visibility?: DocumentPropertyVisibility;
     options?: DocumentProperty["definition"]["options"];
+    description?: string;
   }) {
-    const nextType = next.type ?? property.definition.type;
-    await configure.mutateAsync({
+    await metadataUpdateQueueRef.current.enqueue((current) => ({
+      name: next.name?.trim() || current.name,
+      type: next.type ?? current.type,
+      description: next.description ?? current.description,
+      visibility: next.visibility ?? current.visibility,
+      options: next.options ?? current.options,
+    }));
+  }
+
+  async function updateOptions(
+    update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
+  ) {
+    await metadataUpdateQueueRef.current.enqueue((current) => ({
+      ...current,
+      options: {
+        options: update(current.options.options ?? []),
+      },
+    }));
+  }
+
+  persistMetadataSnapshotRef.current = (metadata) =>
+    configure.mutateAsync({
       id: property.definition.id,
       documentId,
-      name: next.name?.trim() || property.definition.name,
-      type: nextType,
-      visibility: next.visibility,
-      options: next.options ?? property.definition.options,
+      ...metadata,
     });
-  }
 
   async function renameProperty() {
     const nextName = name.trim();
     if (!nextName || nextName === property.definition.name) return;
     await configureProperty({ name: nextName });
+  }
+
+  async function updateDescription() {
+    const nextDescription = (description ?? "").trim();
+    if (nextDescription === property.definition.description) return;
+    await configureProperty({ description: nextDescription });
   }
 
   async function updateType(nextType: DocumentPropertyType) {
@@ -1042,39 +1202,39 @@ export function PropertyManagementPopover({
   async function addOption() {
     const optionName = newOption.trim();
     if (!optionName) return;
-    const existing = property.definition.options.options ?? [];
-    const option = makeOption(
-      optionName,
-      existing.length,
-      existing.map((item) => item.id),
-    );
-    await configureProperty({
-      options: { options: [...existing, option] },
-    });
+    await updateOptions((existing) => [
+      ...existing,
+      makeOption(
+        optionName,
+        existing.length,
+        existing.map((item) => item.id),
+      ),
+    ]);
     setNewOption("");
   }
 
   async function removeOption(id: string) {
-    await configureProperty({
-      options: {
-        options: (property.definition.options.options ?? []).filter(
-          (option) => option.id !== id,
-        ),
-      },
-    });
+    await updateOptions((options) =>
+      options.filter((option) => option.id !== id),
+    );
   }
 
   async function renameOption(id: string, optionName: string) {
-    const options = property.definition.options.options ?? [];
-    const nextOptions = renamePropertyOption(options, id, optionName);
-    if (nextOptions === options) return;
-    await configureProperty({ options: { options: nextOptions } });
+    await updateOptions((options) =>
+      renamePropertyOption(options, id, optionName),
+    );
   }
 
   async function recolorOption(id: string, color: DocumentPropertyOptionColor) {
-    const options = property.definition.options.options ?? [];
-    const nextOptions = updatePropertyOptionColor(options, id, color);
-    await configureProperty({ options: { options: nextOptions } });
+    await updateOptions((options) =>
+      updatePropertyOptionColor(options, id, color),
+    );
+  }
+
+  async function describeOption(id: string, description: string) {
+    await updateOptions((options) =>
+      updatePropertyOptionDescription(options, id, description),
+    );
   }
 
   return (
@@ -1092,6 +1252,7 @@ export function PropertyManagementPopover({
             aria-label={t("editor.properties.propertyMenuFor", {
               name: property.definition.name,
             })}
+            title={property.definition.description || undefined}
             className={cn(
               "flex min-w-0 items-center gap-2 rounded px-1 py-0.5 text-left text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
               triggerClassName,
@@ -1135,6 +1296,21 @@ export function PropertyManagementPopover({
                 }
               }}
               className="h-8"
+            />
+          </div>
+
+          <div
+            className="px-2 pb-2 pt-1"
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <Textarea
+              rows={2}
+              value={description}
+              aria-label={t("editor.properties.description")}
+              placeholder={t("editor.properties.addPropertyDescription")}
+              onChange={(event) => setDescription(event.target.value)}
+              onBlur={() => void updateDescription()}
+              className="block w-full resize-none rounded border border-transparent bg-muted/30 px-2 py-1.5 text-xs leading-5 text-muted-foreground outline-none placeholder:text-muted-foreground/60 focus:border-input focus:bg-background focus:ring-1 focus:ring-ring"
             />
           </div>
 
@@ -1217,6 +1393,9 @@ export function PropertyManagementPopover({
                     option={option}
                     disabled={configure.isPending}
                     onRename={(name) => void renameOption(option.id, name)}
+                    onDescriptionChange={(description) =>
+                      void describeOption(option.id, description)
+                    }
                     onColorChange={(color) =>
                       void recolorOption(option.id, color)
                     }
@@ -1424,21 +1603,27 @@ function PropertyOptionSettingsRow({
   option,
   disabled,
   onRename,
+  onDescriptionChange,
   onColorChange,
   onRemove,
 }: {
   option: DocumentPropertyOption;
   disabled: boolean;
   onRename: (name: string) => void;
+  onDescriptionChange: (description: string) => void;
   onColorChange: (color: DocumentPropertyOptionColor) => void;
   onRemove: () => void;
 }) {
   const t = useT();
   const [draftName, setDraftName] = useState(option.name);
+  const [draftDescription, setDraftDescription] = useState(
+    option.description ?? "",
+  );
 
   useEffect(() => {
     setDraftName(option.name);
-  }, [option.name]);
+    setDraftDescription(option.description ?? "");
+  }, [option.description, option.name]);
 
   function submitRename() {
     const nextName = draftName.trim();
@@ -1528,6 +1713,21 @@ function PropertyOptionSettingsRow({
           {t("editor.properties.remove")}
         </button>
       </div>
+      <Textarea
+        rows={1}
+        value={draftDescription}
+        disabled={disabled}
+        aria-label={`${t("editor.properties.description")}: ${option.name}`}
+        placeholder={t("editor.properties.addOptionDescription")}
+        onChange={(event) => setDraftDescription(event.target.value)}
+        onBlur={() => {
+          const nextDescription = draftDescription.trim();
+          if (nextDescription !== (option.description ?? "")) {
+            onDescriptionChange(nextDescription);
+          }
+        }}
+        className="ml-5 block w-[calc(100%-1.25rem)] resize-none rounded border-0 bg-transparent px-1 text-xs leading-5 text-muted-foreground shadow-none placeholder:text-muted-foreground/60 focus:bg-background focus:ring-1 focus:ring-ring"
+      />
     </div>
   );
 }
@@ -1878,16 +2078,8 @@ function FilesMediaValueEditor({
   }, []);
 
   function addItem(value: string) {
-    const trimmed = value.trim();
-    if (!trimmed) return;
-    setItems((current) => {
-      if (
-        current.some((item) => item.toLowerCase() === trimmed.toLowerCase())
-      ) {
-        return current;
-      }
-      return [...current, trimmed];
-    });
+    if (!isValidFilesMediaLink(value)) return;
+    setItems((current) => mergeFilesMediaItems(current, value));
     setLinkValue("");
   }
 
@@ -1944,11 +2136,11 @@ function FilesMediaValueEditor({
       className="grid gap-3"
       onSubmit={(event) => {
         event.preventDefault();
-        if (linkValue.trim()) {
-          addItem(linkValue);
+        if (linkValue.trim() && !isValidFilesMediaLink(linkValue)) {
+          linkInputRef.current?.reportValidity();
           return;
         }
-        void save();
+        void save(mergeFilesMediaItems(items, linkValue));
       }}
     >
       <div className="grid max-h-48 gap-1 overflow-auto">
@@ -1992,9 +2184,11 @@ function FilesMediaValueEditor({
       <div className="flex gap-1">
         <Input
           ref={linkInputRef}
-          aria-label={t("editor.properties.addPropertyLink", {
+          aria-label={t("editor.properties.editValue", {
             name: property.definition.name,
           })}
+          type="url"
+          pattern="[hH][tT][tT][pP][sS]?://.*"
           value={linkValue}
           placeholder={t("editor.properties.pasteFileOrMediaLink")}
           onChange={(event) => setLinkValue(event.target.value)}
@@ -2011,7 +2205,7 @@ function FilesMediaValueEditor({
           size="sm"
           className="shrink-0"
           onClick={() => addItem(linkValue)}
-          disabled={!linkValue.trim() || mutation.isPending}
+          disabled={!isValidFilesMediaLink(linkValue) || mutation.isPending}
         >
           <IconPlus className="size-3.5" />
           {t("editor.properties.add")}
@@ -2559,7 +2753,14 @@ function OptionValueEditor({
               className="flex w-full items-center justify-between gap-2 rounded px-2 py-1.5 text-left text-sm hover:bg-accent"
               onClick={() => void chooseOption(option)}
             >
-              <OptionPill option={option} />
+              <span className="min-w-0 flex-1">
+                <OptionPill option={option} />
+                {option.description ? (
+                  <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                    {option.description}
+                  </span>
+                ) : null}
+              </span>
               {checked ? (
                 <IconCheck className="size-4 text-muted-foreground" />
               ) : null}

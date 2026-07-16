@@ -777,6 +777,7 @@ export function ReviewCanvasPins({
                 postDraft({ ...draftPin, resolutionTarget });
               }}
               resolutionTarget={draftPin.resolutionTarget}
+              showAgentAction={Boolean(onDispatchCommentToAgent)}
               placement={getReviewPopoverPlacement(draftPinPosition.point)}
               submitting={createComment.isPending}
             />
@@ -843,6 +844,7 @@ function DraftComposer({
   onCancel,
   onSubmit,
   resolutionTarget,
+  showAgentAction,
   placement,
   submitting,
 }: {
@@ -851,6 +853,7 @@ function DraftComposer({
   onCancel: () => void;
   onSubmit: (target: "agent" | "human") => void;
   resolutionTarget: "agent" | "human";
+  showAgentAction: boolean;
   placement: ReviewPopoverPlacement;
   submitting: boolean;
 }) {
@@ -886,7 +889,7 @@ function DraftComposer({
         onChange={onChange}
         onSubmit={onSubmit}
         submittingTarget={submitting ? resolutionTarget : null}
-        showAgentAction
+        showAgentAction={showAgentAction}
         placeholder={t("review.placeholder")}
         commentLabel={t("review.commentMode")}
         agentLabel={t("review.sendToAgent")}

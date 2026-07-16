@@ -70,9 +70,9 @@ Die Box, das Gerüst, der Repo-Zugriff und die Lauffreigabe sind jetzt an einem 
 
 → [**Agent Surfaces — Headless agent**](/docs/agent-surfaces#headless)
 
-## Chat später hinzufügen {#add-chat-later}
+## Später eine UI hinzufügen {#add-chat-later}
 
-`--headless` wählt nur das anfängliche Scaffold; es gibt keinen `agent-native`-Befehl, der ein bestehendes action-only-Projekt direkt in eine Chat-App umwandelt. Wenn Menschen eine Browser-Unterhaltung brauchen, nutze das [Chat-Template](/docs/template-chat) als Migrationsreferenz: Behalte Actions, SQL-Daten, Anweisungen und Skills bei und übernimm Browser-Shell, Server-Plugins, `<AgentChatSurface>` sowie ein Chat-Plugin, das die vorhandenen Actions lädt. Prüfe `pnpm typecheck` und einen Chat-Turn, der eine vorhandene Action aufruft. `agent-native add` ist für Integrations-Blaupausen gedacht, nicht für diese Umwandlung.
+`--headless` wählt nur das anfängliche Scaffold; es gibt keinen `agent-native`-Befehl, der ein bestehendes action-only-Projekt direkt in eine Browser-App umwandelt. Wenn Menschen eine UI brauchen, nutze das [Chat-Template](/docs/template-chat) als Migrationsreferenz: Behalte Actions, SQL-Daten, Anweisungen und Skills bei und übernimm Browser-Shell und Server-Plugins. Für eine Chat-Oberfläche kommen `<AgentChatSurface>` und ein Chat-Plugin hinzu, das die vorhandenen Actions lädt. Prüfe `pnpm typecheck` und einen UI-Ablauf, der eine vorhandene Action aufruft. `agent-native add` ist für Integrations-Blaupausen gedacht, nicht für diese Umwandlung.
 
 ## Was kommt als nächstes
 

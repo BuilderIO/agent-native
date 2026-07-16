@@ -1,3 +1,6 @@
+import { matchInlineMathAt } from "./inline-math.js";
+import { KATEX_STYLESHEET_URL, renderMathToHtml } from "./math-rendering.js";
+
 export type DocumentExportFormat = "pdf" | "markdown" | "html";
 
 export interface DocumentExportInput {
@@ -100,18 +103,37 @@ export function markdownWithTitle(
   return `${`# ${safeTitle}`}${body ? `\n\n${body}` : ""}\n`;
 }
 
-function inlineMarkdownToHtml(text: string): string {
+interface InlineExportToken {
+  marker: string;
+  html: string;
+  source: string;
+}
+
+function restoreTokenSources(
+  text: string,
+  tokens: InlineExportToken[],
+): string {
+  return tokens.reduce(
+    (restored, token) =>
+      restored.split(token.marker).join(escapeHtml(token.source)),
+    text,
+  );
+}
+
+function inlineMarkdownSegmentToHtml(
+  text: string,
+  tokens: InlineExportToken[],
+): string {
   return escapeHtml(text)
     .replace(
       /!\[([^\]]*)\]\(([^)\s]+)(?:\s+&quot;[^&]*&quot;)?\)/g,
       (_m, alt, src) => {
-        return `<img src="${safeExportUrl(src, "image")}" alt="${alt}" />`;
+        return `<img src="${safeExportUrl(src, "image")}" alt="${restoreTokenSources(alt, tokens)}" />`;
       },
     )
     .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, (_m, label, href) => {
       return `<a href="${safeExportUrl(href, "link")}">${label}</a>`;
     })
-    .replace(/`([^`]+)`/g, "<code>$1</code>")
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
     .replace(/__([^_]+)__/g, "<strong>$1</strong>")
     .replace(/~~([^~]+)~~/g, "<s>$1</s>")
@@ -119,24 +141,229 @@ function inlineMarkdownToHtml(text: string): string {
     .replace(/(^|[^_])_([^_]+)_/g, "$1<em>$2</em>");
 }
 
-function listItemsToHtml(lines: string[], ordered: boolean): string {
-  const items = lines
-    .map((line) => {
-      const text = ordered
-        ? line.replace(/^\s*\d+[.)]\s+/, "")
-        : line.replace(/^\s*[-*+]\s+/, "");
-      const task = text.match(/^\[( |x|X)\]\s+(.*)$/);
+function isEscapedDelimiter(text: string, index: number): boolean {
+  let backslashes = 0;
+  for (let cursor = index - 1; cursor >= 0 && text[cursor] === "\\"; cursor--) {
+    backslashes++;
+  }
+  return backslashes % 2 === 1;
+}
+
+function mathErrorHtml(
+  source: string,
+  error: string,
+  displayMode: boolean,
+): string {
+  const className = displayMode
+    ? "math-error math-error-block"
+    : "math-error math-error-inline";
+  const tagName = displayMode ? "pre" : "code";
+  return `<${tagName} class="${className}" title="${escapeHtml(error)}">${escapeHtml(source)}</${tagName}>`;
+}
+
+function inlineMarkdownToHtml(text: string): string {
+  const tokens: InlineExportToken[] = [];
+  let markerStart = "\uE000agent-native-inline-";
+  while (text.includes(markerStart)) markerStart += "-";
+
+  const protectedText: string[] = [];
+  let cursor = 0;
+
+  while (cursor < text.length) {
+    if (text.startsWith("$`", cursor) && isEscapedDelimiter(text, cursor)) {
+      const close = text.indexOf("`$", cursor + 2);
+      if (close !== -1) {
+        protectedText.push(text.slice(cursor, close + 2));
+        cursor = close + 2;
+        continue;
+      }
+    }
+
+    if (text[cursor] === "$") {
+      const inlineMath = matchInlineMathAt(text, cursor);
+      if (inlineMath) {
+        const { latex } = inlineMath;
+        const source = text.slice(cursor, inlineMath.to);
+        const math = renderMathToHtml(latex, false);
+        const marker = `${markerStart}${tokens.length}\uE001`;
+        tokens.push({
+          marker,
+          source,
+          html: math.ok
+            ? `<span class="math-inline">${math.html}</span>`
+            : mathErrorHtml(source, math.error, false),
+        });
+        protectedText.push(marker);
+        cursor = inlineMath.to;
+        continue;
+      }
+    }
+
+    if (text[cursor] === "`" && !isEscapedDelimiter(text, cursor)) {
+      let delimiterLength = 1;
+      while (text[cursor + delimiterLength] === "`") delimiterLength++;
+      const delimiter = "`".repeat(delimiterLength);
+      let close = text.indexOf(delimiter, cursor + delimiterLength);
+      while (
+        close !== -1 &&
+        (text[close - 1] === "`" || text[close + delimiterLength] === "`")
+      ) {
+        close = text.indexOf(delimiter, close + delimiterLength);
+      }
+
+      if (close !== -1) {
+        const source = text.slice(cursor, close + delimiterLength);
+        let code = text
+          .slice(cursor + delimiterLength, close)
+          .replace(/\r?\n/g, " ");
+        if (
+          code.startsWith(" ") &&
+          code.endsWith(" ") &&
+          code.trim().length > 0
+        ) {
+          code = code.slice(1, -1);
+        }
+        const marker = `${markerStart}${tokens.length}\uE001`;
+        tokens.push({
+          marker,
+          source,
+          html: `<code>${escapeHtml(code)}</code>`,
+        });
+        protectedText.push(marker);
+        cursor = close + delimiterLength;
+        continue;
+      }
+    }
+
+    protectedText.push(text[cursor]);
+    cursor++;
+  }
+
+  return tokens.reduce(
+    (html, token) => html.split(token.marker).join(token.html),
+    inlineMarkdownSegmentToHtml(protectedText.join(""), tokens),
+  );
+}
+
+function listItemsToHtml(items: string[][], ordered: boolean): string {
+  const renderedItems = items
+    .map((lines) => {
+      const task = lines[0].match(/^\[( |x|X)\]\s+(.*)$/);
       if (task) {
         const checked = task[1].toLowerCase() === "x";
         return `<li class="task"><input type="checkbox" disabled${
           checked ? " checked" : ""
-        } /> <span>${inlineMarkdownToHtml(task[2])}</span></li>`;
+        } /> <span>${inlineMarkdownToHtml(task[2])}</span>${
+          lines.length > 1 ? markdownToHtml(lines.slice(1).join("\n")) : ""
+        }</li>`;
       }
-      return `<li>${inlineMarkdownToHtml(text)}</li>`;
+      return lines.length === 1
+        ? `<li>${inlineMarkdownToHtml(lines[0])}</li>`
+        : `<li>${markdownToHtml(lines.join("\n"))}</li>`;
     })
     .join("\n");
 
-  return ordered ? `<ol>\n${items}\n</ol>` : `<ul>\n${items}\n</ul>`;
+  return ordered
+    ? `<ol>\n${renderedItems}\n</ol>`
+    : `<ul>\n${renderedItems}\n</ul>`;
+}
+
+interface ListMarkerMatch {
+  baseIndent: number;
+  contentIndent: number;
+  content: string;
+}
+
+function indentationWidth(value: string): number {
+  let width = 0;
+  for (const character of value) {
+    width += character === "\t" ? 4 - (width % 4) : 1;
+  }
+  return width;
+}
+
+function matchListMarker(
+  line: string,
+  ordered: boolean,
+): ListMarkerMatch | null {
+  const match = line.match(
+    ordered
+      ? /^([ \t]*)(?:\d+[.)])([ \t]+)(.*)$/
+      : /^([ \t]*)(?:[-*+])([ \t]+)(.*)$/,
+  );
+  if (!match) return null;
+  const contentStart = match[0].length - match[3].length;
+  return {
+    baseIndent: indentationWidth(match[1]),
+    contentIndent: indentationWidth(line.slice(0, contentStart)),
+    content: match[3],
+  };
+}
+
+function leadingIndentWidth(line: string): number {
+  return indentationWidth(line.match(/^[ \t]*/)?.[0] ?? "");
+}
+
+function stripLeadingIndent(line: string, targetWidth: number): string {
+  let width = 0;
+  let index = 0;
+  while (index < line.length && width < targetWidth) {
+    const character = line[index];
+    if (character !== " " && character !== "\t") break;
+    width += character === "\t" ? 4 - (width % 4) : 1;
+    index++;
+  }
+  return line.slice(index);
+}
+
+function collectListItems(
+  lines: string[],
+  start: number,
+  ordered: boolean,
+): { items: string[][]; nextIndex: number } {
+  const firstMarker = matchListMarker(lines[start], ordered);
+  if (!firstMarker) return { items: [], nextIndex: start };
+
+  const baseIndent = firstMarker.baseIndent;
+  const items: string[][] = [];
+  let index = start;
+
+  while (index < lines.length) {
+    const itemMarker = matchListMarker(lines[index], ordered);
+    if (!itemMarker || itemMarker.baseIndent !== baseIndent) break;
+
+    const item = [itemMarker.content];
+    index++;
+
+    while (index < lines.length) {
+      const nextMarker = matchListMarker(lines[index], ordered);
+      if (nextMarker?.baseIndent === baseIndent) break;
+      if (leadingIndentWidth(lines[index]) >= itemMarker.contentIndent) {
+        item.push(stripLeadingIndent(lines[index], itemMarker.contentIndent));
+        index++;
+        continue;
+      }
+      if (!lines[index].trim()) {
+        let nextContent = index + 1;
+        while (nextContent < lines.length && !lines[nextContent].trim()) {
+          nextContent++;
+        }
+        if (
+          nextContent < lines.length &&
+          leadingIndentWidth(lines[nextContent]) >= itemMarker.contentIndent
+        ) {
+          item.push("");
+          index++;
+          continue;
+        }
+      }
+      break;
+    }
+
+    items.push(item);
+  }
+
+  return { items, nextIndex: index };
 }
 
 function isEmptyBlockLine(trimmed: string): boolean {
@@ -160,6 +387,42 @@ function markdownToHtml(markdown: string): string {
     if (isEmptyBlockLine(trimmed)) {
       blocks.push("<p>&nbsp;</p>");
       index++;
+      continue;
+    }
+
+    if (trimmed === "$$") {
+      const source = [line];
+      const latex: string[] = [];
+      index++;
+      while (index < lines.length && lines[index].trim() !== "$$") {
+        source.push(lines[index]);
+        latex.push(lines[index]);
+        index++;
+      }
+
+      const closed = index < lines.length;
+      if (closed) {
+        source.push(lines[index]);
+        index++;
+      }
+
+      if (!closed) {
+        blocks.push(
+          mathErrorHtml(
+            source.join("\n"),
+            "This block equation is missing its closing delimiter.",
+            true,
+          ),
+        );
+        continue;
+      }
+
+      const math = renderMathToHtml(latex.join("\n"), true);
+      blocks.push(
+        math.ok
+          ? `<div class="math-block">${math.html}</div>`
+          : mathErrorHtml(source.join("\n"), math.error, true),
+      );
       continue;
     }
 
@@ -208,22 +471,16 @@ function markdownToHtml(markdown: string): string {
     }
 
     if (/^\s*[-*+]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*[-*+]\s+/.test(lines[index])) {
-        items.push(lines[index]);
-        index++;
-      }
-      blocks.push(listItemsToHtml(items, false));
+      const list = collectListItems(lines, index, false);
+      index = list.nextIndex;
+      blocks.push(listItemsToHtml(list.items, false));
       continue;
     }
 
     if (/^\s*\d+[.)]\s+/.test(line)) {
-      const items: string[] = [];
-      while (index < lines.length && /^\s*\d+[.)]\s+/.test(lines[index])) {
-        items.push(lines[index]);
-        index++;
-      }
-      blocks.push(listItemsToHtml(items, true));
+      const list = collectListItems(lines, index, true);
+      index = list.nextIndex;
+      blocks.push(listItemsToHtml(list.items, true));
       continue;
     }
 
@@ -233,6 +490,7 @@ function markdownToHtml(markdown: string): string {
       index < lines.length &&
       lines[index].trim() &&
       !isEmptyBlockLine(lines[index].trim()) &&
+      lines[index].trim() !== "$$" &&
       !/^(#{1,6})\s+/.test(lines[index].trim()) &&
       !/^```/.test(lines[index].trim()) &&
       !/^>\s?/.test(lines[index].trim()) &&
@@ -273,6 +531,7 @@ function buildHtmlDocument(input: {
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>${escapeHtml(input.title)}</title>
+  <link rel="stylesheet" href="${KATEX_STYLESHEET_URL}" crossorigin="anonymous" />
   <style>
     :root { color-scheme: light; }
     body {
@@ -329,6 +588,18 @@ function buildHtmlDocument(input: {
       border-radius: 4px;
       padding: 0.12rem 0.3rem;
     }
+    .math-inline { display: inline-block; max-width: 100%; vertical-align: -0.08em; }
+    .math-block { max-width: 100%; margin: 18px 0; overflow-x: auto; padding: 4px 0; }
+    .math-error {
+      border: 1px solid #fecaca;
+      border-radius: 6px;
+      background: #fef2f2;
+      color: #262626;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      white-space: pre-wrap;
+    }
+    .math-error-inline { padding: 0.05rem 0.25rem; font-size: 0.9em; }
+    .math-error-block { overflow-wrap: anywhere; padding: 12px 14px; }
     a { color: #2563eb; }
     img {
       display: block;

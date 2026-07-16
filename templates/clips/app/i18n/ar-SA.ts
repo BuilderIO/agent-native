@@ -444,6 +444,7 @@ const messages = {
     invite: "دعوة",
     embed: "تضمين",
     shareLink: "رابط المشاركة",
+    shareWithHumans: "مشاركة مع الأشخاص",
     shareWithAgents: "شارك مع الوكلاء",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
@@ -454,6 +455,8 @@ const messages = {
     retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
     openPlayer: "مشغل مفتوح",
+    chooseFile: "اختيار ملف",
+    remove: "إزالة",
     downloadMp4: "تحميل MP4",
     embedsNeedPublic: "التضمينات تحتاج إلى مقطع عام",
     embedPublicDescription:
@@ -1224,9 +1227,10 @@ const messages = {
     visibilityOrg: "Organization (مترجم)",
     visibilityPublic: "Public (مترجم)",
     passwordProtection: "Password protection (مترجم)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (مترجم)",
+    passwordSetPlaceholder: "Password is set — type to replace (مترجم)",
     noPasswordPlaceholder: "No password (مترجم)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (مترجم)",
+    removePassword: "Remove (مترجم)",
     expiry: "Expiry (مترجم)",
     viewerOptions: "Viewer options (مترجم)",
     comments: "Comments (مترجم)",

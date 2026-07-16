@@ -1,32 +1,53 @@
 import { describe, expect, it } from "vitest";
 
-import type { ContentDatabaseItem, DocumentProperty } from "../shared/api";
+import type {
+  ContentDatabaseItem,
+  ContentDatabaseSourceChangeSet,
+  DocumentProperty,
+} from "../shared/api";
+import { builderBlocksHash } from "../shared/builder-mdx";
 import {
   BUILDER_CMS_BODY_BLOCKS_HASH_KEY,
   BUILDER_CMS_BODY_CONTENT_KEY,
+  BUILDER_CMS_BODY_LAST_UPDATED_KEY,
   BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY,
   BUILDER_CMS_BODY_READABLE_MAP_KEY,
   BUILDER_CMS_BODY_SIDECARS_KEY,
+  BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
 } from "./_builder-cms-source-adapter";
+import { resolveBuilderCmsWriteEffect } from "./_builder-cms-write-adapter";
 import {
   buildBuilderLocalOutboundChangeSets,
   builderBodyChangeForLocalContent,
+  builderBodyChangeForSourceSnapshotDocument,
+  builderBodyChangeForUnsourcedLocalCreate,
   builderBodyHydrationPriorityForRequest,
   builderBodyHydrationAttemptIsTerminal,
   builderBodyNeedsSourceComponentWrite,
   builderBodyHydrationVersion,
+  builderBodyUnavailableVersion,
+  builderBodyHydrationNeedsLiveBaseline,
+  builderBodyHydrationIsCodecMigration,
+  builderBodyHydrationCanAdoptSameVersionVariant,
+  builderBodyBaselineHasSameVersionConflict,
+  builderAuthoritativeRawBodyHash,
   bulkChunkSizeForColumnCount,
   builderCmsEntryAlreadyRepresented,
+  builderExecutionIsProvablyLocallyBlockedUnsent,
+  canRefreshLocallyBlockedBuilderReview,
   buildMockBodyChange,
   buildMockFieldChange,
   withBuilderBodySourceValues,
   mapBuilderCmsEntriesToLocalItems,
+  mergeBuilderCmsModelFieldsPreservingReferenceModels,
   mockProposedValue,
   normalizeSourceFederation,
   normalizeSourceFreshness,
+  refreshBuilderBodySourceValuesFromStoredLossless,
   serializeBuilderCmsSourceReadMetadataRecord,
   serializeSourceMetadataRecord,
   sourceSnapshotValuesJsonProjectionSql,
+  sourceSnapshotDocumentSelection,
   sourceValuesForSnapshot,
   sourceValuesForSeededSourceRow,
   sourceChangeSetKey,
@@ -79,6 +100,57 @@ function item(id: string, title: string): ContentDatabaseItem {
 }
 
 describe("database source helpers", () => {
+  it("selects document bodies only for explicitly heavy Builder snapshots", () => {
+    expect(sourceSnapshotDocumentSelection(false)).not.toHaveProperty(
+      "content",
+    );
+    expect(sourceSnapshotDocumentSelection(true)).toHaveProperty("content");
+  });
+
+  it("refreshes only execution evidence that proves dispatch never started", () => {
+    const locallyBlocked = {
+      state: "blocked",
+      attemptToken: null,
+      payloadJson: JSON.stringify({
+        request: { method: "POST" },
+        dryRun: { status: "blocked" },
+      }),
+    };
+    expect(builderExecutionIsProvablyLocallyBlockedUnsent(locallyBlocked)).toBe(
+      true,
+    );
+    expect(canRefreshLocallyBlockedBuilderReview([])).toBe(true);
+    expect(canRefreshLocallyBlockedBuilderReview([locallyBlocked])).toBe(true);
+    expect(
+      builderExecutionIsProvablyLocallyBlockedUnsent({
+        ...locallyBlocked,
+        payloadJson: JSON.stringify({
+          dryRun: { status: "validated" },
+          livePreflight: { blocksHash: "new-live-hash" },
+        }),
+      }),
+    ).toBe(true);
+
+    for (const execution of [
+      { ...locallyBlocked, state: "running" },
+      { ...locallyBlocked, state: "response_received" },
+      { ...locallyBlocked, state: "reconciliation_required" },
+      { ...locallyBlocked, state: "failed", attemptToken: "attempt-1" },
+      {
+        ...locallyBlocked,
+        payloadJson: JSON.stringify({
+          dryRun: { status: "blocked" },
+          response: { status: 201 },
+        }),
+      },
+    ]) {
+      expect(builderExecutionIsProvablyLocallyBlockedUnsent(execution)).toBe(
+        false,
+      );
+      expect(canRefreshLocallyBlockedBuilderReview([execution])).toBe(false);
+    }
+  });
+
   it("sizes bulk chunks from the D1 parameter budget and column count", () => {
     expect(bulkChunkSizeForColumnCount(15, "d1")).toBe(6);
     expect(bulkChunkSizeForColumnCount(13, "d1")).toBe(6);
@@ -264,6 +336,60 @@ describe("database source helpers", () => {
     ).toBe("topics");
   });
 
+  it("preserves the configured Builder write tier during read metadata refreshes", () => {
+    expect(
+      JSON.parse(
+        serializeBuilderCmsSourceReadMetadataRecord({
+          sourceTable: "agent-native-blog-article-test",
+          readState: "live",
+          entryCount: 580,
+          matchedRowCount: 580,
+          existingMetadataJson: JSON.stringify({
+            writeMode: "publish_updates",
+            pushMode: "publish",
+            pushModeLabel: "Publish updates",
+            allowPublicationTransitions: true,
+            allowedWriteModes: ["autosave", "publish"],
+          }),
+        }),
+      ),
+    ).toMatchObject({
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      pushModeLabel: "Publish updates",
+      allowPublicationTransitions: true,
+      allowedWriteModes: ["autosave", "publish"],
+      readMode: "builder-api",
+    });
+  });
+
+  it("preserves a raw-reference model learned during required-field materialization", () => {
+    expect(
+      mergeBuilderCmsModelFieldsPreservingReferenceModels({
+        existing: [
+          {
+            name: "author",
+            type: "reference",
+            required: true,
+            model: "blog-author",
+          },
+        ],
+        refreshed: [
+          { name: "author", type: "reference", required: true },
+          { name: "tags", type: "Tags", required: true },
+        ],
+      }),
+    ).toEqual([
+      {
+        name: "author",
+        type: "reference",
+        required: true,
+        model: "blog-author",
+      },
+      { name: "tags", type: "Tags", required: true },
+    ]);
+  });
+
   it("creates a mock field change for text properties", () => {
     const headline = property("text", "Launch week");
     expect(
@@ -302,7 +428,267 @@ describe("database source helpers", () => {
           "__builder.body.blocksHash": "blocks-hash-1",
         },
       }),
-    ).toBe("blocks-hash-1:readable-native-images-v5");
+    ).toBe(
+      "blocks-hash-1:readable-native-images-authoritative-raw-baseline-v9",
+    );
+  });
+
+  it("versions terminal bodyless entries by remote update instead of an empty-body hash", () => {
+    expect(
+      builderBodyUnavailableVersion({
+        id: "entry-1",
+        title: "Bodyless entry",
+        updatedAt: "2026-06-30T00:00:00.000Z",
+        sourceValues: {
+          lastUpdated: "1783976416742",
+          "__builder.body.blocksHash": "empty-body-hash",
+        },
+      }),
+    ).toBe(
+      "1783976416742:readable-native-images-authoritative-raw-baseline-v9",
+    );
+  });
+
+  it("requires a live baseline when migrating a stored body codec or repairing a hash", () => {
+    expect(
+      builderBodyHydrationNeedsLiveBaseline({
+        bodyHydrationVersion:
+          "old-hash:readable-native-images-canonical-pixel-v6",
+        storedBlocksHash: "old-hash",
+        rebuiltBlocksHash: "old-hash",
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationNeedsLiveBaseline({
+        bodyHydrationVersion:
+          "old-hash:readable-native-images-authoritative-raw-baseline-v9",
+        storedBlocksHash: "old-hash",
+        rebuiltBlocksHash: "rebuilt-hash",
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationNeedsLiveBaseline({
+        bodyHydrationVersion:
+          "stable-hash:readable-native-images-authoritative-raw-baseline-v9",
+        storedBlocksHash: "stable-hash",
+        rebuiltBlocksHash: "stable-hash",
+      }),
+    ).toBe(false);
+    expect(
+      builderBodyHydrationNeedsLiveBaseline({
+        bodyHydrationVersion:
+          "stable-hash:readable-native-images-authoritative-raw-baseline-v9",
+        storedBlocksHash: "stable-hash",
+        rebuiltBlocksHash: null,
+      }),
+    ).toBe(true);
+  });
+
+  it("allows a bad v8 hash to migrate once while keeping v9 conflicts fail-closed", () => {
+    expect(
+      builderBodyHydrationIsCodecMigration(
+        "2abdywxepbd:readable-native-images-fresh-raw-baseline-v8",
+      ),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationIsCodecMigration(
+        "15ed04whkyf:readable-native-images-authoritative-raw-baseline-v9",
+      ),
+    ).toBe(false);
+  });
+
+  it("adopts a same-version live body variant only while the local document still matches its stored baseline", () => {
+    expect(
+      builderBodyHydrationCanAdoptSameVersionVariant({
+        documentContent: "Imported body\n",
+        persistedContent: "Imported body",
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyHydrationCanAdoptSameVersionVariant({
+        documentContent: "Local edit",
+        persistedContent: "Imported body",
+      }),
+    ).toBe(false);
+    expect(
+      builderBodyHydrationCanAdoptSameVersionVariant({
+        documentContent: undefined,
+        persistedContent: "Imported body",
+      }),
+    ).toBe(false);
+  });
+
+  it("hashes the post-publish raw response instead of a normalized body bundle", () => {
+    const rawBlocks = Array.from({ length: 17 }, (_, index) => ({
+      "@type": "@builder.io/sdk:Element",
+      id: `published-rich-${index + 1}`,
+      component: {
+        name: index === 15 ? "Image" : index === 16 ? "Video" : "Text",
+        options: { text: `Published section ${index + 1}` },
+      },
+    }));
+    const normalizedOldVariant = rawBlocks.slice(0, 5).map((block, index) => ({
+      ...block,
+      id: `normalized-old-${index + 1}`,
+    }));
+    const rawHash = builderBlocksHash(rawBlocks);
+    const normalizedHash = builderBlocksHash(normalizedOldVariant);
+    expect(rawHash).not.toBe(normalizedHash);
+
+    expect(
+      builderAuthoritativeRawBodyHash({
+        entry: {
+          id: "published-target",
+          model: "agent-native-blog-article-test",
+          title: "Quiet Comet",
+          urlPath: "/quiet-comet",
+          updatedAt: "1784009460665",
+          sourceValues: {},
+          rawEntry: {
+            id: "published-target",
+            model: "agent-native-blog-article-test",
+            published: "published",
+            lastUpdated: "1784009460665",
+            data: { blocks: rawBlocks },
+          },
+        },
+        generatedBlocks: normalizedOldVariant,
+      }),
+    ).toBe(rawHash);
+  });
+
+  it("detects conflicting Builder bodies at the same authoritative timestamp", () => {
+    expect(
+      builderBodyBaselineHasSameVersionConflict({
+        persistedBlocksHash: "published-rich-hash",
+        incomingBlocksHash: "stale-public-hash",
+        persistedLastUpdated: "1784009460665",
+        incomingLastUpdated: "2026-07-14T06:11:00.665Z",
+      }),
+    ).toBe(true);
+    expect(
+      builderBodyBaselineHasSameVersionConflict({
+        persistedBlocksHash: "published-rich-hash",
+        incomingBlocksHash: "new-remote-hash",
+        persistedLastUpdated: "1784009460665",
+        incomingLastUpdated: "1784009461665",
+      }),
+    ).toBe(false);
+  });
+
+  it("recomputes a canonical remote hash from the stored lossless baseline", async () => {
+    const authoredBlock = {
+      "@type": "@builder.io/sdk:Element",
+      "@version": 2,
+      id: "authored-text-1",
+      component: {
+        name: "Text",
+        options: { text: "<p>Remote baseline.</p>" },
+      },
+    };
+    const trackingPixel = {
+      "@type": "@builder.io/sdk:Element",
+      id: "builder-pixel-old-response",
+      tagName: "img",
+      properties: {
+        src: "https://cdn.builder.io/api/v1/pixel?apiKey=public-key",
+        "aria-hidden": "true",
+        alt: "",
+        role: "presentation",
+        width: "0",
+        height: "0",
+      },
+    };
+    const hydrated = await withBuilderBodySourceValues({
+      id: "entry-1",
+      model: "agent-native-blog-article-test",
+      title: "Entry",
+      urlPath: "/entry",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      sourceValues: {},
+      rawEntry: {
+        id: "entry-1",
+        model: "agent-native-blog-article-test",
+        data: { blocks: [authoredBlock, trackingPixel] },
+      },
+    });
+    const repaired = await refreshBuilderBodySourceValuesFromStoredLossless({
+      ...hydrated,
+      rawEntry: undefined,
+      sourceValues: {
+        ...hydrated.sourceValues,
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "legacy-pixel-sensitive-hash",
+      },
+    });
+
+    expect(repaired.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe(
+      builderBlocksHash([authoredBlock]),
+    );
+    expect(repaired.sourceValues[BUILDER_CMS_BODY_CONTENT_KEY]).toContain(
+      "Remote baseline.",
+    );
+    expect(repaired.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]).toBe(
+      hydrated.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+    );
+  });
+
+  it("never replaces a fresh raw Builder hash with a divergent lossless rebuild", async () => {
+    const storedOnly = await withBuilderBodySourceValues({
+      id: "stored-entry",
+      model: "agent-native-blog-article-test",
+      title: "Stored",
+      urlPath: "/stored",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      sourceValues: {},
+      rawEntry: {
+        id: "stored-entry",
+        model: "agent-native-blog-article-test",
+        data: {
+          blocks: [
+            {
+              "@type": "@builder.io/sdk:Element",
+              id: "stored-text",
+              component: {
+                name: "Text",
+                options: { text: "<p>Different stored lossless body.</p>" },
+              },
+            },
+          ],
+        },
+      },
+    });
+    const freshRawBlock = {
+      "@type": "@builder.io/sdk:Element",
+      id: "fresh-text",
+      component: {
+        name: "Text",
+        options: { text: "<p>Fresh raw Builder body.</p>" },
+      },
+    };
+    const freshRawHash = builderBlocksHash([freshRawBlock]);
+    const freshEntry = {
+      ...storedOnly,
+      id: "fresh-entry",
+      rawEntry: {
+        id: "fresh-entry",
+        model: "agent-native-blog-article-test",
+        data: { blocks: [freshRawBlock] },
+      },
+      sourceValues: {
+        ...storedOnly.sourceValues,
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: freshRawHash,
+      },
+    };
+
+    const result =
+      await refreshBuilderBodySourceValuesFromStoredLossless(freshEntry);
+
+    expect(result.sourceValues[BUILDER_CMS_BODY_BLOCKS_HASH_KEY]).toBe(
+      freshRawHash,
+    );
+    expect(result.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]).toBe(
+      storedOnly.sourceValues[BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY],
+    );
   });
 
   it("caps Builder body hydration retries on the fifth failed attempt", () => {
@@ -460,6 +846,31 @@ describe("database source helpers", () => {
     });
   });
 
+  it("uses Builder data.title as the outbound title baseline", () => {
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey:
+            "How to evaluate vibe coding tools for your enterprise",
+          sourceValuesJson: JSON.stringify({
+            "data.title":
+              "How to Evaluate Vibe Coding Tools for Your Enterprise",
+          }),
+        },
+      ],
+      documentTitleById: new Map([
+        ["doc-1", "How to Evaluate Vibe Coding Tools for Your Enterprise"],
+      ]),
+      storedChangeSets: [],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toHaveLength(0);
+  });
+
   it("detects local Builder body edits as outbound pending changes", () => {
     const [changeSet] = buildBuilderLocalOutboundChangeSets({
       source: { sourceType: "builder-cms" },
@@ -492,6 +903,7 @@ describe("database source helpers", () => {
     } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
 
     expect(changeSet).toMatchObject({
+      id: "local-pending-row-source-change",
       kind: "body_update",
       direction: "outbound",
       state: "pending_push",
@@ -503,6 +915,21 @@ describe("database source helpers", () => {
       },
       riskReasons: ["body diff"],
     });
+
+    const [fieldOnlyChangeSet] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Same title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Changed title"]]),
+      storedChangeSets: [],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(fieldOnlyChangeSet?.id).toBe(changeSet?.id);
   });
 
   it("does not report hydrated Builder bodies as edits when the local content still matches the baseline", async () => {
@@ -517,6 +944,123 @@ describe("database source helpers", () => {
     });
 
     expect(change).toBeNull();
+  });
+
+  it("stages Quiet Comet converter-only native media drift once, then reaches a fixpoint", async () => {
+    const localContent = [
+      "![Quiet Comet](https://cdn.example.com/quiet-comet.png)",
+      "",
+      '<video src="https://cdn.example.com/quiet-comet.mp4" controls></video>',
+    ].join("\n");
+    const staleRemote = await withBuilderBodySourceValues({
+      id: "quiet-comet",
+      model: "agent-native-blog-article-test",
+      title: "Quiet Comet",
+      urlPath: "/quiet-comet",
+      updatedAt: "2026-07-13T00:00:00.000Z",
+      sourceValues: { "data.title": "Quiet Comet" },
+      rawEntry: {
+        id: "quiet-comet",
+        model: "agent-native-blog-article-test",
+        data: {
+          title: "Quiet Comet",
+          blocks: [
+            {
+              "@type": "@builder.io/sdk:Element",
+              "@version": 2,
+              id: "legacy-literal-media",
+              component: {
+                name: "Text",
+                options: {
+                  text: `<p>${localContent}</p>`,
+                },
+              },
+            },
+          ],
+        },
+      },
+    });
+
+    const change = await builderBodyChangeForLocalContent({
+      row: { sourceValuesJson: JSON.stringify(staleRemote.sourceValues) },
+      localContent,
+    });
+    const generatedBlocks = JSON.parse(
+      change?.proposedBlocksJson ?? "null",
+    ) as Array<{ component?: { name?: string } }>;
+
+    expect(change).toMatchObject({
+      summary: "Builder body blocks changed.",
+      proposedContent: localContent,
+      warnings: [],
+    });
+    expect(change?.proposedHash).not.toBe(change?.currentHash);
+    expect(generatedBlocks.map((block) => block.component?.name)).toEqual([
+      "Image",
+      "Video",
+    ]);
+
+    const [linkedUpdate] = buildBuilderLocalOutboundChangeSets({
+      source: {
+        id: "source-quiet-comet",
+        sourceType: "builder-cms",
+        metadataJson: JSON.stringify({ writeMode: "publish_updates" }),
+      },
+      rowRows: [
+        {
+          id: "row-quiet-comet",
+          databaseItemId: "item-quiet-comet",
+          documentId: "doc-quiet-comet",
+          sourceRowId: "quiet-comet",
+          sourceQualifiedId:
+            "builder-cms://agent-native-blog-article-test/quiet-comet",
+          sourceDisplayKey: "Quiet Comet",
+          sourceValuesJson: JSON.stringify(staleRemote.sourceValues),
+        },
+      ],
+      documentTitleById: new Map([["doc-quiet-comet", "Quiet Comet"]]),
+      storedChangeSets: [],
+      bodyChangeByDocumentId: new Map([["doc-quiet-comet", change!]]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+    expect(linkedUpdate.summary).toBe(
+      'Pending local Builder CMS body change for "Quiet Comet".',
+    );
+    expect(
+      resolveBuilderCmsWriteEffect({
+        source: {
+          metadata: { writeMode: "publish_updates" },
+          rows: [
+            {
+              documentId: "doc-quiet-comet",
+              sourceRowId: "quiet-comet",
+            },
+          ],
+        },
+        changeSet: linkedUpdate,
+      } as Parameters<typeof resolveBuilderCmsWriteEffect>[0]),
+    ).toBe("update_in_place");
+
+    const reconciledRemote = await withBuilderBodySourceValues({
+      id: "quiet-comet",
+      model: "agent-native-blog-article-test",
+      title: "Quiet Comet",
+      urlPath: "/quiet-comet",
+      updatedAt: "2026-07-13T00:01:00.000Z",
+      sourceValues: { "data.title": "Quiet Comet" },
+      rawEntry: {
+        id: "quiet-comet",
+        model: "agent-native-blog-article-test",
+        data: { title: "Quiet Comet", blocks: generatedBlocks },
+      },
+    });
+    await expect(
+      builderBodyChangeForLocalContent({
+        row: {
+          sourceValuesJson: JSON.stringify(reconciledRemote.sourceValues),
+        },
+        localContent,
+      }),
+    ).resolves.toBeNull();
   });
 
   it("uses the same MDX escape normalization for hydrated Builder body baselines and diffs", async () => {
@@ -601,6 +1145,130 @@ describe("database source helpers", () => {
     });
 
     expect(change).toBeNull();
+  });
+
+  it("converts a rich unsourced local body into a create-draft body payload", async () => {
+    const localContent = [
+      "Opening paragraph.",
+      "",
+      "- First semantic item",
+      "- Second semantic item",
+      "",
+      '<img src="https://cdn.example.com/diagram.png" alt="Architecture diagram" width="420" />',
+      "",
+      '<video src="https://cdn.example.com/demo.mp4" controls width="640"></video>',
+      "",
+      "[Watch the walkthrough on YouTube](https://www.youtube.com/watch?v=abc123)",
+    ].join("\n");
+
+    const bodyChange = await builderBodyChangeForUnsourcedLocalCreate({
+      localContent,
+    });
+    const blocks = JSON.parse(
+      bodyChange?.proposedBlocksJson ?? "null",
+    ) as Array<{
+      component?: { name?: string; options?: Record<string, unknown> };
+    }>;
+    const textHtml = blocks
+      .filter((block) => block.component?.name === "Text")
+      .map((block) => String(block.component?.options?.text ?? ""))
+      .join("\n");
+    const image = blocks.find(
+      (block) => block.component?.name === "Image",
+    )?.component;
+    const video = blocks.find(
+      (block) => block.component?.name === "Video",
+    )?.component;
+
+    expect(bodyChange).toMatchObject({
+      currentHash: null,
+      proposedContent: localContent,
+      sidecarsJson: "{}",
+      warnings: [],
+    });
+    expect(bodyChange?.proposedHash).toBeTruthy();
+    expect(textHtml).toContain("<p>Opening paragraph.</p>");
+    expect(textHtml).toContain(
+      "<ul><li>First semantic item</li><li>Second semantic item</li></ul>",
+    );
+    expect(textHtml).toContain(
+      '<a href="https://www.youtube.com/watch?v=abc123">Watch the walkthrough on YouTube</a>',
+    );
+    expect(image).toMatchObject({
+      name: "Image",
+      options: {
+        image: "https://cdn.example.com/diagram.png",
+        altText: "Architecture diagram",
+      },
+    });
+    expect(video).toMatchObject({
+      name: "Video",
+      options: {
+        video: "https://cdn.example.com/demo.mp4",
+        controls: true,
+      },
+    });
+
+    const [create] = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [],
+      documentTitleById: new Map([["doc-new", "Rich new article"]]),
+      storedChangeSets: [],
+      databaseItems: [{ databaseItemId: "item-new", documentId: "doc-new" }],
+      allowUnsourcedCreates: true,
+      bodyChangeByDocumentId: new Map([["doc-new", bodyChange!]]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(create).toMatchObject({
+      documentId: "doc-new",
+      summary: 'Pending new Builder entry "Rich new article".',
+      bodyChange: {
+        proposedContent: localContent,
+        sidecarsJson: "{}",
+      },
+    });
+  });
+
+  it("treats a synthetic Builder fixture row body as create-draft content before hydration", async () => {
+    const documentId = "doc-fixture-create";
+    const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      row: {
+        documentId,
+        sourceRowId: `builder-${documentId}`,
+        sourceQualifiedId: `builder-cms://blog-article/${documentId}`,
+        provenance: BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
+        sourceValuesJson: JSON.stringify({ "data.title": "Fixture title" }),
+      },
+      isHydrated: false,
+      allowUnsourcedCreate: false,
+      localContent: "Local draft body with **rich text**.",
+    });
+
+    expect(bodyChange).toMatchObject({
+      currentHash: null,
+      proposedContent: "Local draft body with **rich text**.",
+      sidecarsJson: "{}",
+      warnings: [],
+    });
+  });
+
+  it("keeps an unhydrated imported Builder row body fail-closed", async () => {
+    const bodyChange = await builderBodyChangeForSourceSnapshotDocument({
+      row: {
+        documentId: "doc-imported",
+        sourceRowId: "real-builder-entry-id",
+        sourceQualifiedId: "builder-cms://blog-article/real-builder-entry-id",
+        provenance: "Builder CMS read adapter",
+        sourceValuesJson: JSON.stringify({
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "remote-baseline-hash",
+        }),
+      },
+      isHydrated: false,
+      allowUnsourcedCreate: true,
+      localContent: "Content that must not be reinterpreted as a create.",
+    });
+
+    expect(bodyChange).toBeNull();
   });
 
   it("detects a changed mapped property field on an existing row (not just title)", () => {
@@ -932,9 +1600,108 @@ describe("database source helpers", () => {
       {
         propertyName: "Topics",
         currentValue: ["headless-cms"],
-        proposedValue: ["headless-cms", "agent-workflows"],
+        proposedValue: ["Headless CMS", "Agent workflows"],
+        builderValueJson: JSON.stringify(["Headless CMS", "Agent workflows"]),
       },
     ]);
+  });
+
+  it("stores human-readable safe-model metadata reviews with exact Builder-native values", () => {
+    const [changeSet] = buildBuilderLocalOutboundChangeSets({
+      source: {
+        id: "safe-source",
+        sourceType: "builder-cms",
+        metadataJson: JSON.stringify({ liveReadConfigured: true }),
+      },
+      rowRows: [],
+      databaseItems: [{ databaseItemId: "item-new", documentId: "doc-new" }],
+      documentTitleById: new Map([["doc-new", "Rich metadata article"]]),
+      storedChangeSets: [],
+      localValuesByDocument: new Map([
+        [
+          "doc-new",
+          new Map([
+            ["prop-date", { start: "2026-07-14", includeTime: false }],
+            ["prop-author", "author-entry-id"],
+            ["prop-image", ["https://cdn.example.com/cover.jpg"]],
+            ["prop-tags", ["agent-native", "builder-sync"]],
+          ]),
+        ],
+      ]),
+      writableFields: [
+        {
+          propertyId: "prop-date",
+          localFieldKey: "prop-date",
+          sourceFieldKey: "data.date",
+          sourceFieldLabel: "Date",
+          propertyType: "date",
+          sourceFieldType: "datetime",
+        },
+        {
+          propertyId: "prop-author",
+          localFieldKey: "prop-author",
+          sourceFieldKey: "data.author",
+          sourceFieldLabel: "Author",
+          propertyType: "select",
+          sourceFieldType: "reference",
+          sourceFieldModel: "author",
+          propertyOptions: {
+            options: [
+              { id: "author-entry-id", name: "Apoorva", color: "blue" },
+            ],
+          },
+        },
+        {
+          propertyId: "prop-image",
+          localFieldKey: "prop-image",
+          sourceFieldKey: "data.image",
+          sourceFieldLabel: "Image",
+          propertyType: "files_media",
+          sourceFieldType: "file",
+        },
+        {
+          propertyId: "prop-tags",
+          localFieldKey: "prop-tags",
+          sourceFieldKey: "data.tags",
+          sourceFieldLabel: "Tags",
+          propertyType: "multi_select",
+          sourceFieldType: "list",
+          propertyOptions: {
+            options: [
+              { id: "agent-native", name: "Agent Native", color: "blue" },
+              { id: "builder-sync", name: "Builder Sync", color: "green" },
+            ],
+          },
+        },
+      ],
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(changeSet.fieldChanges).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceFieldKey: "data.date",
+          builderValueJson: JSON.stringify("2026-07-14"),
+        }),
+        expect.objectContaining({
+          sourceFieldKey: "data.author",
+          proposedValue: "Apoorva",
+          builderValueJson: JSON.stringify({
+            "@type": "@builder.io/core:Reference",
+            id: "author-entry-id",
+            model: "author",
+          }),
+        }),
+        expect.objectContaining({
+          sourceFieldKey: "data.image",
+          builderValueJson: JSON.stringify("https://cdn.example.com/cover.jpg"),
+        }),
+        expect.objectContaining({
+          sourceFieldKey: "data.tags",
+          proposedValue: ["Agent Native", "Builder Sync"],
+          builderValueJson: JSON.stringify(["Agent Native", "Builder Sync"]),
+        }),
+      ]),
+    );
   });
 
   it.each([
@@ -1387,6 +2154,103 @@ describe("database source helpers", () => {
     });
   });
 
+  it("suppresses the exact unchanged snapshot after a prepared Builder update is cancelled", () => {
+    const rejected = {
+      id: "cancelled-1",
+      databaseItemId: "item-1",
+      documentId: "doc-1",
+      kind: "field_update",
+      direction: "outbound",
+      state: "rejected",
+      pushMode: "autosave",
+      localOnly: true,
+      summary: "Prepared title update.",
+      fieldChanges: [
+        {
+          propertyId: null,
+          propertyName: "Title",
+          localFieldKey: "title",
+          sourceFieldKey: "data.title",
+          currentValue: "Remote title",
+          proposedValue: "Local title",
+        },
+      ],
+      bodyChange: null,
+      createdAt: "2026-07-13T00:00:00.000Z",
+      updatedAt: "2026-07-13T00:01:00.000Z",
+    } as ContentDatabaseSourceChangeSet;
+
+    const pending = buildBuilderLocalOutboundChangeSets({
+      source: { sourceType: "builder-cms" },
+      rowRows: [
+        {
+          id: "row-source",
+          databaseItemId: "item-1",
+          documentId: "doc-1",
+          sourceDisplayKey: "Remote title",
+        },
+      ],
+      documentTitleById: new Map([["doc-1", "Local title"]]),
+      storedChangeSets: [rejected],
+      cancelledRejectedChangeSetIds: new Set([rejected.id]),
+    } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+    expect(pending).toEqual([]);
+  });
+
+  it.each([
+    ["local", "Remote title", "Changed local title"],
+    ["remote", "Changed remote title", "Local title"],
+  ])(
+    "resurfaces a cancelled Builder diff when %s relevant content changes",
+    (_side, remoteTitle, localTitle) => {
+      const rejected = {
+        id: "cancelled-1",
+        databaseItemId: "item-1",
+        documentId: "doc-1",
+        kind: "field_update",
+        direction: "outbound",
+        state: "rejected",
+        pushMode: "autosave",
+        localOnly: true,
+        summary: "Prepared title update.",
+        fieldChanges: [
+          {
+            propertyId: null,
+            propertyName: "Title",
+            localFieldKey: "title",
+            sourceFieldKey: "data.title",
+            currentValue: "Remote title",
+            proposedValue: "Local title",
+          },
+        ],
+        bodyChange: null,
+        createdAt: "2026-07-13T00:00:00.000Z",
+        updatedAt: "2026-07-13T00:01:00.000Z",
+      } as ContentDatabaseSourceChangeSet;
+
+      const pending = buildBuilderLocalOutboundChangeSets({
+        source: { sourceType: "builder-cms" },
+        rowRows: [
+          {
+            id: "row-source",
+            databaseItemId: "item-1",
+            documentId: "doc-1",
+            sourceDisplayKey: remoteTitle,
+          },
+        ],
+        documentTitleById: new Map([["doc-1", localTitle]]),
+        storedChangeSets: [rejected],
+        cancelledRejectedChangeSetIds: new Set([rejected.id]),
+      } as Parameters<typeof buildBuilderLocalOutboundChangeSets>[0]);
+
+      expect(pending).toHaveLength(1);
+      expect(pending[0]?.fieldChanges).toMatchObject([
+        { currentValue: remoteTitle, proposedValue: localTitle },
+      ]);
+    },
+  );
+
   it("maps live Builder entries to local rows by Builder ID before natural key", () => {
     const mapped = mapBuilderCmsEntriesToLocalItems({
       entries: [
@@ -1424,6 +2288,65 @@ describe("database source helpers", () => {
 
     expect(mapped.get("doc-existing")?.id).toBe("builder-existing");
     expect(mapped.get("doc-natural")?.id).toBe("builder-natural-key");
+  });
+
+  it("does not rebind an established Builder row during a partial read", () => {
+    const mapped = mapBuilderCmsEntriesToLocalItems({
+      entries: [
+        {
+          id: "builder-same-title-neighbor",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T12:00:00.000Z",
+        },
+      ],
+      items: [item("doc-established", "Same title")],
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      existingRows: [
+        {
+          documentId: "doc-established",
+          sourceRowId: "builder-established-not-on-this-page",
+          sourceQualifiedId:
+            "builder-cms://blog_article/builder-established-not-on-this-page",
+          provenance: "Builder CMS read adapter",
+        },
+      ] as Parameters<
+        typeof mapBuilderCmsEntriesToLocalItems
+      >[0]["existingRows"],
+    });
+
+    expect(mapped.has("doc-established")).toBe(false);
+  });
+
+  it("allows a synthetic Builder fixture row to adopt a live identity", () => {
+    const mapped = mapBuilderCmsEntriesToLocalItems({
+      entries: [
+        {
+          id: "builder-live",
+          model: "blog_article",
+          title: "Fixture title",
+          urlPath: "/blog/fixture-title",
+          updatedAt: "2026-06-08T12:00:00.000Z",
+        },
+      ],
+      items: [item("doc-fixture", "Fixture title")],
+      sourceTable: "blog_article",
+      now: "2026-06-08T13:00:00.000Z",
+      existingRows: [
+        {
+          documentId: "doc-fixture",
+          sourceRowId: "builder-doc-fixture",
+          sourceQualifiedId: "builder-cms://blog_article/builder-doc-fixture",
+          provenance: BUILDER_CMS_FIXTURE_ROW_PROVENANCE,
+        },
+      ] as Parameters<
+        typeof mapBuilderCmsEntriesToLocalItems
+      >[0]["existingRows"],
+    });
+
+    expect(mapped.get("doc-fixture")?.id).toBe("builder-live");
   });
 
   it("matches imported Builder entries by title when no row identity exists yet", () => {
@@ -1619,6 +2542,42 @@ describe("database source helpers", () => {
     ).toEqual({
       "data.title": "Same title",
       [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "new-body-hash",
+    });
+  });
+
+  it("preserves the authoritative hydrated body when an unchanged list read reports a different lightweight hash", () => {
+    expect(
+      sourceValuesForSeededSourceRow({
+        sourceType: "builder-cms",
+        item: item("doc-1", "Same title"),
+        sourceTable: "blog_article",
+        now: "2026-06-08T13:00:00.000Z",
+        builderEntry: {
+          id: "entry-1",
+          model: "blog_article",
+          title: "Same title",
+          urlPath: "/blog/same-title",
+          updatedAt: "2026-06-08T13:00:00.000Z",
+          sourceValues: {
+            "data.title": "Same title",
+            lastUpdated: "2026-06-08T13:00:00.000Z",
+            [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "lightweight-list-hash",
+          },
+        },
+        existingSourceValuesJson: JSON.stringify({
+          lastUpdated: "2026-06-08T13:00:00.000Z",
+          [BUILDER_CMS_BODY_LAST_UPDATED_KEY]: "2026-06-08T13:00:00.000Z",
+          [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "authoritative-entry-hash",
+          [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+          [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
+        }),
+        existingLastSourceUpdatedAt: "2026-06-08T13:00:00.000Z",
+      }),
+    ).toMatchObject({
+      [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "authoritative-entry-hash",
+      [BUILDER_CMS_BODY_CONTENT_KEY]: "Readable hydrated baseline",
+      [BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY]: "Lossless baseline",
+      [BUILDER_CMS_BODY_LAST_UPDATED_KEY]: "2026-06-08T13:00:00.000Z",
     });
   });
 

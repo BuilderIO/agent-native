@@ -924,6 +924,28 @@ export function shouldPersistLocalFileEditorUpdate({
   return Boolean(transactionUiEvent);
 }
 
+function isEffectivelyEmptyEditorContent(value: string): boolean {
+  const normalized = value.trim();
+  return normalized === "" || normalized === "<empty-block/>";
+}
+
+export function shouldPersistEffectivelyEmptyEditorUpdate({
+  nextContent,
+  userInitiated,
+}: {
+  nextContent: string;
+  userInitiated: boolean;
+}): boolean {
+  if (!isEffectivelyEmptyEditorContent(nextContent)) return true;
+  // Empty editor state is never worth persisting without a user gesture. This
+  // also covers the preview remount window where `content` can briefly be an
+  // empty list snapshot even though its retained save controller still has a
+  // rich confirmed baseline. Comparing only to this render's prop would let
+  // that mount-time filler mark the retained controller dirty and its
+  // flush-on-release path would then overwrite SQL.
+  return userInitiated;
+}
+
 function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
   const { state } = editor;
   if (!state.selection.empty) return false;
@@ -1086,7 +1108,9 @@ function getVisualEditorPlaceholder({
     if (level === 1) return "Heading 1";
     if (level === 2) return "Heading 2";
     if (level === 3) return "Heading 3";
-    return "Heading 4";
+    if (level === 4) return "Heading 4";
+    if (level === 5) return "Heading 5";
+    return "Heading 6";
   }
 
   if (
@@ -1300,6 +1324,7 @@ export function createVisualEditorExtensions({
     starterKit: {
       blockquote: false,
       paragraph: false,
+      heading: { levels: [1, 2, 3, 4, 5, 6] },
       horizontalRule: {},
       dropcursor: { color: false, width: 3, class: "notion-dropcursor" },
     },
@@ -1742,7 +1767,11 @@ export function VisualEditor({
   const persistEditorContent = useCallback(
     (
       editorToPersist: CoreEditor,
-      options?: { markdown?: string; immediate?: boolean },
+      options?: {
+        markdown?: string;
+        immediate?: boolean;
+        userInitiated?: boolean;
+      },
     ) => {
       const guards = guardsRef.current;
       if (!guards) return false;
@@ -1750,6 +1779,20 @@ export function VisualEditor({
         const normalized =
           options?.markdown ?? docToNfm(editorToPersist.getJSON() as any);
         if (localFileMode && normalized === content) return true;
+        // TipTap/Yjs can emit a local-looking empty-paragraph transaction while
+        // an editor is mounting or reconciling. Content serializes that filler
+        // as `<empty-block/>`, so the generic whitespace-only collab guard does
+        // not catch it. Never let that lifecycle normalization clear a saved
+        // body. A real Select All/Delete (or Cut) records user intent through
+        // the DOM handlers below and is still allowed to persist normally.
+        if (
+          !shouldPersistEffectivelyEmptyEditorUpdate({
+            nextContent: normalized,
+            userInitiated: options?.userInitiated === true,
+          })
+        ) {
+          return true;
+        }
         if (options?.immediate && onSaveContentRef.current) {
           return onSaveContentRef.current(normalized);
         }
@@ -1923,7 +1966,12 @@ export function VisualEditor({
         return;
       }
       if (isActiveSlashCommandDraft(editor)) return;
-      persistEditorContent(editor);
+      persistEditorContent(editor, {
+        userInitiated:
+          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true ||
+          Date.now() - lastUserEditIntentAtRef.current < 2000 ||
+          Boolean(transaction.getMeta("uiEvent")),
+      });
     },
   });
 
@@ -2239,10 +2287,14 @@ export function VisualEditor({
           documentId={documentId}
           notionPageId={notionPageId}
           onDraftCommitted={() => {
-            void persistEditorContent(editor);
+            void persistEditorContent(editor, { userInitiated: true });
           }}
           onDraftPersisted={(markdown) =>
-            persistEditorContent(editor, { markdown, immediate: true })
+            persistEditorContent(editor, {
+              markdown,
+              immediate: true,
+              userInitiated: true,
+            })
           }
         />
       ) : null}

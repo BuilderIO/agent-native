@@ -282,6 +282,9 @@ export default defineAction({
         }
         const titleChanged = file.title !== existing.title;
         const contentChanged = file.content !== existing.content;
+        const descriptionChanged =
+          file.description !== undefined &&
+          file.description !== existing.description;
         const iconChanged =
           file.icon !== undefined && file.icon !== existing.icon;
         const favoriteChanged =
@@ -299,6 +302,7 @@ export default defineAction({
         const anyChange =
           titleChanged ||
           contentChanged ||
+          descriptionChanged ||
           iconChanged ||
           favoriteChanged ||
           discoverabilityChanged ||
@@ -322,6 +326,7 @@ export default defineAction({
           const updates: Record<string, unknown> = { updatedAt: now };
           if (titleChanged) updates.title = file.title;
           if (contentChanged) updates.content = file.content;
+          if (descriptionChanged) updates.description = file.description;
           if (iconChanged) updates.icon = file.icon ?? null;
           if (favoriteChanged) updates.isFavorite = boolToInt(file.isFavorite);
           if (discoverabilityChanged) {
@@ -347,6 +352,7 @@ export default defineAction({
             orgId: currentOrgId,
             parentId: null,
             title: file.title,
+            description: file.description ?? "",
             content: file.content,
             icon: file.icon ?? null,
             position: file.position ?? index,

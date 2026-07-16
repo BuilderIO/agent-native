@@ -198,6 +198,20 @@ export function getKeptRanges(
   return out;
 }
 
+/** Move a source timestamp to the first visible timestamp after a cut. */
+export function skipExcludedRange(
+  ms: number,
+  excludedRanges: Pick<TrimRange, "startMs" | "endMs">[],
+  durationMs: number,
+): number {
+  const range = excludedRanges.find(
+    (candidate) => ms >= candidate.startMs && ms < candidate.endMs,
+  );
+  if (!range) return ms;
+  const next = Math.max(ms, range.endMs);
+  return durationMs > 0 ? Math.min(next, durationMs) : next;
+}
+
 /**
  * Merge a new excluded range into the edits, collapsing adjacent/overlapping
  * entries. Preserves existing non-excluded (split) markers as-is.

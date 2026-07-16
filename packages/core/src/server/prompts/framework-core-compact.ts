@@ -7,7 +7,6 @@
  *   - Verbose "Extended Capabilities" section (agent uses get-framework-context)
  *   - Detailed "Parallel Tool Calls" prose (replaced with one-liner)
  *   - Detailed "Resources" section (agent uses resources tool)
- *   - "First-Session Personalization" (gated externally — see buildSystemPrompt)
  */
 
 import {

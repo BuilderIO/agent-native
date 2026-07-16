@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "टिप्पणी करने के लिए साइन इन करें",
     panelTitle: "प्रतिक्रिया",
     placeholder: "अपनी प्रतिक्रिया दें…",
+    commentingOn: "{{name}} पर टिप्पणी",
     emptyState: "अभी तक कोई समीक्षा टिप्पणी नहीं है।",
     clickToPin: "प्रतिक्रिया पिन करने के लिए कहीं भी क्लिक करें",
     escToExit: "बाहर निकलने के लिए Esc दबाएँ",

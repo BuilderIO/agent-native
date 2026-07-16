@@ -57,7 +57,7 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
   { name: "plain paragraph", nfm: "Just a paragraph." },
   {
     name: "inline marks",
-    nfm: 'Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline="true">underline</span>, <span color="red">red text</span>, <span color="blue_bg">blue bg</span>, a [link](https://example.com), and inline math $`E = mc^2`$.',
+    nfm: 'Intro with **bold**, *italic*, ~~strike~~, `code`, <span underline="true">underline</span>, <span color="red">red text</span>, <span color="blue_bg">blue bg</span>, a [link](https://example.com), and inline math $E = mc^2$.',
   },
   { name: "block color paragraph", nfm: 'Colored paragraph {color="red"}' },
   {
@@ -67,6 +67,8 @@ const FIXTURES: Array<{ name: string; nfm: string }> = [
       "## Heading Two",
       "### Heading Three",
       "#### Heading Four",
+      "##### Heading Five",
+      "###### Heading Six",
     ),
   },
   {
@@ -431,7 +433,7 @@ describe("nfm converter — inline round-trips", () => {
     '<span color="green_bg">bg</span>',
     "[text](https://x.com)",
     "[**bold link**](https://x.com)",
-    "before $`a^2 + b^2`$ after",
+    "before $a^2 + b^2$ after",
     "line one<br>line two",
     "literal \\* not italic and a \\[ bracket",
   ];
@@ -440,6 +442,23 @@ describe("nfm converter — inline round-trips", () => {
       expect(canonicalizeNfm(text)).toBe(text);
     });
   }
+
+  it("canonicalizes GitHub-style inline math without changing the expression", () => {
+    expect(canonicalizeNfm("before $`a^2 + b^2`$ after")).toBe(
+      "before $a^2 + b^2$ after",
+    );
+  });
+
+  it("canonicalizes mixed inline math once without mistaking currency for math", () => {
+    const canonical = canonicalizeNfm(
+      "Plain $x$; legacy $`y`$; escaped \\$z\\$; costs $20,000 and $30,000.",
+    );
+
+    expect(canonical).toBe(
+      "Plain $x$; legacy $y$; escaped \\$z\\$; costs \\$20,000 and \\$30,000.",
+    );
+    expect(canonicalizeNfm(canonical)).toBe(canonical);
+  });
 });
 
 describe("bug fixes — reliability sweep", () => {

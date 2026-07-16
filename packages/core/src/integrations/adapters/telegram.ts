@@ -10,6 +10,7 @@ import type {
   OutgoingMessage,
   IntegrationStatus,
   OutboundTarget,
+  PlatformDeliveryReceipt,
 } from "../types.js";
 
 /** Telegram's max message length */
@@ -194,7 +195,7 @@ export function telegramAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const token = await resolveSecret("TELEGRAM_BOT_TOKEN");
       if (!token) {
         console.error("[telegram] TELEGRAM_BOT_TOKEN not configured");
@@ -235,22 +236,43 @@ export function telegramAdapter(): PlatformAdapter {
           if (!data.ok) {
             // Retry without Markdown if parsing fails
             if (data.description?.includes("parse")) {
-              await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({
-                  ...body,
-                  parse_mode: undefined,
-                }),
-              });
+              const retry = await fetch(
+                `https://api.telegram.org/bot${token}/sendMessage`,
+                {
+                  method: "POST",
+                  headers: { "Content-Type": "application/json" },
+                  body: JSON.stringify({
+                    ...body,
+                    parse_mode: undefined,
+                  }),
+                },
+              );
+              if (!retry.ok) {
+                throw new Error(
+                  `Telegram sendMessage retry failed (HTTP ${retry.status})`,
+                );
+              }
+              const retryData = (await retry.json()) as {
+                ok: boolean;
+                description?: string;
+              };
+              if (!retryData.ok) {
+                throw new Error(
+                  `Telegram sendMessage retry failed: ${retryData.description ?? "unknown error"}`,
+                );
+              }
             } else {
-              console.error("[telegram] sendMessage error:", data.description);
+              throw new Error(
+                `Telegram sendMessage failed: ${data.description ?? "unknown error"}`,
+              );
             }
           }
         } catch (err) {
           console.error("[telegram] Failed to send message:", err);
+          throw err;
         }
       }
+      return { status: "delivered" };
     },
 
     async sendMessageToTarget(

@@ -26,6 +26,7 @@ import {
   IconPhotoPlus,
   IconRefresh,
   IconSearch,
+  IconSettings,
   IconTrash,
   IconUpload,
   IconVideo,
@@ -57,7 +58,6 @@ import {
 } from "react-router";
 import { toast } from "sonner";
 
-import { EditLibraryDialog } from "@/components/library/EditLibraryDialog";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -98,10 +98,8 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Separator } from "@/components/ui/separator";
 import { Spinner } from "@/components/ui/spinner";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Textarea } from "@/components/ui/textarea";
 import {
   Tooltip,
   TooltipContent,
@@ -110,7 +108,6 @@ import {
 } from "@/components/ui/tooltip";
 import { assetPreviewSources } from "@/lib/asset-preview-sources";
 import { assetMediaUrl } from "@/lib/asset-urls";
-import { getLibraryCustomInstructions } from "@/lib/libraries";
 import {
   chunkAssetUploads,
   getFailedUploadCount,
@@ -119,14 +116,7 @@ import {
   type AssetUploadResult,
 } from "@/lib/upload-results";
 
-import {
-  IMAGE_CATEGORIES,
-  ASPECT_RATIOS,
-  type AssetVariantState,
-  type AspectRatio,
-  type ImageCategory,
-  type ImageRole,
-} from "../../shared/api";
+import { type AssetVariantState, type ImageRole } from "../../shared/api";
 
 export type VariantSlot = AssetVariantState["slots"][number];
 
@@ -288,12 +278,6 @@ function removeVariantSlotsByScopeFromCache(
   );
 }
 
-function paletteDraftFromColors(colors: unknown): string {
-  return Array.isArray(colors)
-    ? colors.filter((color) => typeof color === "string").join(", ")
-    : "";
-}
-
 function referenceRoleForAsset(asset: any): ImageRole {
   if (asset?.mediaType === "video" || asset?.mimeType?.startsWith("video/")) {
     return "video_reference";
@@ -315,22 +299,6 @@ function assetUpdatedTime(asset: any): number {
   const raw = asset?.updatedAt ?? asset?.createdAt ?? "";
   const time = Date.parse(String(raw));
   return Number.isNaN(time) ? 0 : time;
-}
-
-function parsePaletteDraft(value: string): string[] {
-  const seen = new Set<string>();
-  const colors: string[] = [];
-  for (const raw of value.split(/[\s,]+/)) {
-    const trimmed = raw.trim();
-    if (!trimmed) continue;
-    const color = trimmed.startsWith("#") ? trimmed : `#${trimmed}`;
-    if (!/^#(?:[0-9a-f]{3}|[0-9a-f]{6})$/i.test(color)) continue;
-    const normalized = color.toLowerCase();
-    if (seen.has(normalized)) continue;
-    seen.add(normalized);
-    colors.push(normalized);
-  }
-  return colors;
 }
 
 export function loader({ params, request }: LoaderFunctionArgs) {
@@ -386,7 +354,6 @@ export function BrandKitDetailRoute({
   const [folderOpen, setFolderOpen] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [pendingUploads, setPendingUploads] = useState<PendingUpload[]>([]);
-  const [editOpen, setEditOpen] = useState(false);
   const [archiveOpen, setArchiveOpen] = useState(false);
   const [headerPrimaryActionsTarget, setHeaderPrimaryActionsTarget] =
     useState<HTMLElement | null>(null);
@@ -415,9 +382,6 @@ export function BrandKitDetailRoute({
     "all",
   );
   const [search, setSearch] = useState("");
-  const [styleDescriptionDraft, setStyleDescriptionDraft] = useState("");
-  const [customInstructionsDraft, setCustomInstructionsDraft] = useState("");
-  const [paletteDraft, setPaletteDraft] = useState("");
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dragCounterRef = useRef(0);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -432,9 +396,13 @@ export function BrandKitDetailRoute({
   });
 
   useEffect(() => {
+    if (urlTab === "settings") {
+      navigate(`/brand-kits/${libraryId}/settings`, { replace: true });
+      return;
+    }
     if (!urlTab) return;
     setActiveTab((current) => (current === urlTab ? current : urlTab));
-  }, [urlTab]);
+  }, [urlTab, libraryId, navigate]);
 
   useEffect(() => {
     if (headerMode !== "actions" || typeof document === "undefined") {
@@ -502,11 +470,6 @@ export function BrandKitDetailRoute({
       (asset.status === "reference" && !isContentOnlyReference(asset)),
   );
   const unfiledCount = libraryAssets.filter((asset) => !asset.folderId).length;
-  const customInstructions = getLibraryCustomInstructions(library);
-  const libraryStyleDescription = library?.styleBrief?.description ?? "";
-  const libraryPaletteDraft = paletteDraftFromColors(
-    library?.styleBrief?.palette,
-  );
   const liveVariantsForLibrary =
     liveVariants?.libraryId === libraryId ? liveVariants : null;
   const liveCandidateSlots = useMemo(
@@ -547,17 +510,6 @@ export function BrandKitDetailRoute({
       );
   }, [assets, liveCandidateSlots]);
 
-  useEffect(() => {
-    setStyleDescriptionDraft(libraryStyleDescription);
-  }, [library?.id, libraryStyleDescription]);
-
-  useEffect(() => {
-    setCustomInstructionsDraft(customInstructions ?? "");
-  }, [library?.id, customInstructions]);
-
-  useEffect(() => {
-    setPaletteDraft(libraryPaletteDraft);
-  }, [library?.id, libraryPaletteDraft]);
   const pendingVisibleUploads = pendingUploads.filter((upload) => {
     if (mediaFilter !== "all" && upload.mediaType !== mediaFilter) return false;
     if (activeFolderId === "all") return true;
@@ -841,37 +793,6 @@ export function BrandKitDetailRoute({
       );
   }
 
-  function analyzeBrand() {
-    if (!library) return;
-    const anchorIds = assets
-      .filter(
-        (asset) =>
-          asset.metadata?.isStyleAnchor ||
-          library.settings?.canonicalStyleAssetIds?.includes(asset.id),
-      )
-      .map((asset) => asset.id);
-    sendToAgentChat({
-      message: [
-        "Analyze this Assets library brand.",
-        `Call analyze-collection-style with libraryId: ${library.id}.`,
-        "Update the reusable style brief with palette and visual traits, then summarize what changed.",
-      ].join("\n"),
-      context: [
-        "## Assets library context",
-        `Library: ${library.title} (${library.id})`,
-        `Description: ${library.description || ""}`,
-        `Reference assets: ${references.length}`,
-        `Anchor assets: ${anchorIds.length ? anchorIds.join(", ") : "none"}`,
-        `Current style brief: ${JSON.stringify(library.styleBrief ?? {})}`,
-        customInstructions
-          ? `Custom instructions: ${customInstructions}`
-          : "Custom instructions: none",
-      ].join("\n"),
-      submit: true,
-      newTab: true,
-    });
-  }
-
   async function upload(files: FileList | null, category = "style-only") {
     if (!files?.length || uploading) return;
     const selectedFiles = Array.from(files);
@@ -1107,8 +1028,7 @@ export function BrandKitDetailRoute({
     );
   }
   const assetById = new Map(assets.map((asset) => [asset.id, asset]));
-  const activeSurfaceTab =
-    activeTab === "runs" || activeTab === "settings" ? activeTab : "assets";
+  const activeSurfaceTab = activeTab === "runs" ? activeTab : "assets";
   const hideEmptyLanes =
     activeFolderId !== "all" || mediaFilter !== "all" || search.trim() !== "";
   const uploadAction = (
@@ -1141,6 +1061,13 @@ export function BrandKitDetailRoute({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end">
+        <DropdownMenuItem asChild>
+          <Link to={`/brand-kits/${libraryId}/settings`}>
+            <IconSettings className="mr-2 h-4 w-4 shrink-0" />
+            {t("library.settings")}
+          </Link>
+        </DropdownMenuItem>
+        <DropdownMenuSeparator />
         <DropdownMenuItem
           onSelect={(event) => {
             event.preventDefault();
@@ -1224,10 +1151,12 @@ export function BrandKitDetailRoute({
                   variant="ghost"
                   size="icon"
                   className="h-8 w-8 text-muted-foreground hover:text-foreground"
-                  onClick={() => setEditOpen(true)}
+                  asChild
                   aria-label={t("library.editBrandKit")}
                 >
-                  <IconPencil className="h-4 w-4" />
+                  <Link to={`/brand-kits/${libraryId}/settings`}>
+                    <IconPencil className="h-4 w-4" />
+                  </Link>
                 </Button>
               </div>
               <p className="mt-1 max-w-3xl text-sm text-muted-foreground">
@@ -1248,11 +1177,6 @@ export function BrandKitDetailRoute({
         onChange={(event) => upload(event.target.files)}
       />
 
-      <EditLibraryDialog
-        library={library}
-        open={editOpen}
-        onOpenChange={setEditOpen}
-      />
       <AlertDialog open={archiveOpen} onOpenChange={setArchiveOpen}>
         <AlertDialogContent>
           <AlertDialogHeader>
@@ -1339,7 +1263,6 @@ export function BrandKitDetailRoute({
           <TabsList>
             <TabsTrigger value="assets">{t("library.assetsTab")}</TabsTrigger>
             <TabsTrigger value="runs">{t("library.runs")}</TabsTrigger>
-            <TabsTrigger value="settings">{t("library.settings")}</TabsTrigger>
           </TabsList>
 
           <TabsContent value="assets" className="space-y-5">
@@ -1501,107 +1424,6 @@ export function BrandKitDetailRoute({
                 </p>
               </div>
             )}
-          </TabsContent>
-
-          <TabsContent value="settings">
-            <div className="assets-brand-kit-settings-grid grid gap-4">
-              <div className="space-y-4 rounded-lg border border-border p-4">
-                <Label>{t("brandKitDetail.styleDescription")}</Label>
-                <Textarea
-                  value={styleDescriptionDraft}
-                  onChange={(event) =>
-                    setStyleDescriptionDraft(event.target.value)
-                  }
-                  onBlur={() =>
-                    updateLibrary.mutate({
-                      id: library.id,
-                      styleBrief: {
-                        ...library.styleBrief,
-                        description: styleDescriptionDraft,
-                      },
-                    })
-                  }
-                  className="min-h-40"
-                />
-                <Separator />
-                <Label>{t("brandKitDetail.customInstructions")}</Label>
-                <Textarea
-                  value={customInstructionsDraft}
-                  onChange={(event) =>
-                    setCustomInstructionsDraft(event.target.value)
-                  }
-                  onBlur={() =>
-                    updateLibrary.mutate({
-                      id: library.id,
-                      customInstructions: customInstructionsDraft,
-                    })
-                  }
-                  placeholder={t(
-                    "brandKitDetail.customInstructionsPlaceholder",
-                  )}
-                  className="min-h-28"
-                />
-                <Separator />
-                <div className="flex items-center justify-between">
-                  <div>
-                    <div className="text-sm font-medium">
-                      {t("brandKitDetail.palette")}
-                    </div>
-                    <div className="mt-2 flex flex-wrap gap-2">
-                      {(library.styleBrief?.palette ?? []).map(
-                        (color: string) => (
-                          <span
-                            key={color}
-                            className="h-7 w-7 rounded-md border border-border"
-                            style={{ backgroundColor: color }}
-                            title={color}
-                          />
-                        ),
-                      )}
-                    </div>
-                    <Input
-                      value={paletteDraft}
-                      onChange={(event) => setPaletteDraft(event.target.value)}
-                      onBlur={() => {
-                        const palette = parsePaletteDraft(paletteDraft);
-                        setPaletteDraft(palette.join(", "));
-                        updateLibrary.mutate({
-                          id: library.id,
-                          styleBrief: {
-                            ...library.styleBrief,
-                            palette,
-                          },
-                        });
-                      }}
-                      placeholder={"#111827, #f8fafc, #2563eb"}
-                      className="mt-3 h-9 max-w-md text-xs"
-                    />
-                  </div>
-                  <Button variant="outline" onClick={analyzeBrand}>
-                    {library.settings?.brandAnalysis?.analyzedAt
-                      ? t("brandKitDetail.refreshBrand")
-                      : t("brandKitDetail.analyzeBrand")}
-                  </Button>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <GenerationPresetsPanel
-                  libraryId={libraryId}
-                  presets={generationPresets}
-                />
-                <div className="rounded-lg border border-border p-4">
-                  <h3 className="text-sm font-semibold">
-                    {t("brandKitDetail.agentUsage")}
-                  </h3>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {t("brandKitDetail.agentUsageDescription")}
-                  </p>
-                  <code className="mt-3 block rounded-md bg-muted p-3 text-xs">
-                    {library.id}
-                  </code>
-                </div>
-              </div>
-            </div>
           </TabsContent>
         </Tabs>
       </div>
@@ -2081,288 +1903,6 @@ function SessionCard({
         ) : null}
       </div>
     </article>
-  );
-}
-
-function GenerationPresetsPanel({
-  libraryId,
-  presets,
-}: {
-  libraryId: string;
-  presets: any[];
-}) {
-  const t = useT();
-  const createPreset = useActionMutation("create-generation-preset");
-  const deletePreset = useActionMutation("delete-generation-preset");
-  const [open, setOpen] = useState(false);
-  const [confirmPresetId, setConfirmPresetId] = useState<string | null>(null);
-  const [title, setTitle] = useState("");
-  const [category, setCategory] = useState<ImageCategory>("social");
-  const [aspectRatio, setAspectRatio] = useState<AspectRatio>("1:1");
-  const [promptTemplate, setPromptTemplate] = useState("");
-  const [textPolicy, setTextPolicy] = useState(t("library.defaultTextPolicy"));
-  const [includeLogo, setIncludeLogo] = useState(false);
-
-  function reset() {
-    setTitle("");
-    setCategory("social");
-    setAspectRatio("1:1");
-    setPromptTemplate("");
-    setTextPolicy(t("library.defaultTextPolicy"));
-    setIncludeLogo(false);
-  }
-
-  function submit() {
-    const trimmed = title.trim();
-    if (!trimmed) return;
-    createPreset.mutate(
-      {
-        libraryId,
-        title: trimmed,
-        category,
-        aspectRatio,
-        imageSize: "2K",
-        promptTemplate: promptTemplate.trim() || undefined,
-        textPolicy,
-        referencePolicy: "auto",
-        includeLogo,
-      },
-      {
-        onSuccess: () => {
-          toast.success(t("brandKitDetail.generationPresetCreated"));
-          reset();
-          setOpen(false);
-        },
-        onError: (error: Error) => {
-          toast.error(
-            error.message || t("brandKitDetail.couldNotCreatePreset"),
-          );
-        },
-      },
-    );
-  }
-
-  return (
-    <div className="rounded-lg border border-border p-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="text-sm font-semibold">
-            {t("brandKitDetail.generationPresets")}
-          </h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {t("brandKitDetail.generationPresetsDescription")}
-          </p>
-        </div>
-        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-          {t("brandKitDetail.new")}
-        </Button>
-      </div>
-      <div className="mt-3 space-y-2">
-        {presets.slice(0, 5).map((preset) => (
-          <div
-            key={preset.id}
-            className="flex items-start justify-between gap-3 rounded-md border border-border bg-background p-3"
-          >
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <Link
-                  to={`/brand-kits/${libraryId}/presets/${preset.id}`}
-                  className="truncate text-sm font-medium underline-offset-4 hover:underline"
-                >
-                  {preset.title}
-                </Link>
-                <Badge variant="outline">{preset.aspectRatio}</Badge>
-                {preset.includeLogo ? (
-                  <Badge variant="secondary">{t("brandKitDetail.logo")}</Badge>
-                ) : null}
-              </div>
-              <p className="mt-1 line-clamp-2 text-xs text-muted-foreground">
-                {preset.textPolicy || preset.description || preset.category}
-              </p>
-            </div>
-            <div className="flex shrink-0 items-center gap-1">
-              <Button variant="ghost" size="sm" asChild>
-                <Link to={`/brand-kits/${libraryId}/presets/${preset.id}`}>
-                  {t("brandKitDetail.edit")}
-                </Link>
-              </Button>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                aria-label={`${t("brandKitDetail.delete")} ${preset.title}`}
-                onClick={() => setConfirmPresetId(preset.id)}
-              >
-                <IconTrash className="h-4 w-4" />
-              </Button>
-            </div>
-          </div>
-        ))}
-        {!presets.length ? (
-          <p className="rounded-md border border-dashed border-border p-3 text-sm text-muted-foreground">
-            {t("brandKitDetail.noPresetsYet")}
-          </p>
-        ) : null}
-      </div>
-
-      <AlertDialog
-        open={confirmPresetId !== null}
-        onOpenChange={(isOpen) => {
-          if (!isOpen) setConfirmPresetId(null);
-        }}
-      >
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>
-              {t("brandKitDetail.deleteGenerationPreset")}
-            </AlertDialogTitle>
-            <AlertDialogDescription>
-              {t("brandKitDetail.deleteGenerationPresetDescription")}
-            </AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>{t("brandKitDetail.cancel")}</AlertDialogCancel>
-            <AlertDialogAction
-              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-              disabled={!confirmPresetId || deletePreset.isPending}
-              onClick={(event) => {
-                event.preventDefault();
-                if (!confirmPresetId) return;
-                deletePreset.mutate(
-                  { id: confirmPresetId },
-                  {
-                    onSuccess: () => {
-                      setConfirmPresetId(null);
-                      toast.success(
-                        t("brandKitDetail.generationPresetDeleted"),
-                      );
-                    },
-                    onError: (error: Error) => {
-                      toast.error(
-                        error.message ||
-                          t("brandKitDetail.couldNotDeletePreset"),
-                      );
-                    },
-                  },
-                );
-              }}
-            >
-              {t("assetDetail.delete")}
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
-
-      <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="sm:max-w-lg">
-          <DialogHeader>
-            <DialogTitle>{t("brandKitDetail.newGenerationPreset")}</DialogTitle>
-            <DialogDescription>
-              {t("brandKitDetail.newGenerationPresetDescription")}
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-4">
-            <div className="grid gap-2">
-              <Label htmlFor="preset-title">{t("brandKitDetail.name")}</Label>
-              <Input
-                id="preset-title"
-                value={title}
-                onChange={(event) => setTitle(event.target.value)}
-                placeholder={t("brandKitDetail.campaignLaunch")}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div className="grid gap-2">
-                <Label>{t("brandKitDetail.category")}</Label>
-                <Select
-                  value={category}
-                  onValueChange={(value) => setCategory(value as ImageCategory)}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {IMAGE_CATEGORIES.map((item) => (
-                      <SelectItem key={item} value={item}>
-                        {item}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div className="grid gap-2">
-                <Label>{t("brandKitDetail.aspectRatio")}</Label>
-                <Select
-                  value={aspectRatio}
-                  onValueChange={(value) =>
-                    setAspectRatio(value as AspectRatio)
-                  }
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {ASPECT_RATIOS.map((ratio) => (
-                      <SelectItem key={ratio} value={ratio}>
-                        {ratio}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="preset-template">
-                {t("brandKitDetail.promptTemplate")}
-              </Label>
-              <Textarea
-                id="preset-template"
-                value={promptTemplate}
-                onChange={(event) => setPromptTemplate(event.target.value)}
-                placeholder={t("library.promptTemplatePlaceholder")}
-              />
-            </div>
-            <div className="grid gap-2">
-              <Label htmlFor="preset-text-policy">
-                {t("brandKitDetail.textPolicy")}
-              </Label>
-              <Textarea
-                id="preset-text-policy"
-                value={textPolicy}
-                onChange={(event) => setTextPolicy(event.target.value)}
-              />
-            </div>
-            <label
-              htmlFor="preset-include-logo"
-              className="flex items-start gap-3 rounded-md border border-border p-3"
-            >
-              <Checkbox
-                id="preset-include-logo"
-                checked={includeLogo}
-                onCheckedChange={(checked) => setIncludeLogo(checked === true)}
-                className="mt-0.5"
-              />
-              <span className="grid gap-1">
-                <span className="text-sm font-medium leading-none">
-                  {t("brandKitDetail.compositeCanonicalLogo")}
-                </span>
-                <span className="text-xs text-muted-foreground">
-                  {t("brandKitDetail.compositeCanonicalLogoHint")}
-                </span>
-              </span>
-            </label>
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
-              {t("brandKitDetail.cancel")}
-            </Button>
-            <Button disabled={!title.trim()} onClick={submit}>
-              {t("brandKitDetail.create")}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-    </div>
   );
 }
 

@@ -102,6 +102,7 @@ const messages = {
     searchImagesPlaceholder: "画像を検索...",
     searchForLogosImagesIcons: "ロゴ、画像、アイコンを検索...",
     search: "搜索",
+    searchFailed: "搜索失败",
     logoSearchTitle: "徽标搜索",
     searchCompanyLogo: "会社を検索してロゴを見つける",
     searchCompanyPlaceholder: "会社名を検索（例: Intuit）",

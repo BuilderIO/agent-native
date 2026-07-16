@@ -3,8 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 // `resolveFetchToolKeyAllowlist` is a plain module-level function in
 // agent-chat-plugin.ts (hoisted out of the per-request fetch-tool wiring
 // specifically so it's unit-testable here without booting the whole plugin —
-// see its doc comment in agent-chat-plugin.ts, next to
-// `hasCompletedFirstSessionPersonalization`, which uses the same pattern).
+// see its doc comment in agent-chat-plugin.ts).
 // It takes its `getKeyAllowlist` / `getResolvedKeyAllowlist` dependencies as
 // explicit parameters, so no module mocking is needed here at all.
 import { resolveFetchToolKeyAllowlist } from "./agent-chat-plugin.js";

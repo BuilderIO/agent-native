@@ -483,6 +483,14 @@ export function shouldClearBridgeSelectionOnEmptyMarquee(args: {
   return args.resolvedCount === 0 && !args.additive;
 }
 
+/** Clear element context only when a selected review thread changes screens. */
+export function shouldClearSelectionForReviewThreadTarget(args: {
+  activeFileId?: string | null;
+  targetId?: string | null;
+}): boolean {
+  return Boolean(args.targetId && args.targetId !== args.activeFileId);
+}
+
 /**
  * PICK-RACE: MultiScreenCanvas's `onPick` prop is `(id: string) => void` — no
  * modifier/event info — even though a shift-click there already toggled a

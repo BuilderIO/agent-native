@@ -1,0 +1,49 @@
+@keyframes task-row-exit {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(-0.35rem) scale(0.985);
+  }
+}
+
+@keyframes task-row-complete {
+  0% {
+    background-color: hsl(var(--accent) / 0.4);
+  }
+  100% {
+    background-color: transparent;
+  }
+}
+
+@keyframes task-row-restore {
+  from {
+    opacity: 0.55;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.task-row-exit {
+  animation: task-row-exit 260ms cubic-bezier(0.4, 0, 0.2, 1) forwards;
+  pointer-events: none;
+}
+
+.task-row-complete {
+  animation: task-row-complete 220ms ease forwards;
+}
+
+.task-row-restore {
+  animation: task-row-restore 220ms ease forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .task-row-exit,
+  .task-row-complete,
+  .task-row-restore {
+    animation-duration: 1ms;
+  }
+}

@@ -133,12 +133,15 @@ patterns live in `.agents/skills/`.
   `generate-design` for new files. For broad rewrites of an existing selected
   file, use `edit-design` with `mode: "replace-file"` and the exact `fileId`;
   never resend files you aren't changing.
-- For reusable starting points, call `list-design-templates`. Use
+- When the user references a template, prior design, or past work, call both
+  `list-design-templates` and `list-designs` before generating so the existing
+  starting point is resolved instead of recreated. Use
   `save-design-as-template` to snapshot an editable inline design, including
   its screens, canvas dimensions, defaults, and locked layers. Use
   `create-design-from-template` to instantiate a normal design. If the user
   supplies a prompt, call `get-design-snapshot` once and refine the copied
   files with `edit-design`; never regenerate the template from scratch.
+  Read the `design-templates` skill for the complete copy/adaptation workflow.
 - Treat `data-agent-native-locked="true"` as an authoritative template
   boundary. Locked backgrounds, logos, and their descendants must remain
   byte-for-byte unchanged during agent edits. The server rejects attempts to
@@ -467,6 +470,8 @@ Flag-gated by `FULL_APP_BUILDING` in `shared/full-app.ts` (key
 Read the relevant skill before deeper work:
 
 - `design-generation` for creating/editing prototype HTML and variant flows.
+- `design-templates` for resolving, saving, copying, and adapting templates or
+  prior Design work without fresh generation.
 - `responsive-breakpoints` for Framer-style breakpoint editing (single DOM,
   cascading width-scoped overrides, the managed breakpoints media block).
 - `design-systems` for tokens, brand extraction, and linked systems.

@@ -6,12 +6,20 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const localStoreMocks = vi.hoisted(() => ({
+  locks: new Map<string, Promise<unknown>>(),
+  readLocalEmails: vi.fn(),
+  writeLocalEmails: vi.fn(),
+  withLocalEmailMutationLock: vi.fn(),
+}));
+
 import {
   archiveEmail,
   unarchiveEmail,
   toggleStar,
   trashEmail,
   untrashEmail,
+  markAllLocalUnreadRead,
   markRead,
   markThreadRead,
 } from "./email-state.js";
@@ -21,6 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 
 vi.mock("@agent-native/core/settings", () => ({
+  getSettingsEmitter: () => ({ emit: vi.fn() }),
   getUserSetting: vi.fn(),
   putUserSetting: vi.fn(),
 }));
@@ -44,6 +53,12 @@ vi.mock("./google-auth.js", () => ({
   isConnected: vi.fn(),
 }));
 
+vi.mock("./local-email-store.js", () => ({
+  readLocalEmails: localStoreMocks.readLocalEmails,
+  writeLocalEmails: localStoreMocks.writeLocalEmails,
+  withLocalEmailMutationLock: localStoreMocks.withLocalEmailMutationLock,
+}));
+
 vi.mock("./thread-cache.js", () => ({
   invalidateThreadCache: vi.fn(),
   threadMessagesCache: new Map(),
@@ -65,6 +80,11 @@ import {
   gmailUntrashThread,
 } from "./google-api.js";
 import { isConnected } from "./google-auth.js";
+import {
+  readLocalEmails,
+  withLocalEmailMutationLock,
+  writeLocalEmails,
+} from "./local-email-store.js";
 import { invalidateThreadCache } from "./thread-cache.js";
 
 // ---------------------------------------------------------------------------
@@ -137,6 +157,37 @@ function mockLocalEmails(emails = makeLocalEmails()) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStoreMocks.locks.clear();
+  localStoreMocks.readLocalEmails.mockImplementation(async (ownerEmail) => {
+    const data = await getUserSetting(ownerEmail, "local-emails");
+    return data && Array.isArray((data as any).emails)
+      ? (data as any).emails
+      : [];
+  });
+  localStoreMocks.writeLocalEmails.mockImplementation(
+    async (ownerEmail, emails) => {
+      await putUserSetting(ownerEmail, "local-emails", { emails });
+    },
+  );
+  localStoreMocks.withLocalEmailMutationLock.mockImplementation(
+    (ownerEmail, mutate) => {
+      const key = ownerEmail.toLowerCase();
+      const previous = localStoreMocks.locks.get(key) ?? Promise.resolve();
+      const next = previous.then(mutate, mutate);
+      localStoreMocks.locks.set(key, next);
+      next.then(
+        () => {
+          if (localStoreMocks.locks.get(key) === next)
+            localStoreMocks.locks.delete(key);
+        },
+        () => {
+          if (localStoreMocks.locks.get(key) === next)
+            localStoreMocks.locks.delete(key);
+        },
+      );
+      return next;
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------
@@ -660,6 +711,176 @@ describe("markRead", () => {
         ["UNREAD"],
       );
     });
+  });
+});
+
+describe("markAllLocalUnreadRead", () => {
+  it("updates every non-protected unread message in one local write and verifies", async () => {
+    let emails = [
+      ...makeLocalEmails().map((email) => ({ ...email, isRead: false })),
+      {
+        ...makeLocalEmails()[0],
+        id: "msg-protected",
+        threadId: "thread-protected",
+        isRead: false,
+      },
+    ];
+    vi.mocked(getUserSetting).mockImplementation(async (_owner, key) => {
+      if (key === "local-emails") return { emails } as any;
+      if (key === "labels") {
+        return {
+          labels: [
+            { id: "inbox", name: "Inbox", unreadCount: 3, totalCount: 3 },
+          ],
+        } as any;
+      }
+      return undefined;
+    });
+    vi.mocked(putUserSetting).mockImplementation(async (_owner, key, value) => {
+      if (key === "local-emails") emails = (value as any).emails;
+    });
+
+    const result = await markAllLocalUnreadRead({
+      ownerEmail: OWNER,
+      accountEmail: OWNER,
+      excludeThreadIds: ["thread-protected"],
+    });
+
+    expect(
+      vi
+        .mocked(putUserSetting)
+        .mock.calls.filter(([, key]) => key === "local-emails"),
+    ).toHaveLength(1);
+    expect(
+      vi
+        .mocked(putUserSetting)
+        .mock.calls.filter(([, key]) => key === "labels"),
+    ).toHaveLength(1);
+    expect(result).toMatchObject({
+      matchedMessages: 3,
+      matchedThreads: 2,
+      excludedMessages: 1,
+      excludedThreads: 1,
+      changedMessages: 2,
+      batchCount: 1,
+      remainingUnreadMessages: 1,
+      remainingUnreadThreads: 1,
+      remainingProtectedMessages: 1,
+      unexpectedUnreadMessages: 0,
+      verificationComplete: true,
+    });
+  });
+
+  it("rejects a different account before reading local mail", async () => {
+    await expect(
+      markAllLocalUnreadRead({
+        ownerEmail: OWNER,
+        accountEmail: ACCT,
+        excludeThreadIds: [],
+      }),
+    ).rejects.toThrow("authenticated owner account");
+
+    expect(getUserSetting).not.toHaveBeenCalled();
+    expect(putUserSetting).not.toHaveBeenCalled();
+  });
+
+  it("serializes a concurrent external local-mail writer so neither update is lost", async () => {
+    let emails = makeLocalEmails().map((email) => ({
+      ...email,
+      isRead: false,
+      isStarred: false,
+    }));
+    let releaseBulkWrite!: () => void;
+    const bulkWriteBlocked = new Promise<void>((resolve) => {
+      releaseBulkWrite = resolve;
+    });
+    let signalBulkWrite!: () => void;
+    const bulkWriteStarted = new Promise<void>((resolve) => {
+      signalBulkWrite = resolve;
+    });
+    let localEmailWrites = 0;
+
+    vi.mocked(isConnected).mockResolvedValue(false);
+    vi.mocked(getUserSetting).mockImplementation(async (_owner, key) => {
+      if (key === "local-emails") return { emails } as any;
+      if (key === "labels") return { labels: [] } as any;
+      return undefined;
+    });
+    vi.mocked(putUserSetting).mockImplementation(async (_owner, key, value) => {
+      if (key !== "local-emails") return;
+      localEmailWrites += 1;
+      if (localEmailWrites === 1) {
+        signalBulkWrite();
+        await bulkWriteBlocked;
+      }
+      emails = (value as any).emails;
+    });
+
+    const bulk = markAllLocalUnreadRead({
+      ownerEmail: OWNER,
+      accountEmail: OWNER,
+      excludeThreadIds: [],
+    });
+    await bulkWriteStarted;
+    const externalSend = withLocalEmailMutationLock(OWNER, async () => {
+      const current = await readLocalEmails(OWNER);
+      current.push({
+        ...makeLocalEmails()[0],
+        id: "msg-concurrent-send",
+        threadId: "thread-concurrent-send",
+        isRead: true,
+        isSent: true,
+        from: { name: "Owner", email: OWNER },
+        to: [{ name: "Recipient", email: "recipient@example.com" }],
+        subject: "Concurrent send",
+        snippet: "Concurrent send",
+        body: "Concurrent send",
+      });
+      await writeLocalEmails(OWNER, current);
+    });
+    await Promise.resolve();
+
+    expect(localEmailWrites).toBe(1);
+    releaseBulkWrite();
+    const [bulkResult] = await Promise.all([bulk, externalSend]);
+
+    expect(bulkResult.verificationComplete).toBe(true);
+    expect(emails.find((email) => email.id === MSG_ID)).toMatchObject({
+      isRead: true,
+    });
+    expect(emails.map((email) => email.id)).toContain("msg-concurrent-send");
+  });
+
+  it("releases the local mutation lock after a failed write", async () => {
+    let emails = makeLocalEmails();
+    let localEmailWrites = 0;
+    vi.mocked(isConnected).mockResolvedValue(false);
+    vi.mocked(getUserSetting).mockImplementation(async (_owner, key) => {
+      if (key === "local-emails") return { emails } as any;
+      if (key === "labels") return { labels: [] } as any;
+      return undefined;
+    });
+    vi.mocked(putUserSetting).mockImplementation(async (_owner, key, value) => {
+      if (key !== "local-emails") return;
+      localEmailWrites += 1;
+      if (localEmailWrites === 1) throw new Error("write failed");
+      emails = (value as any).emails;
+    });
+
+    const failedBulk = markAllLocalUnreadRead({
+      ownerEmail: OWNER,
+      accountEmail: OWNER,
+      excludeThreadIds: [],
+    });
+    const queuedStar = toggleStar({
+      id: MSG_ID,
+      ownerEmail: OWNER,
+      isStarred: true,
+    });
+
+    await expect(failedBulk).rejects.toThrow("write failed");
+    await expect(queuedStar).resolves.toMatchObject({ isStarred: true });
+    expect(emails.find((email) => email.id === MSG_ID)?.isStarred).toBe(true);
   });
 });
 

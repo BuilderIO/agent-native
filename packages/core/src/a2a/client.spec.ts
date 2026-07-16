@@ -140,6 +140,67 @@ describe("A2AClient", () => {
     ).rejects.toBeInstanceOf(A2ATaskTimeoutError);
   });
 
+  it("returns input-required without polling until timeout", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            id: "task-approval",
+            status: {
+              state: "input-required",
+              message: {
+                role: "agent",
+                parts: [{ type: "text", text: "Approval required" }],
+              },
+            },
+            history: [],
+            artifacts: [],
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new A2AClient("https://agent.test");
+    await expect(
+      client.sendAndWait({
+        role: "user",
+        parts: [{ type: "text", text: "send" }],
+      }),
+    ).resolves.toMatchObject({
+      id: "task-approval",
+      status: { state: "input-required" },
+    });
+    expect(
+      fetchMock.mock.calls.filter(([, init]) => init?.method === "POST"),
+    ).toHaveLength(1);
+  });
+
+  it("sends exact approved actions as top-level authenticated request data", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.params.approvedActions).toEqual([
+        { tool: "send-email", input: { to: "alice@example.test" } },
+      ]);
+      return completedResponse(body, "sent");
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new A2AClient("https://agent.test");
+    await client.send(
+      { role: "user", parts: [{ type: "text", text: "send it" }] },
+      {
+        approvedActions: [
+          { tool: "send-email", input: { to: "alice@example.test" } },
+        ],
+      },
+    );
+  });
+
   it("returns receiver-verified recoverable artifact text when callAgent times out", async () => {
     vi.stubGlobal(
       "fetch",

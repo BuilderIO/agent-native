@@ -24,7 +24,7 @@
  *   --filename   Screen filename to focus in the design editor
  *   --tool       Design editor tool to activate
  *   --designSystemId Design system ID (for design-systems view)
- *   --templateId Saved or starter template ID (for templates view)
+ *   --templateId Saved or built-in template ID (for templates view)
  *   --path       URL path to navigate to
  */
 
@@ -122,7 +122,7 @@ export default defineAction({
       templateId: z
         .string()
         .optional()
-        .describe("Saved or starter template ID for templates view"),
+        .describe("Saved or built-in template ID for templates view"),
       path: z.string().optional().describe("URL path to navigate to"),
     })
     .superRefine((args, ctx) => {

@@ -9,6 +9,7 @@ export const PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS = 2_400;
 type PublicDocumentPromptInput = {
   id: string;
   title: string;
+  description?: string;
   content: string;
   updatedAt: string | Date;
 };
@@ -44,6 +45,7 @@ ${fullDocumentGuidance}
 
 Document ID: ${doc.id}
 Title: ${doc.title}
+Description: ${doc.description || "(none)"}
 Updated at: ${doc.updatedAt}
 
 Markdown excerpt:
@@ -92,6 +94,7 @@ async function getPublicDocumentForEvent(event: H3Event) {
     .select({
       id: documents.id,
       title: documents.title,
+      description: documents.description,
       content: documents.content,
       updatedAt: documents.updatedAt,
       visibility: documents.visibility,

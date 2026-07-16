@@ -5,12 +5,25 @@ import type {
   ContentDatabaseSourceChangeSet,
 } from "../shared/api";
 import { BUILDER_CMS_SAFE_WRITE_MODEL } from "../shared/api";
+import { BUILDER_CMS_BODY_BLOCKS_HASH_KEY } from "./_builder-cms-source-adapter";
 import {
   buildBuilderCmsExecutionPlan,
+  builderCmsExecutionIntentMarker,
   builderCmsExecutionIdempotencyKey,
   resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
 } from "./_builder-cms-write-adapter";
+
+describe("Builder execution intent marker", () => {
+  it("is deterministic, compact, and portable to browser runtimes", () => {
+    const key = "builder-cms:source-1:change-set-1:draft";
+    const marker = builderCmsExecutionIntentMarker(key);
+
+    expect(marker).toBe(builderCmsExecutionIntentMarker(key));
+    expect(marker).toMatch(/^agent-native-execution:[0-9a-f]{24}$/);
+    expect(builderCmsExecutionIntentMarker(`${key}-other`)).not.toBe(marker);
+  });
+});
 
 function source(
   liveWritesEnabled = false,
@@ -46,6 +59,14 @@ function source(
       titleField: "data.title",
       naturalKeyField: "/blog/[slug]",
       pushMode: "autosave",
+      builderModelFields: [
+        {
+          name: "title",
+          label: "Title",
+          type: "string",
+          required: true,
+        },
+      ],
       ...metadata,
     },
     fields: [],
@@ -111,7 +132,7 @@ describe("Builder CMS write adapter plan", () => {
     ).toBe("builder-cms:source-1:change-1:autosave");
   });
 
-  it("prepares a write-disabled execution plan by default", () => {
+  it("blocks a write-disabled production-model execution plan by default", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(false),
       changeSet: approvedChangeSet(),
@@ -121,7 +142,8 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan).toMatchObject({
       adapter: "builder-cms",
       pushMode: "autosave",
-      state: "write_disabled",
+      state: "blocked",
+      lastError: `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
       idempotencyKey: "builder-cms:source-1:change-1:autosave",
       payload: {
         sourceTable: "blog_article",
@@ -152,10 +174,11 @@ describe("Builder CMS write adapter plan", () => {
         safety: {
           liveWritesEnabled: false,
           dryRunOnly: true,
-          blockers: [],
+          blockers: [
+            `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+          ],
         },
       },
-      lastError: "Live Builder writes are disabled for this source.",
     });
     expect(plan.payload.request.body).not.toHaveProperty("published");
   });
@@ -224,6 +247,63 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+  });
+
+  it("keeps production-model title updates from changing Builder root names", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, "blog_article", {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+      }),
+      changeSet: approvedChangeSet(),
+      pushModeConfirmation: "publish",
+    });
+
+    expect(plan.payload.effect).toBe("update_in_place");
+    expect(plan.payload.request.body).toMatchObject({
+      data: { title: "New title" },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("name");
+  });
+
+  it("repairs an existing safe-model entry name during a body-only PATCH", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+        writeMode: "publish_updates",
+        pushMode: "publish",
+        allowedWriteModes: ["autosave", "publish"],
+      }),
+      changeSet: {
+        ...approvedChangeSet(),
+        kind: "body_update",
+        fieldChanges: [],
+        bodyChange: {
+          summary: "Body changed",
+          currentExcerpt: null,
+          proposedExcerpt: "Fresh body",
+          proposedBlocksJson: JSON.stringify([
+            {
+              "@type": "@builder.io/sdk:Element",
+              component: { name: "Text", options: { text: "Fresh body" } },
+            },
+          ]),
+        },
+      },
+      pushModeConfirmation: "publish",
+    });
+
+    expect(plan.payload.effect).toBe("update_in_place");
+    expect(plan.payload.request).toMatchObject({
+      method: "PATCH",
+      path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-entry-1`,
+      query: { triggerWebhooks: "true" },
+      body: {
+        name: "Old title",
+        data: { blocks: expect.any(Array) },
+      },
+    });
+    expect(plan.payload.target.entryId).toBe("builder-entry-1");
   });
 
   it("derives update-in-place effect from publish-updates write mode", () => {
@@ -320,6 +400,7 @@ describe("Builder CMS write adapter plan", () => {
             triggerWebhooks: "false",
           },
           body: {
+            name: "New title",
             data: {
               title: "New title",
             },
@@ -331,6 +412,278 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+  });
+
+  it("converts rich local field values to Builder-native safe-model JSON", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "date", type: "date", required: false },
+        { name: "thumbnail", type: "file", required: false },
+        {
+          name: "topics",
+          type: "list",
+          inputType: "tags",
+          options: ["Headless CMS", "Agent workflows"],
+          required: false,
+        },
+        {
+          name: "author",
+          type: "reference",
+          model: "blog-author",
+          required: false,
+        },
+      ],
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: { ...builderSource, rows: [] },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          {
+            propertyId: "date-property",
+            propertyName: "Date",
+            localFieldKey: "date-property",
+            sourceFieldKey: "data.date",
+            currentValue: null,
+            proposedValue: {
+              start: "2026-07-13T12:30:00.000Z",
+              includeTime: true,
+            },
+          },
+          {
+            propertyId: "thumbnail-property",
+            propertyName: "Thumbnail",
+            localFieldKey: "thumbnail-property",
+            sourceFieldKey: "data.thumbnail",
+            currentValue: null,
+            proposedValue: ["https://cdn.example.com/quiet-comet.jpg"],
+          },
+          {
+            propertyId: "topics-property",
+            propertyName: "Topics",
+            localFieldKey: "topics-property",
+            sourceFieldKey: "data.topics",
+            currentValue: [],
+            proposedValue: ["headless-cms", "agent-workflows"],
+          },
+          {
+            propertyId: "author-property",
+            propertyName: "Author",
+            localFieldKey: "author-property",
+            sourceFieldKey: "data.author",
+            currentValue: null,
+            proposedValue: "Alice Example",
+            builderValueJson: JSON.stringify({
+              "@type": "@builder.io/core:Reference",
+              id: "author-entry-1",
+              model: "blog-author",
+            }),
+          },
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        request: {
+          body: {
+            data: {
+              title: "New title",
+              date: Date.parse("2026-07-13T12:30:00.000Z"),
+              thumbnail: "https://cdn.example.com/quiet-comet.jpg",
+              topics: ["Headless CMS", "Agent workflows"],
+              author: {
+                "@type": "@builder.io/core:Reference",
+                id: "author-entry-1",
+                model: "blog-author",
+              },
+            },
+          },
+        },
+        safety: { blockers: [] },
+      },
+    });
+  });
+
+  it("passes through trimmed labels for free-form Builder Tags fields", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          builderModelFields: [
+            { name: "title", type: "string", required: true },
+            { name: "tags", type: "Tags", required: true },
+          ],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          {
+            propertyId: "tags-property",
+            propertyName: "Tags",
+            localFieldKey: "tags-property",
+            sourceFieldKey: "data.tags",
+            currentValue: [],
+            proposedValue: [" ai ", "Builder Sync"],
+          },
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "ready",
+      payload: {
+        request: {
+          body: { data: { tags: ["ai", "Builder Sync"] } },
+        },
+        safety: { blockers: [] },
+      },
+    });
+  });
+
+  it("rejects empty labels for free-form Builder Tags fields", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          builderModelFields: [
+            { name: "title", type: "string", required: true },
+            { name: "tags", type: "Tags", required: true },
+          ],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          {
+            propertyId: "tags-property",
+            propertyName: "Tags",
+            localFieldKey: "tags-property",
+            sourceFieldKey: "data.tags",
+            currentValue: [],
+            proposedValue: ["   "],
+          },
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan.state).toBe("blocked");
+    expect(plan.payload.safety.blockers).toContain(
+      "tags contains an option that cannot be mapped to a Builder label.",
+    );
+  });
+
+  it("blocks invalid native field conversion before safe-model dispatch", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          builderModelFields: [
+            { name: "title", type: "string", required: true },
+            {
+              name: "topics",
+              label: "Topics",
+              type: "list",
+              inputType: "tags",
+              options: ["Headless CMS"],
+              required: false,
+            },
+          ],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+        fieldChanges: [
+          ...approvedChangeSet().fieldChanges,
+          {
+            propertyId: "topics-property",
+            propertyName: "Topics",
+            localFieldKey: "topics-property",
+            sourceFieldKey: "data.topics",
+            currentValue: [],
+            proposedValue: ["unknown-local-option-id"],
+          },
+        ],
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      payload: {
+        safety: {
+          blockers: [
+            "Topics contains an option that cannot be mapped to a Builder label.",
+          ],
+        },
+      },
+    });
+    expect(plan.payload.request.body).not.toHaveProperty("data.topics");
+  });
+
+  it("blocks safe-model creates when a required field is missing", () => {
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          builderModelFields: [
+            { name: "title", type: "string", required: true },
+            { name: "author", type: "reference", required: true },
+          ],
+        }),
+        rows: [],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "draft",
+      },
+      pushModeConfirmation: "draft",
+    });
+
+    expect(plan).toMatchObject({
+      state: "blocked",
+      payload: {
+        safety: {
+          blockers: ["Required Builder field author is missing or invalid."],
+        },
+      },
+    });
+  });
+
+  it("preserves legacy safe-model gates that predate schema snapshots", () => {
+    const noSchema = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      builderModelFields: [],
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["publish"],
+      allowPublicationTransitions: true,
+    });
+    const create = buildBuilderCmsExecutionPlan({
+      source: { ...noSchema, rows: [] },
+      changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+      pushModeConfirmation: "publish",
+    });
+    const publish = buildBuilderCmsExecutionPlan({
+      source: noSchema,
+      changeSet: { ...approvedChangeSet(), pushMode: "publish" },
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(create.state).toBe("ready");
+    expect(publish.state).toBe("ready");
   });
 
   it("resolves the gate push mode from the tier, ignoring a change-set's own pushMode", () => {
@@ -446,6 +799,48 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+  });
+
+  it("accepts reconciled required fields and a body hash when publishing a partial update", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+      builderModelFields: [
+        { name: "title", type: "string", required: true },
+        { name: "blocks", type: "list", required: true },
+        { name: "author", type: "reference", required: true },
+        { name: "image", type: "image", required: true },
+      ],
+    });
+    builderSource.rows[0] = {
+      ...builderSource.rows[0]!,
+      sourceValues: {
+        "data.title": "Old title",
+        "data.author": {
+          "@type": "@builder.io/core:Reference",
+          id: "author-alice",
+          model: "author",
+        },
+        "data.image": "https://example.com/feature.jpg",
+        [BUILDER_CMS_BODY_BLOCKS_HASH_KEY]: "body-hash",
+      },
+    };
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source: builderSource,
+      changeSet: {
+        ...approvedChangeSet(),
+        pushMode: "publish",
+      },
+      pushModeConfirmation: "publish",
+      publicationTransition: "publish",
+    });
+
+    expect(plan.state).toBe("ready");
+    expect(plan.payload.safety.blockers).toEqual([]);
+    expect(plan.payload.request.body).not.toHaveProperty("data.blocks");
   });
 
   it("blocks unpublish transitions without explicit confirmation", () => {
@@ -602,7 +997,127 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("blocks live writes for Builder models outside the safe test collection", () => {
+  it("keeps an unmatched row as create_draft under the publish-updates tier", () => {
+    const builderSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+    });
+    const plan = buildBuilderCmsExecutionPlan({
+      source: {
+        ...builderSource,
+        rows: [
+          {
+            ...builderSource.rows[0],
+            documentId: "unmatched-doc",
+            sourceRowId: "builder-unmatched-doc",
+            sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-unmatched-doc`,
+          },
+        ],
+      },
+      changeSet: {
+        ...approvedChangeSet(),
+        documentId: "unmatched-doc",
+      },
+      pushModeConfirmation: "publish",
+    });
+
+    expect(plan).toMatchObject({
+      pushMode: "publish",
+      idempotencyKey: "builder-cms:source-1:change-1:publish",
+      state: "ready",
+      payload: {
+        effect: "create_draft",
+        request: {
+          method: "POST",
+          body: { published: "draft" },
+        },
+      },
+    });
+  });
+
+  it("builds matching publish-tier gates for mixed create, update, publish, and confirmed unpublish intents", () => {
+    const baseSource = source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+      writeMode: "publish_updates",
+      pushMode: "publish",
+      allowedWriteModes: ["autosave", "publish"],
+      allowPublicationTransitions: true,
+    });
+    const documents = [
+      "create-doc",
+      "update-doc",
+      "publish-doc",
+      "unpublish-doc",
+    ];
+    const mixedSource = {
+      ...baseSource,
+      rows: documents.map((documentId, index) => ({
+        ...baseSource.rows[0],
+        id: `row-${index}`,
+        databaseItemId: `item-${index}`,
+        documentId,
+        sourceRowId:
+          index === 0 ? `builder-${documentId}` : `builder-entry-${index}`,
+        sourceQualifiedId: `builder-cms://${BUILDER_CMS_SAFE_WRITE_MODEL}/${
+          index === 0 ? `builder-${documentId}` : `builder-entry-${index}`
+        }`,
+        provenance:
+          index === 0
+            ? "Builder CMS fixture adapter"
+            : "Builder CMS read adapter",
+      })),
+    };
+    const transitions = [
+      undefined,
+      undefined,
+      { publicationTransition: "publish" as const },
+      {
+        publicationTransition: "unpublish" as const,
+        confirmUnpublish: true,
+      },
+    ];
+
+    const plans = documents.map((documentId, index) =>
+      buildBuilderCmsExecutionPlan({
+        source: mixedSource,
+        changeSet: {
+          ...approvedChangeSet(),
+          id: `change-${index}`,
+          databaseItemId: `item-${index}`,
+          documentId,
+        },
+        pushModeConfirmation: "publish",
+        ...transitions[index],
+      }),
+    );
+
+    expect(plans.map((plan) => plan.payload.effect)).toEqual([
+      "create_draft",
+      "update_in_place",
+      "publish",
+      "unpublish",
+    ]);
+    expect(plans.map((plan) => plan.pushMode)).toEqual([
+      "publish",
+      "publish",
+      "publish",
+      "publish",
+    ]);
+    expect(plans.map((plan) => plan.state)).toEqual([
+      "ready",
+      "ready",
+      "ready",
+      "ready",
+    ]);
+    expect(plans.map((plan) => plan.idempotencyKey)).toEqual(
+      plans.map(
+        (_plan, index) => `builder-cms:source-1:change-${index}:publish`,
+      ),
+    );
+  });
+
+  it("fails closed for opted-in production Builder models", () => {
     expect(
       buildBuilderCmsExecutionPlan({
         source: source(true, "blog_article"),
@@ -611,7 +1126,7 @@ describe("Builder CMS write adapter plan", () => {
       }),
     ).toMatchObject({
       state: "blocked",
-      lastError: `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+      lastError: expect.stringContaining(BUILDER_CMS_SAFE_WRITE_MODEL),
       payload: {
         safety: {
           liveWritesEnabled: true,
@@ -624,7 +1139,7 @@ describe("Builder CMS write adapter plan", () => {
     });
   });
 
-  it("blocks publication transitions for Builder models outside the safe test collection", () => {
+  it("blocks publication transitions for production Builder models", () => {
     expect(
       buildBuilderCmsExecutionPlan({
         source: source(true, "blog_article", {
@@ -786,7 +1301,7 @@ describe("Builder CMS write adapter plan", () => {
 
   it("validates a stored dry-run payload when it matches the rebuilt plan", () => {
     const plan = buildBuilderCmsExecutionPlan({
-      source: source(false),
+      source: source(false, BUILDER_CMS_SAFE_WRITE_MODEL),
       changeSet: approvedChangeSet(),
       pushModeConfirmation: "autosave",
     });

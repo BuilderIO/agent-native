@@ -440,6 +440,7 @@ const messages = {
     invite: "Invite",
     embed: "Embed",
     shareLink: "Share link",
+    shareWithHumans: "Share with humans",
     shareWithAgents: "Share with agents",
     copyAgentPrompt: "Copy agent prompt",
     agentPrompt:
@@ -450,6 +451,8 @@ const messages = {
     retryAgentLink: "Retry",
     gifPreview: "GIF preview",
     openPlayer: "Open player",
+    chooseFile: "Choose file",
+    remove: "Remove",
     downloadMp4: "Download MP4",
     embedsNeedPublic: "Embeds need a public clip",
     embedPublicDescription:
@@ -1218,9 +1221,10 @@ All notable user-facing changes to Clips are documented here. Open it any time f
     visibilityOrg: "Organization",
     visibilityPublic: "Public",
     passwordProtection: "Password protection",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear",
+    passwordSetPlaceholder: "Password is set — type to replace",
     noPasswordPlaceholder: "No password",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password.",
+    removePassword: "Remove",
     expiry: "Expiry",
     viewerOptions: "Viewer options",
     comments: "Comments",
