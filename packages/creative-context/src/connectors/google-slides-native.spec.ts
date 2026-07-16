@@ -638,6 +638,10 @@ describe("Google Slides native compiler", () => {
     expect(slide!.html).toContain("color:#ffffff");
     expect(slide!.html).toContain("Inherited<br>title");
     expect(slide!.html).toContain("padding:9.6px");
+    expect(slide!.html).toContain(
+      'gslide-shape-text_box" data-source-object-id="slide-title" style="',
+    );
+    expect(slide!.html).toContain("overflow:visible");
     expect(slide!.html).not.toContain("background-color:#000000");
     expect(slide!.html).not.toContain("\u000b");
     expect(slide!.html).toContain("rotate(-90deg)");

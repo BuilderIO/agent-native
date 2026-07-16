@@ -664,7 +664,8 @@ function shapeMarkup(
       : alignment === "BOTTOM"
         ? "flex-end"
         : "flex-start";
-  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:hidden"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:${justifyContent};padding:9.6px">${textContent}</div></div>`;
+  const overflow = shapeType === "TEXT_BOX" ? "visible" : "hidden";
+  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:${overflow}"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:${overflow};display:flex;flex-direction:column;justify-content:${justifyContent};padding:9.6px">${textContent}</div></div>`;
 }
 
 function textScaleCompensationCss(element: JsonObject): string {
