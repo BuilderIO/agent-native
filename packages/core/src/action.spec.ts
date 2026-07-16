@@ -132,6 +132,24 @@ describe("defineAction", () => {
     });
   });
 
+  it("threads through protected resource execution policy", () => {
+    const action = defineAction({
+      description: "read private document",
+      parameters: {},
+      resourcePrivacy: {
+        mode: "protected",
+        resourceType: "document",
+        placement: "trusted_endpoint",
+      },
+      run: async () => "ok",
+    });
+    expect(action.resourcePrivacy).toEqual({
+      mode: "protected",
+      resourceType: "document",
+      placement: "trusted_endpoint",
+    });
+  });
+
   it("leaves agentTool undefined when not specified (default-exposed)", () => {
     const action = defineAction({
       description: "normal action",

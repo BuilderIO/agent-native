@@ -186,6 +186,25 @@ describe("action discovery", () => {
     expect(registry.inventory.operatorOnly).toEqual(operatorOnly);
   });
 
+  it("preserves protected resource execution policy", () => {
+    const resourcePrivacy = {
+      mode: "protected" as const,
+      resourceType: "document",
+      placement: "enrolled_broker" as const,
+    };
+    const registry = loadActionsFromStaticRegistry({
+      "read-private": {
+        default: {
+          tool: { description: "Read private", parameters: {} },
+          resourcePrivacy,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry["read-private"].resourcePrivacy).toEqual(resourcePrivacy);
+  });
+
   it("preserves publicAgent metadata from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "public-search": {

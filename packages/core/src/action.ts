@@ -55,6 +55,10 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /** Strict, transport-stamped invocation metadata for execution policy. */
+  invocation?: import("./action-execution.js").ActionInvocationDescriptor;
+  /** Request/app-scoped execution resolver; never installed process-globally. */
+  executionResolver?: import("./action-execution.js").ActionExecutionResolver;
   /** Verified network lineage for direct delegated action calls. */
   networkProtocol?: "a2a" | "mcp" | "provider-api";
   networkId?: string;
@@ -360,6 +364,8 @@ interface DefineActionWithSchema<
   requiresAuth?: boolean;
   /** Require both an allowlisted session and an out-of-band operator token. */
   operatorOnly?: ActionOperatorOnlyConfig;
+  /** Protected-resource execution placement. Omitted actions execute locally. */
+  resourcePrivacy?: import("./action-execution.js").ResourcePrivacyExecutionPolicy;
   /** Max HTTP request body in bytes. When set, the route 413s on the declared
    *  `Content-Length` before parsing. Use for public, no-auth POST actions;
    *  unset = no route-level cap. */
@@ -502,6 +508,8 @@ interface DefineActionWithParams<
   requiresAuth?: boolean;
   /** Require both an allowlisted session and an out-of-band operator token. */
   operatorOnly?: ActionOperatorOnlyConfig;
+  /** Protected-resource execution placement. Omitted actions execute locally. */
+  resourcePrivacy?: import("./action-execution.js").ResourcePrivacyExecutionPolicy;
   /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
    *  See the schema overload above. */
   maxBodyBytes?: number;
@@ -581,6 +589,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
   readonly operatorOnly?: ActionOperatorOnlyConfig;
+  readonly resourcePrivacy?: import("./action-execution.js").ResourcePrivacyExecutionPolicy;
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
@@ -831,6 +840,9 @@ export function defineAction(options: any) {
       : {}),
     ...(options.operatorOnly && typeof options.operatorOnly === "object"
       ? { operatorOnly: options.operatorOnly }
+      : {}),
+    ...(options.resourcePrivacy && typeof options.resourcePrivacy === "object"
+      ? { resourcePrivacy: options.resourcePrivacy }
       : {}),
     ...(typeof options.maxBodyBytes === "number"
       ? { maxBodyBytes: options.maxBodyBytes }

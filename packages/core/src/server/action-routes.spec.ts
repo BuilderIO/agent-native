@@ -307,6 +307,7 @@ describe("mountActionRoutes", () => {
         orgId: null,
         caller: "http",
         actionName: "list-things",
+        invocation: { version: 1, origin: "http", capabilities: [] },
       },
     );
     expect(mockNotifyActionChange).not.toHaveBeenCalled();
@@ -346,6 +347,7 @@ describe("mountActionRoutes", () => {
       orgId: "org-a",
       caller: "http",
       actionName: "do-thing",
+      invocation: { version: 1, origin: "http", capabilities: [] },
     });
     // No SSE sender on the HTTP surface.
     expect(received.send).toBeUndefined();
@@ -385,6 +387,7 @@ describe("mountActionRoutes", () => {
       orgId: null,
       caller: "frontend",
       actionName: "do-thing",
+      invocation: { version: 1, origin: "frontend", capabilities: [] },
     });
   });
 
@@ -730,6 +733,97 @@ describe("mountActionRoutes", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("authorizes operators before resolving protected execution", async () => {
+    process.env.TEST_OPERATOR_TOKEN = "t".repeat(32);
+    process.env.TEST_OPERATOR_EMAILS = "security@example.com";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn();
+    const resolve = vi.fn(async () => ({
+      placements: ["enrolled_broker"] as const,
+      resolve: async () => ({
+        status: "queued" as const,
+        placement: "enrolled_broker" as const,
+        queueId: "queue:fixture-01",
+      }),
+    }));
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        inventory: {
+          operatorOnly: {
+            tokenEnv: "TEST_OPERATOR_TOKEN",
+            adminEmailsEnv: "TEST_OPERATOR_EMAILS",
+          },
+          resourcePrivacy: {
+            mode: "protected",
+            resourceType: "inventory",
+            placement: "enrolled_broker",
+          },
+          run,
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "security@example.com",
+        resolveActionExecution: resolve,
+      },
+    );
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({ protected: true }) },
+    });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+
+    const result = await mounted[0].handler({
+      _method: "POST",
+      _headers: { "x-agent-native-operator-token": "t".repeat(32) },
+      req: { json: async () => ({ protected: true }) },
+    });
+    expect(result).toEqual({
+      execution: "queued",
+      queueId: "queue:fixture-01",
+      placement: "enrolled_broker",
+    });
+    expect(resolve).toHaveBeenCalledTimes(1);
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("fails hosted protected action routes closed without a resolver", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn();
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "read-private": {
+          resourcePrivacy: {
+            mode: "protected",
+            resourceType: "document",
+            placement: "enrolled_broker",
+          },
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "viewer@example.com" },
+    );
+
+    const event: any = {
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({ id: "private-1" }) },
+    };
+    await expect(mounted[0].handler(event)).resolves.toEqual({
+      error:
+        "Protected action 'read-private' requires an eligible enrolled_broker resolver.",
+      code: "protected_execution_unavailable",
+    });
+    expect(event._status).toBe(503);
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("refuses tools-bridge calls when toolCallable === false", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];
@@ -984,6 +1078,11 @@ describe("mountActionRoutes", () => {
       networkProtocol: "a2a",
       networkId: "request-1",
       networkPeer: "https://analytics.example",
+      invocation: {
+        version: 1,
+        origin: "a2a",
+        capabilities: ["flags:read"],
+      },
     });
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
   });

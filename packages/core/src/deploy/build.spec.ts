@@ -176,6 +176,25 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
     );
   });
 
+  it("routes generated edge actions through the universal executor", () => {
+    const source = generateWorkerEntry(
+      [],
+      [],
+      [],
+      [{ name: "protected", absPath: "/fixture/protected.ts", method: "post" }],
+    );
+    expect(source).toContain(
+      'import { createActionInvocationDescriptor, isActionExecutionDeniedError, runActionEntry } from "@agent-native/core/server/edge";',
+    );
+    expect(source).toContain(
+      'const invocation = createActionInvocationDescriptor("generated-edge")',
+    );
+    expect(source).toContain(
+      "const result = await runActionEntry({ entry: action_0",
+    );
+    expect(source).not.toContain("await action_0.run(params");
+  });
+
   it("pre-marks generated plugin slots before running async plugins", () => {
     const dir = makeTempDir();
     const agentChatPlugin = path.join(

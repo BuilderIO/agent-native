@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import type { ActionEntry } from "../agent/production-agent.js";
 import { createRunCodeEntry } from "./run-code.js";
@@ -79,6 +79,33 @@ describe("run-code bridge", () => {
     );
     expect(mutatingRan).toBe(false);
     expect(hiddenRan).toBe(false);
+  });
+
+  it("routes protected appAction reads before the local action body", async () => {
+    const localRun = vi.fn(async () => ({ leaked: true }));
+    const actions: Record<string, ActionEntry> = {
+      "read-private": {
+        tool,
+        readOnly: true,
+        resourcePrivacy: {
+          mode: "protected",
+          resourceType: "document",
+          placement: "enrolled_broker",
+        },
+        run: localRun,
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+    const result = await entry.run({
+      code: `
+        try { await appAction("read-private", { id: "private-1" }); }
+        catch (err) { console.log(err.message); }
+      `,
+      timeoutMs: 30_000,
+    });
+
+    expect(result).toContain("requires an eligible enrolled_broker resolver");
+    expect(localRun).not.toHaveBeenCalled();
   });
 
   it("forwards structured providerFetch options to provider-api-request", async () => {

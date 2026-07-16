@@ -11,6 +11,12 @@ import {
 import * as jose from "jose";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
+import {
+  createActionInvocationDescriptor,
+  isActionExecutionDeniedError,
+  runActionEntry,
+  type ActionExecutionResolver,
+} from "../action-execution.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { authorizeExtensionCapability } from "../extensions/capabilities.js";
@@ -116,6 +122,7 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
     anonymous: false,
     delegationJti: claims.jti,
     delegationIssuer: claims.issuer,
+    capabilities: claims.scope,
   } as ActionRouteResolvedCaller;
 }
 
@@ -272,6 +279,8 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
   /** Verified A2A correlation and issuer metadata for the audit row. */
   delegationJti?: string;
   delegationIssuer?: string;
+  /** Verified delegated capabilities stamped into the invocation descriptor. */
+  capabilities?: readonly string[];
 };
 
 export interface ActionRouteAuthAdapter {
@@ -313,6 +322,13 @@ export interface MountActionRoutesOptions {
    * the action route declaratively. See {@link ActionRouteAuthAdapter}.
    */
   actionRouteAuth?: ActionRouteAuthAdapter;
+  /** Request-scoped protected-action resolver. */
+  resolveActionExecution?: (
+    event: any,
+  ) =>
+    | ActionExecutionResolver
+    | undefined
+    | Promise<ActionExecutionResolver | undefined>;
 }
 
 function normalizeOrgId(value: string | null | undefined): string | undefined {
@@ -591,19 +607,31 @@ export function mountActionRoutes(
                 : isFrontendActionRequest(event)
                   ? "frontend"
                   : "http";
-              const result = await entry.run(params, {
-                userEmail,
-                orgId: orgId ?? null,
+              const invocation = createActionInvocationDescriptor(
                 caller,
+                resolvedCaller?.capabilities,
+              );
+              const result = await runActionEntry({
+                entry,
                 actionName: name,
-                ...(entry.operatorOnly ? { operatorAuthorized: true } : {}),
-                ...(resolvedCaller?.delegationJti
-                  ? {
-                      networkProtocol: "a2a",
-                      networkId: resolvedCaller.delegationJti,
-                      networkPeer: resolvedCaller.delegationIssuer,
-                    }
-                  : {}),
+                args: params,
+                resolver: await options?.resolveActionExecution?.(event),
+                invocation,
+                context: {
+                  userEmail,
+                  orgId: orgId ?? null,
+                  caller,
+                  actionName: name,
+                  invocation,
+                  ...(entry.operatorOnly ? { operatorAuthorized: true } : {}),
+                  ...(resolvedCaller?.delegationJti
+                    ? {
+                        networkProtocol: "a2a",
+                        networkId: resolvedCaller.delegationJti,
+                        networkPeer: resolvedCaller.delegationIssuer,
+                      }
+                    : {}),
+                },
               });
 
               // Auto-refresh the UI after a successful mutating action. GET
@@ -677,9 +705,15 @@ export function mountActionRoutes(
               const isUserFacing =
                 isValidationError ||
                 isAgentActionStopError(err) ||
+                isActionExecutionDeniedError(err) ||
                 (explicitStatus !== undefined && explicitStatus < 500);
               if (isUserFacing) {
-                return { error: msg };
+                return {
+                  error: msg,
+                  ...(isActionExecutionDeniedError(err)
+                    ? { code: err.code }
+                    : {}),
+                };
               }
               console.error(`[agent-native] action '${name}' failed:`, err);
               return { error: "Internal server error" };

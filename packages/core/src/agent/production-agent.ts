@@ -563,6 +563,8 @@ export interface ActionEntry {
   requiresAuth?: boolean;
   /** Deployment-operator step-up policy enforced by the HTTP action route. */
   operatorOnly?: import("../action.js").ActionOperatorOnlyConfig;
+  /** Protected-resource execution placement preserved across registries. */
+  resourcePrivacy?: import("../action-execution.js").ResourcePrivacyExecutionPolicy;
   /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
    *  parsing. For public, no-auth POST actions. */
   maxBodyBytes?: number;

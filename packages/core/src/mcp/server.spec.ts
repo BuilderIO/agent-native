@@ -2227,6 +2227,55 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
   });
 
+  it("routes protected direct MCP calls before the local action body", async () => {
+    const localRun = vi.fn(async () => ({ leaked: true }));
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 304,
+        method: "tools/call",
+        params: { name: "read-private", arguments: { id: "private-1" } },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: {
+          ...config,
+          actions: {
+            "read-private": {
+              tool: {
+                description: "Read private",
+                parameters: { type: "object" },
+              },
+              readOnly: true,
+              resourcePrivacy: {
+                mode: "protected",
+                resourceType: "document",
+                placement: "enrolled_broker",
+              },
+              run: localRun,
+            },
+          },
+          actionExecutionResolver: {
+            placements: ["enrolled_broker"],
+            resolve: async (request: any) => ({
+              status: "executed",
+              placement: "enrolled_broker",
+              result: {
+                brokered: true,
+                origin: request.invocation.origin,
+              },
+            }),
+          },
+        },
+      },
+    );
+
+    expect(out.error).toBeUndefined();
+    expect(out.result.content[0].text).toContain('"brokered":true');
+    expect(out.result.content[0].text).toContain('"origin":"mcp"');
+    expect(localRun).not.toHaveBeenCalled();
+  });
+
   it("runs `tools/call` with org scope resolved from the verified token email", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-from-email");
     const scopedConfig = {

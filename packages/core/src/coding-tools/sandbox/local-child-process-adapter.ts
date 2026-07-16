@@ -120,6 +120,11 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
       const nodeArgs = permissionFlag
         ? [
             permissionFlag,
+            // The child may only reach the authenticated loopback bridge with
+            // useful credentials; its environment is scrubbed. Node 26 made
+            // network access deny-by-default whenever --permission is active,
+            // so state the existing design explicitly.
+            "--allow-net",
             ...sandboxReadAllowPaths(tmpDir).map(
               (allowedPath) => `--allow-fs-read=${allowedPath}`,
             ),

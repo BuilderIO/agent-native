@@ -32,6 +32,10 @@
 import crypto from "node:crypto";
 import http from "node:http";
 
+import {
+  createActionInvocationDescriptor,
+  runActionEntry,
+} from "../action-execution.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getRequestUserEmail } from "../server/request-context.js";
@@ -781,8 +785,18 @@ function handleBridgeRequest(
   usedTools.add(toolName);
   // Run the tool with the parent request context so auth/org/owner resolution
   // works exactly as it does in the normal agent loop.
-  entry
-    .run(toolArgs, context)
+  const parentContext = context ?? { caller: "tool" as const };
+  const invocation = createActionInvocationDescriptor("run-code", [
+    "app-action:read",
+  ]);
+  runActionEntry({
+    entry,
+    actionName: toolName,
+    args: toolArgs,
+    context: { ...parentContext, invocation },
+    resolver: parentContext.executionResolver,
+    invocation,
+  })
     .then((result: unknown) => {
       const body =
         typeof result === "string" ? result : JSON.stringify(result, null, 2);

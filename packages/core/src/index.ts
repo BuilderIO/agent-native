@@ -42,6 +42,23 @@ export {
   type ActionMcpAppResourceMeta,
 } from "./action.js";
 export {
+  ActionExecutionDeniedError,
+  createActionInvocationDescriptor,
+  executeActionEntry,
+  isActionExecutionDeniedError,
+  runActionEntry,
+  unwrapActionExecutionOutcome,
+  type ActionExecutionDecision,
+  type ActionExecutionOutcome,
+  type ActionExecutionPolicy,
+  type ActionExecutionRequest,
+  type ActionExecutionResolver,
+  type ActionInvocationDescriptor,
+  type ActionInvocationOrigin,
+  type ProtectedActionPlacement,
+  type ResourcePrivacyExecutionPolicy,
+} from "./action-execution.js";
+export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,
   type EmbedAppOptions,

@@ -79,6 +79,21 @@ describe("runScript package actions", () => {
                 return "package-ok";
               },
             },
+            "protected-package-action": {
+              tool: {
+                description: "Protected fixture package action",
+                parameters: { type: "object", properties: {} },
+              },
+              resourcePrivacy: {
+                mode: "protected",
+                resourceType: "fixture",
+                placement: "enrolled_broker",
+              },
+              run: async () => {
+                writeFileSync("protected-ran", "bad");
+                return "must-not-run";
+              },
+            },
           },
         });
       `,
@@ -148,6 +163,25 @@ describe("runScript package actions", () => {
       sourceIds: ["mail", "calendar"],
       limit: "8",
     });
+  }, 40_000);
+
+  it("fails protected CLI actions closed without an explicit resolver", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [...tsxLeadingArgs, "actions/run.ts", "protected-package-action"],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: { ...process.env, AGENT_USER_EMAIL: "owner@example.test" },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain(
+      "requires an eligible enrolled_broker resolver",
+    );
+    expect(fs.existsSync(path.join(tmpDir, "protected-ran"))).toBe(false);
   }, 40_000);
 
   it("runs a package action with a positional JSON object", () => {

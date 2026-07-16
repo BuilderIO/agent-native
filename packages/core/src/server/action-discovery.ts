@@ -192,6 +192,13 @@ function preserveActionFlags(entry: Record<string, any>): Partial<ActionEntry> {
   ) {
     out.operatorOnly = entry.operatorOnly;
   }
+  if (
+    entry.resourcePrivacy &&
+    typeof entry.resourcePrivacy === "object" &&
+    !Array.isArray(entry.resourcePrivacy)
+  ) {
+    out.resourcePrivacy = entry.resourcePrivacy;
+  }
   if (typeof entry.readOnly === "boolean") out.readOnly = entry.readOnly;
   if (typeof entry.allowInPlanMode === "boolean") {
     out.allowInPlanMode = entry.allowInPlanMode;

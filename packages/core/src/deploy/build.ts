@@ -684,11 +684,13 @@ export function generateWorkerEntry(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
     const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
-      const result = await ${varName}.run(params, { caller: "http" });
+      const invocation = createActionInvocationDescriptor("generated-edge");
+      const result = await runActionEntry({ entry: ${varName}, actionName: ${JSON.stringify(a.name)}, args: params, context: { caller: "http", invocation }, invocation });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
-      return new Response(JSON.stringify({ error: err?.message || "Action failed" }), { status: err?.message?.startsWith("Invalid action parameters") ? 400 : 500, headers: { "Content-Type": "application/json" } });
+      const denied = isActionExecutionDeniedError(err);
+      return new Response(JSON.stringify({ error: err?.message || "Action failed", ...(denied ? { code: err.code } : {}) }), { status: denied ? err.statusCode : err?.message?.startsWith("Invalid action parameters") ? 400 : 500, headers: { "Content-Type": "application/json" } });
     }
   }));`,
     );
@@ -761,6 +763,7 @@ export function generateWorkerEntry(
   return `
 // Auto-generated worker entry point for ${preset}
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
+import { createActionInvocationDescriptor, isActionExecutionDeniedError, runActionEntry } from "${EDGE_SERVER_ENTRYPOINT}";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}

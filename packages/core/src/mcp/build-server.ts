@@ -19,6 +19,11 @@
  */
 
 import {
+  createActionInvocationDescriptor,
+  runActionEntry,
+  type ActionExecutionResolver,
+} from "../action-execution.js";
+import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
   MCP_APP_RESOURCE_URI_META_KEY,
@@ -87,6 +92,8 @@ export interface MCPConfig {
   version?: string;
   /** Action registry — same as agent chat and A2A */
   actions: Record<string, ActionEntry>;
+  /** Request-scoped resolver for protected direct MCP action calls. */
+  actionExecutionResolver?: ActionExecutionResolver;
   /**
    * Full ("production") action surface served to an **authenticated real
    * caller** — a connect-minted token, an `agent-native mcp install` stdio
@@ -1773,11 +1780,23 @@ export async function createMCPServerForRequest(
         // We're inside `withCallerContext`, so the request-context getters
         // resolve the verified MCP caller's identity (do NOT inject a dev
         // fallback). Tag the call as an external-agent MCP dispatch.
-        const result = await entry.run((args as Record<string, string>) ?? {}, {
-          userEmail: getRequestUserEmail(),
-          orgId: getRequestOrgId() ?? null,
-          caller: "mcp",
+        const invocation = createActionInvocationDescriptor(
+          "mcp",
+          effectiveIdentity?.oauthScopes,
+        );
+        const result = await runActionEntry({
+          entry,
           actionName: name,
+          args: (args as Record<string, string>) ?? {},
+          resolver: config.actionExecutionResolver,
+          invocation,
+          context: {
+            userEmail: getRequestUserEmail(),
+            orgId: getRequestOrgId() ?? null,
+            caller: "mcp",
+            actionName: name,
+            invocation,
+          },
         });
         const mcpResult = isMcpActionResult(result) ? result : null;
         const rawResult = mcpResult ? mcpResult.raw : result;

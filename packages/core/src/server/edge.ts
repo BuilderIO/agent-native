@@ -67,3 +67,10 @@ export {
   type H3AppShim,
 } from "./framework-request-handler.js";
 export { runWithRequestContext } from "./request-context.js";
+export {
+  createActionInvocationDescriptor,
+  executeActionEntry,
+  isActionExecutionDeniedError,
+  runActionEntry,
+  unwrapActionExecutionOutcome,
+} from "../action-execution.js";

@@ -14,6 +14,11 @@ import fs from "fs";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import {
+  createActionInvocationDescriptor,
+  runActionEntry,
+  type ActionExecutionResolver,
+} from "../action-execution.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
 import { notifyActionChange } from "../server/action-change.js";
@@ -37,6 +42,8 @@ export interface RunScriptOptions {
   packageActions?: Record<string, ActionEntry>;
   /** Help-section label for package actions. */
   packageActionLabel?: string;
+  /** Explicit CLI-scoped resolver for protected actions. */
+  actionExecutionResolver?: ActionExecutionResolver;
 }
 
 async function runAppDbPluginIfPresent(): Promise<void> {
@@ -272,7 +279,15 @@ async function dispatchAction(
         typeof handler.run === "function"
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
-        const result = await handler.run(parsed, cliActionCtx(actionName));
+        const context = cliActionCtx(actionName);
+        const result = await runActionEntry({
+          entry: handler as ActionEntry,
+          actionName,
+          args: parsed,
+          context,
+          resolver: options.actionExecutionResolver,
+          invocation: createActionInvocationDescriptor("cli"),
+        });
         if (handler.readOnly !== true) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
@@ -300,10 +315,15 @@ async function dispatchAction(
     try {
       await runAppDbPluginIfPresent();
       const parsed = parseActionArgs(args, { coerceBooleans: true });
-      const result = await packageAction.run(
-        parsed as Record<string, string>,
-        cliActionCtx(actionName),
-      );
+      const context = cliActionCtx(actionName);
+      const result = await runActionEntry({
+        entry: packageAction,
+        actionName,
+        args: parsed as Record<string, string>,
+        context,
+        resolver: options.actionExecutionResolver,
+        invocation: createActionInvocationDescriptor("cli"),
+      });
       if (packageAction.readOnly !== true) {
         await notifyActionChange({ actionName }).catch(() => {});
       }
