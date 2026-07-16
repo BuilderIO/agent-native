@@ -14,6 +14,7 @@ export default createAuthPlugin({
   publicPaths: [
     "/api/pages/public",
     "/p",
+    "/_agent-native/actions/get-public-document",
     "/_agent-native/agent-chat",
     "/_agent-native/agent-engine/status",
     "/_agent-native/builder/callback",
