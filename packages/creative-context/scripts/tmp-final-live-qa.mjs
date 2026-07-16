@@ -51,7 +51,8 @@ async function callAction(page, name, input, method = "POST") {
       const query = new URLSearchParams();
       if (method === "GET") {
         for (const [key, value] of Object.entries(input)) {
-          if (value !== undefined && value !== null) query.set(key, String(value));
+          if (value !== undefined && value !== null)
+            query.set(key, String(value));
         }
       }
       const response = await fetch(
@@ -105,39 +106,75 @@ async function authenticate(page, email) {
         });
         login = await post("/_agent-native/auth/login", { email, password });
       }
-      const session = await fetch("/_agent-native/auth/session").then((response) =>
-        response.json().catch(() => ({})),
+      const session = await fetch("/_agent-native/auth/session").then(
+        (response) => response.json().catch(() => ({})),
       );
       return { login, session };
     },
     { email, password },
   );
-  invariant(auth.login.ok, `Login failed for ${email}: ${JSON.stringify(auth)}`);
-  invariant(auth.session.email === email, `No session for ${email}: ${JSON.stringify(auth)}`);
+  invariant(
+    auth.login.ok,
+    `Login failed for ${email}: ${JSON.stringify(auth)}`,
+  );
+  invariant(
+    auth.session.email === email,
+    `No session for ${email}: ${JSON.stringify(auth)}`,
+  );
   await page.waitForTimeout(2_000);
 }
 
 async function verifyLibrary(page, app) {
   await page.goto("/agent#library", { waitUntil: "domcontentloaded" });
-  await page.getByText("Library", { exact: true }).first().waitFor({ timeout: 15_000 });
-  await page.getByText("Sources", { exact: true }).first().waitFor({ timeout: 30_000 });
+  await page
+    .getByText("Library", { exact: true })
+    .first()
+    .waitFor({ timeout: 15_000 });
+  await page
+    .getByText("Sources", { exact: true })
+    .first()
+    .waitFor({ timeout: 30_000 });
   const body = await page.locator("body").innerText();
-  invariant(!body.includes("Creative context is unavailable right now"), `${app.name} Library unavailable`);
+  invariant(
+    !body.includes("Creative context is unavailable right now"),
+    `${app.name} Library unavailable`,
+  );
   invariant(body.includes("Sources"), `${app.name} Library missing Sources`);
-  invariant(body.includes("Search context"), `${app.name} Library missing search`);
-  invariant(body.includes("Personal"), `${app.name} Library missing Personal scope`);
+  invariant(
+    body.includes("Search context"),
+    `${app.name} Library missing search`,
+  );
+  invariant(
+    body.includes("Personal"),
+    `${app.name} Library missing Personal scope`,
+  );
   if (app.native) {
-    invariant(body.includes(`Final Live ${app.name}`), `${app.name} seeded source missing in Library`);
+    invariant(
+      body.includes(`Final Live ${app.name}`),
+      `${app.name} seeded source missing in Library`,
+    );
   } else {
-    invariant(body.includes("No creative context yet"), `${app.name} empty Library changed`);
+    invariant(
+      body.includes("No creative context yet"),
+      `${app.name} empty Library changed`,
+    );
   }
 
-  const addSource = page.locator("section").filter({ hasText: "Add a source" }).last();
-  const connector = addSource.getByRole("button", { name: app.connector, exact: false });
+  const addSource = page
+    .locator("section")
+    .filter({ hasText: "Add a source" })
+    .last();
+  const connector = addSource.getByRole("button", {
+    name: app.connector,
+    exact: false,
+  });
   await connector.waitFor();
   await connector.click();
   await addSource.locator("form").waitFor();
-  invariant((await addSource.innerText()).includes(app.connector), `${app.name} source picker missing ${app.connector}`);
+  invariant(
+    (await addSource.innerText()).includes(app.connector),
+    `${app.name} source picker missing ${app.connector}`,
+  );
 
   const automatic = page.getByText("Automatic", { exact: true }).first();
   await automatic.click();
@@ -167,7 +204,12 @@ async function verifyComposer(page, app) {
   const menu = page.getByRole("menu");
   await menu.waitFor();
   const menuText = await menu.innerText();
-  invariant(menuText.includes("Automatic") && menuText.includes("Off") && menuText.includes("Library"), `${app.name} composer chip menu incomplete`);
+  invariant(
+    menuText.includes("Automatic") &&
+      menuText.includes("Off") &&
+      menuText.includes("Library"),
+    `${app.name} composer chip menu incomplete`,
+  );
   await page.keyboard.press("Escape");
 }
 
@@ -177,14 +219,20 @@ try {
   for (const app of apps) {
     const baseURL = `http://127.0.0.1:${app.port}`;
     const email = `creative-context-final-${app.name}@example.test`;
-    const context = await browser.newContext({ baseURL, viewport: { width: 1440, height: 1000 } });
+    const context = await browser.newContext({
+      baseURL,
+      viewport: { width: 1440, height: 1000 },
+    });
     const page = await context.newPage();
     page.setDefaultNavigationTimeout(120_000);
     const pageErrors = [];
     const actionFailures = [];
     page.on("pageerror", (error) => pageErrors.push(error.message));
     page.on("response", (response) => {
-      if (response.status() >= 400 && response.url().includes("/_agent-native/actions/")) {
+      if (
+        response.status() >= 400 &&
+        response.url().includes("/_agent-native/actions/")
+      ) {
         actionFailures.push(`${response.status()} ${response.url()}`);
       }
     });
@@ -203,11 +251,20 @@ try {
         snapshot: true,
         contextPackName: `Final live ${app.name} pinned v1`,
       });
-      invariant(searchResponse.ok, `${app.name} live search failed: ${JSON.stringify(searchResponse)}`);
+      invariant(
+        searchResponse.ok,
+        `${app.name} live search failed: ${JSON.stringify(searchResponse)}`,
+      );
       const search = unwrap(searchResponse.json);
       const hit = search.results?.find((entry) => entry.itemId === v1.itemId);
-      invariant(hit?.itemVersionId === v1.itemVersionId, `${app.name} live search did not pin v1`);
-      invariant(search.contextPackId, `${app.name} search did not create a pack`);
+      invariant(
+        hit?.itemVersionId === v1.itemVersionId,
+        `${app.name} live search did not pin v1`,
+      );
+      invariant(
+        search.contextPackId,
+        `${app.name} search did not create a pack`,
+      );
 
       const getResponse = await callAction(
         page,
@@ -215,44 +272,101 @@ try {
         { itemId: v1.itemId, itemVersionId: v1.itemVersionId },
         "GET",
       );
-      invariant(getResponse.ok, `${app.name} get-context-item failed: ${JSON.stringify(getResponse)}`);
+      invariant(
+        getResponse.ok,
+        `${app.name} get-context-item failed: ${JSON.stringify(getResponse)}`,
+      );
       const detail = unwrap(getResponse.json);
-      invariant(detail.version.nativeCode?.dataRole === "untrusted-reference", `${app.name} native code lacks untrusted role`);
-      invariant(detail.version.nativeCode?.content === v1.content, `${app.name} live native code was not exact`);
+      invariant(
+        detail.version.nativeCode?.dataRole === "untrusted-reference",
+        `${app.name} native code lacks untrusted role`,
+      );
+      invariant(
+        detail.version.nativeCode?.content === v1.content,
+        `${app.name} live native code was not exact`,
+      );
 
-      const clone = runNative("clone", app.name, email, v1.itemId, v1.itemVersionId);
-      invariant(clone.exactContent === true, `${app.name} clone changed native code`);
-      invariant(clone.catalogNames.includes(app.name === "slides" ? "clone-context-slide" : "clone-creative-context-design"), `${app.name} clone action missing from agent catalog`);
-      invariant(clone.packMembers.some((entry) => entry.itemVersionId === v1.itemVersionId), `${app.name} clone pack missing pinned v1`);
-      invariant(/Creative Context is off/i.test(clone.offError), `${app.name} global Off did not reject clone`);
+      const clone = runNative(
+        "clone",
+        app.name,
+        email,
+        v1.itemId,
+        v1.itemVersionId,
+      );
+      invariant(
+        clone.exactContent === true,
+        `${app.name} clone changed native code`,
+      );
+      invariant(
+        clone.catalogNames.includes(
+          app.name === "slides"
+            ? "clone-context-slide"
+            : "clone-creative-context-design",
+        ),
+        `${app.name} clone action missing from agent catalog`,
+      );
+      invariant(
+        clone.packMembers.some(
+          (entry) => entry.itemVersionId === v1.itemVersionId,
+        ),
+        `${app.name} clone pack missing pinned v1`,
+      );
+      invariant(
+        /Creative Context is off/i.test(clone.offError),
+        `${app.name} global Off did not reject clone`,
+      );
 
       await page.goto(clone.openPath, { waitUntil: "domcontentloaded" });
       await page.waitForTimeout(3_000);
       invariant(
         page.url().includes(clone.openPath) &&
           (await page.locator("body").innerText()).includes(
-            app.name === "slides" ? "Final Native Slide V1" : "Final Native Clone QA",
+            app.name === "slides"
+              ? "Final Native Slide V1"
+              : "Final Native Clone QA",
           ),
         `${app.name} cloned artifact did not open: ${page.url()} ${(await page.locator("body").innerText()).slice(0, 500)}`,
       );
 
       const v2 = runNative("seed-v2", app.name, email);
-      invariant(v2.itemId === v1.itemId && v2.itemVersionId !== v1.itemVersionId, `${app.name} resync did not append a version`);
+      invariant(
+        v2.itemId === v1.itemId && v2.itemVersionId !== v1.itemVersionId,
+        `${app.name} resync did not append a version`,
+      );
       const oldResponse = await callAction(
         page,
         "get-context-item",
         { itemId: v1.itemId, itemVersionId: v1.itemVersionId },
         "GET",
       );
-      const currentResponse = await callAction(page, "get-context-item", { itemId: v1.itemId }, "GET");
+      const currentResponse = await callAction(
+        page,
+        "get-context-item",
+        { itemId: v1.itemId },
+        "GET",
+      );
       const oldDetail = unwrap(oldResponse.json);
       const currentDetail = unwrap(currentResponse.json);
-      invariant(oldDetail.version.nativeCode?.content === v1.content, `${app.name} v1 evidence changed after resync`);
-      invariant(currentDetail.version.id === v2.itemVersionId, `${app.name} current pointer did not advance to v2`);
-      const packResponse = await callAction(page, "get-context-pack", { packId: search.contextPackId }, "GET");
+      invariant(
+        oldDetail.version.nativeCode?.content === v1.content,
+        `${app.name} v1 evidence changed after resync`,
+      );
+      invariant(
+        currentDetail.version.id === v2.itemVersionId,
+        `${app.name} current pointer did not advance to v2`,
+      );
+      const packResponse = await callAction(
+        page,
+        "get-context-pack",
+        { packId: search.contextPackId },
+        "GET",
+      );
       invariant(packResponse.ok, `${app.name} pinned pack lookup failed`);
       const pack = unwrap(packResponse.json).pack;
-      invariant(pack.members.some((entry) => entry.itemVersionId === v1.itemVersionId), `${app.name} search pack rewrote pinned v1`);
+      invariant(
+        pack.members.some((entry) => entry.itemVersionId === v1.itemVersionId),
+        `${app.name} search pack rewrote pinned v1`,
+      );
 
       await verifyComposer(page, app);
       nativeResult = {
@@ -269,8 +383,14 @@ try {
       await verifyComposer(page, app);
     }
 
-    invariant(actionFailures.length === 0, `${app.name} Creative Context action failures: ${actionFailures.join(", ")}`);
-    invariant(pageErrors.length === 0, `${app.name} page errors: ${pageErrors.join(" | ")}`);
+    invariant(
+      actionFailures.length === 0,
+      `${app.name} Creative Context action failures: ${actionFailures.join(", ")}`,
+    );
+    invariant(
+      pageErrors.length === 0,
+      `${app.name} page errors: ${pageErrors.join(" | ")}`,
+    );
     results.push({ app: app.name, status: "passed", native: nativeResult });
     await context.close();
   }

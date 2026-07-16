@@ -24,32 +24,36 @@ const REQUIRED_CONTENT_ACTIONS = [
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
 
 describe("content agent card", () => {
-  it("advertises content domain actions from the generated static registry", async () => {
-    generateActionRegistryForProject(projectRoot);
+  it(
+    "advertises content domain actions from the generated static registry",
+    async () => {
+      generateActionRegistryForProject(projectRoot);
 
-    const registryUrl =
-      pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
-        .href + `?cacheBust=${Date.now()}`;
-    const { default: modules } = await import(registryUrl);
-    const actions = loadActionsFromStaticRegistry(modules);
-    const card = generateAgentCard(
-      {
-        name: "Content",
-        description: "Agent-native content agent",
-        skills: Object.entries(actions).map(([name, entry]) => ({
-          id: name,
-          name,
-          description: entry.tool.description,
-        })),
-        streaming: true,
-      },
-      "https://content.agent-native.com",
-    );
+      const registryUrl =
+        pathToFileURL(path.join(projectRoot, ".generated/actions-registry.ts"))
+          .href + `?cacheBust=${Date.now()}`;
+      const { default: modules } = await import(registryUrl);
+      const actions = loadActionsFromStaticRegistry(modules);
+      const card = generateAgentCard(
+        {
+          name: "Content",
+          description: "Agent-native content agent",
+          skills: Object.entries(actions).map(([name, entry]) => ({
+            id: name,
+            name,
+            description: entry.tool.description,
+          })),
+          streaming: true,
+        },
+        "https://content.agent-native.com",
+      );
 
-    expect(card.name).toBe("Content");
-    expect(card.description).toBe("Agent-native content agent");
-    expect(card.skills.map((skill) => skill.id)).toEqual(
-      expect.arrayContaining(REQUIRED_CONTENT_ACTIONS),
-    );
-  }, ACTION_REGISTRY_TEST_TIMEOUT_MS);
+      expect(card.name).toBe("Content");
+      expect(card.description).toBe("Agent-native content agent");
+      expect(card.skills.map((skill) => skill.id)).toEqual(
+        expect.arrayContaining(REQUIRED_CONTENT_ACTIONS),
+      );
+    },
+    ACTION_REGISTRY_TEST_TIMEOUT_MS,
+  );
 });

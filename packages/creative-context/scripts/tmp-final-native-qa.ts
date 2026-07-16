@@ -1,6 +1,12 @@
-import { readAppState, writeAppState } from "@agent-native/core/application-state";
+import {
+  readAppState,
+  writeAppState,
+} from "@agent-native/core/application-state";
 import { closeDbExec } from "@agent-native/core/db";
-import { actionsToEngineTools, runWithRequestContext } from "@agent-native/core/server";
+import {
+  actionsToEngineTools,
+  runWithRequestContext,
+} from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 
 import { configureCreativeContext } from "../src/server/index.js";
@@ -15,7 +21,9 @@ import {
 
 const [mode, app, email, itemIdArg, versionIdArg] = process.argv.slice(2);
 if (!mode || !app || !email || !["slides", "design"].includes(app)) {
-  throw new Error("Usage: <seed-v1|seed-v2|clone> <slides|design> <email> [itemId versionId]");
+  throw new Error(
+    "Usage: <seed-v1|seed-v2|clone> <slides|design> <email> [itemId versionId]",
+  );
 }
 
 configureCreativeContext();
@@ -144,16 +152,18 @@ const result = await runWithRequestContext(
           import("../../../templates/slides/actions/create-deck.js"),
           import("../../../templates/slides/actions/clone-context-slide.js"),
           import("../../../templates/slides/server/db/index.js"),
-      ]);
+        ]);
       const catalog = actionsToEngineTools({ "clone-context-slide": clone });
       const seedPack = await createContextPack({
         name: "Final native clone target",
         contextMode: "manual",
-        members: [{
-          itemId: itemIdArg,
-          itemVersionId: versionIdArg,
-          reason: "Create the target deck before exact native reuse",
-        }],
+        members: [
+          {
+            itemId: itemIdArg,
+            itemVersionId: versionIdArg,
+            reason: "Create the target deck before exact native reuse",
+          },
+        ],
       });
       const deck = await createDeck.run({
         title: "Final Native Clone QA",

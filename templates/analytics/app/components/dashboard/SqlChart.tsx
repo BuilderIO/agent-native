@@ -571,12 +571,12 @@ export function SeriesLegend({
                     skipNextTouchToggleRef.current = false;
                   }}
                   onPointerEnter={(event) => {
-                    if (hasLegendActions && event.pointerType === "mouse") {
+                    if (hasLegendActions && event.pointerType !== "touch") {
                       openLegendActions(key);
                     }
                   }}
                   onPointerLeave={(event) => {
-                    if (hasLegendActions && event.pointerType === "mouse") {
+                    if (hasLegendActions && event.pointerType !== "touch") {
                       scheduleCloseLegendActions();
                     }
                   }}
