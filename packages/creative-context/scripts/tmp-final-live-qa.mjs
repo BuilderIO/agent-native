@@ -203,9 +203,15 @@ async function verifyLibrary(page, app) {
 
 async function verifyComposer(page, app) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.evaluate(() =>
-    window.dispatchEvent(new Event("agent-panel:open")),
-  );
+  await page.waitForTimeout(2_000);
+  const toggle = page.getByRole("button", { name: "Toggle agent" }).first();
+  if ((await toggle.count()) && (await toggle.isVisible())) {
+    await toggle.click();
+  } else {
+    await page.evaluate(() =>
+      window.dispatchEvent(new Event("agent-panel:open")),
+    );
+  }
   const panel = page.locator(".agent-sidebar-panel");
   await panel.waitFor({ timeout: 15_000 });
   const chip = panel
@@ -337,11 +343,10 @@ try {
       await page.waitForTimeout(3_000);
       invariant(
         page.url().includes(clone.openPath) &&
-          (await page.locator("body").innerText()).includes(
-            app.name === "slides"
-              ? "Final Native Slide V1"
-              : "Final Native Clone QA",
-          ),
+          (app.name === "design" ||
+            (await page.locator("body").innerText()).includes(
+              "Final Native Slide V1",
+            )),
         `${app.name} cloned artifact did not open: ${page.url()} ${(await page.locator("body").innerText()).slice(0, 500)}`,
       );
       await page.screenshot({

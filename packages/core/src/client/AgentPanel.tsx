@@ -2105,15 +2105,23 @@ const FULLSCREEN_CHAT_COLUMN_MAX_PX = 684;
 function ResizeHandle({
   position,
   onDrag,
+  onResizeStart,
+  onResizeEnd,
 }: {
   position: "left" | "right";
   onDrag: (delta: number) => void;
+  onResizeStart: () => void;
+  onResizeEnd: () => void;
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const dragging = useRef(false);
   const lastX = useRef(0);
   const onDragRef = useRef(onDrag);
+  const onResizeStartRef = useRef(onResizeStart);
+  const onResizeEndRef = useRef(onResizeEnd);
   onDragRef.current = onDrag;
+  onResizeStartRef.current = onResizeStart;
+  onResizeEndRef.current = onResizeEnd;
   const GRAB_ZONE = 5; // px on each side of the border
 
   // All drag logic runs via document-level listeners so the 1px-wide
@@ -2130,6 +2138,7 @@ function ResizeHandle({
       e.preventDefault();
       dragging.current = true;
       lastX.current = e.clientX;
+      onResizeStartRef.current();
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
     }
@@ -2159,6 +2168,7 @@ function ResizeHandle({
       dragging.current = false;
       document.body.style.cursor = "";
       document.body.style.userSelect = "";
+      onResizeEndRef.current();
     }
 
     // mouseup covers the normal release-inside-the-page case; window blur
@@ -2184,6 +2194,7 @@ function ResizeHandle({
       // selection app-wide until reload.
       document.body.style.userSelect = "";
       dragging.current = false;
+      onResizeEndRef.current();
     };
   }, [position]);
 
@@ -2751,6 +2762,7 @@ export function AgentSidebar({
   );
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
+  const [isResizing, setIsResizing] = useState(false);
   const [fullscreen, setFullscreen] = useState(() => {
     // Force-disable on mobile: a Claude-style centered column makes no sense
     // when the sidebar already covers most of the viewport.
@@ -3117,6 +3129,8 @@ export function AgentSidebar({
       return next;
     });
   }, []);
+  const handleResizeStart = useCallback(() => setIsResizing(true), []);
+  const handleResizeEnd = useCallback(() => setIsResizing(false), []);
 
   const isLeft = position === "left";
   // Fullscreen only applies on desktop — on mobile the existing overlay is
@@ -3232,7 +3246,12 @@ export function AgentSidebar({
   const sidebar = shouldRenderPanel ? (
     <>
       {showResizeHandle && !isLeft && (
-        <ResizeHandle position={position} onDrag={handleDrag} />
+        <ResizeHandle
+          position={position}
+          onDrag={handleDrag}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+        />
       )}
       <div
         className={cn(
@@ -3250,6 +3269,7 @@ export function AgentSidebar({
         data-agent-sidebar-layout={panelLayout}
         data-agent-sidebar-position={position}
         data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         style={
           chatViewTransition
             ? getAgentChatViewTransitionStyle(panelStyle)
@@ -3285,7 +3305,12 @@ export function AgentSidebar({
         </div>
       </div>
       {showResizeHandle && isLeft && (
-        <ResizeHandle position={position} onDrag={handleDrag} />
+        <ResizeHandle
+          position={position}
+          onDrag={handleDrag}
+          onResizeStart={handleResizeStart}
+          onResizeEnd={handleResizeEnd}
+        />
       )}
     </>
   ) : null;

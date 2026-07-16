@@ -297,6 +297,8 @@ describe("Google Slides native compiler", () => {
               {
                 objectId: "title",
                 transform: {
+                  scaleX: 1,
+                  scaleY: 1,
                   translateX: 20,
                   translateY: 20,
                   unit: "PX",
@@ -393,6 +395,8 @@ describe("Google Slides native compiler", () => {
                         height: { magnitude: 20, unit: "PX" },
                       },
                       transform: {
+                        scaleX: 1,
+                        scaleY: 1,
                         translateX: 20,
                         translateY: 30,
                         unit: "PX",
@@ -475,6 +479,140 @@ describe("Google Slides native compiler", () => {
       },
       imageFallback: { count: 2 },
     });
+  });
+
+  it("inherits a directly referenced master font and renders omitted zero-scale line axes", async () => {
+    const [slide] = await compileGoogleSlidesPresentation(
+      {
+        pageSize: {
+          width: { magnitude: 960, unit: "PX" },
+          height: { magnitude: 540, unit: "PX" },
+        },
+        masters: [
+          {
+            objectId: "master",
+            pageElements: [
+              {
+                objectId: "master-title",
+                size: {
+                  width: { magnitude: 300, unit: "PX" },
+                  height: { magnitude: 100, unit: "PX" },
+                },
+                transform: { scaleX: 2, scaleY: 0.5, unit: "PX" },
+                shape: {
+                  shapeType: "TEXT_BOX",
+                  placeholder: { type: "TITLE" },
+                  text: {
+                    textElements: [
+                      { paragraphMarker: { style: { lineSpacing: 90 } } },
+                      {
+                        textRun: {
+                          content: "Master title\n",
+                          style: {
+                            fontFamily: "Fixture Sans",
+                            weightedFontFamily: {
+                              fontFamily: "Fixture Sans",
+                              weight: 700,
+                            },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+              {
+                objectId: "grid",
+                transform: { scaleX: 1, scaleY: 1, unit: "PX" },
+                elementGroup: {
+                  children: [
+                    {
+                      objectId: "vertical-grid-line",
+                      size: {
+                        width: { magnitude: 100, unit: "PX" },
+                        height: { magnitude: 100, unit: "PX" },
+                      },
+                      transform: {
+                        scaleY: -5.4,
+                        translateX: 120,
+                        translateY: 540,
+                        unit: "PX",
+                      },
+                      line: {
+                        lineType: "STRAIGHT_CONNECTOR_1",
+                        lineProperties: {
+                          dashStyle: "SOLID",
+                          startArrow: "NONE",
+                          endArrow: "NONE",
+                        },
+                      },
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        ],
+        layouts: [
+          {
+            objectId: "layout",
+            layoutProperties: { masterObjectId: "master" },
+            pageElements: [],
+          },
+        ],
+        slides: [
+          {
+            objectId: "slide",
+            slideProperties: {
+              layoutObjectId: "layout",
+              masterObjectId: "master",
+            },
+            pageElements: [
+              {
+                objectId: "slide-title",
+                shape: {
+                  shapeType: "TEXT_BOX",
+                  placeholder: {
+                    type: "TITLE",
+                    parentObjectId: "master-title",
+                  },
+                  text: {
+                    textElements: [
+                      { paragraphMarker: { style: { lineSpacing: 100 } } },
+                      {
+                        textRun: {
+                          content: "Inherited title",
+                          style: {
+                            foregroundColor: {
+                              opaqueColor: {
+                                rgbColor: { red: 1, green: 1, blue: 1 },
+                              },
+                            },
+                            fontSize: { magnitude: 39, unit: "PT" },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        ],
+      },
+      {
+        presentationId: "direct-master-fixture",
+        resolveAsset: async () => {
+          throw new Error("fixture has no image assets");
+        },
+      },
+    );
+
+    expect(slide!.html).toContain("font-family:'Fixture Sans'");
+    expect(slide!.html).toContain("font-weight:700");
+    expect(slide!.html).toContain("font-size:52px");
+    expect(slide!.html).toContain("rotate(-90deg)");
+    expect(slide!.html).toContain("translate(120px,540px)");
   });
 
   it("splits oversized slides into immutable native parts and localizes an indivisible oversized element", async () => {

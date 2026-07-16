@@ -237,6 +237,10 @@
   transition: width 260ms var(--ease-drawer);
 }
 
+.agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-resizing="true"] {
+  transition: none;
+}
+
 .agent-sidebar-panel[data-agent-sidebar-animation="desktop"][data-agent-sidebar-state="open"] {
   width: var(--agent-sidebar-width);
 }
