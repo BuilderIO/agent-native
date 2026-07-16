@@ -118,6 +118,7 @@
     "./localization/actions/set-localization-preference": "./dist/localization/actions/set-localization-preference.js",
     "./credentials": "./dist/credentials/index.js",
     "./event-bus": "./dist/event-bus/index.js",
+    "./e2ee": "./dist/e2ee/index.js",
     "./fetch-tool": "./dist/extensions/fetch-tool.js",
     "./extensions/url-safety": "./dist/extensions/url-safety.js",
     "./extensions/capabilities": "./dist/extensions/capabilities.js",
