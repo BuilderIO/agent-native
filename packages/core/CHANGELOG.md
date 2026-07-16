@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.103.1
+
+### Patch Changes
+
+- f512fd2: Keep Cloudflare template builds deployable when browser-only editor and chat packages import input-rule and message-part runtime helpers.
+
 ## 0.103.0
 
 ### Minor Changes
