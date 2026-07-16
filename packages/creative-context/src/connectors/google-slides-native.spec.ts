@@ -502,6 +502,17 @@ describe("Google Slides native compiler", () => {
                 shape: {
                   shapeType: "TEXT_BOX",
                   placeholder: { type: "TITLE" },
+                  shapeProperties: {
+                    shapeBackgroundFill: {
+                      propertyState: "NOT_RENDERED",
+                      solidFill: {
+                        color: {
+                          rgbColor: { red: 1, green: 1, blue: 1 },
+                        },
+                      },
+                    },
+                    outline: { propertyState: "NOT_RENDERED" },
+                  },
                   text: {
                     textElements: [
                       { paragraphMarker: { style: { lineSpacing: 90 } } },
@@ -576,6 +587,10 @@ describe("Google Slides native compiler", () => {
                     type: "TITLE",
                     parentObjectId: "master-title",
                   },
+                  shapeProperties: {
+                    shapeBackgroundFill: { propertyState: "INHERIT" },
+                    outline: { propertyState: "INHERIT" },
+                  },
                   text: {
                     textElements: [
                       { paragraphMarker: { style: { lineSpacing: 100 } } },
@@ -613,6 +628,9 @@ describe("Google Slides native compiler", () => {
     expect(slide!.html).toContain("font-size:52px");
     expect(slide!.html).toContain("rotate(-90deg)");
     expect(slide!.html).toContain("translate(120px,540px)");
+    expect(slide!.html).toMatch(
+      /data-source-object-id="slide-title"[^>]*background:transparent;border:none/,
+    );
   });
 
   it("splits oversized slides into immutable native parts and localizes an indivisible oversized element", async () => {

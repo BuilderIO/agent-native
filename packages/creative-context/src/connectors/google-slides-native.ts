@@ -360,7 +360,11 @@ function inheritedPageElements(
   master: JsonObject | undefined,
   layout: JsonObject | undefined,
   slide: JsonObject,
-): Array<{ element: JsonObject; inherited: JsonObject[] }> {
+): Array<{
+  element: JsonObject;
+  inherited: JsonObject[];
+  local?: JsonObject;
+}> {
   const masterElements = pageElementMap(master?.pageElements);
   const layoutElements = pageElementMap(layout?.pageElements);
   const slideElements = pageElementMap(slide.pageElements);
@@ -392,6 +396,7 @@ function inheritedPageElements(
       inherited: [masterElement, layoutElement].filter(
         (entry): entry is JsonObject => Boolean(entry),
       ),
+      local: element,
     });
   }
   const inheritedDecorations = [
@@ -417,7 +422,7 @@ async function compilePageElement(
   element: JsonObject,
   state: CompileState,
   zOrder: number,
-  resolved: { inherited: JsonObject[] },
+  resolved: { inherited: JsonObject[]; local?: JsonObject },
   parentTransform: AffineTransform,
 ): Promise<string | null> {
   const objectId = text(element.objectId) ?? `element-${zOrder + 1}`;
@@ -533,7 +538,9 @@ async function compilePageElement(
   }
   const shape = record(element.shape);
   if (shape) {
-    const shapeType = text(shape.shapeType) ?? "RECT";
+    const localShape = record(resolved.local?.shape) ?? shape;
+    const shapeType =
+      text(localShape.shapeType) ?? text(shape.shapeType) ?? "RECT";
     if (!SUPPORTED_SHAPES.has(shapeType)) {
       return compileFallback(
         element,
@@ -545,7 +552,7 @@ async function compilePageElement(
     }
     const reasons = shapeApproximationReasons(
       shapeType,
-      shape,
+      localShape,
       resolved.inherited,
     );
     markFidelity(
@@ -554,7 +561,13 @@ async function compilePageElement(
       element,
       reasons,
     );
-    return shapeMarkup(element, shape, state, baseStyle, resolved.inherited);
+    return shapeMarkup(
+      element,
+      localShape,
+      state,
+      baseStyle,
+      resolved.inherited,
+    );
   }
   const line = record(element.line);
   if (line) {
@@ -630,13 +643,7 @@ function shapeMarkup(
   inherited: JsonObject[],
 ): string {
   const objectId = text(element.objectId) ?? "shape";
-  const properties = deepMerge(
-    {},
-    ...inherited.map(
-      (entry) => record(record(entry.shape)?.shapeProperties) ?? {},
-    ),
-    record(shape.shapeProperties) ?? {},
-  );
+  const properties = resolvedShapeProperties(inherited, shape);
   const shapeType = text(shape.shapeType) ?? "RECT";
   const geometry = shapeGeometryCss(shapeType);
   const fill = fillCss(
@@ -1293,13 +1300,7 @@ function shapeApproximationReasons(
   if (APPROXIMATED_SHAPES.has(shapeType)) {
     reasons.push(`${shapeType} uses an editable CSS geometry approximation.`);
   }
-  const properties = deepMerge(
-    {},
-    ...inherited.map(
-      (entry) => record(record(entry.shape)?.shapeProperties) ?? {},
-    ),
-    record(shape.shapeProperties) ?? {},
-  );
+  const properties = resolvedShapeProperties(inherited, shape);
   if (record(properties.shadow)) {
     reasons.push("Shape shadow is omitted from editable HTML.");
   }
@@ -1319,6 +1320,31 @@ function shapeApproximationReasons(
     );
   }
   return reasons;
+}
+
+function resolvedShapeProperties(
+  inherited: JsonObject[],
+  shape: JsonObject,
+): JsonObject {
+  return deepMerge(
+    {},
+    ...[
+      ...inherited.map(
+        (entry) => record(record(entry.shape)?.shapeProperties) ?? {},
+      ),
+      record(shape.shapeProperties) ?? {},
+    ].map(omitInheritedProperties),
+  );
+}
+
+function omitInheritedProperties(value: JsonObject): JsonObject {
+  const output: JsonObject = {};
+  for (const [key, child] of Object.entries(value)) {
+    const childRecord = record(child);
+    if (childRecord?.propertyState === "INHERIT") continue;
+    output[key] = childRecord ? omitInheritedProperties(childRecord) : child;
+  }
+  return output;
 }
 
 function containsTextLink(textObject: JsonObject | null): boolean {
