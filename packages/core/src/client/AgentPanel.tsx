@@ -3320,6 +3320,7 @@ export function AgentSidebar({
       <div
         className="agent-sidebar-shell flex min-w-0 flex-1 h-screen overflow-hidden"
         data-agent-sidebar-position={position}
+        data-agent-sidebar-resizing={isResizing ? "true" : undefined}
       >
         <AgentNativeRouteWarmup />
         {/* Mobile backdrop — tapping it closes the sidebar */}
@@ -3352,6 +3353,7 @@ export function AgentSidebar({
               ? "open"
               : "closed"
           }
+          data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >
           {/* Screen-refresh key: the agent's `refresh-screen` tool bumps this
             counter, remounting only the main content subtree so it re-fetches
