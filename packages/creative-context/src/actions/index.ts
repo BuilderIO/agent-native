@@ -7,6 +7,7 @@ import getBrandProfile from "./get-brand-profile.js";
 import getContextImportStatus from "./get-context-import-status.js";
 import getContextItem from "./get-context-item.js";
 import getContextPack from "./get-context-pack.js";
+import getGooglePickerSession from "./get-google-picker-session.js";
 import inferBrandDna from "./infer-brand-dna.js";
 import listCanonicalLogoCandidates from "./list-canonical-logo-candidates.js";
 import listContextConnections from "./list-context-connections.js";
@@ -39,6 +40,7 @@ export const creativeContextActions: Record<string, ActionEntry> = {
   "get-context-import-status": getContextImportStatus,
   "get-context-item": getContextItem,
   "get-context-pack": getContextPack,
+  "get-google-picker-session": getGooglePickerSession,
   "infer-brand-dna": inferBrandDna,
   "list-canonical-logo-candidates": listCanonicalLogoCandidates,
   "list-context-packs": listContextPacks,

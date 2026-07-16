@@ -32,6 +32,7 @@ export const CREATIVE_CONTEXT_ACTIONS = {
   managePack: "manage-context-pack",
   recordFeedback: "record-context-feedback",
   getPack: "get-context-pack",
+  googlePickerSession: "get-google-picker-session",
   reviewItems: "review-context-items",
   listLogoCandidates: "list-canonical-logo-candidates",
   proposeLogo: "propose-canonical-logo",
@@ -205,6 +206,13 @@ export interface ListCreativeContextConnectionsResult {
   connectPath: string;
 }
 
+export interface GetGooglePickerSessionResult {
+  accessToken: string;
+  accountLabel: string | null;
+  apiKey: string;
+  appId: string;
+}
+
 export type CreativeContextRecommendationProvider =
   | "google-slides"
   | "figma"
@@ -362,6 +370,16 @@ export function useCreativeContextRootRecommendations(
       ? { provider, connectionId, limit: 15, ...figmaBoundary }
       : undefined,
     { enabled: Boolean(provider && connectionId) },
+  );
+}
+
+export function useCreativeContextGooglePickerSession(
+  connectionId: string | null,
+) {
+  return useActionQuery<GetGooglePickerSessionResult>(
+    CREATIVE_CONTEXT_ACTIONS.googlePickerSession,
+    connectionId ? { connectionId } : undefined,
+    { enabled: false },
   );
 }
 

@@ -33,7 +33,8 @@ vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
 
 vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
 
-const { createProviderApiRuntime } = await import("./index.js");
+const { createProviderApiRuntime, resolveProviderApiOAuthAccessToken } =
+  await import("./index.js");
 const { createGitHubRepoFilesAction } =
   await import("./actions/github-repo-files.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
@@ -514,6 +515,46 @@ describe("provider API runtime", () => {
     });
     expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toMatchObject({
       Authorization: "Bearer google-slides-oauth",
+    });
+  });
+
+  it("resolves a connection-bound OAuth token for trusted UI bridges", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "google-account-2",
+        displayName: "Work Google",
+        tokens: { access_token: "google-picker-oauth" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "drive-connection-2",
+        label: "Work Google",
+        accountId: "google-account-2",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+
+    await expect(
+      resolveProviderApiOAuthAccessToken(
+        {
+          provider: "google_drive",
+          connectionId: "drive-connection-2",
+        },
+        {
+          appId: "slides",
+          providerIds: ["google_drive"],
+          getCredentialContext: () => credentialContext,
+        },
+      ),
+    ).resolves.toEqual({
+      accessToken: "google-picker-oauth",
+      accountId: "google-account-2",
+      accountLabel: "Work Google",
+      connectionId: "drive-connection-2",
+      connectionLabel: "Work Google",
     });
   });
 

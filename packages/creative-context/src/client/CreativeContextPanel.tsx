@@ -72,6 +72,7 @@ import {
   useCreativeContextBrandProfile,
   useCanonicalLogoCandidates,
   useCreativeContextConnections,
+  useCreativeContextGooglePickerSession,
   useCreativeContextRootRecommendations,
   useCreativeContextImportStatus,
   useCreativeContextPack,
@@ -97,6 +98,7 @@ import {
   type CreativeContextMode,
 } from "./application-state.js";
 import { CreativeContextChip } from "./CreativeContextChip.js";
+import { chooseGoogleSlidesPresentations } from "./google-slides-picker.js";
 
 type ConnectorKind =
   | "google-slides"
@@ -125,7 +127,7 @@ const CONNECTORS: readonly ConnectorDefinition[] = [
   {
     kind: "google-slides",
     label: "Google Slides",
-    referencePlaceholder: "Folder or shared-drive URL / ID",
+    referencePlaceholder: "Presentation URLs or IDs — one per line",
     referenceRequired: false,
     icon: IconSlideshow,
   },
@@ -230,20 +232,19 @@ export function buildCreativeContextSourceConfig(
 ) {
   const references = splitReferences(reference);
   if (kind === "google-slides") {
-    if (!references.length && recommendations.length) {
-      return {
-        presentationIds: recommendations.map((item) => item.externalId),
-      };
-    }
-    const container = references[0];
-    const folderMatch = container?.match(/\/folders\/([^/?#]+)/);
-    if (container?.startsWith("shared-drive:")) {
-      return { sharedDriveId: container.slice("shared-drive:".length) };
-    }
-    if (container && /^https?:\/\//.test(container)) {
-      return { folderUrl: container };
-    }
-    return container ? { folderId: folderMatch?.[1] ?? container } : {};
+    const presentationIds = references.flatMap((value) => {
+      const match = value.match(/\/presentation\/d\/([^/?#]+)/);
+      const id = match?.[1] ?? (/^https?:\/\//.test(value) ? "" : value);
+      return id ? [id] : [];
+    });
+    return {
+      presentationIds: [
+        ...new Set([
+          ...presentationIds,
+          ...recommendations.map((item) => item.externalId),
+        ]),
+      ],
+    };
   }
   if (kind === "figma") {
     const fileUrls: string[] = [];
@@ -828,6 +829,15 @@ export function CreativeContextPanel({
   const [selectedRecommendationIds, setSelectedRecommendationIds] = useState<
     Set<string>
   >(() => new Set());
+  const [pickerRecommendations, setPickerRecommendations] = useState<
+    CreativeContextRootRecommendation[]
+  >([]);
+  const [openingGooglePicker, setOpeningGooglePicker] = useState(false);
+  const googlePickerSession = useCreativeContextGooglePickerSession(
+    connectorKind === "google-slides" && selectedConnectionId
+      ? selectedConnectionId
+      : null,
+  );
   const [uploadedFiles, setUploadedFiles] = useState<UploadedContextFile[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -880,15 +890,22 @@ export function CreativeContextPanel({
     );
   }, [connectionProvider, connectionsQuery.data?.autoSelectedConnectionId]);
 
+  const availableRecommendations = useMemo(() => {
+    const byId = new Map<string, CreativeContextRootRecommendation>();
+    for (const recommendation of [
+      ...(recommendationsQuery.data?.recommendations ?? []),
+      ...pickerRecommendations,
+    ]) {
+      byId.set(recommendation.externalId, recommendation);
+    }
+    return [...byId.values()];
+  }, [pickerRecommendations, recommendationsQuery.data?.recommendations]);
+
   useEffect(() => {
     setSelectedRecommendationIds(
-      new Set(
-        (recommendationsQuery.data?.recommendations ?? []).map(
-          (recommendation) => recommendation.externalId,
-        ),
-      ),
+      new Set(availableRecommendations.map(({ externalId }) => externalId)),
     );
-  }, [recommendationsQuery.data?.recommendations]);
+  }, [availableRecommendations]);
 
   const sources = useMemo(
     () =>
@@ -1078,10 +1095,9 @@ export function CreativeContextPanel({
     setCompletedJobId(null);
     setPublishedMessage(null);
     try {
-      const confirmedRecommendations = (
-        recommendationsQuery.data?.recommendations ?? []
-      ).filter((recommendation) =>
-        selectedRecommendationIds.has(recommendation.externalId),
+      const confirmedRecommendations = availableRecommendations.filter(
+        (recommendation) =>
+          selectedRecommendationIds.has(recommendation.externalId),
       );
       const result = await manageSource.mutateAsync({
         operation: "create",
@@ -1116,10 +1132,53 @@ export function CreativeContextPanel({
       setConnectorKind(null);
       setSourceName("");
       setSourceReference("");
+      setPickerRecommendations([]);
       setUploadedFiles([]);
       await sourcesQuery.refetch();
     } catch {
       setSetupError(t("creativeContext.saveFailed"));
+    }
+  }
+
+  async function chooseGoogleSlides() {
+    setSetupError(null);
+    setOpeningGooglePicker(true);
+    try {
+      const session = await googlePickerSession.refetch();
+      if (!session.data) {
+        throw new Error("Google Picker session is unavailable.");
+      }
+      const selections = await chooseGoogleSlidesPresentations(session.data);
+      if (!selections.length) return;
+      const selected = selections.map((selection) => ({
+        ...selection,
+        provider: "google-slides" as const,
+        kind: "presentation" as const,
+      }));
+      setPickerRecommendations((current) => {
+        const byId = new Map(
+          current.map((recommendation) => [
+            recommendation.externalId,
+            recommendation,
+          ]),
+        );
+        for (const recommendation of selected) {
+          byId.set(recommendation.externalId, recommendation);
+        }
+        return [...byId.values()];
+      });
+      setSelectedRecommendationIds((current) => {
+        const next = new Set(current);
+        for (const recommendation of selected) {
+          next.add(recommendation.externalId);
+        }
+        return next;
+      });
+      void recommendationsQuery.refetch();
+    } catch (error) {
+      setSetupError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setOpeningGooglePicker(false);
     }
   }
 
@@ -1605,6 +1664,7 @@ export function CreativeContextPanel({
                       setSourceName(connector.label);
                       setSourceReference("");
                       setUploadedFiles([]);
+                      setPickerRecommendations([]);
                       setSelectedConnectionId("");
                       setSelectedRecommendationIds(new Set());
                       setSetupError(null);
@@ -1682,16 +1742,35 @@ export function CreativeContextPanel({
                 ) : null}
                 {recommendationProvider && selectedConnectionId ? (
                   <div className="mb-3 rounded-md border border-border p-3">
-                    {recommendationsQuery.isLoading ? (
+                    {connectorKind === "google-slides" ? (
+                      <div className="mb-3 flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+                        <p className="max-w-lg text-xs text-muted-foreground">
+                          {t("creativeContext.googlePickerDescription")}
+                        </p>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          disabled={openingGooglePicker}
+                          onClick={() => void chooseGoogleSlides()}
+                        >
+                          <IconSlideshow />
+                          {openingGooglePicker
+                            ? t("creativeContext.loading")
+                            : t("creativeContext.choosePresentations")}
+                        </Button>
+                      </div>
+                    ) : null}
+                    {recommendationsQuery.isLoading &&
+                    !availableRecommendations.length ? (
                       <Skeleton className="h-16 w-full" />
-                    ) : recommendationsQuery.data?.recommendations.length ? (
+                    ) : availableRecommendations.length ? (
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
                           <span>
                             {t("creativeContext.discoveredItems", {
                               count: formatNumber(
-                                recommendationsQuery.data.recommendations
-                                  .length,
+                                availableRecommendations.length,
                               ),
                             })}
                           </span>
@@ -1704,41 +1783,39 @@ export function CreativeContextPanel({
                           </span>
                         </div>
                         <div className="max-h-52 divide-y divide-border/60 overflow-y-auto">
-                          {recommendationsQuery.data.recommendations.map(
-                            (recommendation) => (
-                              <label
-                                key={recommendation.externalId}
-                                className="flex cursor-pointer items-start gap-3 py-2"
-                              >
-                                <Checkbox
-                                  className="mt-0.5"
-                                  checked={selectedRecommendationIds.has(
-                                    recommendation.externalId,
-                                  )}
-                                  onCheckedChange={(checked) =>
-                                    setSelectedRecommendationIds((current) => {
-                                      const next = new Set(current);
-                                      if (checked) {
-                                        next.add(recommendation.externalId);
-                                      } else {
-                                        next.delete(recommendation.externalId);
-                                      }
-                                      return next;
-                                    })
-                                  }
-                                />
-                                <span className="min-w-0">
-                                  <span className="block truncate text-sm">
-                                    {recommendation.title}
-                                  </span>
-                                  <span className="block text-xs text-muted-foreground">
-                                    {recommendation.containerRef ??
-                                      recommendation.kind}
-                                  </span>
+                          {availableRecommendations.map((recommendation) => (
+                            <label
+                              key={recommendation.externalId}
+                              className="flex cursor-pointer items-start gap-3 py-2"
+                            >
+                              <Checkbox
+                                className="mt-0.5"
+                                checked={selectedRecommendationIds.has(
+                                  recommendation.externalId,
+                                )}
+                                onCheckedChange={(checked) =>
+                                  setSelectedRecommendationIds((current) => {
+                                    const next = new Set(current);
+                                    if (checked) {
+                                      next.add(recommendation.externalId);
+                                    } else {
+                                      next.delete(recommendation.externalId);
+                                    }
+                                    return next;
+                                  })
+                                }
+                              />
+                              <span className="min-w-0">
+                                <span className="block truncate text-sm">
+                                  {recommendation.title}
                                 </span>
-                              </label>
-                            ),
-                          )}
+                                <span className="block text-xs text-muted-foreground">
+                                  {recommendation.containerRef ??
+                                    recommendation.kind}
+                                </span>
+                              </span>
+                            </label>
+                          ))}
                         </div>
                       </div>
                     ) : (

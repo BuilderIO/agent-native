@@ -9,6 +9,7 @@
     "get-context-import-status",
     "get-context-item",
     "get-context-pack",
+    "get-google-picker-session",
     "infer-brand-dna",
     "list-canonical-logo-candidates",
     "list-context-connections",
@@ -53,6 +54,16 @@
     {
       "key": "GOOGLE_CLIENT_SECRET",
       "label": "Google OAuth client secret for Drive and Slides",
+      "optional": true
+    },
+    {
+      "key": "GOOGLE_PICKER_API_KEY",
+      "label": "Browser-restricted Google Picker API key",
+      "optional": true
+    },
+    {
+      "key": "GOOGLE_PICKER_APP_ID",
+      "label": "Google Cloud project number for Picker",
       "optional": true
     },
     {

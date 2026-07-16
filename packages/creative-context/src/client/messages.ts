@@ -104,6 +104,8 @@ export type CreativeContextMessageKey =
   | "chooseConnection"
   | "setupConnection"
   | "connectProvider"
+  | "choosePresentations"
+  | "googlePickerDescription"
   | "suggestions"
   | "logo";
 
@@ -213,6 +215,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "Choose a workspace connection",
     setupConnection: "Connect this provider before importing a source.",
     connectProvider: "Connect provider",
+    choosePresentations: "Choose presentations",
+    googlePickerDescription:
+      "Choose the presentations Google should make available to this Library connection. No Drive-wide permission is requested.",
     suggestions: "Review suggestions",
     logo: "Canonical logo",
   },
@@ -309,6 +314,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "選擇工作區連線",
     setupConnection: "匯入來源前，請先連結此提供者。",
     connectProvider: "連結提供者",
+    choosePresentations: "選擇簡報",
+    googlePickerDescription:
+      "選擇要提供給此資料庫連線的簡報，不會要求整個雲端硬碟的存取權。",
     suggestions: "審核建議",
     logo: "標準標誌",
   },
@@ -406,6 +414,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "选择工作区连接",
     setupConnection: "导入来源前，请先连接此提供程序。",
     connectProvider: "连接提供程序",
+    choosePresentations: "选择演示文稿",
+    googlePickerDescription:
+      "选择要提供给此资料库连接的演示文稿，不会请求整个云端硬盘的访问权限。",
     suggestions: "审核建议",
     logo: "标准徽标",
   },
@@ -510,6 +521,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "Elegir una conexión del espacio de trabajo",
     setupConnection: "Conecta este proveedor antes de importar una fuente.",
     connectProvider: "Conectar proveedor",
+    choosePresentations: "Elegir presentaciones",
+    googlePickerDescription:
+      "Elige las presentaciones disponibles para esta conexión. No se solicita acceso a todo Drive.",
     suggestions: "Revisar sugerencias",
     logo: "Logotipo canónico",
   },
@@ -615,6 +629,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "Choisir une connexion d’espace de travail",
     setupConnection: "Connectez ce fournisseur avant d’importer une source.",
     connectProvider: "Connecter le fournisseur",
+    choosePresentations: "Choisir des présentations",
+    googlePickerDescription:
+      "Choisissez les présentations accessibles à cette connexion. Aucun accès à l’ensemble de Drive n’est demandé.",
     suggestions: "Examiner les suggestions",
     logo: "Logo canonique",
   },
@@ -719,6 +736,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "Arbeitsbereichsverbindung auswählen",
     setupConnection: "Verbinde diesen Anbieter vor dem Import einer Quelle.",
     connectProvider: "Anbieter verbinden",
+    choosePresentations: "Präsentationen auswählen",
+    googlePickerDescription:
+      "Wähle die Präsentationen für diese Bibliotheksverbindung aus. Es wird kein Zugriff auf das gesamte Drive angefordert.",
     suggestions: "Vorschläge prüfen",
     logo: "Kanonisches Logo",
   },
@@ -826,6 +846,9 @@ export const creativeContextMessagesByLocale: Record<
     setupConnection:
       "ソースをインポートする前にプロバイダーを接続してください。",
     connectProvider: "プロバイダーに接続",
+    choosePresentations: "プレゼンテーションを選択",
+    googlePickerDescription:
+      "このライブラリ接続で利用するプレゼンテーションを選択します。Drive 全体への権限は要求しません。",
     suggestions: "候補を確認",
     logo: "正式ロゴ",
   },
@@ -928,6 +951,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "워크스페이스 연결 선택",
     setupConnection: "소스를 가져오기 전에 이 제공자를 연결하세요.",
     connectProvider: "제공자 연결",
+    choosePresentations: "프레젠테이션 선택",
+    googlePickerDescription:
+      "이 라이브러리 연결에서 사용할 프레젠테이션을 선택하세요. Drive 전체 권한은 요청하지 않습니다.",
     suggestions: "추천 검토",
     logo: "대표 로고",
   },
@@ -1032,6 +1058,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "Escolher uma conexão do espaço de trabalho",
     setupConnection: "Conecte este provedor antes de importar uma fonte.",
     connectProvider: "Conectar provedor",
+    choosePresentations: "Escolher apresentações",
+    googlePickerDescription:
+      "Escolha as apresentações disponíveis para esta conexão. Nenhum acesso a todo o Drive é solicitado.",
     suggestions: "Revisar sugestões",
     logo: "Logotipo canônico",
   },
@@ -1133,6 +1162,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "वर्कस्पेस कनेक्शन चुनें",
     setupConnection: "स्रोत आयात करने से पहले इस प्रदाता को कनेक्ट करें।",
     connectProvider: "प्रदाता कनेक्ट करें",
+    choosePresentations: "प्रेज़ेंटेशन चुनें",
+    googlePickerDescription:
+      "इस लाइब्रेरी कनेक्शन के लिए प्रेज़ेंटेशन चुनें। पूरे Drive की अनुमति नहीं मांगी जाती।",
     suggestions: "सुझावों की समीक्षा करें",
     logo: "मानक लोगो",
   },
@@ -1234,6 +1266,9 @@ export const creativeContextMessagesByLocale: Record<
     chooseConnection: "اختر اتصال مساحة عمل",
     setupConnection: "اربط هذا المزود قبل استيراد المصدر.",
     connectProvider: "ربط موفر الخدمة",
+    choosePresentations: "اختيار العروض التقديمية",
+    googlePickerDescription:
+      "اختر العروض المتاحة لهذا الاتصال بالمكتبة. لا يتم طلب إذن للوصول إلى Drive بالكامل.",
     suggestions: "مراجعة الاقتراحات",
     logo: "الشعار المعتمد",
   },

@@ -505,6 +505,14 @@ export interface ProviderApiRuntime {
   ): Promise<GitHubRepositoryFileDeleteResult>;
 }
 
+export interface ProviderApiOAuthAccessToken {
+  accessToken: string;
+  accountId: string | null;
+  accountLabel: string | null;
+  connectionId: string | null;
+  connectionLabel: string | null;
+}
+
 interface ResolvedAuth {
   headers: Record<string, string>;
   credentialSources: Array<Omit<ProviderApiResolvedCredential, "value">>;
@@ -1799,6 +1807,55 @@ export async function executeProviderApiRequest(
     response,
     guidance:
       "This was a raw provider API request. Use provider docs/spec URLs to choose endpoints and include method/path/status plus relevant filters in the methodology. Prefer this escape hatch whenever canned actions are too narrow.",
+  };
+}
+
+/**
+ * Resolve a provider OAuth token for a trusted server-side UI bridge such as
+ * Google Picker. Callers must keep the result out of agent, MCP, A2A, logs,
+ * persistence, and extension/tool surfaces.
+ */
+export async function resolveProviderApiOAuthAccessToken(
+  args: {
+    provider: ProviderApiId;
+    connectionId?: string | null;
+    accountId?: string | null;
+  },
+  runtime: ProviderApiRuntimeOptions,
+): Promise<ProviderApiOAuthAccessToken> {
+  await assertProviderAllowedAsync(args.provider, runtime);
+  const config = getProviderApiConfig(args.provider);
+  const auth = config.auth;
+  if (auth.type !== "oauth-bearer") {
+    throw new Error(
+      `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
+    );
+  }
+  const ctx = requireRuntimeCredentialContext(
+    runtime,
+    config.credentialKeys[0] ?? config.id,
+  );
+  const credential =
+    auth.workspaceProvider && args.connectionId
+      ? await resolveConnectionBoundOAuthBearerToken({
+          auth,
+          runtime,
+          ctx,
+          workspaceProvider: auth.workspaceProvider,
+          connectionId: args.connectionId,
+          accountId: args.accountId,
+        })
+      : await resolveOAuthBearerToken({
+          auth,
+          ctx,
+          accountId: args.accountId,
+        });
+  return {
+    accessToken: credential.value,
+    accountId: credential.accountId ?? null,
+    accountLabel: credential.accountLabel ?? null,
+    connectionId: credential.connectionId ?? null,
+    connectionLabel: credential.connectionLabel ?? null,
   };
 }
 

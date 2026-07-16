@@ -7,23 +7,16 @@ import {
 } from "./CreativeContextPanel.js";
 
 describe("creative context source configuration", () => {
-  it("keeps Google Slides imports inside an explicit folder or shared drive", () => {
+  it("keeps Google Slides imports inside explicit presentation boundaries", () => {
     expect(
       buildCreativeContextSourceConfig(
         "google-slides",
-        "https://drive.google.com/drive/folders/folder-1",
+        "https://docs.google.com/presentation/d/deck-1/edit\ndeck-2",
         [],
       ),
     ).toEqual({
-      folderUrl: "https://drive.google.com/drive/folders/folder-1",
+      presentationIds: ["deck-1", "deck-2"],
     });
-    expect(
-      buildCreativeContextSourceConfig(
-        "google-slides",
-        "shared-drive:drive-1",
-        [],
-      ),
-    ).toEqual({ sharedDriveId: "drive-1" });
   });
 
   it("turns confirmed provider recommendations into exact import boundaries", () => {
