@@ -98,13 +98,6 @@ describe("ReviewThreadPanel sidebar layout", () => {
           resourceType="design"
           resourceId="design-1"
           targetId="screen-1"
-          composerTargetId="screen-2"
-          composerAnchor={{
-            nodeId: "hero-title",
-            point: { xPct: 50, yPct: 20 },
-          }}
-          composerMetadata={{ layerName: "Hero title", tagName: "H1" }}
-          composerContextLabel="Commenting on Hero title"
           showHeader={false}
           variant="plain"
           canReply
@@ -128,7 +121,6 @@ describe("ReviewThreadPanel sidebar layout", () => {
     expect(section?.className).not.toContain("rounded-lg");
     expect(container.textContent).not.toContain("Draft");
     expect(container.textContent).toContain("Make the heading clearer");
-    expect(container.textContent).toContain("Commenting on Hero title");
     expect(container.querySelector('[role="radiogroup"]')).toBeNull();
     expect(
       Array.from(container.querySelectorAll("button")).some(
@@ -155,15 +147,7 @@ describe("ReviewThreadPanel sidebar layout", () => {
     );
     act(() => commentButton?.click());
     expect(mutate).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        targetId: "screen-2",
-        anchor: {
-          nodeId: "hero-title",
-          point: { xPct: 50, yPct: 20 },
-        },
-        metadata: { layerName: "Hero title", tagName: "H1" },
-        resolutionTarget: "human",
-      }),
+      expect.objectContaining({ resolutionTarget: "human" }),
       expect.any(Object),
     );
     act(() => agentButton?.click());

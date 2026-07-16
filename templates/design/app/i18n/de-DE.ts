@@ -12,7 +12,6 @@ const messages = {
     signInToComment: "Zum Kommentieren anmelden",
     panelTitle: "Feedback",
     placeholder: "Feedback hinterlassen…",
-    commentingOn: "Kommentar zu {{name}}",
     emptyState: "Noch keine Prüfkommentare.",
     clickToPin: "Klicke an eine beliebige Stelle, um Feedback anzuheften",
     escToExit: "Esc zum Beenden",

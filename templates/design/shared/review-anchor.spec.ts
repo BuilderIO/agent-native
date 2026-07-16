@@ -1,10 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import {
-  createElementReviewAnchor,
-  parseReviewAnchor,
-  resolveReviewAnchor,
-} from "./review-anchor";
+import { parseReviewAnchor, resolveReviewAnchor } from "./review-anchor";
 
 describe("review anchors", () => {
   const point = { xPct: 24, yPct: 68 };
@@ -40,27 +36,5 @@ describe("review anchors", () => {
     expect(
       resolveReviewAnchor({ point: { xPct: "nope", yPct: 20 } }, () => null),
     ).toBeNull();
-  });
-
-  it("anchors a selected layer at its visible center", () => {
-    expect(
-      createElementReviewAnchor({
-        nodeId: "hero-title",
-        rect: { x: 100, y: 80, width: 200, height: 40 },
-        viewportWidth: 1_000,
-        viewportHeight: 500,
-      }),
-    ).toEqual({
-      nodeId: "hero-title",
-      point: { xPct: 20, yPct: 20 },
-    });
-  });
-
-  it("keeps a node anchor when viewport geometry is unavailable", () => {
-    expect(createElementReviewAnchor({ nodeId: "hero-title" })).toEqual({
-      nodeId: "hero-title",
-      point: { xPct: 50, yPct: 50 },
-    });
-    expect(createElementReviewAnchor({})).toBeNull();
   });
 });
