@@ -393,6 +393,7 @@ export function ReviewCanvasPins({
       if (!pendingRepromptId || detail?.repromptId !== pendingRepromptId)
         return;
       cancelDraft();
+      onClose();
     };
     window.addEventListener(NODE_REPROMPT_PRESENTED_EVENT, onRepromptSettled);
     window.addEventListener(NODE_REPROMPT_RESOLVED_EVENT, onRepromptSettled);
@@ -406,7 +407,7 @@ export function ReviewCanvasPins({
         onRepromptSettled,
       );
     };
-  }, [cancelDraft, pendingRepromptId]);
+  }, [cancelDraft, onClose, pendingRepromptId]);
 
   const threads = useMemo(
     () => buildReviewThreads(comments.data?.comments ?? []),
@@ -1001,10 +1002,16 @@ export function ReviewCanvasPins({
   const draftPinPosition = draftPin
     ? getReviewPinPosition(draftPin.anchor)
     : null;
+  const pinPlacementEnabled = active && canPost && !pendingRepromptId;
+  const placementHintVisible =
+    pinPlacementEnabled &&
+    !draftComposerOpen &&
+    !activeThreadId &&
+    !repromptDraftRequest;
 
   return (
     <>
-      {active && canPost ? (
+      {pinPlacementEnabled ? (
         <div
           data-review-click-plane
           className="fixed z-40 cursor-crosshair"
@@ -1021,7 +1028,7 @@ export function ReviewCanvasPins({
           }}
         />
       ) : null}
-      {active && canPost ? (
+      {placementHintVisible ? (
         <div className="pointer-events-none fixed left-1/2 top-16 z-[45] flex -translate-x-1/2 items-center gap-2 rounded-full border border-border bg-popover px-3 py-1.5 text-xs shadow-lg">
           <IconMessageCircle className="size-3.5 text-primary" />
           {t("review.clickToPin")}

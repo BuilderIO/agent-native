@@ -205,6 +205,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         }),
       );
     });
+    expect(document.body.textContent).not.toContain("review.clickToPin");
     await act(async () => {
       clickPlane?.dispatchEvent(
         new MouseEvent("click", {
@@ -461,6 +462,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
   });
 
   it("opens a pre-anchored regenerate draft without creating a review comment", async () => {
+    const onClose = vi.fn();
     const iframe = document.createElement("iframe");
     iframe.setAttribute("data-design-preview-iframe", "");
     const iframeDocument = document.implementation.createHTMLDocument();
@@ -490,7 +492,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       root.render(
         <ReviewCanvasPins
           active
-          onClose={vi.fn()}
+          onClose={onClose}
           canvasSelector=".review-test-canvas"
           resourceType="design"
           resourceId="design-1"
@@ -525,6 +527,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "designEditor.nodeRewrite.willPreview",
     );
     expect(document.body.textContent).toContain("review.commentMode");
+    expect(document.body.textContent).not.toContain("review.clickToPin");
     await act(async () => send?.click());
 
     expect(mocks.createMutate).not.toHaveBeenCalled();
@@ -549,6 +552,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       }),
       { timeoutMs: 10_000 },
     );
+    expect(document.querySelector("[data-review-click-plane]")).toBeNull();
+    expect(document.body.textContent).not.toContain("review.clickToPin");
 
     const pinsBeforePreview = document.querySelectorAll("[data-review-pin]");
     const appStateCalls = mocks.setClientAppState.mock.calls;
@@ -565,5 +570,6 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(
       pinsBeforePreview.length - 1,
     );
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
