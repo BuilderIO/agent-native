@@ -121,6 +121,32 @@ intent:
   explicitly asks for a new artifact. Do not blindly submit another row merely
   because a new Slack message arrived.
 
+For a correction to an existing artifact, treat Slack history as identity and
+intent context, not as the current record state. A title captured when the row
+was created is a historical title: it may help locate the stable document ID,
+but it is not authoritative after the row has been renamed in Content. Once the
+stable ID is known, read the canonical row from Content immediately before
+building the update. Content is authoritative for every field the correction
+does not explicitly change.
+
+Build corrections as sparse patches:
+
+- Include only fields the user explicitly asks to change. "Keep," "preserve,"
+  "leave as is," and "unchanged" are constraints, not new values; omit those
+  fields from the mutation so a newer Content-side value cannot be overwritten
+  by stale Slack context.
+- Omission and clearing are different operations. An omitted field keeps its
+  live Content value. Clear a field only when the user explicitly asks to
+  remove, unset, or clear it, and use the empty representation accepted by the
+  current database schema.
+- Never reconstruct a full-row update from the original Slack request. Derive
+  the patch from the correction message and the freshly read canonical row,
+  while preserving the stable document ID.
+- After the mutation, read the row again and verify both sides of the contract:
+  requested fields changed, and omitted fields retained their pre-mutation live
+  values. If concurrent edits make that impossible, report the conflict rather
+  than silently overwriting them.
+
 Apply people fields from verified identity and intent, not from convenient
 guesswork:
 
