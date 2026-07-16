@@ -3,7 +3,6 @@ import { describe, it, expect } from "vitest";
 import {
   detectMetricValueColumn,
   formatMetricValue,
-  resolveBarSize,
   safeDashboardLinkHref,
   sessionReplayHref,
   shouldSplitCurrentDayTimeSeries,
@@ -12,19 +11,6 @@ import {
   sqlChartLocalDateKey,
   toSqlChartDateKey,
 } from "./SqlChart";
-
-describe("resolveBarSize", () => {
-  it("accepts a positive configured width and clamps oversized values", () => {
-    expect(resolveBarSize(40)).toBe(40);
-    expect(resolveBarSize(500)).toBe(120);
-  });
-
-  it("falls back to the chart default for invalid values", () => {
-    expect(resolveBarSize(undefined)).toBeUndefined();
-    expect(resolveBarSize(0)).toBeUndefined();
-    expect(resolveBarSize(Number.NaN)).toBeUndefined();
-  });
-});
 
 // Postgres/Neon returns numeric & bigint columns as STRINGS (SQLite returns JS
 // numbers). The metric renderer used to only format `typeof raw === "number"`,

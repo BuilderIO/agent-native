@@ -169,7 +169,6 @@ describe("dashboard catalog", () => {
     const recurringWeekly = config.panels[recurringIndex + 1];
     expect(recurringDaily?.sql).not.toContain("date_trunc('week'");
     expect(recurringWeekly?.sql).toContain("date_trunc('week'");
-    expect(recurringWeekly?.config?.barSize).toBe(40);
     expect(recurringWeekly?.config?.description).toContain(
       "Weekly distinct signed-in visitors",
     );

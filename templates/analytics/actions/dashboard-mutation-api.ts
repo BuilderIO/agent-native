@@ -43,7 +43,6 @@ type PanelConfig = Record<string, unknown> & {
   /** Use "dashboard" for AI-generated first-party panels by default. */
   timeScope?: PanelTimeScope;
   /** Fixed bar width in pixels for bar charts. */
-  barSize?: number;
 };
 
 type PanelPatch = {

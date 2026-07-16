@@ -3874,17 +3874,13 @@ fn probe_local_media_duration_ms(path: &Path) -> Result<u128, String> {
         let path_string = Retained::<AnyObject>::from_raw(string_raw)
             .ok_or_else(|| format!("could not represent recording path: {}", path.display()))?;
         let url_raw: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: &*path_string];
-        let url = Retained::<AnyObject>::from_raw(url_raw)
+        let url = Retained::<AnyObject>::retain(url_raw)
             .ok_or_else(|| format!("could not open recording path: {}", path.display()))?;
-        let asset: *mut AnyObject =
+        let asset_raw: *mut AnyObject =
             msg_send![asset_class, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
-        if asset.is_null() {
-            return Err(format!(
-                "could not inspect local recording: {}",
-                path.display()
-            ));
-        }
-        let duration: CMTime = msg_send![asset, duration];
+        let asset = Retained::<AnyObject>::retain(asset_raw)
+            .ok_or_else(|| format!("could not inspect local recording: {}", path.display()))?;
+        let duration: CMTime = msg_send![&*asset, duration];
         if duration.flags & 1 == 0 || duration.timescale <= 0 || duration.value <= 0 {
             return Err(format!(
                 "Clip may be incomplete. The local media duration could not be verified; the local backup was kept ({})",

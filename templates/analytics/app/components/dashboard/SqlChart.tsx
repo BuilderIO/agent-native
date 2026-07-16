@@ -107,15 +107,6 @@ const BAR_TOOLTIP_CURSOR_PROPS = {
   ry: 4,
 } as const;
 
-const MAX_CONFIGURED_BAR_SIZE = 120;
-
-export function resolveBarSize(value: unknown): number | undefined {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
-    return undefined;
-  }
-  return Math.min(Math.round(value), MAX_CONFIGURED_BAR_SIZE);
-}
-
 const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
   fontSize: 11,
   paddingTop: 8,
@@ -524,6 +515,7 @@ export function SeriesLegend({
   const hasLegendActions = Boolean(onToggleKey || onFilterKey);
   const [openKey, setOpenKey] = useState<string | null>(null);
   const closeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const skipNextTouchToggleRef = useRef(false);
 
   const clearCloseTimeout = useCallback(() => {
     if (closeTimeoutRef.current) {
@@ -545,7 +537,7 @@ export function SeriesLegend({
     closeTimeoutRef.current = setTimeout(() => {
       setOpenKey(null);
       closeTimeoutRef.current = null;
-    }, 120);
+    }, 200);
   }, [clearCloseTimeout]);
 
   useEffect(() => () => clearCloseTimeout(), [clearCloseTimeout]);
@@ -567,13 +559,27 @@ export function SeriesLegend({
             >
               <PopoverAnchor asChild>
                 <div
-                  className="inline-flex max-w-[14rem]"
-                  onPointerEnter={
-                    hasLegendActions ? () => openLegendActions(key) : undefined
-                  }
-                  onPointerLeave={
-                    hasLegendActions ? scheduleCloseLegendActions : undefined
-                  }
+                  className="inline-flex min-h-10 max-w-[14rem] items-center"
+                  onPointerDown={(event) => {
+                    if (!hasLegendActions || event.pointerType === "mouse") {
+                      return;
+                    }
+                    skipNextTouchToggleRef.current = true;
+                    openLegendActions(key);
+                  }}
+                  onPointerCancel={() => {
+                    skipNextTouchToggleRef.current = false;
+                  }}
+                  onPointerEnter={(event) => {
+                    if (hasLegendActions && event.pointerType === "mouse") {
+                      openLegendActions(key);
+                    }
+                  }}
+                  onPointerLeave={(event) => {
+                    if (hasLegendActions && event.pointerType === "mouse") {
+                      scheduleCloseLegendActions();
+                    }
+                  }}
                   onFocusCapture={
                     hasLegendActions ? () => openLegendActions(key) : undefined
                   }
@@ -584,11 +590,22 @@ export function SeriesLegend({
                   <button
                     type="button"
                     aria-pressed={!hidden}
-                    className={`inline-flex max-w-[14rem] items-center gap-1.5 rounded-sm text-left transition-opacity hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
+                    aria-expanded={
+                      hasLegendActions ? openKey === key : undefined
+                    }
+                    aria-haspopup={hasLegendActions ? "menu" : undefined}
+                    data-chart-legend-item={key}
+                    className={`inline-flex min-h-10 max-w-[14rem] min-w-0 items-center gap-1.5 rounded-md px-1.5 text-left transition-[opacity,color] touch-manipulation hover:text-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring ${
                       hidden ? "opacity-35" : "opacity-100"
                     } ${onToggleKey ? "cursor-pointer" : "cursor-default"}`}
                     title={label}
-                    onClick={() => onToggleKey?.(key)}
+                    onClick={() => {
+                      if (skipNextTouchToggleRef.current) {
+                        skipNextTouchToggleRef.current = false;
+                        return;
+                      }
+                      onToggleKey?.(key);
+                    }}
                   >
                     <span className="relative h-2.5 w-3 shrink-0">
                       <span
@@ -607,20 +624,21 @@ export function SeriesLegend({
               {hasLegendActions && (
                 <PopoverContent
                   side="top"
-                  align="start"
-                  sideOffset={6}
-                  className="w-auto min-w-28 p-1"
+                  align="center"
+                  sideOffset={8}
+                  collisionPadding={12}
+                  className="w-56 max-w-[calc(100vw-1.5rem)] rounded-lg p-1.5 shadow-lg"
                   onPointerEnter={clearCloseTimeout}
                   onPointerLeave={scheduleCloseLegendActions}
                   onFocusCapture={clearCloseTimeout}
                 >
-                  <div className="flex items-center gap-0.5">
+                  <div className="flex w-full items-center gap-1">
                     {onFilterKey && (
                       <button
                         type="button"
                         data-chart-legend-action="filter"
                         aria-label={`${t("sqlDashboard.filterSeries")} ${label}`}
-                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
+                        className="min-h-11 min-w-0 flex-1 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground"
                         onClick={() => {
                           onFilterKey(key);
                           setOpenKey(null);
@@ -635,7 +653,7 @@ export function SeriesLegend({
                         data-chart-legend-action="hide"
                         aria-label={`${t("sqlDashboard.hide")} ${label}`}
                         disabled={hidden}
-                        className="rounded-sm px-2 py-1 text-[11px] font-medium text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
+                        className="min-h-11 min-w-0 flex-1 rounded-md px-3 py-2 text-xs font-medium whitespace-nowrap text-popover-foreground outline-none transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:bg-accent focus-visible:text-accent-foreground disabled:pointer-events-none disabled:opacity-40"
                         onClick={() => {
                           onToggleKey(key);
                           setOpenKey(null);
@@ -1862,7 +1880,6 @@ function BarRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
-  const barSize = resolveBarSize(panel.config?.barSize);
 
   return (
     <ChartFrame
@@ -1919,7 +1936,6 @@ function BarRenderer({
                 stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
               }
               stackId={stacked ? "stack" : undefined}
-              barSize={barSize}
               hide={hiddenKeys.has(key)}
             />
           ))}

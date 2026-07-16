@@ -258,7 +258,6 @@ describe("compose-dashboard", () => {
     const panel = buildPanel("recurring-users-by-template-bar")!;
     expect(panel.sql).toContain("date_trunc('week', a.event_date::date)");
     expect(panel.sql).toContain("COUNT(DISTINCT a.user_key)");
-    expect(panel.config.barSize).toBe(40);
     expect(panel.config.description).toContain(
       "Weekly distinct signed-in visitors",
     );

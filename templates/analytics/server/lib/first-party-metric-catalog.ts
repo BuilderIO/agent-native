@@ -706,7 +706,6 @@ const ENTRIES: FirstPartyMetric[] = [
         valueKey: "users",
       },
       stacked: true,
-      barSize: 40,
       description:
         "Weekly distinct signed-in visitors who are NOT on their all-time first active day (Recurring only), stacked by inferred template/app used that week. Weeks start Monday; docs traffic and unknown template are excluded.",
     },
