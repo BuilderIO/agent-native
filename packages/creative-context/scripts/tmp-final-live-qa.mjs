@@ -3,6 +3,8 @@ import { execFileSync } from "node:child_process";
 import { chromium } from "playwright";
 
 const root = "/Users/steve/Projects/builder/agent-native/framework";
+const outputDir =
+  "/Users/steve/.codex/visualizations/2026/07/16/019f6b50-4f11-7973-bd24-97660fa817a1/creative-context";
 const nativeHarness = `${root}/packages/creative-context/scripts/tmp-final-native-qa.ts`;
 const password = "final-creative-context-live-qa";
 const apps = [
@@ -10,7 +12,7 @@ const apps = [
   { name: "design", port: 9232, connector: "Figma", native: true },
   { name: "assets", port: 9233, connector: "Website", native: false },
   { name: "content", port: 9234, connector: "Notion", native: false },
-];
+].filter((app) => !process.env.QA_APP || app.name === process.env.QA_APP);
 
 function invariant(condition, message) {
   if (!condition) throw new Error(message);
@@ -159,6 +161,10 @@ async function verifyLibrary(page, app) {
       `${app.name} empty Library changed`,
     );
   }
+  await page.screenshot({
+    path: `${outputDir}/${app.name}-library.png`,
+    fullPage: true,
+  });
 
   const addSource = page
     .locator("section")
@@ -175,6 +181,10 @@ async function verifyLibrary(page, app) {
     (await addSource.innerText()).includes(app.connector),
     `${app.name} source picker missing ${app.connector}`,
   );
+  await page.screenshot({
+    path: `${outputDir}/${app.name}-add-source.png`,
+    fullPage: true,
+  });
 
   const automatic = page.getByText("Automatic", { exact: true }).first();
   await automatic.click();
