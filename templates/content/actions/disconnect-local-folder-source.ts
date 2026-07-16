@@ -1,6 +1,6 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq, inArray } from "drizzle-orm";
+import { and, eq, inArray, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -41,6 +41,36 @@ export default defineAction({
       .from(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
     const documentIds = [...new Set(rows.map((row) => row.documentId))];
+    const remainingLocalRows = documentIds.length
+      ? await db
+          .select({
+            documentId: schema.contentDatabaseSourceRows.documentId,
+            sourceDisplayKey: schema.contentDatabaseSourceRows.sourceDisplayKey,
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+            sourceName: schema.contentDatabaseSources.sourceName,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .innerJoin(
+            schema.contentDatabaseSources,
+            eq(
+              schema.contentDatabaseSources.id,
+              schema.contentDatabaseSourceRows.sourceId,
+            ),
+          )
+          .where(
+            and(
+              inArray(schema.contentDatabaseSourceRows.documentId, documentIds),
+              ne(schema.contentDatabaseSourceRows.sourceId, sourceId),
+              eq(
+                schema.contentDatabaseSources.sourceType,
+                LOCAL_FOLDER_SOURCE_TYPE,
+              ),
+            ),
+          )
+      : [];
+    const remainingLocalRowByDocument = new Map(
+      remainingLocalRows.map((row) => [row.documentId, row]),
+    );
     const now = new Date().toISOString();
 
     await db.transaction(async (tx: any) => {
@@ -72,7 +102,10 @@ export default defineAction({
       await tx
         .delete(schema.contentDatabaseSources)
         .where(eq(schema.contentDatabaseSources.id, sourceId));
-      if (documentIds.length) {
+      const documentsToClear = documentIds.filter(
+        (documentId) => !remainingLocalRowByDocument.has(documentId),
+      );
+      if (documentsToClear.length) {
         await tx
           .update(schema.documents)
           .set({
@@ -86,7 +119,33 @@ export default defineAction({
           })
           .where(
             and(
-              inArray(schema.documents.id, documentIds),
+              inArray(schema.documents.id, documentsToClear),
+              eq(schema.documents.spaceId, spaceId),
+            ),
+          );
+      }
+      for (const [documentId, remaining] of remainingLocalRowByDocument) {
+        const sourceValues = JSON.parse(remaining.sourceValuesJson || "{}") as {
+          relativePath?: unknown;
+        };
+        const relativePath =
+          typeof sourceValues.relativePath === "string"
+            ? sourceValues.relativePath
+            : remaining.sourceDisplayKey;
+        await tx
+          .update(schema.documents)
+          .set({
+            sourceMode: "local-files",
+            sourceKind: "file",
+            sourcePath: relativePath,
+            sourceAbsolutePath: null,
+            sourceRootPath: remaining.sourceName,
+            sourceUpdatedAt: now,
+            updatedAt: now,
+          })
+          .where(
+            and(
+              eq(schema.documents.id, documentId),
               eq(schema.documents.spaceId, spaceId),
             ),
           );

@@ -191,34 +191,45 @@ export default defineAction({
       );
     }
 
-    const storedRows = await db
-      .select()
-      .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
-    const rowByPath = new Map(
-      storedRows.map((row) => [
-        String(parseJson(row.sourceValuesJson).relativePath ?? ""),
-        row,
-      ]),
-    );
-    const rowByDocumentId = new Map(
-      storedRows.map((row) => [row.documentId, row]),
-    );
     const explicitIds = valid.flatMap((file) => (file.id ? [file.id] : []));
-    const linkedIds = storedRows.map((row) => row.documentId);
-    const candidateIds = [...new Set([...explicitIds, ...linkedIds])];
-    const existingDocuments = candidateIds.length
-      ? await db
-          .select()
-          .from(schema.documents)
-          .where(inArray(schema.documents.id, candidateIds))
-      : [];
-    const documentById = new Map(
-      existingDocuments.map((document) => [document.id, document]),
-    );
+    type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
+    type Document = typeof schema.documents.$inferSelect;
+    const loadSnapshot = async (queryDb: any) => {
+      const storedRows = (await queryDb
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          eq(schema.contentDatabaseSourceRows.sourceId, sourceId),
+        )) as SourceRow[];
+      const rowByPath = new Map(
+        storedRows.map((row) => [
+          String(parseJson(row.sourceValuesJson).relativePath ?? ""),
+          row,
+        ]),
+      );
+      const rowByDocumentId = new Map(
+        storedRows.map((row) => [row.documentId, row]),
+      );
+      const linkedIds = storedRows.map((row) => row.documentId);
+      const candidateIds = [...new Set([...explicitIds, ...linkedIds])];
+      const existingDocuments = (
+        candidateIds.length
+          ? await queryDb
+              .select()
+              .from(schema.documents)
+              .where(inArray(schema.documents.id, candidateIds))
+          : []
+      ) as Document[];
+      const documentById = new Map(
+        existingDocuments.map((document) => [document.id, document]),
+      );
+      return { storedRows, rowByPath, rowByDocumentId, documentById };
+    };
+
+    const initialSnapshot = await loadSnapshot(db);
 
     for (const id of explicitIds) {
-      const existing = documentById.get(id);
+      const existing = initialSnapshot.documentById.get(id);
       if (!existing) continue;
       if (existing.spaceId !== target.database.spaceId) {
         throw new Error(
@@ -238,124 +249,144 @@ export default defineAction({
     const conflicts: Array<{ id: string; path: string; title: string }> = [];
     const outbound: Array<{ id: string; path: string; title: string }> = [];
 
-    const plans = valid.map((file, index) => {
-      const pathRow = rowByPath.get(file.path);
-      const id =
-        file.id ??
-        pathRow?.documentId ??
-        opaqueId("content_local_file", `${sourceId}:${file.path}`);
-      const existing = documentById.get(id);
-      const previousRow = rowByDocumentId.get(id) ?? pathRow;
-      const previousValues = parseJson(previousRow?.sourceValuesJson);
-      const previousHash =
-        typeof previousValues.contentHash === "string"
-          ? previousValues.contentHash
-          : null;
-      const previousMetadataHash =
-        typeof previousValues.metadataHash === "string"
-          ? previousValues.metadataHash
-          : null;
-      const incomingHash = contentHash(file.content);
-      const incomingMetadataHash = metadataHash(file);
-      const localHash = existing ? contentHash(existing.content) : null;
-      const localMetadataHash = existing ? metadataHash(existing) : null;
-      const incomingChanged =
-        previousHash !== incomingHash ||
-        previousMetadataHash !== incomingMetadataHash;
-      const localChanged =
-        !!existing &&
-        ((!!previousHash && localHash !== previousHash) ||
-          (!!previousMetadataHash &&
-            localMetadataHash !== previousMetadataHash));
-      const conflict =
-        !!existing &&
-        !!previousHash &&
-        incomingChanged &&
-        (localChanged || policy === "database_primary") &&
-        localHash !== incomingHash;
-      const keepContent =
-        !!existing &&
-        !!previousHash &&
-        localChanged &&
-        !incomingChanged &&
-        policy !== "source_primary";
-      const applyIncoming =
-        incomingChanged || (localChanged && policy === "source_primary");
-      return {
-        file,
-        index,
-        id,
-        existing,
-        previousRow,
-        previousHash,
-        incomingHash,
-        incomingMetadataHash,
-        localHash,
-        localMetadataHash,
-        incomingChanged,
-        localChanged,
-        conflict,
-        keepContent,
-        applyIncoming,
-      };
-    });
-
-    const currentDocumentIds = new Set(plans.map((plan) => plan.id));
-    const missingRows = storedRows.filter(
-      (row) => !currentDocumentIds.has(row.documentId),
-    );
-    for (const row of missingRows) {
-      const values = parseJson(row.sourceValuesJson);
-      const path = String(values.relativePath ?? row.sourceDisplayKey ?? "");
-      const document = documentById.get(row.documentId);
-      conflicts.push({
-        id: row.documentId,
-        path,
-        title: document?.title ?? path,
+    const buildPlans = (snapshot: Awaited<ReturnType<typeof loadSnapshot>>) =>
+      valid.map((file, index) => {
+        const pathRow = snapshot.rowByPath.get(file.path);
+        const id =
+          file.id ??
+          pathRow?.documentId ??
+          opaqueId("content_local_file", `${sourceId}:${file.path}`);
+        const existing = snapshot.documentById.get(id);
+        const previousRow = snapshot.rowByDocumentId.get(id) ?? pathRow;
+        const previousValues = parseJson(previousRow?.sourceValuesJson);
+        const previousHash =
+          typeof previousValues.contentHash === "string"
+            ? previousValues.contentHash
+            : null;
+        const previousMetadataHash =
+          typeof previousValues.metadataHash === "string"
+            ? previousValues.metadataHash
+            : null;
+        const incomingHash = contentHash(file.content);
+        const incomingMetadataHash = metadataHash(file);
+        const localHash = existing ? contentHash(existing.content) : null;
+        const localMetadataHash = existing ? metadataHash(existing) : null;
+        const incomingChanged =
+          previousHash !== incomingHash ||
+          previousMetadataHash !== incomingMetadataHash;
+        const localChanged =
+          !!existing &&
+          ((!!previousHash && localHash !== previousHash) ||
+            (!!previousMetadataHash &&
+              localMetadataHash !== previousMetadataHash));
+        const conflict =
+          !!existing &&
+          !!previousHash &&
+          incomingChanged &&
+          (localChanged || policy === "database_primary") &&
+          (localHash !== incomingHash ||
+            localMetadataHash !== incomingMetadataHash);
+        const keepContent =
+          !!existing &&
+          !!previousHash &&
+          localChanged &&
+          !incomingChanged &&
+          policy !== "source_primary";
+        const applyIncoming =
+          incomingChanged || (localChanged && policy === "source_primary");
+        return {
+          file,
+          index,
+          id,
+          existing,
+          previousRow,
+          previousHash,
+          incomingHash,
+          incomingMetadataHash,
+          localHash,
+          localMetadataHash,
+          incomingChanged,
+          localChanged,
+          conflict,
+          keepContent,
+          applyIncoming,
+        };
       });
-    }
 
-    for (const plan of plans) {
-      if (plan.conflict) {
+    let plans = buildPlans(initialSnapshot);
+    const initialDocumentIds = new Set(plans.map((plan) => plan.id));
+    let missingRows = initialSnapshot.storedRows.filter(
+      (row) => !initialDocumentIds.has(row.documentId),
+    );
+    const classifyPlans = (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+    ) => {
+      created.length = 0;
+      updated.length = 0;
+      unchanged.length = 0;
+      conflicts.length = 0;
+      outbound.length = 0;
+      for (const row of missingRows) {
+        const values = parseJson(row.sourceValuesJson);
+        const path = String(values.relativePath ?? row.sourceDisplayKey ?? "");
+        const document = snapshot.documentById.get(row.documentId);
         conflicts.push({
-          id: plan.id,
-          path: plan.file.path,
-          title: plan.file.title,
-        });
-      } else if (!plan.existing) {
-        created.push({
-          id: plan.id,
-          path: plan.file.path,
-          title: plan.file.title,
-        });
-      } else if (
-        plan.applyIncoming ||
-        plan.existing.title !== plan.file.title ||
-        plan.existing.sourcePath !== plan.file.path
-      ) {
-        updated.push({
-          id: plan.id,
-          path: plan.file.path,
-          title: plan.file.title,
-        });
-      } else {
-        unchanged.push({
-          id: plan.id,
-          path: plan.file.path,
-          title: plan.file.title,
+          id: row.documentId,
+          path,
+          title: document?.title ?? path,
         });
       }
-      if (plan.keepContent) {
-        outbound.push({
-          id: plan.id,
-          path: plan.file.path,
-          title: plan.file.title,
-        });
+
+      for (const plan of plans) {
+        if (plan.conflict) {
+          conflicts.push({
+            id: plan.id,
+            path: plan.file.path,
+            title: plan.file.title,
+          });
+        } else if (!plan.existing) {
+          created.push({
+            id: plan.id,
+            path: plan.file.path,
+            title: plan.file.title,
+          });
+        } else if (
+          plan.applyIncoming ||
+          plan.existing.title !== plan.file.title ||
+          plan.existing.sourcePath !== plan.file.path
+        ) {
+          updated.push({
+            id: plan.id,
+            path: plan.file.path,
+            title: plan.file.title,
+          });
+        } else {
+          unchanged.push({
+            id: plan.id,
+            path: plan.file.path,
+            title: plan.file.title,
+          });
+        }
+        if (plan.keepContent) {
+          outbound.push({
+            id: plan.id,
+            path: plan.file.path,
+            title: plan.file.title,
+          });
+        }
       }
-    }
+    };
+    classifyPlans(initialSnapshot);
 
     if (!dryRun) {
       await db.transaction(async (tx: any) => {
+        const transactionSnapshot = await loadSnapshot(tx);
+        plans = buildPlans(transactionSnapshot);
+        const currentDocumentIds = new Set(plans.map((plan) => plan.id));
+        missingRows = transactionSnapshot.storedRows.filter(
+          (row) => !currentDocumentIds.has(row.documentId),
+        );
+        classifyPlans(transactionSnapshot);
         for (const plan of plans) {
           if (plan.conflict) {
             const changeSetId = opaqueId(
@@ -370,7 +401,10 @@ export default defineAction({
                 sourceId,
                 databaseItemId: plan.previousRow?.databaseItemId ?? null,
                 documentId: plan.id,
-                kind: "body_update",
+                kind:
+                  plan.localHash === plan.incomingHash
+                    ? "metadata_update"
+                    : "body_update",
                 direction: "incoming",
                 state: "proposed",
                 pushMode: "none",

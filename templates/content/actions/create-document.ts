@@ -127,7 +127,7 @@ export default defineAction({
     } else {
       const provisioned = await provisionContentSpaces(db, currentUserEmail);
       spaceId = args.spaceId ?? provisioned.personalSpaceId;
-      const spaceAccess = await resolveContentSpaceAccess(spaceId);
+      const spaceAccess = await resolveContentSpaceAccess(spaceId, "editor");
       ownerEmail = currentUserEmail;
       orgId = spaceAccess.space.orgId;
       visibility = orgId ? "org" : "private";

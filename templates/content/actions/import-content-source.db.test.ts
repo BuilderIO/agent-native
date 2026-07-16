@@ -20,6 +20,8 @@ let schema: Schema;
 let importContentSourceAction: typeof import("./import-content-source.js").default;
 
 const OWNER = "owner@example.com";
+const VIEWER = "import-viewer@example.com";
+const ORG_ID = "import-viewer-org";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -60,6 +62,44 @@ function sourceWithDescription(description: string) {
 }
 
 describe("import-content-source descriptions", () => {
+  it("requires editor access before importing into an organization space", async () => {
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      args: [ORG_ID, "Import viewer org", OWNER, Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      args: ["import-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        importContentSourceAction.run({
+          files: {
+            "content/viewer-import.mdx": serializeContentSourceDocument({
+              id: "viewer_import_document",
+              parentId: null,
+              title: "Viewer import",
+              content: "Should not be written",
+              icon: null,
+              position: 0,
+              isFavorite: false,
+              hideFromSearch: false,
+              visibility: "org",
+            }),
+          },
+          dryRun: false,
+        }),
+      ),
+    ).rejects.toThrow("Editor access is required");
+    await expect(
+      getDb()
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "viewer_import_document")),
+    ).resolves.toEqual([]);
+  });
+
   it("persists exported descriptions when creating and updating documents", async () => {
     const path =
       "content/description-round-trip--doc_description_roundtrip.mdx";
