@@ -16,6 +16,13 @@ patterns live in `.agents/skills/`.
 - Never hardcode API keys, tokens, webhook URLs, signing secrets, private Builder/internal data, customer data, or credential-looking literals. Use secrets/OAuth/runtime configuration and obvious placeholders in examples.
 - Use the app actions for designs, files, versions, design systems, variants,
   export, and sharing. Do not write design rows directly with SQL.
+- A message beginning with `[Reprompt selection]` is preview-only. Call
+  `propose-node-rewrite` with its exact `repromptId`, target, and base hash;
+  never call `edit-design`, `update-design`, `update-file`, `generate-design`,
+  `apply-visual-edit`, or another content writer. Only
+  `resolve-node-rewrite` may persist an explicitly accepted proposal.
+- A message beginning with `[Selection question]` is read-only. Answer about
+  the captured element and subtree without calling content-writing actions.
 - When a user wants an established public system as a starting point, call
   `create-design-system` with `templateId: material-3`, `carbon-white`, or
   `primer-light`. These are source-linked, versioned token snapshots with
@@ -261,6 +268,12 @@ patterns live in `.agents/skills/`.
   generation planning state created by `generate-screens` (canvas region
   assignments and per-frame instructions consumed by `generate-design` and
   `view-screen`; not rendered as canvas overlays).
+- `design-reprompt-pending:<designId>:<fileId>` is the client-captured source
+  selection, instruction, and base hash for a scoped regenerate request.
+- `design-reprompt-proposal:<designId>:<fileId>` is the preview-only subtree
+  proposal. It is cleared with the pending request by `resolve-node-rewrite`.
+  `view-screen` lists unresolved proposals as `pendingCandidateReviews` so the
+  agent can tell the user which screens still need review.
 - `show-design-questions` opens focused pre-generation questions in the main
   design canvas (`show-questions` application state).
 - `guided-questions` may contain a one-click chat choice for the current

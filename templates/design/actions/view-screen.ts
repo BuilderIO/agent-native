@@ -30,6 +30,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { parseCanvasFrameGeometryById } from "../shared/canvas-frames.js";
 import { getDesignTemplatePreset } from "../shared/design-template-presets.js";
 import { designGenerationSessionKey } from "../shared/generation-session.js";
+import {
+  designRepromptPendingStateKey,
+  designRepromptProposalStateKey,
+  isNodeRewriteProposal,
+} from "../shared/node-rewrite.js";
 
 interface ReviewThreadSummary {
   openCount: number;
@@ -296,14 +301,60 @@ export default defineAction({
             data = {};
           }
         }
+        const activeScreen = resolveActiveScreen(
+          files,
+          navigation,
+          designSelection,
+        );
         screen.design = {
           id: designId,
           title: (access.resource as { title?: unknown }).title ?? null,
           screens: files,
-          activeScreen: resolveActiveScreen(files, navigation, designSelection),
+          activeScreen,
           activeCodeFile: resolveActiveCodeFile(files, designSelection),
           canvasFrames: parseCanvasFrameGeometryById(data.canvasFrames),
         };
+        const proposalStates = await Promise.all(
+          files.map(async (file) => ({
+            file,
+            value: await readAppState(
+              designRepromptProposalStateKey(designId, file.id),
+            ),
+          })),
+        );
+        const pendingCandidateReviews = proposalStates.flatMap((entry) => {
+          if (!isNodeRewriteProposal(entry.value)) return [];
+          const proposal = entry.value;
+          return [
+            {
+              proposalId: proposal.proposalId,
+              fileId: proposal.fileId,
+              filename: proposal.filename || entry.file.filename,
+              candidateCount: proposal.variants.length,
+              chosenIndex: proposal.chosenIndex,
+              target: proposal.target,
+              createdAt: proposal.createdAt,
+            },
+          ];
+        });
+        if (pendingCandidateReviews.length > 0) {
+          (screen.design as Record<string, unknown>).pendingCandidateReviews =
+            pendingCandidateReviews;
+        }
+        if (activeScreen?.id) {
+          const pendingReprompt = await readAppState(
+            designRepromptPendingStateKey(designId, activeScreen.id),
+          );
+          const proposal = proposalStates.find(
+            (entry) => entry.file.id === activeScreen.id,
+          )?.value;
+          if (pendingReprompt || proposal) {
+            (screen.design as Record<string, unknown>).reprompt = {
+              pending: pendingReprompt ?? null,
+              proposal: proposal ?? null,
+            };
+          }
+        }
         const reviewContext = ctx as ReviewResourceContext | undefined;
         const reviewScope = {
           userEmail: reviewContext?.userEmail ?? null,
@@ -344,7 +395,7 @@ export default defineAction({
           redactReviewIdentity
             ? redactPublicReviewStatusIdentity(reviewStatus)
             : reviewStatus,
-          resolveActiveScreen(files, navigation, designSelection)?.id,
+          activeScreen?.id,
           reviewSummary,
         );
       }

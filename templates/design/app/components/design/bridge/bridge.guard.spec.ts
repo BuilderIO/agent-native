@@ -6845,6 +6845,7 @@ it(
 <html>
   <body style="margin:0">
     <h1 data-agent-native-node-id="hero-title" data-agent-native-layer-name="Hero title" style="margin:40px;width:320px;height:80px">Hello</h1>
+    <div style="position:absolute;left:500px;top:100px;width:200px;height:100px"><span style="display:block;width:160px;height:60px">Nested layer</span></div>
   </body>
 </html>`);
       await page.addScriptTag({ content: hydratedHitTestBridgeScript() });
@@ -6874,6 +6875,15 @@ it(
           },
           "agent-native:review-anchor-at-point-result",
         );
+        const selectorAnchor = await request(
+          {
+            type: "agent-native:review-anchor-at-point",
+            correlationId: "review-selector-point",
+            x: 550,
+            y: 130,
+          },
+          "agent-native:review-anchor-at-point-result",
+        );
         const rects = await request(
           {
             type: "agent-native:review-node-rects",
@@ -6890,7 +6900,7 @@ it(
           },
           "agent-native:review-focus-result",
         );
-        return { anchor, rects, focus };
+        return { anchor, selectorAnchor, rects, focus };
       });
 
       expect(result.anchor).toMatchObject({
@@ -6898,6 +6908,11 @@ it(
         layerName: "Hero title",
         tagName: "h1",
       });
+      expect(result.selectorAnchor).toMatchObject({
+        targetSelector: "body > div:nth-of-type(1) > span:nth-of-type(1)",
+        tagName: "span",
+      });
+      expect(result.selectorAnchor.nodeId).toBeUndefined();
       expect(result.rects).toMatchObject({
         rects: {
           "hero-title": { left: 40, top: 40, width: 320, height: 80 },

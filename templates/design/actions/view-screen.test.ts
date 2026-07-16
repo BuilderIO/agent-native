@@ -144,6 +144,70 @@ describe("view-screen", () => {
     });
   });
 
+  it("lists candidate reviews waiting on any design screen", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "editor",
+        editorView: "overview",
+        designId: "design_123",
+      })
+      .mockResolvedValueOnce({
+        viewMode: "overview",
+        activeFileId: "file_index",
+      });
+    mocks.selectChain.where.mockResolvedValue([
+      {
+        id: "file_index",
+        filename: "index.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+      {
+        id: "file_checkout",
+        filename: "checkout.html",
+        fileType: "html",
+        updatedAt: "2026-06-29T00:00:00.000Z",
+      },
+    ]);
+    mocks.readAppState.mockImplementation(async (key: string) =>
+      key === "design-reprompt-proposal:design_123:file_checkout"
+        ? {
+            proposalId: "proposal-1",
+            repromptId: "reprompt-1",
+            designId: "design_123",
+            fileId: "file_checkout",
+            filename: "checkout.html",
+            baseVersionHash: "1:abc",
+            target: { nodeId: "hero" },
+            resolvedTarget: { nodeId: "hero", selector: "#hero" },
+            variants: [
+              { html: "<section>One</section>", summary: "One" },
+              { html: "<section>Two</section>", summary: "Two" },
+            ],
+            chosenIndex: 0,
+            createdAt: "2026-07-16T12:00:00.000Z",
+          }
+        : undefined,
+    );
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.design.pendingCandidateReviews).toEqual([
+      {
+        proposalId: "proposal-1",
+        fileId: "file_checkout",
+        filename: "checkout.html",
+        candidateCount: 2,
+        chosenIndex: 0,
+        target: { nodeId: "hero" },
+        createdAt: "2026-07-16T12:00:00.000Z",
+      },
+    ]);
+    expect(JSON.stringify(result.design.pendingCandidateReviews)).not.toContain(
+      "<section>",
+    );
+  });
+
   it("uses selected overview screen ids when no focused file is available", async () => {
     mocks.readAppStateForCurrentTab
       .mockResolvedValueOnce({

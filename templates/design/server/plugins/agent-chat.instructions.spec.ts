@@ -13,6 +13,10 @@ const reviewFeedbackSkill = readFileSync(
   ),
   "utf8",
 );
+const templateAgents = readFileSync(
+  new URL("../../AGENTS.md", import.meta.url),
+  "utf8",
+);
 
 describe("design review agent instructions", () => {
   it.each([
@@ -22,5 +26,19 @@ describe("design review agent instructions", () => {
     expect(instructions).toContain("resolutionNote");
     expect(instructions).toContain("one-line description");
     expect(instructions).toContain("persisted change");
+  });
+});
+
+describe("select and reprompt agent contract", () => {
+  it("keeps the preview-only rule in every always-visible instruction surface", () => {
+    expect(agentChatSource).toContain(
+      "the design must remain unchanged until the user accepts a preview",
+    );
+    expect(agentChatSource).toContain('"propose-node-rewrite"');
+    expect(agentChatSource).toContain('"resolve-node-rewrite"');
+    expect(templateAgents.slice(0, 6_000)).toContain("[Reprompt selection]");
+    expect(templateAgents.slice(0, 6_000)).toContain("propose-node-rewrite");
+    expect(agentChatSource).toContain("[Selection question]");
+    expect(templateAgents.slice(0, 6_000)).toContain("[Selection question]");
   });
 });

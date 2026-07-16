@@ -24,6 +24,7 @@ import {
   type PenPath,
   type PenPoint,
 } from "@shared/pen-path";
+import { sourceContentHash } from "@shared/source-workspace";
 import { IconPlugConnectedX, IconRefresh } from "@tabler/icons-react";
 import {
   useCallback,
@@ -43,6 +44,7 @@ import { Button } from "@/components/ui/button";
 import {
   DrawOverlay as SharedDrawOverlay,
   ReviewCanvasPins,
+  type RepromptDraftRequest,
   type ReviewFocusRequest,
 } from "@/components/visual-editor";
 import { sendToDesignAgentChatAndConfirm } from "@/lib/agent-chat";
@@ -556,6 +558,11 @@ interface DesignCanvasProps {
   previewFrameId?: string;
   /** Human-readable label for comment-pin prompts. */
   commentContextLabel?: string;
+  /** Opens an ephemeral, pre-anchored regenerate composer for this screen. */
+  repromptDraftRequest?: RepromptDraftRequest | null;
+  onRepromptDraftConsumed?: (nonce: number) => void;
+  /** Marks the one base canvas used for pending rewrite previews. */
+  nodeRewriteCanvasTarget?: boolean;
   /**
    * Called when a link inside the prototype points to another screen (a
    * relative href or `data-screen`). Lets the editor switch the active screen
@@ -1053,6 +1060,9 @@ export function DesignCanvas({
   commentContextId,
   screenId,
   previewFrameId,
+  repromptDraftRequest,
+  onRepromptDraftConsumed,
+  nodeRewriteCanvasTarget = false,
   onPrototypeNavigate,
   motionTracks,
   motionDefaultEase,
@@ -4027,6 +4037,9 @@ export function DesignCanvas({
   const iframeElement = (
     <div
       data-review-canvas-id={reviewCanvasId}
+      data-node-rewrite-canvas-target={
+        nodeRewriteCanvasTarget ? "true" : undefined
+      }
       className="design-canvas-iframe-wrapper relative inline-block ring-1 ring-border/60 shadow-[0_0_0_1px_rgba(0,0,0,0.04),0_8px_24px_-12px_rgba(0,0,0,0.45)]"
       onDragEnter={handleWrapperDragEnter}
       onDragOver={handleWrapperDragOver}
@@ -4548,6 +4561,12 @@ export function DesignCanvas({
           onDispatchCommentToAgent={onDispatchCommentToAgent}
           onSendThreadToAgent={onSendThreadToAgent}
           sendingThreadId={reviewSendingThreadId}
+          sourceType={
+            sourceType ?? (externalPreviewUrl ? "localhost" : "inline")
+          }
+          sourceVersionHash={sourceContentHash(content)}
+          repromptDraftRequest={repromptDraftRequest}
+          onRepromptDraftConsumed={onRepromptDraftConsumed}
         />
       ) : null}
     </div>

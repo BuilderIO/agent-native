@@ -156,6 +156,43 @@ describe("MultiScreenCanvas gesture cancellation and drag thresholds", () => {
     return { frame: frame!, label: label! };
   }
 
+  it("keeps pending review discoverable in constant-size frame chrome", async () => {
+    const onReviewPendingScreen = vi.fn();
+    await act(async () => {
+      root.render(
+        <MultiScreenCanvas
+          screens={[
+            {
+              id: "screen-review",
+              filename: "review.html",
+              content: "<!doctype html><html><body></body></html>",
+            },
+          ]}
+          zoom={25}
+          activeId="screen-review"
+          pendingReviewScreenIds={new Set(["screen-review"])}
+          onReviewPendingScreen={onReviewPendingScreen}
+          geometryById={{
+            "screen-review": { x: 0, y: 0, width: 320, height: 640 },
+          }}
+          onPick={() => {}}
+        />,
+      );
+    });
+
+    const badge = container.querySelector<HTMLButtonElement>(
+      "[data-node-rewrite-review-badge]",
+    );
+    expect(badge?.textContent).toContain(
+      "designEditor.nodeRewrite.reviewCandidate",
+    );
+    expect(
+      badge?.closest<HTMLElement>("[data-frame-label]")?.style.transform,
+    ).toContain("scale(4)");
+    await act(async () => badge?.click());
+    expect(onReviewPendingScreen).toHaveBeenCalledWith("screen-review");
+  });
+
   it("keeps the Interact action inside narrow frames as a compact icon", async () => {
     const { frame } = await renderSelectedFrame(240);
     const fullView = frame.querySelector<HTMLElement>("[data-frame-full-view]");
