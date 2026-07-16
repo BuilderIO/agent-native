@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation brief complete; repository-backed F3/F4 evidence, public preflight, and credentialed deploy provenance complete; configuration inventory and deployed proof pending
+Status: implementation brief complete; isolated Vercel/Neon fork lab and synthetic two-account isolation proof operational; production configuration inventory and E2EE implementation pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -136,6 +136,38 @@ The fork therefore needs:
 - A test signing root and built desktop/broker artifacts sufficient to exercise signature pinning and malicious-update cases. Official production signing happens only after the exact SHA reaches upstream infrastructure.
 - External model/integration tests configured to retain no real vault data and to use synthetic fixtures only.
 
+### Provisioned fork lab — 2026-07-16
+
+The first isolated integration environment is operational:
+
+| Surface             | Current fork-lab state                                                                                                                                                                                                               |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Repository          | `3mdistal/agent-native`, development branch `codex/content-e2ee-foundation`, based on `6eb412bdc95add3bda0b92a402fbe6c14aae6fb6` before the Vercel cold-start fixes in this work unit                                                |
+| Vercel              | Project `agent-native-content-e2ee-lab` (`prj_wO5idRekc7toiCNQuHXH2zxawCvp`), connected to the fork, Node 24, root directory `templates/content`, explicit build command `NITRO_PRESET=vercel AGENT_NATIVE_MODE=database pnpm build` |
+| Stable URL          | `https://agent-native-content-e2ee-lab.vercel.app`                                                                                                                                                                                   |
+| Verified deployment | Production deployment `dpl_CYYgExwSuUtoAdjDJSe1CyKCCSZF`; the stable alias served the final artifact                                                                                                                                 |
+| Neon                | Fork-only Neon project `curly-grass-81173036`, Vercel Marketplace resource `store_6SY2k3ZIus8VEFka`, region `iad1`, connected to production, preview, and development environments                                                   |
+| Runtime secrets     | Independent generated values for Better Auth, scoped-secret encryption, and A2A in each environment; values were never copied into source or documentation                                                                           |
+| Runtime mode        | Database mode with Neon-backed migrations and content-free health reporting; serverless ffmpeg target pinned to `x64` for Vercel-hosted builds                                                                                       |
+
+The deployed smoke and isolation proof passed:
+
+- A genuinely cold `GET /_agent-native/auth/session` returned `200` with an unauthenticated envelope after auth initialization was added to the framework readiness gate. `GET /_agent-native/sign-in` returned the framework login HTML on its first request.
+- `GET /_agent-native/health` returned `200` with `ok`, `ready`, and database connectivity true.
+- Anonymous `GET /_agent-native/actions/list-documents` returned `401` with no document data.
+- Synthetic account A created private page `YF7URVpwJLF6`, titled `QA A Private Canary`.
+- Synthetic account B's private list was empty and direct navigation to A's page returned the in-app `Document unavailable` boundary. The account B UI exposed neither A's title in its tree nor A's document body.
+- `AUTH_SKIP_EMAIL_VERIFICATION` was enabled only long enough to create the synthetic QA accounts, then removed before the final deployment. It is absent from the settled production environment.
+
+This proves the fork lab, authentication, Neon persistence, and the exercised document read boundary. It does **not** prove E2EE, privileged-operator blindness, every Content resource type, or complete cross-user isolation. The existing F3/F4 matrix and adversarial suite remain mandatory.
+
+Open lab gaps before E2EE milestone PR 3:
+
+- Connect a synthetic-only agent engine; the current status endpoint reports `configured: false`, so document storage/auth can be tested but agent runs cannot yet be included in the lab evidence.
+- Provision fork-owned blob and scheduler targets before media, queue, background-run, or deletion assertions are claimed.
+- Triage the 77 non-strict `agent-native doctor` findings emitted by the Content build. Many are test or deploy-environment reads, but the lab must not silently promote a noisy build to a clean security signal.
+- Exercise the next Git-triggered preview after the branch is pushed. Manual prebuilt production deployment is proven; Git linkage and monorepo root/build settings are configured but not yet counted as proven until Vercel builds the pushed commit itself.
+
 ### Exact-SHA upstream handoff
 
 Opening the final PR directly from the fork would run ordinary upstream CI, but official Neon/Netlify preview provisioning is intentionally skipped for fork heads. The safer final handoff is:
@@ -205,17 +237,17 @@ Required behavior:
 
 ### Entry-gate map
 
-| Gate | Must be complete before | Required output |
-| --- | --- | --- |
-| Production exposure inventory | PR 1 opens | [Unauthenticated content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md); credentialed visibility/grant counts, effective deployment configuration, provider IAM/retention, and disposable CDN/media proof remain pending |
-| F3 plaintext and derivative inventory | PR 3 opens | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending |
-| F4 remediation matrix | PR 1 opens | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); implementation and deployed adversarial proof remain pending |
-| M1 personal-vault domain | PR 3 opens | The settled one-vault domain contract reflected in schema invariants |
-| M2 protected-field and metadata budget | PR 3 opens | Exact hosted-field allowlist, retention/deletion table, admitted size/timing/access-pattern leakage, and schema guard |
-| M3 cryptographic architecture | PR 4 opens | Reviewed design record selecting maintained, independently reviewed primitives/libraries for object encryption, key wrapping, device authentication, streaming, rotation, versioning, and algorithm agility, with fixed interoperability and failure vectors; no home-grown cryptography |
-| K1 device identity and enrollment | PR 5 opens | Existing-device or recovery-mediated enrollment ceremony; server directory cannot add a device alone |
-| K2 recovery | PR 5 opens | Verified recovery-material format and lost-all-paths behavior; no Agent Native recovery key |
-| Signed desktop and agent-loop placement | PR 5 opens | Desktop-only private-vault client; vault-scoped agent loop runs on the enrolled broker |
+| Gate                                    | Must be complete before | Required output                                                                                                                                                                                                                                                                          |
+| --------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production exposure inventory           | PR 1 opens              | [Unauthenticated content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md); credentialed visibility/grant counts, effective deployment configuration, provider IAM/retention, and disposable CDN/media proof remain pending                                |
+| F3 plaintext and derivative inventory   | PR 3 opens              | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending                                                                                                |
+| F4 remediation matrix                   | PR 1 opens              | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); implementation and deployed adversarial proof remain pending                                                                                                             |
+| M1 personal-vault domain                | PR 3 opens              | The settled one-vault domain contract reflected in schema invariants                                                                                                                                                                                                                     |
+| M2 protected-field and metadata budget  | PR 3 opens              | Exact hosted-field allowlist, retention/deletion table, admitted size/timing/access-pattern leakage, and schema guard                                                                                                                                                                    |
+| M3 cryptographic architecture           | PR 4 opens              | Reviewed design record selecting maintained, independently reviewed primitives/libraries for object encryption, key wrapping, device authentication, streaming, rotation, versioning, and algorithm agility, with fixed interoperability and failure vectors; no home-grown cryptography |
+| K1 device identity and enrollment       | PR 5 opens              | Existing-device or recovery-mediated enrollment ceremony; server directory cannot add a device alone                                                                                                                                                                                     |
+| K2 recovery                             | PR 5 opens              | Verified recovery-material format and lost-all-paths behavior; no Agent Native recovery key                                                                                                                                                                                              |
+| Signed desktop and agent-loop placement | PR 5 opens              | Desktop-only private-vault client; vault-scoped agent loop runs on the enrolled broker                                                                                                                                                                                                   |
 
 The product decisions behind these gates are settled in the trust contract. The listed outputs refine them into executable schemas, ceremonies, and tests; they do not reopen vendor key escrow, hosted plaintext agent loops, or browser vault access. PR 3 may define versioned opaque envelope schemas and failing vectors, but PR 4 may not implement encryption or key custody until M3 has passed focused cryptographic design review.
 
@@ -436,18 +468,18 @@ Always-on Personal Automation is not a prerequisite for moving the vault. Queue-
 
 Every property needs three levels where applicable:
 
-| Property | Unit/vector | Integration/adversarial | Deployed evidence |
-| --- | --- | --- | --- |
-| Server blindness | Known-plaintext and key-search fixtures | SQL/blob/log/audit/job dump | Real preview/prod storage inspection |
-| Device and recipient identity | Signature/envelope vectors | Malicious directory and wrong-recipient tests | Enrolled-device ceremony |
-| Agent grants | Scope/provider/expiry/revocation tests | Scope expansion and stale-grant attempts | User-visible grant and disclosure audit |
-| Offline failure | Queue state machine tests | Broker killed mid-operation | Missed/queued run in built client |
-| Rotation and removal | Epoch/replay vectors | Removed offline device and stale write | Two-device canary |
-| Private indexes | No-plaintext-cache assertion | Search/database corpus coverage | Cold rebuild and incremental benchmark |
-| Egress | Disclosure-schema tests | Model/integration/public boundary tests | First-disclosure and revoke UI proof |
-| Migration/recovery | Idempotency and corruption vectors | Interrupted cutover/export/recovery | Synthetic vault drill |
-| Client integrity | Artifact/signature tests | Malicious update/channel simulation | Built signed-client verification |
-| Revocation | ACL/key-epoch tests | Public-to-private and media leak tests | Real CDN/provider fetch after revoke |
+| Property                      | Unit/vector                             | Integration/adversarial                       | Deployed evidence                       |
+| ----------------------------- | --------------------------------------- | --------------------------------------------- | --------------------------------------- |
+| Server blindness              | Known-plaintext and key-search fixtures | SQL/blob/log/audit/job dump                   | Real preview/prod storage inspection    |
+| Device and recipient identity | Signature/envelope vectors              | Malicious directory and wrong-recipient tests | Enrolled-device ceremony                |
+| Agent grants                  | Scope/provider/expiry/revocation tests  | Scope expansion and stale-grant attempts      | User-visible grant and disclosure audit |
+| Offline failure               | Queue state machine tests               | Broker killed mid-operation                   | Missed/queued run in built client       |
+| Rotation and removal          | Epoch/replay vectors                    | Removed offline device and stale write        | Two-device canary                       |
+| Private indexes               | No-plaintext-cache assertion            | Search/database corpus coverage               | Cold rebuild and incremental benchmark  |
+| Egress                        | Disclosure-schema tests                 | Model/integration/public boundary tests       | First-disclosure and revoke UI proof    |
+| Migration/recovery            | Idempotency and corruption vectors      | Interrupted cutover/export/recovery           | Synthetic vault drill                   |
+| Client integrity              | Artifact/signature tests                | Malicious update/channel simulation           | Built signed-client verification        |
+| Revocation                    | ACL/key-epoch tests                     | Public-to-private and media leak tests        | Real CDN/provider fetch after revoke    |
 
 Content currently has strong unit and DB coverage but only two browser E2E specs, and its fast suite excludes DB, integration, E2E, live, and performance tests. E2EE therefore needs a dedicated CI lane rather than hiding inside `test:fast`.
 
