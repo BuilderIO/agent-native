@@ -203,12 +203,13 @@ async function verifyLibrary(page, app) {
 
 async function verifyComposer(page, app) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  const toggle = page.getByRole("button", { name: "Toggle agent" });
-  if (await toggle.count()) {
-    const first = toggle.first();
-    if (await first.isVisible()) await first.click().catch(() => {});
-  }
-  const chip = page.getByRole("button").filter({ hasText: "Automatic" }).last();
+  await page.evaluate(() => window.dispatchEvent(new Event("agent-panel:open")));
+  const panel = page.locator(".agent-sidebar-panel");
+  await panel.waitFor({ timeout: 15_000 });
+  const chip = panel
+    .locator("button")
+    .filter({ has: panel.locator("span.max-w-44.truncate") })
+    .last();
   await chip.waitFor({ timeout: 15_000 });
   await chip.click();
   const menu = page.getByRole("menu");
@@ -220,6 +221,10 @@ async function verifyComposer(page, app) {
       menuText.includes("Library"),
     `${app.name} composer chip menu incomplete`,
   );
+  await page.screenshot({
+    path: `${outputDir}/${app.name}-composer-context-menu.png`,
+    fullPage: true,
+  });
   await page.keyboard.press("Escape");
 }
 

@@ -2055,8 +2055,120 @@ function TimeSeriesRenderer({
         onFilterLegendKey={filterSeries}
         showCustomLegend
       >
-        <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={chartRows}>
+        <ChartResponsiveContainer>
+          {(isAnimationActive) => (
+            <LineChart data={chartRows}>
+              <XAxis
+                dataKey={xKey}
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={xLabelFormatter}
+              />
+              <YAxis
+                stroke="hsl(var(--muted-foreground))"
+                fontSize={12}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => formatYValue(v, yFormatter)}
+              />
+              <CartesianGrid
+                strokeDasharray="3 3"
+                stroke="hsl(var(--border))"
+                vertical={false}
+              />
+              <Tooltip
+                {...CHART_TOOLTIP_PROPS}
+                labelFormatter={xLabelFormatter}
+                content={
+                  <ChartTooltip
+                    labelFormatter={xLabelFormatter}
+                    seriesNameFormatter={seriesNameFormatter}
+                    valueFormatter={(v) => formatYValue(v, yFormatter)}
+                  />
+                }
+                itemSorter={(item) => -(Number(item.value) || 0)}
+              />
+              {series.map((item, i) => (
+                <Line
+                  key={item.solidKey}
+                  type="monotone"
+                  dataKey={item.solidKey}
+                  name={seriesNameFormatter(item.key)}
+                  stroke={colors[i % colors.length]}
+                  strokeWidth={2}
+                  dot={false}
+                  hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={isAnimationActive}
+                />
+              ))}
+              {series.map((item, i) =>
+                item.partialKey ? (
+                  <Line
+                    key={item.partialKey}
+                    type="monotone"
+                    dataKey={item.partialKey}
+                    name={seriesNameFormatter(item.key)}
+                    stroke={colors[i % colors.length]}
+                    strokeWidth={2}
+                    strokeDasharray={PARTIAL_DAY_DASH}
+                    dot={false}
+                    hide={hiddenKeys.has(item.key)}
+                    isAnimationActive={isAnimationActive}
+                  />
+                ) : null,
+              )}
+            </LineChart>
+          )}
+        </ChartResponsiveContainer>
+      </ChartFrame>
+    );
+  }
+
+  // With multiple series, filled areas stack and obscure lines behind them,
+  // so only draw the gradient fill when there's a single series — unless
+  // the caller asked for an explicit stacked area.
+  const showFill = visibleKeys.length === 1 || stacked;
+
+  return (
+    <ChartFrame
+      panel={panel}
+      legendKeys={yKeys}
+      colors={colors}
+      hiddenKeys={hiddenKeys}
+      onToggleLegendKey={toggleSeries}
+      onFilterLegendKey={filterSeries}
+      showCustomLegend
+    >
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <AreaChart data={chartRows}>
+            {showFill && (
+              <defs>
+                {yKeys.map((key, i) => (
+                  <linearGradient
+                    key={key}
+                    id={`sql-gradient-${key}`}
+                    x1="0"
+                    y1="0"
+                    x2="0"
+                    y2="1"
+                  >
+                    <stop
+                      offset="5%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0.3}
+                    />
+                    <stop
+                      offset="95%"
+                      stopColor={colors[i % colors.length]}
+                      stopOpacity={0}
+                    />
+                  </linearGradient>
+                ))}
+              </defs>
+            )}
             <XAxis
               dataKey={xKey}
               stroke="hsl(var(--muted-foreground))"
@@ -2090,20 +2202,23 @@ function TimeSeriesRenderer({
               itemSorter={(item) => -(Number(item.value) || 0)}
             />
             {series.map((item, i) => (
-              <Line
+              <Area
                 key={item.solidKey}
                 type="monotone"
                 dataKey={item.solidKey}
                 name={seriesNameFormatter(item.key)}
                 stroke={colors[i % colors.length]}
                 strokeWidth={2}
-                dot={false}
+                fillOpacity={showFill ? 1 : 0}
+                fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
+                stackId={stacked ? "stack" : undefined}
                 hide={hiddenKeys.has(item.key)}
+                isAnimationActive={isAnimationActive}
               />
             ))}
             {series.map((item, i) =>
               item.partialKey ? (
-                <Line
+                <Area
                   key={item.partialKey}
                   type="monotone"
                   dataKey={item.partialKey}
@@ -2111,124 +2226,17 @@ function TimeSeriesRenderer({
                   stroke={colors[i % colors.length]}
                   strokeWidth={2}
                   strokeDasharray={PARTIAL_DAY_DASH}
-                  dot={false}
+                  fill="none"
+                  fillOpacity={0}
+                  stackId={stacked ? "partial-stack" : undefined}
                   hide={hiddenKeys.has(item.key)}
+                  isAnimationActive={isAnimationActive}
                 />
               ) : null,
             )}
-          </LineChart>
-        </ResponsiveContainer>
-      </ChartFrame>
-    );
-  }
-
-  // With multiple series, filled areas stack and obscure lines behind them,
-  // so only draw the gradient fill when there's a single series — unless
-  // the caller asked for an explicit stacked area.
-  const showFill = visibleKeys.length === 1 || stacked;
-
-  return (
-    <ChartFrame
-      panel={panel}
-      legendKeys={yKeys}
-      colors={colors}
-      hiddenKeys={hiddenKeys}
-      onToggleLegendKey={toggleSeries}
-      onFilterLegendKey={filterSeries}
-      showCustomLegend
-    >
-      <ResponsiveContainer width="100%" height="100%">
-        <AreaChart data={chartRows}>
-          {showFill && (
-            <defs>
-              {yKeys.map((key, i) => (
-                <linearGradient
-                  key={key}
-                  id={`sql-gradient-${key}`}
-                  x1="0"
-                  y1="0"
-                  x2="0"
-                  y2="1"
-                >
-                  <stop
-                    offset="5%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0.3}
-                  />
-                  <stop
-                    offset="95%"
-                    stopColor={colors[i % colors.length]}
-                    stopOpacity={0}
-                  />
-                </linearGradient>
-              ))}
-            </defs>
-          )}
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            labelFormatter={xLabelFormatter}
-            content={
-              <ChartTooltip
-                labelFormatter={xLabelFormatter}
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {series.map((item, i) => (
-            <Area
-              key={item.solidKey}
-              type="monotone"
-              dataKey={item.solidKey}
-              name={seriesNameFormatter(item.key)}
-              stroke={colors[i % colors.length]}
-              strokeWidth={2}
-              fillOpacity={showFill ? 1 : 0}
-              fill={showFill ? `url(#sql-gradient-${item.key})` : "none"}
-              stackId={stacked ? "stack" : undefined}
-              hide={hiddenKeys.has(item.key)}
-            />
-          ))}
-          {series.map((item, i) =>
-            item.partialKey ? (
-              <Area
-                key={item.partialKey}
-                type="monotone"
-                dataKey={item.partialKey}
-                name={seriesNameFormatter(item.key)}
-                stroke={colors[i % colors.length]}
-                strokeWidth={2}
-                strokeDasharray={PARTIAL_DAY_DASH}
-                fill="none"
-                fillOpacity={0}
-                stackId={stacked ? "partial-stack" : undefined}
-                hide={hiddenKeys.has(item.key)}
-              />
-            ) : null,
-          )}
-        </AreaChart>
-      </ResponsiveContainer>
+          </AreaChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }

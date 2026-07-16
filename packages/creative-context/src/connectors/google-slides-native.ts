@@ -377,11 +377,12 @@ function inheritedPageElements(
       layoutElements,
       layoutPlaceholders,
     );
-    const masterElement = resolvePlaceholder(
-      elementPlaceholder(layoutElement),
-      masterElements,
-      masterPlaceholders,
-    );
+    const masterElement =
+      resolvePlaceholder(
+        elementPlaceholder(layoutElement),
+        masterElements,
+        masterPlaceholders,
+      ) ?? resolvePlaceholder(placeholder, masterElements, masterPlaceholders);
     const layoutId = text(layoutElement?.objectId);
     const masterId = text(masterElement?.objectId);
     if (layoutId) claimedLayout.add(layoutId);
@@ -914,7 +915,21 @@ function lineMarkup(
           state.themeColors,
         );
   const dash = text(properties?.dashStyle) ?? "SOLID";
-  return `<div class="gslide-element gslide-line" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};height:0;border-top:${round(weight)}px ${dash === "SOLID" ? "solid" : "dashed"} ${color}"></div>`;
+  const size = record(element.size);
+  const width = dimensionToPx(record(size?.width));
+  const height = dimensionToPx(record(size?.height));
+  const [a, b, c, d, e, f] = elementTransform(element);
+  const deltaX = (a * width + c * height) * state.canvasScale;
+  const deltaY = (b * width + d * height) * state.canvasScale;
+  const length = Math.hypot(deltaX, deltaY);
+  const angle = (Math.atan2(deltaY, deltaX) * 180) / Math.PI;
+  const geometry = css({
+    width: `${round(length)}px`,
+    height: "0",
+    transform: `translate(${round(e * state.canvasScale)}px,${round(f * state.canvasScale)}px) rotate(${round(angle)}deg)`,
+    "transform-origin": "0 0",
+  });
+  return `<div class="gslide-element gslide-line" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${geometry};border-top:${round(weight)}px ${dash === "SOLID" ? "solid" : "dashed"} ${color}"></div>`;
 }
 
 function pageBackground(
@@ -1006,11 +1021,12 @@ function elementBounds(
 
 function elementTransform(element: JsonObject): AffineTransform {
   const transform = record(element.transform);
+  if (!transform) return IDENTITY_TRANSFORM;
   return [
-    number(transform?.scaleX) ?? 1,
+    number(transform.scaleX) ?? 0,
     number(transform?.shearY) ?? 0,
     number(transform?.shearX) ?? 0,
-    number(transform?.scaleY) ?? 1,
+    number(transform.scaleY) ?? 0,
     dimensionToPx({
       magnitude: number(transform?.translateX) ?? 0,
       unit: text(transform?.unit) ?? "EMU",
