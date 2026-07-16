@@ -38,22 +38,21 @@ describe("pivotRows", () => {
     ]);
   });
 
-  it("preserves weekly buckets instead of inserting daily zero rows", () => {
+  it("can preserve only returned date buckets for bar-chart auto sizing", () => {
     const result = pivotRows(
       [
-        { date: "2026-06-01", template: "content", count: 5 },
-        { date: "2026-06-08", template: "content", count: 8 },
-        { date: "2026-06-08", template: "plan", count: 2 },
-        { date: "2026-06-15", template: "plan", count: 4 },
+        { date: "2026-06-16", template: "content", count: 5 },
+        { date: "2026-06-18", template: "content", count: 8 },
+        { date: "2026-06-18", template: "plan", count: 2 },
       ],
       { xKey: "date", seriesKey: "template", valueKey: "count" },
+      { fillDateGaps: false },
     );
 
     expect(result.seriesKeys).toEqual(["content", "plan"]);
     expect(result.rows).toEqual([
-      { date: "2026-06-01", content: 5, plan: 0 },
-      { date: "2026-06-08", content: 8, plan: 2 },
-      { date: "2026-06-15", content: 0, plan: 4 },
+      { date: "2026-06-16", content: 5, plan: 0 },
+      { date: "2026-06-18", content: 8, plan: 2 },
     ]);
   });
 });

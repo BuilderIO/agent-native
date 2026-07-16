@@ -1177,7 +1177,9 @@ export function SqlChart({
 
   const { rows: queryRows, forcedYKeys } = useMemo(() => {
     if (panel.config?.pivot && rawRows.length) {
-      const pivoted = pivotRows(rawRows, panel.config.pivot);
+      const pivoted = pivotRows(rawRows, panel.config.pivot, {
+        fillDateGaps: panel.chartType !== "bar",
+      });
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };

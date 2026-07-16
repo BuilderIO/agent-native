@@ -635,6 +635,7 @@ function shapeMarkup(
   );
   const outline = outlineCss(record(properties.outline), state.themeColors);
   const textContent = compileRichText(record(shape.text), state, inherited);
+  const textScaleCompensation = textScaleCompensationCss(element);
   const alignment = text(properties.contentAlignment) ?? "TOP";
   const justifyContent =
     alignment === "MIDDLE"
@@ -642,7 +643,20 @@ function shapeMarkup(
       : alignment === "BOTTOM"
         ? "flex-end"
         : "flex-start";
-  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:hidden"><div class="gslide-text" style="width:100%;height:100%;box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:${justifyContent}">${textContent}</div></div>`;
+  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:hidden"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:${justifyContent}">${textContent}</div></div>`;
+}
+
+function textScaleCompensationCss(element: JsonObject): string {
+  const [a, b, c, d] = elementTransform(element);
+  const scaleX = Math.hypot(a, b) || 1;
+  const determinant = a * d - b * c;
+  const scaleY = Math.abs(determinant / scaleX) || 1;
+  return css({
+    width: `${round(scaleX * 100)}%`,
+    height: `${round(scaleY * 100)}%`,
+    transform: `scale(${round(1 / scaleX)},${round(1 / scaleY)})`,
+    "transform-origin": "0 0",
+  });
 }
 
 function compileRichText(
