@@ -10,6 +10,12 @@ const mockGetOrgContext = vi.hoisted(() =>
 );
 const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
 
+function fakeUnsignedJwt(payload: Record<string, string>): string {
+  const encode = (value: Record<string, string>) =>
+    Buffer.from(JSON.stringify(value)).toString("base64url");
+  return `${encode({ alg: "none" })}.${encode(payload)}.not-a-real-signature`;
+}
+
 vi.mock("h3", () => ({
   createError: (opts: any) =>
     Object.assign(new Error(opts?.statusMessage), opts),
@@ -837,8 +843,11 @@ describe("mountActionRoutes", () => {
       },
       { getOwnerFromEvent },
     );
-    const token =
-      "eyJhbGciOiJIUzI1NiJ9.eyJvcmdfaWQiOiJvcmctMSIsImp0aSI6InJlcXVlc3QtMSIsInNjb3BlIjoiZmxhZ3M6cmVhZCJ9.signature";
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-1",
+      scope: "flags:read",
+    });
     await mounted[0].handler({
       _method: "POST",
       _headers: { authorization: `Bearer ${token}` },
@@ -879,10 +888,7 @@ describe("mountActionRoutes", () => {
       },
       { getOwnerFromEvent },
     );
-    const payload = Buffer.from(
-      JSON.stringify({ scope: "other:read flags:read" }),
-    ).toString("base64url");
-    const token = `eyJhbGciOiJIUzI1NiJ9.${payload}.signature`;
+    const token = fakeUnsignedJwt({ scope: "other:read flags:read" });
 
     await mounted[0].handler({
       _method: "POST",
@@ -955,8 +961,11 @@ describe("mountActionRoutes", () => {
       },
       { actionRouteAuth: { resolveCaller: async () => null } },
     );
-    const token =
-      "eyJhbGciOiJIUzI1NiJ9.eyJvcmdfaWQiOiJvcmctMiIsImp0aSI6InJlcXVlc3QtMiIsInNjb3BlIjoiZmxhZ3M6d3JpdGUifQ.signature";
+    const token = fakeUnsignedJwt({
+      org_id: "org-2",
+      jti: "request-2",
+      scope: "flags:write",
+    });
     await mounted[0].handler({
       _method: "POST",
       _headers: { authorization: `Bearer ${token}` },
@@ -982,8 +991,11 @@ describe("mountActionRoutes", () => {
       },
       { getOwnerFromEvent },
     );
-    const token =
-      "eyJhbGciOiJIUzI1NiJ9.eyJvcmdfaWQiOiJvcmctMSIsImp0aSI6InJlcXVlc3QtMyIsInNjb3BlIjoiZmxhZ3M6cmVhZCJ9.signature";
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "request-3",
+      scope: "flags:read",
+    });
     await expect(
       mounted[0].handler({
         _method: "POST",
