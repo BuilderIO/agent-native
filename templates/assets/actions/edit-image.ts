@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { z } from "zod";
 
 import { IMAGE_MODELS, IMAGE_QUALITY_TIERS } from "../shared/api.js";
@@ -23,25 +24,29 @@ export default defineAction({
       ),
   }),
   parallelSafe: true,
-  run: async (args) => {
+  run: async (args, context?: ActionRunContext) => {
     const asset = await getAssetOrThrow(args.assetId);
-    return generateImage.run({
-      libraryId: asset.libraryId,
-      collectionId: asset.collectionId ?? undefined,
-      prompt: args.instruction,
-      aspectRatio: (asset.aspectRatio ?? "16:9") as any,
-      imageSize: (asset.imageSize ?? "2K") as any,
-      model: args.model,
-      tier: args.tier,
-      intent: "edit",
-      styleStrength: "balanced",
-      referenceAssetIds: [],
-      includeLogo: false,
-      groundingMode: "off",
-      subjectAssetId: asset.id,
-      slotId: args.slotId,
-      source: args.source,
-      callerAppId: args.callerAppId,
-    });
+    return generateImage.run(
+      {
+        libraryId: asset.libraryId,
+        collectionId: asset.collectionId ?? undefined,
+        prompt: args.instruction,
+        aspectRatio: (asset.aspectRatio ?? "16:9") as any,
+        imageSize: (asset.imageSize ?? "2K") as any,
+        model: args.model,
+        tier: args.tier,
+        intent: "edit",
+        styleStrength: "balanced",
+        referenceAssetIds: [],
+        includeLogo: false,
+        groundingMode: "off",
+        subjectAssetId: asset.id,
+        slotId: args.slotId,
+        source: args.source,
+        callerAppId: args.callerAppId,
+        appendVariant: true,
+      },
+      context,
+    );
   },
 });

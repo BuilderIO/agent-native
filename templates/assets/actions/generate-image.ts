@@ -156,6 +156,12 @@ export default defineAction({
       .describe(
         "Internal UI state scope for live candidate slots. Usually omitted; embedded picker UIs pass a browser-tab scope.",
       ),
+    appendVariant: z.coerce
+      .boolean()
+      .default(false)
+      .describe(
+        "Internal: when true, add this candidate to the existing live tray for its scope instead of resetting to a fresh candidate set. Refine/edit/restyle set this so iterative results accumulate alongside prior candidates (newest-first).",
+      ),
     dismissible: z.coerce
       .boolean()
       .default(true)
@@ -547,6 +553,11 @@ export default defineAction({
     const now = nowIso();
     const slotId = args.slotId ?? runId;
     const variantScopeId = args.variantScopeId ?? context?.threadId ?? null;
+    // A run derived from a prior asset (refine/edit/restyle, or a caller that
+    // sets sourceAssetId directly) is an iteration on the existing candidate
+    // set, not a new direction — always add it to the tray instead of
+    // resetting it, regardless of whether the caller remembered the flag.
+    const appendVariant = args.appendVariant || Boolean(args.sourceAssetId);
     // Capture identity at insert time so the org-admin audit log can filter
     // by owner / org without re-resolving who triggered the run later.
     const ownerEmail = getRequestUserEmail() ?? null;
@@ -650,6 +661,7 @@ export default defineAction({
       sessionId: session?.id ?? null,
       threadId: context?.threadId ?? null,
       variantScopeId,
+      appendVariant,
       prompt: args.prompt,
       slotId,
       status: "pending",
@@ -854,6 +866,7 @@ export default defineAction({
         sessionId: session?.id ?? null,
         threadId: context?.threadId ?? null,
         variantScopeId,
+        appendVariant,
         prompt: args.prompt,
         slotId,
         status: "ready",
@@ -901,6 +914,7 @@ export default defineAction({
         sessionId: session?.id ?? null,
         threadId: context?.threadId ?? null,
         variantScopeId,
+        appendVariant,
         prompt: args.prompt,
         slotId,
         status: "failed",
