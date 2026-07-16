@@ -17,6 +17,7 @@ let schema: Schema;
 let duplicateDatabaseItemsAction: typeof import("./duplicate-database-items.js").default;
 let deleteDatabaseItemsAction: typeof import("./delete-database-items.js").default;
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
+let spaceId: string;
 
 const OWNER = "owner@example.com";
 const COLLABORATOR = "collaborator@example.com";
@@ -33,6 +34,30 @@ beforeAll(async () => {
   addDatabaseItemAction = (await import("./add-database-item.js")).default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  const { systemIdsForContentSpace } = await import("./_content-spaces.js");
+  spaceId = `batch_space_${Date.now()}`;
+  const filesIds = systemIdsForContentSpace(spaceId, "files");
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: filesIds.documentId,
+    spaceId,
+    ownerEmail: OWNER,
+    title: "Files",
+    content: "",
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: filesIds.databaseId,
+    spaceId,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesIds.documentId,
+    title: "Files",
+    createdAt: now,
+    updatedAt: now,
+  });
 }, 60000);
 
 afterAll(() => {
@@ -61,6 +86,7 @@ async function createDocument(args: {
   const id = args.id ?? nextId("doc");
   await db.insert(schema.documents).values({
     id,
+    spaceId,
     ownerEmail: args.ownerEmail ?? OWNER,
     parentId: args.parentId ?? null,
     title: args.title ?? "Untitled",
@@ -82,6 +108,7 @@ async function createDatabaseWithRows(rowCount: number) {
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId,
     ownerEmail: OWNER,
     documentId: databaseDocumentId,
     title: "Database",
@@ -192,6 +219,14 @@ describe("database row batch actions", () => {
 
     expect(result.duplicatedItemIds).toHaveLength(2);
     expect(result.duplicatedDocumentIds).toHaveLength(2);
+    await expect(
+      db
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(
+          inArray(schema.documents.id, result.duplicatedDocumentIds ?? []),
+        ),
+    ).resolves.toEqual([{ spaceId }, { spaceId }]);
     expect(result.duplicatedItemId).toBe(result.duplicatedItemIds?.[0]);
     expect(result.duplicatedDocumentId).toBe(result.duplicatedDocumentIds?.[0]);
     expect(result.sourceItemIds).toEqual([rows[1].itemId, rows[2].itemId]);

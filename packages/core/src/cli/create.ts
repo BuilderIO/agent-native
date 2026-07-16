@@ -36,6 +36,7 @@ const REACT_ROUTER_BUILD_DEPENDENCIES = [
 const MINIMUM_RELEASE_AGE_EXCLUDES = [
   '"@typescript/*"',
   '"@sentry/*"',
+  "fast-xml-parser",
   "typescript",
   "typescript-7",
 ];

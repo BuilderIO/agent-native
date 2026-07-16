@@ -730,6 +730,7 @@ export function App() {
   // when the recorder fully stops/cancels. We use this to suppress the
   // popover auto-hide during the macOS screen-picker focus dance.
   const [recordingFlowActive, setRecordingFlowActive] = useState(false);
+  const [recordingStopFinalizing, setRecordingStopFinalizing] = useState(false);
   const [lastRecordingId, setLastRecordingId] = useState<string | null>(null);
   const [authStatus, setAuthStatus] = useState<"unknown" | "authed" | "anon">(
     "unknown",
@@ -2385,6 +2386,7 @@ export function App() {
         // Start a silent no-op.
         const handle = recorder;
         recordingStopFinalizingRef.current = true;
+        setRecordingStopFinalizing(true);
         bubbleStreamTransferredToRecorder.current = false;
         bubbleStreamRef.current = null;
         recordingFlowGateRef.current = false;
@@ -2416,6 +2418,7 @@ export function App() {
           await loadPendingUploads();
         } finally {
           recordingStopFinalizingRef.current = false;
+          setRecordingStopFinalizing(false);
           invoke("set_recording_state", { active: false }).catch(() => {});
           if (stopFailed || stopResult?.localOnly) {
             invoke("show_popover").catch(() => {});
@@ -2502,20 +2505,21 @@ export function App() {
   // we just render the normal pre-record panel so the user at least knows
   // where they are. No recording-only UI lives here.
 
-  const pendingUploadBanner =
-    pendingUploads.length > 0 ? (
-      <PendingUploadBanner
-        uploads={pendingUploads}
-        retryingUploadId={retryingUploadId}
-        exportingUploadId={exportingUploadId}
-        dismissingUploadId={dismissingUploadId}
-        onExport={exportPendingUpload}
-        onRetry={retryPendingUpload}
-        onDismiss={dismissPendingUpload}
-        onOpenFolder={openPendingUploadFolder}
-        onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-      />
-    ) : null;
+  const pendingUploadBanner = recordingStopFinalizing ? (
+    <FinalizingUploadBanner />
+  ) : pendingUploads.length > 0 ? (
+    <PendingUploadBanner
+      uploads={pendingUploads}
+      retryingUploadId={retryingUploadId}
+      exportingUploadId={exportingUploadId}
+      dismissingUploadId={dismissingUploadId}
+      onExport={exportPendingUpload}
+      onRetry={retryPendingUpload}
+      onDismiss={dismissPendingUpload}
+      onOpenFolder={openPendingUploadFolder}
+      onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+    />
+  ) : null;
 
   if (popoverView === "settings") {
     return (
@@ -3103,6 +3107,22 @@ function PendingUploadBanner({
             Dismiss warning and keep the clip in Clip Drafts
           </TooltipContent>
         </Tooltip>
+      </div>
+    </div>
+  );
+}
+
+function FinalizingUploadBanner() {
+  return (
+    <div className="pending-upload-banner">
+      <div className="pending-upload-icon" aria-hidden>
+        <IconUpload size={17} stroke={1.8} />
+      </div>
+      <div className="pending-upload-copy">
+        <div className="pending-upload-title">Still finishing your Clip</div>
+        <div className="pending-upload-sub">
+          Recovery options will appear here if saving does not finish.
+        </div>
       </div>
     </div>
   );

@@ -15,7 +15,8 @@ import {
   IconUpload,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -128,6 +129,18 @@ interface ImportContentSourceResult {
   unchanged: Array<{ id: string; path: string; title: string }>;
   skipped: Array<{ path: string; reason: string }>;
   errors: Array<{ path: string; reason: string }>;
+  conflicts?: Array<{ id: string; path: string; title: string }>;
+}
+
+interface LocalFolderConnectionResult {
+  connected: boolean;
+  sourceId: string | null;
+  spaceId: string | null;
+  filesDatabaseId: string | null;
+}
+
+interface ManifestFolderSyncResult extends ImportContentSourceResult {
+  requestedDocumentId: string | null;
 }
 
 interface RegisterLocalComponentWorkspaceResult {
@@ -234,11 +247,20 @@ function browserDirectoryId() {
   return `browser-${crypto.randomUUID()}`;
 }
 
+function opaqueDesktopDirectoryId(value: string) {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return `desktop-folder-${(hash >>> 0).toString(16).padStart(8, "0")}`;
+}
+
 function desktopDirectoryFromFolder(
   folder: DesktopContentFilesFolder,
   directories: SelectedDirectory[] = [],
 ): SelectedDirectory {
-  const id = folder.id ?? `desktop-${folder.path ?? folder.name}`;
+  const id = folder.id ?? opaqueDesktopDirectoryId(folder.path ?? folder.name);
   return {
     id,
     kind: "desktop",
@@ -694,42 +716,6 @@ function upsertDirectory(
   );
 }
 
-function sourcePathForDirectoryFile(
-  directory: SelectedDirectory,
-  filePath: string,
-  directoryCount: number,
-) {
-  if (directoryCount <= 1) return filePath;
-  return `${directory.sourcePrefix}/${filePath}`;
-}
-
-function filesForImport(
-  directory: SelectedDirectory,
-  files: Record<string, string>,
-  directoryCount: number,
-) {
-  return Object.fromEntries(
-    Object.entries(files).map(([path, content]) => [
-      sourcePathForDirectoryFile(directory, path, directoryCount),
-      content,
-    ]),
-  );
-}
-
-function filesForDirectoryExport(
-  directory: SelectedDirectory,
-  files: Record<string, string>,
-  directoryCount: number,
-) {
-  if (directoryCount <= 1) return files;
-  const prefix = `${directory.sourcePrefix}/`;
-  return Object.fromEntries(
-    Object.entries(files)
-      .filter(([path]) => path.startsWith(prefix))
-      .map(([path, content]) => [path.slice(prefix.length), content]),
-  );
-}
-
 function resultSummary(
   result: ImportContentSourceResult,
   t: ReturnType<typeof useT>,
@@ -740,6 +726,7 @@ function resultSummary(
     t("localFiles.summaryUnchanged", { count: result.unchanged.length }),
     t("localFiles.summarySkipped", { count: result.skipped.length }),
     t("localFiles.summaryErrors", { count: result.errors.length }),
+    t("localFiles.summaryConflicts", { count: result.conflicts?.length ?? 0 }),
   ].join(" | ");
 }
 
@@ -750,12 +737,18 @@ export function meta() {
 export default function LocalFilesRoute() {
   const t = useT();
   const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const navigate = useNavigate();
+  const targetSpaceId = searchParams.get("spaceId") || undefined;
+  const manifestConnectionId = searchParams.get("connectionId") || undefined;
+  const manifestFile = searchParams.get("file") || undefined;
   const { data: documents = [] } = useDocuments();
   const [directories, setDirectories] = useState<SelectedDirectory[]>([]);
   const [status, setStatus] = useState<SyncStatus>({ kind: "idle" });
   const [busy, setBusy] = useState<BusyState | null>(null);
   const [restoringDirectory, setRestoringDirectory] = useState(false);
   const supported = useMemo(supportsLocalFolderSync, []);
+  const manifestBootstrapRef = useRef<string | null>(null);
   const documentSourceDirectories = useMemo(
     () =>
       directories.length === 0
@@ -785,6 +778,59 @@ export default function LocalFilesRoute() {
       // Application-state sync is best-effort; local sync still works without it.
     });
   }, [localFolderRows]);
+
+  useEffect(() => {
+    if (!manifestConnectionId) return;
+    const key = `${manifestConnectionId}:${manifestFile ?? ""}:${targetSpaceId ?? ""}`;
+    if (manifestBootstrapRef.current === key) return;
+    manifestBootstrapRef.current = key;
+    setBusy("choose");
+    void callAction<ManifestFolderSyncResult>(
+      "sync-manifest-local-folder-source" as never,
+      {
+        connectionId: manifestConnectionId,
+        file: manifestFile,
+        spaceId: targetSpaceId,
+        dryRun: false,
+      } as never,
+    )
+      .then((result) => {
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-documents"],
+        });
+        queryClient.invalidateQueries({
+          queryKey: ["action", "list-content-spaces"],
+        });
+        setStatus(
+          result.conflicts?.length
+            ? { kind: "preview", result }
+            : {
+                kind: "success",
+                title: t("localFiles.foldersPulled"),
+                detail: resultSummary(result, t),
+              },
+        );
+        if (result.requestedDocumentId) {
+          navigate(`/page/${result.requestedDocumentId}`, { replace: true });
+        }
+      })
+      .catch((err) => {
+        manifestBootstrapRef.current = null;
+        setStatus({
+          kind: "error",
+          title: t("localFiles.pullFailed"),
+          detail: err instanceof Error ? err.message : t("localFiles.tryAgain"),
+        });
+      })
+      .finally(() => setBusy(null));
+  }, [
+    manifestConnectionId,
+    manifestFile,
+    navigate,
+    queryClient,
+    t,
+    targetSpaceId,
+  ]);
 
   useEffect(() => {
     if (!supported) return;
@@ -859,6 +905,23 @@ export default function LocalFilesRoute() {
     );
   }
 
+  async function ensureDirectoryConnection(
+    directory: SelectedDirectory,
+    dryRun = false,
+  ) {
+    return callAction<LocalFolderConnectionResult>(
+      "connect-local-folder-source" as never,
+      {
+        connectionId: directory.id,
+        label: directory.sourcePrefix || directory.name,
+        spaceId: targetSpaceId,
+        createSourceBackedSpace: !targetSpaceId,
+        truthPolicy: "source_primary",
+        dryRun,
+      } as never,
+    );
+  }
+
   async function pullDirectoryFiles(
     selected: SelectedDirectory,
     activeDirectories: SelectedDirectory[],
@@ -898,33 +961,53 @@ export default function LocalFilesRoute() {
         queryClient.invalidateQueries({ queryKey: ["resources"] });
       }
     }
-    if (Object.keys(files).length === 0) {
+    const connection = await ensureDirectoryConnection(
+      refreshedDirectory,
+      dryRun,
+    );
+    if (dryRun && !connection.connected) {
+      const created = Object.keys(files).map((path) => ({
+        id: "",
+        path,
+        title:
+          path
+            .split("/")
+            .pop()
+            ?.replace(/\.mdx?$/i, "") || path,
+      }));
       return {
         directories: nextDirectories,
         result: {
-          dryRun,
-          filesSeen: 0,
-          created: [],
+          dryRun: true,
+          filesSeen: created.length,
+          created,
           updated: [],
           unchanged: [],
           skipped: [],
           errors: [],
+          conflicts: [],
         },
       };
     }
+    if (!connection.sourceId) {
+      throw new Error("The local folder connection was not created");
+    }
     const result = await callAction<ImportContentSourceResult>(
-      "import-content-source" as never,
+      "sync-local-folder-source" as never,
       {
-        files: filesForImport(
-          refreshedDirectory,
-          files,
-          nextDirectories.length,
-        ),
+        sourceId: connection.sourceId,
+        files,
         dryRun,
       } as never,
     );
     if (!dryRun) {
       queryClient.invalidateQueries({ queryKey: ["action", "list-documents"] });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-spaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
     }
     return { directories: nextDirectories, result };
   }
@@ -990,11 +1073,15 @@ export default function LocalFilesRoute() {
 
       setBusy(`pull:${selected.id}`);
       const { result } = await pullDirectoryFiles(selected, nextDirectories);
-      setStatus({
-        kind: "success",
-        title: t("localFiles.foldersPulled"),
-        detail: resultSummary(result, t),
-      });
+      setStatus(
+        result.conflicts?.length
+          ? { kind: "preview", result }
+          : {
+              kind: "success",
+              title: t("localFiles.foldersPulled"),
+              detail: resultSummary(result, t),
+            },
+      );
       toast.success(t("localFiles.pulledLocalFiles"));
       await connectLocalComponentWorkspaces([selected]);
     } catch (err) {
@@ -1020,16 +1107,13 @@ export default function LocalFilesRoute() {
       ) {
         throw new Error(t("localFiles.writePermissionNotGranted"));
       }
+      const connection = await ensureDirectoryConnection(directory);
       const bundle = await callAction<ExportContentSourceResult>(
         "export-content-source" as never,
-        {} as never,
+        { sourceId: connection.sourceId } as never,
         { method: "GET" },
       );
-      const files = filesForDirectoryExport(
-        directory,
-        bundle.files,
-        directories.length,
-      );
+      const files = bundle.files;
       if (directory.kind === "desktop") {
         const desktopFiles = getDesktopContentFiles();
         if (!desktopFiles) {
@@ -1099,11 +1183,15 @@ export default function LocalFilesRoute() {
     setBusy(`pull:${directory.id}`);
     try {
       const { result } = await pullDirectoryFiles(directory, directories);
-      setStatus({
-        kind: "success",
-        title: t("localFiles.pulledFromFolder"),
-        detail: resultSummary(result, t),
-      });
+      setStatus(
+        result.conflicts?.length
+          ? { kind: "preview", result }
+          : {
+              kind: "success",
+              title: t("localFiles.pulledFromFolder"),
+              detail: resultSummary(result, t),
+            },
+      );
       toast.success(t("localFiles.pulledLocalFiles"));
     } catch (err) {
       setStatus({
@@ -1119,6 +1207,11 @@ export default function LocalFilesRoute() {
   async function handleRemove(directory: SelectedDirectory) {
     setBusy(`remove:${directory.id}`);
     try {
+      const connection = await ensureDirectoryConnection(directory);
+      await callAction(
+        "disconnect-local-folder-source" as never,
+        { sourceId: connection.sourceId } as never,
+      );
       const nextDirectories = directories.filter(
         (candidate) => candidate.id !== directory.id,
       );
@@ -1132,6 +1225,12 @@ export default function LocalFilesRoute() {
         await persistSourceDirectories(nextDirectories);
       }
       setDirectories(nextDirectories);
+      queryClient.invalidateQueries({
+        queryKey: ["action", "list-content-spaces"],
+      });
+      queryClient.invalidateQueries({
+        queryKey: ["action", "get-content-database"],
+      });
       setStatus({
         kind: "success",
         title: t("localFiles.folderRemoved"),
@@ -1266,7 +1365,8 @@ export default function LocalFilesRoute() {
                   </div>
                 </div>
                 {(status.result.skipped.length > 0 ||
-                  status.result.errors.length > 0) && (
+                  status.result.errors.length > 0 ||
+                  (status.result.conflicts?.length ?? 0) > 0) && (
                   <>
                     <Separator />
                     <div className="grid gap-1 text-xs">
@@ -1284,6 +1384,15 @@ export default function LocalFilesRoute() {
                             </span>
                           </div>
                         ))}
+                      {status.result.conflicts?.slice(0, 6).map((item) => (
+                        <div key={`conflict:${item.id}`} className="min-w-0">
+                          <span className="font-medium">{item.path}</span>
+                          <span className="text-muted-foreground">
+                            {" "}
+                            - {t("localFiles.conflictNeedsReview")}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   </>
                 )}

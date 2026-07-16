@@ -25,6 +25,7 @@ const SIDEBAR_WIDTH_KEY = "sidebar-width";
 const DEFAULT_SIDEBAR_WIDTH = 240;
 const MIN_SIDEBAR_WIDTH = 240;
 const MAX_SIDEBAR_WIDTH = 480;
+const NARROW_DESKTOP_QUERY = "(max-width: 1099px)";
 
 // Routes whose page renders its own custom toolbar (with AgentToggleButton).
 // Layout still mounts Sidebar + AgentSidebar, but skips its own Header so
@@ -40,6 +41,22 @@ function loadSidebarWidth(): number {
     }
   } catch {}
   return DEFAULT_SIDEBAR_WIDTH;
+}
+
+function useIsNarrowDesktop() {
+  const [isNarrow, setIsNarrow] = useState(
+    () =>
+      typeof window !== "undefined" &&
+      window.matchMedia(NARROW_DESKTOP_QUERY).matches,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(NARROW_DESKTOP_QUERY);
+    const update = () => setIsNarrow(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return isNarrow;
 }
 
 export function documentPageIdFromPathname(pathname: string) {
@@ -73,6 +90,7 @@ export function Layout({ children }: LayoutProps) {
     [activeDocumentId],
   );
   const isMobile = useIsMobile();
+  const isNarrowDesktop = useIsNarrowDesktop();
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarWidth, setSidebarWidth] = useState(loadSidebarWidth);
@@ -105,6 +123,12 @@ export function Layout({ children }: LayoutProps) {
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [createPage]);
+
+  useEffect(() => {
+    if (isNarrowDesktop) {
+      window.dispatchEvent(new Event("agent-panel:close"));
+    }
+  }, [isNarrowDesktop]);
 
   const mobileSidebarTrigger = isMobile ? (
     <button
@@ -165,7 +189,7 @@ export function Layout({ children }: LayoutProps) {
         )}
         <AgentSidebar
           position="right"
-          defaultOpen={!isMobile}
+          defaultOpen={!isMobile && !isNarrowDesktop}
           agentPageHref="/agent"
           emptyStateText={t("chat.emptyState")}
           suggestions={[

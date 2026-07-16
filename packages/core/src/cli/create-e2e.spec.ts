@@ -313,6 +313,7 @@ describe("standalone scaffold — headless template", { timeout: 60000 }, () => 
     expect(workspaceYaml).toContain("minimumReleaseAgeExclude:");
     expect(workspaceYaml).toContain('"@typescript/*"');
     expect(workspaceYaml).toContain('"@sentry/*"');
+    expect(workspaceYaml).toContain("fast-xml-parser");
     expect(workspaceYaml).toContain("typescript-7");
     expect(workspaceYaml).not.toContain("@assistant-ui");
   });

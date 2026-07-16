@@ -36,6 +36,12 @@ import {
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
 import { executeBuilderCmsWrite } from "./_builder-cms-write-client.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import {
+  organizationContentSpaceId,
+  personalContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 type FetchLike = typeof fetch;
@@ -524,6 +530,17 @@ export async function pullBuilderDocIntoContent(args: {
   if (!ownerEmail) throw new Error("no authenticated user");
   const orgId = getRequestOrgId() ?? null;
   const db = getDb();
+  const provisioned = args.dryRun
+    ? null
+    : await provisionContentSpaces(db, ownerEmail);
+  const targetSpaceId = orgId
+    ? organizationContentSpaceId(orgId)
+    : personalContentSpaceId(ownerEmail);
+  if (provisioned && !provisioned.spaceIds.includes(targetSpaceId)) {
+    throw new Error(
+      "The active organization does not have a writable Content space.",
+    );
+  }
   const entry = await readFullBuilderDocsEntry({
     model: args.model,
     entryId: args.entryId,
@@ -554,6 +571,9 @@ export async function pullBuilderDocIntoContent(args: {
       `Requires editor access to update document "${documentId}".`,
     );
   }
+  if (existing?.spaceId && existing.spaceId !== targetSpaceId) {
+    throw new Error("Builder document belongs to a different Content space.");
+  }
 
   const sourceFields = builderDocumentSourceFields(bundle, now);
 
@@ -562,6 +582,7 @@ export async function pullBuilderDocIntoContent(args: {
       await db
         .update(schema.documents)
         .set({
+          spaceId: existing.spaceId ?? targetSpaceId,
           title: bundle.mdx.title,
           content: bundle.mdx.body,
           updatedAt: now,
@@ -571,6 +592,7 @@ export async function pullBuilderDocIntoContent(args: {
     } else {
       await db.insert(schema.documents).values({
         id: documentId,
+        spaceId: targetSpaceId,
         ownerEmail,
         orgId,
         parentId: null,
@@ -586,6 +608,7 @@ export async function pullBuilderDocIntoContent(args: {
         ...sourceFields,
       });
     }
+    await ensureDocumentFilesMembership(db, documentId, now);
     await replaceBuilderDocumentSidecars({
       db,
       documentId,

@@ -52,6 +52,10 @@ export function contentDatabaseQueryKey(documentId: string) {
   return ["action", "get-content-database", { documentId }] as const;
 }
 
+export function contentDatabaseByIdQueryKey(databaseId: string) {
+  return ["action", "get-content-database", { databaseId }] as const;
+}
+
 function isContentDatabaseQueryForDocument(
   queryKey: readonly unknown[],
   documentId: string,
@@ -450,6 +454,18 @@ export function useContentDatabase(documentId: string | null, limit?: number) {
       // Cross-key seeds (e.g. a differently-paginated cached response) render
       // instantly but must refetch immediately, not sit fresh for staleTime.
       initialDataUpdatedAt: 0,
+    },
+  );
+}
+
+export function useContentDatabaseById(databaseId: string | null) {
+  return useActionQuery<ContentDatabaseResponse>(
+    "get-content-database",
+    databaseId ? { databaseId } : undefined,
+    {
+      enabled: !!databaseId,
+      retry: false,
+      placeholderData: (previous) => previous,
     },
   );
 }

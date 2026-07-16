@@ -107,6 +107,7 @@ const LEGACY_DEV_REAL_CAPTURE_FLAG = "clips:dev-real-capture";
 const LIVE_UPLOAD_CHUNK_MS = 2_000;
 const NATIVE_FULLSCREEN_SEGMENT_MS = 5 * 60_000;
 const NATIVE_FULLSCREEN_MIME_TYPE = "video/mp4";
+const MEDIA_RECORDER_STOP_TIMEOUT_MS = 15_000;
 const THUMBNAIL_UPLOAD_TIMEOUT_MS = 8_000;
 // GCS resumable uploads require every non-final chunk to be a multiple of
 // 256 KiB. MediaRecorder emits arbitrary blob sizes, so on the streaming path
@@ -3644,10 +3645,25 @@ async function startRecordingInner(
     // same claim; without it, browser recordings opened once here and then a
     // second time when finalization completed.
     await openNativeUploadUrl(id, absoluteViewUrl);
-    await recorderStopped;
-    // Recorder has fully stopped and flushed its trailing chunk — this is the
-    // true end of recorded content. Everything after (transcript, thumbnail,
-    // upload) is post-processing and must not count toward duration.
+    const recorderStopTimedOut = await Promise.race([
+      recorderStopped.then(() => false),
+      wait(MEDIA_RECORDER_STOP_TIMEOUT_MS).then(() => true),
+    ]);
+    if (recorderStopTimedOut) {
+      stoppedAt = Date.now();
+      failed ??= new Error(
+        "The recorder did not finish stopping. Your local backup was kept so you can retry or download it from Clips.",
+      );
+      void transcriptionCapture?.cancel().catch((err) => {
+        console.warn(
+          "[clips-recorder] transcription cancel after stop timeout failed:",
+          err,
+        );
+      });
+    }
+    // Use the recorder's stop event as the content boundary. If WebKit never
+    // emits it, the watchdog boundary preserves the available chunks and keeps
+    // post-processing time out of the recovery copy's duration.
 
     const videoSettings = uploadPrimaryVideo.stream
       .getVideoTracks()[0]
@@ -3687,32 +3703,34 @@ async function startRecordingInner(
       console.warn("[clips-recorder] local backup final metadata failed:", err);
     }
 
-    void captureAndUploadRecordingThumbnail({
-      serverUrl: params.serverUrl,
-      recordingId: id,
-      stream: primaryVideo,
-      authToken: params.authToken,
-    }).catch((err) => {
-      console.warn("[clips-recorder] thumbnail capture/upload failed:", err);
-    });
-
-    const capturedTranscript = await transcriptionCapture
-      ?.stop()
-      .catch((err) => {
-        console.warn("[clips-recorder] transcript stop failed:", err);
-        return null;
+    if (!recorderStopTimedOut) {
+      void captureAndUploadRecordingThumbnail({
+        serverUrl: params.serverUrl,
+        recordingId: id,
+        stream: primaryVideo,
+        authToken: params.authToken,
+      }).catch((err) => {
+        console.warn("[clips-recorder] thumbnail capture/upload failed:", err);
       });
-    if (capturedTranscript?.text.trim()) {
-      await saveRecordingTranscript(
-        params.serverUrl,
-        id,
-        capturedTranscript,
-        params.authToken,
-      );
-    } else if (wantsRecordedAudio) {
-      await saveTranscriptFailure(
-        "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
-      );
+
+      const capturedTranscript = await transcriptionCapture
+        ?.stop()
+        .catch((err) => {
+          console.warn("[clips-recorder] transcript stop failed:", err);
+          return null;
+        });
+      if (capturedTranscript?.text.trim()) {
+        await saveRecordingTranscript(
+          params.serverUrl,
+          id,
+          capturedTranscript,
+          params.authToken,
+        );
+      } else if (wantsRecordedAudio) {
+        await saveTranscriptFailure(
+          "No speech was captured during this recording. If you spoke or played system audio, check System Audio, Microphone input, Speech Recognition permission, and the selected mic, then retry transcription.",
+        );
+      }
     }
     if (popoverOwnsCamera) {
       console.log("[clips-recorder] releasing popover camera");

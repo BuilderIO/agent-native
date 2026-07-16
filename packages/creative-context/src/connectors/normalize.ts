@@ -59,21 +59,18 @@ export function normalizeContextItem(
   const content = preserveContent
     ? input.content.replace(/\r\n?/g, "\n").trim()
     : normalizeWhitespace(input.content);
+  const summary = input.summary
+    ? normalizeWhitespace(input.summary)
+    : undefined;
   const chunks = input.chunks ?? chunkContextText(content);
-  return {
+  const normalized = {
     externalId,
     kind: required(input.kind, "kind"),
     title,
     ...(input.canonicalUrl ? { canonicalUrl: input.canonicalUrl } : {}),
     ...(input.mimeType ? { mimeType: input.mimeType } : {}),
     content,
-    ...(input.summary ? { summary: normalizeWhitespace(input.summary) } : {}),
-    contentHash: hashContextContent({
-      externalId,
-      title,
-      content,
-      mimeType: input.mimeType ?? null,
-    }),
+    ...(summary ? { summary } : {}),
     ...(input.sourceModifiedAt
       ? { sourceModifiedAt: input.sourceModifiedAt }
       : {}),
@@ -95,10 +92,68 @@ export function normalizeContextItem(
     ...(input.media?.length ? { media: input.media } : {}),
     ...(input.edges?.length ? { edges: input.edges } : {}),
   };
+  return {
+    ...normalized,
+    contentHash: hashContextVersion(normalized),
+  };
 }
 
 export function hashContextContent(value: unknown): string {
   return createHash("sha256").update(stableJson(value)).digest("hex");
+}
+
+export function hashContextVersion(
+  item: Omit<NormalizedContextItem, "contentHash">,
+): string {
+  return hashContextContent({
+    externalId: item.externalId,
+    kind: item.kind,
+    title: item.title,
+    content: item.content,
+    summary: item.summary ?? null,
+    mimeType: item.mimeType ?? null,
+    sourceVersion: item.sourceVersion ?? null,
+    rawSnapshotBlobRef: item.rawSnapshotBlobRef ?? null,
+    parseStatus: item.parseStatus ?? "parsed",
+    parseError: item.parseError ?? null,
+    metadata: withoutVolatileCaptureMetadata(item.metadata ?? {}),
+    chunks: canonicalUnordered(item.chunks ?? [], (chunk) => ({
+      ordinal: chunk.ordinal,
+      kind: chunk.kind ?? "text",
+      text: chunk.text,
+      startOffset: chunk.startOffset ?? null,
+      endOffset: chunk.endOffset ?? null,
+      tokenCount: chunk.tokenCount ?? null,
+      metadata: chunk.metadata ?? {},
+    })),
+    media: canonicalUnordered(item.media ?? [], (entry) => ({
+      id: entry.id ?? null,
+      kind: entry.kind,
+      mimeType: entry.mimeType ?? null,
+      accessMode: entry.accessMode ?? "public",
+      url: entry.url ?? null,
+      storageKey: entry.storageKey ?? null,
+      provenanceUrl: entry.provenanceUrl ?? null,
+      altText: entry.altText ?? null,
+      caption: entry.caption ?? null,
+      captionStatus: entry.captionStatus ?? "pending",
+      ocrText: entry.ocrText ?? null,
+      palette: entry.palette ?? [],
+      contentHash: entry.contentHash ?? null,
+      width: entry.width ?? null,
+      height: entry.height ?? null,
+      durationMs: entry.durationMs ?? null,
+      metadata: entry.metadata ?? {},
+    })),
+    edges: canonicalUnordered(item.edges ?? [], (edge) => ({
+      id: edge.id ?? null,
+      relation: edge.relation,
+      toItemId: edge.toItemId ?? null,
+      toItemVersionId: edge.toItemVersionId ?? null,
+      toExternalId: edge.toExternalId ?? null,
+      metadata: edge.metadata ?? {},
+    })),
+  });
 }
 
 export function chunkContextText(
@@ -187,6 +242,28 @@ function stableJson(value: unknown): string {
       .join(",")}}`;
   }
   return JSON.stringify(value) ?? "null";
+}
+
+function canonicalUnordered<T, U>(
+  values: readonly T[],
+  canonicalize: (value: T) => U,
+): U[] {
+  return values
+    .map(canonicalize)
+    .sort((left, right) =>
+      stableJson(left) < stableJson(right)
+        ? -1
+        : stableJson(left) > stableJson(right)
+          ? 1
+          : 0,
+    );
+}
+
+function withoutVolatileCaptureMetadata(
+  metadata: Record<string, unknown>,
+): Record<string, unknown> {
+  const { capturedAt: _capturedAt, ...stableMetadata } = metadata;
+  return stableMetadata;
 }
 
 function required(value: string, label: string): string {

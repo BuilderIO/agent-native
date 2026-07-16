@@ -1,18 +1,11 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  invalidateLocalFileDocumentsCache,
-  isContentLocalFileMode,
-  removeContentLocalFileRoots,
-} from "./_local-file-documents.js";
-import { deleteDocumentRecursive } from "./delete-document.js";
-
-async function removeImportedLocalSourceDocuments(
+async function unlinkImportedLocalSourceDocuments(
   sourceRootPath?: string | null,
 ) {
   const db = getDb();
@@ -33,29 +26,60 @@ async function removeImportedLocalSourceDocuments(
     .where(
       and(...clauses, accessFilter(schema.documents, schema.documentShares)),
     );
-  const candidateIds = new Set(candidates.map((document) => document.id));
-  const roots = candidates.filter(
-    (document) => !document.parentId || !candidateIds.has(document.parentId),
-  );
-  let deleted = 0;
-
-  for (const document of roots) {
-    const access = await assertAccess("document", document.id, "admin");
-    deleted += (
-      await deleteDocumentRecursive(
-        db,
-        document.id,
-        access.resource.ownerEmail as string,
-      )
-    ).length;
+  const trackedRows = candidates.length
+    ? await db
+        .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+        .from(schema.contentDatabaseSourceRows)
+        .innerJoin(
+          schema.contentDatabaseSources,
+          eq(
+            schema.contentDatabaseSources.id,
+            schema.contentDatabaseSourceRows.sourceId,
+          ),
+        )
+        .where(
+          and(
+            inArray(
+              schema.contentDatabaseSourceRows.documentId,
+              candidates.map((document) => document.id),
+            ),
+            eq(schema.contentDatabaseSources.sourceType, "local-folder"),
+          ),
+        )
+    : [];
+  const trackedDocumentIds = new Set(trackedRows.map((row) => row.documentId));
+  const documentIds: string[] = [];
+  for (const document of candidates) {
+    if (trackedDocumentIds.has(document.id)) continue;
+    await assertAccess("document", document.id, "admin");
+    documentIds.push(document.id);
   }
 
-  return { removed: deleted, roots: [] as string[], manifestPath: null };
+  if (documentIds.length > 0) {
+    const now = new Date().toISOString();
+    await db
+      .update(schema.documents)
+      .set({
+        sourceMode: "database",
+        sourceKind: null,
+        sourcePath: null,
+        sourceRootPath: null,
+        sourceUpdatedAt: now,
+        updatedAt: now,
+      })
+      .where(inArray(schema.documents.id, documentIds));
+  }
+
+  return {
+    removed: documentIds.length,
+    roots: [] as string[],
+    manifestPath: null,
+  };
 }
 
 export default defineAction({
   description:
-    "Remove local-file sources from Content without deleting the files on disk. In local-file mode this unlinks configured Content roots from agent-native.json; in database mode this removes imported local-file document entries.",
+    "Unlink legacy local-file source metadata from SQL-backed Content pages without deleting either the pages or files on disk. Use disconnect-local-folder-source for connected folder adapters.",
   schema: z.object({
     sourceRootPath: z
       .string()
@@ -75,9 +99,7 @@ export default defineAction({
       "Unlink local-file entries from Content without deleting local Markdown or MDX files.",
   },
   run: async ({ sourceRootPath }) => {
-    const result = (await isContentLocalFileMode())
-      ? await removeContentLocalFileRoots(sourceRootPath)
-      : await removeImportedLocalSourceDocuments(sourceRootPath);
+    const result = await unlinkImportedLocalSourceDocuments(sourceRootPath);
 
     if (result.removed === 0 && result.roots.length === 0) {
       throw new Error(
@@ -87,7 +109,6 @@ export default defineAction({
       );
     }
 
-    invalidateLocalFileDocumentsCache();
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {

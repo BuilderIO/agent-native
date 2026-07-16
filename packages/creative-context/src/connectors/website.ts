@@ -1,3 +1,9 @@
+import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
+import {
+  extractStaticWebsiteContext,
+  readBoundedResponseBytes,
+} from "@agent-native/core/ingestion";
+
 import type { ContextMediaInput } from "../types.js";
 import { normalizeContextItem } from "./normalize.js";
 import {
@@ -769,8 +775,3 @@ function waitUntil(
     ? value
     : undefined;
 }
-import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
-import {
-  extractStaticWebsiteContext,
-  readBoundedResponseBytes,
-} from "@agent-native/core/ingestion";

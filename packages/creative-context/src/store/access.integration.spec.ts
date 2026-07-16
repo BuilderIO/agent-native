@@ -4,6 +4,8 @@ import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { normalizeContextItem } from "../connectors/normalize.js";
+
 vi.setConfig({ hookTimeout: 30_000, testTimeout: 30_000 });
 
 const originalDatabaseUrl = process.env.DATABASE_URL;
@@ -442,6 +444,193 @@ describe("creative context access and revocation", () => {
     ).resolves.toMatchObject({
       version: { id: firstVersionId, content: firstHtml },
     });
+  });
+
+  it("versions notes-only changes while packs retain the prior immutable evidence", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const slide = (notes: string) =>
+      normalizeContextItem({
+        externalId: "notes-deck:slide-1",
+        kind: "google-slides-slide",
+        title: "Launch plan",
+        mimeType: "text/html",
+        content: '<div class="fmd-slide">Unchanged slide</div>',
+        summary: `Speaker notes: ${notes}`,
+        sourceVersion: "same-provider-revision",
+        metadata: {
+          speakerNotes: notes,
+          nativeArtifact: {
+            schemaVersion: 1,
+            app: "slides",
+            format: "slides-html",
+          },
+        },
+        chunks: [
+          {
+            ordinal: 0,
+            kind: "slides-native-lexical",
+            text: `Unchanged slide Speaker notes ${notes}`,
+          },
+        ],
+      });
+
+    const first = await asAlice(() =>
+      store.ingestItems({ sourceId: "source-1", items: [slide("Draft")] }),
+    );
+    const itemId = first.itemIds[0]!;
+    const firstDetail = await asAlice(() =>
+      store.getCreativeContextItem(itemId),
+    );
+    const firstVersionId = firstDetail!.version.id;
+    const pack = await asAlice(() =>
+      store.createContextPack({
+        name: "Notes evidence",
+        members: [{ itemId }],
+      }),
+    );
+
+    const second = await asAlice(() =>
+      store.ingestItems({ sourceId: "source-1", items: [slide("Approved")] }),
+    );
+    expect(second).toMatchObject({ versioned: 1, unchanged: 0 });
+    await expect(
+      asAlice(() => store.getCreativeContextItem(itemId, firstVersionId)),
+    ).resolves.toMatchObject({
+      version: { versionNumber: 1, summary: "Speaker notes: Draft" },
+      chunks: [
+        expect.objectContaining({ text: expect.stringContaining("Draft") }),
+      ],
+    });
+    await expect(
+      asAlice(() => store.getCreativeContextItem(itemId)),
+    ).resolves.toMatchObject({
+      version: { versionNumber: 2, summary: "Speaker notes: Approved" },
+      chunks: [
+        expect.objectContaining({ text: expect.stringContaining("Approved") }),
+      ],
+    });
+    await expect(
+      asAlice(() => store.getContextPack(pack.id)),
+    ).resolves.toMatchObject({
+      members: [expect.objectContaining({ itemVersionId: firstVersionId })],
+    });
+    const versions = await exec.execute({
+      sql: "SELECT version_number FROM creative_context_item_versions WHERE item_id = ? ORDER BY version_number",
+      args: [itemId],
+    });
+    expect(versions.rows).toEqual([
+      expect.objectContaining({ version_number: 1 }),
+      expect.objectContaining({ version_number: 2 }),
+    ]);
+  });
+
+  it("dedupes reordered evidence but versions metadata and media-only changes", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const item = (input: { reversed: boolean; assetRole: string }) => {
+      const chunks = [
+        { ordinal: 0, kind: "text", text: "Stable body" },
+        { ordinal: 1, kind: "code", text: "font-family: Inter" },
+      ];
+      const media = [
+        {
+          id: "ccm_asset_a",
+          kind: "image" as const,
+          accessMode: "public" as const,
+          url: "https://cdn.example.test/a.png",
+          contentHash: "asset-a",
+          metadata: { role: input.assetRole },
+        },
+        {
+          id: "ccm_asset_b",
+          kind: "image" as const,
+          accessMode: "public" as const,
+          url: "https://cdn.example.test/b.png",
+          contentHash: "asset-b",
+          metadata: { role: "supporting" },
+        },
+      ];
+      const edges = [
+        { relation: "uses-asset", toExternalId: "asset-a" },
+        { relation: "uses-asset", toExternalId: "asset-b" },
+      ];
+      return normalizeContextItem({
+        externalId: "media-evidence",
+        kind: "design-artifact",
+        title: "Media evidence",
+        content: "Stable body",
+        sourceVersion: "stable-source-version",
+        metadata: { fidelity: { exact: 2 }, provider: "fixture" },
+        chunks: input.reversed ? [...chunks].reverse() : chunks,
+        media: input.reversed ? [...media].reverse() : media,
+        edges: input.reversed ? [...edges].reverse() : edges,
+      });
+    };
+
+    const original = item({ reversed: false, assetRole: "hero" });
+    const reordered = item({ reversed: true, assetRole: "hero" });
+    expect(reordered.contentHash).toBe(original.contentHash);
+    const first = await asAlice(() =>
+      store.ingestItems({ sourceId: "source-1", items: [original] }),
+    );
+    const itemId = first.itemIds[0]!;
+    const firstVersionId = (await asAlice(() =>
+      store.getCreativeContextItem(itemId),
+    ))!.version.id;
+    const pack = await asAlice(() =>
+      store.createContextPack({
+        name: "Media evidence",
+        members: [{ itemId }],
+      }),
+    );
+    const unchanged = await asAlice(() =>
+      store.ingestItems({ sourceId: "source-1", items: [reordered] }),
+    );
+    expect(unchanged).toMatchObject({ versioned: 0, unchanged: 1 });
+
+    const changed = await asAlice(() =>
+      store.ingestItems({
+        sourceId: "source-1",
+        items: [item({ reversed: true, assetRole: "canonical-logo" })],
+      }),
+    );
+    expect(changed).toMatchObject({ versioned: 1, unchanged: 0 });
+    await expect(
+      asAlice(() => store.getCreativeContextItem(itemId, firstVersionId)),
+    ).resolves.toMatchObject({
+      version: { versionNumber: 1 },
+      media: [
+        expect.objectContaining({ metadata: { role: "hero" } }),
+        expect.objectContaining({ metadata: { role: "supporting" } }),
+      ],
+    });
+    await expect(
+      asAlice(() => store.getCreativeContextItem(itemId)),
+    ).resolves.toMatchObject({
+      version: { versionNumber: 2 },
+      media: expect.arrayContaining([
+        expect.objectContaining({ metadata: { role: "canonical-logo" } }),
+      ]),
+    });
+    await expect(
+      asAlice(() => store.getContextPack(pack.id)),
+    ).resolves.toMatchObject({
+      members: [expect.objectContaining({ itemVersionId: firstVersionId })],
+    });
+    const versions = await exec.execute({
+      sql: "SELECT version_number FROM creative_context_item_versions WHERE item_id = ? ORDER BY version_number",
+      args: [itemId],
+    });
+    expect(versions.rows).toHaveLength(2);
   });
 
   it("pins hierarchical parent versions to exact child versions across later resyncs and access loss", async () => {

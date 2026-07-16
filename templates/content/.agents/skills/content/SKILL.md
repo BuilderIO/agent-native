@@ -3,7 +3,7 @@ name: content
 description: >-
   Use Content for repo-backed Markdown/MDX docs, blogs, resources, rich
   document editing, Notion-style databases and boards, structured intake
-  forms, local components, shareable copies, and Content local-file workspaces.
+  forms, local components, shareable copies, and connected local folders.
   Prefer Content actions over raw filesystem writes when available.
 metadata:
   visibility: exported
@@ -17,7 +17,7 @@ marketing pages, internal notes, and local MDX components. Also use Content for
 Notion-style databases, tables, boards, structured request intake, and forms
 whose submissions become database row pages. Content gives the agent a document
 tree, a rich editor, structured database properties and views, normal document
-actions, and an optional local-file source of truth.
+actions, and local folders that sync into the same database model.
 
 ## Choose The Path
 
@@ -39,9 +39,9 @@ actions, and an optional local-file source of truth.
   its exact title, then inspect it with `get-content-database` before creating
   or submitting anything. Do not create a second database when the canonical
   one already exists.
-- In Local File Mode, Content actions read and write the repo files declared in
-  `agent-native.json`; SQL remains cache/history/search glue, not the source of
-  truth for those pages.
+- Local folders are sources attached to a space's canonical Files database.
+  Imported pages are normal SQL-backed Content documents; the trusted local
+  bridge handles pull, export, stable file identity, and conflict review.
 - If Content tools are not visible and no local Content app or Desktop bridge is
   running, treat this skill as repo-editing guidance. Edit configured
   `.md`/`.mdx` files directly, preserve frontmatter and MDX imports, and tell
@@ -63,10 +63,10 @@ Prefer JSON input for action calls:
 
 ```bash
 pnpm action list-documents
-pnpm action get-document '{"id":"local-file:..."}'
-pnpm action edit-document '{"id":"local-file:...","find":"old copy","replace":"new copy"}'
-pnpm action update-document '{"id":"local-file:...","content":"# Updated\n\nBody"}'
-pnpm action share-local-file-document '{"id":"local-file:..."}'
+pnpm action get-document '{"id":"<document-id>"}'
+pnpm action edit-document '{"id":"<document-id>","find":"old copy","replace":"new copy"}'
+pnpm action update-document '{"id":"<document-id>","content":"# Updated\n\nBody"}'
+pnpm action connect-local-folder-source '{"connectionId":"<opaque-bridge-id>","label":"Docs","createSourceBackedSpace":true,"truthPolicy":"source_primary"}'
 ```
 
 Run `refresh-list` after create/update/delete operations when you need the open
@@ -148,7 +148,7 @@ guesswork:
   writing. If a named person cannot be resolved unambiguously, clarify in the
   originating Slack thread; never omit, downgrade, or silently drop the person.
 
-## Local File Mode
+## Local Folder Sources
 
 Install into an existing repo with:
 
@@ -156,40 +156,27 @@ Install into an existing repo with:
 npx @agent-native/core@latest skills add content --mode local-files --scope project
 ```
 
-The installer copies this skill and writes or updates `agent-native.json` with
-Content roots for `docs/`, `blog/`, `content/`, and `resources/`, plus a
-`components/` folder for local MDX components. A typical manifest looks like:
+The compatibility spelling still installs the skill, but it no longer enables
+a separate data mode. The CLI writes or updates `agent-native.json` with
+declarative local-folder sources and launches normal database-backed Content.
+A typical root looks like:
 
 ```json
 {
   "version": 1,
   "apps": {
     "content": {
-      "mode": "local-files",
       "roots": [
         {
           "name": "Docs",
           "path": "docs",
           "kind": "docs",
-          "extensions": [".md", ".mdx"]
-        },
-        {
-          "name": "Blog",
-          "path": "blog",
-          "kind": "blog",
-          "extensions": [".md", ".mdx"]
-        },
-        {
-          "name": "Content",
-          "path": "content",
-          "kind": "content",
-          "extensions": [".md", ".mdx"]
-        },
-        {
-          "name": "Resources",
-          "path": "resources",
-          "kind": "resources",
-          "extensions": [".md", ".mdx"]
+          "extensions": [".md", ".mdx"],
+          "source": {
+            "type": "local-folder",
+            "connectionId": "local-folder:<opaque-id>",
+            "truthPolicy": "source_primary"
+          }
         }
       ],
       "components": "components",
@@ -200,9 +187,10 @@ Content roots for `docs/`, `blog/`, `content/`, and `resources/`, plus a
 }
 ```
 
-Local File Mode does not make the host language model local, and the hosted
-Content app cannot read private repo files by itself. File access requires a
-local Content app, Agent Native Desktop, or another trusted local bridge.
+Content never stores an absolute local path or raw file body in source metadata.
+File access still requires a local Content app, Agent Native Desktop, or another
+trusted bridge. Disconnecting a folder leaves the SQL pages and disk files in
+place. Concurrent edits and missing source files require explicit review.
 
 ## MDX And Components
 
@@ -218,9 +206,8 @@ local Content app, Agent Native Desktop, or another trusted local bridge.
 
 ## Boundaries
 
-- Moving, renaming, and reordering local-file pages are not first-class Content
-  UI operations yet. Use normal file operations when the user asks for those,
-  then let Content rediscover the file tree.
+- Preserve a page's frontmatter `id` when renaming a source file so the next
+  sync recognizes it as the same global Content page.
 - Do not push/pull Notion, Builder.io, or other provider-backed content unless
   the user explicitly asks for provider sync.
 - Do not paste secrets, private provider data, or credential-looking values into

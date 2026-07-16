@@ -401,13 +401,12 @@ describe("agent-native skills", () => {
     expect(result.localManifestPath).toBe(manifestPath);
     expect(result.commands).toContain(`write ${manifestPath}`);
     expect(fs.readFileSync(path.join(skillDir, "SKILL.md"), "utf-8")).toContain(
-      "Default storage for this installation: Content Local File Mode.",
+      "Default storage for this installation is Content's SQL database.",
     );
     expect(manifest).toMatchObject({
       version: 1,
       apps: {
         content: {
-          mode: "local-files",
           components: "components",
           extensions: "extensions",
         },
@@ -419,6 +418,14 @@ describe("agent-native skills", () => {
       "content",
       "resources",
     ]);
+    for (const root of manifest.apps.content.roots) {
+      expect(root.source).toMatchObject({
+        type: "local-folder",
+        truthPolicy: "source_primary",
+      });
+      expect(root.source.connectionId).toMatch(/^local-folder:/);
+    }
+    expect(manifest.apps.content.mode).toBeUndefined();
     expect(manifest.mode).toBeUndefined();
   });
 
@@ -471,13 +478,20 @@ describe("agent-native skills", () => {
       fs.readFileSync(path.join(root, "agent-native.json"), "utf-8"),
     );
     expect(manifest.apps.content.roots).toEqual([
-      {
+      expect.objectContaining({
         name: "Knowledge",
         path: "knowledge",
         kind: "docs",
         extensions: [".mdx"],
-      },
+        source: expect.objectContaining({
+          type: "local-folder",
+          truthPolicy: "source_primary",
+        }),
+      }),
     ]);
+    expect(manifest.apps.content.roots[0].source.connectionId).toMatch(
+      /^local-folder:/,
+    );
     expect(manifest.apps.content.components).toEqual(["blocks"]);
     expect(manifest.apps.content.extensions).toBe("extensions");
     expect(manifest.mode).toBe("workspace");
@@ -522,7 +536,8 @@ describe("agent-native skills", () => {
       expect.arrayContaining(["--mode", "local-files"]),
     );
     expect(manifest.mode).toBeUndefined();
-    expect(manifest.apps.content.mode).toBe("local-files");
+    expect(manifest.apps.content.mode).toBeUndefined();
+    expect(manifest.apps.content.roots[0].source.type).toBe("local-folder");
   });
 
   it("accepts Content app-skill manifests with local-files mode", async () => {
@@ -553,7 +568,8 @@ describe("agent-native skills", () => {
     expect(result.mcpUrl).toBe("");
     expect(result.mcpClients).toEqual([]);
     expect(manifest.mode).toBeUndefined();
-    expect(manifest.apps.content.mode).toBe("local-files");
+    expect(manifest.apps.content.mode).toBeUndefined();
+    expect(manifest.apps.content.roots[0].source.type).toBe("local-folder");
   });
 
   it("accepts design-exploration aliases for the built-in Design skill", async () => {
