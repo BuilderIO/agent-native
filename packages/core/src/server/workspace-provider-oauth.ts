@@ -255,9 +255,7 @@ export async function handleWorkspaceProviderOAuthCallback(
         accountLabel: identity.label,
         status: "connected",
         scopes,
-        allowedApps: mergeWorkspaceOAuthValues(existing?.allowedApps ?? [], [
-          flow.appId,
-        ]),
+        allowedApps: existing?.allowedApps ?? [],
         config: { credentialMode: "oauth" },
         lastCheckedAt: new Date(),
         lastError: null,
@@ -297,9 +295,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   }
   if (input.provider.id === "google_drive") {
     url.searchParams.set("access_type", "offline");
-    // The shared Google project may already hold sensitive grants for other
-    // apps; combining them can trigger an unverified-app warning here.
-    url.searchParams.set("include_granted_scopes", "false");
+    url.searchParams.set("include_granted_scopes", "true");
     url.searchParams.set("prompt", "consent");
   }
   if (input.provider.oauth.scopes.length) {

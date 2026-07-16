@@ -1,6 +1,7 @@
 const GOOGLE_PICKER_SCRIPT = "https://apis.google.com/js/api.js";
 const GOOGLE_SLIDES_MIME_TYPE = "application/vnd.google-apps.presentation";
 const GOOGLE_PICKER_LOAD_TIMEOUT_MS = 15_000;
+const GOOGLE_PICKER_SELECTION_TIMEOUT_MS = 5 * 60_000;
 const GOOGLE_DRIVE_FILE_ID = /^[A-Za-z0-9_-]{8,256}$/;
 
 declare global {
@@ -44,16 +45,14 @@ export function googleSlidesPickerSelections(
 async function withGooglePickerTimeout<T>(
   promise: Promise<T>,
   message: string,
+  timeoutMs = GOOGLE_PICKER_LOAD_TIMEOUT_MS,
 ): Promise<T> {
   let timeout: ReturnType<typeof setTimeout> | undefined;
   try {
     return await Promise.race([
       promise,
       new Promise<never>((_, reject) => {
-        timeout = setTimeout(
-          () => reject(new Error(message)),
-          GOOGLE_PICKER_LOAD_TIMEOUT_MS,
-        );
+        timeout = setTimeout(() => reject(new Error(message)), timeoutMs);
       }),
     ]);
   } finally {
@@ -99,41 +98,49 @@ export async function chooseGoogleSlidesPresentations(input: {
   await loadGooglePicker();
   const google = window.google;
   if (!google?.picker) throw new Error("Google Picker is unavailable.");
-  return new Promise((resolve, reject) => {
-    const view = new google.picker.DocsView(google.picker.ViewId.PRESENTATIONS)
-      .setMimeTypes(GOOGLE_SLIDES_MIME_TYPE)
-      .setSelectFolderEnabled(false);
-    const picker = new google.picker.PickerBuilder()
-      .addView(view)
-      .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
-      .setOAuthToken(input.accessToken)
-      .setDeveloperKey(input.apiKey)
-      .setAppId(input.appId)
-      .setTitle("Choose Google Slides presentations")
-      .setCallback((data: unknown) => {
-        if (
-          data &&
-          typeof data === "object" &&
-          (data as { action?: unknown }).action === google.picker.Action.CANCEL
-        ) {
-          resolve([]);
-          return;
-        }
-        if (
-          !data ||
-          typeof data !== "object" ||
-          (data as { action?: unknown }).action !== google.picker.Action.PICKED
-        ) {
-          return;
-        }
-        const selections = googleSlidesPickerSelections(data);
-        if (!selections.length) {
-          reject(new Error("Google Picker returned no presentations."));
-          return;
-        }
-        resolve(selections);
-      })
-      .build();
-    picker.setVisible(true);
-  });
+  return withGooglePickerTimeout(
+    new Promise((resolve, reject) => {
+      const view = new google.picker.DocsView(
+        google.picker.ViewId.PRESENTATIONS,
+      )
+        .setMimeTypes(GOOGLE_SLIDES_MIME_TYPE)
+        .setSelectFolderEnabled(false);
+      const picker = new google.picker.PickerBuilder()
+        .addView(view)
+        .enableFeature(google.picker.Feature.MULTISELECT_ENABLED)
+        .setOAuthToken(input.accessToken)
+        .setDeveloperKey(input.apiKey)
+        .setAppId(input.appId)
+        .setTitle("Choose Google Slides presentations")
+        .setCallback((data: unknown) => {
+          if (
+            data &&
+            typeof data === "object" &&
+            (data as { action?: unknown }).action ===
+              google.picker.Action.CANCEL
+          ) {
+            resolve([]);
+            return;
+          }
+          if (
+            !data ||
+            typeof data !== "object" ||
+            (data as { action?: unknown }).action !==
+              google.picker.Action.PICKED
+          ) {
+            return;
+          }
+          const selections = googleSlidesPickerSelections(data);
+          if (!selections.length) {
+            reject(new Error("Google Picker returned no presentations."));
+            return;
+          }
+          resolve(selections);
+        })
+        .build();
+      picker.setVisible(true);
+    }),
+    "Google Picker selection timed out.",
+    GOOGLE_PICKER_SELECTION_TIMEOUT_MS,
+  );
 }

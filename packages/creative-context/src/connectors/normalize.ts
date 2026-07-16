@@ -14,6 +14,8 @@ const DEFAULT_CHUNK_CHARS = 4_000;
 export const MAX_SEARCHABLE_CONTENT_BYTES = 64 * 1024;
 export const MAX_SUMMARY_BYTES = 8 * 1024;
 export const MAX_NATIVE_CONTENT_BYTES = 128 * 1024;
+export const MAX_METADATA_BYTES = 32 * 1024;
+export const MAX_MEDIA_TEXT_BYTES = 64 * 1024;
 
 export interface NormalizeContextItemInput {
   externalId: string;
@@ -130,7 +132,13 @@ function requireBoundedNativeContent(value: string): string {
 export function assertContextItemSqlTextLimits(
   item: Pick<
     NormalizedContextItem,
-    "content" | "summary" | "mimeType" | "metadata" | "chunks"
+    | "content"
+    | "summary"
+    | "mimeType"
+    | "metadata"
+    | "chunks"
+    | "media"
+    | "edges"
   >,
 ): void {
   const nativeArtifact = item.metadata?.nativeArtifact;
@@ -160,6 +168,12 @@ export function assertContextItemSqlTextLimits(
       "normalize the summary before ingest",
     );
   }
+  assertJsonSqlTextLimit(
+    "item metadata",
+    item.metadata,
+    MAX_METADATA_BYTES,
+    "move raw payloads to private blob storage before ingest",
+  );
   let chunkBytes = 0;
   for (const chunk of item.chunks ?? []) {
     chunkBytes += Buffer.byteLength(chunk.text, "utf8");
@@ -168,7 +182,55 @@ export function assertContextItemSqlTextLimits(
         `Creative context chunks exceed the ${MAX_SEARCHABLE_CONTENT_BYTES}-byte SQL text limit; normalize or split the chunks before ingest`,
       );
     }
+    assertJsonSqlTextLimit(
+      "chunk metadata",
+      chunk.metadata,
+      MAX_METADATA_BYTES,
+      "move raw payloads to private blob storage before ingest",
+    );
   }
+  for (const media of item.media ?? []) {
+    for (const [label, value] of [
+      ["media alt text", media.altText],
+      ["media caption", media.caption],
+      ["media OCR text", media.ocrText],
+    ] as const) {
+      if (value) {
+        assertSqlTextLimit(
+          label,
+          value,
+          MAX_MEDIA_TEXT_BYTES,
+          "move raw payloads to private blob storage before ingest",
+        );
+      }
+    }
+    assertJsonSqlTextLimit(
+      "media metadata",
+      media.metadata,
+      MAX_METADATA_BYTES,
+      "move raw payloads to private blob storage before ingest",
+    );
+  }
+  for (const edge of item.edges ?? []) {
+    assertJsonSqlTextLimit(
+      "edge metadata",
+      edge.metadata,
+      MAX_METADATA_BYTES,
+      "move raw payloads to private blob storage before ingest",
+    );
+  }
+}
+
+function assertJsonSqlTextLimit(
+  label: string,
+  value: unknown,
+  maxBytes: number,
+  guidance: string,
+): void {
+  if (value === undefined) return;
+  const serialized = JSON.stringify(value);
+  if (serialized === undefined) return;
+  assertSqlTextLimit(label, serialized, maxBytes, guidance);
 }
 
 function assertSqlTextLimit(

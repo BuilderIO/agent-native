@@ -260,6 +260,7 @@ export async function enqueueContextRebuildJob(input: {
     .where(
       and(
         eq(schema.contextJobs.ownerEmail, actor.ownerEmail),
+        actorOrgScope(schema, actor),
         eq(schema.contextJobs.sourceId, input.sourceId),
         eq(schema.contextJobs.kind, "embed"),
         inArray(schema.contextJobs.status, ["queued", "paused"]),
@@ -315,6 +316,7 @@ export async function getJob(jobId: string): Promise<ContextJob | null> {
       and(
         eq(schema.contextJobs.id, jobId),
         eq(schema.contextJobs.ownerEmail, actor.ownerEmail),
+        actorOrgScope(schema, actor),
       ),
     )
     .limit(1);

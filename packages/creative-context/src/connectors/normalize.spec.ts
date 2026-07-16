@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  assertContextItemSqlTextLimits,
+  MAX_METADATA_BYTES,
+  MAX_MEDIA_TEXT_BYTES,
   MAX_NATIVE_CONTENT_BYTES,
   MAX_SEARCHABLE_CONTENT_BYTES,
   MAX_SUMMARY_BYTES,
@@ -62,5 +65,36 @@ describe("normalizeContextItem SQL text limits", () => {
         },
       }),
     ).toThrow(/native content.*exceeds.*split the artifact/i);
+  });
+
+  it("rejects oversized structured metadata and media text before SQL writes", () => {
+    const oversizedMetadata = normalizeContextItem({
+      externalId: "oversized-metadata",
+      kind: "presentation",
+      title: "Oversized metadata",
+      content: "small",
+      metadata: { speakerNotes: "x".repeat(MAX_METADATA_BYTES) },
+    });
+    expect(() => assertContextItemSqlTextLimits(oversizedMetadata)).toThrow(
+      /item metadata.*exceeds.*private blob storage/i,
+    );
+
+    const oversizedMedia = normalizeContextItem({
+      externalId: "oversized-media",
+      kind: "presentation",
+      title: "Oversized media",
+      content: "small",
+      media: [
+        {
+          kind: "image",
+          url: "https://example.com/image.png",
+          ocrText: "x".repeat(MAX_MEDIA_TEXT_BYTES + 1),
+          metadata: { providerPayload: "small" },
+        },
+      ],
+    });
+    expect(() => assertContextItemSqlTextLimits(oversizedMedia)).toThrow(
+      /media OCR text.*exceeds.*private blob storage/i,
+    );
   });
 });
