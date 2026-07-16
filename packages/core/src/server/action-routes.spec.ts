@@ -8,6 +8,7 @@ const mockGetSession = vi.hoisted(() => vi.fn(async () => null));
 const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
+const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   createError: (opts: any) =>
@@ -49,6 +50,10 @@ vi.mock("../org/context.js", () => ({
 vi.mock("./auth.js", () => ({
   getSession: (...args: unknown[]) => mockGetSession(...args),
 }));
+vi.mock("../a2a-claims.js", () => ({
+  verifyA2ATokenWithClaims: (...args: unknown[]) =>
+    mockVerifyA2ATokenWithClaims(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
@@ -61,6 +66,7 @@ describe("mountActionRoutes", () => {
     mockGetSession.mockResolvedValue(null);
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
+    mockVerifyA2ATokenWithClaims.mockReset();
     vi.restoreAllMocks();
   });
 
@@ -806,6 +812,144 @@ describe("mountActionRoutes", () => {
   // ---------------------------------------------------------------------
   // actionRouteAuth adapter (runs before getOwnerFromEvent / getSession)
   // ---------------------------------------------------------------------
+
+  it("accepts built-in feature flag delegation without template adapter", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "org-1",
+      jti: "request-1",
+      issuer: "https://analytics.example",
+      scope: ["flags:read"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token =
+      "eyJhbGciOiJIUzI1NiJ9.eyJvcmdfaWQiOiJvcmctMSIsImp0aSI6InJlcXVlc3QtMSIsInNjb3BlIjoiZmxhZ3M6cmVhZCJ9.signature";
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+      networkProtocol: "a2a",
+      networkId: "request-1",
+      networkPeer: "https://analytics.example",
+    });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
+  it("leaves ordinary bearer auth to legacy owner resolution", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "legacy@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: "Bearer opaque-legacy-token" },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "http",
+      userEmail: "legacy@example.com",
+    });
+    expect(context.networkProtocol).toBeUndefined();
+    expect(context.networkId).toBeUndefined();
+    expect(context.networkPeer).toBeUndefined();
+    expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
+  });
+
+  it("falls back to built-in delegation after a custom adapter returns null", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "writer@example.com",
+      orgId: "org-2",
+      jti: "request-2",
+      scope: ["flags:write"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "set-feature-flag": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { actionRouteAuth: { resolveCaller: async () => null } },
+    );
+    const token =
+      "eyJhbGciOiJIUzI1NiJ9.eyJvcmdfaWQiOiJvcmctMiIsImp0aSI6InJlcXVlc3QtMiIsInNjb3BlIjoiZmxhZ3M6d3JpdGUifQ.signature";
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "writer@example.com",
+      orgId: "org-2",
+    });
+  });
+
+  it("hard-rejects an invalid declared feature flag delegation", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue(null);
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": { run: async () => ({ ok: true }) } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token =
+      "eyJhbGciOiJIUzI1NiJ9.eyJvcmdfaWQiOiJvcmctMSIsImp0aSI6InJlcXVlc3QtMyIsInNjb3BlIjoiZmxhZ3M6cmVhZCJ9.signature";
+    await expect(
+      mounted[0].handler({
+        _method: "POST",
+        _headers: { authorization: `Bearer ${token}` },
+        context: {},
+        req: { json: async () => ({}) },
+      }),
+    ).rejects.toMatchObject({ statusCode: 401 });
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
 
   it("runs the action scoped to actionRouteAuth.resolveCaller and skips getOwnerFromEvent", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");

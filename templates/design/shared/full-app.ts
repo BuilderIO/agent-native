@@ -13,16 +13,19 @@
  * a design as app-backed.
  */
 
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
 /**
- * Master switch for full app building in the Design app.
- *
- * Deliberately a plain code boolean for now: flip to `true` to expose the
- * "Full app" creation option and enable the fusion app actions. Builder
+ * Runtime rollout for full app building in the Design app. Builder
  * credentials plus a branch project id (DISPATCH_BUILDER_PROJECT_ID /
- * BUILDER_BRANCH_PROJECT_ID / BUILDER_PROJECT_ID) are still required at
- * runtime — without them the actions return the standard connect CTA.
+ * BUILDER_BRANCH_PROJECT_ID / BUILDER_PROJECT_ID) remain separate setup
+ * requirements; without them the actions return the standard connect CTA.
  */
-export const FULL_APP_BUILDING_ENABLED = false;
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Builder Fusion-backed applications.",
+});
 
 export type DesignFusionAppStatus = "building" | "ready" | "error";
 

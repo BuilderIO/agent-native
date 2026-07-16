@@ -15,14 +15,20 @@ import {
   IconChevronDown,
   IconDatabase,
   IconEye,
+  IconFlask,
   IconLoader2,
   IconMouse,
   IconPlus,
+  IconToggleRight,
   IconTrash,
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 
+import {
+  FeatureFlagsFleetPanel,
+  ProductExperimentsPanel,
+} from "@/components/agents/ExperimentAdminPanels";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -70,7 +76,12 @@ import {
 } from "@/components/ui/table";
 import { cn } from "@/lib/utils";
 
-type AgentAdminView = "monitoring" | "dashboards" | "database";
+type AgentAdminView =
+  | "monitoring"
+  | "dashboards"
+  | "database"
+  | "flags"
+  | "experiments";
 
 interface DbAdminConnection {
   id: string;
@@ -117,6 +128,8 @@ const AGENT_ADMIN_VIEWS: AgentAdminView[] = [
   "monitoring",
   "dashboards",
   "database",
+  "flags",
+  "experiments",
 ];
 
 function parseView(value: string | null): AgentAdminView {
@@ -383,15 +396,21 @@ export default function AgentsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const view = parseView(searchParams.get("view"));
   const selectedConnectionId = searchParams.get("db");
-  const isAdminView = view === "dashboards" || view === "database";
+  const selectedFlag = searchParams.get("flag");
+  const selectedExperiment = searchParams.get("experiment");
+  const isAdminView = view !== "monitoring";
 
   function setView(next: AgentAdminView) {
     const params = new URLSearchParams(searchParams);
     if (next === "monitoring") {
       params.delete("view");
       params.delete("db");
+      params.delete("flag");
+      params.delete("experiment");
     } else {
       params.set("view", next);
+      if (next !== "flags") params.delete("flag");
+      if (next !== "experiments") params.delete("experiment");
     }
     setSearchParams(params, { replace: true });
   }
@@ -493,6 +512,36 @@ export default function AgentsPage() {
             {t("agents.dashboardUsage")}
           </button>
         ) : null}
+        {canManageOrg ? (
+          <button
+            type="button"
+            onClick={() => setView("flags")}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              view === "flags"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <IconToggleRight className="size-4" />
+            {t("agents.featureFlags")}
+          </button>
+        ) : null}
+        {canManageOrg ? (
+          <button
+            type="button"
+            onClick={() => setView("experiments")}
+            className={cn(
+              "inline-flex h-8 items-center gap-2 rounded-md px-3 text-sm font-medium transition-colors",
+              view === "experiments"
+                ? "bg-foreground text-background"
+                : "text-muted-foreground hover:bg-muted hover:text-foreground",
+            )}
+          >
+            <IconFlask className="size-4" />
+            {t("agents.productExperiments")}
+          </button>
+        ) : null}
         {canManageOrg && view === "database" && (
           <button
             type="button"
@@ -512,6 +561,10 @@ export default function AgentsPage() {
         />
       ) : view === "dashboards" ? (
         <DashboardUsageAdminPanel />
+      ) : view === "flags" ? (
+        <FeatureFlagsFleetPanel selectedFlag={selectedFlag} />
+      ) : view === "experiments" ? (
+        <ProductExperimentsPanel selectedExperiment={selectedExperiment} />
       ) : (
         <div className="min-w-0">
           <div className="mb-4 max-w-3xl text-sm leading-6 text-muted-foreground">

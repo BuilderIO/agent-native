@@ -490,7 +490,7 @@ const messages = {
     overview: "概要",
     conversations: "Conversations",
     evals: "エヴァルス",
-    experiments: "実験",
+    experiments: "エージェント実験",
     feedback: "フィードバック",
     variants: "Variants",
     created: "Created",

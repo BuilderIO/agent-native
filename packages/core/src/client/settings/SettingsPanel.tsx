@@ -44,6 +44,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
+import { useT } from "../i18n.js";
 import { TeamPage } from "../org/TeamPage.js";
 import { BuilderConnectCard } from "../setup-connections/BuilderConnectCard.js";
 import { callAction } from "../use-action.js";
@@ -3086,6 +3087,7 @@ export function ConnectionsSettingsContent({
 }
 
 export function useAgentSettingsTabs(): SettingsTabItem[] {
+  const t = useT();
   const { isDevMode, canToggle, setDevMode } = useDevMode();
   const baseProps = useMemo<SettingsPanelProps>(
     () => ({
@@ -3111,7 +3113,7 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
     const connections = searchTab("connections");
     const organization = searchTab("organization");
     const workspace = searchTab("workspace");
-    return [
+    const tabs: SettingsTabItem[] = [
       {
         ...agent,
         icon: IconBrain,
@@ -3157,5 +3159,6 @@ export function useAgentSettingsTabs(): SettingsTabItem[] {
         ),
       },
     ];
-  }, [baseProps]);
+    return tabs;
+  }, [baseProps, t]);
 }

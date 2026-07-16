@@ -469,7 +469,7 @@ const messages = {
     overview: "概览",
     conversations: "Conversations",
     evals: "埃瓦尔斯",
-    experiments: "实验",
+    experiments: "智能体实验",
     feedback: "反馈",
     variants: "Variants",
     created: "Created",

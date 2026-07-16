@@ -204,3 +204,28 @@ describe("view-screen monitoring status-pages branch", () => {
     expect(out.page).toBe("monitoring");
   });
 });
+
+describe("view-screen agent experiments context", () => {
+  it("reports the selected experiment and flag admin surfaces", async () => {
+    setScreen(
+      {
+        view: "agents",
+        agentsView: "experiments",
+        productExperimentId: "exp-1",
+      },
+      {
+        pathname: "/agents",
+        searchParams: { view: "experiments", experiment: "exp-1" },
+      },
+    );
+    const out = await runScreen();
+    expect(out.agentsView).toBe("experiments");
+    expect(out.productExperimentId).toBe("exp-1");
+    expect(out.agentAdminSurfaces.map((surface: any) => surface.id)).toContain(
+      "flags",
+    );
+    expect(out.agentAdminSurfaces.map((surface: any) => surface.id)).toContain(
+      "experiments",
+    );
+  });
+});

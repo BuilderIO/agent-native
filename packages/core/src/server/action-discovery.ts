@@ -570,6 +570,22 @@ export async function mergeCoreSharingActions(
       () => import("../sharing/actions/create-agent-resource-link.js"),
     ],
     ["upload-image", () => import("../file-upload/actions/upload-image.js")],
+    [
+      "get-feature-flags",
+      () => import("../feature-flags/actions/get-feature-flags.js"),
+    ],
+    [
+      "get-feature-flag-decision",
+      () => import("../feature-flags/actions/get-feature-flag-decision.js"),
+    ],
+    [
+      "list-feature-flags",
+      () => import("../feature-flags/actions/list-feature-flags.js"),
+    ],
+    [
+      "set-feature-flag",
+      () => import("../feature-flags/actions/set-feature-flag.js"),
+    ],
     // Agent Jobs page — UI-only scoped reads and mutations for resource-backed
     // recurring jobs and personal automations. The agent-facing native tools
     // remain the canonical conversational surface.

@@ -141,7 +141,26 @@ details live in `.agents/skills/`.
   exposing an unannotated action.
 - `/agents` is the Analytics home for admin surfaces. The default Monitoring
   view embeds the shared observability dashboard for traces, conversations,
-  evals, experiments, and feedback. `/agents?view=dashboards` shows the
+  evals, agent experiments, and feedback. `/agents?view=flags` is the
+  admin-only fleet feature-flag control plane, while
+  `/agents?view=experiments` manages product A/B experiments backed by those
+  flags. Call `list-workspace-feature-flags` before changing a flag and preserve
+  each app's explicit state: `unsupported`, `unreachable`, `forbidden`, and
+  `unknown-legacy` are unknown states, never synonyms for off. Use
+  `set-workspace-feature-flag` for app-qualified changes; target apps remain the
+  source of truth and are resolved only through the trusted organization
+  directory. Treat only a versioned mutation response whose key, org scope, and
+  requested rules match as success. Use `list-product-experiments`,
+  `get-product-experiment`, and
+  `manage-product-experiment` for experiment lifecycle work. Starting, pausing,
+  and emergency-off operations update the target flag before persisting the
+  corresponding Analytics state. Starts are serialized by a short-lived
+  database lock and compensate with emergency-off if the local running-state
+  write fails. Experiment definitions are mutable only in draft; never rewrite
+  the metric or allocation of paused, completed, or interrupted history. Event
+  queries accept both directory ids and the framework's `agent-native-<id>`
+  tracking identity. Report a failed target mutation instead of claiming the
+  lifecycle transition succeeded. `/agents?view=dashboards` shows the
   admin-only dashboard usage audit; call `list-dashboard-usage-stats` when
   admins ask about dashboard created/modified dates, owners, last tracked
   modifier, views, engagements, saved views, or cleanup candidates. The
@@ -234,8 +253,9 @@ details live in `.agents/skills/`.
   replay, `view="monitoring"` with `monitoringView="uptime|errors"` (plus the
   `monitorId`, `statusPageId`, or `errorIssueId` deep links) for uptime checks,
   public status pages, or error triage, and `view="agents"` with
-  `agentsView="dashboards|database"` plus optional `dbAdminConnectionId` for
-  dashboard usage or connected app database admin.
+  `agentsView="dashboards|database|flags|experiments"` plus optional
+  `dbAdminConnectionId` for dashboard usage, connected app database admin,
+  fleet feature flags, or product experiments.
 - Use `view-screen` when the active dashboard/chart context is unclear.
 
 ## Session Replay

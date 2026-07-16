@@ -371,6 +371,17 @@ describe("action discovery", () => {
     expect(registry["set-localization-preference"]).toBeDefined();
   });
 
+  it("merges the feature flag decision action used by exposure tracking", async () => {
+    const registry: Record<string, any> = {};
+    await mergeCoreSharingActions(registry);
+
+    expect(registry["get-feature-flag-decision"]).toBeDefined();
+    expect(registry["get-feature-flag-decision"].http).toEqual({
+      method: "GET",
+    });
+    expect(registry["get-feature-flag-decision"].toolCallable).toBe(false);
+  });
+
   it("merges toolkit history and review actions", async () => {
     const registry: Record<string, any> = {};
     await mergeCoreSharingActions(registry);
