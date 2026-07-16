@@ -1183,7 +1183,7 @@ export function SqlChart({
       return { rows: pivoted.rows, forcedYKeys: pivoted.seriesKeys };
     }
     return { rows: rawRows, forcedYKeys: undefined };
-  }, [rawRows, panel.config?.pivot]);
+  }, [rawRows, panel.chartType, panel.config?.pivot]);
 
   const { xKey, yKeys } = useMemo(
     () => detectKeys(queryRows, panel.config, forcedYKeys),
