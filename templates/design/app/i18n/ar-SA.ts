@@ -13,7 +13,7 @@ const messages = {
       modeAuto: "تلقائي",
       modePreview: "معاينة التغيير",
       modeAsk: "اسأل الوكيل",
-      modeRegenerate: "إعادة إنشاء التحديد",
+      modeRegenerate: "إعادة الإنشاء",
       agentModeOptions: "اختيار سلوك الوكيل",
       pendingReview: "مراجعة التغييرات · {{count}}",
       pendingReviewMenu: "تغييرات جاهزة للمراجعة",

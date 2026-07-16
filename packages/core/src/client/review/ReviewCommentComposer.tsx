@@ -89,7 +89,7 @@ export function ReviewCommentComposer({
           type="submit"
           size="sm"
           disabled={!canSubmit}
-          className="h-8 w-full min-w-0 gap-1.5 @2xs/review:w-auto"
+          className="h-8 w-full gap-1.5 @2xs/review:w-auto @2xs/review:min-w-28 @2xs/review:shrink-0"
         >
           {submittingTarget === "human" ? (
             <Spinner className="size-3.5" />

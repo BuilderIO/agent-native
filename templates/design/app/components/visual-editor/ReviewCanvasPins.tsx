@@ -1256,12 +1256,12 @@ function DraftComposer({
         ? t("designEditor.nodeRewrite.modeRegenerate")
         : t("designEditor.nodeRewrite.modeAsk");
   const agentAction = smartAgentAvailable ? (
-    <div className="flex w-full min-w-0 @2xs/review:w-auto">
+    <div className="flex w-full min-w-0 @2xs/review:flex-1">
       <Button
         type="button"
         size="sm"
         variant="outline"
-        className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none @2xs/review:flex-none"
+        className="h-8 min-w-0 flex-1 gap-1.5 rounded-e-none"
         disabled={submitting || !value.trim()}
         onClick={() => onSmartSubmit(sendMode)}
       >
@@ -1278,7 +1278,7 @@ function DraftComposer({
             type="button"
             size="sm"
             variant="outline"
-            className="h-8 rounded-s-none border-s-0 px-2"
+            className="h-8 shrink-0 rounded-s-none border-s-0 px-2"
             disabled={submitting}
             aria-label={t("designEditor.nodeRewrite.agentModeOptions")}
           >

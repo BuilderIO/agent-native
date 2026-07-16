@@ -13,7 +13,7 @@ const messages = {
       modeAuto: "अपने आप",
       modePreview: "बदलाव का पूर्वावलोकन",
       modeAsk: "एजेंट से पूछें",
-      modeRegenerate: "चयन फिर से बनाएँ",
+      modeRegenerate: "फिर से बनाएँ",
       agentModeOptions: "एजेंट का व्यवहार चुनें",
       pendingReview: "बदलाव देखें · {{count}}",
       pendingReviewMenu: "देखने के लिए तैयार बदलाव",

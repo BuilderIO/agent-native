@@ -13,7 +13,7 @@ const messages = {
       modeAuto: "自動",
       modePreview: "変更をプレビュー",
       modeAsk: "エージェントに質問",
-      modeRegenerate: "選択範囲を再生成",
+      modeRegenerate: "再生成",
       agentModeOptions: "エージェントの動作を選択",
       pendingReview: "変更を確認 · {{count}}",
       pendingReviewMenu: "確認待ちの変更",

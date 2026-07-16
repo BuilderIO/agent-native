@@ -432,7 +432,7 @@ const messages = {
       modeAuto: "自動",
       modePreview: "預覽變更",
       modeAsk: "詢問代理",
-      modeRegenerate: "重新生成所選內容",
+      modeRegenerate: "重新生成",
       agentModeOptions: "選擇代理行為",
       pendingReview: "檢視變更 · {{count}}",
       pendingReviewMenu: "待檢視的變更",

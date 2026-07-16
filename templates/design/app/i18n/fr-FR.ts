@@ -13,7 +13,7 @@ const messages = {
       modeAuto: "Auto",
       modePreview: "Aperçu du changement",
       modeAsk: "Interroger l’agent",
-      modeRegenerate: "Régénérer la sélection",
+      modeRegenerate: "Régénérer",
       agentModeOptions: "Choisir le comportement de l’agent",
       pendingReview: "Vérifier les changements · {{count}}",
       pendingReviewMenu: "Changements prêts à vérifier",

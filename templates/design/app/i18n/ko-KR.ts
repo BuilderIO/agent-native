@@ -13,7 +13,7 @@ const messages = {
       modeAuto: "자동",
       modePreview: "변경 미리보기",
       modeAsk: "에이전트에게 질문",
-      modeRegenerate: "선택 영역 다시 생성",
+      modeRegenerate: "다시 생성",
       agentModeOptions: "에이전트 동작 선택",
       pendingReview: "변경 검토 · {{count}}",
       pendingReviewMenu: "검토할 변경 사항",

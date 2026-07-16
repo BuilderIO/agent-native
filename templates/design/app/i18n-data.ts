@@ -935,7 +935,7 @@ const enUS = {
       modeAuto: "Auto",
       modePreview: "Preview change",
       modeAsk: "Ask agent",
-      modeRegenerate: "Regenerate selection",
+      modeRegenerate: "Regenerate",
       agentModeOptions: "Choose agent behavior",
       pendingReview: "Review changes · {{count}}",
       pendingReviewMenu: "Changes ready to review",

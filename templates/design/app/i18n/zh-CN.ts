@@ -13,7 +13,7 @@ const messages = {
       modeAuto: "自动",
       modePreview: "预览更改",
       modeAsk: "询问智能体",
-      modeRegenerate: "重新生成所选内容",
+      modeRegenerate: "重新生成",
       agentModeOptions: "选择智能体行为",
       pendingReview: "查看更改 · {{count}}",
       pendingReviewMenu: "待查看的更改",
