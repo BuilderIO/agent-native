@@ -91,6 +91,7 @@ function logUploadFailure(
   requestId: string,
   stage: MediaUploadStage,
   error: unknown,
+  diagnostics: Record<string, boolean | number | string> = {},
 ) {
   // Content-free diagnostics only: never log document ids, filenames, users,
   // provider handles, URLs, error messages, or response bodies.
@@ -98,7 +99,15 @@ function logUploadFailure(
     requestId,
     stage,
     errorClass: boundedErrorClass(error),
+    ...diagnostics,
   });
+}
+
+function accessFailureClass(error: unknown): string {
+  if (!(error instanceof Error)) return "unknown";
+  if (error.message.startsWith("No access to ")) return "no-access";
+  if (error.message.startsWith("Requires ")) return "insufficient-role";
+  return "other";
 }
 
 export default defineEventHandler(async (event) => {
@@ -136,7 +145,10 @@ export default defineEventHandler(async (event) => {
       orgId: session.orgId,
     });
   } catch (error) {
-    logUploadFailure(requestId, "access", error);
+    logUploadFailure(requestId, "access", error, {
+      accessFailureClass: accessFailureClass(error),
+      identifierLength: documentId.length,
+    });
     return mediaError(event, 403, requestId);
   }
 

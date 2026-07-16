@@ -107,7 +107,12 @@ describe("POST /api/document-media", () => {
     });
     expect(accessErrorSpy).toHaveBeenCalledWith(
       "[content:document-media] upload failed",
-      expect.objectContaining({ stage: "access", errorClass: "rejected" }),
+      expect.objectContaining({
+        stage: "access",
+        errorClass: "rejected",
+        accessFailureClass: "other",
+        identifierLength: 5,
+      }),
     );
     accessErrorSpy.mockRestore();
   });
