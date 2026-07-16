@@ -6,8 +6,7 @@ import { NavLink } from "react-router";
 import { LibraryGrid } from "@/components/library/library-grid";
 import { usePageHeaderLayout } from "@/components/library/page-header";
 
-const SEO_TITLE =
-  "Agent-Native Clips - Open Source, agent-friendly Loom alternative";
+const SEO_TITLE = "Agent-Native Clips - Open Source screen recorder";
 const SEO_DESCRIPTION =
   "Open Source screen recorder and meeting-notes app with AI transcripts, summaries, search, dictation, and agent-readable share links.";
 

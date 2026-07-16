@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   assistantMessageHasUnresolvedTool,
+  isCollapsibleAssistantWorkPart,
   shouldShowAssistantWorkSummary,
   shouldShowAssistantMessageFooter,
   ThinkingIndicator,
@@ -137,6 +138,27 @@ describe("shouldShowAssistantWorkSummary", () => {
         hasUnresolvedTool: true,
       }),
     ).toBe(false);
+  });
+});
+
+describe("isCollapsibleAssistantWorkPart", () => {
+  it("keeps the Builder handoff card outside collapsed work", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "connect-builder",
+      }),
+    ).toBe(false);
+  });
+
+  it("still groups ordinary work and reasoning", () => {
+    expect(
+      isCollapsibleAssistantWorkPart({
+        type: "tool-call",
+        toolName: "read-file",
+      }),
+    ).toBe(true);
+    expect(isCollapsibleAssistantWorkPart({ type: "reasoning" })).toBe(true);
   });
 });
 

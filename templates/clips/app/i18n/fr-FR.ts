@@ -465,6 +465,8 @@ const messages = {
     retryAgentLink: "Réessayer",
     gifPreview: "aperçu de GIF",
     openPlayer: "Joueur ouvert",
+    chooseFile: "Choisir un fichier",
+    remove: "Retirer",
     downloadMp4: "Télécharger MP4",
     embedsNeedPublic: "Les intégrations nécessitent un clip public",
     embedPublicDescription:

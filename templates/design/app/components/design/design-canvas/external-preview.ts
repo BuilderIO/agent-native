@@ -110,12 +110,16 @@ export function sanitizeLocalhostSourceSnapshotHtml(html: string): string {
   );
 }
 
+// Prototypes are still sandboxed, but user-initiated print/download controls
+// need the browser permissions that make `window.print()` and download links
+// work inside an iframe. Without these tokens the browser silently ignores
+// the common "Download / Print PDF" pattern.
 const EXTERNAL_PREVIEW_IFRAME_SANDBOX =
-  "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-same-origin";
+  "allow-scripts allow-forms allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-same-origin";
 const EDITABLE_INLINE_IFRAME_SANDBOX =
-  "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-same-origin";
+  "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals allow-same-origin";
 const READ_ONLY_INLINE_IFRAME_SANDBOX =
-  "allow-scripts allow-popups allow-popups-to-escape-sandbox";
+  "allow-scripts allow-popups allow-popups-to-escape-sandbox allow-downloads allow-modals";
 
 export function getDesignCanvasIframeSandbox(args: {
   externalPreview: boolean;

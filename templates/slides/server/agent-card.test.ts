@@ -18,6 +18,8 @@ const REQUIRED_SLIDES_ACTIONS = [
   "list-decks",
   "update-slide",
   "navigate",
+  "search-images",
+  "generate-image-api",
 ];
 
 const ACTION_REGISTRY_TEST_TIMEOUT_MS = 30_000;

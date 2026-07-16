@@ -22,6 +22,12 @@ export default defineAction({
     "Ask the agent to regenerate this recording's description/summary based on its transcript (and the full video when Include full video is enabled).",
   schema: z.object({
     recordingId: z.string().describe("Recording ID"),
+    openInChat: z
+      .boolean()
+      .optional()
+      .describe(
+        "When true, focus the queued generation request in the agent chat instead of keeping it hidden.",
+      ),
   }),
   run: async (args) => {
     await assertAccess("recording", args.recordingId, "editor");
@@ -74,6 +80,7 @@ export default defineAction({
       transcriptStatus: transcript?.status ?? "pending",
       transcriptText: transcript?.fullText ?? "",
       includeFullVideoInAi,
+      openInChat: args.openInChat === true,
       message: withFullVideoAiInstructions(
         baseMessage,
         args.recordingId,

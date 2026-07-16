@@ -1,4 +1,4 @@
-import { appBasePath, useT } from "@agent-native/core/client";
+import { callAction, useT } from "@agent-native/core/client";
 import { IconX, IconSearch, IconLoader2 } from "@tabler/icons-react";
 import { useState, useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -61,18 +61,15 @@ export default function ImageSearchPanel({
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch(
-        `${appBasePath()}/api/image-search?q=${encodeURIComponent(query)}`,
+      const data = await callAction<SearchResult[]>(
+        "search-images",
+        { q: query.trim() },
+        { method: "GET" },
       );
-      if (!res.ok) {
-        const data = await res.json();
-        setError(data.error || "Search failed");
-        setResults([]);
-      } else {
-        setResults(await res.json());
-      }
-    } catch {
-      setError("Search failed");
+      setResults(data);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : t("raw.searchFailed"));
+      setResults([]);
     } finally {
       setLoading(false);
     }

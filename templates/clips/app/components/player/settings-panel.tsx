@@ -361,6 +361,7 @@ function CtaEditor({
   // editing this card, so an agent edit to the CTA shows up live. `editing`
   // flips true while focus is anywhere inside the card.
   const editing = useRef(false);
+  const [collapsed, setCollapsed] = useState(true);
   const [label, setLabel] = useReconciledState(cta.label, {
     active: editing.current,
   });
@@ -387,52 +388,91 @@ function CtaEditor({
         }
       }}
     >
-      <Input
-        value={label}
-        onChange={(e) => setLabel(e.target.value)}
-        placeholder={t("playerSettings.buttonLabelPlaceholder")}
-      />
-      <Input
-        value={url}
-        onChange={(e) => setUrl(e.target.value)}
-        placeholder="https://…"
-      />
-      <div className="flex gap-2">
-        <input
-          type="color"
-          value={color}
-          onChange={(e) => setColor(e.target.value)}
-          className="h-9 w-12 rounded cursor-pointer border border-border"
-        />
-        <Select
-          value={placement}
-          onValueChange={(v) => setPlacement(v as "end" | "throughout")}
-        >
-          <SelectTrigger className="flex-1">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="throughout">
-              {t("playerSettings.placementThroughout")}
-            </SelectItem>
-            <SelectItem value="end">
-              {t("playerSettings.placementEnd")}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-      <div className="flex gap-2">
-        <Button
-          size="sm"
-          className="bg-primary hover:bg-primary/90 text-primary-foreground"
-          onClick={() => onSave({ label, url, color, placement })}
-        >
-          {t("common.save")}
-        </Button>
-        <Button size="sm" variant="ghost" onClick={onDelete}>
-          {t("playerSettings.delete")}
-        </Button>
-      </div>
+      {collapsed ? (
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-sm font-medium">{cta.label}</p>
+            <p className="text-xs text-muted-foreground">
+              {cta.placement === "throughout"
+                ? t("playerSettings.placementThroughout")
+                : t("playerSettings.placementEnd")}
+            </p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            title={t("recordingPage.edit")}
+            onClick={() => setCollapsed(false)}
+          >
+            {t("recordingPage.edit")}
+          </Button>
+          <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
+            {t("playerSettings.delete")}
+          </Button>
+        </div>
+      ) : (
+        <>
+          <Input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder={t("playerSettings.buttonLabelPlaceholder")}
+          />
+          <Input
+            value={url}
+            onChange={(e) => setUrl(e.target.value)}
+            placeholder="https://…"
+          />
+          <div className="flex gap-2">
+            <input
+              type="color"
+              value={color}
+              onChange={(e) => setColor(e.target.value)}
+              className="h-9 w-12 rounded cursor-pointer border border-border"
+            />
+            <Select
+              value={placement}
+              onValueChange={(v) => setPlacement(v as "end" | "throughout")}
+            >
+              <SelectTrigger className="flex-1">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="throughout">
+                  {t("playerSettings.placementThroughout")}
+                </SelectItem>
+                <SelectItem value="end">
+                  {t("playerSettings.placementEnd")}
+                </SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="flex gap-2">
+            <Button
+              type="button"
+              size="sm"
+              className="bg-primary text-primary-foreground hover:bg-primary/90"
+              onClick={() => {
+                onSave({ label, url, color, placement });
+                setCollapsed(true);
+              }}
+            >
+              {t("common.save")}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant="ghost"
+              onClick={() => setCollapsed(true)}
+            >
+              {t("recordingPage.done")}
+            </Button>
+            <Button type="button" size="sm" variant="ghost" onClick={onDelete}>
+              {t("playerSettings.delete")}
+            </Button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

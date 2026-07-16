@@ -448,6 +448,8 @@ const messages = {
     retryAgentLink: "फिर से प्रयास करें",
     gifPreview: "GIF पूर्वावलोकन",
     openPlayer: "खुला खिलाड़ी",
+    chooseFile: "फ़ाइल चुनें",
+    remove: "हटाएं",
     downloadMp4: "MP4 डाउनलोड करें",
     embedsNeedPublic: "एंबेड को एक सार्वजनिक क्लिप की आवश्यकता है",
     embedPublicDescription:

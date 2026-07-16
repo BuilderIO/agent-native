@@ -453,6 +453,8 @@ const messages = {
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
     openPlayer: "플레이어 열기",
+    chooseFile: "파일 선택",
+    remove: "제거",
     downloadMp4: "MP4 다운로드",
     embedsNeedPublic: "퍼가기에는 공개 클립이 필요합니다",
     embedPublicDescription:
