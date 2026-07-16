@@ -76,22 +76,26 @@ jobs:
           BASE="https://api.netlify.com/api/v1/accounts/$ACCT/env"
           AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
 
+          # Connection strings are credentials, so the generated vars are marked
+          # is_secret. curl returns 000 for DNS/TLS/connectivity failures, so we
+          # treat only an explicit 2xx as success — anything else (000 included)
+          # fails the step rather than silently leaving the var unset.
           set_netlify_env() {
             local key="$1" val="$2"
             local body patch_body http
             body=$(jq -n --arg k "$key" --arg v "$val" \
-              '[{"key":$k,"scopes":["builds","functions","runtime"],"values":[{"value":$v,"context":"deploy-preview"}]}]')
+              '[{"key":$k,"scopes":["builds","functions","runtime"],"is_secret":true,"values":[{"value":$v,"context":"deploy-preview"}]}]')
             patch_body=$(jq -n --arg v "$val" '{"value":$v,"context":"deploy-preview"}')
 
             http=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
               -H "$AUTH" -H "Content-Type: application/json" \
               "$BASE?site_id=$SITE" -d "$body")
-            if [[ "$http" -ge 400 ]]; then
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
               http=$(curl -s -o /dev/null -w "%{http_code}" -X PATCH \
                 -H "$AUTH" -H "Content-Type: application/json" \
                 "$BASE/$key?site_id=$SITE" -d "$patch_body")
             fi
-            if [[ "$http" -ge 400 ]]; then
+            if [[ ! "$http" =~ ^2[0-9][0-9]$ ]]; then
               echo "::error::Failed to set Netlify env $key for site $SITE (HTTP $http)"
               exit 1
             fi
@@ -151,13 +155,15 @@ jobs:
           ACCT="${{ secrets.NETLIFY_ACCOUNT_ID }}"
           AUTH="Authorization: Bearer $NETLIFY_AUTH_TOKEN"
 
+          # Success is an explicit 2xx or a 404 (already gone). Everything else,
+          # including curl's 000 transport-failure code, fails the step.
           delete_netlify_env() {
             local key="$1"
             local http
             http=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
               -H "$AUTH" \
               "https://api.netlify.com/api/v1/accounts/$ACCT/env/$key?site_id=$SITE")
-            if [[ "$http" -ge 400 && "$http" != "404" ]]; then
+            if [[ ! "$http" =~ ^(2[0-9][0-9]|404)$ ]]; then
               echo "::error::Failed to delete Netlify env $key for site $SITE (HTTP $http)"
               exit 1
             fi

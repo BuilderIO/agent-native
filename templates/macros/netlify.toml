@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs macros"
-command = "_p=NETLIFY_DATABASE_URL_PR_${REVIEW_ID:-0} && _pu=NETLIFY_DATABASE_URL_UNPOOLED_PR_${REVIEW_ID:-0} && export DATABASE_URL=${!_p:-${NETLIFY_DATABASE_URL:-$DATABASE_URL}} && pnpm install && DATABASE_URL=${!_pu:-${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL}} NITRO_PRESET=netlify pnpm --filter macros build"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && DATABASE_URL=${NETLIFY_DATABASE_URL_UNPOOLED:-$DATABASE_URL} NITRO_PRESET=netlify pnpm --filter macros build"
 publish = "templates/macros/dist"
 functions = "templates/macros/.netlify/functions-internal"
 
