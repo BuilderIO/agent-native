@@ -352,14 +352,25 @@ export default function RecordingPage() {
   const playerDataAccessStatus = playerDataQ.isError
     ? (playerDataQ.error as { status?: number } | undefined)?.status
     : undefined;
+  // Signed-out requests never even reach `resolveAccess` — the action route's
+  // default auth gate rejects them with 401 first. Authenticated viewers with
+  // no share grant (or a deleted/mismatched id) get 403 from `resolveAccess`
+  // inside `get-recording-player-data`. Both mean "can't open the direct
+  // owner/editor route here".
   const playerDataForbidden =
     playerDataAccessStatus === 401 || playerDataAccessStatus === 403;
 
+  // A direct `/r/:id` visit without edit/view access (signed out, no share
+  // grant, wrong org) can't do anything useful here — send the visitor to the
+  // public share flow instead, which knows how to prompt for sign-in or a
+  // password.
   useEffect(() => {
     if (!recordingId || !playerDataForbidden) return;
     navigate(
       `/share/${encodeURIComponent(recordingId)}?${REF_PARAM}=${CLIP_SHARE_REF}`,
-      { replace: true },
+      {
+        replace: true,
+      },
     );
   }, [recordingId, playerDataForbidden, navigate]);
 
@@ -793,7 +804,15 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (sessionLoading || playerDataQ.isLoading || playerDataForbidden) {
+  if (playerDataQ.isLoading || playerDataForbidden) {
+    return (
+      <div className="flex items-center justify-center h-screen w-full bg-background">
+        <Spinner className="h-8 w-8" />
+      </div>
+    );
+  }
+
+  if (sessionLoading) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-background">
         <Spinner className="h-8 w-8" />

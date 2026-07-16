@@ -11,7 +11,9 @@ describe("authenticated recording route loading", () => {
   it("waits for the browser session before the direct player action", () => {
     const route = readRoute("r.$recordingId.tsx");
     expect(route).toContain("enabled: !!recordingId && !sessionLoading");
-    expect(route).toContain("if (sessionLoading || playerDataQ.isLoading)");
+    expect(route).toContain(
+      "if (sessionLoading || playerDataQ.isLoading || playerDataForbidden)",
+    );
   });
 
   it("waits for the browser session before the share payload request", () => {

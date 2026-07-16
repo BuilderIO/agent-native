@@ -88,6 +88,7 @@ describe("builder-media-compression", () => {
     delete process.env.CLIPS_MEDIA_WORKER_ENABLED;
     delete process.env.CLIPS_MEDIA_WORKER_URL;
     delete process.env.CLIPS_MEDIA_WORKER_SECRET;
+    delete process.env.APP_URL;
   });
 
   it("derives the deterministic compressed URL for Builder object URLs", () => {
@@ -246,6 +247,63 @@ describe("builder-media-compression", () => {
         ),
       }),
     );
+  });
+
+  it("never probes or publishes a readable partial worker output before the done callback", async () => {
+    const compressedUrl =
+      "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker%2Fcompressed?apiKey=org-probe&token=asset-worker&alt=media&optimized=true";
+    process.env.CLIPS_MEDIA_WORKER_ENABLED = "true";
+    process.env.CLIPS_MEDIA_WORKER_URL =
+      "https://worker.example.com/media/enqueue";
+    process.env.CLIPS_MEDIA_WORKER_SECRET = "worker-secret-with-enough-length";
+    process.env.APP_URL = "https://clips.example.com";
+    mockReadAppState.mockResolvedValue({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      sourceUrl: mockRecordingRow.videoUrl,
+      compressedUrl,
+      objectPath: "assets/org-probe/asset-worker",
+      origin: "https://cdn.builder.io",
+      apiKey: "org-probe",
+      assetId: "asset-worker",
+      status: "worker-queued",
+      attempts: 1,
+      queuedAt: "2026-07-06T00:00:00.000Z",
+      updatedAt: "2026-07-06T00:00:00.000Z",
+      nextAttemptAt: "2026-07-06T00:00:00.000Z",
+      mediaWorker: {
+        jobId: "rec-1:compress",
+        outputUrl: compressedUrl,
+        callbackUrl: "https://clips.example.com/api/media-worker/callback",
+        attempts: 1,
+      },
+    });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        if (String(input) === compressedUrl) {
+          return new Response("partial derivative", {
+            status: 206,
+            headers: { "content-range": "bytes 0-1023/183000000" },
+          });
+        }
+        return new Response(null, { status: 202 });
+      }),
+    );
+
+    const result = await runBuilderMediaCompressionForRecording({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.com",
+      orgId: "org-test",
+    });
+
+    expect(result?.status).toBe("worker-queued");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(String(vi.mocked(fetch).mock.calls[0][0])).toBe(
+      "https://worker.example.com/media/enqueue",
+    );
+    expect(fetch).not.toHaveBeenCalledWith(compressedUrl, expect.anything());
+    expect(mockUpdateSet).not.toHaveBeenCalled();
   });
 
   it("rejects media worker callbacks whose output URL is not the expected destination", async () => {

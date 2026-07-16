@@ -119,6 +119,7 @@ async function authenticate(page, email) {
 async function verifyLibrary(page, app) {
   await page.goto("/agent#library", { waitUntil: "domcontentloaded" });
   await page.getByText("Library", { exact: true }).first().waitFor({ timeout: 15_000 });
+  await page.getByText("Sources", { exact: true }).first().waitFor({ timeout: 30_000 });
   const body = await page.locator("body").innerText();
   invariant(!body.includes("Creative context is unavailable right now"), `${app.name} Library unavailable`);
   invariant(body.includes("Sources"), `${app.name} Library missing Sources`);

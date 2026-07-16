@@ -43,10 +43,6 @@
       "exportAs": "design-templates"
     },
     {
-      "path": ".agents/skills/creative-context",
-      "visibility": "internal"
-    },
-    {
       "path": ".agents/skills/design-generation",
       "visibility": "both",
       "exportAs": "design-exploration"
@@ -60,6 +56,10 @@
       "path": ".agents/skills/design-review-feedback",
       "visibility": "both",
       "exportAs": "design-review-feedback"
+    },
+    {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
     }
   ],
   "hostAdapters": [
