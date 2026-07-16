@@ -393,6 +393,85 @@ describe("local-folder Content source", () => {
     }
   });
 
+  it("rechecks explicit ids inside the transaction before updating a document", async () => {
+    const target = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-explicit-id-race-target",
+        label: "Explicit ID race target",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const other = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-explicit-id-race-other",
+        label: "Explicit ID race other",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const documentId = "explicit-id-created-after-planning";
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let injectedDocument = false;
+    db.transaction = async function (...args: any[]) {
+      if (!injectedDocument) {
+        injectedDocument = true;
+        const now = new Date().toISOString();
+        await db.insert(schema.documents).values({
+          id: documentId,
+          spaceId: other.spaceId,
+          ownerEmail: OWNER,
+          orgId: null,
+          visibility: "private",
+          title: "Other workspace document",
+          content: "Must remain untouched.",
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+      return originalTransaction.apply(this, args);
+    };
+
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          syncLocalFolder.run({
+            sourceId: target.sourceId,
+            files: {
+              "race.md": `---\nid: ${documentId}\n---\nIncoming body.`,
+            },
+          }),
+        ),
+      ).rejects.toThrow("belongs to another Content space");
+      expect(injectedDocument).toBe(true);
+      await expect(
+        db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId)),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          spaceId: other.spaceId,
+          content: "Must remain untouched.",
+        }),
+      ]);
+      await expect(
+        db
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceRows.sourceId, target.sourceId),
+              eq(schema.contentDatabaseSourceRows.documentId, documentId),
+            ),
+          ),
+      ).resolves.toHaveLength(0);
+    } finally {
+      db.transaction = originalTransaction;
+    }
+  });
+
   it("refuses to accept a staged folder revision after Content changes again", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({

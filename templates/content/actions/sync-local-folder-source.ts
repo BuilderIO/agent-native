@@ -175,6 +175,7 @@ export default defineAction({
       throw new Error(`Local folder source "${sourceId}" not found`);
     }
     await resolveContentSpaceAccess(target.database.spaceId, "editor");
+    const targetSpaceId = target.database.spaceId;
 
     const parsed = entries.map(([path, value]) =>
       parseContentSourceFile(path, value),
@@ -235,16 +236,22 @@ export default defineAction({
 
     const initialSnapshot = await loadSnapshot(db);
 
-    for (const id of explicitIds) {
-      const existing = initialSnapshot.documentById.get(id);
-      if (!existing) continue;
-      if (existing.spaceId !== target.database.spaceId) {
-        throw new Error(
-          `Document "${id}" belongs to another Content space and cannot be imported here`,
-        );
+    const validateExplicitIds = async (
+      snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
+    ) => {
+      for (const id of explicitIds) {
+        const existing = snapshot.documentById.get(id);
+        if (!existing) continue;
+        if (existing.spaceId !== targetSpaceId) {
+          throw new Error(
+            `Document "${id}" belongs to another Content space and cannot be imported here`,
+          );
+        }
+        await assertAccess("document", id, "editor");
       }
-      await assertAccess("document", id, "editor");
-    }
+    };
+
+    await validateExplicitIds(initialSnapshot);
 
     const metadata = parseJson(target.source.metadataJson);
     const policy = truthPolicy(metadata.truthPolicy);
@@ -388,6 +395,7 @@ export default defineAction({
     if (!dryRun) {
       await db.transaction(async (tx: any) => {
         const transactionSnapshot = await loadSnapshot(tx);
+        await validateExplicitIds(transactionSnapshot);
         plans = buildPlans(transactionSnapshot);
         const currentDocumentIds = new Set(plans.map((plan) => plan.id));
         missingRows = transactionSnapshot.storedRows.filter(
@@ -507,7 +515,7 @@ export default defineAction({
                 createdAt: now,
               })
               .onConflictDoNothing();
-            await tx
+            const reboundDocuments = await tx
               .update(schema.documents)
               .set({
                 ...(plan.applyIncoming
@@ -526,7 +534,18 @@ export default defineAction({
                 sourceUpdatedAt: now,
                 updatedAt: now,
               })
-              .where(eq(schema.documents.id, plan.id));
+              .where(
+                and(
+                  eq(schema.documents.id, plan.id),
+                  eq(schema.documents.spaceId, targetSpaceId),
+                ),
+              )
+              .returning({ id: schema.documents.id });
+            if (reboundDocuments.length !== 1) {
+              throw new Error(
+                `Document "${plan.id}" left this Content space during local-folder sync`,
+              );
+            }
           }
         }
 
