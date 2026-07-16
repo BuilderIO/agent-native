@@ -664,7 +664,7 @@ function shapeMarkup(
       : alignment === "BOTTOM"
         ? "flex-end"
         : "flex-start";
-  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:hidden"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:${justifyContent}">${textContent}</div></div>`;
+  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:hidden"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:hidden;display:flex;flex-direction:column;justify-content:${justifyContent};padding:9.6px">${textContent}</div></div>`;
 }
 
 function textScaleCompensationCss(element: JsonObject): string {
@@ -734,7 +734,7 @@ function compileRichText(
     for (let index = 0; index < segments.length; index++) {
       const segment = segments[index]!;
       if (segment) {
-        state.plainText.push(segment);
+        state.plainText.push(segment.replaceAll("\u000b", "\n"));
         const style = textRunCss(
           deepMerge(
             {},
@@ -743,7 +743,7 @@ function compileRichText(
           ),
           state.themeColors,
         );
-        const span = `<span style="${style}">${escapeHtml(segment)}</span>`;
+        const span = `<span style="${style}">${escapeTextRun(segment)}</span>`;
         current.runs.push(span);
       }
       if (index < segments.length - 1) flush();
@@ -1111,6 +1111,7 @@ function textRunCss(style: JsonObject, theme: Map<string, string>): string {
     record(style.foregroundColor)?.opaqueColor,
     theme,
   );
+  const background = record(record(style.backgroundColor)?.opaqueColor);
   const decorations = [
     style.underline === true ? "underline" : "",
     style.strikethrough === true ? "line-through" : "",
@@ -1130,12 +1131,9 @@ function textRunCss(style: JsonObject, theme: Map<string, string>): string {
       : text(style.baselineOffset) === "SUBSCRIPT"
         ? { "vertical-align": "sub" }
         : {}),
-    ...(record(style.backgroundColor)
+    ...(background
       ? {
-          "background-color": opaqueColor(
-            record(style.backgroundColor)?.opaqueColor,
-            theme,
-          ),
+          "background-color": opaqueColor(background, theme),
         }
       : {}),
     color: foreground,
@@ -1232,7 +1230,14 @@ function resolveThemeColors(
 
 function opaqueColor(value: unknown, theme: Map<string, string>): string {
   const color = record(value);
-  const rgb = record(color?.rgbColor);
+  const rgb =
+    record(color?.rgbColor) ??
+    (color &&
+    [color.red, color.green, color.blue].some(
+      (channel) => typeof channel === "number",
+    )
+      ? color
+      : null);
   if (rgb) {
     const channels = [rgb.red, rgb.green, rgb.blue].map((channel) =>
       Math.round(clamp(number(channel) ?? 0, 0, 1) * 255),
@@ -1547,6 +1552,10 @@ function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;")
     .replace(/\"/g, "&quot;")
     .replace(/'/g, "&#39;");
+}
+
+function escapeTextRun(value: string): string {
+  return value.split("\u000b").map(escapeHtml).join("<br>");
 }
 
 const escapeAttr = escapeHtml;

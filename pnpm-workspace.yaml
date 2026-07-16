@@ -9,6 +9,7 @@ minimumReleaseAge: 1440
 minimumReleaseAgeExclude:
   - "@agent-native/core"
   - "dom-to-pptx"
+  - "fast-xml-parser"
   - "typescript"
   - "@typescript/typescript6"
   - "@typescript/typescript-*"

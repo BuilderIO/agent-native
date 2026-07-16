@@ -491,6 +491,16 @@ describe("Google Slides native compiler", () => {
         masters: [
           {
             objectId: "master",
+            pageProperties: {
+              colorScheme: {
+                colors: [
+                  {
+                    type: "LIGHT1",
+                    color: { red: 1, green: 1, blue: 1 },
+                  },
+                ],
+              },
+            },
             pageElements: [
               {
                 objectId: "master-title",
@@ -596,12 +606,11 @@ describe("Google Slides native compiler", () => {
                       { paragraphMarker: { style: { lineSpacing: 100 } } },
                       {
                         textRun: {
-                          content: "Inherited title",
+                          content: "Inherited\u000btitle",
                           style: {
+                            backgroundColor: {},
                             foregroundColor: {
-                              opaqueColor: {
-                                rgbColor: { red: 1, green: 1, blue: 1 },
-                              },
+                              opaqueColor: { themeColor: "LIGHT1" },
                             },
                             fontSize: { magnitude: 39, unit: "PT" },
                           },
@@ -626,6 +635,11 @@ describe("Google Slides native compiler", () => {
     expect(slide!.html).toContain("font-family:'Fixture Sans'");
     expect(slide!.html).toContain("font-weight:700");
     expect(slide!.html).toContain("font-size:52px");
+    expect(slide!.html).toContain("color:#ffffff");
+    expect(slide!.html).toContain("Inherited<br>title");
+    expect(slide!.html).toContain("padding:9.6px");
+    expect(slide!.html).not.toContain("background-color:#000000");
+    expect(slide!.html).not.toContain("\u000b");
     expect(slide!.html).toContain("rotate(-90deg)");
     expect(slide!.html).toContain("translate(120px,540px)");
     expect(slide!.html).toMatch(
