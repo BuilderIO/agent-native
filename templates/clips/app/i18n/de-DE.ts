@@ -1253,9 +1253,11 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     visibilityOrg: "Organization (Lokalisiert)",
     visibilityPublic: "Public (Lokalisiert)",
     passwordProtection: "Password protection (Lokalisiert)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (Lokalisiert)",
+    passwordSetPlaceholder: "Password is set — type to replace (Lokalisiert)",
     noPasswordPlaceholder: "No password (Lokalisiert)",
+    passwordWhitespaceOnly:
+      "Spaces alone aren't a valid password. (Lokalisiert)",
+    removePassword: "Remove (Lokalisiert)",
     expiry: "Expiry (Lokalisiert)",
     viewerOptions: "Viewer options (Lokalisiert)",
     comments: "Comments (Lokalisiert)",

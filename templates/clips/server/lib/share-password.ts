@@ -18,13 +18,16 @@ import {
 } from "@agent-native/core/secrets/crypto";
 
 /**
- * Encrypt a share password for storage. Empty / nullish clears it (returns
- * null), matching the prior `args.password ?? null` semantics.
+ * Encrypt a share password for storage. Empty / nullish / whitespace-only
+ * input clears it (returns null), matching the prior `args.password ?? null`
+ * semantics while also rejecting spaces-only "passwords". Real values are
+ * trimmed so accidental leading/trailing whitespace doesn't get baked into
+ * the stored password.
  */
 export function encryptSharePassword(
   raw: string | null | undefined,
 ): string | null {
-  const value = typeof raw === "string" ? raw : "";
+  const value = typeof raw === "string" ? raw.trim() : "";
   if (!value) return null;
   return encryptSecretValue(value);
 }
