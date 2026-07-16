@@ -3830,6 +3830,79 @@ fn concat_saved_recording_segments(_segments: &[PathBuf], _output: &Path) -> Res
     Err("Segment concat is only available on macOS.".into())
 }
 
+#[cfg(target_os = "macos")]
+fn probe_local_media_duration_ms(path: &Path) -> Result<u128, String> {
+    use std::ffi::CString;
+
+    use objc2::encode::{Encode, Encoding, RefEncode};
+    use objc2::rc::Retained;
+    use objc2::runtime::{AnyClass, AnyObject};
+    use objc2::{class, msg_send};
+
+    #[repr(C)]
+    #[derive(Copy, Clone)]
+    struct CMTime {
+        value: i64,
+        timescale: i32,
+        flags: u32,
+        epoch: i64,
+    }
+
+    unsafe impl RefEncode for CMTime {
+        const ENCODING_REF: Encoding = Encoding::Pointer(&Self::ENCODING);
+    }
+    unsafe impl Encode for CMTime {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CMTime",
+            &[i64::ENCODING, i32::ENCODING, u32::ENCODING, i64::ENCODING],
+        );
+    }
+
+    let path_str = path
+        .to_str()
+        .ok_or_else(|| format!("recording path is not valid UTF-8: {}", path.display()))?;
+    let path_cstr = CString::new(path_str)
+        .map_err(|_| format!("recording path contains a null byte: {}", path.display()))?;
+    let asset_class_name = CString::new("AVURLAsset").expect("static class name");
+    let asset_class = AnyClass::get(&asset_class_name)
+        .ok_or_else(|| "AVURLAsset is unavailable".to_string())?;
+
+    unsafe {
+        let string_allocated: *mut AnyObject = msg_send![class!(NSString), alloc];
+        let string_raw: *mut AnyObject =
+            msg_send![string_allocated, initWithUTF8String: path_cstr.as_ptr()];
+        let path_string = Retained::<AnyObject>::from_raw(string_raw).ok_or_else(|| {
+            format!("could not represent recording path: {}", path.display())
+        })?;
+        let url_raw: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: &*path_string];
+        let url = Retained::<AnyObject>::from_raw(url_raw)
+            .ok_or_else(|| format!("could not open recording path: {}", path.display()))?;
+        let asset: *mut AnyObject = msg_send![asset_class, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
+        if asset.is_null() {
+            return Err(format!(
+                "could not inspect local recording: {}",
+                path.display()
+            ));
+        }
+        let duration: CMTime = msg_send![asset, duration];
+        if duration.flags & 1 == 0 || duration.timescale <= 0 || duration.value <= 0 {
+            return Err(format!(
+                "Clip may be incomplete. The local media duration could not be verified; the local backup was kept ({})",
+                path.display()
+            ));
+        }
+        let duration_ms = (i128::from(duration.value) * 1_000)
+            .checked_div(i128::from(duration.timescale))
+            .and_then(|value| u128::try_from(value).ok())
+            .filter(|value| *value > 0)
+            .ok_or_else(|| {
+                "Clip may be incomplete. The local media duration was invalid; the local backup was kept."
+                    .to_string()
+            })?;
+        Ok(duration_ms)
+    }
+}
+
 async fn upload_prepared_recording_file(
     app: &AppHandle,
     prepared: &PreparedRecordingFile,
@@ -3844,6 +3917,19 @@ async fn upload_prepared_recording_file(
     has_audio: bool,
     has_camera: bool,
 ) -> Result<NativeFullscreenUploadResult, String> {
+    #[cfg(target_os = "macos")]
+    let verified_local_duration_ms = {
+        let media_duration_ms = probe_local_media_duration_ms(&prepared.path)?;
+        if !media_durations_materially_match(duration_ms, media_duration_ms) {
+            return Err(format!(
+                "Clip may be incomplete. The local media duration ({media_duration_ms} ms) did not match the recorded duration ({duration_ms} ms); the local backup was kept."
+            ));
+        }
+        media_duration_ms
+    };
+    #[cfg(not(target_os = "macos"))]
+    let verified_local_duration_ms = duration_ms;
+
     let total_bytes = prepared.bytes;
     let total_bytes_usize = usize::try_from(total_bytes)
         .map_err(|_| "Native recording is too large to upload on this system.".to_string())?;
@@ -3927,7 +4013,7 @@ async fn upload_prepared_recording_file(
             streaming_full_chunks,
             total_posts,
             true,
-            Some(duration_ms),
+            Some(verified_local_duration_ms),
             &prepared.mime_type,
             width,
             height,
@@ -3995,7 +4081,7 @@ async fn upload_prepared_recording_file(
             total_chunks,
             total_posts,
             true,
-            Some(duration_ms),
+            Some(verified_local_duration_ms),
             &prepared.mime_type,
             width,
             height,
@@ -4012,7 +4098,7 @@ async fn upload_prepared_recording_file(
     emit_native_upload_progress(app, "opening", "Uploading clip", None, Some(1.0));
     Ok(NativeFullscreenUploadResult {
         recording_id,
-        duration_ms,
+        duration_ms: verified_local_duration_ms,
         width,
         height,
         bytes: total_bytes,
@@ -4231,14 +4317,21 @@ fn verify_native_finalize_receipt(
         ));
     }
     let actual_duration_ms = receipt.duration_ms.unwrap_or(0);
-    let tolerance_ms = 5_000_u128.max(expected_duration_ms / 50);
-    if actual_duration_ms == 0 || actual_duration_ms.abs_diff(expected_duration_ms) > tolerance_ms {
+    if !media_durations_materially_match(expected_duration_ms, actual_duration_ms) {
         return Err(
             "Clip may be incomplete. The uploaded duration did not match the local recording; the local backup was kept."
                 .to_string(),
         );
     }
     Ok(())
+}
+
+fn media_durations_materially_match(expected_ms: u128, actual_ms: u128) -> bool {
+    if expected_ms == 0 || actual_ms == 0 {
+        return false;
+    }
+    let tolerance_ms = 5_000_u128.max(expected_ms / 50);
+    actual_ms.abs_diff(expected_ms) <= tolerance_ms
 }
 
 #[cfg(test)]

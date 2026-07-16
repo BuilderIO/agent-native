@@ -87,6 +87,7 @@ vi.mock("../../../../db/index.js", () => ({
       status: "recordings.status",
       failureReason: "recordings.failureReason",
       videoUrl: "recordings.videoUrl",
+      videoSizeBytes: "recordings.videoSizeBytes",
       durationMs: "recordings.durationMs",
       width: "recordings.width",
       height: "recordings.height",
@@ -490,16 +491,29 @@ describe("/api/uploads/:recordingId/chunk route", () => {
         status: "ready",
         failureReason: null,
         ownerEmail: "owner@example.com",
+        videoUrl: "/api/video/rec-1",
+        videoSizeBytes: 581_614_005,
+        durationMs: 1_592_773,
       },
     ];
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "ready",
+      sourceSizeBytes: 581_614_005,
+    });
     setRequest({
       query: { index: "2", total: "3", isFinal: "1", mimeType: "video/webm" },
     });
 
-    await expect(handler({} as any)).resolves.toEqual({
-      ok: true,
-      finalized: true,
-    });
+    await expect(handler({} as any)).resolves.toEqual(
+      expect.objectContaining({
+        ok: true,
+        finalized: true,
+        status: "ready",
+        sourceSizeBytes: 581_614_005,
+        durationMs: 1_592_773,
+      }),
+    );
 
     expect(mockWriteAppState).not.toHaveBeenCalled();
     expect(mockFinalizeRun).not.toHaveBeenCalled();

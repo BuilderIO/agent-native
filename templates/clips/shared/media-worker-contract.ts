@@ -137,17 +137,8 @@ export function parseMediaWorkerCallback(
     typeof body.durationMs === "number" && Number.isFinite(body.durationMs)
       ? Math.round(body.durationMs)
       : undefined;
-  if (body.status === "done" && (!durationMs || durationMs <= 0)) {
-    return null;
-  }
-  if (
-    body.status === "failed" &&
-    body.durationMs !== undefined &&
-    (durationMs === undefined || durationMs < 0)
-  ) {
-    return null;
-  }
   if (body.status === "done") {
+    if (durationMs === undefined || durationMs <= 0) return null;
     return {
       jobId: body.jobId,
       status: "done",
@@ -155,6 +146,12 @@ export function parseMediaWorkerCallback(
       error: body.error,
       durationMs,
     };
+  }
+  if (
+    body.durationMs !== undefined &&
+    (durationMs === undefined || durationMs < 0)
+  ) {
+    return null;
   }
   return {
     jobId: body.jobId,

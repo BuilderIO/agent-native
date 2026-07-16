@@ -377,7 +377,12 @@ describe("finalize-recording media serve verification", () => {
         cancelled = true;
       },
     });
-    vi.mocked(fetch).mockResolvedValue(new Response(stream, { status: 200 }));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response(stream, {
+        status: 200,
+        headers: { "content-length": "11" },
+      }),
+    );
 
     const result = await finalizeRecording.run({
       id: "rec_1",
@@ -402,7 +407,12 @@ describe("finalize-recording media serve verification", () => {
     const chunkKeys = seedBufferedRecording();
     vi.mocked(fetch)
       .mockResolvedValueOnce(new Response("", { status: 500 }))
-      .mockResolvedValueOnce(new Response("ok", { status: 206 }));
+      .mockResolvedValueOnce(
+        new Response("ok", {
+          status: 206,
+          headers: { "content-range": "bytes 0-1/11" },
+        }),
+      );
 
     const result = await finalizeRecording.run({
       id: "rec_1",

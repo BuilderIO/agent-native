@@ -812,20 +812,19 @@ export default function RecordingPage() {
     );
   }
 
-  if (sessionLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen w-full bg-background">
-        <Spinner className="h-8 w-8" />
-      </div>
-    );
-  }
-
   if (playerDataQ.isError || !recording) {
     const needsSignIn = !session;
     const returnTo =
       typeof window === "undefined"
         ? `/r/${recordingId}`
         : window.location.pathname + window.location.search;
+    if (sessionLoading) {
+      return (
+        <div className="flex items-center justify-center h-screen w-full bg-background">
+          <Spinner className="h-8 w-8" />
+        </div>
+      );
+    }
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
         <h1 className="text-xl font-semibold mb-2">

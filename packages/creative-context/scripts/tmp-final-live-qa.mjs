@@ -226,7 +226,14 @@ try {
       invariant(/Creative Context is off/i.test(clone.offError), `${app.name} global Off did not reject clone`);
 
       await page.goto(clone.openPath, { waitUntil: "domcontentloaded" });
-      await page.getByText("Final Native Clone QA", { exact: false }).first().waitFor({ timeout: 20_000 });
+      await page.waitForTimeout(3_000);
+      invariant(
+        page.url().includes(clone.openPath) &&
+          (await page.locator("body").innerText()).includes(
+            app.name === "slides" ? "Final Native Slide V1" : "Final Native Clone QA",
+          ),
+        `${app.name} cloned artifact did not open: ${page.url()} ${(await page.locator("body").innerText()).slice(0, 500)}`,
+      );
 
       const v2 = runNative("seed-v2", app.name, email);
       invariant(v2.itemId === v1.itemId && v2.itemVersionId !== v1.itemVersionId, `${app.name} resync did not append a version`);

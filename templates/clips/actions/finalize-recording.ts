@@ -192,7 +192,11 @@ async function verifyServedMediaUrl(
       const statusOk = response.status === 200 || response.status === 206;
       if (statusOk) {
         const servedBytes = servedMediaSizeBytes(response);
-        if (servedBytes !== null && servedBytes !== expectedBytes) {
+        if (servedBytes === null) {
+          lastFailure = "Stored media byte count could not be verified";
+          break;
+        }
+        if (servedBytes !== expectedBytes) {
           lastFailure = `Stored media byte count mismatch (${servedBytes} of ${expectedBytes} bytes)`;
           break;
         }
@@ -394,6 +398,9 @@ async function markRecordingReady(params: {
     status: "ready",
     progress: 100,
     videoUrl,
+    videoSizeBytes,
+    sourceSizeBytes,
+    durationMs: finalDurationMs,
     finishedAt: now,
   });
   await writeAppState("refresh-signal", { ts: Date.now() });
