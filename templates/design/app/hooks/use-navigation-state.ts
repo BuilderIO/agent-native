@@ -267,14 +267,15 @@ export function useNavigationState(enabled = true) {
         if (designSystemId) state.designSystemId = designSystemId;
       } else if (pathname.startsWith("/templates")) {
         state.view = "templates";
-        const templateId = searchParams.get("templateId");
-        if (templateId) state.templateId = templateId;
       } else if (pathname.startsWith("/present/")) {
         state.view = "present";
         state.designId = params.id;
       } else if (pathname.startsWith("/settings")) {
         state.view = "settings";
       }
+
+      const templateId = searchParams.get("templateId");
+      if (templateId) state.templateId = templateId;
 
       return state;
     },

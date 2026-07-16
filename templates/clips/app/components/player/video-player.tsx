@@ -690,7 +690,10 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           (isPlaying || playAttemptPendingRef.current || !v.paused),
         );
 
-        if (v) v.playbackRate = nextSpeed;
+        if (v) {
+          v.defaultPlaybackRate = nextSpeed;
+          v.playbackRate = nextSpeed;
+        }
         setSpeed(nextSpeed);
         savePlaybackSpeedPreference(nextSpeed);
         onSpeedChange?.(nextSpeed);
@@ -789,6 +792,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
       const v = videoRef.current;
       if (!v) return;
       const initialSpeed = readPlaybackSpeedPreference(defaultSpeed);
+      v.defaultPlaybackRate = initialSpeed;
       v.playbackRate = initialSpeed;
       setSpeed(initialSpeed);
       onSpeedChange?.(initialSpeed);

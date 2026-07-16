@@ -1233,9 +1233,10 @@ const messages = {
     visibilityOrg: "Organization (مترجم)",
     visibilityPublic: "Public (مترجم)",
     passwordProtection: "Password protection (مترجم)",
-    passwordSetPlaceholder:
-      "Password is set — type to replace, leave empty + Save to clear (مترجم)",
+    passwordSetPlaceholder: "Password is set — type to replace (مترجم)",
     noPasswordPlaceholder: "No password (مترجم)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (مترجم)",
+    removePassword: "Remove (مترجم)",
     expiry: "Expiry (مترجم)",
     viewerOptions: "Viewer options (مترجم)",
     comments: "Comments (مترجم)",

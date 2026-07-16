@@ -114,6 +114,7 @@ async function authenticate(page, email) {
   );
   invariant(auth.login.ok, `Login failed for ${email}: ${JSON.stringify(auth)}`);
   invariant(auth.session.email === email, `No session for ${email}: ${JSON.stringify(auth)}`);
+  await page.waitForTimeout(2_000);
 }
 
 async function verifyLibrary(page, app) {

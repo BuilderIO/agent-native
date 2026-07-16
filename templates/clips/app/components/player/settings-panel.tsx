@@ -156,7 +156,7 @@ export function SettingsPanel(props: SettingsPanelProps) {
             <Label className="text-xs">
               {t("playerSettings.passwordProtection")}
             </Label>
-            <div className="flex gap-2 mt-1">
+            <div className="mt-1 space-y-2">
               <Input
                 type="text"
                 value={password}
@@ -166,18 +166,36 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     ? t("playerSettings.passwordSetPlaceholder")
                     : t("playerSettings.noPasswordPlaceholder")
                 }
-                className="flex-1"
               />
-              <Button
-                variant="outline"
-                onClick={() => {
-                  patch({ password: password || null });
-                  setPassword("");
-                }}
-                disabled={update.isPending}
-              >
-                {t("common.save")}
-              </Button>
+              {password.length > 0 && !password.trim() ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("playerSettings.passwordWhitespaceOnly")}
+                </p>
+              ) : null}
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    patch({ password: password.trim() });
+                    setPassword("");
+                  }}
+                  disabled={update.isPending || !password.trim()}
+                >
+                  {t("common.save")}
+                </Button>
+                {recording.hasPassword ? (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      patch({ password: null });
+                      setPassword("");
+                    }}
+                    disabled={update.isPending}
+                  >
+                    {t("playerSettings.removePassword")}
+                  </Button>
+                ) : null}
+              </div>
             </div>
           </div>
 

@@ -3864,20 +3864,20 @@ fn probe_local_media_duration_ms(path: &Path) -> Result<u128, String> {
     let path_cstr = CString::new(path_str)
         .map_err(|_| format!("recording path contains a null byte: {}", path.display()))?;
     let asset_class_name = CString::new("AVURLAsset").expect("static class name");
-    let asset_class = AnyClass::get(&asset_class_name)
-        .ok_or_else(|| "AVURLAsset is unavailable".to_string())?;
+    let asset_class =
+        AnyClass::get(&asset_class_name).ok_or_else(|| "AVURLAsset is unavailable".to_string())?;
 
     unsafe {
         let string_allocated: *mut AnyObject = msg_send![class!(NSString), alloc];
         let string_raw: *mut AnyObject =
             msg_send![string_allocated, initWithUTF8String: path_cstr.as_ptr()];
-        let path_string = Retained::<AnyObject>::from_raw(string_raw).ok_or_else(|| {
-            format!("could not represent recording path: {}", path.display())
-        })?;
+        let path_string = Retained::<AnyObject>::from_raw(string_raw)
+            .ok_or_else(|| format!("could not represent recording path: {}", path.display()))?;
         let url_raw: *mut AnyObject = msg_send![class!(NSURL), fileURLWithPath: &*path_string];
         let url = Retained::<AnyObject>::from_raw(url_raw)
             .ok_or_else(|| format!("could not open recording path: {}", path.display()))?;
-        let asset: *mut AnyObject = msg_send![asset_class, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
+        let asset: *mut AnyObject =
+            msg_send![asset_class, URLAssetWithURL: &*url, options: std::ptr::null::<AnyObject>()];
         if asset.is_null() {
             return Err(format!(
                 "could not inspect local recording: {}",
@@ -4336,7 +4336,16 @@ fn media_durations_materially_match(expected_ms: u128, actual_ms: u128) -> bool 
 
 #[cfg(test)]
 mod native_finalize_receipt_tests {
-    use super::verify_native_finalize_receipt;
+    use super::{media_durations_materially_match, verify_native_finalize_receipt};
+
+    #[test]
+    fn compares_measured_media_duration_with_a_bounded_tolerance() {
+        assert!(media_durations_materially_match(1_592_773, 1_593_259));
+        assert!(media_durations_materially_match(10_000, 15_000));
+        assert!(!media_durations_materially_match(10_000, 15_001));
+        assert!(!media_durations_materially_match(0, 10_000));
+        assert!(!media_durations_materially_match(10_000, 0));
+    }
 
     #[test]
     fn accepts_only_matching_ready_receipts() {

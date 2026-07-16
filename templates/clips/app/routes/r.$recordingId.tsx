@@ -21,7 +21,6 @@ import {
   isLoomRecordingSource,
 } from "@shared/loom";
 import { CLIP_SHARE_REF, REF_PARAM } from "@shared/share-attribution";
-import { STALE_PENDING_TRANSCRIPT_REASON } from "@shared/transcript-status";
 import {
   IconShare3,
   IconArrowLeft,
@@ -88,6 +87,7 @@ import { useViewTracking } from "@/hooks/use-view-tracking";
 import enMessages from "@/i18n/en-US";
 import { parsePlaybackSpeed } from "@/lib/playback-speed";
 import { isStorageSetupFailureReason } from "@/lib/storage-failures";
+import { STALE_PENDING_TRANSCRIPT_REASON } from "../../shared/transcript-status";
 import { cn } from "@/lib/utils";
 
 const UPLOAD_STUCK_TIMEOUT_MS = 5 * 60 * 1000;

@@ -416,13 +416,20 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     if (!recording?.id) return;
     const next = readPlaybackSpeedPreference(defaultPreviewSpeed);
     setPlaybackSpeed(next);
-    if (videoRef.current) videoRef.current.playbackRate = next;
+    if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = next;
+      videoRef.current.playbackRate = next;
+    }
   }, [defaultPreviewSpeed, recording?.id]);
 
   // Keep the editor preview speed visible and in sync with the media element.
+  // `defaultPlaybackRate` is set too so a `videoUrl` source swap that resets
+  // `playbackRate` (some browsers do this on load) falls back to the chosen
+  // speed instead of 1x.
   useEffect(() => {
     const v = videoRef.current;
     if (!v) return;
+    v.defaultPlaybackRate = playbackSpeed;
     v.playbackRate = playbackSpeed;
   }, [playbackSpeed, videoUrl]);
 
@@ -430,7 +437,10 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
     const next = parsePlaybackSpeed(rate) ?? 1.2;
     setPlaybackSpeed(next);
     savePlaybackSpeedPreference(next);
-    if (videoRef.current) videoRef.current.playbackRate = next;
+    if (videoRef.current) {
+      videoRef.current.defaultPlaybackRate = next;
+      videoRef.current.playbackRate = next;
+    }
   }, []);
 
   // Keep the playheadMs in sync with the element's currentTime.
