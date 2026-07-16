@@ -1170,6 +1170,7 @@ const messages = {
     passwordProtection: "密碼保護",
     passwordSetPlaceholder: "已設定密碼。輸入新密碼即可取代。",
     noPasswordPlaceholder: "無密碼",
+    passwordWhitespaceOnly: "只有空格不是有效的密碼。",
     removePassword: "移除",
     expiry: "到期時間",
     viewerOptions: "觀看者選項",

@@ -1247,6 +1247,7 @@ Tous les changements visibles par les utilisateurs de Clips sont documentés ici
     passwordProtection: "Password protection (Localisé)",
     passwordSetPlaceholder: "Password is set — type to replace (Localisé)",
     noPasswordPlaceholder: "No password (Localisé)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (Localisé)",
     removePassword: "Remove (Localisé)",
     expiry: "Expiry (Localisé)",
     viewerOptions: "Viewer options (Localisé)",

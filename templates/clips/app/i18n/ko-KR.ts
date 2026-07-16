@@ -1223,6 +1223,7 @@ Clips의 모든 사용자 대상 변경 사항은 여기에 기록됩니다. 명
     passwordProtection: "Password protection (현지화됨)",
     passwordSetPlaceholder: "Password is set — type to replace (현지화됨)",
     noPasswordPlaceholder: "No password (현지화됨)",
+    passwordWhitespaceOnly: "Spaces alone aren't a valid password. (현지화됨)",
     removePassword: "Remove (현지화됨)",
     expiry: "Expiry (현지화됨)",
     viewerOptions: "Viewer options (현지화됨)",

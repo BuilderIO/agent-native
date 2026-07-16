@@ -167,6 +167,11 @@ export function SettingsPanel(props: SettingsPanelProps) {
                     : t("playerSettings.noPasswordPlaceholder")
                 }
               />
+              {password.length > 0 && !password.trim() ? (
+                <p className="text-xs text-muted-foreground">
+                  {t("playerSettings.passwordWhitespaceOnly")}
+                </p>
+              ) : null}
               <div className="flex gap-2">
                 <Button
                   variant="outline"
