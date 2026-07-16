@@ -29,6 +29,7 @@ vi.mock("./workspace-feature-flags.js", () => ({
 }));
 
 import {
+  completeProductExperiment,
   manageProductExperiment,
   reconcileProductExperiment,
   startProductExperiment,
@@ -320,6 +321,68 @@ describe("product experiment lifecycle", () => {
       await manageProductExperiment(admin, { operation, id: running.id });
       expect(order).toEqual(["target-write", "db-write"]);
     }
+  });
+
+  it("turns off a running target before completing the experiment", async () => {
+    const order: string[] = [];
+    installDb(
+      [[running], [running], [{ ...running, status: "completed" }]],
+      order,
+    );
+    setTargetMock.mockImplementationOnce(async () => {
+      order.push("target-write");
+    });
+
+    await completeProductExperiment(admin, running.id);
+
+    expect(order).toEqual(["target-write", "db-write"]);
+    expect(setTargetMock).toHaveBeenCalledWith(admin, {
+      appId: "mail",
+      key: "beta",
+      operation: "off",
+    });
+  });
+
+  it("completes an already-paused experiment without a redundant target write", async () => {
+    const paused = { ...running, status: "paused" };
+    const order: string[] = [];
+    installDb(
+      [[paused], [paused], [{ ...paused, status: "completed" }]],
+      order,
+    );
+
+    await completeProductExperiment(admin, running.id);
+
+    expect(order).toEqual(["db-write"]);
+    expect(setTargetMock).not.toHaveBeenCalled();
+  });
+
+  it("does not mark completion when turning off the running target fails", async () => {
+    const order: string[] = [];
+    installDb([[running], [running]], order);
+    setTargetMock.mockRejectedValueOnce(new Error("target unavailable"));
+
+    await expect(completeProductExperiment(admin, running.id)).rejects.toThrow(
+      "target unavailable",
+    );
+
+    expect(order).toEqual([]);
+  });
+
+  it("reports a completion write failure after safely turning the target off", async () => {
+    const order: string[] = [];
+    installDb([[running], [running]], order, {
+      updateError: new Error("database unavailable"),
+    });
+    setTargetMock.mockImplementationOnce(async () => {
+      order.push("target-write");
+    });
+
+    await expect(completeProductExperiment(admin, running.id)).rejects.toThrow(
+      "database unavailable",
+    );
+
+    expect(order).toEqual(["target-write", "db-write"]);
   });
 
   it("leaves transient target states pending without writes", async () => {

@@ -856,6 +856,50 @@ describe("mountActionRoutes", () => {
     expect(getOwnerFromEvent).not.toHaveBeenCalled();
   });
 
+  it("recognizes a scope-only delegation in a space-separated scope claim", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    mockVerifyA2ATokenWithClaims.mockResolvedValue({
+      email: "admin@example.com",
+      orgId: "org-1",
+      jti: "request-scope-only",
+      scope: ["other:read", "flags:read"],
+    });
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "cookie@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const payload = Buffer.from(
+      JSON.stringify({ scope: "other:read flags:read" }),
+    ).toString("base64url");
+    const token = `eyJhbGciOiJIUzI1NiJ9.${payload}.signature`;
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(context).toMatchObject({
+      caller: "a2a",
+      userEmail: "admin@example.com",
+      orgId: "org-1",
+    });
+    expect(mockVerifyA2ATokenWithClaims).toHaveBeenCalledOnce();
+    expect(getOwnerFromEvent).not.toHaveBeenCalled();
+  });
+
   it("leaves ordinary bearer auth to legacy owner resolution", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

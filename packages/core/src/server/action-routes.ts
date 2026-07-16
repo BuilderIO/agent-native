@@ -58,7 +58,8 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
     declared =
       typeof raw.org_id === "string" ||
       typeof raw.jti === "string" ||
-      (typeof raw.scope === "string" && /(^|\\s)flags:/.test(raw.scope));
+      (typeof raw.scope === "string" &&
+        raw.scope.split(/\s+/).some((scope) => scope.startsWith("flags:")));
   } catch {
     return null;
   }

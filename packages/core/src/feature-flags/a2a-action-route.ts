@@ -27,7 +27,8 @@ export function createFeatureFlagA2AActionRouteAuth(
         const declaresFlagDelegation =
           typeof raw.org_id === "string" ||
           typeof raw.jti === "string" ||
-          (typeof raw.scope === "string" && /(^|\s)flags:/.test(raw.scope));
+          (typeof raw.scope === "string" &&
+            raw.scope.split(/\s+/).some((scope) => scope.startsWith("flags:")));
         if (!declaresFlagDelegation) return null;
       } catch {
         return null;

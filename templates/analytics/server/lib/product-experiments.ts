@@ -288,6 +288,13 @@ export async function completeProductExperiment(
       const latest = await getProductExperiment(admin, id);
       if (latest.status !== "running" && latest.status !== "paused")
         throw new Error("Only running or paused experiments can complete.");
+      if (latest.status === "running") {
+        await setWorkspaceFeatureFlag(admin, {
+          appId: latest.appId,
+          key: latest.flagKey,
+          operation: "off",
+        });
+      }
       const timestamp = now();
       await getDb()
         .update(schema.productExperiments)
