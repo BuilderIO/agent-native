@@ -245,4 +245,14 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
         ON creative_context_jobs (dedupe_key);
     `,
   },
+  {
+    version: 5,
+    name: "creative-context-tenant-job-deduplication",
+    sql: `
+      ALTER TABLE creative_context_jobs ADD COLUMN dedupe_scope TEXT;
+      ALTER TABLE creative_context_jobs ADD COLUMN scoped_dedupe_key TEXT;
+      CREATE UNIQUE INDEX IF NOT EXISTS creative_context_jobs_scoped_dedupe_uidx
+        ON creative_context_jobs (dedupe_scope, scoped_dedupe_key);
+    `,
+  },
 ];

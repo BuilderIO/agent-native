@@ -43,6 +43,54 @@ function mapJob(row: any): ContextJob {
   };
 }
 
+function tenantDedupeScope(actor: {
+  ownerEmail: string;
+  orgId: string | null;
+}): string {
+  return JSON.stringify([actor.orgId, actor.ownerEmail.toLowerCase()]);
+}
+
+function actorOrgScope(schema: any, actor: { orgId: string | null }) {
+  return actor.orgId
+    ? eq(schema.contextJobs.orgId, actor.orgId)
+    : isNull(schema.contextJobs.orgId);
+}
+
+async function findDeduplicatedJob(
+  db: any,
+  schema: any,
+  actor: { ownerEmail: string; orgId: string | null },
+  logicalKey: string,
+): Promise<any | null> {
+  const scope = tenantDedupeScope(actor);
+  const scoped = await db
+    .select()
+    .from(schema.contextJobs)
+    .where(
+      and(
+        eq(schema.contextJobs.dedupeScope, scope),
+        eq(schema.contextJobs.scopedDedupeKey, logicalKey),
+        eq(schema.contextJobs.ownerEmail, actor.ownerEmail),
+        actorOrgScope(schema, actor),
+      ),
+    )
+    .limit(1);
+  if (scoped[0]) return scoped[0];
+
+  const legacy = await db
+    .select()
+    .from(schema.contextJobs)
+    .where(
+      and(
+        eq(schema.contextJobs.dedupeKey, logicalKey),
+        eq(schema.contextJobs.ownerEmail, actor.ownerEmail),
+        actorOrgScope(schema, actor),
+      ),
+    )
+    .limit(1);
+  return legacy[0] ?? null;
+}
+
 export async function createJob(input: {
   sourceId?: string;
   kind: ContextJobKind;
@@ -64,9 +112,12 @@ export async function createJob(input: {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
   const id = newId("ccj");
+  const dedupeScope = input.dedupeKey ? tenantDedupeScope(actor) : null;
   const row = {
     id,
-    dedupeKey: input.dedupeKey ?? null,
+    dedupeKey: null,
+    dedupeScope,
+    scopedDedupeKey: input.dedupeKey ?? null,
     sourceId: input.sourceId ?? null,
     kind: input.kind,
     status: "queued",
@@ -90,21 +141,29 @@ export async function createJob(input: {
     completedAt: null,
   };
   if (input.dedupeKey) {
+    const legacy = await findDeduplicatedJob(
+      getDb(),
+      schema,
+      actor,
+      input.dedupeKey,
+    );
+    if (legacy) return mapJob(legacy);
     await getDb()
       .insert(schema.contextJobs)
       .values(row)
-      .onConflictDoNothing({ target: schema.contextJobs.dedupeKey });
-    const existing = await getDb()
-      .select()
-      .from(schema.contextJobs)
-      .where(
-        and(
-          eq(schema.contextJobs.dedupeKey, input.dedupeKey),
-          eq(schema.contextJobs.ownerEmail, actor.ownerEmail),
-        ),
-      )
-      .limit(1);
-    if (existing[0]) return mapJob(existing[0]);
+      .onConflictDoNothing({
+        target: [
+          schema.contextJobs.dedupeScope,
+          schema.contextJobs.scopedDedupeKey,
+        ],
+      });
+    const existing = await findDeduplicatedJob(
+      getDb(),
+      schema,
+      actor,
+      input.dedupeKey,
+    );
+    if (existing) return mapJob(existing);
   } else {
     await getDb().insert(schema.contextJobs).values(row);
   }
@@ -128,12 +187,17 @@ export async function createDailyMaintenanceJob(input: {
   const actor = requireActor();
   const day = input.scheduledAt.slice(0, 10);
   const dedupeKey = `daily-maintenance:${input.sourceId}:${day}`;
+  const dedupeScope = tenantDedupeScope(actor);
+  const legacy = await findDeduplicatedJob(getDb(), schema, actor, dedupeKey);
+  if (legacy) return { job: mapJob(legacy), created: false };
   const id = newId("ccj");
   const inserted = await getDb()
     .insert(schema.contextJobs)
     .values({
       id,
-      dedupeKey,
+      dedupeKey: null,
+      dedupeScope,
+      scopedDedupeKey: dedupeKey,
       sourceId: input.sourceId,
       kind: "import",
       status: "queued",
@@ -164,19 +228,14 @@ export async function createDailyMaintenanceJob(input: {
       startedAt: null,
       completedAt: null,
     })
-    .onConflictDoNothing({ target: schema.contextJobs.dedupeKey })
+    .onConflictDoNothing({
+      target: [
+        schema.contextJobs.dedupeScope,
+        schema.contextJobs.scopedDedupeKey,
+      ],
+    })
     .returning({ id: schema.contextJobs.id });
-  const rows = await getDb()
-    .select()
-    .from(schema.contextJobs)
-    .where(
-      and(
-        eq(schema.contextJobs.dedupeKey, dedupeKey),
-        eq(schema.contextJobs.ownerEmail, actor.ownerEmail),
-      ),
-    )
-    .limit(1);
-  const row = rows[0];
+  const row = await findDeduplicatedJob(getDb(), schema, actor, dedupeKey);
   if (!row) throw new Error("Failed to create scheduled maintenance job");
   return { job: mapJob(row), created: inserted.length === 1 };
 }

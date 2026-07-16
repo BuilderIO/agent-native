@@ -19,11 +19,23 @@ describe("creative context migrations", () => {
     );
   });
 
-  it("deduplicates scheduled jobs across app worker processes", () => {
+  it("keeps the legacy job key while adding tenant-scoped deduplication", () => {
     const dedupe = creativeContextMigrations.find(
       (migration) => migration.version === 4,
     );
     expect(String(dedupe?.sql)).toContain("dedupe_key TEXT");
     expect(String(dedupe?.sql)).toContain("creative_context_jobs_dedupe_uidx");
+
+    const scopedDedupe = creativeContextMigrations.find(
+      (migration) => migration.version === 5,
+    );
+    expect(String(scopedDedupe?.sql)).toContain("dedupe_scope TEXT");
+    expect(String(scopedDedupe?.sql)).toContain("scoped_dedupe_key TEXT");
+    expect(String(scopedDedupe?.sql)).toContain(
+      "creative_context_jobs_scoped_dedupe_uidx",
+    );
+    expect(String(scopedDedupe?.sql)).toContain(
+      "(dedupe_scope, scoped_dedupe_key)",
+    );
   });
 });

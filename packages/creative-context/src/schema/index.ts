@@ -326,6 +326,8 @@ export const contextPackPins = table("creative_context_pack_pins", {
 export const contextJobs = table("creative_context_jobs", {
   id: text("id").primaryKey(),
   dedupeKey: text("dedupe_key"),
+  dedupeScope: text("dedupe_scope"),
+  scopedDedupeKey: text("scoped_dedupe_key"),
   sourceId: text("source_id"),
   kind: text("kind", {
     enum: [

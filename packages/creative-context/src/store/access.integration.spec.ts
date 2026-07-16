@@ -994,7 +994,7 @@ describe("creative context access and revocation", () => {
     expect(results.filter((result) => result.created)).toHaveLength(1);
     expect(new Set(results.map((result) => result.job.id))).toHaveLength(1);
     const rows = await exec.execute({
-      sql: "SELECT id FROM creative_context_jobs WHERE dedupe_key = ?",
+      sql: "SELECT id FROM creative_context_jobs WHERE scoped_dedupe_key = ?",
       args: ["daily-maintenance:source-1:2026-07-16"],
     });
     expect(rows.rows).toHaveLength(1);
@@ -1287,7 +1287,7 @@ describe("creative context access and revocation", () => {
     });
     expect(dispatch).toHaveBeenCalledTimes(1);
     const importJobs = await exec.execute(
-      "SELECT id FROM creative_context_jobs WHERE kind = 'import' AND dedupe_key IS NOT NULL",
+      "SELECT id FROM creative_context_jobs WHERE kind = 'import' AND scoped_dedupe_key IS NOT NULL",
     );
     expect(importJobs.rows).toHaveLength(1);
     unregister();
