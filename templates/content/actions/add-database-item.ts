@@ -60,6 +60,9 @@ export default defineAction({
     const now = new Date().toISOString();
     const databaseSpaceId =
       database.spaceId ?? (databaseDocument.spaceId as string | null);
+    if (!databaseSpaceId) {
+      throw new Error("Database does not belong to a Content space.");
+    }
     if (databaseSpaceId && (!database.spaceId || !databaseDocument.spaceId)) {
       await db.transaction(async (tx) => {
         if (!database.spaceId) {
@@ -197,9 +200,7 @@ export default defineAction({
                 .insert(schema.documentPropertyValues)
                 .values(propertyValueRows);
             }
-            if (databaseSpaceId) {
-              await ensureDocumentFilesMembership(tx, documentId, now);
-            }
+            await ensureDocumentFilesMembership(tx, documentId, now);
           });
         }),
     );

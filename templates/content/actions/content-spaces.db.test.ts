@@ -222,6 +222,54 @@ describe("Content space provisioning", () => {
     ]);
   });
 
+  it("propagates organization renames to the space and workspace reference", async () => {
+    const orgId = "org-renamed";
+    const spaceId = organizationContentSpaceId(orgId);
+    await addOrganization(orgId, "Before rename");
+    await addMember("owner-renamed", orgId, OWNER, "owner");
+    const provisioned = await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+
+    await getDbExec().execute({
+      sql: "UPDATE organizations SET name = ? WHERE id = ?",
+      args: ["After rename", orgId],
+    });
+    const rerun = await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    expect(rerun.created).toEqual({
+      spaces: 0,
+      databases: 0,
+      documents: 0,
+      catalogItems: 0,
+    });
+
+    const [space] = await getDb()
+      .select()
+      .from(schema.contentSpaces)
+      .where(eq(schema.contentSpaces.id, spaceId));
+    expect(space?.name).toBe("After rename");
+
+    const [reference] = await getDb()
+      .select({ title: schema.documents.title })
+      .from(schema.contentSpaceCatalogItems)
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentSpaceCatalogItems.documentId),
+      )
+      .where(
+        and(
+          eq(
+            schema.contentSpaceCatalogItems.catalogDatabaseId,
+            provisioned.catalogDatabaseId,
+          ),
+          eq(schema.contentSpaceCatalogItems.spaceId, spaceId),
+        ),
+      );
+    expect(reference?.title).toBe("After rename");
+  });
+
   it("does not create or seed organization resources from a viewer session", async () => {
     const orgId = "org-viewer-provisioning";
     const spaceId = organizationContentSpaceId(orgId);

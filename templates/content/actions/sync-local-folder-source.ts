@@ -236,10 +236,14 @@ export default defineAction({
 
     const initialSnapshot = await loadSnapshot(db);
 
-    const validateExplicitIds = async (
+    const validateDocumentIds = async (
       snapshot: Awaited<ReturnType<typeof loadSnapshot>>,
     ) => {
-      for (const id of explicitIds) {
+      const documentIds = new Set([
+        ...explicitIds,
+        ...snapshot.storedRows.map((row) => row.documentId),
+      ]);
+      for (const id of documentIds) {
         const existing = snapshot.documentById.get(id);
         if (!existing) continue;
         if (existing.spaceId !== targetSpaceId) {
@@ -251,7 +255,7 @@ export default defineAction({
       }
     };
 
-    await validateExplicitIds(initialSnapshot);
+    await validateDocumentIds(initialSnapshot);
 
     const metadata = parseJson(target.source.metadataJson);
     const policy = truthPolicy(metadata.truthPolicy);
@@ -394,8 +398,27 @@ export default defineAction({
 
     if (!dryRun) {
       await db.transaction(async (tx: any) => {
+        const claimedSources = await tx
+          .update(schema.contentDatabaseSources)
+          .set({ updatedAt: now })
+          .where(
+            and(
+              eq(schema.contentDatabaseSources.id, sourceId),
+              eq(schema.contentDatabaseSources.databaseId, target.database.id),
+              eq(
+                schema.contentDatabaseSources.sourceType,
+                LOCAL_FOLDER_SOURCE_TYPE,
+              ),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSources.id });
+        if (claimedSources.length !== 1) {
+          throw new Error(
+            `Local folder source "${sourceId}" was disconnected before sync`,
+          );
+        }
         const transactionSnapshot = await loadSnapshot(tx);
-        await validateExplicitIds(transactionSnapshot);
+        await validateDocumentIds(transactionSnapshot);
         plans = buildPlans(transactionSnapshot);
         const currentDocumentIds = new Set(plans.map((plan) => plan.id));
         missingRows = transactionSnapshot.storedRows.filter(
@@ -406,7 +429,7 @@ export default defineAction({
           if (plan.conflict) {
             const changeSetId = opaqueId(
               "content_source_change",
-              `${sourceId}:${plan.id}:${plan.incomingHash}:${plan.incomingMetadataHash}`,
+              `${sourceId}:${plan.id}:${plan.incomingHash}:${plan.incomingMetadataHash}:${plan.localHash}:${plan.localMetadataHash}`,
             );
             await tx
               .insert(schema.contentDatabaseSourceChangeSets)
@@ -661,7 +684,7 @@ export default defineAction({
             })
             .onConflictDoNothing();
         }
-        await tx
+        const refreshedSources = await tx
           .update(schema.contentDatabaseSources)
           .set({
             syncState: conflicts.length ? "error" : "linked",
@@ -675,7 +698,13 @@ export default defineAction({
                 : null,
             updatedAt: now,
           })
-          .where(eq(schema.contentDatabaseSources.id, sourceId));
+          .where(eq(schema.contentDatabaseSources.id, sourceId))
+          .returning({ id: schema.contentDatabaseSources.id });
+        if (refreshedSources.length !== 1) {
+          throw new Error(
+            `Local folder source "${sourceId}" was disconnected during sync`,
+          );
+        }
       });
       await writeAppState("refresh-signal", { ts: Date.now() });
     }

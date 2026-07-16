@@ -335,10 +335,17 @@ export async function provisionContentSpaces(
           })
           .onConflictDoNothing();
         result.created.spaces += 1;
-      } else if (existingSpace.filesDatabaseId !== files.id) {
+      } else if (
+        existingSpace.name !== space.name ||
+        existingSpace.filesDatabaseId !== files.id
+      ) {
         await tx
           .update(schema.contentSpaces)
-          .set({ filesDatabaseId: files.id, updatedAt: now })
+          .set({
+            name: space.name,
+            filesDatabaseId: files.id,
+            updatedAt: now,
+          })
           .where(eq(schema.contentSpaces.id, space.id));
       }
     }
@@ -369,6 +376,16 @@ export async function provisionContentSpaces(
         },
         result.created,
       );
+      await tx
+        .update(schema.documents)
+        .set({ title: space.name, updatedAt: now })
+        .where(
+          and(
+            eq(schema.documents.id, referenceDocumentId),
+            eq(schema.documents.ownerEmail, email),
+            sql`${schema.documents.title} <> ${space.name}`,
+          ),
+        );
       const catalogItemId = await ensureDatabaseItem({
         db: tx,
         databaseId: catalog.id,

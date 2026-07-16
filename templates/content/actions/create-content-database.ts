@@ -204,7 +204,10 @@ export async function createContentDatabaseRecord(
           .set({ spaceId, updatedAt: now })
           .where(eq(schema.contentDatabases.id, existing.id));
       }
-      await ensureDocumentFilesMembership(db, documentId, now);
+      await ensureDocumentFilesMembership(db, documentId, now, {
+        userEmail: getRequestUserEmail(),
+        orgId: orgId ?? undefined,
+      });
       return existing.id;
     }
 
@@ -333,7 +336,10 @@ export async function createContentDatabaseRecord(
   // Every database is seeded with one primary "Content" Blocks field, backed
   // by `documents.content`, so each row's body is a first-class property.
   await seedDefaultBlocksField({ databaseId, ownerEmail, orgId, now, db });
-  await ensureDocumentFilesMembership(db, documentId, now);
+  await ensureDocumentFilesMembership(db, documentId, now, {
+    userEmail: getRequestUserEmail(),
+    orgId: orgId ?? undefined,
+  });
 
   return databaseId;
 }

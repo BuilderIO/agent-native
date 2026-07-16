@@ -153,6 +153,7 @@ export async function ensureDocumentFilesMembership(
   db: Db,
   documentId: string,
   now = new Date().toISOString(),
+  accessContext?: { userEmail?: string; orgId?: string },
 ) {
   const [document] = await db
     .select()
@@ -160,7 +161,7 @@ export async function ensureDocumentFilesMembership(
     .where(
       and(
         eq(schema.documents.id, documentId),
-        accessFilter(schema.documents, schema.documentShares),
+        accessFilter(schema.documents, schema.documentShares, accessContext),
       ),
     );
   if (!document) throw new Error(`Document "${documentId}" not found`);

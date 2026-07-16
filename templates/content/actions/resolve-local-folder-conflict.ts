@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
@@ -113,11 +114,16 @@ export default defineAction({
       target.source.sourceType !== LOCAL_FOLDER_SOURCE_TYPE ||
       target.changeSet.direction !== "incoming" ||
       target.changeSet.state !== "proposed" ||
-      !target.database.spaceId
+      !target.database.spaceId ||
+      target.database.systemRole !== "files" ||
+      target.database.deletedAt ||
+      target.document.spaceId !== target.database.spaceId
     ) {
       throw new Error(`Open local-folder conflict "${changeSetId}" not found`);
     }
-    await resolveContentSpaceAccess(target.database.spaceId, "editor");
+    const targetSpaceId = target.database.spaceId;
+    await resolveContentSpaceAccess(targetSpaceId, "editor");
+    await assertAccess("document", target.document.id, "editor");
     const bodyChange = parseObject(target.changeSet.bodyChangeJson);
     const sourceDeletion = bodyChange.operation === "source_delete";
     const proposedHash =
@@ -164,6 +170,47 @@ export default defineAction({
 
     const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
+      const claimedChangeSets = await tx
+        .update(schema.contentDatabaseSourceChangeSets)
+        .set({
+          state: decision === "accept_source" ? "applied" : "rejected",
+          updatedAt: now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.id, changeSetId),
+            eq(
+              schema.contentDatabaseSourceChangeSets.sourceId,
+              target.source.id,
+            ),
+            eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+      if (claimedChangeSets.length !== 1) {
+        throw new Error(
+          `Open local-folder conflict "${changeSetId}" changed before resolution`,
+        );
+      }
+      const claimedSources = await tx
+        .update(schema.contentDatabaseSources)
+        .set({ updatedAt: now })
+        .where(
+          and(
+            eq(schema.contentDatabaseSources.id, target.source.id),
+            eq(schema.contentDatabaseSources.databaseId, target.database.id),
+            eq(
+              schema.contentDatabaseSources.sourceType,
+              LOCAL_FOLDER_SOURCE_TYPE,
+            ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (claimedSources.length !== 1) {
+        throw new Error(
+          `Local folder source "${target.source.id}" was disconnected before resolution`,
+        );
+      }
       if (decision === "accept_source" && sourceDeletion) {
         await tx
           .delete(schema.contentDatabaseSourceRows)
@@ -233,12 +280,22 @@ export default defineAction({
                   updatedAt: now,
                 },
           )
-          .where(eq(schema.documents.id, target.document.id));
+          .where(
+            and(
+              eq(schema.documents.id, target.document.id),
+              eq(schema.documents.spaceId, targetSpaceId),
+            ),
+          );
       } else if (decision === "accept_source") {
         const [currentDocument] = await tx
           .select()
           .from(schema.documents)
-          .where(eq(schema.documents.id, target.document.id));
+          .where(
+            and(
+              eq(schema.documents.id, target.document.id),
+              eq(schema.documents.spaceId, targetSpaceId),
+            ),
+          );
         if (
           !currentDocument ||
           hash(currentDocument.content) !== reviewedContentHash ||
@@ -337,13 +394,6 @@ export default defineAction({
             .where(eq(schema.contentDatabaseSourceRows.id, sourceRow.id));
         }
       }
-      await tx
-        .update(schema.contentDatabaseSourceChangeSets)
-        .set({
-          state: decision === "accept_source" ? "applied" : "rejected",
-          updatedAt: now,
-        })
-        .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSetId));
       const remaining = await tx
         .select({ id: schema.contentDatabaseSourceChangeSets.id })
         .from(schema.contentDatabaseSourceChangeSets)
@@ -357,7 +407,7 @@ export default defineAction({
             eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
           ),
         );
-      await tx
+      const refreshedSources = await tx
         .update(schema.contentDatabaseSources)
         .set({
           syncState: remaining.length ? "error" : "linked",
@@ -370,7 +420,13 @@ export default defineAction({
               : "Content was kept; push the retained revision to the folder when ready.",
           updatedAt: now,
         })
-        .where(eq(schema.contentDatabaseSources.id, target.source.id));
+        .where(eq(schema.contentDatabaseSources.id, target.source.id))
+        .returning({ id: schema.contentDatabaseSources.id });
+      if (refreshedSources.length !== 1) {
+        throw new Error(
+          `Local folder source "${target.source.id}" was disconnected during resolution`,
+        );
+      }
     });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return {

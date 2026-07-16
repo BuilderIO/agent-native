@@ -119,7 +119,10 @@ import {
 } from "./document-sidebar-sections";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
-import { selectContentSpace } from "./select-content-space";
+import {
+  contentSpaceForActiveOrg,
+  selectContentSpace,
+} from "./select-content-space";
 
 function nanoid(size = 12): string {
   const chars =
@@ -258,10 +261,16 @@ export function DocumentSidebar({
     SELECTED_CONTENT_SPACE_STORAGE_KEY,
     null,
   );
-  const selectedSpace =
-    contentSpaces.find((space) => space.id === storedSpaceId) ??
-    contentSpaces[0] ??
-    null;
+  const selectedSpace = contentSpaceForActiveOrg({
+    spaces: contentSpaces,
+    storedSpaceId,
+    activeOrgId: activeOrg?.orgId,
+  });
+  useEffect(() => {
+    if (selectedSpace && selectedSpace.id !== storedSpaceId) {
+      setStoredSpaceId(selectedSpace.id);
+    }
+  }, [selectedSpace, setStoredSpaceId, storedSpaceId]);
   const handleSelectContentSpace = useCallback(
     async (space: (typeof contentSpaces)[number]) => {
       try {

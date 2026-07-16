@@ -472,6 +472,128 @@ describe("local-folder Content source", () => {
     }
   });
 
+  it("rejects a malformed linked row that points into another Content space", async () => {
+    const target = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-linked-cross-space-target",
+        label: "Linked cross-space target",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const other = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-linked-cross-space-other",
+        label: "Linked cross-space other",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "malformed-linked-other-space-page",
+      spaceId: other.spaceId,
+      ownerEmail: OWNER,
+      orgId: null,
+      visibility: "private",
+      title: "Other space page",
+      content: "Must remain untouched.",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb()
+      .insert(schema.contentDatabaseSourceRows)
+      .values({
+        id: "malformed-linked-cross-space-row",
+        ownerEmail: OWNER,
+        sourceId: target.sourceId,
+        databaseItemId: "malformed-linked-cross-space-item",
+        documentId: "malformed-linked-other-space-page",
+        sourceRowId: "linked.md",
+        sourceQualifiedId: "local-folder://example/linked.md",
+        sourceDisplayKey: "linked.md",
+        sourceValuesJson: JSON.stringify({ relativePath: "linked.md" }),
+        provenance: "test corruption",
+        syncState: "linked",
+        freshness: "fresh",
+        createdAt: now,
+        updatedAt: now,
+      });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: target.sourceId,
+          files: { "linked.md": "Incoming body." },
+        }),
+      ),
+    ).rejects.toThrow("belongs to another Content space");
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "malformed-linked-other-space-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        spaceId: other.spaceId,
+        content: "Must remain untouched.",
+      }),
+    ]);
+  });
+
+  it("aborts sync if the source is disconnected after planning", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-sync-disconnect-race",
+        label: "Sync disconnect race",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let disconnected = false;
+    db.transaction = async function (...args: any[]) {
+      if (!disconnected) {
+        disconnected = true;
+        await db
+          .delete(schema.contentDatabaseSources)
+          .where(eq(schema.contentDatabaseSources.id, connection.sourceId));
+      }
+      return originalTransaction.apply(this, args);
+    };
+
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          syncLocalFolder.run({
+            sourceId: connection.sourceId,
+            files: {
+              "race.md": "---\nid: sync-after-disconnect-page\n---\nBody.",
+            },
+          }),
+        ),
+      ).rejects.toThrow("was disconnected before sync");
+      expect(disconnected).toBe(true);
+      await expect(
+        db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, "sync-after-disconnect-page")),
+      ).resolves.toHaveLength(0);
+      await expect(
+        db
+          .select()
+          .from(schema.contentDatabaseSourceRows)
+          .where(
+            eq(schema.contentDatabaseSourceRows.sourceId, connection.sourceId),
+          ),
+      ).resolves.toHaveLength(0);
+    } finally {
+      db.transaction = originalTransaction;
+    }
+  });
+
   it("refuses to accept a staged folder revision after Content changes again", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
@@ -561,6 +683,197 @@ describe("local-folder Content source", () => {
           .from(schema.contentDatabaseSourceChangeSets)
           .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id)),
       ).resolves.toEqual([expect.objectContaining({ state: "proposed" })]);
+    } finally {
+      db.transaction = originalTransaction;
+    }
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve-race.md": "Folder body under review." },
+      }),
+    );
+    const proposed = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+          eq(schema.contentDatabaseSourceChangeSets.state, "proposed"),
+        ),
+      );
+    expect(proposed).toHaveLength(2);
+    const refreshed = proposed.find(
+      (candidate) => candidate.id !== changeSet.id,
+    );
+    expect(refreshed).toBeDefined();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: refreshed!.id,
+        decision: "accept_source",
+        sourceContent: "Folder body under review.",
+      }),
+    );
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId)),
+    ).resolves.toEqual([
+      expect.objectContaining({ content: "Folder body under review." }),
+    ]);
+  });
+
+  it("aborts resolution if the source is disconnected after review", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-resolve-disconnect-race",
+        label: "Resolve disconnect race",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Baseline." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Content edit.", updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Folder edit." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let disconnected = false;
+    db.transaction = async function (...args: any[]) {
+      if (!disconnected) {
+        disconnected = true;
+        await db
+          .delete(schema.contentDatabaseSources)
+          .where(eq(schema.contentDatabaseSources.id, connection.sourceId));
+      }
+      return originalTransaction.apply(this, args);
+    };
+
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          resolveLocalFolderConflict.run({
+            changeSetId: changeSet.id,
+            decision: "accept_source",
+            sourceContent: "Folder edit.",
+          }),
+        ),
+      ).rejects.toThrow("was disconnected before resolution");
+      expect(disconnected).toBe(true);
+      await expect(
+        db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId)),
+      ).resolves.toEqual([
+        expect.objectContaining({ content: "Content edit." }),
+      ]);
+    } finally {
+      db.transaction = originalTransaction;
+    }
+  });
+
+  it("allows only one decision to claim an open folder conflict", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-resolve-decision-race",
+        label: "Resolve decision race",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Baseline." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Content edit.", updatedAt: new Date().toISOString() })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve.md": "Folder edit." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let decided = false;
+    db.transaction = async function (...args: any[]) {
+      if (!decided) {
+        decided = true;
+        await db
+          .update(schema.contentDatabaseSourceChangeSets)
+          .set({ state: "rejected", updatedAt: new Date().toISOString() })
+          .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id));
+      }
+      return originalTransaction.apply(this, args);
+    };
+
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          resolveLocalFolderConflict.run({
+            changeSetId: changeSet.id,
+            decision: "accept_source",
+            sourceContent: "Folder edit.",
+          }),
+        ),
+      ).rejects.toThrow("changed before resolution");
+      expect(decided).toBe(true);
+      await expect(
+        db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId)),
+      ).resolves.toEqual([
+        expect.objectContaining({ content: "Content edit." }),
+      ]);
     } finally {
       db.transaction = originalTransaction;
     }

@@ -189,7 +189,10 @@ export default defineAction({
               })),
             );
           }
-          await ensureDocumentFilesMembership(tx, id, now);
+          await ensureDocumentFilesMembership(tx, id, now, {
+            userEmail: currentUserEmail,
+            orgId: orgId ?? undefined,
+          });
         });
       },
     );

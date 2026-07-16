@@ -127,6 +127,45 @@ describe("content local CLI", () => {
     expect(manifest.apps.content).not.toHaveProperty("mode");
   });
 
+  it("migrates every legacy local-files root before removing the app mode", async () => {
+    const root = tmpDir();
+    for (const directory of ["docs", "blog", "resources"]) {
+      fs.mkdirSync(path.join(root, directory), { recursive: true });
+    }
+    writeJson(path.join(root, "agent-native.json"), {
+      version: 1,
+      apps: {
+        content: {
+          mode: "local-files",
+          roots: [
+            { name: "Docs", path: "docs" },
+            { name: "Blog", path: "blog" },
+            { name: "Resources", path: "resources" },
+          ],
+        },
+      },
+    });
+
+    await prepareContentLocalLaunch({
+      cwd: root,
+      target: "docs",
+      dryRun: false,
+    });
+
+    const manifest = JSON.parse(
+      fs.readFileSync(path.join(root, "agent-native.json"), "utf8"),
+    );
+    expect(manifest.apps.content).not.toHaveProperty("mode");
+    expect(manifest.apps.content.roots).toHaveLength(3);
+    for (const manifestRoot of manifest.apps.content.roots) {
+      expect(manifestRoot.source).toMatchObject({
+        type: "local-folder",
+        truthPolicy: "source_primary",
+      });
+      expect(manifestRoot.source.connectionId).toMatch(/^local-folder:/);
+    }
+  });
+
   it("accumulates repeated file targets under a CLI-created root", async () => {
     const root = tmpDir();
     fs.mkdirSync(path.join(root, "docs"), { recursive: true });

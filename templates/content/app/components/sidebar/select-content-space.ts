@@ -1,5 +1,23 @@
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 
+export function contentSpaceForActiveOrg(args: {
+  spaces: ContentSpaceSummary[];
+  storedSpaceId: string | null;
+  activeOrgId: string | null | undefined;
+}) {
+  if (args.activeOrgId === undefined) return null;
+  const stored = args.spaces.find((space) => space.id === args.storedSpaceId);
+  if (stored?.orgId === args.activeOrgId) return stored;
+  const matching = args.spaces.filter(
+    (space) => space.orgId === args.activeOrgId,
+  );
+  return args.activeOrgId === null
+    ? (matching.find((space) => space.kind === "personal") ??
+        matching[0] ??
+        null)
+    : (matching[0] ?? null);
+}
+
 export async function selectContentSpace(args: {
   space: ContentSpaceSummary;
   activeOrgId: string | null | undefined;

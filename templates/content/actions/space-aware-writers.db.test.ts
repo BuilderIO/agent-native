@@ -184,6 +184,46 @@ describe("space-aware document writers", () => {
     ).rejects.toThrow("Not authorized");
   });
 
+  it("creates canonical Files memberships when the target organization differs from the active organization", async () => {
+    const activeOrgId = "org-active-writers";
+    const targetOrgId = "org-target-writers";
+    await addOrganizationMember({
+      orgId: activeOrgId,
+      email: MEMBER,
+      role: "admin",
+    });
+    await addOrganizationMember({
+      orgId: targetOrgId,
+      email: MEMBER,
+      role: "admin",
+    });
+    const targetSpaceId = organizationContentSpaceId(targetOrgId);
+
+    const page = await runWithRequestContext(
+      { userEmail: MEMBER, orgId: activeOrgId },
+      () =>
+        createDocument.run({
+          title: "Cross-organization page",
+          spaceId: targetSpaceId,
+        }),
+    );
+    await expect(filesMemberships(page.id)).resolves.toEqual([
+      expect.objectContaining({ spaceId: targetSpaceId }),
+    ]);
+
+    const createdDatabase = await runWithRequestContext(
+      { userEmail: MEMBER, orgId: activeOrgId },
+      () =>
+        createContentDatabase.run({
+          title: "Cross-organization database",
+          spaceId: targetSpaceId,
+        }),
+    );
+    await expect(
+      filesMemberships(createdDatabase.database.documentId),
+    ).resolves.toEqual([expect.objectContaining({ spaceId: targetSpaceId })]);
+  });
+
   it("keeps databases and their rows in one space and repairs converted page membership", async () => {
     const page = await runWithRequestContext({ userEmail: OWNER }, () =>
       createDocument.run({ title: "Convert me" }),
@@ -220,5 +260,49 @@ describe("space-aware document writers", () => {
     await expect(
       filesMemberships(row.createdDocumentId!),
     ).resolves.toHaveLength(1);
+  });
+
+  it("rejects database row creation when a legacy database has no Content space", async () => {
+    const now = new Date().toISOString();
+    await getDb().insert(schema.documents).values({
+      id: "legacy-unscoped-database-document",
+      ownerEmail: OWNER,
+      orgId: null,
+      spaceId: null,
+      parentId: null,
+      title: "Legacy unscoped database",
+      content: "",
+      position: 0,
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+    await getDb().insert(schema.contentDatabases).values({
+      id: "legacy-unscoped-database",
+      ownerEmail: OWNER,
+      orgId: null,
+      spaceId: null,
+      documentId: "legacy-unscoped-database-document",
+      title: "Legacy unscoped database",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        addDatabaseItem.run({
+          databaseId: "legacy-unscoped-database",
+          title: "Must not be created",
+        }),
+      ),
+    ).rejects.toThrow("does not belong to a Content space");
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(
+          eq(schema.documents.parentId, "legacy-unscoped-database-document"),
+        ),
+    ).resolves.toHaveLength(0);
   });
 });

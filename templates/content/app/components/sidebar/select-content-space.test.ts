@@ -2,7 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 
 import type { ContentSpaceSummary } from "@/hooks/use-content-spaces";
 
-import { selectContentSpace } from "./select-content-space";
+import {
+  contentSpaceForActiveOrg,
+  selectContentSpace,
+} from "./select-content-space";
 
 function space(
   overrides: Partial<ContentSpaceSummary> = {},
@@ -99,5 +102,52 @@ describe("selectContentSpace", () => {
 
     expect(switchOrg).not.toHaveBeenCalled();
     expect(persistSelection).toHaveBeenCalledWith("space_1");
+  });
+});
+
+describe("contentSpaceForActiveOrg", () => {
+  it("keeps the stored workspace when its organization is active", () => {
+    const selected = space({ id: "space_2", orgId: "org_1" });
+    expect(
+      contentSpaceForActiveOrg({
+        spaces: [space(), selected],
+        storedSpaceId: selected.id,
+        activeOrgId: "org_1",
+      }),
+    ).toBe(selected);
+  });
+
+  it("reconciles an independently switched organization before querying Files", () => {
+    const oldSpace = space({ id: "old", orgId: "org_1" });
+    const newSpace = space({ id: "new", orgId: "org_2" });
+    expect(
+      contentSpaceForActiveOrg({
+        spaces: [oldSpace, newSpace],
+        storedSpaceId: oldSpace.id,
+        activeOrgId: "org_2",
+      }),
+    ).toBe(newSpace);
+  });
+
+  it("waits for active organization context instead of querying a stale Files database", () => {
+    expect(
+      contentSpaceForActiveOrg({
+        spaces: [space()],
+        storedSpaceId: "space_1",
+        activeOrgId: undefined,
+      }),
+    ).toBeNull();
+  });
+
+  it("prefers the personal workspace when switching out of an organization", () => {
+    const folder = space({ id: "folder", kind: "source", orgId: null });
+    const personal = space({ id: "personal", kind: "personal", orgId: null });
+    expect(
+      contentSpaceForActiveOrg({
+        spaces: [folder, personal],
+        storedSpaceId: "missing",
+        activeOrgId: null,
+      }),
+    ).toBe(personal);
   });
 });

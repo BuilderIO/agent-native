@@ -51,8 +51,14 @@ function titleFromPath(value: string) {
 }
 
 function localFolderConnectionId(absoluteRootPath: string) {
+  let canonicalRootPath = path.resolve(absoluteRootPath);
+  try {
+    canonicalRootPath = fsSync.realpathSync(canonicalRootPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+  }
   const digest = createHash("sha256")
-    .update(fsSync.realpathSync(absoluteRootPath))
+    .update(canonicalRootPath)
     .digest("base64url")
     .slice(0, 24);
   return `${LOCAL_FOLDER_CONNECTION_PREFIX}${digest}`;
@@ -166,6 +172,7 @@ async function readManifest(
 
 function upsertContentManifest(
   manifest: Record<string, unknown>,
+  workspaceRoot: string,
   rootPath: string,
   options: {
     connectionId: string;
@@ -222,12 +229,37 @@ function upsertContentManifest(
       truthPolicy: "source_primary",
     },
   };
-  const roots =
+  let roots =
     rootIndex === -1
       ? [...existingRoots, root]
       : existingRoots.map((entry, index) =>
           index === rootIndex ? { ...entry, ...root } : entry,
         );
+
+  if (existingContent.mode === "local-files") {
+    roots = roots.map((entry) => {
+      if (entry === root || typeof entry.path !== "string") return entry;
+      const existingSource = isRecord(entry.source) ? entry.source : {};
+      return {
+        ...entry,
+        source: {
+          ...existingSource,
+          type: "local-folder",
+          connectionId:
+            typeof existingSource.connectionId === "string" &&
+            existingSource.connectionId
+              ? existingSource.connectionId
+              : localFolderConnectionId(
+                  path.resolve(workspaceRoot, entry.path),
+                ),
+          truthPolicy:
+            typeof existingSource.truthPolicy === "string"
+              ? existingSource.truthPolicy
+              : "source_primary",
+        },
+      };
+    });
+  }
 
   delete existingContent.mode;
   apps[CONTENT_APP_ID] = {
@@ -281,6 +313,7 @@ export async function prepareContentLocalLaunch(options: {
   const connectionId = localFolderConnectionId(target.absoluteRootPath);
   const manifest = upsertContentManifest(
     await readManifest(manifestPath),
+    target.workspaceRoot,
     target.rootPath,
     {
       connectionId,
