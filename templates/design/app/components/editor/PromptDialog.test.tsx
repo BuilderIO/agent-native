@@ -285,6 +285,24 @@ describe("PromptPopover skip affordance", () => {
     expect(onOpenChange).toHaveBeenCalledTimes(1);
     expect(onOpenChange).toHaveBeenCalledWith(false);
   });
+
+  it("does not close after a successful skip that already navigated", async () => {
+    const onSkip = vi.fn().mockResolvedValue(false);
+    const onOpenChange = vi.fn();
+    await renderPopover({ onSkip, onOpenChange });
+    const skipButton = Array.from(container!.querySelectorAll("button")).find(
+      (btn) => btn.textContent === "promptDialog.skipPrompt",
+    );
+
+    await act(async () => {
+      skipButton?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(onSkip).toHaveBeenCalledTimes(1);
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
 });
 
 describe("PromptPopover template picker", () => {

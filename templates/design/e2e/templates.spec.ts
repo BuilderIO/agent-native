@@ -233,14 +233,36 @@ test("New Design picker searches and copies a built-in template without prompt t
 }) => {
   test.setTimeout(120_000);
   let createdDesignId: string | undefined;
+  const designSystemIds: string[] = [];
+  const suffix = Date.now();
+  const selectedSystemTitle = `E2E selected template system ${suffix}`;
 
   try {
+    for (const title of [
+      `E2E fallback template system ${suffix}`,
+      selectedSystemTitle,
+    ]) {
+      const system = await postAction(request, "create-design-system", {
+        title,
+        data: JSON.stringify({ colors: { primary: "#3366ff" } }),
+      });
+      const systemId = system.id ?? system.data?.id;
+      expect(systemId).toBeTruthy();
+      designSystemIds.push(systemId);
+    }
+
     await page.goto(appPath("/"), { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("load");
     await page.getByRole("button", { name: "New Design", exact: true }).click();
 
     const promptPopover = page.locator("[data-agent-native-prompt-popover]");
     await expect(promptPopover).toBeVisible();
+    const designSystemControl = promptPopover.getByRole("combobox");
+    await designSystemControl.click();
+    await page
+      .getByRole("option", { name: selectedSystemTitle, exact: true })
+      .click();
+
     const templateControl = promptPopover.locator(
       "[data-template-picker-trigger]",
     );
@@ -258,6 +280,7 @@ test("New Design picker searches and copies a built-in template without prompt t
       "Template · Social ad — square",
     );
     await expect(templateControl).toContainText("Built-in");
+    await expect(designSystemControl).toContainText(selectedSystemTitle);
     await expect(
       promptPopover.locator(
         '.ProseMirror p[data-placeholder="Describe how to adapt Social ad — square..."]',
@@ -275,6 +298,9 @@ test("New Design picker searches and copies a built-in template without prompt t
     const response = await createResponse;
     expect(response.ok()).toBe(true);
     expect(response.request().postDataJSON()).not.toHaveProperty("prompt");
+    expect(response.request().postDataJSON()).toMatchObject({
+      designSystemId: designSystemIds[1],
+    });
     const payload = await response.json();
     createdDesignId = payload.id ?? payload.data?.id;
     expect(createdDesignId).toBeTruthy();
@@ -282,6 +308,15 @@ test("New Design picker searches and copies a built-in template without prompt t
     await page.waitForURL(/\/design\/[^/?#]+(?:[?#].*)?$/, {
       timeout: 30_000,
     });
+    expect(
+      await page.evaluate(
+        (designId) =>
+          window.sessionStorage.getItem(
+            `design.pending-generation.${designId}`,
+          ),
+        createdDesignId,
+      ),
+    ).toBeNull();
     const copiedDesign = await getAction(request, "get-design", {
       id: createdDesignId!,
     });
@@ -295,6 +330,9 @@ test("New Design picker searches and copies a built-in template without prompt t
       await postAction(request, "delete-design", { id: createdDesignId }).catch(
         () => {},
       );
+    }
+    for (const id of designSystemIds.reverse()) {
+      await postAction(request, "delete-design-system", { id }).catch(() => {});
     }
   }
 });

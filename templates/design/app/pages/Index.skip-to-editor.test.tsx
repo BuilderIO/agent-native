@@ -153,7 +153,7 @@ beforeEach(async () => {
     id: "copied-design",
     title: "Saved template",
     designSystemId: "override-system",
-    adaptationPending: true,
+    adaptationPending: false,
     templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
   });
   mocks.queryClient.invalidateQueries.mockResolvedValue(undefined);
@@ -234,21 +234,22 @@ describe("Index skip to editor", () => {
     expect(mocks.navigate).toHaveBeenCalledWith("/design/design-2");
   });
 
-  it("preselects a saved template system and sends an explicit override through empty-prompt copy", async () => {
-    await act(async () => {
-      mocks.promptProps?.onTemplateChange("saved-template");
-    });
-
-    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
-    expect(mocks.promptProps?.selectedDesignSystemId).toBe("linked-system");
-    expect(mocks.promptProps?.skipLabel).toBe("templatesPage.useTemplate");
-
+  it("preserves a user-selected system when a template is chosen afterward", async () => {
     await act(async () => {
       mocks.promptProps?.onDesignSystemChange("override-system");
     });
 
     await act(async () => {
-      await mocks.promptProps?.onSkip();
+      mocks.promptProps?.onTemplateChange("saved-template");
+    });
+
+    expect(mocks.promptProps?.selectedTemplateId).toBe("saved-template");
+    expect(mocks.promptProps?.selectedDesignSystemId).toBe("override-system");
+    expect(mocks.promptProps?.skipLabel).toBe("templatesPage.useTemplate");
+
+    let shouldClose: boolean | void = undefined;
+    await act(async () => {
+      shouldClose = await mocks.promptProps?.onSkip();
     });
 
     expect(mocks.createFromTemplate).toHaveBeenCalledWith({
@@ -257,15 +258,9 @@ describe("Index skip to editor", () => {
       designSystemId: "override-system",
     });
     expect(mocks.createDesign).not.toHaveBeenCalled();
-    expect(mocks.writePendingGeneration).toHaveBeenCalledWith(
-      "copied-design",
-      expect.objectContaining({
-        templateId: "saved-template",
-        designSystemId: "override-system",
-        templateBaselineFiles: [{ id: "file-1", contentHash: "baseline" }],
-      }),
-    );
+    expect(mocks.writePendingGeneration).not.toHaveBeenCalled();
     expect(mocks.navigate).toHaveBeenCalledWith("/design/copied-design");
+    expect(shouldClose).toBe(false);
   });
 
   it("opens a copied template without waiting for the designs list to refresh", async () => {

@@ -125,7 +125,7 @@ describe("create-design-from-template", () => {
     );
   });
 
-  it("copies screens and dimensions, preserves locks, and carries a safe override into adaptation", async () => {
+  it("copies screens and dimensions, preserves locks, and links an override without adaptation", async () => {
     const result = await action.run({
       templateId: "saved-template",
       designSystemId: "override-system",
@@ -135,10 +135,10 @@ describe("create-design-from-template", () => {
       id: "copied-design",
       designSystemId: "override-system",
       designSystemOverridden: true,
-      adaptationPending: true,
+      adaptationPending: false,
       lockedLayerCount: 1,
     });
-    expect(result.nextRequiredAction).toContain("Do not call generate-design");
+    expect(result.nextRequiredAction).toBeNull();
     expect(testState.insertedDesign).toMatchObject({
       id: "copied-design",
       designSystemId: "override-system",
@@ -159,6 +159,22 @@ describe("create-design-from-template", () => {
     expect(testState.insertedFiles[0]?.content).toContain(
       'data-agent-native-locked="true"',
     );
+  });
+
+  it("requests adaptation only when an explicit prompt is supplied", async () => {
+    const result = await action.run({
+      templateId: "saved-template",
+      designSystemId: "override-system",
+      prompt: "Adapt the unlocked content for a summer campaign",
+    });
+
+    expect(result).toMatchObject({
+      designSystemId: "override-system",
+      designSystemOverridden: true,
+      promptPending: true,
+      adaptationPending: true,
+    });
+    expect(result.nextRequiredAction).toContain("Do not call generate-design");
   });
 
   it("rejects an inaccessible explicit override before inserting anything", async () => {

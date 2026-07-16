@@ -113,6 +113,7 @@ export default function Index() {
   const anchorElRef = useRef<HTMLElement | null>(null);
   const anchorRef = useRef<HTMLElement | null>(null);
   const skipToEditorPendingRef = useRef(false);
+  const newDesignSystemWasChosenRef = useRef(false);
   // Keep anchorRef.current in sync so PromptPopover can read it
   anchorRef.current = anchorElRef.current;
 
@@ -197,6 +198,7 @@ export default function Index() {
   const openNewDesign = useCallback(
     (e: React.MouseEvent<HTMLElement>) => {
       anchorElRef.current = e.currentTarget;
+      newDesignSystemWasChosenRef.current = false;
       syncSelectedTemplate(null);
       setNewDesignSystemId(
         designSystemsLoading ? undefined : resolveDefaultDesignSystemId(),
@@ -210,6 +212,7 @@ export default function Index() {
     (open: boolean) => {
       setShowNewPrompt(open);
       if (!open) {
+        newDesignSystemWasChosenRef.current = false;
         syncSelectedTemplate(null);
         setNewDesignSystemId(undefined);
         setNewDesignMode("design");
@@ -239,6 +242,7 @@ export default function Index() {
       const template = templateOptions.find(
         (candidate) => candidate.id === templateId,
       );
+      if (newDesignSystemWasChosenRef.current) return;
       const linkedSystemId =
         template?.designSystemId &&
         designSystems.some((system) => system.id === template.designSystemId)
@@ -256,6 +260,14 @@ export default function Index() {
       syncSelectedTemplate,
       templateOptions,
     ],
+  );
+
+  const handleNewDesignSystemChange = useCallback(
+    (designSystemId: string | null) => {
+      newDesignSystemWasChosenRef.current = true;
+      setNewDesignSystemId(designSystemId);
+    },
+    [],
   );
 
   const toggleDesignSelection = useCallback((id: string) => {
@@ -543,7 +555,7 @@ export default function Index() {
   const handleSkipToEditor = useCallback(async () => {
     if (selectedTemplate && newDesignMode === "design") {
       await handleSubmitPrompt("", [], {});
-      return;
+      return false;
     }
     if (skipToEditorPendingRef.current) return;
     skipToEditorPendingRef.current = true;
@@ -564,6 +576,7 @@ export default function Index() {
       // row to persist so the first get-design read cannot briefly return 404.
       await ready;
       navigate(`/design/${id}`);
+      return false;
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
@@ -967,7 +980,7 @@ export default function Index() {
         designSystems={designSystems}
         designSystemsLoading={designSystemsLoading}
         selectedDesignSystemId={newDesignSystemId ?? null}
-        onDesignSystemChange={setNewDesignSystemId}
+        onDesignSystemChange={handleNewDesignSystemChange}
         loading={newDesignHandoffPending}
         onCreateDesignSystem={() => {
           handleNewPromptOpenChange(false);

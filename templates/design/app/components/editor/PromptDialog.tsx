@@ -314,7 +314,9 @@ interface PromptPopoverProps {
   onOpenChange: (open: boolean) => void;
   title: string;
   placeholder?: string;
-  onSkip?: () => void | Promise<void>;
+  /** Return false when the caller navigates and the popover must not issue a
+   * competing close-state navigation after the handoff completes. */
+  onSkip?: () => void | boolean | Promise<void | boolean>;
   skipLabel?: string;
   onSubmit: (
     prompt: string,
@@ -926,8 +928,8 @@ export default function PromptPopover({
                 setSkipInFlight(true);
                 void (async () => {
                   try {
-                    await onSkip();
-                    onOpenChange(false);
+                    const shouldClose = await onSkip();
+                    if (shouldClose !== false) onOpenChange(false);
                   } catch {
                     // The caller owns error presentation. Keep the prompt open
                     // and usable so the user can retry or submit a prompt.

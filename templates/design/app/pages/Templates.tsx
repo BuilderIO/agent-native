@@ -237,11 +237,7 @@ export default function Templates() {
       navigate(`/design/${result.id}`);
     } catch (error) {
       setCreating(false);
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("templatesPage.createFailed"),
-      );
+      throw error;
     }
   };
 
@@ -251,7 +247,7 @@ export default function Templates() {
     options: PromptComposerSubmitOptions,
   ) => {
     if (!selected) return;
-    void createFromTemplate(selected, prompt, options);
+    return createFromTemplate(selected, prompt, options);
   };
 
   const handleDelete = async () => {
@@ -356,8 +352,19 @@ export default function Templates() {
         }}
         title={selected?.title ?? t("templatesPage.useTemplate")}
         placeholder={t("templatesPage.promptPlaceholder")}
-        onSkip={() => {
-          if (selected) void createFromTemplate(selected);
+        onSkip={async () => {
+          if (!selected) return;
+          try {
+            await createFromTemplate(selected);
+            return false;
+          } catch (error) {
+            toast.error(
+              error instanceof Error
+                ? error.message
+                : t("templatesPage.createFailed"),
+            );
+            throw error;
+          }
         }}
         skipLabel={t("templatesPage.useAsIs")}
         onSubmit={handleSubmit}

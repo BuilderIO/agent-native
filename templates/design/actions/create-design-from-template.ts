@@ -137,9 +137,7 @@ export default defineAction({
     }
     const designSystemOverridden =
       designSystemId !== undefined && designSystemId !== templateDesignSystemId;
-    const adaptationPending =
-      Boolean(prompt) ||
-      Boolean(designSystemOverridden && linkedDesignSystemId);
+    const adaptationPending = Boolean(prompt);
 
     const ownerEmail = getRequestUserEmail();
     if (!ownerEmail) throw new Error("Not authenticated");
