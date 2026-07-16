@@ -16,6 +16,7 @@ export const MAX_SUMMARY_BYTES = 8 * 1024;
 export const MAX_NATIVE_CONTENT_BYTES = 128 * 1024;
 export const MAX_METADATA_BYTES = 32 * 1024;
 export const MAX_MEDIA_TEXT_BYTES = 64 * 1024;
+export const MAX_MEDIA_LOCATOR_BYTES = 16 * 1024;
 
 export interface NormalizeContextItemInput {
   externalId: string;
@@ -135,6 +136,7 @@ export function assertContextItemSqlTextLimits(
     | "content"
     | "summary"
     | "mimeType"
+    | "provenance"
     | "metadata"
     | "chunks"
     | "media"
@@ -174,6 +176,12 @@ export function assertContextItemSqlTextLimits(
     MAX_METADATA_BYTES,
     "move raw payloads to private blob storage before ingest",
   );
+  assertJsonSqlTextLimit(
+    "item provenance",
+    item.provenance,
+    MAX_METADATA_BYTES,
+    "move raw payloads to private blob storage before ingest",
+  );
   let chunkBytes = 0;
   for (const chunk of item.chunks ?? []) {
     chunkBytes += Buffer.byteLength(chunk.text, "utf8");
@@ -203,6 +211,24 @@ export function assertContextItemSqlTextLimits(
           "move raw payloads to private blob storage before ingest",
         );
       }
+    }
+    for (const [label, value] of [
+      ["media URL", media.url],
+      ["media storage key", media.storageKey],
+      ["media provenance URL", media.provenanceUrl],
+    ] as const) {
+      if (!value) continue;
+      if (value.trim().toLowerCase().startsWith("data:")) {
+        throw new Error(
+          `Creative context ${label} cannot be an inline data URL; store the payload in private blob storage instead`,
+        );
+      }
+      assertSqlTextLimit(
+        label,
+        value,
+        MAX_MEDIA_LOCATOR_BYTES,
+        "move raw payloads to private blob storage before ingest",
+      );
     }
     assertJsonSqlTextLimit(
       "media metadata",

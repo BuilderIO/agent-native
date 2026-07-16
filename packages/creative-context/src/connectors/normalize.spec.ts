@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   assertContextItemSqlTextLimits,
   MAX_METADATA_BYTES,
+  MAX_MEDIA_LOCATOR_BYTES,
   MAX_MEDIA_TEXT_BYTES,
   MAX_NATIVE_CONTENT_BYTES,
   MAX_SEARCHABLE_CONTENT_BYTES,
@@ -95,6 +96,49 @@ describe("normalizeContextItem SQL text limits", () => {
     });
     expect(() => assertContextItemSqlTextLimits(oversizedMedia)).toThrow(
       /media OCR text.*exceeds.*private blob storage/i,
+    );
+
+    const oversizedProvenance = normalizeContextItem({
+      externalId: "oversized-provenance",
+      kind: "presentation",
+      title: "Oversized provenance",
+      content: "small",
+      provenance: { providerPayload: "x".repeat(MAX_METADATA_BYTES) },
+    });
+    expect(() => assertContextItemSqlTextLimits(oversizedProvenance)).toThrow(
+      /item provenance.*exceeds.*private blob storage/i,
+    );
+
+    const inlineDataUrl = normalizeContextItem({
+      externalId: "inline-media",
+      kind: "presentation",
+      title: "Inline media",
+      content: "small",
+      media: [
+        {
+          kind: "image",
+          url: "data:image/png;base64,AAAA",
+        },
+      ],
+    });
+    expect(() => assertContextItemSqlTextLimits(inlineDataUrl)).toThrow(
+      /media URL cannot be an inline data URL/i,
+    );
+
+    const oversizedLocator = normalizeContextItem({
+      externalId: "oversized-locator",
+      kind: "presentation",
+      title: "Oversized locator",
+      content: "small",
+      media: [
+        {
+          kind: "image",
+          url: `https://example.com/${"x".repeat(MAX_MEDIA_LOCATOR_BYTES)}`,
+        },
+      ],
+    });
+    expect(() => assertContextItemSqlTextLimits(oversizedLocator)).toThrow(
+      /media URL.*exceeds.*private blob storage/i,
     );
   });
 });
