@@ -14,4 +14,8 @@ describe("Content auth public surface", () => {
     );
     expect(authPluginSource).not.toMatch(/["']\/_agent-native\/actions\/?["']/);
   });
+
+  it("lets the document-media handler perform its own uniform access check", () => {
+    expect(authPluginSource).toContain('"/api/document-media"');
+  });
 });

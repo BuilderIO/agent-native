@@ -13,6 +13,10 @@ export default createAuthPlugin({
   },
   publicPaths: [
     "/api/pages/public",
+    // The media handler performs its own uniform public/token/session access
+    // decision. Keeping the outer guard out of this path lets it return the
+    // same no-store 404 for unknown and inaccessible handles.
+    "/api/document-media",
     "/p",
     "/_agent-native/actions/get-public-document",
     "/_agent-native/agent-chat",
