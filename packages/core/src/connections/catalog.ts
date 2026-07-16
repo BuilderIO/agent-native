@@ -188,10 +188,7 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
       provider: "google",
       authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
       tokenUrl: "https://oauth2.googleapis.com/token",
-      scopes: [
-        "https://www.googleapis.com/auth/drive.metadata.readonly",
-        "https://www.googleapis.com/auth/presentations.readonly",
-      ],
+      scopes: ["https://www.googleapis.com/auth/drive.file"],
     },
   }),
   defineWorkspaceConnectionProvider({

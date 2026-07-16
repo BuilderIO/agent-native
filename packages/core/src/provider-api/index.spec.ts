@@ -529,9 +529,7 @@ describe("provider API runtime", () => {
       auth: "oauth-bearer:google",
     });
     expect(slides.notes).toEqual(
-      expect.arrayContaining([
-        expect.stringContaining("presentations.readonly"),
-      ]),
+      expect.arrayContaining([expect.stringContaining("drive.file")]),
     );
   });
 

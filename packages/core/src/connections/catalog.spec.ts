@@ -28,7 +28,7 @@ describe("workspace connection provider catalog", () => {
     ]);
   });
 
-  it("publishes read-only OAuth metadata for creative context providers", () => {
+  it("publishes least-privilege OAuth metadata for creative context providers", () => {
     expect(getWorkspaceConnectionProvider("figma")?.oauth).toMatchObject({
       provider: "figma",
       refreshUrl: "https://api.figma.com/v1/oauth/token",
@@ -40,12 +40,7 @@ describe("workspace connection provider catalog", () => {
     });
     expect(
       getWorkspaceConnectionProvider("google_drive")?.oauth?.scopes,
-    ).toEqual(
-      expect.arrayContaining([
-        "https://www.googleapis.com/auth/drive.metadata.readonly",
-        "https://www.googleapis.com/auth/presentations.readonly",
-      ]),
-    );
+    ).toEqual(["https://www.googleapis.com/auth/drive.file"]);
   });
 
   it("looks up providers and narrows provider ids", () => {

@@ -1104,7 +1104,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       },
     ],
     notes: [
-      "Read-only creative context imports require https://www.googleapis.com/auth/presentations.readonly. Inventorying presentation metadata in Drive also requires https://www.googleapis.com/auth/drive.metadata.readonly.",
+      "Creative context imports use the non-sensitive drive.file scope. A user must choose each presentation through Google Picker before the Slides API can read it; unrestricted Drive-wide discovery is intentionally unavailable.",
       "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
     ],
   },

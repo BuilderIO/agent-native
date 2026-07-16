@@ -37,8 +37,7 @@ import type {
 
 const SLIDES_MIME_TYPE = "application/vnd.google-apps.presentation";
 export const GOOGLE_SLIDES_CONTEXT_OAUTH_SCOPES = [
-  "https://www.googleapis.com/auth/drive.metadata.readonly",
-  "https://www.googleapis.com/auth/presentations.readonly",
+  "https://www.googleapis.com/auth/drive.file",
 ] as const;
 
 export class GoogleSlidesContextConnector implements ContextImportConnector {

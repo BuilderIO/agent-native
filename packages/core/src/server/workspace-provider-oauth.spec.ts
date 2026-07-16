@@ -135,7 +135,7 @@ describe("workspace provider OAuth", () => {
     expect(url.searchParams.has("code_challenge")).toBe(false);
   });
 
-  it("requests incremental offline Google Drive and Slides consent", () => {
+  it("requests incremental offline consent limited to Picker-selected Drive files", () => {
     const provider = getWorkspaceConnectionProvider("google_drive")!;
     const url = new URL(
       buildWorkspaceProviderAuthorizationUrl({
@@ -154,12 +154,9 @@ describe("workspace provider OAuth", () => {
     expect(url.searchParams.get("access_type")).toBe("offline");
     expect(url.searchParams.get("include_granted_scopes")).toBe("true");
     expect(url.searchParams.get("prompt")).toBe("consent");
-    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
-      expect.arrayContaining([
-        "https://www.googleapis.com/auth/drive.metadata.readonly",
-        "https://www.googleapis.com/auth/presentations.readonly",
-      ]),
-    );
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual([
+      "https://www.googleapis.com/auth/drive.file",
+    ]);
   });
 
   it("exchanges Figma codes at the current token endpoint without exposing credentials", async () => {
