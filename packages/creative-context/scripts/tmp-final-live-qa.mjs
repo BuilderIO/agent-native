@@ -216,9 +216,13 @@ async function verifyComposer(page, app) {
   await panel.waitFor({ timeout: 15_000 });
   const chip = panel
     .locator("button")
-    .filter({ has: panel.locator("span.max-w-44.truncate") })
+    .filter({ hasText: app.native ? "Clone:" : "Automatic" })
     .last();
-  await chip.waitFor({ timeout: 15_000 });
+  await page.waitForTimeout(3_000);
+  invariant(
+    (await chip.count()) > 0,
+    `${app.name} composer context chip missing: ${(await panel.innerText()).slice(0, 500)}`,
+  );
   await chip.click();
   const menu = page.getByRole("menu");
   await menu.waitFor();
