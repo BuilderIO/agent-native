@@ -132,8 +132,6 @@ const PREVIEW_COLLAPSED_STORAGE_KEY = "calendar.bookingLinks.previewCollapsed";
 const BRAND_LINK_CLASS = "font-semibold text-[#00B5FF] hover:text-[#33C4FF]";
 const BRAND_ICON_LINK_CLASS =
   "text-[#00B5FF] hover:bg-[#00B5FF]/10 hover:text-[#33C4FF]";
-const BRAND_PILL_LINK_CLASS =
-  "border-[#00B5FF]/35 bg-[#00B5FF]/10 font-semibold text-[#00B5FF] hover:border-[#00B5FF]/55 hover:bg-[#00B5FF]/15 hover:text-[#33C4FF]";
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const BOOKING_SLOT_STEP_MINUTES = 30;
 
