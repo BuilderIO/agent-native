@@ -202,7 +202,9 @@ async function verifyLibrary(page, app) {
 }
 
 async function verifyComposer(page, app) {
-  await page.goto("/", { waitUntil: "domcontentloaded" });
+  await page.goto(app.name === "assets" ? "/brand-kits" : "/", {
+    waitUntil: "domcontentloaded",
+  });
   await page.waitForTimeout(2_000);
   const toggle = page.getByRole("button", { name: "Toggle agent" }).first();
   if ((await toggle.count()) && (await toggle.isVisible())) {

@@ -100,13 +100,7 @@ describe("mergeAgentSuggestions", () => {
         includeStatic: true,
         max: 3,
       }),
-    ).toEqual([
-      "Summarize my inbox",
-      "Draft a reply",
-      "Search my inbox",
-      "Plan my day",
-      "Find action items",
-    ]);
+    ).toEqual(["Summarize my inbox", "Draft a reply", "Search my inbox"]);
   });
 });
 
@@ -114,7 +108,7 @@ describe("normalizeAgentDynamicSuggestionsConfig", () => {
   it("keeps dynamic suggestions enabled by default", () => {
     expect(normalizeAgentDynamicSuggestionsConfig()).toMatchObject({
       enabled: true,
-      max: 4,
+      max: 3,
       includeStatic: true,
     });
   });

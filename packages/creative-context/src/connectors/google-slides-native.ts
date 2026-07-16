@@ -372,7 +372,11 @@ function inheritedPageElements(
   const layoutPlaceholders = placeholderMap(layoutElements);
   const claimedLayout = new Set<string>();
   const claimedMaster = new Set<string>();
-  const output: Array<{ element: JsonObject; inherited: JsonObject[] }> = [];
+  const output: Array<{
+    element: JsonObject;
+    inherited: JsonObject[];
+    local?: JsonObject;
+  }> = [];
 
   for (const element of slideElements.values()) {
     const placeholder = elementPlaceholder(element);
