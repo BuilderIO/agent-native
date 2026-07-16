@@ -288,11 +288,12 @@ describe("mountA2A auth", () => {
     const response = await handler(event);
 
     expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
   });
 
-  it("verifies org-secret JWTs before deciding production auth is unconfigured", async () => {
+  it("rejects self-selected org-secret JWT identity without a pinned peer", async () => {
     delete process.env.A2A_SECRET;
     getA2ASecretByDomainMock.mockResolvedValueOnce("org-a2a-secret");
     const token = await new jose.SignJWT({
@@ -309,14 +310,13 @@ describe("mountA2A auth", () => {
     const event = postEvent({ authorization: `Bearer ${token}` });
     const response = await handler(event);
 
-    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
-    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
-    expect(event.context.__a2aOrgDomain).toBe("builder.io");
-    expect(event._status).toBeUndefined();
-    expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+    expect(response.error.message).toBe("Invalid or expired A2A token");
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+    expect(event._status).toBe(401);
+    expect(handleJsonRpcH3Mock).not.toHaveBeenCalled();
   });
 
-  it("falls back to the shared A2A_SECRET when the receiver org secret differs", async () => {
+  it("keeps shared-secret JWTs as machine auth without user identity", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     getA2ASecretByDomainMock.mockResolvedValueOnce("receiver-local-org-secret");
     const token = await new jose.SignJWT({
@@ -334,10 +334,52 @@ describe("mountA2A auth", () => {
     const response = await handler(event);
 
     expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
-    expect(event.context.__a2aVerifiedEmail).toBe("alice+qa@builder.io");
-    expect(event.context.__a2aOrgDomain).toBe("builder.io");
+    expect(event.context.__a2aVerifiedEmail).toBeUndefined();
+    expect(event.context.__a2aOrgDomain).toBeUndefined();
     expect(event._status).toBeUndefined();
     expect(handleJsonRpcH3Mock).toHaveBeenCalledOnce();
+  });
+
+  it("binds identity only for a receiver-pinned peer", async () => {
+    process.env.APP_URL = "https://receiver.example";
+    process.env.A2A_DISPATCH_PEER_SECRET = "dispatch-peer-example-secret";
+    const token = await new jose.SignJWT({
+      peer_id: "dispatch",
+      scope: "a2a:invoke a2a:approve-actions",
+      org_domain: "example.test",
+    })
+      .setProtectedHeader({ alg: "HS256", kid: "v2" })
+      .setIssuer("https://dispatch.example")
+      .setAudience("https://receiver.example")
+      .setSubject("alice@example.test")
+      .setExpirationTime("15m")
+      .sign(new TextEncoder().encode("dispatch-peer-example-secret"));
+    const handler = await mountedA2AHandler({
+      ...config,
+      trustedPeers: [
+        {
+          id: "dispatch",
+          issuer: "https://dispatch.example",
+          audiences: ["https://receiver.example"],
+          subjects: ["alice@example.test"],
+          orgDomains: ["example.test"],
+          scopes: ["a2a:invoke", "a2a:approve-actions"],
+          credentials: [{ id: "v2", secretEnv: "A2A_DISPATCH_PEER_SECRET" }],
+        },
+      ],
+    });
+
+    const event = postEvent({ authorization: `Bearer ${token}` });
+    const response = await handler(event);
+
+    expect(response).toEqual({ jsonrpc: "2.0", id: 1, result: { ok: true } });
+    expect(event.context.__a2aVerifiedEmail).toBe("alice@example.test");
+    expect(event.context.__a2aOrgDomain).toBe("example.test");
+    expect(event.context.__a2aPeerId).toBe("dispatch");
+    expect(event.context.__a2aPeerScopes).toEqual([
+      "a2a:invoke",
+      "a2a:approve-actions",
+    ]);
   });
 
   it("requires a bearer token on hosted runtimes when A2A_SECRET is configured", async () => {
@@ -428,6 +470,15 @@ describe("mountA2A auth", () => {
 
 describe("verifyA2AToken (exported)", () => {
   const originalEnv = { ...process.env };
+  const emptyIdentity = {
+    email: null,
+    orgDomain: null,
+    authenticated: false,
+    identityTrusted: false,
+    peerId: null,
+    scopes: [],
+  };
+  const machineAuth = { ...emptyIdentity, authenticated: true };
 
   beforeEach(() => {
     vi.resetModules();
@@ -451,7 +502,7 @@ describe("verifyA2AToken (exported)", () => {
       .sign(new TextEncoder().encode(secret));
   }
 
-  it("verifies a token signed with the shared A2A_SECRET", async () => {
+  it("accepts a shared-secret JWT only as machine authentication", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     const { verifyA2AToken } = await import("./server.js");
     const token = await signToken("shared-global-secret", {
@@ -461,10 +512,10 @@ describe("verifyA2AToken (exported)", () => {
     // Event is optional: no audience claim, no org lookup needed here.
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+    expect(result).toEqual(machineAuth);
   });
 
-  it("falls back to the org-level secret via org_domain (shared secret absent)", async () => {
+  it("does not select an org secret from a self-asserted org_domain", async () => {
     delete process.env.A2A_SECRET;
     getA2ASecretByDomainMock.mockResolvedValueOnce("org-a2a-secret");
     const { verifyA2AToken } = await import("./server.js");
@@ -475,11 +526,8 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(getA2ASecretByDomainMock).toHaveBeenCalledWith("builder.io");
-    expect(result).toEqual({
-      email: "bob@builder.io",
-      orgDomain: "builder.io",
-    });
+    expect(getA2ASecretByDomainMock).not.toHaveBeenCalled();
+    expect(result).toEqual(emptyIdentity);
   });
 
   it("rejects a token whose signature matches no candidate secret", async () => {
@@ -493,7 +541,7 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: null, orgDomain: null });
+    expect(result).toEqual(emptyIdentity);
   });
 
   it("rejects an expired token", async () => {
@@ -507,7 +555,7 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: null, orgDomain: null });
+    expect(result).toEqual(emptyIdentity);
   });
 
   it("returns null identity when no secret is configured", async () => {
@@ -517,7 +565,7 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: null, orgDomain: null });
+    expect(result).toEqual(emptyIdentity);
   });
 
   it("does not throw on a malformed token", async () => {
@@ -526,7 +574,7 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken("not-a-jwt");
 
-    expect(result).toEqual({ email: null, orgDomain: null });
+    expect(result).toEqual(emptyIdentity);
   });
 
   it("rejects a correctly-signed token whose aud targets another service (no derivable audience)", async () => {
@@ -547,10 +595,10 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: null, orgDomain: null });
+    expect(result).toEqual(emptyIdentity);
   });
 
-  it("still accepts a token WITHOUT an aud claim when no audience can be derived", async () => {
+  it("accepts an audience-less legacy token only as machine authentication", async () => {
     // Backward-compat: tokens minted before the audience claim shipped (and
     // internal callers that don't set one) carry no `aud`, so there is nothing
     // to check — the secret + exp checks still gate them.
@@ -566,10 +614,10 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+    expect(result).toEqual(machineAuth);
   });
 
-  it("accepts a token whose aud matches the receiver's derived audience", async () => {
+  it("accepts a matching-audience legacy token only as machine authentication", async () => {
     process.env.A2A_SECRET = "shared-global-secret";
     process.env.APP_URL = "https://receiver.example";
     const { verifyA2AToken } = await import("./server.js");
@@ -580,7 +628,7 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: "alice@builder.io", orgDomain: null });
+    expect(result).toEqual(machineAuth);
   });
 
   it("rejects a token whose aud does not match the receiver's derived audience", async () => {
@@ -594,7 +642,7 @@ describe("verifyA2AToken (exported)", () => {
 
     const result = await verifyA2AToken(token);
 
-    expect(result).toEqual({ email: null, orgDomain: null });
+    expect(result).toEqual(emptyIdentity);
   });
 });
 

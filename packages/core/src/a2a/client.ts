@@ -30,13 +30,15 @@ export class A2ATaskTimeoutError extends Error {
 }
 
 /**
- * Sign a JWT for A2A cross-app identity verification.
+ * Sign a legacy JWT for A2A machine authentication.
  *
  * Uses an org-level secret by default for direct org-secret workflows. Callers
  * that are doing ordinary hosted cross-app delegation can set
  * `preferGlobalSecret` so deployments with a shared A2A_SECRET don't depend on
  * every app database having an identical org row. The token contains the
- * caller's email as `sub`, so the receiving app can verify who's calling.
+ * `sub` is retained for compatibility, but receivers must not trust it as user
+ * identity. Use `signA2APeerToken` with a receiver-pinned peer registry for
+ * identity-bearing calls.
  */
 export async function signA2AToken(
   email: string,
@@ -61,7 +63,7 @@ export async function signA2AToken(
   if (!secret) {
     throw new Error(
       "No A2A secret available. Set an org-level A2A secret in Team settings, " +
-        "or set A2A_SECRET as an environment variable on all apps that need to verify identity.",
+        "or set A2A_SECRET as an environment variable on all apps that need machine authentication.",
     );
   }
 
@@ -541,9 +543,10 @@ function isA2AAuthRejectionResponse(status: number, text: string): boolean {
 /**
  * One-shot convenience function: send a text message and get a text response.
  *
- * When A2A_SECRET is set and userEmail is provided, outbound calls are signed
- * with a JWT so the receiving app can cryptographically verify the caller's
- * identity (instead of blindly trusting metadata).
+ * When A2A_SECRET is set, outbound calls can use a legacy machine JWT. A
+ * userEmail claim in that token is not receiver-trusted identity; callers that
+ * need user-scoped access should pass a token minted by `signA2APeerToken` as
+ * `apiKey`.
  */
 export async function callAgent(
   url: string,

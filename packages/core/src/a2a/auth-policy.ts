@@ -29,7 +29,11 @@ export function hasConfiguredA2ASecret(): boolean {
 }
 
 export function shouldAdvertiseJwtA2AAuth(): boolean {
-  return hasConfiguredA2ASecret() || isA2AProductionRuntime();
+  return (
+    hasConfiguredA2ASecret() ||
+    !!process.env.A2A_TRUSTED_PEERS?.trim() ||
+    isA2AProductionRuntime()
+  );
 }
 
 /**

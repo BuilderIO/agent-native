@@ -22,11 +22,16 @@ import {
 } from "./auth-policy.js";
 import { handleJsonRpcH3, processA2ATaskFromQueue } from "./handlers.js";
 import {
+  hasUsableA2APeerTrust,
+  trustedA2APeersFromEnv,
+  verifyTrustedA2APeerToken,
+} from "./peer-trust.js";
+import {
   claimA2AApproval,
   getA2AApprovalForOwner,
   settleA2AApproval,
 } from "./task-store.js";
-import type { A2AConfig } from "./types.js";
+import type { A2AConfig, A2ATrustedPeer } from "./types.js";
 
 /**
  * One-time warning when A2A is running unauthenticated in development. We
@@ -46,22 +51,17 @@ function warnA2AUnauthOnce(): void {
 }
 
 /**
- * Result of verifying an inbound A2A JWT. `email` is the caller identity from
- * the token's `sub` claim (null when verification fails), `orgDomain` mirrors
- * the verified `org_domain` claim when present.
+ * Result of verifying an inbound A2A JWT. Identity fields are populated only
+ * for a receiver-pinned peer. A valid deployment-wide legacy JWT is machine
+ * authentication (`authenticated: true`) but never trusted user identity.
  */
 export interface A2ATokenPayload {
   email: string | null;
   orgDomain: string | null;
-}
-
-function addSecretCandidate(
-  candidates: string[],
-  secret: string | undefined,
-): void {
-  const trimmed = secret?.trim();
-  if (!trimmed || candidates.includes(trimmed)) return;
-  candidates.push(trimmed);
+  authenticated: boolean;
+  identityTrusted: boolean;
+  peerId: string | null;
+  scopes: string[];
 }
 
 /**
@@ -92,53 +92,56 @@ function expectedJwtAudience(event: any | undefined): string | undefined {
 }
 
 /**
- * Verify an inbound A2A bearer token (HS256) exactly as the
- * `/_agent-native/a2a` endpoint does: it peeks at the unverified `org_domain`
- * claim to build an ordered candidate-secret set (`process.env.A2A_SECRET`
- * plus any org-level secret for that domain), then verifies the JWT — checking
- * `aud`/`iss` when the token carries them and `exp` always. Returns the
- * caller's email (`sub`) and org domain on success, or `{ email: null,
- * orgDomain: null }` on any failure (malformed, bad signature, expired, or no
- * secret configured), never throwing.
+ * Verify an inbound A2A bearer token (HS256) exactly as the endpoint does.
+ * Privileged identity requires a receiver-owned peer registry with pinned
+ * issuer, mandatory audience, exact subject, bounded scopes, and an active
+ * per-peer credential. `A2A_SECRET` is retained only for identity-less machine
+ * compatibility. Mismatches fail closed without throwing.
  *
  * Exported so workspaces can accept A2A callers on the HTTP action route with
- * the same routine — including org-level fallback secrets — instead of
- * reimplementing a partial verifier. Pass the H3 `event` to enable org-domain →
- * org-secret lookup and audience derivation; it is optional.
+ * the same routine instead of reimplementing a partial verifier. Pass the H3
+ * `event` to derive the receiver audience; trusted identity cannot be verified
+ * without that audience.
  */
 export async function verifyA2AToken(
   token: string,
   event?: any,
+  trustedPeers: A2ATrustedPeer[] = trustedA2APeersFromEnv(),
 ): Promise<A2ATokenPayload> {
-  // Step 1: Peek at JWT claims WITHOUT verification to get org_domain.
-  // This is safe because we only use org_domain to look up the secret,
-  // then verify the full JWT with that secret. If someone forges a JWT
-  // with a fake org_domain, verification will fail because they don't
-  // have the real secret.
-  let orgDomainHint: string | undefined;
+  // Decode only to determine whether the input is structurally a JWT. No
+  // unverified claim chooses identity, issuer, audience, or secret material.
   let unverifiedPayload: jose.JWTPayload | undefined;
   try {
     unverifiedPayload = jose.decodeJwt(token);
-    orgDomainHint = unverifiedPayload.org_domain as string | undefined;
   } catch {
-    // Malformed token — fall through to global secret attempt
+    return emptyA2ATokenPayload();
   }
 
-  // Step 2: Build a small, ordered set of candidate secrets. Tokens minted by
-  // current callers prefer the shared A2A_SECRET; older callers may still use
-  // an org-level secret. Try both without logging or reflecting secret details.
-  const candidateSecrets: string[] = [];
-  addSecretCandidate(candidateSecrets, process.env.A2A_SECRET);
-  if (orgDomainHint) {
-    try {
-      const { getA2ASecretByDomain } = await import("../org/context.js");
-      const orgSecret = await getA2ASecretByDomain(orgDomainHint);
-      addSecretCandidate(candidateSecrets, orgSecret ?? undefined);
-    } catch {
-      // DB not ready or column doesn't exist yet — fall through
-    }
+  // Identity-bearing trust is peer-specific. The receiver, not the token,
+  // chooses the issuer, audience, subjects, scopes, and credential keys that
+  // are allowed to cross this boundary.
+  const audience = expectedJwtAudience(event);
+  const peerIdentity = await verifyTrustedA2APeerToken(
+    token,
+    audience,
+    trustedPeers,
+  );
+  if (peerIdentity) {
+    return {
+      email: peerIdentity.email,
+      orgDomain: peerIdentity.orgDomain,
+      authenticated: true,
+      identityTrusted: true,
+      peerId: peerIdentity.peerId,
+      scopes: peerIdentity.scopes,
+    };
   }
-  if (candidateSecrets.length === 0) return { email: null, orgDomain: null };
+
+  // A deployment-wide legacy secret remains usable as machine authentication,
+  // but it can no longer assert a user or carry user approvals. Org secrets
+  // selected from an unverified org_domain claim are deliberately not tried.
+  const sharedSecret = process.env.A2A_SECRET?.trim();
+  if (!sharedSecret) return emptyA2ATokenPayload();
 
   // Step 3: Verify JWT with the candidate secrets.
   //
@@ -165,7 +168,7 @@ export async function verifyA2AToken(
       // token that self-declares an audience must be checked against ours, so
       // when we have nothing to check it against we reject rather than skip.
       const aud = expectedJwtAudience(event);
-      if (!aud) return { email: null, orgDomain: null };
+      if (!aud) return emptyA2ATokenPayload();
       verifyOptions.audience = aud;
     }
     if (
@@ -175,25 +178,29 @@ export async function verifyA2AToken(
     ) {
       verifyOptions.issuer = unverifiedPayload.iss;
     }
-    for (const secret of candidateSecrets) {
-      try {
-        const { payload } = await jose.jwtVerify(
-          token,
-          new TextEncoder().encode(secret),
-          verifyOptions,
-        );
-        return {
-          email: (payload.sub as string) ?? null,
-          orgDomain: (payload.org_domain as string) ?? null,
-        };
-      } catch {
-        // Try the next candidate without leaking which secret failed.
-      }
-    }
+    await jose.jwtVerify(token, new TextEncoder().encode(sharedSecret), {
+      ...verifyOptions,
+      algorithms: ["HS256"],
+    });
+    return {
+      ...emptyA2ATokenPayload(),
+      authenticated: true,
+    };
   } catch {
     // Keep malformed option construction indistinguishable from auth failure.
   }
-  return { email: null, orgDomain: null };
+  return emptyA2ATokenPayload();
+}
+
+function emptyA2ATokenPayload(): A2ATokenPayload {
+  return {
+    email: null,
+    orgDomain: null,
+    authenticated: false,
+    identityTrusted: false,
+    peerId: null,
+    scopes: [],
+  };
 }
 
 /**
@@ -202,9 +209,8 @@ export async function verifyA2AToken(
  * - GET /.well-known/agent-card.json — public agent card (no auth)
  * - POST /_agent-native/a2a — JSON-RPC endpoint (with optional auth)
  *
- * When A2A_SECRET is set, inbound Bearer tokens are verified as JWTs
- * and the caller's email is extracted from the `sub` claim. This provides
- * cryptographic identity verification for cross-app A2A calls.
+ * Receiver-pinned peers provide cross-app identity. A2A_SECRET and apiKeyEnv
+ * remain identity-less machine authentication for backwards compatibility.
  */
 export function mountA2A(
   nitroApp: any,
@@ -440,6 +446,9 @@ export function mountA2A(
       const bearerToken = extractBearerToken(authHeader);
       let verifiedCallerEmail: string | null = null;
       let verifiedOrgDomain: string | null = null;
+      let verifiedPeerId: string | null = null;
+      let verifiedPeerScopes: string[] = [];
+      let jwtMachineAuthenticated = false;
       let legacyApiKeyAuthenticated = false;
       let bearerTokenRejectedByJwt = false;
 
@@ -450,17 +459,32 @@ export function mountA2A(
       // warning but allow so local templates work out of the box.
       const hasA2ASecret = hasConfiguredA2ASecret();
       const hasApiKey = !!(config.apiKeyEnv && process.env[config.apiKeyEnv]);
+      const trustedPeers = config.trustedPeers ?? trustedA2APeersFromEnv();
+      const hasTrustedPeers = hasUsableA2APeerTrust(trustedPeers);
 
-      // Try JWT verification first (org-level or global A2A_SECRET-based identity)
+      // Try receiver-pinned peer identity, then legacy global-secret machine
+      // authentication.
       if (bearerToken) {
-        const tokenPayload = await verifyA2AToken(bearerToken, event);
+        const tokenPayload = await verifyA2AToken(
+          bearerToken,
+          event,
+          trustedPeers,
+        );
         verifiedCallerEmail = tokenPayload.email;
         verifiedOrgDomain = tokenPayload.orgDomain;
-        bearerTokenRejectedByJwt = !verifiedCallerEmail;
+        verifiedPeerId = tokenPayload.peerId;
+        verifiedPeerScopes = tokenPayload.scopes;
+        jwtMachineAuthenticated =
+          tokenPayload.authenticated && !tokenPayload.identityTrusted;
+        bearerTokenRejectedByJwt = !tokenPayload.authenticated;
       }
 
       // Fall back to legacy API key check (exact string match)
-      if (!verifiedCallerEmail && config.apiKeyEnv) {
+      if (
+        !verifiedCallerEmail &&
+        !jwtMachineAuthenticated &&
+        config.apiKeyEnv
+      ) {
         const expectedKey = process.env[config.apiKeyEnv];
         if (expectedKey) {
           if (!bearerToken) {
@@ -483,7 +507,11 @@ export function mountA2A(
         }
       }
 
-      if (!verifiedCallerEmail && !legacyApiKeyAuthenticated) {
+      if (
+        !verifiedCallerEmail &&
+        !jwtMachineAuthenticated &&
+        !legacyApiKeyAuthenticated
+      ) {
         // Any supplied bearer token that failed JWT verification is an auth
         // failure after the legacy exact-match apiKeyEnv path has had a
         // chance to succeed. Do not let bad tokens fall through to tasks/get
@@ -500,7 +528,7 @@ export function mountA2A(
           };
         }
 
-        if (!hasA2ASecret && !hasApiKey) {
+        if (!hasA2ASecret && !hasApiKey && !hasTrustedPeers) {
           if (isA2AProductionRuntime()) {
             setResponseStatus(event, 503);
             return {
@@ -534,6 +562,10 @@ export function mountA2A(
       }
       if (verifiedOrgDomain) {
         event.context.__a2aOrgDomain = verifiedOrgDomain;
+      }
+      if (verifiedPeerId) {
+        event.context.__a2aPeerId = verifiedPeerId;
+        event.context.__a2aPeerScopes = verifiedPeerScopes;
       }
 
       const body = await readBody(event);

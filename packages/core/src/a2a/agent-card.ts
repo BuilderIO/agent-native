@@ -29,7 +29,7 @@ export function generateAgentCard(
   // Hosted production deployments require JWT-capable A2A even before card
   // generation can prove whether auth will use the shared A2A_SECRET or an
   // org-scoped secret from SQL.
-  if (shouldAdvertiseJwtA2AAuth()) {
+  if (config.trustedPeers?.length || shouldAdvertiseJwtA2AAuth()) {
     securitySchemes.jwtBearer = {
       type: "http",
       scheme: "bearer",

@@ -1391,7 +1391,10 @@ describe("handleJsonRpc", () => {
       }),
     };
     const event = mockEvent();
-    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aPeerScopes: ["a2a:invoke", "a2a:approve-actions"],
+    };
     const approvedActions = [
       { tool: "send-email", input: { to: "alice@example.test" } },
     ];
@@ -1429,7 +1432,7 @@ describe("handleJsonRpc", () => {
     expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
   });
 
-  it("drops action grants when the A2A caller has no verified user identity", async () => {
+  it("drops action grants from static API-key machine authentication", async () => {
     const contextConfig: A2AConfig = {
       ...customHandler,
       handler: async (_message, context) => ({
@@ -1457,10 +1460,50 @@ describe("handleJsonRpc", () => {
           message: { role: "user", parts: [{ type: "text", text: "send" }] },
         },
       },
-      mockEvent(),
+      Object.assign(mockEvent(), {
+        context: { __a2aLegacyApiKeyAuthenticated: true },
+      }),
       contextConfig,
     );
 
+    expect(result.result.status.message.parts[0].text).toBe("[]");
+  });
+
+  it("drops action grants when a trusted peer lacks approval scope", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.approvedActions ?? []),
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice@example.test",
+      __a2aPeerScopes: ["a2a:invoke"],
+    };
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          approvedActions: [
+            { tool: "send-email", input: { to: "victim@example.test" } },
+          ],
+          message: { role: "user", parts: [{ type: "text", text: "send" }] },
+        },
+      },
+      event,
+      contextConfig,
+    );
     expect(result.result.status.message.parts[0].text).toBe("[]");
   });
 

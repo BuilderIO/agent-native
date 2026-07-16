@@ -15,6 +15,7 @@ import {
   hasConfiguredA2ASecret,
   isA2AProductionRuntime,
 } from "./auth-policy.js";
+import { A2A_APPROVE_ACTIONS_SCOPE } from "./peer-trust.js";
 import {
   createTask,
   getTask,
@@ -57,7 +58,13 @@ function trustedApprovedActions(
   // Static API keys and unsigned requests do not prove which user authorized
   // a consequential action. Only a verified identity-bearing JWT may carry
   // chat authorization across the A2A boundary.
-  if (!event?.context?.__a2aVerifiedEmail || !Array.isArray(value)) {
+  const peerScopes = event?.context?.__a2aPeerScopes;
+  if (
+    !event?.context?.__a2aVerifiedEmail ||
+    !Array.isArray(peerScopes) ||
+    !peerScopes.includes(A2A_APPROVE_ACTIONS_SCOPE) ||
+    !Array.isArray(value)
+  ) {
     return undefined;
   }
   const approved = value

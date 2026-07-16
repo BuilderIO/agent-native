@@ -6,6 +6,7 @@ import type { A2AConfig } from "./types.js";
 describe("generateAgentCard", () => {
   beforeEach(() => {
     vi.stubEnv("A2A_SECRET", "");
+    vi.stubEnv("A2A_TRUSTED_PEERS", "");
     vi.stubEnv("NODE_ENV", "test");
     vi.stubEnv("NETLIFY", "");
     vi.stubEnv("NETLIFY_LOCAL", "");
@@ -133,6 +134,26 @@ describe("generateAgentCard", () => {
         bearerFormat: "JWT",
       },
     });
+    expect(card.security).toEqual([{ jwtBearer: [] }]);
+  });
+
+  it("advertises JWT bearer auth when peer trust is configured", () => {
+    const card = generateAgentCard(
+      {
+        ...baseConfig,
+        trustedPeers: [
+          {
+            id: "dispatch",
+            issuer: "https://dispatch.example",
+            audiences: ["https://receiver.example"],
+            subjects: ["alice@example.test"],
+            scopes: ["a2a:invoke"],
+            credentials: [{ id: "v2", secretEnv: "A2A_DISPATCH_SECRET" }],
+          },
+        ],
+      },
+      "https://example.com",
+    );
     expect(card.security).toEqual([{ jwtBearer: [] }]);
   });
 

@@ -178,6 +178,13 @@ export interface A2AConfig {
   publicSkillsOnly?: boolean;
   handler?: A2AHandler;
   apiKeyEnv?: string;
+  /**
+   * Identity-bearing peers trusted by this receiver. A peer is accepted only
+   * when its issuer, audience, exact subject, scope, credential id, and
+   * per-peer secret all match this registry. Multiple active credentials make
+   * rotation additive; marking one revoked invalidates it immediately.
+   */
+  trustedPeers?: A2ATrustedPeer[];
   streaming?: boolean;
   /** Route async A2A work through the app's durable background worker when available. */
   durableBackgroundRuns?: boolean;
@@ -186,4 +193,29 @@ export interface A2AConfig {
     status: "completed" | "failed";
     output: string;
   }>;
+}
+
+export interface A2ATrustedPeerCredential {
+  /** JWT protected-header `kid`. */
+  id: string;
+  /** Server-only environment variable holding this peer's HS256 secret. */
+  secretEnv: string;
+  status?: "active" | "revoked";
+  notBefore?: string;
+  expiresAt?: string;
+}
+
+export interface A2ATrustedPeer {
+  id: string;
+  issuer: string;
+  /** Exact receiver origins this peer may target. */
+  audiences: string[];
+  /** Exact user identities this peer may assert. Wildcards are not supported. */
+  subjects: string[];
+  /** Exact organization domains this peer may assert, when any. */
+  orgDomains?: string[];
+  /** Maximum scopes the peer may request. */
+  scopes: string[];
+  credentials: A2ATrustedPeerCredential[];
+  revoked?: boolean;
 }

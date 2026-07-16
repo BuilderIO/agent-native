@@ -212,6 +212,25 @@ descriptions, client bundles, or examples. A2A tokens are deploy-level secrets
 unless a specific app designs a scoped credential flow; read them from secure
 runtime configuration and never log or return them.
 
+### Identity-bearing peer trust
+
+`A2A_SECRET` and `apiKeyEnv` authenticate a machine call only. They cannot
+assert a user identity or carry `approvedActions`. Any peer that needs scoped
+user access must be registered by the receiver through `trustedPeers` on
+`A2AConfig` or the deployment-owned `A2A_TRUSTED_PEERS` JSON environment
+variable. Each peer pins an exact issuer, allowed receiver audiences, exact
+subjects and organization domains, maximum scopes, and credential entries
+containing a JWT `kid` and a server-only `secretEnv` name.
+
+Trusted peer JWTs require `peer_id`, `kid`, `iss`, `aud`, `sub`, `exp`, and the
+`a2a:invoke` scope. The receiver rejects missing/wrong audiences, self-selected
+issuers, subjects or scopes outside the registry, unknown or revoked
+credentials, and revoked peers. Give a peer `a2a:approve-actions` only when it
+may forward exact chat approvals. Rotate without downtime by adding the new
+credential, deploying the sender with its new `kid`, then revoking the old
+entry. `signA2APeerToken` mints this bounded token; secret values remain in the
+named environment variables.
+
 ## Message Parts
 
 Messages contain typed parts:
