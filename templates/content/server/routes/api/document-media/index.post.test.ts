@@ -18,7 +18,6 @@ vi.mock("@agent-native/core/private-blob", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getConfiguredAppBasePath: () => "/content",
   getSession: (...args: unknown[]) => getSession(...args),
-  runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
 }));
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => assertAccess(...args),
@@ -102,6 +101,10 @@ describe("POST /api/document-media", () => {
     });
     expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 403);
     expect(putPrivateBlob).not.toHaveBeenCalled();
+    expect(assertAccess).toHaveBeenCalledWith("document", "doc-1", "editor", {
+      userEmail: "editor@example.com",
+      orgId: "org-1",
+    });
     expect(accessErrorSpy).toHaveBeenCalledWith(
       "[content:document-media] upload failed",
       expect.objectContaining({ stage: "access", errorClass: "rejected" }),

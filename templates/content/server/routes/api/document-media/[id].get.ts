@@ -2,7 +2,6 @@ import { readPrivateBlob } from "@agent-native/core/private-blob";
 import {
   AGENT_ACCESS_PARAM,
   getSession,
-  runWithRequestContext,
   verifyScopedAgentAccessToken,
 } from "@agent-native/core/server";
 import { resolveAccess } from "@agent-native/core/sharing";
@@ -50,10 +49,12 @@ export default defineEventHandler(async (event) => {
   const allowed =
     tokenAccess ||
     (session?.email &&
-      (await runWithRequestContext(
-        { userEmail: session.email, orgId: session.orgId },
-        async () => Boolean(await resolveAccess("document", media.documentId)),
-      )));
+      Boolean(
+        await resolveAccess("document", media.documentId, {
+          userEmail: session.email,
+          orgId: session.orgId,
+        }),
+      ));
   if (!allowed) {
     // guard:allow-unscoped -- public visibility is the explicit anonymous authorization path.
     const [document] = await getDb()

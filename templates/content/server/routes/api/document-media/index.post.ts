@@ -4,7 +4,6 @@ import { putPrivateBlob } from "@agent-native/core/private-blob";
 import {
   getConfiguredAppBasePath,
   getSession,
-  runWithRequestContext,
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
@@ -132,10 +131,10 @@ export default defineEventHandler(async (event) => {
 
   let access: Awaited<ReturnType<typeof assertAccess>>;
   try {
-    access = await runWithRequestContext(
-      { userEmail: session.email, orgId: session.orgId },
-      () => assertAccess("document", documentId, "editor"),
-    );
+    access = await assertAccess("document", documentId, "editor", {
+      userEmail: session.email,
+      orgId: session.orgId,
+    });
   } catch (error) {
     logUploadFailure(requestId, "access", error);
     return mediaError(event, 403, requestId);

@@ -2,7 +2,6 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const readPrivateBlob = vi.hoisted(() => vi.fn());
 const getSession = vi.hoisted(() => vi.fn());
-const runWithRequestContext = vi.hoisted(() => vi.fn());
 const verifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
 const resolveAccess = vi.hoisted(() => vi.fn());
 const getRouterParam = vi.hoisted(() => vi.fn());
@@ -19,7 +18,6 @@ vi.mock("@agent-native/core/private-blob", () => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getSession: (...args: unknown[]) => getSession(...args),
-  runWithRequestContext: (_ctx: unknown, fn: () => unknown) => fn(),
   verifyScopedAgentAccessToken: (...args: unknown[]) =>
     verifyScopedAgentAccessToken(...args),
 }));
@@ -115,7 +113,10 @@ describe("GET /api/document-media/:id", () => {
     await expect(handler({} as never)).resolves.toEqual(
       Buffer.from("raw-bytes"),
     );
-    expect(resolveAccess).toHaveBeenCalledWith("document", "doc-1");
+    expect(resolveAccess).toHaveBeenCalledWith("document", "doc-1", {
+      userEmail: "owner@example.com",
+      orgId: "org-1",
+    });
   });
 
   it("uses one indistinguishable 404 for unknown, revoked, invalid, unrelated, and missing blobs", async () => {
