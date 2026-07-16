@@ -1,5 +1,14 @@
 # @agent-native/core
 
+## 0.102.2
+
+### Patch Changes
+
+- 76a9cca: Improve MCP connection status and make provider connection errors actionable.
+- 76a9cca: Keep queued chat follow-ups draining after fast turns and route cross-origin Assets pickers through a top-level sign-in-safe handoff.
+- 76a9cca: Recover the Agent panel when a stale lazy-loaded chat chunk fails to load.
+- 76a9cca: Keep the Builder source-change handoff card visible outside the collapsed chat work summary.
+
 ## 0.102.1
 
 ### Patch Changes
