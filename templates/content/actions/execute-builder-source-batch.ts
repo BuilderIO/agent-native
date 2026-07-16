@@ -10,6 +10,7 @@ import {
   type ExecuteBuilderSourceBatchResponse,
   type ExecuteBuilderSourceBatchTransition,
 } from "../shared/api.js";
+import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
@@ -63,25 +64,41 @@ function realBatchDeps(
         publicationTransition: transition?.publicationTransition,
         confirmUnpublish: transition?.confirmUnpublish,
       };
+      let preparationTimings;
       if (transition?.publicationTransition) {
-        await prepareBuilderSourceExecution.run(executionArgs);
+        preparationTimings = (
+          await prepareBuilderSourceExecution.run(executionArgs)
+        ).timings;
       }
       try {
-        await executeBuilderSourceExecutionWithDeps(
+        const response = await executeBuilderSourceExecutionWithDeps(
           executionArgs,
           realExecutionDeps(args.sourceId),
         );
+        return {
+          changeSetId,
+          status: "succeeded",
+          timings: [...(preparationTimings ?? []), ...(response.timings ?? [])],
+        };
       } catch (error) {
         if (!isMissingGateMessage(errorMessage(error))) {
           throw error;
         }
-        await prepareBuilderSourceExecution.run(executionArgs);
-        await executeBuilderSourceExecutionWithDeps(
+        const preparation =
+          await prepareBuilderSourceExecution.run(executionArgs);
+        const response = await executeBuilderSourceExecutionWithDeps(
           executionArgs,
           realExecutionDeps(args.sourceId),
         );
+        return {
+          changeSetId,
+          status: "succeeded",
+          timings: [
+            ...(preparation.timings ?? []),
+            ...(response.timings ?? []),
+          ],
+        };
       }
-      return { changeSetId, status: "succeeded" };
     },
   };
 }
@@ -110,6 +127,12 @@ function isBlockedMessage(message: string) {
     /refresh/i,
     /not executable/i,
   ].some((pattern) => pattern.test(message));
+}
+
+function isReconciliationRequiredMessage(message: string) {
+  return /reconciliation required|requires reconciliation|remote outcome is unknown/i.test(
+    message,
+  );
 }
 
 function clampConcurrency(value: number | undefined) {
@@ -180,6 +203,9 @@ function summarize(results: BuilderSourceBatchItemResult[]) {
     total: results.length,
     succeeded: results.filter((result) => result.status === "succeeded").length,
     blocked: results.filter((result) => result.status === "blocked").length,
+    reconciliationRequired: results.filter(
+      (result) => result.status === "reconciliation_required",
+    ).length,
     failed: results.filter((result) => result.status === "failed").length,
   };
 }
@@ -188,55 +214,100 @@ export async function executeBuilderSourceBatchWithDeps(
   args: ExecuteBuilderSourceBatchRequest,
   deps: ExecuteBuilderSourceBatchDeps,
 ): Promise<ExecuteBuilderSourceBatchResponse> {
-  const database = await deps.resolveDatabase(args);
-  if (!database) throw new Error("Database not found.");
-  await deps.assertEditor(database);
+  const timing = createBuilderSourceTiming("execute_builder_source_batch");
+  try {
+    const { source } = await timing.measure(
+      "snapshot_read_and_diff_load",
+      async () => {
+        const database = await deps.resolveDatabase(args);
+        if (!database) throw new Error("Database not found.");
+        await deps.assertEditor(database);
+        return { source: await deps.getSourceSnapshot(database) };
+      },
+    );
+    if (!source || source.sourceType !== "builder-cms") {
+      throw new Error("Attach a Builder CMS source before executing writes.");
+    }
 
-  const source = await deps.getSourceSnapshot(database);
-  if (!source || source.sourceType !== "builder-cms") {
-    throw new Error("Attach a Builder CMS source before executing writes.");
+    const ids = uniqueIds(
+      args.changeSetIds ?? defaultBatchChangeSetIds(source),
+    );
+    const changeSetsById = new Map(
+      source.changeSets.map((changeSet) => [changeSet.id, changeSet]),
+    );
+    const maxConcurrency = clampConcurrency(args.maxConcurrency);
+    const results = await timing.measure("batch_dispatch", () =>
+      runBoundedPool(ids, maxConcurrency, async (changeSetId) => {
+        const changeSet = changeSetsById.get(changeSetId);
+        if (changeSet && hasSucceededExecution(changeSet)) {
+          return {
+            changeSetId,
+            status: "succeeded",
+            message: "Builder execution already succeeded; skipped.",
+          };
+        }
+
+        const blocker = explicitBatchBlocker(changeSet);
+        if (blocker) {
+          return { changeSetId, status: "blocked", message: blocker };
+        }
+
+        try {
+          return await deps.runOne(
+            changeSetId,
+            args.transitions?.[changeSetId],
+          );
+        } catch (error) {
+          const message = errorMessage(error);
+          return {
+            changeSetId,
+            status: isReconciliationRequiredMessage(message)
+              ? "reconciliation_required"
+              : isBlockedMessage(message)
+                ? "blocked"
+                : "failed",
+            message,
+          };
+        }
+      }),
+    );
+
+    const phaseDuration = (names: string[]) =>
+      results.reduce(
+        (total, result) =>
+          total +
+          (result.timings ?? [])
+            .filter((item) => names.includes(item.name))
+            .reduce((sum, item) => sum + item.durationMs, 0),
+        0,
+      );
+    timing.add(
+      "approval_gate_preparation_and_dry_run_validation",
+      phaseDuration([
+        "gate_preparation_and_dry_run_validation",
+        "approval_gate_and_dry_run_validation",
+      ]),
+    );
+    timing.add("write_dispatch", phaseDuration(["write_dispatch"]));
+    timing.add(
+      "reconciliation_and_persistence",
+      phaseDuration(["reconciliation_and_persistence"]),
+    );
+
+    const response = {
+      summary: summarize(results),
+      results,
+      timings: timing.finish(),
+    };
+    timing.log("succeeded");
+    return response;
+  } catch (error) {
+    timing.ensure("approval_gate_preparation_and_dry_run_validation");
+    timing.ensure("write_dispatch");
+    timing.ensure("reconciliation_and_persistence");
+    timing.log("failed");
+    throw error;
   }
-
-  const ids = uniqueIds(args.changeSetIds ?? defaultBatchChangeSetIds(source));
-  const changeSetsById = new Map(
-    source.changeSets.map((changeSet) => [changeSet.id, changeSet]),
-  );
-  const maxConcurrency = clampConcurrency(args.maxConcurrency);
-  const results = await runBoundedPool(
-    ids,
-    maxConcurrency,
-    async (changeSetId) => {
-      const changeSet = changeSetsById.get(changeSetId);
-      if (changeSet && hasSucceededExecution(changeSet)) {
-        return {
-          changeSetId,
-          status: "succeeded",
-          message: "Builder execution already succeeded; skipped.",
-        };
-      }
-
-      const blocker = explicitBatchBlocker(changeSet);
-      if (blocker) {
-        return { changeSetId, status: "blocked", message: blocker };
-      }
-
-      try {
-        return await deps.runOne(changeSetId, args.transitions?.[changeSetId]);
-      } catch (error) {
-        const message = errorMessage(error);
-        return {
-          changeSetId,
-          status: isBlockedMessage(message) ? "blocked" : "failed",
-          message,
-        };
-      }
-    },
-  );
-
-  return {
-    summary: summarize(results),
-    results,
-  };
 }
 
 const transitionSchema = z.object({

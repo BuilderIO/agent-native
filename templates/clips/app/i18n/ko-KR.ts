@@ -442,6 +442,7 @@ const messages = {
     invite: "초대",
     embed: "임베드",
     shareLink: "공유 링크",
+    shareWithHumans: "사람과 공유",
     shareWithAgents: "상담원과 공유",
     copyAgentPrompt: "에이전트 프롬프트 복사",
     agentPrompt:
@@ -452,6 +453,8 @@ const messages = {
     retryAgentLink: "다시 시도",
     gifPreview: "GIF 미리보기",
     openPlayer: "플레이어 열기",
+    chooseFile: "파일 선택",
+    remove: "제거",
     downloadMp4: "MP4 다운로드",
     embedsNeedPublic: "퍼가기에는 공개 클립이 필요합니다",
     embedPublicDescription:

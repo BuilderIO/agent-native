@@ -106,6 +106,7 @@ const messages = {
     searchImagesPlaceholder: "Nach Bildern suchen...",
     searchForLogosImagesIcons: "Nach Logos, Bildern, Icons suchen...",
     search: "Suchen",
+    searchFailed: "Suche fehlgeschlagen",
     logoSearchTitle: "Logo-Suche",
     searchCompanyLogo: "Suche nach einem Unternehmen, um sein Logo zu finden",
     searchCompanyPlaceholder: "Unternehmensname suchen (z. B. Intuit)",

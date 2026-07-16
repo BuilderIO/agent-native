@@ -52,6 +52,7 @@ import {
   markdownModule,
   remarkGfmFn,
   markdownUrlTransform,
+  useSmoothStreamingText,
 } from "./markdown-renderer.js";
 import { resolveToolRenderer } from "./tool-render-registry.js";
 import {
@@ -929,6 +930,7 @@ export function ReconnectStreamMessage({
                 key={`reconnect-reasoning-${i}`}
                 text={part.text}
                 isStreaming={chatRunning && i === streamingReasoningPartIndex}
+                resetKey={`reconnect-reasoning-${i}`}
                 defaultOpen={i === latestReasoningPartIndex}
                 collapseWhenReplaced={i < latestReasoningPartIndex}
               />
@@ -973,6 +975,7 @@ const WorkSummaryContentContext = React.createContext(false);
 export function ReasoningCell({
   text,
   isStreaming = false,
+  resetKey,
   defaultOpen,
   autoCollapse = false,
   collapseWhenReplaced = false,
@@ -980,6 +983,8 @@ export function ReasoningCell({
 }: {
   text: string;
   isStreaming?: boolean;
+  /** Stable identity used to restart the reveal when a new reasoning part mounts. */
+  resetKey?: string;
   defaultOpen?: boolean;
   /** Animate closed when a live reasoning segment finishes during a run. */
   autoCollapse?: boolean;
@@ -998,6 +1003,11 @@ export function ReasoningCell({
   const wasStreamingRef = useRef(isStreaming);
   const wasReplacedRef = useRef(collapseWhenReplaced);
   const trimmed = text.trim();
+  const visibleText = useSmoothStreamingText(
+    trimmed,
+    isStreaming,
+    resetKey ?? "reasoning",
+  );
 
   useEffect(() => {
     if (autoCollapse && wasStreamingRef.current && !isStreaming) {
@@ -1018,7 +1028,7 @@ export function ReasoningCell({
   if (embeddedInWorkSummary) {
     return (
       <div className="pb-1 pl-5 text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-        {trimmed || (isStreaming ? "…" : "")}
+        {visibleText || (isStreaming ? "…" : "")}
       </div>
     );
   }
@@ -1055,7 +1065,7 @@ export function ReasoningCell({
       <AnimatedCollapse open={open}>
         <div className={cn("pl-5 pb-1", showTail && "reasoning-cell-tail")}>
           <div className="text-[13px] leading-relaxed text-muted-foreground whitespace-pre-wrap">
-            {trimmed || (isStreaming ? "…" : "")}
+            {visibleText || (isStreaming ? "…" : "")}
           </div>
         </div>
       </AnimatedCollapse>
@@ -1088,20 +1098,17 @@ export function WorkedForSummary({
   children,
 }: {
   durationMs?: number | null;
-  /** When true, start open then animate closed (post-run collapse). */
+  /** When true, close the summary after a run has completed. */
   autoCollapse?: boolean;
   children: React.ReactNode;
 }) {
-  const [open, setOpen] = useState(autoCollapse);
-  const didAutoCollapseRef = useRef(false);
+  // Start closed so a remounted completed message never flashes its work
+  // details open while auto-collapse settles. If the summary was already
+  // open when autoCollapse changes, AnimatedCollapse still animates it shut.
+  const [open, setOpen] = useState(false);
 
   useEffect(() => {
-    if (!autoCollapse || didAutoCollapseRef.current) return;
-    didAutoCollapseRef.current = true;
-    const frame = requestAnimationFrame(() => {
-      setOpen(false);
-    });
-    return () => cancelAnimationFrame(frame);
+    if (autoCollapse) setOpen(false);
   }, [autoCollapse]);
 
   const label =

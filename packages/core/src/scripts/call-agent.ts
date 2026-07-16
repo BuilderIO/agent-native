@@ -6,7 +6,7 @@ import {
   shouldPreferGlobalA2ASecret,
   signA2AToken,
 } from "../a2a/client.js";
-import type { Task } from "../a2a/types.js";
+import type { A2AApprovedAction, Task } from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -112,17 +112,34 @@ export const tool: ActionTool = {
         type: "string",
         description: "The message/question to send to the other agent",
       },
+      approvedActions: {
+        type: "array",
+        description:
+          "Exact downstream tool calls the current user explicitly authorized in this chat. Never infer authorization or include a broader/different action.",
+        items: {
+          type: "object",
+          properties: {
+            tool: { type: "string" },
+            input: { type: "object", additionalProperties: true },
+          },
+          required: ["tool", "input"],
+        },
+      },
     },
     required: ["agent", "message"],
   },
 };
 
 export async function run(
-  args: Record<string, string>,
+  args: Record<string, unknown>,
   context?: ActionRunContext,
   selfAppId?: string,
 ): Promise<string> {
-  const { agent: agentIdOrName, message } = args;
+  const agentIdOrName = String(args.agent ?? "");
+  const message = String(args.message ?? "");
+  const approvedActions = Array.isArray(args.approvedActions)
+    ? (args.approvedActions as A2AApprovedAction[])
+    : undefined;
 
   if (!agentIdOrName) return "Error: --agent is required";
   if (!message) return "Error: --message is required";
@@ -320,6 +337,7 @@ export async function run(
           userEmail: callerEmail,
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
+          approvedActions,
           onUpdate: onRemotePollUpdate,
           ...(callTimeoutMs
             ? {
@@ -408,6 +426,7 @@ export async function run(
       userEmail: email,
       orgDomain: domain,
       orgSecret,
+      approvedActions,
     });
     const sanitized =
       formatDownstreamLlmCredentialFailure(agent.name, response) ?? response;

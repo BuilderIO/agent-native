@@ -126,6 +126,12 @@ export interface JsonRpcResponse {
   error?: JsonRpcError;
 }
 
+/** One exact downstream action explicitly authorized in the caller's chat. */
+export interface A2AApprovedAction {
+  tool: string;
+  input: unknown;
+}
+
 // --- Framework config ---
 
 export interface A2AHandlerContext {
@@ -135,12 +141,27 @@ export interface A2AHandlerContext {
   metadata?: Record<string, unknown>;
   /** Current H3 event when the handler is running inside an HTTP request. */
   event?: unknown;
+  /** Exact one-time action grants from a JWT-authenticated caller. */
+  approvedActions?: A2AApprovedAction[];
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 
 export interface A2AHandlerResult {
   message: Message;
   artifacts?: Artifact[];
+  /** Optional non-terminal state requested by the handler. */
+  taskState?: Extract<TaskState, "input-required">;
+}
+
+export interface A2AApprovalExecution {
+  id: string;
+  taskId: string;
+  ownerEmail: string;
+  orgId?: string | null;
+  tool: string;
+  input: unknown;
+  approvalKey: string;
+  callId: string;
 }
 
 export type A2AHandler = (
@@ -160,4 +181,9 @@ export interface A2AConfig {
   streaming?: boolean;
   /** Route async A2A work through the app's durable background worker when available. */
   durableBackgroundRuns?: boolean;
+  /** Execute a persisted, human-approved A2A tool call. */
+  executeApproval?: (approval: A2AApprovalExecution) => Promise<{
+    status: "completed" | "failed";
+    output: string;
+  }>;
 }

@@ -1,5 +1,7 @@
 // @vitest-environment happy-dom
 
+import { readFileSync } from "node:fs";
+
 import { describe, expect, it } from "vitest";
 
 import {
@@ -8,9 +10,11 @@ import {
   resolveAgentPanelChatSurface,
   shouldAllowAgentChatSurfaceSettingsMode,
   shouldDefaultAgentChatSurfacePageNewChatButton,
+  shouldShowAgentPanelFullViewAction,
   shouldShowAgentPanelPageNewChatButton,
   shouldShowAgentPanelChatTabBar,
   shouldShowAgentPanelCliTabBar,
+  shouldShowAgentPanelModeButtons,
 } from "./AgentPanel.js";
 
 describe("resolveAgentPanelChatSurface", () => {
@@ -121,6 +125,58 @@ describe("AgentPanel header tab visibility", () => {
     );
     expect(normalizeAgentPanelModeForSurface("resources", false)).toBe(
       "resources",
+    );
+  });
+});
+
+describe("AgentPanel mode and full-view visibility", () => {
+  it("hides mode buttons in the sidebar and shows them on the full page", () => {
+    expect(shouldShowAgentPanelModeButtons(true)).toBe(false);
+    expect(shouldShowAgentPanelModeButtons(false)).toBe(true);
+  });
+
+  it("shows the full-view action for resources and settings when a page href exists", () => {
+    expect(shouldShowAgentPanelFullViewAction("/agent", "resources")).toBe(
+      true,
+    );
+    expect(shouldShowAgentPanelFullViewAction("/agent", "settings")).toBe(true);
+  });
+
+  it("hides the full-view action for chat, CLI, or a missing page href", () => {
+    expect(shouldShowAgentPanelFullViewAction("/agent", "chat")).toBe(false);
+    expect(shouldShowAgentPanelFullViewAction("/agent", "cli")).toBe(false);
+    expect(shouldShowAgentPanelFullViewAction(undefined, "resources")).toBe(
+      false,
+    );
+    expect(shouldShowAgentPanelFullViewAction(undefined, "settings")).toBe(
+      false,
+    );
+  });
+});
+
+describe("AgentPanel stale lazy chunk recovery", () => {
+  it("uses the guarded reload path before the panel reset fallback", () => {
+    const source = readFileSync("src/client/AgentPanel.tsx", {
+      encoding: "utf8",
+    });
+    const componentDidCatch = source.slice(
+      source.indexOf("componentDidCatch(error: Error"),
+      source.indexOf(
+        "componentDidUpdate(",
+        source.indexOf("componentDidCatch"),
+      ),
+    );
+
+    expect(source).toContain(
+      'import { recoverFromStaleChunkError } from "./route-chunk-recovery.js";',
+    );
+    expect(componentDidCatch).toContain(
+      "if (recoverFromStaleChunkError(error))",
+    );
+    expect(
+      componentDidCatch.indexOf("recoverFromStaleChunkError(error)"),
+    ).toBeLessThan(
+      componentDidCatch.indexOf("assistantUiRecoverableRenderErrorKind(error)"),
     );
   });
 });

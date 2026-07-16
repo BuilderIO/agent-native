@@ -147,6 +147,31 @@ for await (const update of client.stream({
 }
 ```
 
+### Carrying explicit chat authorization
+
+When the authenticated caller has an exact consequential action that the user
+explicitly authorized in the originating chat, pass the tool name and complete
+input as `approvedActions`. The receiver accepts these grants only from a
+JWT-verified user identity, converts each one to the same content-addressed key
+as its local approval gate, and consumes it once:
+
+```ts
+await client.send(message, {
+  async: true,
+  approvedActions: [
+    {
+      tool: "send-email",
+      input: { to, subject, body, attachments },
+    },
+  ],
+});
+```
+
+Never infer authorization from request prose or broaden the input. A changed
+recipient, body, attachment, or tool produces a different key and follows the
+receiver's normal approval-required path. Static API keys and unsigned callers
+cannot carry these grants.
+
 ## JSON-RPC Methods
 
 | Method           | Purpose                          | Auth required |

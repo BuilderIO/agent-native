@@ -444,6 +444,7 @@ const messages = {
     invite: "دعوة",
     embed: "تضمين",
     shareLink: "رابط المشاركة",
+    shareWithHumans: "مشاركة مع الأشخاص",
     shareWithAgents: "شارك مع الوكلاء",
     copyAgentPrompt: "نسخ مطالبة الوكيل",
     agentPrompt:
@@ -454,6 +455,8 @@ const messages = {
     retryAgentLink: "إعادة المحاولة",
     gifPreview: "معاينة GIF",
     openPlayer: "مشغل مفتوح",
+    chooseFile: "اختيار ملف",
+    remove: "إزالة",
     downloadMp4: "تحميل MP4",
     embedsNeedPublic: "التضمينات تحتاج إلى مقطع عام",
     embedPublicDescription:

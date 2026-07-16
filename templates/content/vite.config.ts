@@ -413,7 +413,6 @@ const cloudflareSsrStubs =
         "@xterm/addon-fit",
         "@xterm/addon-web-links",
         "@xterm/xterm",
-        "katex",
         "lowlight",
         "prettier",
         "react-markdown",

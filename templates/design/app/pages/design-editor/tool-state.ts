@@ -102,6 +102,17 @@ export function shouldAutoEnableDrawOverlay(args: {
   );
 }
 
+export type DesignBottomToolbarMode = "editor" | "commenter" | "hidden";
+
+export function getDesignBottomToolbarMode(args: {
+  isSignedIn: boolean;
+  canEditDesign: boolean;
+  hasActiveFile: boolean;
+}): DesignBottomToolbarMode {
+  if (!args.isSignedIn || !args.hasActiveFile) return "hidden";
+  return args.canEditDesign ? "editor" : "commenter";
+}
+
 export function getSingleScreenCreationTool(args: {
   activeTool: DesignTool;
   viewMode: "single" | "overview";

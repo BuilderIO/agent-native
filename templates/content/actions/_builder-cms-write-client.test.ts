@@ -1,5 +1,3 @@
-import { EventEmitter } from "node:events";
-
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -106,6 +104,7 @@ describe("Builder CMS write client", () => {
         authorization: "Bearer example-cms-private-key",
       });
       expect(JSON.parse(String(init?.body))).toEqual({
+        name: "Created title",
         data: { title: "Created title" },
         published: "draft",
       });
@@ -121,7 +120,11 @@ describe("Builder CMS write client", () => {
           method: "POST",
           path: "/api/v1/write/agent-native-blog-article-test",
           query: { triggerWebhooks: "false" },
-          body: { data: { title: "Created title" }, published: "draft" },
+          body: {
+            name: "Created title",
+            data: { title: "Created title" },
+            published: "draft",
+          },
         },
         fetchImpl: fetchImpl as unknown as typeof fetch,
       }),
@@ -158,36 +161,12 @@ describe("Builder CMS write client", () => {
     expect(JSON.stringify(result)).not.toContain("example-private-key");
   });
 
-  it("falls back to node http transport when fetch throws", async () => {
+  it("does not dispatch a second PATCH after an ambiguous fetch failure", async () => {
     resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
     const fetchImpl = vi.fn(async () => {
       throw new Error("fetch failed");
     });
-    const writes: string[] = [];
-    const requestImpl = vi.fn((url, options, callback) => {
-      expect(url.href).toBe(
-        "https://builder.io/api/v1/write/agent-native-blog-article-test/entry-1",
-      );
-      expect(options.method).toBe("PATCH");
-      const request = new EventEmitter() as EventEmitter & {
-        write: (chunk: string) => void;
-        end: () => void;
-      };
-      request.write = (chunk: string) => {
-        writes.push(chunk);
-      };
-      request.end = () => {};
-      const response = new EventEmitter() as EventEmitter & {
-        statusCode: number;
-      };
-      response.statusCode = 200;
-      queueMicrotask(() => {
-        callback(response as never);
-        response.emit("data", JSON.stringify({ id: "entry-1" }));
-        response.emit("end");
-      });
-      return request as never;
-    });
+    const requestImpl = vi.fn();
 
     await expect(
       executeBuilderCmsWrite({
@@ -200,11 +179,11 @@ describe("Builder CMS write client", () => {
         nodeRequestImpl: requestImpl,
       }),
     ).resolves.toMatchObject({
-      ok: true,
-      status: 200,
-      entryId: "entry-1",
+      ok: false,
+      status: 0,
+      ambiguity: "transport",
     });
-    expect(writes).toEqual([JSON.stringify({ data: { title: "New title" } })]);
+    expect(requestImpl).not.toHaveBeenCalled();
   });
 
   it("does not retry create POST writes after a transport error", async () => {
@@ -227,10 +206,38 @@ describe("Builder CMS write client", () => {
     ).resolves.toMatchObject({
       ok: false,
       status: 0,
-      error:
-        "Builder write request failed: socket closed after request body was sent",
+      ambiguity: "transport",
+      error: expect.stringContaining("remote outcome is unknown"),
     });
     expect(requestImpl).not.toHaveBeenCalled();
+  });
+
+  it("bounds provider calls and reports timeout ambiguity", async () => {
+    resolveBuilderCredentialMock.mockResolvedValue("example-private-key");
+    const fetchImpl = vi.fn(
+      async (_input: URL, init?: RequestInit) =>
+        await new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(new DOMException("aborted", "AbortError")),
+          );
+        }),
+    );
+
+    await expect(
+      executeBuilderCmsWrite({
+        request: {
+          method: "POST",
+          path: "/api/v1/write/agent-native-blog-article-test",
+          body: { data: { title: "Created title" } },
+        },
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        timeoutMs: 5,
+      }),
+    ).resolves.toMatchObject({
+      ok: false,
+      ambiguity: "timeout",
+      error: expect.stringContaining("remote outcome is unknown"),
+    });
   });
 
   it("extracts entry ids from common Builder response envelopes", () => {

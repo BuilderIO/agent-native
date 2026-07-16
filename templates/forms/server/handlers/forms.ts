@@ -53,6 +53,7 @@ export const getPublicForm = defineEventHandler(async (event: H3Event) => {
   const settings = JSON.parse(row.settings) as FormSettings;
   const result = {
     id: row.id,
+    updatedAt: row.updatedAt,
     title: row.title,
     description: row.description,
     fields: JSON.parse(row.fields),

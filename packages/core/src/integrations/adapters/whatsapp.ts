@@ -8,6 +8,7 @@ import type {
   IncomingMessage,
   OutgoingMessage,
   IntegrationStatus,
+  PlatformDeliveryReceipt,
 } from "../types.js";
 
 /** WhatsApp's max message length */
@@ -240,7 +241,7 @@ export function whatsappAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const accessToken = await resolveSecret("WHATSAPP_ACCESS_TOKEN");
       const phoneNumberId = await resolveSecret("WHATSAPP_PHONE_NUMBER_ID");
       if (!accessToken || !phoneNumberId) {
@@ -279,11 +280,14 @@ export function whatsappAdapter(): PlatformAdapter {
           if (!res.ok) {
             const data = await res.json().catch(() => ({}));
             console.error("[whatsapp] sendMessage error:", data);
+            throw new Error(`WhatsApp sendMessage failed (HTTP ${res.status})`);
           }
         } catch (err) {
           console.error("[whatsapp] Failed to send message:", err);
+          throw err;
         }
       }
+      return { status: "delivered" };
     },
 
     formatAgentResponse(text: string): OutgoingMessage {

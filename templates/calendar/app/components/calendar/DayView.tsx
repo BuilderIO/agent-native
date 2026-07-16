@@ -30,6 +30,7 @@ import {
 } from "@/hooks/use-view-preferences";
 import { partitionAllDayEvents } from "@/lib/all-day-layout";
 import { getEventDisplayColor, allOtherDeclined } from "@/lib/event-colors";
+import { isOutOfOfficeEvent } from "@/lib/out-of-office";
 import {
   shouldSuppressAfterPopoverClose,
   shouldSuppressCreatePointerDown,
@@ -44,6 +45,7 @@ import {
 } from "@/lib/working-location";
 
 import { EventDetailPopover } from "./EventDetailPopover";
+import { OutOfOfficeEvent } from "./OutOfOfficeEvent";
 
 interface DayViewProps {
   events: CalendarEvent[];
@@ -230,6 +232,7 @@ interface DayEventCardProps {
   onDraftUpdate?: DayViewProps["onDraftUpdate"];
   onDraftCreate?: DayViewProps["onDraftCreate"];
   onDraftDiscard?: DayViewProps["onDraftDiscard"];
+  onPopoverOpenChange: (event: CalendarEvent, open: boolean) => void;
 }
 
 /**
@@ -262,6 +265,7 @@ const DayEventCard = memo(function DayEventCard({
   onDraftUpdate,
   onDraftCreate,
   onDraftDiscard,
+  onPopoverOpenChange,
 }: DayEventCardProps) {
   const t = useT();
   const workingLocationLabels = createWorkingLocationDisplayLabels(t);
@@ -488,6 +492,7 @@ const DayEventCard = memo(function DayEventCard({
       onDraftUpdate={onDraftUpdate}
       onDraftCreate={onDraftCreate}
       onDraftDiscard={onDraftDiscard}
+      onOpenChange={(open) => onPopoverOpenChange(event, open)}
     >
       {eventButton}
     </EventDetailPopover>
@@ -543,6 +548,7 @@ export const DayView = memo(function DayView({
   const { prefs } = useViewPreferences();
   const [now, setNow] = useState(new Date());
   const [focusedEventId, setFocusedEventId] = useState<string | null>(null);
+  const focusedEventIdRef = useRef<string | null>(null);
   const currentTimeRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
 
@@ -550,6 +556,7 @@ export const DayView = memo(function DayView({
   useEffect(() => {
     function handleKey(e: KeyboardEvent) {
       if (e.key === "Escape") {
+        focusedEventIdRef.current = null;
         setFocusedEventId(null);
         setFocusedEvent(null);
       }
@@ -594,7 +601,14 @@ export const DayView = memo(function DayView({
     () => partitionAllDayEvents(allDayEvents),
     [allDayEvents],
   );
-  const timedEvents = useMemo(() => events.filter((e) => !e.allDay), [events]);
+  const outOfOfficeEvents = useMemo(
+    () => events.filter((event) => !event.allDay && isOutOfOfficeEvent(event)),
+    [events],
+  );
+  const timedEvents = useMemo(
+    () => events.filter((event) => !event.allDay && !isOutOfOfficeEvent(event)),
+    [events],
+  );
   const layout = useMemo(() => computeLayout(timedEvents), [timedEvents]);
 
   // Timezone label: prefer the short generic name (e.g. "PT", "ET")
@@ -666,8 +680,25 @@ export const DayView = memo(function DayView({
 
   const canDrag = !!onEventTimeChange;
 
+  const handleEventPopoverOpenChange = useCallback(
+    (event: CalendarEvent, open: boolean) => {
+      if (open) {
+        focusedEventIdRef.current = event.id;
+        setFocusedEventId(event.id);
+        setFocusedEvent(event);
+        return;
+      }
+      if (focusedEventIdRef.current !== event.id) return;
+      focusedEventIdRef.current = null;
+      setFocusedEventId(null);
+      setFocusedEvent(null);
+    },
+    [setFocusedEvent],
+  );
+
   const handleEventPointerDown = useCallback(
     (e: React.PointerEvent, event: CalendarEvent, isStart: boolean) => {
+      focusedEventIdRef.current = event.id;
       setFocusedEventId(event.id);
       setFocusedEvent(event);
       if (
@@ -999,6 +1030,53 @@ export const DayView = memo(function DayView({
             </div>
           )}
 
+          {/* Native Google out-of-office context sits behind meetings. */}
+          {!isLoading &&
+            outOfOfficeEvents.map((event, markerIndex) => {
+              const isBeingDragged = dragEventId === event.id;
+              const overrides = getDragOverrides(event.id);
+              return (
+                <OutOfOfficeEvent
+                  key={event._tempId ?? event.id}
+                  event={event}
+                  day={date}
+                  hourHeight={HOUR_HEIGHT}
+                  color={
+                    getEventDisplayColor(event, prefs) ?? "hsl(var(--primary))"
+                  }
+                  label={t("eventForm.outOfOffice")}
+                  markerIndex={markerIndex}
+                  canDrag={canDrag}
+                  isBeingDragged={isBeingDragged}
+                  isDragging={isDragging}
+                  isDragTargetDay={isBeingDragged}
+                  overrideTop={overrides?.top ?? null}
+                  overrideHeight={overrides?.height ?? null}
+                  onMovePointerDown={(pointerEvent, startsOnDay) =>
+                    handleEventPointerDown(pointerEvent, event, startsOnDay)
+                  }
+                  onResizeTopPointerDown={(pointerEvent) =>
+                    handleResizeTopPointerDown(pointerEvent, event.id)
+                  }
+                  onResizeBottomPointerDown={(pointerEvent) =>
+                    handleResizeBottomPointerDown(pointerEvent, event.id)
+                  }
+                  shouldSuppressClick={shouldSuppressClick}
+                  onDelete={onDeleteEvent}
+                  isDraft={draftEventIds.includes(event.id)}
+                  defaultOpen={quickEditEventId === event.id}
+                  onTitleSave={onQuickEditSave}
+                  onDismissNew={onQuickEditCancel}
+                  onDraftUpdate={onDraftUpdate}
+                  onDraftCreate={onDraftCreate}
+                  onDraftDiscard={onDraftDiscard}
+                  onOpenChange={(open) =>
+                    handleEventPopoverOpenChange(event, open)
+                  }
+                />
+              );
+            })}
+
           {/* Skeleton events when loading */}
           {isLoading &&
             DAY_SKELETONS.map(
@@ -1053,6 +1131,7 @@ export const DayView = memo(function DayView({
                   onDraftUpdate={onDraftUpdate}
                   onDraftCreate={onDraftCreate}
                   onDraftDiscard={onDraftDiscard}
+                  onPopoverOpenChange={handleEventPopoverOpenChange}
                 />
               );
             })}

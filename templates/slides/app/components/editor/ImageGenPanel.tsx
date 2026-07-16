@@ -69,7 +69,7 @@ export default function ImageGenPanel({
     const contextParts: string[] = [];
 
     contextParts.push(
-      "Generate 3 image variations using our image generation action (`pnpm action generate-image`).",
+      "Generate 3 image variations by calling the registered `generate-image-api` action three times with the same prompt.",
     );
     contextParts.push(
       "The deliverables must be actual generated image assets from the action. Do not create placeholder HTML/CSS, oversized icon compositions, inline SVGs, or text-only mockups.",

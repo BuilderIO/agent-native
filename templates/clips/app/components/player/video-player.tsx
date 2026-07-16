@@ -592,6 +592,14 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
         pauseVideo();
         return;
       }
+      if (v.ended) {
+        try {
+          v.currentTime = 0;
+          setCurrentMs(0);
+        } catch {
+          // Let the normal play attempt report a media error if the seek fails.
+        }
+      }
       requestPlay();
     }, [isPlaying, pauseVideo, requestPlay]);
 
@@ -1423,6 +1431,21 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
           </div>
         )}
 
+        {thumbnailUrl &&
+        !autoPlay &&
+        !hasPlaybackStarted &&
+        (!startMs || startMs <= 0) ? (
+          <img
+            src={resolveLocalUrl(thumbnailUrl)}
+            alt=""
+            aria-hidden="true"
+            className={cn(
+              "pointer-events-none absolute inset-0 z-[1] h-full w-full",
+              cover ? "object-cover" : "object-contain",
+            )}
+          />
+        ) : null}
+
         {centerOverlayMode ? (
           <CenterPlaybackOverlay
             mode={centerOverlayMode}
@@ -1462,7 +1485,7 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
 
         {/* Floating CTA (throughout placement) */}
         {showThroughoutCta ? (
-          <div data-player-ui className="absolute bottom-16 right-4 z-20">
+          <div data-player-ui className="absolute bottom-16 right-4 z-30">
             <CtaButton
               cta={cta!}
               onClick={() => onCtaClick?.(cta!.id)}
@@ -1484,6 +1507,27 @@ export const VideoPlayer = forwardRef<VideoPlayerHandle, VideoPlayerProps>(
                 onClick={() => onCtaClick?.(cta!.id)}
                 large
               />
+              <button
+                type="button"
+                data-player-ui
+                aria-label={t("videoPlayer.playClip")}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  const v = videoRef.current;
+                  if (!v) return;
+                  try {
+                    v.currentTime = 0;
+                    setCurrentMs(0);
+                  } catch {
+                    // The regular play path will surface any media error.
+                  }
+                  requestPlay();
+                }}
+                className="pointer-events-auto inline-flex items-center gap-2 rounded-md border border-white/30 bg-white/10 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-white/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white"
+              >
+                <IconPlayerPlay className="h-4 w-4 fill-current" />
+                {t("videoPlayer.playClip")}
+              </button>
             </div>
           </div>
         ) : null}

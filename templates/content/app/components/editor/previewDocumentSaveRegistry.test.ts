@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   createPreviewDocumentSaveController,
+  deferredPreviewDocumentSave,
   type PreviewDocumentPayload,
 } from "./previewDocumentSaveController";
 import {
@@ -26,7 +27,11 @@ function factoryFor(
   init: PreviewDocumentPayload = initial,
 ) {
   return () =>
-    createPreviewDocumentSaveController({ documentId, initial: init, save });
+    createPreviewDocumentSaveController({
+      documentId,
+      initial: init,
+      save: (id, payload) => save(id, payload),
+    });
 }
 
 describe("previewDocumentSaveRegistry", () => {
@@ -127,6 +132,89 @@ describe("previewDocumentSaveRegistry", () => {
       content: "draft",
     });
     expect(activePreviewControllerCount()).toBe(0);
+  });
+
+  it("keeps and reuses a hydration-deferred draft across close/reopen", async () => {
+    const id = "builder-doc";
+    const save = vi
+      .fn()
+      .mockResolvedValueOnce(deferredPreviewDocumentSave())
+      .mockResolvedValueOnce(undefined);
+    const controller = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, save),
+    );
+
+    controller.changeContent("Draft typed before hydration changed");
+    releasePreviewDocumentSaveController(id);
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+
+    expect(activePreviewControllerCount()).toBe(1);
+    expect(controller.pending.content).toBe(
+      "Draft typed before hydration changed",
+    );
+    expect(controller.lastSaved.content).toBe("C0");
+    expect(controller.deferredReason).toBe("hydration");
+
+    const reopened = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, save),
+    );
+    expect(reopened).toBe(controller);
+    await reopened.flush();
+
+    expect(save).toHaveBeenCalledTimes(2);
+    expect(reopened.lastSaved.content).toBe(
+      "Draft typed before hydration changed",
+    );
+    expect(reopened.deferredReason).toBeNull();
+  });
+
+  it("replaces mount A's adapter with mount B's live adapter before retrying", async () => {
+    const id = "builder-doc";
+    let resolvePending:
+      | ((value: ReturnType<typeof deferredPreviewDocumentSave>) => void)
+      | undefined;
+    const saveA = vi.fn(
+      (_documentId: string, _payload: PreviewDocumentPayload) =>
+        new Promise<ReturnType<typeof deferredPreviewDocumentSave>>(
+          (resolve) => {
+            resolvePending = resolve;
+          },
+        ),
+    );
+    const saveB = vi.fn(
+      (_documentId: string, _payload: PreviewDocumentPayload) =>
+        Promise.resolve(undefined),
+    );
+    const first = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, saveA),
+      (controller) =>
+        controller.replaceSaveAdapter({
+          save: (documentId, payload) => saveA(documentId, payload),
+        }),
+    );
+    first.changeContent("draft");
+    releasePreviewDocumentSaveController(id);
+
+    const reopened = acquirePreviewDocumentSaveController(
+      id,
+      factoryFor(id, saveB),
+      (controller) =>
+        controller.replaceSaveAdapter({
+          save: (documentId, payload) => saveB(documentId, payload),
+        }),
+    );
+    expect(reopened).toBe(first);
+
+    resolvePending?.(deferredPreviewDocumentSave());
+    for (let i = 0; i < 8; i++) await Promise.resolve();
+    await reopened.flush();
+
+    expect(saveA).toHaveBeenCalledTimes(1);
+    expect(saveB).toHaveBeenCalledTimes(1);
+    expect(reopened.lastSaved.content).toBe("draft");
   });
 
   it("a flush during release still persists the latest dirty payload bound to the old doc id", async () => {

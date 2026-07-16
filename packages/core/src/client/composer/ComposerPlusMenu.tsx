@@ -42,6 +42,11 @@ import {
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
 import { cn } from "../utils.js";
+import {
+  createAssetPickerHandoffId,
+  isExternalAssetPickerUrl,
+  standaloneAssetPickerUrl,
+} from "./asset-picker-url.js";
 import type { ComposerMode } from "./types.js";
 
 interface ComposerPlusMenuProps {
@@ -73,6 +78,7 @@ interface EmbedEnvelope<TPayload = unknown> {
 
 interface AssetPickerPayload {
   assetId?: unknown;
+  handoffId?: unknown;
   url?: unknown;
   previewUrl?: unknown;
   downloadUrl?: unknown;
@@ -742,8 +748,31 @@ function AssetsPickerModal({
   onOpenChange: (open: boolean) => void;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const standaloneWindowRef = useRef<Window | null>(null);
   const [pickerReady, setPickerReady] = useState(false);
+  const [standaloneHandoffId, setStandaloneHandoffId] = useState<string | null>(
+    null,
+  );
   const sourceUrl = useMemo(() => assetPickerUrl(), []);
+  const externalPicker = useMemo(
+    () =>
+      typeof window !== "undefined" &&
+      isExternalAssetPickerUrl(sourceUrl, window.location.origin),
+    [sourceUrl],
+  );
+  const standaloneUrl = useMemo(
+    () =>
+      standaloneAssetPickerUrl(
+        sourceUrl,
+        typeof window !== "undefined" ? window.location.href : undefined,
+        {
+          handoffId: standaloneHandoffId ?? undefined,
+          returnOrigin:
+            typeof window !== "undefined" ? window.location.origin : undefined,
+        },
+      ),
+    [sourceUrl, standaloneHandoffId],
+  );
   const iframeUrl = useMemo(() => withEmbeddedParams(sourceUrl), [sourceUrl]);
   const targetOrigin = useMemo(() => assetPickerOrigin(iframeUrl), [iframeUrl]);
   const configurePicker = useCallback(() => {
@@ -758,14 +787,32 @@ function AssetsPickerModal({
   }, [targetOrigin]);
 
   useEffect(() => {
-    if (open) setPickerReady(false);
-  }, [iframeUrl, open]);
+    if (open) {
+      setPickerReady(false);
+      if (externalPicker) {
+        standaloneWindowRef.current = null;
+        setStandaloneHandoffId(createAssetPickerHandoffId());
+      } else {
+        setStandaloneHandoffId(null);
+      }
+      return;
+    }
+    if (!standaloneWindowRef.current) setStandaloneHandoffId(null);
+  }, [externalPicker, iframeUrl, open]);
 
   useEffect(() => {
-    if (!open || !targetOrigin) return;
+    if (
+      !targetOrigin ||
+      (!open && !standaloneWindowRef.current) ||
+      (externalPicker && !standaloneHandoffId)
+    )
+      return;
 
     const handleMessage = (event: MessageEvent) => {
-      if (event.source !== iframeRef.current?.contentWindow) return;
+      const expectedSource = externalPicker
+        ? standaloneWindowRef.current
+        : iframeRef.current?.contentWindow;
+      if (!expectedSource || event.source !== expectedSource) return;
       if (event.origin !== targetOrigin) return;
       if (!isEmbedEnvelope(event.data)) return;
 
@@ -776,6 +823,14 @@ function AssetsPickerModal({
       }
 
       if (event.data.type !== "message") return;
+      if (externalPicker) {
+        const payload = event.data.payload;
+        const handoffId =
+          payload && typeof payload === "object"
+            ? assetString((payload as AssetPickerPayload).handoffId)
+            : null;
+        if (handoffId !== standaloneHandoffId) return;
+      }
       if (event.data.name === "close") {
         onOpenChange(false);
         return;
@@ -798,6 +853,8 @@ function AssetsPickerModal({
         title: `Image: ${title}`,
         context: assetContext(event.data.payload, url),
       });
+      standaloneWindowRef.current = null;
+      setStandaloneHandoffId(null);
       onOpenChange(false);
     };
 
@@ -811,7 +868,26 @@ function AssetsPickerModal({
       window.removeEventListener("message", handleMessage);
       window.removeEventListener("keydown", handleKey);
     };
-  }, [configurePicker, onOpenChange, open, targetOrigin]);
+  }, [
+    configurePicker,
+    externalPicker,
+    onOpenChange,
+    open,
+    standaloneHandoffId,
+    targetOrigin,
+  ]);
+
+  const openStandalonePicker = useCallback(
+    (event: React.MouseEvent<HTMLAnchorElement>) => {
+      if (!standaloneHandoffId) return;
+      event.preventDefault();
+      const pickerWindow = window.open(standaloneUrl, "_blank");
+      if (!pickerWindow) return;
+      standaloneWindowRef.current = pickerWindow;
+      onOpenChange(false);
+    },
+    [onOpenChange, standaloneHandoffId, standaloneUrl],
+  );
 
   if (!open || typeof document === "undefined") return null;
 
@@ -842,7 +918,21 @@ function AssetsPickerModal({
             <IconX className="h-4 w-4" />
           </button>
         </div>
-        {targetOrigin ? (
+        {externalPicker ? (
+          <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 p-8 text-center">
+            <div className="max-w-md text-sm text-muted-foreground">
+              Open Assets in a new tab to sign in and choose an image securely.
+            </div>
+            <a
+              href={standaloneUrl}
+              target="_blank"
+              onClick={openStandalonePicker}
+              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Open Assets image picker
+            </a>
+          </div>
+        ) : targetOrigin ? (
           <div className="relative min-h-0 flex-1 overflow-hidden bg-background">
             {!pickerReady && <AssetsPickerLoadingSkeleton />}
             <iframe

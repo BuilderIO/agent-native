@@ -84,6 +84,17 @@ function postToolbarSize(height: number): void {
   }
 }
 
+function postToolbarDragStart(): void {
+  try {
+    window.parent.postMessage(
+      { source: "clips-overlay", kind: "toolbar-drag-start", part: "toolbar" },
+      "*",
+    );
+  } catch {
+    /* parent gone */
+  }
+}
+
 function postCountdownFinished(): void {
   try {
     window.parent.postMessage(
@@ -406,6 +417,22 @@ function initCountdown(): void {
 function initToolbar(): void {
   const pill = document.createElement("div");
   pill.className = "toolbar-v";
+  pill.style.cursor = "grab";
+
+  // The content script owns iframe geometry, so ask it to capture the pointer
+  // page-wide when the user drags the toolbar outside its current bounds.
+  pill.addEventListener("pointerdown", (event) => {
+    if (event.button !== 0) return;
+    if ((event.target as HTMLElement).closest("button")) return;
+    event.preventDefault();
+    pill.style.cursor = "grabbing";
+    postToolbarDragStart();
+    const restore = (): void => {
+      pill.style.cursor = "grab";
+      window.removeEventListener("pointerup", restore);
+    };
+    window.addEventListener("pointerup", restore);
+  });
 
   const makeBtn = (
     cls: string,

@@ -1,5 +1,15 @@
 import { useT } from "@agent-native/core/client";
-import { BUILDER_CMS_SAFE_WRITE_MODEL } from "@shared/api";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Checkbox } from "@agent-native/toolkit/ui/checkbox";
 import type {
   BuilderCmsPublicationTransitionIntent,
   BuilderCmsWriteEffect,
@@ -15,7 +25,7 @@ import {
   IconCloudUpload,
   IconX,
 } from "@tabler/icons-react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -40,6 +50,11 @@ export type BuilderReviewPublicationTransitions = Record<
   string,
   ExecuteBuilderSourceBatchTransition
 >;
+
+export type BuilderReviewSelection = {
+  changeSetIds: string[];
+  transitions: BuilderReviewPublicationTransitions;
+};
 
 const EFFECT_LABELS: Record<
   BuilderCmsWriteEffect,
@@ -152,6 +167,9 @@ export function builderReviewResultStatus(status?: string): {
       return { labelKey: "needsAttention", tone: "warn" };
     case "failed":
       return { labelKey: "failedYouCanRetry", tone: "danger" };
+    case "response_received":
+    case "reconciliation_required":
+      return { labelKey: "reconciliationRequired", tone: "warn" };
     case "stale":
       return { labelKey: "needsAFreshReview", tone: "warn" };
     case "running":
@@ -195,6 +213,59 @@ export function builderReviewPublicationTransitionsMap(
   return transitions;
 }
 
+export function builderReviewScopedTransitionSelections(
+  changeSetIds: string[],
+  selections: BuilderReviewPublicationTransitionSelections,
+) {
+  const selectedIds = new Set(changeSetIds);
+  return Object.fromEntries(
+    Object.entries(selections).filter(([changeSetId]) =>
+      selectedIds.has(changeSetId),
+    ),
+  );
+}
+
+export function builderReviewHasUnconfirmedUnpublish(
+  changeSetIds: string[],
+  selections: BuilderReviewPublicationTransitionSelections,
+) {
+  return changeSetIds.some((changeSetId) => {
+    const selection = selections[changeSetId];
+    return (
+      selection?.publicationTransition === "unpublish" &&
+      selection.confirmUnpublish !== true
+    );
+  });
+}
+
+export function builderReviewRowCanCancelPrepared(
+  row: ContentDatabaseSourceReviewPayload["rows"][number],
+) {
+  const execution = row.execution;
+  if (!execution) return false;
+  if (
+    execution.state !== "ready" &&
+    execution.state !== "write_disabled" &&
+    execution.state !== "blocked"
+  ) {
+    return false;
+  }
+  if (
+    Object.prototype.hasOwnProperty.call(execution.payload, "response") ||
+    Object.prototype.hasOwnProperty.call(execution.payload, "dispatch")
+  ) {
+    return false;
+  }
+  if (execution.state !== "blocked") return true;
+  const dryRun = execution.payload.dryRun;
+  return (
+    !!dryRun &&
+    typeof dryRun === "object" &&
+    !Array.isArray(dryRun) &&
+    (dryRun as Record<string, unknown>).status === "blocked"
+  );
+}
+
 const ATTENTION_TAG_EFFECTS: ReadonlySet<BuilderCmsWriteEffect> = new Set([
   "unpublish",
 ]);
@@ -221,9 +292,15 @@ export function BuilderSourceReviewDialog({
   canEdit,
   pending,
   batchResult = null,
+  error = null,
   checkedAt,
+  preparedForExecution = false,
+  autoSelectReviewRows = false,
+  selectionChangeSetIdMap = null,
   onClose,
   onValidate,
+  onCancelPrepared,
+  onSelectionChange,
 }: {
   open: boolean;
   review: ContentDatabaseSourceReviewPayload | null;
@@ -233,18 +310,20 @@ export function BuilderSourceReviewDialog({
   // Optional so the inline-database caller (DatabaseView) that doesn't surface
   // batch results can still mount the dialog.
   batchResult?: ExecuteBuilderSourceBatchResponse | null;
+  error?: string | null;
   checkedAt: string | null;
+  preparedForExecution?: boolean;
+  autoSelectReviewRows?: boolean;
+  selectionChangeSetIdMap?: Record<string, string> | null;
   onClose: () => void;
-  onValidate: (transitions: BuilderReviewPublicationTransitions) => void;
+  onValidate: (selection: BuilderReviewSelection) => void;
+  onCancelPrepared?: (changeSetId: string) => void;
+  onSelectionChange?: () => void;
 }) {
   const t = useT();
   const checked = !!checkedAt;
-  const safeModel =
-    source?.sourceType === "builder-cms" &&
-    source.sourceTable === BUILDER_CMS_SAFE_WRITE_MODEL;
   const writeMode = source?.metadata.writeMode;
   const allowPublicationTransitionControls =
-    safeModel &&
     writeMode === "publish_updates" &&
     source?.metadata.allowPublicationTransitions === true;
   const reviewRows = useMemo(() => review?.rows ?? [], [review]);
@@ -264,8 +343,43 @@ export function BuilderSourceReviewDialog({
     [reviewRows],
   );
   const reviewRowIdsKey = reviewRowIds.join("\u0000");
+  const [selectedChangeSetIds, setSelectedChangeSetIds] = useState<string[]>(
+    [],
+  );
   const [transitionSelections, setTransitionSelections] =
     useState<BuilderReviewPublicationTransitionSelections>({});
+  const [cancelChangeSetId, setCancelChangeSetId] = useState<string | null>(
+    null,
+  );
+  const wasOpenRef = useRef(false);
+  useEffect(() => {
+    const wasOpen = wasOpenRef.current;
+    wasOpenRef.current = open;
+
+    if (!open || (!wasOpen && !autoSelectReviewRows)) {
+      setSelectedChangeSetIds([]);
+      return;
+    }
+
+    const reviewRowIdSet = new Set(
+      reviewRowIdsKey ? reviewRowIdsKey.split("\u0000") : [],
+    );
+    setSelectedChangeSetIds((current) => {
+      const next = current
+        .map(
+          (changeSetId) =>
+            selectionChangeSetIdMap?.[changeSetId] ?? changeSetId,
+        )
+        .filter((changeSetId) => reviewRowIdSet.has(changeSetId));
+      if (autoSelectReviewRows && next.length === 0) {
+        return [...reviewRowIdSet];
+      }
+      return next.length === current.length &&
+        next.every((changeSetId, index) => changeSetId === current[index])
+        ? current
+        : next;
+    });
+  }, [autoSelectReviewRows, open, reviewRowIdsKey, selectionChangeSetIdMap]);
   useEffect(() => {
     if (!open || !allowPublicationTransitionControls) {
       setTransitionSelections({});
@@ -278,75 +392,114 @@ export function BuilderSourceReviewDialog({
     setTransitionSelections((current) => {
       const next: BuilderReviewPublicationTransitionSelections = {};
       for (const [changeSetId, selection] of Object.entries(current)) {
-        if (reviewRowIdSet.has(changeSetId)) next[changeSetId] = selection;
+        const mappedChangeSetId =
+          selectionChangeSetIdMap?.[changeSetId] ?? changeSetId;
+        if (reviewRowIdSet.has(mappedChangeSetId)) {
+          next[mappedChangeSetId] = selection;
+        }
       }
-      return Object.keys(next).length === Object.keys(current).length
+      return Object.keys(next).length === Object.keys(current).length &&
+        Object.entries(next).every(
+          ([changeSetId, selection]) => current[changeSetId] === selection,
+        )
         ? current
         : next;
     });
-  }, [allowPublicationTransitionControls, open, reviewRowIdsKey]);
+  }, [
+    allowPublicationTransitionControls,
+    open,
+    reviewRowIdsKey,
+    selectionChangeSetIdMap,
+  ]);
+  const selectedChangeSetIdSet = useMemo(
+    () => new Set(selectedChangeSetIds),
+    [selectedChangeSetIds],
+  );
+  const selectedReviewRows = useMemo(
+    () =>
+      reviewRows.filter((row) => selectedChangeSetIdSet.has(row.changeSetId)),
+    [reviewRows, selectedChangeSetIdSet],
+  );
+  const scopedTransitionSelections = useMemo(
+    () =>
+      builderReviewScopedTransitionSelections(
+        selectedChangeSetIds,
+        transitionSelections,
+      ),
+    [selectedChangeSetIds, transitionSelections],
+  );
   const transitionMap = useMemo(
-    () => builderReviewPublicationTransitionsMap(transitionSelections),
-    [transitionSelections],
+    () => builderReviewPublicationTransitionsMap(scopedTransitionSelections),
+    [scopedTransitionSelections],
   );
   const intentSummary = builderReviewIntentSummary(
-    reviewRows,
-    transitionSelections,
+    selectedReviewRows,
+    scopedTransitionSelections,
   );
   const destinationLine = builderReviewDestinationLine({
-    rows: reviewRows,
-    selections: transitionSelections,
+    rows: selectedReviewRows,
+    selections: scopedTransitionSelections,
     liveWritesEnabled: review?.liveWritesEnabled === true,
   });
-  const hasUnconfirmedUnpublish = Object.values(transitionSelections).some(
-    (selection) =>
-      selection.publicationTransition === "unpublish" &&
-      selection.confirmUnpublish !== true,
+  const hasUnconfirmedUnpublish = builderReviewHasUnconfirmedUnpublish(
+    selectedChangeSetIds,
+    scopedTransitionSelections,
   );
-  const batchHasIssues =
-    !!batchResult &&
-    (batchResult.summary.blocked > 0 || batchResult.summary.failed > 0);
+  const selectedBatchResults =
+    batchResult?.results.filter((result) =>
+      selectedChangeSetIdSet.has(result.changeSetId),
+    ) ?? [];
+  const batchHasIssues = selectedBatchResults.some(
+    (result) => result.status === "blocked" || result.status === "failed",
+  );
+  const batchNeedsReconciliation = selectedBatchResults.some(
+    (result) => result.status === "reconciliation_required",
+  );
   const retryable =
-    review?.result.status === "failed" ||
-    review?.result.status === "blocked" ||
-    review?.result.status === "stale" ||
-    batchHasIssues;
-  const unsafeLiveTarget = review?.liveWritesEnabled === true && !safeModel;
+    !batchNeedsReconciliation &&
+    review?.result.status !== "reconciliation_required" &&
+    (review?.result.status === "failed" ||
+      review?.result.status === "blocked" ||
+      review?.result.status === "stale" ||
+      batchHasIssues);
   const disabled =
     !canEdit ||
     pending ||
     (!retryable && checked) ||
     !review ||
-    review.rows.length === 0 ||
-    unsafeLiveTarget ||
+    selectedReviewRows.length === 0 ||
     hasUnconfirmedUnpublish;
   const rowTitleById = new Map(
     reviewRows.map((row) => [row.changeSetId, row.title]),
   );
-  const batchIssueResults =
-    batchResult?.results.filter((result) => result.status !== "succeeded") ??
-    [];
+  const batchIssueResults = selectedBatchResults.filter(
+    (result) => result.status !== "succeeded",
+  );
   const resultStatus = builderReviewResultStatus(
     batchResult
-      ? batchHasIssues
-        ? "partial"
-        : "succeeded"
+      ? batchNeedsReconciliation
+        ? "reconciliation_required"
+        : batchHasIssues
+          ? "partial"
+          : "succeeded"
       : review?.result.status,
   );
   const footerHint = pending
-    ? review?.liveWritesEnabled
+    ? preparedForExecution
       ? "Sending to Builder…"
-      : "Checking…"
+      : "Preparing full review…"
     : hasUnconfirmedUnpublish
       ? "Confirm unpublish on the selected rows first."
-      : unsafeLiveTarget
-        ? `Live pushes are limited to the ${BUILDER_CMS_SAFE_WRITE_MODEL} test model.`
-        : null;
+      : preparedForExecution
+        ? "Review the full payload above, then confirm this Builder write."
+        : review?.liveWritesEnabled
+          ? "Prepare the full Builder payload before anything is sent."
+          : null;
   const effectiveEffects = new Set(
-    reviewRows.map((row) =>
+    selectedReviewRows.map((row) =>
       builderReviewEffectiveRowEffect(
         row.effect,
-        transitionSelections[row.changeSetId],
+        scopedTransitionSelections[row.changeSetId],
       ),
     ),
   );
@@ -357,30 +510,41 @@ export function BuilderSourceReviewDialog({
       : effectiveEffects.has("publish")
         ? "Publish"
         : effectiveEffects.size === 1 && effectiveEffects.has("create_draft")
-          ? reviewRows.length > 1
-            ? `Create ${reviewRows.length} drafts`
+          ? selectedReviewRows.length > 1
+            ? `Create ${selectedReviewRows.length} drafts`
             : "Create draft"
-          : reviewRows.length > 1
-            ? `Push ${reviewRows.length} updates`
+          : selectedReviewRows.length > 1
+            ? `Push ${selectedReviewRows.length} updates`
             : "Push update";
   const buttonLabel = pending
-    ? review?.liveWritesEnabled
-      ? "Working…"
-      : "Checking…"
-    : checked && batchResult
-      ? batchHasIssues
-        ? "Retry"
-        : "Pushed"
-      : checked && review?.result.status === "succeeded"
-        ? "Pushed"
-        : checked && !retryable
-          ? "Checked"
-          : pushVerb;
+    ? preparedForExecution
+      ? "Sending…"
+      : "Preparing…"
+    : checked && review?.result.status === "running"
+      ? t("database.working")
+      : checked && review?.result.status === "reconciliation_required"
+        ? t("database.reconciliationRequired")
+        : checked && batchResult
+          ? batchNeedsReconciliation
+            ? t("database.reconciliationRequired")
+            : batchHasIssues
+              ? "Retry"
+              : "Pushed"
+          : checked && review?.result.status === "succeeded"
+            ? "Pushed"
+            : checked && !retryable
+              ? "Checked"
+              : preparedForExecution
+                ? pushVerb
+                : review?.liveWritesEnabled
+                  ? "Review details"
+                  : pushVerb;
 
   function setRowPublicationTransition(
     changeSetId: string,
     publicationTransition: BuilderCmsPublicationTransitionIntent,
   ) {
+    onSelectionChange?.();
     setTransitionSelections((current) => {
       const currentSelection = current[changeSetId];
       const next = { ...current };
@@ -399,7 +563,28 @@ export function BuilderSourceReviewDialog({
     });
   }
 
+  function setRowSelected(changeSetId: string, selected: boolean) {
+    onSelectionChange?.();
+    setSelectedChangeSetIds((current) => {
+      if (selected) {
+        return current.includes(changeSetId)
+          ? current
+          : [...current, changeSetId];
+      }
+      return current.filter((id) => id !== changeSetId);
+    });
+    if (!selected) {
+      setTransitionSelections((current) => {
+        if (!current[changeSetId]) return current;
+        const next = { ...current };
+        delete next[changeSetId];
+        return next;
+      });
+    }
+  }
+
   function setRowConfirmUnpublish(changeSetId: string, confirmed: boolean) {
+    onSelectionChange?.();
     setTransitionSelections((current) => {
       const currentSelection = current[changeSetId];
       if (currentSelection?.publicationTransition !== "unpublish") {
@@ -435,7 +620,7 @@ export function BuilderSourceReviewDialog({
               {t("database.reviewBuilderUpdate")}
             </DialogTitle>
             <DialogDescription className="truncate text-xs text-muted-foreground">
-              {review?.summary ?? "No pending Builder changes."}
+              {pending && !review ? "Loading complete diff…" : intentSummary}
             </DialogDescription>
           </div>
           <button
@@ -465,7 +650,11 @@ export function BuilderSourceReviewDialog({
                     </div>
                   ) : null}
                   {visibleReviewRows.map((row) => {
-                    const selection = transitionSelections[row.changeSetId];
+                    const selected = selectedChangeSetIdSet.has(
+                      row.changeSetId,
+                    );
+                    const selection =
+                      scopedTransitionSelections[row.changeSetId];
                     const effect = builderReviewEffectiveRowEffect(
                       row.effect,
                       selection,
@@ -480,18 +669,32 @@ export function BuilderSourceReviewDialog({
                         key={row.changeSetId}
                         className="rounded-md border border-border p-3"
                       >
-                        <div className="flex min-w-0 items-start justify-between gap-3">
+                        <div className="flex min-w-0 items-start gap-3">
+                          <Checkbox
+                            className="mt-0.5"
+                            checked={selected}
+                            disabled={pending}
+                            aria-label={row.title}
+                            onCheckedChange={(checked) =>
+                              setRowSelected(row.changeSetId, checked === true)
+                            }
+                          />
                           <div className="min-w-0">
                             <div className="truncate text-sm font-medium">
                               {row.title}
                             </div>
+                            {row.targetEntryId ? (
+                              <div className="mt-0.5 break-all font-mono text-[11px] text-muted-foreground">
+                                Builder entry {row.targetEntryId}
+                              </div>
+                            ) : null}
                             <div className="mt-1 text-xs text-muted-foreground">
                               {sentence}
                             </div>
                           </div>
                           <span
                             className={
-                              "shrink-0 text-[11px] " +
+                              "ms-auto shrink-0 text-[11px] " +
                               rowEffectTagClass(effect)
                             }
                           >
@@ -500,6 +703,7 @@ export function BuilderSourceReviewDialog({
                         </div>
                         <div className="mt-3 grid gap-2">
                           {allowPublicationTransitionControls &&
+                          selected &&
                           row.effect !== "create_draft" ? (
                             <div className="flex flex-wrap items-center gap-1.5 text-xs">
                               <Button
@@ -553,18 +757,17 @@ export function BuilderSourceReviewDialog({
                               {transitionSelections[row.changeSetId]
                                 ?.publicationTransition === "unpublish" ? (
                                 <label className="flex items-center gap-1 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-1 text-[11px] text-destructive">
-                                  <input
-                                    type="checkbox"
-                                    className="size-3 accent-destructive"
+                                  <Checkbox
+                                    aria-label={t("database.confirmUnpublish")}
                                     checked={
                                       transitionSelections[row.changeSetId]
                                         ?.confirmUnpublish === true
                                     }
                                     disabled={pending}
-                                    onChange={(event) =>
+                                    onCheckedChange={(checked) =>
                                       setRowConfirmUnpublish(
                                         row.changeSetId,
-                                        event.currentTarget.checked,
+                                        checked === true,
                                       )
                                     }
                                   />
@@ -624,6 +827,22 @@ export function BuilderSourceReviewDialog({
                               {row.execution.lastError}
                             </div>
                           ) : null}
+                          {canEdit &&
+                          onCancelPrepared &&
+                          builderReviewRowCanCancelPrepared(row) ? (
+                            <Button
+                              type="button"
+                              size="sm"
+                              variant="ghost"
+                              className="h-7 justify-self-start px-2 text-xs text-destructive hover:text-destructive"
+                              disabled={pending}
+                              onClick={() =>
+                                setCancelChangeSetId(row.changeSetId)
+                              }
+                            >
+                              {t("database.cancelPreparedUpdate")}
+                            </Button>
+                          ) : null}
                         </div>
                       </div>
                     );
@@ -650,10 +869,12 @@ export function BuilderSourceReviewDialog({
                 </div>
               </section>
 
-              <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
-                <IconCloudUpload className="mt-0.5 size-3.5 shrink-0" />
-                <span>{destinationLine}</span>
-              </div>
+              {selectedReviewRows.length > 0 ? (
+                <div className="flex items-start gap-1.5 text-xs text-muted-foreground">
+                  <IconCloudUpload className="mt-0.5 size-3.5 shrink-0" />
+                  <span>{destinationLine}</span>
+                </div>
+              ) : null}
 
               {batchResult && batchIssueResults.length > 0 ? (
                 <section className="grid gap-1.5 rounded-md border border-amber-300 bg-amber-50 p-3 text-xs text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
@@ -672,6 +893,28 @@ export function BuilderSourceReviewDialog({
                   ))}
                 </section>
               ) : null}
+              {error ? (
+                <div
+                  role="alert"
+                  aria-live="assertive"
+                  className="rounded-md border border-destructive/30 bg-destructive/10 p-3 text-xs text-destructive"
+                >
+                  {error}
+                </div>
+              ) : null}
+            </div>
+          ) : pending ? (
+            <div className="flex items-center gap-2 rounded-md border border-border p-4 text-sm text-muted-foreground">
+              <Spinner className="size-4" />
+              {t("database.loadingCompleteBuilderDiff")}
+            </div>
+          ) : error ? (
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="rounded-md border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+            >
+              {error}
             </div>
           ) : (
             <div className="rounded-md border border-border p-4 text-sm text-muted-foreground">
@@ -689,7 +932,7 @@ export function BuilderSourceReviewDialog({
                   resultToneClass(resultStatus.tone)
                 }
               >
-                {checked ? (
+                {checked || preparedForExecution ? (
                   resultStatus.tone === "ok" ? (
                     <IconCheck className="size-3.5 shrink-0" />
                   ) : (
@@ -697,7 +940,7 @@ export function BuilderSourceReviewDialog({
                   )
                 ) : null}
                 <span>
-                  {checked
+                  {checked || preparedForExecution
                     ? `${t(`database.${resultStatus.labelKey}`)} · ${intentSummary}`
                     : intentSummary}
                 </span>
@@ -713,7 +956,12 @@ export function BuilderSourceReviewDialog({
               type="button"
               size="sm"
               disabled={disabled}
-              onClick={() => onValidate(transitionMap)}
+              onClick={() =>
+                onValidate({
+                  changeSetIds: selectedChangeSetIds,
+                  transitions: transitionMap,
+                })
+              }
             >
               {pending ? (
                 <Spinner className="mr-1.5 size-3.5" />
@@ -725,6 +973,41 @@ export function BuilderSourceReviewDialog({
           </div>
         </div>
       </DialogContent>
+      <AlertDialog
+        open={cancelChangeSetId !== null}
+        onOpenChange={(nextOpen) => {
+          if (!nextOpen && !pending) setCancelChangeSetId(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("database.cancelPreparedUpdateQuestion")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("database.cancelPreparedUpdateDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={pending}>
+              {t("database.keepPreparedUpdate")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={pending}
+              onClick={(event) => {
+                event.preventDefault();
+                if (!cancelChangeSetId) return;
+                onCancelPrepared?.(cancelChangeSetId);
+                setCancelChangeSetId(null);
+              }}
+            >
+              {pending
+                ? t("database.cancellingPreparedUpdate")
+                : t("database.cancelPreparedUpdate")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </Dialog>
   );
 }

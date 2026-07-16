@@ -1,7 +1,3 @@
-import { request as httpRequest } from "node:http";
-import type { ClientRequest, IncomingMessage, RequestOptions } from "node:http";
-import { request as httpsRequest } from "node:https";
-
 import { resolveBuilderCredential } from "@agent-native/core/server";
 
 export interface BuilderCmsWriteRequest {
@@ -17,14 +13,10 @@ export interface BuilderCmsWriteResult {
   entryId?: string;
   responseBody: unknown;
   error?: string;
+  ambiguity?: "timeout" | "transport";
 }
 
 type FetchLike = typeof fetch;
-type NodeRequestLike = (
-  url: URL,
-  options: RequestOptions,
-  callback: (response: IncomingMessage) => void,
-) => ClientRequest;
 
 function builderWriteApiHost() {
   return (
@@ -97,52 +89,12 @@ function buildWriteResult(args: {
   };
 }
 
-async function executeNodeRequest(args: {
-  url: URL;
-  method: "POST" | "PATCH";
-  headers: Record<string, string>;
-  body: string;
-  requestImpl?: NodeRequestLike;
-}): Promise<BuilderCmsWriteResult> {
-  const requestImpl =
-    args.requestImpl ??
-    (args.url.protocol === "http:" ? httpRequest : httpsRequest);
-
-  return await new Promise((resolve, reject) => {
-    const request = requestImpl(
-      args.url,
-      {
-        method: args.method,
-        headers: args.headers,
-      },
-      (response) => {
-        const chunks: Buffer[] = [];
-        response.on("data", (chunk: Buffer | string) => {
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        });
-        response.on("end", () => {
-          const status = response.statusCode ?? 0;
-          resolve(
-            buildWriteResult({
-              ok: status >= 200 && status < 300,
-              status,
-              responseText: Buffer.concat(chunks).toString("utf8"),
-            }),
-          );
-        });
-        response.on("error", reject);
-      },
-    );
-    request.on("error", reject);
-    request.write(args.body);
-    request.end();
-  });
-}
-
 export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
   fetchImpl?: FetchLike;
-  nodeRequestImpl?: NodeRequestLike;
+  /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
+  nodeRequestImpl?: unknown;
+  timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
   const privateKey = await readBuilderPrivateKey();
   if (!privateKey) {
@@ -166,11 +118,15 @@ export async function executeBuilderCmsWrite(args: {
     "content-type": "application/json",
   };
 
+  const controller = new AbortController();
+  const timeoutMs = Math.max(1, args.timeoutMs ?? 15_000);
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await (args.fetchImpl ?? fetch)(url, {
       method: args.request.method,
       headers,
       body,
+      signal: controller.signal,
     });
     return buildWriteResult({
       ok: response.ok,
@@ -178,31 +134,19 @@ export async function executeBuilderCmsWrite(args: {
       responseText: await response.text(),
     });
   } catch (error) {
-    if (
-      args.request.method === "PATCH" &&
-      (args.nodeRequestImpl || !args.fetchImpl)
-    ) {
-      try {
-        return await executeNodeRequest({
-          url,
-          method: args.request.method,
-          headers,
-          body,
-          requestImpl: args.nodeRequestImpl,
-        });
-      } catch {
-        // Return the original fetch failure below; it is usually more specific.
-      }
-    }
-
+    const timedOut = controller.signal.aborted;
     return {
       ok: false,
       status: 0,
       responseBody: null,
-      error:
-        error instanceof Error
-          ? `Builder write request failed: ${error.message}`
-          : "Builder write request failed.",
+      ambiguity: timedOut ? "timeout" : "transport",
+      error: timedOut
+        ? `Builder write timed out after ${timeoutMs}ms; remote outcome is unknown.`
+        : error instanceof Error
+          ? `Builder write transport failed after dispatch; remote outcome is unknown: ${error.message}`
+          : "Builder write transport failed after dispatch; remote outcome is unknown.",
     };
+  } finally {
+    clearTimeout(timeout);
   }
 }

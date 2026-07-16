@@ -16,6 +16,8 @@ import {
   writeClientAppState,
 } from "@agent-native/core/client";
 import {
+  AGENT_NATIVE_EMBED_MESSAGE_TYPES,
+  createAgentNativeEmbedEnvelope,
   createEmbeddedAppBridge,
   type EmbeddedAppBridge,
 } from "@agent-native/core/embedding";
@@ -241,6 +243,31 @@ function isEmbeddedWindow() {
     return window.self !== window.top;
   } catch {
     return true;
+  }
+}
+
+interface StandalonePickerHandoff {
+  handoffId: string;
+  returnOrigin: string;
+}
+
+function standalonePickerHandoff(): StandalonePickerHandoff | null {
+  if (typeof window === "undefined") return null;
+  const params = new URLSearchParams(window.location.search);
+  const handoffId = params.get("__an_asset_picker_handoff")?.trim();
+  const rawReturnOrigin = params.get("__an_asset_picker_return_origin")?.trim();
+  if (!handoffId || handoffId.length > 128 || !rawReturnOrigin) return null;
+  try {
+    const parsed = new URL(rawReturnOrigin);
+    if (
+      (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
+      parsed.origin !== rawReturnOrigin
+    ) {
+      return null;
+    }
+    return { handoffId, returnOrigin: parsed.origin };
+  } catch {
+    return null;
   }
 }
 
@@ -2206,6 +2233,10 @@ export function AssetPickerSurface() {
       isEmbedAuthActive(),
     [searchParams],
   );
+  const standaloneHandoff = useMemo(
+    () => (embedded ? null : standalonePickerHandoff()),
+    [embedded],
+  );
   const pickerVariantScopeId = useMemo(
     () =>
       typeof window === "undefined" ? null : `picker:${getBrowserTabId()}`,
@@ -2552,6 +2583,35 @@ export function AssetPickerSurface() {
     [],
   );
 
+  const postStandaloneSelectionMessage = useCallback(
+    (payload: ReturnType<typeof assetPayload>) => {
+      if (
+        !standaloneHandoff ||
+        typeof window === "undefined" ||
+        !window.opener ||
+        window.opener.closed
+      ) {
+        return false;
+      }
+      try {
+        window.opener.postMessage(
+          createAgentNativeEmbedEnvelope(
+            AGENT_NATIVE_EMBED_MESSAGE_TYPES.MESSAGE,
+            {
+              name: "chooseAsset",
+              payload: { ...payload, handoffId: standaloneHandoff.handoffId },
+            },
+          ),
+          standaloneHandoff.returnOrigin,
+        );
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [standaloneHandoff],
+  );
+
   const chooseAsset = (asset: Asset) => {
     const payload = assetPayload(asset, mediaType);
     if (embedded) {
@@ -2572,6 +2632,15 @@ export function AssetPickerSurface() {
           toast.error(t("library.selectedAssetSendFailed"));
         }
       });
+      return;
+    }
+    if (postStandaloneSelectionMessage(payload)) {
+      toast.success(
+        t("assetPicker.selectedAsset", {
+          title: selectedAssetLabel(payload),
+        }),
+      );
+      window.setTimeout(() => window.close(), 0);
       return;
     }
     setStandaloneSelection(payload);

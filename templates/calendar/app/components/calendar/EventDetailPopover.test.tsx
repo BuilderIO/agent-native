@@ -12,6 +12,16 @@ const { updateEventMutate } = vi.hoisted(() => ({
   updateEventMutate: vi.fn(),
 }));
 
+const { calendarContext } = vi.hoisted(() => ({
+  calendarContext: {
+    eventDetailSidebar: false,
+    sidebarEvent: null as CalendarEvent | null,
+    setEventDetailSidebar: vi.fn(),
+    setSidebarEvent: vi.fn(),
+    setFocusedEvent: vi.fn(),
+  },
+}));
+
 vi.mock("@agent-native/core/client", () => ({
   cn: (...values: Array<string | undefined | false>) =>
     values.filter(Boolean).join(" "),
@@ -46,6 +56,10 @@ vi.mock("@/components/calendar/FindTimePanel", () => ({
   FindTimeTakeover: () => null,
 }));
 
+vi.mock("@/components/layout/AppLayout", () => ({
+  useCalendarContext: () => calendarContext,
+}));
+
 // Data hooks backed by react-query: mock so the popover doesn't need a
 // QueryClientProvider in the test tree.
 vi.mock("@/hooks/use-events", () => ({
@@ -66,8 +80,25 @@ vi.mock("@/hooks/use-zoom-auth", () => ({
 // nested popovers (e.g. TimezoneCombobox) that default to closed stay out of
 // the DOM, matching how these primitives are mocked elsewhere in this repo.
 vi.mock("@/components/ui/popover", () => ({
-  Popover: ({ open, children }: { open?: boolean; children?: ReactNode }) =>
-    open ? <>{children}</> : null,
+  Popover: ({
+    open,
+    onOpenChange,
+    children,
+  }: {
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
+    children?: ReactNode;
+  }) => (
+    <div>
+      <button type="button" onClick={() => onOpenChange?.(true)}>
+        Mock open popover
+      </button>
+      <button type="button" onClick={() => onOpenChange?.(false)}>
+        Mock close popover
+      </button>
+      {open ? children : null}
+    </div>
+  ),
   PopoverTrigger: ({ children }: { children?: ReactNode }) => <>{children}</>,
   PopoverContent: ({ children }: { children?: ReactNode }) => (
     <div>{children}</div>
@@ -179,6 +210,11 @@ describe("EventDetailPopover characterization", () => {
     root = createRoot(container);
     unmounted = false;
     updateEventMutate.mockClear();
+    calendarContext.eventDetailSidebar = false;
+    calendarContext.sidebarEvent = null;
+    calendarContext.setEventDetailSidebar.mockClear();
+    calendarContext.setSidebarEvent.mockClear();
+    calendarContext.setFocusedEvent.mockClear();
   });
 
   afterEach(() => {
@@ -206,6 +242,136 @@ describe("EventDetailPopover characterization", () => {
     expect(
       findByExactText("span", "Halifax (America/Halifax)"),
     ).toBeUndefined();
+  });
+
+  it("notifies parents when the visible popover opens and closes", () => {
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openButton = findByExactText("button", "Mock open popover");
+    act(() => {
+      (openButton as HTMLElement).click();
+    });
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+
+    const closeButton = findByExactText("button", "Mock close popover");
+    act(() => {
+      (closeButton as HTMLElement).click();
+    });
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
+  });
+
+  it("notifies parents when default-open makes the popover visible", () => {
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          defaultOpen
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenCalledOnce();
+    expect(onOpenChange).toHaveBeenCalledWith(true);
+  });
+
+  it("does not notify a popover open request suppressed by sidebar mode", () => {
+    calendarContext.eventDetailSidebar = true;
+    const onOpenChange = vi.fn();
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    const openButton = findByExactText("button", "Mock open popover");
+    act(() => {
+      (openButton as HTMLElement).click();
+    });
+
+    // Sidebar mode consumes this interaction, so the popover never becomes
+    // visible and parents must not receive a misleading open notification.
+    expect(onOpenChange).not.toHaveBeenCalled();
+
+    calendarContext.eventDetailSidebar = false;
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={baseEvent()}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    // Disabling sidebar mode later must not reveal a popover that was never
+    // visibly opened.
+    expect(findByExactText("button", "Open")).toBeUndefined();
+    expect(onOpenChange).not.toHaveBeenCalled();
+  });
+
+  it("notifies parents when sidebar details open and close", () => {
+    const event = baseEvent();
+    const onOpenChange = vi.fn();
+    calendarContext.eventDetailSidebar = true;
+    calendarContext.sidebarEvent = event;
+
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(true);
+
+    calendarContext.sidebarEvent = null;
+    act(() => {
+      root.render(
+        <EventDetailPopover
+          event={event}
+          onDelete={() => undefined}
+          onOpenChange={onOpenChange}
+        >
+          <button type="button">Open</button>
+        </EventDetailPopover>,
+      );
+    });
+
+    expect(onOpenChange).toHaveBeenLastCalledWith(false);
+    expect(onOpenChange).toHaveBeenCalledTimes(2);
   });
 
   it("resyncs unedited fields from the event prop but preserves an in-progress edit on the actively edited field", () => {
