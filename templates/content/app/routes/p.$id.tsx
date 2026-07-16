@@ -1,173 +1,41 @@
-import { agentNativePath, useT } from "@agent-native/core/client";
 import {
-  AGENT_ACCESS_PARAM,
-  verifyScopedAgentAccessToken,
-} from "@agent-native/core/server";
-import {
-  getConfiguredAppBasePath,
-  getRequestUserEmail,
-} from "@agent-native/core/server";
+  setClientAppState,
+  useActionQuery,
+  useT,
+} from "@agent-native/core/client";
+import { getConfiguredAppBasePath } from "@agent-native/core/server";
 import {
   AGENT_READABLE_RESOURCE_SCRIPT_TYPE,
   safeJsonForHtml,
 } from "@agent-native/core/shared";
-import { resolveAccess } from "@agent-native/core/sharing";
-import { buildPublicDocumentDescription } from "@shared/og-description";
 import { IconLock, IconMessageCircle } from "@tabler/icons-react";
-import { eq } from "drizzle-orm";
 import { useEffect, useState } from "react";
-import type {
-  HeadersArgs,
-  LoaderFunctionArgs,
-  MetaFunction,
-} from "react-router";
-import { data, redirect, useLoaderData } from "react-router";
+import type { LoaderFunctionArgs, MetaFunction } from "react-router";
+import { useLoaderData } from "react-router";
 
 import { VisualEditor } from "@/components/editor/VisualEditor";
 
-import { getDb, schema } from "../../server/db";
 import {
   buildContentDocumentAgentDiscovery,
   buildContentPublicDocumentUrl,
-  DOCUMENT_AGENT_RESOURCE_KIND,
 } from "../../shared/agent-readable";
 
-type PublicDocumentLoaderData =
-  | {
-      document: {
-        id: string;
-        title: string;
-        content: string;
-        updatedAt: string;
-        visibility: string;
-      };
-      agentAccessToken: string | null;
-      basePath: string;
-      unavailable?: undefined;
-    }
-  | {
-      document: null;
-      agentAccessToken: null;
-      basePath: string;
-      unavailable: { reason: "private"; id: string; basePath: string };
-    };
+type PublicDocumentLoaderData = { id: string; basePath: string };
 
-const PRIVATE_AGENT_DOCUMENT_HEADERS = {
-  "Cache-Control": "private, max-age=0, no-store",
-  "Referrer-Policy": "no-referrer",
-};
-
-function publicDocumentLoaderData(
-  payload: PublicDocumentLoaderData,
-  privateAgentAccess = false,
-) {
-  if (!privateAgentAccess) return payload;
-  return data(payload, {
-    headers: PRIVATE_AGENT_DOCUMENT_HEADERS,
-  });
-}
-
-export function headers({ loaderHeaders }: HeadersArgs) {
-  return loaderHeaders;
-}
-
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ params }: LoaderFunctionArgs) {
   const id = params.id;
   if (!id) throw new Response("Not found", { status: 404 });
-  const agentAccessToken = new URL(request.url).searchParams.get(
-    AGENT_ACCESS_PARAM,
-  );
-
-  // This is a server loader; use the server-side base-path helper
-  // (reads APP_BASE_PATH / VITE_APP_BASE_PATH at request time)
-  // instead of the client `appPath()` which relies on
-  // `import.meta.env` and is meant for browser code.
-  const basePath = getConfiguredAppBasePath();
-  const withBase = (path: string) => `${basePath}${path}`;
-
-  const userEmail = getRequestUserEmail();
-  if (userEmail) {
-    const access = await resolveAccess("document", id);
-    if (access) throw redirect(withBase(`/page/${id}`));
-  }
-
-  const [doc] = await getDb()
-    .select({
-      id: schema.documents.id,
-      title: schema.documents.title,
-      content: schema.documents.content,
-      updatedAt: schema.documents.updatedAt,
-      visibility: schema.documents.visibility,
-    })
-    .from(schema.documents)
-    .where(eq(schema.documents.id, id))
-    .limit(1);
-
-  if (!doc) throw new Response("Not found", { status: 404 });
-  const tokenAccess = agentAccessToken
-    ? verifyScopedAgentAccessToken(agentAccessToken, {
-        resourceKind: DOCUMENT_AGENT_RESOURCE_KIND,
-        resourceId: id,
-      }).ok
-    : false;
-  if (doc.visibility === "public" || tokenAccess) {
-    return publicDocumentLoaderData(
-      {
-        document: doc,
-        agentAccessToken: tokenAccess ? agentAccessToken : null,
-        basePath,
-      },
-      tokenAccess,
-    );
-  }
-
-  // Doc exists but isn't public. SSR renders impersonally (no session is read
-  // server-side, so the page can be CDN-cached for everyone), which means we
-  // must NOT redirect to sign-in from here: a signed-in viewer would loop
-  // (sign-in sees their valid session and bounces back to /p/<id>, which
-  // re-runs this anonymous loader and redirects again). Instead return the
-  // private placeholder and resolve access on the client — PrivateDocumentNotice
-  // routes the viewer to the auth-guarded `/page/<id>` editor, where the real
-  // per-user access check runs (signed-in-with-access sees the doc; everyone
-  // else gets the standard sign-in / no-access handling).
-  return publicDocumentLoaderData({
-    document: null,
-    agentAccessToken: null,
-    basePath,
-    unavailable: { reason: "private" as const, id, basePath },
-  });
+  // SSR and .data must remain an impersonal, content-free cacheable shell.
+  // The browser calls the no-store public-document action after hydration.
+  return {
+    id,
+    basePath: getConfiguredAppBasePath(),
+  } satisfies PublicDocumentLoaderData;
 }
 
-export const meta: MetaFunction<typeof loader> = ({ loaderData }) => {
-  const title = loaderData?.document?.title ?? "Public document";
-  const description = buildPublicDocumentDescription({
-    title,
-    content: loaderData?.document?.content,
-  });
-  return [
-    { title },
-    {
-      name: "description",
-      content: description,
-    },
-    {
-      property: "og:title",
-      content: title,
-    },
-    {
-      property: "og:description",
-      content: description,
-    },
-    {
-      name: "twitter:title",
-      content: title,
-    },
-    {
-      name: "twitter:description",
-      content: description,
-    },
-  ];
-};
+export const meta: MetaFunction<typeof loader> = () => [
+  { title: "Public document" },
+];
 
 function formatUpdatedAt(value: string) {
   const date = new Date(value);
@@ -226,17 +94,16 @@ function PublicDocumentContextSync({
   basePath?: string;
 }) {
   useEffect(() => {
-    fetch(agentNativePath("/_agent-native/application-state/navigation"), {
-      method: "PUT",
-      keepalive: true,
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
+    void setClientAppState(
+      "navigation",
+      {
         view: "public-document",
         documentId: document.id,
         title: document.title,
         publicUrl: buildContentPublicDocumentUrl(document.id, { basePath }),
-      }),
-    }).catch(() => {});
+      },
+      { keepalive: true },
+    ).catch(() => {});
   }, [basePath, document.id, document.title]);
 
   return null;
@@ -316,25 +183,36 @@ function PrivateDocumentNotice({
 
 export default function PublicDocumentPage() {
   const t = useT();
-  const data = useLoaderData<typeof loader>();
-  const document = data.document;
+  const { id, basePath } = useLoaderData<typeof loader>();
+  const [token, setToken] = useState<string | undefined>();
+  const [tokenReady, setTokenReady] = useState(false);
 
-  if (!document) {
-    return (
-      <PrivateDocumentNotice
-        id={data.unavailable?.id}
-        basePath={data.unavailable?.basePath}
-      />
-    );
+  useEffect(() => {
+    const query = new URLSearchParams(window.location.search);
+    setToken(query.get("agent_access") ?? undefined);
+    setTokenReady(true);
+  }, []);
+
+  const documentQuery = useActionQuery(
+    "get-public-document",
+    tokenReady ? { id, agent_access: token } : undefined,
+    { enabled: tokenReady, retry: false },
+  );
+  const document = documentQuery.data;
+
+  if (tokenReady && documentQuery.isError) {
+    return <PrivateDocumentNotice id={id} basePath={basePath} />;
   }
+
+  if (!document) return null;
 
   return (
     <main className="min-h-screen bg-background text-foreground">
-      <PublicDocumentContextSync document={document} basePath={data.basePath} />
+      <PublicDocumentContextSync document={document} basePath={basePath} />
       <AgentReadableDocumentDiscovery
         document={document}
-        token={data.agentAccessToken}
-        basePath={data.basePath}
+        token={token}
+        basePath={basePath}
       />
       <div className="mx-auto flex max-w-3xl justify-end px-6 pt-5 sm:px-8">
         <button

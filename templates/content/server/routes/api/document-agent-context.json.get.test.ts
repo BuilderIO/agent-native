@@ -2,6 +2,11 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockGetDocumentContextPath = vi.hoisted(() => vi.fn());
 const mockGetQuery = vi.hoisted(() => vi.fn());
+const mockSetResponseStatus = vi.hoisted(() => vi.fn());
+const mockVerifyScopedAgentAccessToken = vi.hoisted(() => vi.fn());
+const rows = vi.hoisted(() => ({
+  current: [] as Array<Record<string, unknown>>,
+}));
 const { document } = vi.hoisted(() => ({
   document: {
     id: "child-page",
@@ -19,7 +24,8 @@ const { document } = vi.hoisted(() => ({
 vi.mock("@agent-native/core/server", () => ({
   AGENT_ACCESS_PARAM: "agent_access",
   getConfiguredAppBasePath: () => "/content",
-  verifyScopedAgentAccessToken: () => ({ ok: false }),
+  verifyScopedAgentAccessToken: (...args: unknown[]) =>
+    mockVerifyScopedAgentAccessToken(...args),
 }));
 
 vi.mock("drizzle-orm", () => ({
@@ -30,7 +36,7 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getQuery: (...args: unknown[]) => mockGetQuery(...args),
   setResponseHeader: vi.fn(),
-  setResponseStatus: vi.fn(),
+  setResponseStatus: (...args: unknown[]) => mockSetResponseStatus(...args),
 }));
 
 vi.mock("../../../shared/agent-readable.js", () => ({
@@ -48,7 +54,7 @@ vi.mock("../../db/index.js", () => {
       select: () => ({
         from: () => ({
           where: () => ({
-            limit: async () => [document],
+            limit: async () => rows.current,
           }),
         }),
       }),
@@ -67,6 +73,8 @@ describe("GET /api/document-agent-context.json", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     mockGetQuery.mockReturnValue({ id: document.id });
+    mockVerifyScopedAgentAccessToken.mockReturnValue({ ok: false });
+    rows.current = [document];
     mockGetDocumentContextPath.mockResolvedValue([
       {
         id: "parent-page",
@@ -91,5 +99,34 @@ describe("GET /api/document-agent-context.json", () => {
         },
       ],
     });
+  });
+
+  it("uses the same 404 response for missing and inaccessible documents", async () => {
+    const inaccessibleCases = [
+      { rows: [], query: { id: document.id } },
+      {
+        rows: [{ ...document, visibility: "private" }],
+        query: { id: document.id },
+      },
+      {
+        rows: [{ ...document, visibility: "private" }],
+        query: { id: document.id, agent_access: "expired-or-wrong-resource" },
+      },
+    ];
+
+    const results = [];
+    for (const testCase of inaccessibleCases) {
+      rows.current = testCase.rows;
+      mockGetQuery.mockReturnValue(testCase.query);
+      results.push(await handler({} as never));
+    }
+
+    expect(results).toEqual([
+      { error: "Document not found" },
+      { error: "Document not found" },
+      { error: "Document not found" },
+    ]);
+    expect(mockSetResponseStatus).toHaveBeenCalledTimes(3);
+    expect(mockSetResponseStatus).toHaveBeenLastCalledWith({}, 404);
   });
 });

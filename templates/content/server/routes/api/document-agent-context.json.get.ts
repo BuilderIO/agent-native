@@ -24,8 +24,11 @@ function queryString(value: unknown): string {
   return "";
 }
 
-function deny(statusCode: number, message: string) {
-  return { statusCode, body: { error: message } };
+const NOT_FOUND = { error: "Document not found" };
+
+function notFound(event: Parameters<typeof setResponseStatus>[0]) {
+  setResponseStatus(event, 404);
+  return NOT_FOUND;
 }
 
 export default defineEventHandler(async (event) => {
@@ -60,8 +63,7 @@ export default defineEventHandler(async (event) => {
     .limit(1);
 
   if (!document) {
-    setResponseStatus(event, 404);
-    return { error: "Document not found" };
+    return notFound(event);
   }
 
   const tokenAccess = token
@@ -71,9 +73,7 @@ export default defineEventHandler(async (event) => {
       }).ok
     : false;
   if (document.visibility !== "public" && !tokenAccess) {
-    const denied = deny(403, "Invalid or expired agent access token");
-    setResponseStatus(event, denied.statusCode);
-    return denied.body;
+    return notFound(event);
   }
 
   return {
