@@ -179,7 +179,7 @@ pub async fn whisper_transcription_reset_timeline() -> Result<(), String> {
 
 #[cfg(target_os = "macos")]
 mod macos {
-    use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
     use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{Duration, Instant};
 
@@ -218,11 +218,6 @@ mod macos {
         /// recording transcript stores THESE so the editors can highlight,
         /// seek, and delete at word precision like Descript.
         words: Vec<Segment>,
-    }
-
-    struct StreamTimeline {
-        stream_start: Instant,
-        buffer_start: Instant,
     }
 
     /// Process-wide whisper context, reused across meetings. Keyed by model
@@ -310,14 +305,20 @@ mod macos {
         running: Arc<AtomicBool>,
         done: Arc<AtomicBool>,
         app: AppHandle,
-        /// Capture start — t=0 of the meeting timeline. Mic and system streams
-        /// start within a few ms of each other, so their segment timestamps
-        /// share one timeline.
+        /// Raw samples (at `src_rate`) already drained from `buf` by finalized
+        /// utterances since the last timeline reset. The current buffer's
+        /// offset onto the meeting/recording timeline is derived from THIS
+        /// count, not wall clocks: inference takes real time, and stamping the
+        /// next buffer with "now after inference" shifted every subsequent
+        /// utterance late — the error accumulated to seconds over a long
+        /// recording (mic and system streams drifted apart independently).
+        /// Sample counts are exact.
         ///
         /// Native recordings can warm this capture before the countdown ends;
-        /// they reset this timeline when ScreenCaptureKit actually attaches the
-        /// recording output so transcript timestamps stay video-relative.
-        timeline: Mutex<StreamTimeline>,
+        /// they reset the timeline (buffer + this count) when ScreenCaptureKit
+        /// actually attaches the recording output so transcript timestamps
+        /// stay video-relative.
+        drained_samples: AtomicU64,
         /// Incremented when the timeline and buffer are reset. The worker has
         /// local counters that must be reset after the realtime callback clears
         /// the shared sample buffer.
@@ -331,7 +332,6 @@ mod macos {
             src_rate: f64,
             language: Option<String>,
             ctx: Arc<WhisperContext>,
-            stream_start: Instant,
         ) -> Arc<Self> {
             let done = Arc::new(AtomicBool::new(false));
             let stream = Arc::new(WhisperStream {
@@ -342,10 +342,7 @@ mod macos {
                 running: Arc::new(AtomicBool::new(true)),
                 done: done.clone(),
                 app,
-                timeline: Mutex::new(StreamTimeline {
-                    stream_start,
-                    buffer_start: stream_start,
-                }),
+                drained_samples: AtomicU64::new(0),
                 reset_generation: AtomicU32::new(0),
             });
             let worker_stream = stream.clone();
@@ -395,26 +392,24 @@ mod macos {
             self.running.store(false, Ordering::SeqCst);
         }
 
-        /// Offset (ms) of the current buffer onto the meeting timeline.
+        /// Offset (ms) of the current buffer onto the meeting timeline —
+        /// derived from the exact count of samples drained by earlier
+        /// finalized utterances, so inference latency can never skew it.
         fn offset_ms(&self) -> i64 {
-            self.timeline
-                .lock()
-                .map(|timeline| {
-                    timeline
-                        .buffer_start
-                        .saturating_duration_since(timeline.stream_start)
-                        .as_millis() as i64
-                })
-                .unwrap_or(0)
+            let rate = self.src_rate.load(Ordering::SeqCst) as u64;
+            if rate == 0 {
+                return 0;
+            }
+            let drained = self.drained_samples.load(Ordering::SeqCst);
+            (drained * 1000 / rate) as i64
         }
 
-        /// Mark the start of a fresh buffer (called when the buffer is cleared
-        /// on finalize) so the next utterance's whisper timestamps offset
-        /// correctly onto the meeting timeline.
-        fn reset_buffer_start(&self) {
-            if let Ok(mut timeline) = self.timeline.lock() {
-                timeline.buffer_start = Instant::now();
-            }
+        /// Account for samples removed from the buffer by a finalized
+        /// utterance — the next utterance's whisper timestamps offset by the
+        /// drained duration.
+        fn note_drained(&self, samples: usize) {
+            self.drained_samples
+                .fetch_add(samples as u64, Ordering::SeqCst);
         }
 
         /// Rebase timestamps to "now" and discard any audio captured while the
@@ -423,11 +418,7 @@ mod macos {
             if let Ok(mut buf) = self.buf.lock() {
                 buf.clear();
             }
-            let now = Instant::now();
-            if let Ok(mut timeline) = self.timeline.lock() {
-                timeline.stream_start = now;
-                timeline.buffer_start = now;
-            }
+            self.drained_samples.store(0, Ordering::SeqCst);
             self.reset_generation.fetch_add(1, Ordering::SeqCst);
         }
 
@@ -666,10 +657,11 @@ mod macos {
                 if let Ok(mut b) = stream.buf.lock() {
                     let to_drain = n_processed.min(b.len());
                     b.drain(..to_drain);
+                    // Advance the timeline offset by exactly the drained
+                    // duration so the next utterance's whisper timestamps map
+                    // correctly (sample-count based; see `drained_samples`).
+                    stream.note_drained(to_drain);
                 }
-                // New buffer begins now — advance the timeline offset so the
-                // next utterance's whisper timestamps map correctly.
-                stream.reset_buffer_start();
                 last_len = 0;
                 had_voice = false;
                 last_infer = Instant::now();
@@ -877,15 +869,7 @@ mod macos {
         // ScreenCaptureKit stream feeds both callbacks without opening a
         // competing VoiceProcessingIO mic input. Older macOS versions (and a
         // failed SCK start) keep the existing split-capture fallback.
-        let session_start = Instant::now();
-        let mic_stream = WhisperStream::new(
-            app.clone(),
-            "mic",
-            48000.0,
-            lang.clone(),
-            ctx.clone(),
-            session_start,
-        );
+        let mic_stream = WhisperStream::new(app.clone(), "mic", 48000.0, lang.clone(), ctx.clone());
         let sys_stream = capture_system.then(|| {
             WhisperStream::new(
                 app.clone(),
@@ -893,7 +877,6 @@ mod macos {
                 48000.0,
                 lang.clone(),
                 ctx.clone(),
-                session_start,
             )
         });
         let mic_for_cb = mic_stream.clone();

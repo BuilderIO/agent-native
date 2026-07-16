@@ -12,6 +12,7 @@
 
 import type { UnlistenFn } from "@tauri-apps/api/event";
 
+import { dropMicEchoFinals } from "./transcript-echo";
 import {
   appendFinalTranscript,
   onFinalTranscript,
@@ -19,6 +20,7 @@ import {
   startTranscriptionEngine,
   stopTranscriptionEngine,
   TranscriptionEngine,
+  type FinalTranscriptEvent,
   type SourcedTranscriptSegment,
 } from "./transcription-engine";
 
@@ -300,9 +302,9 @@ export async function startTranscriptionCapture(
     voiceProcessing?: boolean;
   },
 ): Promise<TranscriptionCapture | null> {
-  const lines: string[] = [];
-  const segments: SourcedTranscriptSegment[] = [];
-  const words: SourcedTranscriptSegment[] = [];
+  // Finals are buffered raw and flattened at stop — the speaker-echo dedupe
+  // (mic re-hearing system audio) needs BOTH streams' finals side by side.
+  const finalEvents: FinalTranscriptEvent[] = [];
   let disposed = false;
   let paused = false;
   let desiredPaused = false;
@@ -324,18 +326,26 @@ export async function startTranscriptionCapture(
     });
   };
 
-  const captured = (): CapturedTranscript => ({
-    text: lines.join("\n\n").trim(),
-    segments,
-    words,
-  });
+  const captured = (): CapturedTranscript => {
+    const lines: string[] = [];
+    const segments: SourcedTranscriptSegment[] = [];
+    const words: SourcedTranscriptSegment[] = [];
+    for (const event of dropMicEchoFinals(finalEvents)) {
+      appendFinalTranscript(event, lines, segments, words);
+    }
+    return {
+      text: lines.join("\n\n").trim(),
+      segments,
+      words,
+    };
+  };
 
   let engine: TranscriptionEngine;
   try {
     unlistens.push(
       await onFinalTranscript((event) => {
         if (disposed) return;
-        appendFinalTranscript(event, lines, segments, words);
+        if (event.text.trim()) finalEvents.push(event);
       }),
     );
 
