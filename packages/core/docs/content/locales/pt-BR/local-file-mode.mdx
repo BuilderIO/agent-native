@@ -512,16 +512,13 @@ arquivos locais de volta para esse CMS.
 ## Segurança de produção
 
 O modo de arquivo local fornece ao aplicativo actions acesso direto de gravação ao espaço de trabalho configurado
-arquivos. Isso é apropriado para desenvolvimento local e arquivo confiável de locatário único
-pontes, mas não é o modelo de segurança de produção padrão.
+arquivos. Isso é apropriado para desenvolvimento local e Agent Native Desktop,
+mas não é o modelo de segurança de produção padrão.
 
-Quando `NODE_ENV=production`, a estrutura recusa o modo `local-files`, a menos que você
-definir:
-
-```bash
-AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
-```
-
-Defina isso apenas para uma implantação confiável de locatário único, onde todos que podem usar
-o aplicativo tem permissão para ler e gravar os arquivos configurados. Para hospedagem normal,
-aplicativos multiusuário, usam modo de banco de dados e compartilhamento apoiado por SQL.
+A estrutura recusa o modo `local-files` em ambientes conhecidos de hospedagem,
+serverless ou com banco de dados remoto. Essa verificação não pode ser ignorada
+com `AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION`; uma variável de ambiente não
+prova o isolamento de um único locatário. O modo de produção é limitado aos
+processos filhos do Agent Native Desktop. O desenvolvimento local, incluindo
+SQLite local, continua funcionando sem uma variável. Para aplicativos hospedados
+ou multiusuário, use o modo de banco de dados e o compartilhamento apoiado por SQL.

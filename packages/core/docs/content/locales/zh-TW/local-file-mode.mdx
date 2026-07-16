@@ -508,16 +508,11 @@ extensions/
 ## 安全正式環境
 
 本機檔案模式為應用程式 actions 提供對設定的工作區的直接寫入存取權限
-檔案。這適合本機開發和可信單租戶檔案
-橋梁，但它不是預設的正式環境安全模型。
+檔案。這適合本機開發和 Agent Native Desktop，但不是預設的正式環境安全模型。
 
-當 `NODE_ENV=production` 時，框架拒絕 `local-files` 模式，除非您
-設定：
-
-```bash
-AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
-```
-
-僅針對受信任的單租戶部署進行設定，其中每個人都可以使用
-應用程式可以讀取和寫入設定的檔案。對於普通託管，
-多使用者應用程式，使用資料庫模式和 SQL 支援的共用。
+框架會在已知的託管、無伺服器或遠端資料庫支援的執行環境中拒絕
+`local-files` 模式。此檢查無法透過
+`AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION` 規避；環境變數無法證明單一租戶隔離。
+正式環境模式僅限 Agent Native Desktop 子程序。本機開發（包括本機 SQLite）仍可
+在沒有旗標的情況下運作。對於託管或多使用者應用程式，請使用資料庫模式和
+SQL 支援的共用。

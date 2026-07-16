@@ -3,6 +3,8 @@ import fs from "node:fs";
 import fsp from "node:fs/promises";
 import path from "node:path";
 
+import { assertLocalFileRuntimeAllowed } from "@agent-native/core/local-artifacts";
+
 export interface LocalComponentWorkspace {
   id: string;
   workspacePath: string;
@@ -27,10 +29,8 @@ const STORE_FILE_EXTENSION = ".json";
 const STORE_FILE_NAME = `${STORE_FILE_PREFIX}${STORE_FILE_EXTENSION}`;
 const COMPONENT_EXTENSIONS = new Set([".tsx", ".jsx", ".ts", ".js"]);
 const COMPONENT_FILE_MAX_BYTES = 512 * 1024;
-const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
-  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const LOCAL_COMPONENT_ACCESS_ERROR =
-  "Local component workspaces are only available in local development or a trusted local file bridge.";
+  "Local component workspaces are only available in local development or Agent Native Desktop.";
 const localComponentWorkspaceWriteQueues = new Map<string, Promise<void>>();
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -56,10 +56,9 @@ export function localComponentWorkspaceId(workspacePath: string) {
 }
 
 function ensureLocalFileAccessAllowed() {
-  if (
-    process.env.NODE_ENV === "production" &&
-    process.env[ALLOW_PRODUCTION_LOCAL_FILES_ENV] !== "true"
-  ) {
+  try {
+    assertLocalFileRuntimeAllowed("local-files");
+  } catch {
     throw new Error(LOCAL_COMPONENT_ACCESS_ERROR);
   }
 }

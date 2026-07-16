@@ -510,16 +510,14 @@ lokale Dateien zurück zu diesem CMS.
 ## Produktionssicherheit
 
 Der lokale Dateimodus gewährt der App-Actions direkten Schreibzugriff auf den konfigurierten Arbeitsbereich
-Dateien. Dies eignet sich für die lokale Entwicklung und vertrauenswürdige Single-Tenant-Dateien
-Brücken, aber es ist nicht das Standard-Produktionssicherheitsmodell.
+Dateien. Dies eignet sich für die lokale Entwicklung und Agent Native Desktop,
+ist aber nicht das Standard-Produktionssicherheitsmodell.
 
-Bei `NODE_ENV=production` verweigert das Framework den `local-files`-Modus, es sei denn, Sie
-set:
-
-```bash
-AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
-```
-
-Legen Sie dies nur für eine vertrauenswürdige Einzelmandantenbereitstellung fest, die jeder verwenden kann
-Die App darf die konfigurierten Dateien lesen und schreiben. Für normales Hosting:
-Mehrbenutzer-Apps, verwenden Sie den Datenbankmodus und SQL-gestützte Freigabe.
+Das Framework verweigert den `local-files`-Modus in bekannten Hosting-,
+Serverless- oder entfernten datenbankgestützten Laufzeiten. Diese Prüfung kann
+nicht mit `AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION` umgangen werden; eine
+Umgebungsvariable kann keine Einzelmandanten-Isolation beweisen. Der
+Produktionsmodus ist auf Agent-Native-Desktop-Kindprozesse beschränkt. Lokale
+Entwicklung einschließlich lokalem SQLite funktioniert weiterhin ohne Flag.
+Für gehostete oder Mehrbenutzer-Apps verwenden Sie den Datenbankmodus und die
+SQL-gestützte Freigabe.

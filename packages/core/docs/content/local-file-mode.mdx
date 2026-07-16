@@ -509,19 +509,16 @@ local files back to that CMS.
 ## Production Safety
 
 Local File Mode gives app actions direct write access to configured workspace
-files. That is appropriate for local development and trusted single-tenant file
-bridges, but it is not the default production security model.
+files. That is appropriate for local development and Agent Native Desktop, but
+it is not the default production security model.
 
-When `NODE_ENV=production`, the framework refuses `local-files` mode unless you
-set:
-
-```bash
-AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
-```
-
-Only set that for a trusted single-tenant deployment where everyone who can use
-the app is allowed to read and write the configured files. For normal hosted,
-multi-user apps, use database mode and SQL-backed sharing.
+The framework refuses `local-files` mode in known hosted, serverless, or remote
+database-backed runtimes. This check cannot be bypassed by
+`AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION`; an environment flag cannot prove
+that a deployment is single-tenant. Production mode is limited to Agent Native
+Desktop child runtimes. Local development, including local SQLite, continues to
+work without a flag. For hosted or multi-user apps, use database mode and
+SQL-backed sharing.
 
 ## What's next
 

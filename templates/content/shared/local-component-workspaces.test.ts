@@ -2,7 +2,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   listLocalComponentFiles,
@@ -13,6 +13,20 @@ import {
 } from "./local-component-workspaces";
 
 const tmpRoots: string[] = [];
+const RUNTIME_ENV_NAMES = [
+  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION",
+  "AGENT_NATIVE_DESKTOP_CHILD",
+  "DATABASE_URL",
+  "NODE_ENV",
+  "VERCEL",
+] as const;
+const OLD_ENV = Object.fromEntries(
+  RUNTIME_ENV_NAMES.map((name) => [name, process.env[name]]),
+) as Record<(typeof RUNTIME_ENV_NAMES)[number], string | undefined>;
+
+beforeEach(() => {
+  for (const name of RUNTIME_ENV_NAMES) delete process.env[name];
+});
 
 function mkdtemp(prefix: string) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -40,9 +54,25 @@ afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
     fs.rmSync(root, { recursive: true, force: true });
   }
+  for (const [name, value] of Object.entries(OLD_ENV)) {
+    if (value === undefined) delete process.env[name];
+    else process.env[name] = value;
+  }
 });
 
 describe("local component workspaces", () => {
+  it("rejects hosted registration even with legacy and desktop overrides", async () => {
+    const cwd = mkdtemp("an-content-components-cwd-");
+    const workspace = mkdtemp("an-content-components-workspace-");
+    process.env.VERCEL = "1";
+    process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION = "true";
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+
+    await expect(
+      registerLocalComponentWorkspace({ cwd, workspacePath: workspace }),
+    ).rejects.toThrow("only available in local development");
+  });
+
   it("registers, lists, and writes component files inside a workspace", async () => {
     const cwd = mkdtemp("an-content-components-cwd-");
     const workspace = mkdtemp("an-content-components-workspace-");

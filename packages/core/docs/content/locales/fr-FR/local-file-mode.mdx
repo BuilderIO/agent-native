@@ -510,16 +510,14 @@ fichiers locaux vers ce CMS.
 ## Sécurité de la production
 
 Le mode fichier local donne à l'application actions un accès direct en écriture à l'espace de travail configuré
-fichiers. Cela est approprié pour le développement local et les fichiers à locataire unique de confiance
-des ponts, mais ce n'est pas le modèle de sécurité de production par défaut.
+fichiers. Cela convient au développement local et à Agent Native Desktop, mais
+ce n'est pas le modèle de sécurité de production par défaut.
 
-Lorsque `NODE_ENV=production`, le framework refuse le mode `local-files` sauf si vous
-définir :
-
-```bash
-AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
-```
-
-Définissez cela uniquement pour un déploiement fiable à locataire unique où tous ceux qui peuvent l'utiliser
-l'application est autorisée à lire et à écrire les fichiers configurés. Pour un hébergement normal,
-Applications multi-utilisateurs, utilisez le mode base de données et le partage basé sur SQL.
+Le framework refuse le mode `local-files` dans les environnements connus
+d'hébergement, serverless ou adossés à une base de données distante. Ce contrôle
+ne peut pas être contourné avec
+`AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION` : une variable d'environnement
+ne prouve pas l'isolation d'un locataire unique. Le mode production est limité
+aux processus enfants d'Agent Native Desktop. Le développement local, y compris
+SQLite local, continue de fonctionner sans variable. Pour les applications
+hébergées ou multi-utilisateurs, utilisez le mode base de données et le partage SQL.

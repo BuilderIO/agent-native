@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   deleteLocalArtifactFile,
@@ -20,15 +20,48 @@ import {
 } from "./index.js";
 
 const tmpRoots: string[] = [];
-const OLD_ENV = {
-  AGENT_NATIVE_MODE: process.env.AGENT_NATIVE_MODE,
-  AGENT_NATIVE_DATA_MODE: process.env.AGENT_NATIVE_DATA_MODE,
-  AGENT_NATIVE_MANIFEST: process.env.AGENT_NATIVE_MANIFEST,
-  AGENT_NATIVE_MANIFEST_PATH: process.env.AGENT_NATIVE_MANIFEST_PATH,
-  AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION:
-    process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION,
-  NODE_ENV: process.env.NODE_ENV,
-};
+const RUNTIME_ENV_NAMES = [
+  "AGENT_NATIVE_MODE",
+  "AGENT_NATIVE_DATA_MODE",
+  "AGENT_NATIVE_MANIFEST",
+  "AGENT_NATIVE_MANIFEST_PATH",
+  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION",
+  "AGENT_NATIVE_DESKTOP_CHILD",
+  "NODE_ENV",
+  "DATABASE_URL",
+  "VERCEL",
+  "VERCEL_ENV",
+  "VERCEL_URL",
+  "NETLIFY",
+  "DEPLOY_ID",
+  "NETLIFY_IMAGES_CDN_DOMAIN",
+  "CF_PAGES",
+  "CF_WORKER",
+  "CLOUDFLARE_WORKERS",
+  "WORKERS_CI",
+  "AWS_LAMBDA_FUNCTION_NAME",
+  "AWS_EXECUTION_ENV",
+  "LAMBDA_TASK_ROOT",
+  "FUNCTIONS_WORKER_RUNTIME",
+  "WEBSITE_INSTANCE_ID",
+  "K_SERVICE",
+  "K_REVISION",
+  "DENO_DEPLOYMENT_ID",
+  "FLY_APP_NAME",
+  "RENDER",
+  "RAILWAY_ENVIRONMENT",
+  "RAILWAY_PROJECT_ID",
+  "SERVERLESS",
+  "SERVERLESS_STAGE",
+  "NITRO_PRESET",
+] as const;
+const OLD_ENV = Object.fromEntries(
+  RUNTIME_ENV_NAMES.map((name) => [name, process.env[name]]),
+) as Record<(typeof RUNTIME_ENV_NAMES)[number], string | undefined>;
+
+beforeEach(() => {
+  for (const name of RUNTIME_ENV_NAMES) delete process.env[name];
+});
 
 afterEach(() => {
   for (const root of tmpRoots.splice(0)) {
@@ -84,7 +117,7 @@ describe("local artifact helpers", () => {
     ).resolves.toBe("database");
   });
 
-  it("requires an explicit production override for local file mode", async () => {
+  it("refuses the legacy production override but allows a local desktop child", async () => {
     const root = tmpDir();
     const manifestPath = path.join(root, "agent-native.json");
     writeJson(manifestPath, {
@@ -99,12 +132,131 @@ describe("local artifact helpers", () => {
 
     await expect(
       resolveAgentNativeDataMode({ cwd: root, appId: "content" }),
-    ).rejects.toThrow("trusted single-tenant local file bridge");
+    ).rejects.toThrow("no longer accepted as a production bypass");
 
     process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION = "true";
     await expect(
       resolveAgentNativeDataMode({ cwd: root, appId: "content", manifestPath }),
+    ).rejects.toThrow("no longer accepted as a production bypass");
+
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+    await expect(
+      resolveAgentNativeDataMode({ cwd: root, appId: "content", manifestPath }),
     ).resolves.toBe("local-files");
+  });
+
+  it.each([
+    ["Vercel", "VERCEL", "1"],
+    ["Netlify", "NETLIFY", "true"],
+    ["Cloudflare", "CF_PAGES", "1"],
+    ["generic serverless", "SERVERLESS", "1"],
+    ["Nitro serverless preset", "NITRO_PRESET", "aws-lambda"],
+  ])(
+    "rejects local file mode on %s even with every local override",
+    async (_runtime, envName, envValue) => {
+      const root = tmpDir();
+      const manifestPath = path.join(root, "agent-native.json");
+      writeJson(manifestPath, { mode: "local-files" });
+      process.env[envName] = envValue;
+      process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION = "true";
+      process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+
+      await expect(
+        resolveAgentNativeDataMode({ manifestPath }),
+      ).rejects.toThrow("hosted or serverless runtimes");
+    },
+  );
+
+  it("rejects a remote database-backed runtime even outside production", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, { mode: "local-files" });
+    process.env.DATABASE_URL = "postgresql://example.invalid/app";
+    process.env.AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION = "true";
+    process.env.AGENT_NATIVE_DESKTOP_CHILD = "1";
+
+    await expect(resolveAgentNativeDataMode({ manifestPath })).rejects.toThrow(
+      "remote database-backed runtimes",
+    );
+  });
+
+  it("keeps database mode available in hosted runtimes", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, { mode: "database" });
+    process.env.VERCEL = "1";
+    process.env.DATABASE_URL = "postgresql://example.invalid/app";
+
+    await expect(resolveAgentNativeDataMode({ manifestPath })).resolves.toBe(
+      "database",
+    );
+  });
+
+  it("keeps local development and local SQLite usable", async () => {
+    const root = tmpDir();
+    const manifestPath = path.join(root, "agent-native.json");
+    writeJson(manifestPath, { mode: "local-files" });
+    process.env.NODE_ENV = "development";
+    process.env.DATABASE_URL = `file:${path.join(root, "app.db")}`;
+
+    await expect(resolveAgentNativeDataMode({ manifestPath })).resolves.toBe(
+      "local-files",
+    );
+  });
+
+  it("keeps concurrent workspace roots and write locks isolated", async () => {
+    const firstRoot = tmpDir();
+    const secondRoot = tmpDir();
+    const firstManifest = path.join(firstRoot, "agent-native.json");
+    const secondManifest = path.join(secondRoot, "agent-native.json");
+    for (const [manifestPath, label] of [
+      [firstManifest, "first"],
+      [secondManifest, "second"],
+    ]) {
+      writeJson(manifestPath, {
+        mode: "local-files",
+        apps: { content: { roots: [{ path: "docs" }] } },
+      });
+      fs.mkdirSync(path.join(path.dirname(manifestPath), "docs"), {
+        recursive: true,
+      });
+      fs.writeFileSync(
+        path.join(path.dirname(manifestPath), "docs", "same.md"),
+        label,
+      );
+    }
+
+    await Promise.all([
+      writeLocalArtifactFile({
+        appId: "content",
+        manifestPath: firstManifest,
+        path: "docs/same.md",
+        content: "first updated",
+      }),
+      writeLocalArtifactFile({
+        appId: "content",
+        manifestPath: secondManifest,
+        path: "docs/same.md",
+        content: "second updated",
+      }),
+    ]);
+
+    const [first, second] = await Promise.all([
+      readLocalArtifactFile({
+        appId: "content",
+        manifestPath: firstManifest,
+        path: "docs/same.md",
+      }),
+      readLocalArtifactFile({
+        appId: "content",
+        manifestPath: secondManifest,
+        path: "docs/same.md",
+      }),
+    ]);
+    expect(first?.content).toBe("first updated");
+    expect(second?.content).toBe("second updated");
+    expect(first?.absolutePath.startsWith(firstRoot)).toBe(true);
+    expect(second?.absolutePath.startsWith(secondRoot)).toBe(true);
   });
 
   it("lists only configured files inside local roots", async () => {

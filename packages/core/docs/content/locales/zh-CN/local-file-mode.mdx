@@ -508,16 +508,10 @@ extensions/
 ## 安全生产
 
 本地文件模式为应用程序 actions 提供对配置的工作区的直接写入访问权限
-文件。这适合本地开发和可信单租户文件
-桥梁，但它不是默认的生产安全模型。
+文件。这适合本地开发和 Agent Native Desktop，但不是默认的生产安全模型。
 
-当 `NODE_ENV=production` 时，框架拒绝 `local-files` 模式，除非您
-设置：
-
-```bash
-AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION=true
-```
-
-仅针对受信任的单租户部署进行设置，其中每个人都可以使用
-应用程序可以读取和写入配置的文件。对于普通托管，
-多用户应用程序，使用数据库模式和SQL支持的共享。
+框架会在已知的托管、无服务器或远程数据库支持的运行时中拒绝
+`local-files` 模式。此检查无法通过
+`AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION` 绕过；环境变量不能证明单租户隔离。
+生产模式仅限 Agent Native Desktop 子进程。本地开发（包括本地 SQLite）仍可在
+没有标志的情况下运行。对于托管或多用户应用，请使用数据库模式和 SQL 支持的共享。

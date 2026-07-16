@@ -146,6 +146,22 @@ const ENV_MANIFEST_NAMES = [
 ];
 const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
   "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
+const DESKTOP_CHILD_ENV = "AGENT_NATIVE_DESKTOP_CHILD";
+const HOSTED_RUNTIME_ENV_GROUPS = [
+  ["VERCEL", "VERCEL_ENV", "VERCEL_URL"],
+  ["NETLIFY", "DEPLOY_ID", "NETLIFY_IMAGES_CDN_DOMAIN"],
+  ["CF_PAGES", "CF_WORKER", "CLOUDFLARE_WORKERS", "WORKERS_CI"],
+  ["AWS_LAMBDA_FUNCTION_NAME", "AWS_EXECUTION_ENV", "LAMBDA_TASK_ROOT"],
+  ["FUNCTIONS_WORKER_RUNTIME", "WEBSITE_INSTANCE_ID"],
+  ["K_SERVICE", "K_REVISION"],
+  ["DENO_DEPLOYMENT_ID"],
+  ["FLY_APP_NAME"],
+  ["RENDER"],
+  ["RAILWAY_ENVIRONMENT", "RAILWAY_PROJECT_ID"],
+  ["SERVERLESS", "SERVERLESS_STAGE"],
+] as const;
+const HOSTED_NITRO_PRESET_PATTERN =
+  /(?:vercel|netlify|cloudflare|worker|serverless|lambda|azure|deno|firebase|google|aws)/i;
 const DEFAULT_HIDE_PATTERNS = [
   "**/.git/**",
   "**/.agent-native/**",
@@ -342,12 +358,59 @@ function envFlag(name: string): boolean {
   return value === "1" || value === "true" || value === "yes" || value === "on";
 }
 
-function assertLocalFilesRuntimeAllowed(mode: AgentNativeDataMode) {
+function envPresent(name: string): boolean {
+  const value = process.env[name]?.trim().toLowerCase();
+  return !!value && !["0", "false", "no", "off"].includes(value);
+}
+
+function hasRemoteDatabaseUrl(): boolean {
+  const value = process.env.DATABASE_URL?.trim();
+  if (!value) return false;
+  const normalized = value.toLowerCase();
+  if (
+    normalized === ":memory:" ||
+    normalized.startsWith("file:") ||
+    normalized.startsWith("sqlite:")
+  ) {
+    return false;
+  }
+  if (
+    normalized.startsWith("/") ||
+    normalized.startsWith("./") ||
+    normalized.startsWith("../") ||
+    /^[a-z]:[\\/]/i.test(value) ||
+    !normalized.includes(":")
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function unsafeLocalFileRuntime(): "hosted" | "remote-database" | null {
+  if (
+    HOSTED_RUNTIME_ENV_GROUPS.some((names) =>
+      names.some((name) => envPresent(name)),
+    ) ||
+    HOSTED_NITRO_PRESET_PATTERN.test(process.env.NITRO_PRESET?.trim() ?? "")
+  ) {
+    return "hosted";
+  }
+  if (hasRemoteDatabaseUrl()) return "remote-database";
+  return null;
+}
+
+export function assertLocalFileRuntimeAllowed(mode: AgentNativeDataMode) {
   if (mode !== "local-files") return;
+  const unsafeRuntime = unsafeLocalFileRuntime();
+  if (unsafeRuntime) {
+    throw new Error(
+      `Local file mode is disabled in ${unsafeRuntime === "hosted" ? "hosted or serverless" : "remote database-backed"} runtimes because workspace roots are process-global and cannot enforce tenant isolation. Use database mode instead.`,
+    );
+  }
   if (process.env.NODE_ENV !== "production") return;
-  if (envFlag(ALLOW_PRODUCTION_LOCAL_FILES_ENV)) return;
+  if (envFlag(DESKTOP_CHILD_ENV)) return;
   throw new Error(
-    `Local file mode is only enabled for local development runtimes. Set ${ALLOW_PRODUCTION_LOCAL_FILES_ENV}=true only for a trusted single-tenant local file bridge.`,
+    `Local file mode is only enabled for local development and Agent Native Desktop child runtimes. ${ALLOW_PRODUCTION_LOCAL_FILES_ENV} is no longer accepted as a production bypass because it cannot prove tenant isolation.`,
   );
 }
 
@@ -403,7 +466,7 @@ export async function resolveAgentNativeDataMode(
 ): Promise<AgentNativeDataMode> {
   const explicitMode = envMode();
   if (explicitMode) {
-    assertLocalFilesRuntimeAllowed(explicitMode);
+    assertLocalFileRuntimeAllowed(explicitMode);
     return explicitMode;
   }
 
@@ -413,7 +476,7 @@ export async function resolveAgentNativeDataMode(
     : undefined;
   const mode =
     appMode ?? loaded?.manifest.mode ?? options.defaults?.mode ?? "database";
-  assertLocalFilesRuntimeAllowed(mode);
+  assertLocalFileRuntimeAllowed(mode);
   return mode;
 }
 
@@ -842,13 +905,13 @@ function localWorkspaceResourcesEnabled(
 ): boolean {
   const explicitMode = envMode();
   if (explicitMode) {
-    assertLocalFilesRuntimeAllowed(explicitMode);
+    assertLocalFileRuntimeAllowed(explicitMode);
     return explicitMode === "local-files";
   }
   const manifest = loaded?.manifest;
   const mode = manifest?.mode;
   if (mode) {
-    assertLocalFilesRuntimeAllowed(mode);
+    assertLocalFileRuntimeAllowed(mode);
     if (mode === "local-files") return true;
   }
   return false;

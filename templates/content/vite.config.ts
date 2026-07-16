@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 
 import {
+  assertLocalFileRuntimeAllowed,
   findAgentNativeManifest,
   getLocalArtifactApp,
   type LocalArtifactOptions,
@@ -40,8 +41,6 @@ const LOCAL_COMPONENT_SKIP_DIRS = new Set([
 ]);
 const LOCAL_COMPONENT_SKIP_FILE_RE =
   /(?:^|[.-])(?:test|spec|stories|story)\.[cm]?[jt]sx?$/;
-const ALLOW_PRODUCTION_LOCAL_FILES_ENV =
-  "AGENT_NATIVE_ALLOW_LOCAL_FILES_IN_PRODUCTION";
 const CONTENT_LOCAL_DEFAULTS: LocalArtifactOptions["defaults"] = {
   roots: [
     { name: "Docs", path: "docs", kind: "docs", extensions: [".md", ".mdx"] },
@@ -76,11 +75,12 @@ function envManifestPath() {
 }
 
 function localFilesAllowedForBuild() {
-  if (process.env.NODE_ENV !== "production") return true;
-  const value = process.env[ALLOW_PRODUCTION_LOCAL_FILES_ENV]
-    ?.trim()
-    .toLowerCase();
-  return value === "1" || value === "true" || value === "yes" || value === "on";
+  try {
+    assertLocalFileRuntimeAllowed("local-files");
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function localWorkspaceRootSync() {
