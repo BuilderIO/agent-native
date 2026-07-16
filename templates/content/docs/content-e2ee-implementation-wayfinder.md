@@ -142,10 +142,11 @@ The first isolated integration environment is operational:
 
 | Surface             | Current fork-lab state                                                                                                                                                                                                               |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Repository          | `3mdistal/agent-native`, development branch `codex/content-e2ee-foundation`, based on `6eb412bdc95add3bda0b92a402fbe6c14aae6fb6` before the Vercel cold-start fixes in this work unit                                                |
+| Repository          | `3mdistal/agent-native`, development branch `codex/content-e2ee-foundation`; implementation commit `9f08dfce3` includes the Vercel auth cold-start readiness fix                                                                     |
 | Vercel              | Project `agent-native-content-e2ee-lab` (`prj_wO5idRekc7toiCNQuHXH2zxawCvp`), connected to the fork, Node 24, root directory `templates/content`, explicit build command `NITRO_PRESET=vercel AGENT_NATIVE_MODE=database pnpm build` |
 | Stable URL          | `https://agent-native-content-e2ee-lab.vercel.app`                                                                                                                                                                                   |
 | Verified deployment | Production deployment `dpl_CYYgExwSuUtoAdjDJSe1CyKCCSZF`; the stable alias served the final artifact                                                                                                                                 |
+| Git deployment      | Preview deployment `dpl_GjAC7ML18wzphGqbkrygXB969ETj` cloned fork commit `9f08dfc`, ran the configured monorepo build on Vercel Linux/x64, bundled ffmpeg, and reached Ready                                                         |
 | Neon                | Fork-only Neon project `curly-grass-81173036`, Vercel Marketplace resource `store_6SY2k3ZIus8VEFka`, region `iad1`, connected to production, preview, and development environments                                                   |
 | Runtime secrets     | Independent generated values for Better Auth, scoped-secret encryption, and A2A in each environment; values were never copied into source or documentation                                                                           |
 | Runtime mode        | Database mode with Neon-backed migrations and content-free health reporting; serverless ffmpeg target pinned to `x64` for Vercel-hosted builds                                                                                       |
@@ -166,7 +167,6 @@ Open lab gaps before E2EE milestone PR 3:
 - Connect a synthetic-only agent engine; the current status endpoint reports `configured: false`, so document storage/auth can be tested but agent runs cannot yet be included in the lab evidence.
 - Provision fork-owned blob and scheduler targets before media, queue, background-run, or deletion assertions are claimed.
 - Triage the 77 non-strict `agent-native doctor` findings emitted by the Content build. Many are test or deploy-environment reads, but the lab must not silently promote a noisy build to a clean security signal.
-- Exercise the next Git-triggered preview after the branch is pushed. Manual prebuilt production deployment is proven; Git linkage and monorepo root/build settings are configured but not yet counted as proven until Vercel builds the pushed commit itself.
 
 ### Exact-SHA upstream handoff
 
