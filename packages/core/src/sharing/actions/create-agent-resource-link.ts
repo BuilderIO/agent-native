@@ -5,6 +5,7 @@ import {
   buildAgentAccessApiUrl,
   buildAgentAccessUrl,
   createScopedAgentAccessGrant,
+  DEFAULT_AGENT_ACCESS_TTL_SECONDS,
 } from "../../server/agent-access.js";
 import { getConfiguredAppBasePath } from "../../server/app-base-path.js";
 import {
@@ -33,6 +34,15 @@ export default defineAction({
   schema: z.object({
     resourceType: z.string().describe("Shareable resource type"),
     resourceId: z.string().describe("Resource ID"),
+    ttlSeconds: z
+      .number()
+      .int()
+      .min(30)
+      .max(DEFAULT_AGENT_ACCESS_TTL_SECONDS)
+      .optional()
+      .describe(
+        "Optional lifetime from 30 seconds through the default two-hour maximum.",
+      ),
   }),
   readOnly: true,
   run: async (args) => {
@@ -63,7 +73,7 @@ export default defineAction({
       resourceKind: agentReadable.resourceKind,
       resourceId: args.resourceId,
       viewerEmail: getRequestUserEmail() || undefined,
-      ttlSeconds: agentReadable.ttlSeconds,
+      ttlSeconds: args.ttlSeconds ?? agentReadable.ttlSeconds,
     });
     const origin = appOrigin();
     const basePath = getConfiguredAppBasePath();
