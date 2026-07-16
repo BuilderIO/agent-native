@@ -7,6 +7,7 @@ import {
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
 import type { StoreWriteOptions } from "../settings/store.js";
 import { emitAppStateChange, emitAppStateDelete } from "./emitter.js";
 
@@ -155,6 +156,14 @@ export async function appStatePut(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  if (getProtectedExecutionContext()) {
+    throw Object.assign(
+      new Error(
+        "Protected execution cannot write plaintext to application_state",
+      ),
+      { code: "protected_application_state_forbidden" },
+    );
+  }
   await ensureTable();
   const client = getDbExec();
   const serialized = JSON.stringify(value);

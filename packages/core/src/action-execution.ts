@@ -1,5 +1,25 @@
 import type { ActionRunContext } from "./action.js";
 import type { ActionEntry } from "./agent/production-agent.js";
+import { boundedProtocolTokenSchema } from "./e2ee/contracts.js";
+import {
+  ProtectedTransientValue,
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+  type ProtectedExecutionReceipt,
+} from "./protected-execution-context.js";
+
+export {
+  authorizeProtectedDeliveryAdapter,
+  getProtectedExecutionContext,
+  markProtectedDisclosure,
+  PROTECTED_DELIVERY_CAPABILITY,
+  ProtectedTransientValue,
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+  type ProtectedDeliveryAdapterAuthorization,
+  type ProtectedExecutionContext,
+  type ProtectedExecutionReceipt,
+} from "./protected-execution-context.js";
 
 export type ActionInvocationOrigin =
   | ActionRunContext["caller"]
@@ -82,6 +102,32 @@ export type ActionExecutionOutcome<TResult = unknown> =
       readonly message: string;
     };
 
+export type DispatchedActionExecution<TResult = unknown> =
+  | {
+      readonly privacy: "ordinary";
+      readonly outcome: ActionExecutionOutcome<TResult>;
+    }
+  | {
+      readonly privacy: "protected";
+      readonly receipt: ProtectedExecutionReceipt;
+      readonly outcome:
+        | {
+            readonly status: "executed";
+            readonly result: ProtectedTransientValue<TResult>;
+            readonly placement: ProtectedActionPlacement;
+          }
+        | {
+            readonly status: "queued";
+            readonly queueId: string;
+            readonly placement: ProtectedActionPlacement;
+          }
+        | {
+            readonly status: "denied";
+            readonly code: string;
+            readonly message: string;
+          };
+    };
+
 export class ActionExecutionDeniedError extends Error {
   readonly code: string;
   readonly statusCode: number;
@@ -90,7 +136,11 @@ export class ActionExecutionDeniedError extends Error {
     super(message);
     this.name = "ActionExecutionDeniedError";
     this.code = code;
-    this.statusCode = code === "protected_execution_unavailable" ? 503 : 403;
+    this.statusCode =
+      code === "protected_execution_unavailable" ||
+      code === "protected_sink_context_required"
+        ? 503
+        : 403;
   }
 }
 
@@ -225,6 +275,22 @@ function canonicalPolicy(value: unknown): ActionExecutionPolicy | null | false {
   });
 }
 
+function receiptForProtectedOutcome(
+  actionName: string,
+  policy: ActionExecutionPolicy,
+  outcome: ActionExecutionOutcome<unknown>,
+): ProtectedExecutionReceipt {
+  const status = outcome.status;
+  return protectedExecutionReceiptSchema.parse({
+    version: 1,
+    actionName,
+    resourceType: policy.resourceType,
+    placement: policy.placement,
+    status,
+    ...(status === "queued" ? { queueId: outcome.queueId } : {}),
+  });
+}
+
 function canonicalResolverDecision<TResult>(
   decision: unknown,
   policy: ActionExecutionPolicy | null,
@@ -353,16 +419,26 @@ export async function executeActionEntry<TResult = unknown>(
     };
   }
 
-  const decision = canonicalResolverDecision<TResult>(
-    await resolver.resolve<TResult>({
-      actionName: options.actionName,
-      args: options.args,
-      context,
-      invocation,
-      policy,
-    }),
+  const resolverRequest = {
+    actionName: options.actionName,
+    args: options.args,
+    context,
+    invocation,
     policy,
-  );
+  } satisfies ActionExecutionRequest;
+  const resolverDecision = policy
+    ? await runWithProtectedExecutionContext(
+        protectedExecutionReceiptSchema.parse({
+          version: 1,
+          actionName: options.actionName,
+          resourceType: policy.resourceType,
+          placement: policy.placement,
+          status: "executed",
+        }),
+        () => resolver.resolve<TResult>(resolverRequest),
+      )
+    : await resolver.resolve<TResult>(resolverRequest);
+  const decision = canonicalResolverDecision<TResult>(resolverDecision, policy);
   if (!decision) {
     return {
       status: "denied",
@@ -378,13 +454,121 @@ export async function executeActionEntry<TResult = unknown>(
         message: `Protected action '${options.actionName}' cannot execute locally for ${policy.placement} placement.`,
       };
     }
+    const result = policy
+      ? await runWithProtectedExecutionContext(
+          protectedExecutionReceiptSchema.parse({
+            version: 1,
+            actionName: options.actionName,
+            resourceType: policy.resourceType,
+            placement: policy.placement,
+            status: "executed",
+          }),
+          () => options.entry.run(options.args, context),
+        )
+      : await options.entry.run(options.args, context);
     return {
       status: "executed",
-      result: (await options.entry.run(options.args, context)) as TResult,
+      result: result as TResult,
       placement: policy?.placement ?? "local",
     };
   }
   return decision;
+}
+
+/**
+ * Metadata-preserving action dispatch. Protected results remain inside a
+ * non-serializing transient wrapper until an authorized delivery adapter
+ * explicitly unwraps them.
+ */
+export async function dispatchActionEntry<TResult = unknown>(
+  options: ExecuteActionEntryOptions,
+): Promise<DispatchedActionExecution<TResult>> {
+  const policy = canonicalPolicy(options.entry.resourcePrivacy);
+  let outcome: ActionExecutionOutcome<TResult>;
+  try {
+    outcome = await executeActionEntry<TResult>(options);
+  } catch (error) {
+    if (policy === null) throw error;
+    // Protected resolvers and trusted-endpoint implementations are allowed to
+    // observe transient protected values. Their exception objects are not:
+    // messages, causes, stacks, and custom fields are ordinary hosted payloads.
+    // Collapse every throw to a bounded denial before the protected async
+    // context unwinds into HTTP, MCP, model-loop, CLI, or logging callers.
+    outcome = {
+      status: "denied",
+      code: "protected_execution_failed",
+      message: `Protected action '${options.actionName}' failed.`,
+    };
+  }
+  if (policy === null) return { privacy: "ordinary", outcome };
+  if (policy === false) {
+    const safeActionName =
+      protectedExecutionReceiptSchema.shape.actionName.safeParse(
+        options.actionName,
+      ).success
+        ? options.actionName
+        : "invalid-action-policy";
+    const receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: safeActionName,
+      resourceType: "invalid-resource-policy",
+      placement: "enrolled_broker",
+      status: "denied",
+    });
+    return {
+      privacy: "protected",
+      receipt,
+      outcome: {
+        status: "denied",
+        code: "invalid_resource_privacy_policy",
+        message: `Action '${safeActionName}' has an invalid protected-resource execution policy.`,
+      },
+    };
+  }
+  let receipt: ProtectedExecutionReceipt;
+  try {
+    receipt = receiptForProtectedOutcome(options.actionName, policy, outcome);
+  } catch {
+    const denied = {
+      status: "denied" as const,
+      code: "invalid_protected_execution_receipt",
+      message: `Protected action '${options.actionName}' produced an invalid content-free receipt.`,
+    };
+    receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: options.actionName,
+      resourceType: policy.resourceType,
+      placement: policy.placement,
+      status: "denied",
+    });
+    return { privacy: "protected", receipt, outcome: denied };
+  }
+  if (outcome.status === "executed") {
+    return {
+      privacy: "protected",
+      receipt,
+      outcome: {
+        status: "executed",
+        result: new ProtectedTransientValue(outcome.result, receipt),
+        placement: outcome.placement as ProtectedActionPlacement,
+      },
+    };
+  }
+  if (outcome.status === "denied") {
+    const code = boundedProtocolTokenSchema.safeParse(outcome.code).success
+      ? outcome.code
+      : "protected-execution-denied";
+    return {
+      privacy: "protected",
+      receipt,
+      outcome: {
+        status: "denied",
+        code,
+        message: `Protected action '${receipt.actionName}' was denied (${code}).`,
+      },
+    };
+  }
+  return { privacy: "protected", receipt, outcome };
 }
 
 /** Preserve legacy raw-result transports while exposing typed routing outcomes. */
@@ -418,6 +602,13 @@ export async function runActionEntry<TResult = unknown>(
       placement: ProtectedActionPlacement;
     }
 > {
+  const policy = canonicalPolicy(options.entry.resourcePrivacy);
+  if (policy) {
+    throw new ActionExecutionDeniedError(
+      "protected_sink_context_required",
+      `Protected action '${options.actionName}' requires a metadata-preserving delivery adapter.`,
+    );
+  }
   return unwrapActionExecutionOutcome(
     await executeActionEntry<TResult>(options),
   );

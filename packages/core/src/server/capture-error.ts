@@ -1,3 +1,5 @@
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
+
 export interface CaptureErrorContext {
   /** The request path or logical route, when known. */
   route?: string;
@@ -47,10 +49,26 @@ export function captureError(
   error: unknown,
   context: CaptureErrorContext = {},
 ): string | undefined {
+  const protectedContext = getProtectedExecutionContext();
+  const capturedError = protectedContext
+    ? Object.assign(new Error("Protected execution failed"), {
+        name: "ProtectedExecutionError",
+        code: "protected_execution_error",
+      })
+    : error;
+  const capturedContext: CaptureErrorContext = protectedContext
+    ? {
+        tags: {
+          action: protectedContext.receipt.actionName,
+          resourceType: protectedContext.receipt.resourceType,
+          placement: protectedContext.receipt.placement,
+        },
+      }
+    : context;
   let eventId: string | undefined;
   for (const provider of providers.values()) {
     try {
-      const result = provider(error, context);
+      const result = provider(capturedError, capturedContext);
       if (eventId === undefined && typeof result === "string") {
         eventId = result;
       }

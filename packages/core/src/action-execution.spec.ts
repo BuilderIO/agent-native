@@ -2,11 +2,17 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   createActionInvocationDescriptor,
+  dispatchActionEntry,
   executeActionEntry,
   runActionEntry,
   type ActionExecutionResolver,
 } from "./action-execution.js";
 import type { ActionEntry } from "./agent/production-agent.js";
+import {
+  authorizeProtectedDeliveryAdapter,
+  getProtectedExecutionContext,
+  PROTECTED_DELIVERY_CAPABILITY,
+} from "./protected-execution-context.js";
 
 const tool = { description: "fixture", parameters: { type: "object" } };
 
@@ -120,6 +126,22 @@ describe("action execution resolver", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("requires metadata-preserving dispatch for legacy protected calls", async () => {
+    const run = vi.fn();
+    const resolve = vi.fn();
+    await expect(
+      runActionEntry({
+        entry: entry(run, "enrolled_broker"),
+        actionName: "protected-fixture",
+        args: { protected: "must not reach a sink" },
+        context: { caller: "http" },
+        resolver: { placements: ["enrolled_broker"], resolve },
+      }),
+    ).rejects.toMatchObject({ code: "protected_sink_context_required" });
+    expect(resolve).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
   it("fails malformed privacy policies closed before resolving or running", async () => {
     const run = vi.fn();
     const resolve = vi.fn();
@@ -145,6 +167,40 @@ describe("action execution resolver", () => {
     });
     expect(resolve).not.toHaveBeenCalled();
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("keeps malformed non-null privacy policies in the protected lane", async () => {
+    const canary = "MALFORMED-POLICY-PRIVATE-CANARY";
+    const malformed = entry(vi.fn()) as ActionEntry & {
+      resourcePrivacy: unknown;
+    };
+    malformed.resourcePrivacy = {
+      mode: "protected",
+      resourceType: { plaintext: canary },
+      placement: "hosted_plaintext",
+    };
+
+    const dispatched = await dispatchActionEntry({
+      entry: malformed,
+      actionName: "malformed-policy-action",
+      args: { plaintext: canary },
+      context: { caller: "http" },
+    });
+
+    expect(dispatched).toMatchObject({
+      privacy: "protected",
+      receipt: {
+        actionName: "malformed-policy-action",
+        resourceType: "invalid-resource-policy",
+        placement: "enrolled_broker",
+        status: "denied",
+      },
+      outcome: {
+        status: "denied",
+        code: "invalid_resource_privacy_policy",
+      },
+    });
+    expect(JSON.stringify(dispatched)).not.toContain(canary);
   });
 
   it("rejects operator-only actions before a resolver can observe arguments", async () => {
@@ -217,6 +273,141 @@ describe("action execution resolver", () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it("retains protected policy and keeps results nonserializing until authorized delivery", async () => {
+    const canary = "PRIVATE-PLAINTEXT-CANARY";
+    const dispatched = await dispatchActionEntry({
+      entry: entry(vi.fn(), "enrolled_broker"),
+      actionName: "protected-fixture",
+      args: { objectId: "object:fixture-01" },
+      context: { caller: "mcp" },
+      resolver: {
+        placements: ["enrolled_broker"],
+        resolve: async () => ({
+          status: "executed",
+          placement: "enrolled_broker",
+          result: { plaintext: canary },
+        }),
+      },
+    });
+
+    expect(dispatched).toMatchObject({
+      privacy: "protected",
+      receipt: {
+        version: 1,
+        actionName: "protected-fixture",
+        resourceType: "fixture",
+        placement: "enrolled_broker",
+        status: "executed",
+      },
+      outcome: { status: "executed", placement: "enrolled_broker" },
+    });
+    const serialized = JSON.stringify(dispatched);
+    expect(serialized).not.toContain(canary);
+    expect(serialized).toContain('"protected":true');
+
+    if (
+      dispatched.privacy !== "protected" ||
+      dispatched.outcome.status !== "executed"
+    ) {
+      throw new Error("Expected protected executed fixture");
+    }
+    expect(() =>
+      dispatched.outcome.result.deliver({} as never, (value) => value),
+    ).toThrow("Authorized protected delivery adapter is required");
+    const authorization = authorizeProtectedDeliveryAdapter({
+      adapterId: "fixture-adapter",
+      capabilities: [PROTECTED_DELIVERY_CAPABILITY],
+    });
+    expect(
+      dispatched.outcome.result.deliver(authorization, (value) => value),
+    ).toEqual({ plaintext: canary });
+  });
+
+  it("fails an invalid protected receipt closed", async () => {
+    const dispatched = await dispatchActionEntry({
+      entry: entry(vi.fn(), "enrolled_broker"),
+      actionName: "protected-fixture",
+      args: {},
+      context: { caller: "mcp" },
+      resolver: {
+        placements: ["enrolled_broker"],
+        resolve: async () => ({
+          status: "queued",
+          placement: "enrolled_broker",
+          queueId: "x",
+        }),
+      },
+    });
+    expect(dispatched).toMatchObject({
+      privacy: "protected",
+      receipt: { status: "denied" },
+      outcome: {
+        status: "denied",
+        code: "invalid_protected_execution_receipt",
+      },
+    });
+  });
+
+  it("replaces resolver denial detail with a stable content-free message", async () => {
+    const canary = "RESOLVER-DENIAL-PRIVATE-CANARY";
+    const dispatched = await dispatchActionEntry({
+      entry: entry(vi.fn(), "enrolled_broker"),
+      actionName: "protected-fixture",
+      args: {},
+      context: { caller: "mcp" },
+      resolver: {
+        placements: ["enrolled_broker"],
+        resolve: async () => ({
+          status: "denied",
+          code: "grant-denied",
+          message: `The private document said ${canary}`,
+        }),
+      },
+    });
+
+    expect(dispatched).toMatchObject({
+      privacy: "protected",
+      receipt: { status: "denied" },
+      outcome: {
+        status: "denied",
+        code: "grant-denied",
+        message:
+          "Protected action 'protected-fixture' was denied (grant-denied).",
+      },
+    });
+    expect(JSON.stringify(dispatched)).not.toContain(canary);
+  });
+
+  it("collapses thrown protected errors before they leave the dispatcher", async () => {
+    const canary = "THROWN-PROTECTED-ERROR-CANARY";
+    const dispatched = await dispatchActionEntry({
+      entry: entry(vi.fn(), "enrolled_broker"),
+      actionName: "protected-fixture",
+      args: { plaintext: canary },
+      context: { caller: "mcp" },
+      resolver: {
+        placements: ["enrolled_broker"],
+        resolve: async () => {
+          throw Object.assign(new Error(`resolver saw ${canary}`), {
+            cause: { plaintext: canary },
+          });
+        },
+      },
+    });
+
+    expect(dispatched).toMatchObject({
+      privacy: "protected",
+      receipt: { status: "denied" },
+      outcome: {
+        status: "denied",
+        code: "protected_execution_failed",
+        message:
+          "Protected action 'protected-fixture' was denied (protected_execution_failed).",
+      },
+    });
+    expect(JSON.stringify(dispatched)).not.toContain(canary);
+  });
+
   it("rejects malformed or placement-confused resolver decisions", async () => {
     const run = vi.fn();
     for (const decision of [
@@ -248,12 +439,19 @@ describe("action execution resolver", () => {
   });
 
   it("isolates concurrent request-scoped resolvers and executes locally once", async () => {
-    const run = vi.fn(async (args) => args);
+    const run = vi.fn(async (args) => ({
+      args,
+      contextAction: getProtectedExecutionContext()?.receipt.actionName,
+    }));
     const resolver = (label: string): ActionExecutionResolver => ({
       placements: ["trusted_endpoint"],
       resolve: async (request) => {
         await Promise.resolve();
         expect(request.args).toEqual({ label });
+        expect(getProtectedExecutionContext()?.receipt).toMatchObject({
+          actionName: "protected-fixture",
+          placement: "trusted_endpoint",
+        });
         return { status: "execute-local" };
       },
     });
@@ -270,11 +468,17 @@ describe("action execution resolver", () => {
     );
     expect(left).toMatchObject({
       status: "executed",
-      result: { label: "left" },
+      result: {
+        args: { label: "left" },
+        contextAction: "protected-fixture",
+      },
     });
     expect(right).toMatchObject({
       status: "executed",
-      result: { label: "right" },
+      result: {
+        args: { label: "right" },
+        contextAction: "protected-fixture",
+      },
     });
     expect(run).toHaveBeenCalledTimes(2);
   });

@@ -1,5 +1,9 @@
-import { afterEach, describe, it, expect } from "vitest";
+import { afterEach, describe, it, expect, vi } from "vitest";
 
+import {
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+} from "../protected-execution-context.js";
 import {
   registerTrackingProvider,
   unregisterTrackingProvider,
@@ -14,6 +18,21 @@ import {
   __setAgentTracerForTests,
 } from "./tracing.js";
 import { DEFAULT_OBSERVABILITY_CONFIG } from "./types.js";
+
+const traceStore = vi.hoisted(() => ({
+  spans: [] as unknown[],
+  summaries: [] as unknown[],
+}));
+
+vi.mock("./store.js", () => ({
+  insertTraceSpan: vi.fn(async (span: unknown) => {
+    traceStore.spans.push(span);
+  }),
+  upsertTraceSummary: vi.fn(async (summary: unknown) => {
+    traceStore.summaries.push(summary);
+  }),
+  getLatestTraceSummaryForThread: vi.fn(async () => null),
+}));
 
 // M14 in the MCP/A2A audit: tool inputs persisted into trace spans can
 // include verbatim credentials (e.g. db-exec INSERTs that contain a raw
@@ -187,6 +206,9 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
   afterEach(() => {
     __resetAgentTracerCache();
     unregisterTrackingProvider("qa-ai-generation");
+    unregisterTrackingProvider("qa-protected-generation");
+    traceStore.spans.length = 0;
+    traceStore.summaries.length = 0;
   });
 
   it("emits a PostHog-compatible AI generation tracking event", async () => {
@@ -355,6 +377,155 @@ describe("instrumentAgentLoop OpenTelemetry export", () => {
     expect(llmSpan.attributes["llm.cache_read_tokens"]).toBe(5);
     expect(llmSpan.status?.code).toBe(SPAN_STATUS_OK);
     expect(llmSpan.ended).toBe(true);
+  });
+
+  it("keeps protected trace persistence and export content-free", async () => {
+    const canary = "protected-plaintext-canary";
+    const events: TrackingEvent[] = [];
+    registerTrackingProvider({
+      name: "qa-protected-generation",
+      track(event) {
+        events.push(event);
+      },
+    });
+    const { tracer, spans } = createRecordingTracer();
+    __setAgentTracerForTests(tracer as any);
+    const receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: "protected-read",
+      resourceType: "document",
+      placement: "enrolled_broker",
+      status: "executed",
+    });
+    const loopOpts: any = {
+      engine: { name: "anthropic" },
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await runWithProtectedExecutionContext(receipt, () =>
+      instrumentAgentLoop({
+        runAgentLoop: async ({ send }) => {
+          send({
+            type: "tool_start",
+            tool: "protected-tool",
+            input: { body: canary },
+          });
+          send({
+            type: "tool_done",
+            tool: "protected-tool",
+            result: `Error: ${canary}`,
+          });
+          return {
+            inputTokens: 120,
+            outputTokens: 30,
+            cacheReadTokens: 5,
+            cacheWriteTokens: 0,
+            model: "claude-test",
+          };
+        },
+        loopOpts,
+        runId: "run-protected-1",
+        threadId: "thread-protected-1",
+        userId: "user@example.com",
+        config: {
+          ...DEFAULT_OBSERVABILITY_CONFIG,
+          enabled: true,
+          captureToolArgs: true,
+          inferredSentimentEnabled: true,
+        },
+        metadata: { body: canary },
+        sentimentInput: canary,
+      }),
+    );
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    const persisted = traceStore.spans as Array<{
+      spanType: string;
+      errorMessage: string | null;
+      metadata: unknown;
+      inputTokens: number;
+      outputTokens: number;
+    }>;
+    expect(persisted).toHaveLength(3);
+    expect(JSON.stringify(persisted)).not.toContain(canary);
+    expect(
+      persisted.find((span) => span.spanType === "tool_call"),
+    ).toMatchObject({
+      errorMessage: "Protected execution failed",
+      metadata: null,
+    });
+    expect(
+      persisted.find((span) => span.spanType === "agent_run"),
+    ).toMatchObject({ metadata: null, inputTokens: 120, outputTokens: 30 });
+    expect(events).toEqual([]);
+
+    const runSpan = spans.find((span) => span.name === "agent.run");
+    const toolSpan = spans.find((span) => span.name === "tool.call");
+    expect(runSpan?.attributes).toMatchObject({
+      "agent.protected_placement": "enrolled_broker",
+      "agent.protected_resource_type": "document",
+      "agent.input_tokens": 120,
+      "agent.output_tokens": 30,
+    });
+    expect(toolSpan?.status?.message).toBe("Protected execution failed");
+    expect(JSON.stringify(spans)).not.toContain(canary);
+  });
+
+  it("replaces protected run errors and classifier metadata", async () => {
+    const canary = "protected-run-error-canary";
+    const receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: "protected-read",
+      resourceType: "document",
+      placement: "trusted_endpoint",
+      status: "executed",
+    });
+    const loopOpts: any = {
+      engine: {},
+      model: "claude-test",
+      systemPrompt: "",
+      tools: [],
+      messages: [],
+      actions: {},
+      send: () => {},
+      signal: new AbortController().signal,
+    };
+
+    await expect(
+      runWithProtectedExecutionContext(receipt, () =>
+        instrumentAgentLoop({
+          runAgentLoop: async () => {
+            throw new Error(canary);
+          },
+          loopOpts,
+          runId: "run-protected-error",
+          threadId: null,
+          userId: "user@example.com",
+          config: { ...DEFAULT_OBSERVABILITY_CONFIG, enabled: true },
+          metadata: { body: canary },
+          classifyError: () => ({
+            errorMessage: canary,
+            metadata: { body: canary },
+          }),
+        }),
+      ),
+    ).rejects.toThrow(canary);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(traceStore.spans).toEqual([
+      expect.objectContaining({
+        spanType: "agent_run",
+        errorMessage: "Protected execution failed",
+        metadata: null,
+      }),
+    ]);
+    expect(JSON.stringify(traceStore.spans)).not.toContain(canary);
   });
 
   it("no-ops (emits no spans) when no provider is registered", async () => {

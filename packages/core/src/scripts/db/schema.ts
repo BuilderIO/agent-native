@@ -13,6 +13,7 @@ import path from "path";
 
 import { getDatabaseUrl } from "../../db/client.js";
 import { parseArgs } from "../utils.js";
+import { isReservedProtectedTableName } from "./safety.js";
 import {
   createSqliteScriptClient,
   type SqliteScriptClient,
@@ -94,6 +95,7 @@ async function introspectPostgres(
     const tableInfos: TableInfo[] = [];
 
     for (const t of tables) {
+      if (isReservedProtectedTableName(t.name)) continue;
       // Columns
       const cols: any[] = await sql`
         SELECT
@@ -261,9 +263,9 @@ Options:
     const tablesResult = await client.execute(
       `SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name`,
     );
-    const tables = tablesResult.rows.map((row) => ({
-      name: row[0] as string,
-    }));
+    const tables = tablesResult.rows
+      .map((row) => ({ name: row[0] as string }))
+      .filter((table) => !isReservedProtectedTableName(table.name));
 
     const tableInfos: TableInfo[] = [];
 

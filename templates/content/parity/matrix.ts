@@ -678,4 +678,73 @@ export const parityMatrix: ParityRow[] = [
     testCoverage: "seeded",
     followUpPR: null,
   },
+  {
+    id: "sharing.public-document-read",
+    surface: "sharing",
+    label: "Read an intentionally public or document-token-authorized page",
+    uiEntrypoints: ["actions/get-public-document.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "The public page loader uses a UI-only action with uniform not-found behavior; public agent protocols use their dedicated scoped context route.",
+    status: "host-only",
+    actions: ["get-public-document"],
+    exception:
+      "This unauthenticated UI loader is deliberately hidden from model tools because its document-scoped token is a browser transport credential.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["actions/get-public-document.test.ts"],
+  },
+  {
+    id: "sharing.production-privacy-inventory",
+    surface: "sharing",
+    label: "Inspect the aggregate-only production privacy inventory",
+    uiEntrypoints: ["actions/production-privacy-inventory.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "A deployment-security administrator invokes the operator-only action with explicit operator authorization.",
+    status: "host-only",
+    actions: ["production-privacy-inventory"],
+    exception:
+      "The security inventory is an operator control surface, not an end-user or model capability.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: ["server/lib/privacy-inventory.test.ts"],
+  },
+  {
+    id: "editor.private-vault-opaque-relay",
+    surface: "editor",
+    label: "Route opaque Private Vault object and job ciphertext",
+    uiEntrypoints: [
+      "app/lib/private-vault-client.ts",
+      "app/lib/private-vault-job-client.ts",
+    ],
+    durableEffect:
+      "Opaque ciphertext and content-free routing metadata are stored through tenant-scoped relay services without hosted plaintext execution.",
+    uiImplementation:
+      "Named clients call hidden relay primitives. Semantic protected document actions will execute through the enrolled broker instead of exposing storage administration to the hosted model.",
+    status: "host-only",
+    actions: [
+      "cancel-private-vault-job",
+      "delete-private-vault-object",
+      "enqueue-private-vault-job",
+      "get-private-vault-object-metadata",
+      "list-private-vault-jobs",
+      "list-private-vault-object-revisions",
+      "put-private-vault-object",
+    ],
+    exception:
+      "All opaque relay/admin primitives are agentTool: false so ambient hosted-agent authority cannot delete ciphertext, cancel jobs, or bypass broker grants. Ciphertext upload internals are also http: false; named clients use only the streaming-bounded binary routes.",
+    reliabilityRisk: "none",
+    spinePriority: "P0",
+    testCoverage: "covered",
+    followUpPR: "Content Private Vault broker vertical slice",
+    coverageRefs: [
+      "server/lib/private-vault-objects.test.ts",
+      "server/lib/private-vault-jobs.test.ts",
+    ],
+  },
 ];

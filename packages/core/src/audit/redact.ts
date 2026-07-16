@@ -1,3 +1,5 @@
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
+
 /**
  * Redaction for audit-captured arguments.
  *
@@ -83,6 +85,9 @@ function redact(value: unknown, depth: number): unknown {
  * there is nothing to record. Never throws.
  */
 export function redactArgsToJson(args: unknown): string | null {
+  // Protected plaintext is not a credential-shaped special case. It must not
+  // enter an ordinary audit or approval payload at all.
+  if (getProtectedExecutionContext()) return null;
   try {
     if (args == null) return null;
     const redacted = redact(args, 0);

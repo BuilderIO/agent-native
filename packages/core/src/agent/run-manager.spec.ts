@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { runWithProtectedExecutionContext } from "../protected-execution-context.js";
 import {
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -97,6 +98,7 @@ import {
   resolveErroredRunRetentionMs,
   resolveRunSoftTimeoutMs,
   resolveSqlSubscriptionPollMs,
+  sanitizeProtectedRunEvent,
   startRun,
   subscribeToRun,
   SQL_SUBSCRIPTION_ACTIVE_POLL_MS,
@@ -124,6 +126,93 @@ import {
   reapUnclaimedBackgroundRun,
   reconcileTerminalRunFromEvents,
 } from "./run-store.js";
+
+describe("protected run event boundary", () => {
+  it("replaces payload-bearing events with a content-free receipt", () => {
+    const serialized = runWithProtectedExecutionContext(
+      {
+        version: 1,
+        actionName: "private-document",
+        resourceType: "document",
+        placement: "enrolled_broker",
+        status: "queued",
+        queueId: "queue-123",
+      },
+      () =>
+        JSON.stringify(
+          sanitizeProtectedRunEvent({
+            seq: 7,
+            event: {
+              type: "tool_done",
+              tool: "private-document",
+              input: { query: "PRIVATE_INPUT_CANARY" },
+              result: "PRIVATE_RESULT_CANARY",
+            },
+          }),
+        ),
+    );
+
+    expect(serialized).toBe(
+      JSON.stringify({
+        seq: 7,
+        event: {
+          type: "activity",
+          label: "Protected action queued",
+          tool: "private-document",
+          id: "queue-123",
+        },
+      }),
+    );
+    expect(serialized).not.toContain("PRIVATE_INPUT_CANARY");
+    expect(serialized).not.toContain("PRIVATE_RESULT_CANARY");
+  });
+
+  it("preserves only payload-free control events", () => {
+    const event = { seq: 2, event: { type: "done" as const } };
+    const safe = runWithProtectedExecutionContext(
+      {
+        version: 1,
+        actionName: "private-document",
+        resourceType: "document",
+        placement: "enrolled_broker",
+        status: "executed",
+      },
+      () => sanitizeProtectedRunEvent(event),
+    );
+    expect(safe).toBe(event);
+  });
+
+  it("preserves terminal error semantics without its payload", () => {
+    const safe = runWithProtectedExecutionContext(
+      {
+        version: 1,
+        actionName: "private-document",
+        resourceType: "document",
+        placement: "enrolled_broker",
+        status: "executed",
+      },
+      () =>
+        sanitizeProtectedRunEvent({
+          seq: 3,
+          event: {
+            type: "error",
+            error: "PRIVATE_TERMINAL_CANARY",
+            details: "PRIVATE_DETAILS_CANARY",
+          },
+        }),
+    );
+    expect(safe).toEqual({
+      seq: 3,
+      event: {
+        type: "error",
+        error: "Protected execution failed.",
+        errorCode: "protected_execution_error",
+        recoverable: true,
+      },
+    });
+    expect(JSON.stringify(safe)).not.toContain("CANARY");
+  });
+});
 
 const originalTimeoutEnv = process.env.AGENT_RUN_SOFT_TIMEOUT_MS;
 const originalRetentionEnv = process.env.AGENT_RUN_RETENTION_MS;

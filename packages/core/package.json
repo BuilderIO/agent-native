@@ -126,6 +126,7 @@
     "./file-upload": "./dist/file-upload/index.js",
     "./file-upload/actions/upload-image": "./dist/file-upload/actions/upload-image.js",
     "./private-blob": "./dist/private-blob/index.js",
+    "./protected-ciphertext": "./dist/protected-ciphertext/index.js",
     "./agent/context-xray/actions/context-manifest-get": "./dist/agent/context-xray/actions/context-manifest-get.js",
     "./agent/context-xray/actions/context-pin": "./dist/agent/context-xray/actions/context-pin.js",
     "./agent/context-xray/actions/context-evict": "./dist/agent/context-xray/actions/context-evict.js",

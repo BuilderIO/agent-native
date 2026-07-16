@@ -207,6 +207,55 @@ describe("processor seam — processOutputStep abort", () => {
     expect(events.some((e) => e.type === "done")).toBe(false);
   });
 
+  it("shows processors only a marker for protected tool arguments", async () => {
+    let seenToolCalls: { id: string; name: string; input: unknown }[] = [];
+    const processor: Processor = {
+      processOutputStep({ toolCalls }) {
+        if (toolCalls.length > 0) seenToolCalls = toolCalls;
+      },
+    };
+    const protectedAction = readOnlyAction(() => "must not run hosted");
+    protectedAction.resourcePrivacy = {
+      mode: "protected",
+      resourceType: "document",
+      placement: "enrolled_broker",
+    };
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop(
+      baseOpts(
+        scriptedEngine([
+          toolTurn("call-private", "private-document", {
+            query: "PRIVATE_PROCESSOR_CANARY",
+          }),
+          textTurn("queued"),
+        ]),
+        (event) => events.push(event),
+        {
+          processors: [processor],
+          actions: { "private-document": protectedAction },
+          actionExecutionResolver: {
+            placements: ["enrolled_broker"],
+            resolve: async () => ({
+              status: "queued",
+              queueId: "queue-processor-1",
+              placement: "enrolled_broker",
+            }),
+          },
+        },
+      ),
+    );
+
+    expect(seenToolCalls[0]).toEqual({
+      id: "call-private",
+      name: "private-document",
+      input: { protected: true },
+    });
+    expect(JSON.stringify({ seenToolCalls, events })).not.toContain(
+      "PRIVATE_PROCESSOR_CANARY",
+    );
+  });
+
   it("sees zero tool calls and an end_turn finish reason on a final answer", async () => {
     const seen: {
       toolCalls: unknown[];

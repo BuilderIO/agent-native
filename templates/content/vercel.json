@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/private-vault/retention/run",
+      "schedule": "0 3 * * *"
+    }
+  ]
+}

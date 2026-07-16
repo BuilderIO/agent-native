@@ -764,6 +764,310 @@ const runContentMigrations = runMigrations(
       ALTER TABLE document_share_provenance_state ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT '__deployment_security_admin__';
       ALTER TABLE document_share_provenance_state ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
+    {
+      version: 73,
+      name: "content-private-vault-opaque-plane",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vaults (
+        vault_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        account_id TEXT NOT NULL,
+        workspace_id TEXT NOT NULL,
+        vault_state TEXT NOT NULL DEFAULT 'active',
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vaults_scope_unique
+        ON content_encrypted_vaults (owner_email, org_id, account_id, workspace_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vaults_vault_scope_unique
+        ON content_encrypted_vaults (vault_id, owner_email, org_id);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_endpoints (
+        endpoint_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        endpoint_state TEXT NOT NULL,
+        public_identity_json TEXT NOT NULL,
+        health_state TEXT NOT NULL DEFAULT 'unknown',
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_endpoints_vault_endpoint_unique
+        ON content_encrypted_vault_endpoints (vault_id, endpoint_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_endpoints_scope_state_idx
+        ON content_encrypted_vault_endpoints (owner_email, org_id, vault_id, endpoint_state);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_key_epochs (
+        id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        epoch INTEGER NOT NULL,
+        state TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_key_epochs_vault_epoch_unique
+        ON content_encrypted_vault_key_epochs (vault_id, epoch);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_key_epochs_scope_state_idx
+        ON content_encrypted_vault_key_epochs (owner_email, org_id, vault_id, state);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_key_envelopes (
+        envelope_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        epoch INTEGER NOT NULL,
+        sender_endpoint_id TEXT NOT NULL,
+        recipient_endpoint_id TEXT NOT NULL,
+        algorithm_id TEXT NOT NULL,
+        ciphertext_byte_length INTEGER NOT NULL,
+        expires_at TEXT,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_key_envelopes_recipient_epoch_idx
+        ON content_encrypted_vault_key_envelopes (owner_email, org_id, vault_id, recipient_endpoint_id, epoch);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_grants (
+        grant_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        recipient_endpoint_id TEXT NOT NULL,
+        algorithm_id TEXT NOT NULL,
+        ciphertext_byte_length INTEGER NOT NULL,
+        issued_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_grants_scope_expiry_idx
+        ON content_encrypted_vault_grants (owner_email, org_id, vault_id, expires_at);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_grants_recipient_idx
+        ON content_encrypted_vault_grants (vault_id, recipient_endpoint_id);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_disclosures (
+        disclosure_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        grant_id TEXT NOT NULL,
+        endpoint_id TEXT NOT NULL,
+        disclosure_envelope_json TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_disclosures_scope_retention_idx
+        ON content_encrypted_vault_disclosures (owner_email, org_id, vault_id, server_received_at);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_disclosures_grant_idx
+        ON content_encrypted_vault_disclosures (vault_id, grant_id);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_objects (
+        object_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        object_type TEXT NOT NULL,
+        object_state TEXT NOT NULL DEFAULT 'active',
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_objects_vault_object_unique
+        ON content_encrypted_vault_objects (vault_id, object_id);
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_objects_object_scope_unique
+        ON content_encrypted_vault_objects (object_id, vault_id, owner_email, org_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_objects_scope_type_idx
+        ON content_encrypted_vault_objects (owner_email, org_id, vault_id, object_type);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_object_revisions (
+        revision_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        object_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        epoch INTEGER NOT NULL,
+        algorithm_id TEXT NOT NULL,
+        ciphertext_byte_length INTEGER NOT NULL,
+        opaque_revision_json TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (object_id, vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vault_objects(object_id, vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_object_revisions_object_unique
+        ON content_encrypted_vault_object_revisions (object_id, revision_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_object_revisions_scope_cursor_idx
+        ON content_encrypted_vault_object_revisions (owner_email, org_id, vault_id, object_id, server_received_at);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_sync_events (
+        event_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        object_id TEXT,
+        event_type TEXT NOT NULL,
+        opaque_revision_json TEXT,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_sync_events_scope_cursor_idx
+        ON content_encrypted_vault_sync_events (owner_email, org_id, vault_id, server_received_at, event_id);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_jobs (
+        job_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        grant_id TEXT NOT NULL,
+        recipient_endpoint_id TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        algorithm_id TEXT NOT NULL,
+        ciphertext_byte_length INTEGER NOT NULL,
+        issued_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        job_state TEXT NOT NULL DEFAULT 'queued',
+        retry_count INTEGER NOT NULL DEFAULT 0,
+        retry_at TEXT,
+        lease_expires_at TEXT,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_jobs_job_scope_unique
+        ON content_encrypted_vault_jobs (job_id, vault_id, owner_email, org_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_jobs_queue_idx
+        ON content_encrypted_vault_jobs (owner_email, org_id, vault_id, recipient_endpoint_id, job_state, server_received_at);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_jobs_retention_idx
+        ON content_encrypted_vault_jobs (job_state, server_received_at);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_job_results (
+        job_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        endpoint_id TEXT NOT NULL,
+        epoch INTEGER NOT NULL,
+        job_hash TEXT NOT NULL,
+        algorithm_id TEXT NOT NULL,
+        ciphertext_byte_length INTEGER NOT NULL,
+        job_state TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        FOREIGN KEY (job_id, vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vault_jobs(job_id, vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_job_results_scope_retention_idx
+        ON content_encrypted_vault_job_results (owner_email, org_id, vault_id, server_received_at);
+
+      CREATE TABLE IF NOT EXISTS content_encrypted_vault_access_events (
+        access_event_id TEXT PRIMARY KEY,
+        vault_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        version INTEGER NOT NULL DEFAULT 1,
+        access_event_json TEXT NOT NULL,
+        server_received_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_access_events_scope_retention_idx
+        ON content_encrypted_vault_access_events (owner_email, org_id, vault_id, server_received_at)`,
+    },
+    {
+      version: 74,
+      name: "content-private-vault-retention-ledger",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_retention_queue (
+        id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        resource_kind TEXT NOT NULL,
+        resource_id TEXT NOT NULL,
+        epoch INTEGER,
+        phase TEXT NOT NULL DEFAULT 'pending',
+        trigger_at TEXT NOT NULL,
+        due_at TEXT NOT NULL,
+        deadline_at TEXT NOT NULL,
+        lease_owner TEXT,
+        lease_expires_at TEXT,
+        attempt_count INTEGER NOT NULL DEFAULT 0,
+        last_attempt_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS content_encrypted_vault_retention_resource_unique
+        ON content_encrypted_vault_retention_queue
+        (owner_email, org_id, vault_id, resource_kind, resource_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_retention_due_idx
+        ON content_encrypted_vault_retention_queue (phase, due_at, lease_expires_at);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_retention_scope_idx
+        ON content_encrypted_vault_retention_queue (owner_email, org_id, vault_id)`,
+    },
+    {
+      version: 75,
+      name: "content-private-vault-storage-binding",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_storage_bindings (
+        binding_id TEXT PRIMARY KEY,
+        provider_id TEXT NOT NULL,
+        generation_digest TEXT NOT NULL,
+        bound_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      )`,
+    },
+    {
+      version: 76,
+      name: "content-private-vault-ciphertext-staging",
+      sql: `CREATE TABLE IF NOT EXISTS content_encrypted_vault_ciphertext_staging (
+        stage_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL,
+        org_id TEXT NOT NULL DEFAULT '',
+        vault_id TEXT NOT NULL,
+        coordinate_kind TEXT NOT NULL,
+        object_id TEXT,
+        revision_id TEXT,
+        job_id TEXT,
+        part TEXT NOT NULL,
+        staged_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL,
+        FOREIGN KEY (vault_id, owner_email, org_id)
+          REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE
+      );
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_ciphertext_staging_expiry_idx
+        ON content_encrypted_vault_ciphertext_staging (expires_at, stage_id);
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_ciphertext_staging_scope_idx
+        ON content_encrypted_vault_ciphertext_staging (owner_email, org_id, vault_id)`,
+    },
+    {
+      version: 77,
+      name: "content-private-vault-ciphertext-staging-fence",
+      sql: `ALTER TABLE content_encrypted_vault_ciphertext_staging ADD COLUMN IF NOT EXISTS phase TEXT NOT NULL DEFAULT 'active';
+      ALTER TABLE content_encrypted_vault_ciphertext_staging ADD COLUMN IF NOT EXISTS claim_token TEXT;
+      ALTER TABLE content_encrypted_vault_ciphertext_staging ADD COLUMN IF NOT EXISTS claim_expires_at TEXT;
+      ALTER TABLE content_encrypted_vault_ciphertext_staging ADD COLUMN IF NOT EXISTS finalized_at TEXT;
+      DROP INDEX IF EXISTS content_encrypted_vault_ciphertext_staging_expiry_idx;
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_ciphertext_staging_expiry_idx
+        ON content_encrypted_vault_ciphertext_staging (phase, expires_at, claim_expires_at, stage_id)`,
+    },
+    {
+      version: 78,
+      name: "content-private-vault-retention-generation-fence",
+      sql: `ALTER TABLE content_encrypted_vault_retention_queue ADD COLUMN IF NOT EXISTS trigger_generation TEXT NOT NULL DEFAULT 'legacy-v1';
+      ALTER TABLE content_encrypted_vault_retention_queue ADD COLUMN IF NOT EXISTS purged_at TEXT;
+      DROP INDEX IF EXISTS content_encrypted_vault_retention_due_idx;
+      CREATE INDEX IF NOT EXISTS content_encrypted_vault_retention_due_idx
+        ON content_encrypted_vault_retention_queue (phase, due_at, lease_expires_at, trigger_generation)`,
+    },
   ],
   { table: "content_migrations" },
 );

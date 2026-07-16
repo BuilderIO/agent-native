@@ -239,17 +239,17 @@ Required behavior:
 
 ### Entry-gate map
 
-| Gate                                    | Must be complete before | Required output                                                                                                                                                                                                                                                                                                                                                          |
-| --------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Production exposure inventory           | PR 1 opens              | [Production content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md). The fork lab now has an audited operator-only aggregate inventory plus disposable CDN and private-provider proof; production visibility/grant counts and provider IAM/retention still require production operator access before upstream rollout.                   |
-| F3 plaintext and derivative inventory   | PR 3 opens              | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending                                                                                                                                                                                |
+| Gate                                    | Must be complete before | Required output                                                                                                                                                                                                                                                                                                                                                                                                     |
+| --------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Production exposure inventory           | PR 1 opens              | [Production content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md). The fork lab now has an audited operator-only aggregate inventory plus disposable CDN and private-provider proof; production visibility/grant counts and provider IAM/retention still require production operator access before upstream rollout.                                                              |
+| F3 plaintext and derivative inventory   | PR 3 opens              | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending                                                                                                                                                                                                                           |
 | F4 remediation matrix                   | PR 1 opens              | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); public/private delivery, short-token expiry, operator inventory, private-provider behavior, document-media deletion, and cross-account document isolation have deployed fork proof. Two-account media share revocation, Notion OAuth, extension, A2A, and exhaustive existence-parity proof remain. |
-| M1 personal-vault domain                | PR 3 opens              | [Versioned domain schema and Content contract frozen](./content-e2ee-m1-m2-executable-contract.md); storage invariants arrive in PR 4.                                                                                                                                                                                                                                   |
-| M2 protected-field and metadata budget  | PR 3 opens              | [Exact hosted-field allowlist, leakage budget, retention/deletion table, Content manifest, and structural rejection guard frozen](./content-e2ee-m1-m2-executable-contract.md).                                                                                                                                                                                          |
-| M3 cryptographic architecture           | PR 4 opens              | [Frozen design and unconditional independent-review GO complete](./content-e2ee-m3-cryptographic-design.md): exact `anc/v1` suite, deterministic canonical encoding, 14 fixed known-byte envelopes, native/WASM parity, malicious-relay harness, and executable ceremony transcripts. Runtime proof adapters and authenticated durable replay remain PR 5 implementation requirements, not open design decisions. |
-| K1 device identity and enrollment       | PR 5 opens              | Existing-device or recovery-mediated enrollment ceremony; server directory cannot add a device alone                                                                                                                                                                                                                                                                     |
-| K2 recovery                             | PR 5 opens              | Verified recovery-material format and lost-all-paths behavior; no Agent Native recovery key                                                                                                                                                                                                                                                                              |
-| Signed desktop and agent-loop placement | PR 5 opens              | Desktop-only private-vault client; vault-scoped agent loop runs on the enrolled broker                                                                                                                                                                                                                                                                                   |
+| M1 personal-vault domain                | PR 3 opens              | [Versioned domain schema and Content contract frozen](./content-e2ee-m1-m2-executable-contract.md); storage invariants arrive in PR 4.                                                                                                                                                                                                                                                                              |
+| M2 protected-field and metadata budget  | PR 3 opens              | [Exact hosted-field allowlist, leakage budget, retention/deletion table, Content manifest, and structural rejection guard frozen](./content-e2ee-m1-m2-executable-contract.md).                                                                                                                                                                                                                                     |
+| M3 cryptographic architecture           | PR 4 opens              | [Frozen design and unconditional independent-review GO complete](./content-e2ee-m3-cryptographic-design.md): exact `anc/v1` suite, deterministic canonical encoding, 14 fixed known-byte envelopes, native/WASM parity, malicious-relay harness, and executable ceremony transcripts. Runtime proof adapters and authenticated durable replay remain PR 5 implementation requirements, not open design decisions.   |
+| K1 device identity and enrollment       | PR 5 opens              | Existing-device or recovery-mediated enrollment ceremony; server directory cannot add a device alone                                                                                                                                                                                                                                                                                                                |
+| K2 recovery                             | PR 5 opens              | Verified recovery-material format and lost-all-paths behavior; no Agent Native recovery key                                                                                                                                                                                                                                                                                                                         |
+| Signed desktop and agent-loop placement | PR 5 opens              | Desktop-only private-vault client; vault-scoped agent loop runs on the enrolled broker                                                                                                                                                                                                                                                                                                                              |
 
 The product decisions behind these gates are settled in the trust contract. The listed outputs refine them into executable schemas, ceremonies, and tests; they do not reopen vendor key escrow, hosted plaintext agent loops, or browser vault access. PR 3 may define versioned opaque envelope schemas and failing vectors, but PR 4 may not implement encryption or key custody until M3 has passed focused cryptographic design review.
 
@@ -334,6 +334,52 @@ Exit gate:
 
 - A dump of SQL, blobs, event streams, audit, job queues, and logs contains no synthetic protected plaintext or decryption key.
 - Hosted code has no decrypt API for protected objects.
+
+Current fork implementation (2026-07-16):
+
+- Fifteen additive `content_encrypted_vault_*` tables now hold only opaque
+  routing records, retention/staging coordinates, and one deployment-global
+  storage-generation digest. Large ciphertext is isolated in the protected
+  Blob namespace; provider locators and credentials never enter SQL.
+- Object revisions and encrypted jobs use the crash-safe order `stage SQL ->
+write immutable Blob -> atomically commit hosted metadata plus the stage
+  tombstone`. A 24-hour reconciler claims abandoned coordinates with a leased
+  token; a writer can commit only while its stage remains active. Permanent
+  staging and parent-retention tombstones forbid coordinate reuse, and
+  object/job terminal transitions enqueue scoped deletion in the same SQL
+  transaction.
+- The retention worker uses immutable trigger generations and lease/generation
+  compare-and-swap fences, deletes ciphertext before SQL, checkpoints that
+  phase, and retains a permanent purged-coordinate tombstone. It retries
+  without persisting provider errors, purges resource metadata within the
+  30-day maximum, and removes access/disclosure evidence after its full 90-day
+  live period on a cadence inside the seven-day purge window.
+- All opaque relay/admin actions are hidden from hosted and external model tool
+  catalogs. Raw DB tools, extensions, and schema prompting cannot reach any
+  protected table. Named clients strictly parse suite/opaque coordinates and
+  enforce declared plus actual streaming byte limits against a malicious relay.
+- Protected execution inputs/results are replaced by content-free receipts in
+  hosted run events, audit, analytics, application state, traces, error capture,
+  ledgers, journals, caches, MCP, run-code, and generated-edge transports. Raw
+  console calls are statically forbidden in protected action/broker modules.
+- The Vercel protected store requires
+  `AGENT_NATIVE_PROTECTED_CIPHERTEXT_STORAGE_GENERATION`; its one-way digest is
+  pinned in SQL and startup refuses a later provider/generation mismatch.
+  `CRON_SECRET` (or the manual-run fallback
+  `CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET`) is also required. The fork's
+  `vercel.json` invokes `/api/private-vault/retention/run` daily at 03:00 UTC,
+  while a warm process also attempts six-hour sweeps. The daily durable trigger
+  is compatible with Vercel Hobby limits and remains comfortably inside the
+  seven-day contractual maximum.
+
+Focused evidence: 474 Core execution/transport/sink tests passed in the PR4
+gate; 137 Content relay, client, route, staging, retention, migration, and
+hosted-record tests passed. The Content gate includes real temporary-SQLite
+tests proving that a janitor-owned stage rolls object/job metadata back and a
+writer-owned stage commits metadata plus its tombstone atomically. Core build,
+Content typecheck, and diff validation passed. The deployed fork
+SQL/Blob/event/audit/log dump remains the final PR4 exit proof before PR5
+starts.
 
 Estimated size: 25–45 files; 3–4 engineer-weeks. Core changes require a changeset.
 

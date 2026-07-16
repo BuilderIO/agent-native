@@ -1,6 +1,18 @@
 import { describe, expect, it } from "vitest";
 
+import {
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+} from "../protected-execution-context.js";
 import { redactArgsToJson, __test } from "./redact.js";
+
+const PROTECTED_RECEIPT = protectedExecutionReceiptSchema.parse({
+  version: 1,
+  actionName: "protected-read",
+  resourceType: "document",
+  placement: "enrolled_broker",
+  status: "executed",
+});
 
 describe("redactArgsToJson", () => {
   it("redacts credential-looking keys", () => {
@@ -78,5 +90,16 @@ describe("redactArgsToJson", () => {
     const a: any = { name: "x" };
     a.self = a;
     expect(() => redactArgsToJson(a)).not.toThrow();
+  });
+
+  it("drops the complete payload during protected execution", () => {
+    const canary = "protected-plaintext-canary";
+
+    expect(
+      runWithProtectedExecutionContext(PROTECTED_RECEIPT, () =>
+        redactArgsToJson({ body: canary, nested: { title: canary } }),
+      ),
+    ).toBeNull();
+    expect(redactArgsToJson({ body: canary })).toContain(canary);
   });
 });

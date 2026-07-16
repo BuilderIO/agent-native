@@ -68,8 +68,9 @@ export {
 } from "./framework-request-handler.js";
 export { runWithRequestContext } from "./request-context.js";
 export {
+  ActionExecutionDeniedError,
   createActionInvocationDescriptor,
-  executeActionEntry,
+  dispatchActionEntry,
   isActionExecutionDeniedError,
   runActionEntry,
   unwrapActionExecutionOutcome,

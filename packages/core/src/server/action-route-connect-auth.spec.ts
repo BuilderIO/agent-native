@@ -73,6 +73,7 @@ function mockEmptyDb() {
   const execute = vi.fn().mockResolvedValue({ rows: [] });
   vi.doMock("../db/client.js", () => ({
     getDbExec: () => ({ execute }),
+    getDialect: () => "sqlite",
     isPostgres: () => false,
     isLocalDatabase: () => true,
     intType: () => "INTEGER",

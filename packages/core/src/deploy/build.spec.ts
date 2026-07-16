@@ -184,15 +184,69 @@ describe("generateWorkerEntry", { timeout: 15_000 }, () => {
       [{ name: "protected", absPath: "/fixture/protected.ts", method: "post" }],
     );
     expect(source).toContain(
-      'import { createActionInvocationDescriptor, isActionExecutionDeniedError, runActionEntry } from "@agent-native/core/server/edge";',
+      'import { ActionExecutionDeniedError, createActionInvocationDescriptor, dispatchActionEntry, isActionExecutionDeniedError, unwrapActionExecutionOutcome } from "@agent-native/core/server/edge";',
     );
     expect(source).toContain(
       'const invocation = createActionInvocationDescriptor("generated-edge")',
     );
     expect(source).toContain(
-      "const result = await runActionEntry({ entry: action_0",
+      "const result = await dispatchGeneratedEdgeAction({ entry: action_0",
     );
+    expect(source).toContain("if (action_0.resourcePrivacy != null)");
+    expect(
+      source.indexOf("if (action_0.resourcePrivacy != null)"),
+    ).toBeLessThan(
+      source.indexOf("const params = (await readBody(event)) ?? {}"),
+    );
+    expect(source).toContain("protected_plaintext_delivery_forbidden");
     expect(source).not.toContain("await action_0.run(params");
+  });
+
+  it("returns only a denial receipt for protected generated-edge actions", async () => {
+    const dir = makeTempDir();
+    const actionPath = path.join(dir, "protected-action.mjs");
+    fs.writeFileSync(
+      actionPath,
+      `
+export default {
+  resourcePrivacy: {
+    mode: "protected",
+    resourceType: "document",
+    placement: "enrolled_broker",
+  },
+  run: async () => ({ plaintext: "private-edge-result-canary" }),
+};
+`,
+    );
+    const worker = await importGeneratedWorker(
+      generateWorkerEntry(
+        [],
+        [],
+        [],
+        [{ name: "protected", absPath: actionPath, method: "post" }],
+      ),
+    );
+
+    const response = await worker.fetch(
+      new Request("https://app.test/_agent-native/actions/protected", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "private-edge-input-canary is deliberately not JSON",
+      }),
+      {},
+      {},
+    );
+    const body = await response.text();
+    expect(response.status).toBe(200);
+    expect(JSON.parse(body)).toEqual({
+      version: 1,
+      actionName: "protected",
+      resourceType: "document",
+      placement: "enrolled_broker",
+      status: "denied",
+    });
+    expect(body).not.toContain("private-edge-input-canary");
+    expect(body).not.toContain("private-edge-result-canary");
   });
 
   it("pre-marks generated plugin slots before running async plugins", () => {

@@ -1,5 +1,9 @@
 import { describe, expect, it, vi } from "vitest";
 
+import {
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+} from "../protected-execution-context.js";
 import { captureError, registerErrorCaptureProvider } from "./capture-error.js";
 
 describe("server captureError", () => {
@@ -47,5 +51,47 @@ describe("server captureError", () => {
     expect(result).toBe("evt_ok");
     expect(throwing).toHaveBeenCalledTimes(1);
     expect(working).toHaveBeenCalledTimes(1);
+  });
+
+  it("replaces protected errors and context with content-free facts", () => {
+    const canary = "protected-plaintext-canary";
+    const provider = vi.fn(() => "evt_protected");
+    const unregister = registerErrorCaptureProvider("protected-test", provider);
+    const receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: "protected-read",
+      resourceType: "document",
+      placement: "enrolled_broker",
+      status: "executed",
+    });
+
+    const result = runWithProtectedExecutionContext(receipt, () =>
+      captureError(new Error(canary), {
+        route: `/${canary}`,
+        method: canary,
+        userAgent: canary,
+        tags: { raw: canary },
+        extra: { raw: canary },
+        contexts: { raw: { value: canary } },
+      }),
+    );
+    unregister();
+
+    expect(result).toBe("evt_protected");
+    expect(provider).toHaveBeenCalledTimes(1);
+    const [error, context] = provider.mock.calls[0]!;
+    expect(error).toMatchObject({
+      name: "ProtectedExecutionError",
+      message: "Protected execution failed",
+      code: "protected_execution_error",
+    });
+    expect(context).toEqual({
+      tags: {
+        action: "protected-read",
+        resourceType: "document",
+        placement: "enrolled_broker",
+      },
+    });
+    expect(JSON.stringify([error, context])).not.toContain(canary);
   });
 });

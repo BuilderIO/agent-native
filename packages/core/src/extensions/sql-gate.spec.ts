@@ -67,6 +67,14 @@ describe("extension SQL gate — comment-evasion resistance", () => {
         ),
       ).toBe(true);
     });
+    it("blocks every protected Content vault table", () => {
+      expect(
+        matchesSqlGate(
+          SENSITIVE_SQL_RE,
+          "SELECT * FROM content_encrypted_vault_object_revisions",
+        ),
+      ).toBe(true);
+    });
     it("does not flag a legitimate tool_data query with a real comment", () => {
       expect(
         matchesSqlGate(

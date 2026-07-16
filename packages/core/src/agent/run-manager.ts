@@ -1,3 +1,4 @@
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
 import { captureError } from "../server/capture-error.js";
 import {
   isLlmCredentialError,
@@ -46,6 +47,57 @@ export interface ActiveRun {
 
 const activeRuns = new Map<string, ActiveRun>();
 const threadToRun = new Map<string, string>();
+
+/**
+ * A protected callback is never a durable or broadcast sink. Preserve only
+ * payload-free control events; replace every other event with an admitted,
+ * content-free activity receipt before it can reach memory, subscribers, or
+ * SQL. This is intentionally lossy: losing presentation detail is safer than
+ * teaching a new event variant how to smuggle plaintext.
+ */
+export function sanitizeProtectedRunEvent(runEvent: RunEvent): RunEvent {
+  const context = getProtectedExecutionContext();
+  if (!context) return runEvent;
+  if (
+    runEvent.event.type === "done" ||
+    runEvent.event.type === "stream_keepalive" ||
+    runEvent.event.type === "clear" ||
+    runEvent.event.type === "missing_api_key" ||
+    runEvent.event.type === "loop_limit" ||
+    runEvent.event.type === "auto_continue"
+  ) {
+    return runEvent;
+  }
+  if (runEvent.event.type === "error") {
+    return {
+      seq: runEvent.seq,
+      event: {
+        type: "error",
+        error: "Protected execution failed.",
+        errorCode: "protected_execution_error",
+        recoverable: true,
+      },
+    };
+  }
+  if (runEvent.event.type === "tripwire") {
+    return {
+      seq: runEvent.seq,
+      event: { type: "tripwire", reason: "Protected execution stopped." },
+    };
+  }
+  const receipt = context.receipt;
+  return {
+    seq: runEvent.seq,
+    event: {
+      type: "activity",
+      label: `Protected action ${receipt.status}`,
+      tool: receipt.actionName,
+      ...(receipt.operationId || receipt.queueId
+        ? { id: receipt.operationId ?? receipt.queueId }
+        : {}),
+    },
+  };
+}
 
 /** How long to keep completed runs in memory before cleanup (5 min) */
 const CLEANUP_DELAY_MS = 5 * 60 * 1000;
@@ -826,12 +878,13 @@ export function startRun(
     runEvent: RunEvent,
     options?: { surfacePersistenceError?: boolean },
   ): Promise<void> => {
-    run.events.push(runEvent);
+    const safeRunEvent = sanitizeProtectedRunEvent(runEvent);
+    run.events.push(safeRunEvent);
 
     // Notify in-memory subscribers (same isolate, fast path)
     for (const subscriber of run.subscribers) {
       try {
-        subscriber(runEvent);
+        subscriber(safeRunEvent);
       } catch {
         run.subscribers.delete(subscriber);
       }
@@ -843,8 +896,8 @@ export function startRun(
     // a hung run from a healthy one. Keepalive and zero-byte action prep are
     // liveness only; streamed input bytes, text, and tool lifecycle events are
     // real progress.
-    trackInFlightWork(runEvent.event);
-    if (shouldBumpProgressForEvent(runEvent.event)) {
+    trackInFlightWork(safeRunEvent.event);
+    if (shouldBumpProgressForEvent(safeRunEvent.event)) {
       lastRealProgressAt = Date.now();
       bumpProgressIfDue();
     }
@@ -855,14 +908,18 @@ export function startRun(
     // reconnecting clients. Terminal events surface persistence errors so the
     // caller can decide how to handle a failed final write.
     const thisInsert = persistenceChain.then(() =>
-      insertRunEvent(runId, runEvent.seq, JSON.stringify(runEvent.event)),
+      insertRunEvent(
+        runId,
+        safeRunEvent.seq,
+        JSON.stringify(safeRunEvent.event),
+      ),
     );
     persistenceChain = thisInsert.catch((error) => {
       if (!eventPersistenceErrorCaptured) {
         eventPersistenceErrorCaptured = true;
         captureRunPersistenceError(error, "insert-event", {
-          seq: runEvent.seq,
-          eventType: runEvent.event.type,
+          seq: safeRunEvent.seq,
+          eventType: safeRunEvent.event.type,
         });
       }
     });
@@ -878,7 +935,10 @@ export function startRun(
   const send = (event: AgentChatEvent) => {
     if (run.status === "aborted" && abort.signal.aborted) return;
 
-    const runEvent: RunEvent = { seq: run.events.length, event };
+    const runEvent = sanitizeProtectedRunEvent({
+      seq: run.events.length,
+      event,
+    });
     if (isTerminalRunEvent(event)) {
       pendingTerminalEvent = runEvent;
       return;

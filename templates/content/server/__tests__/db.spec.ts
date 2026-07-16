@@ -150,4 +150,153 @@ describe("content database migrations", () => {
     expect(executionDelete).toBeLessThan(changeSetDelete);
     expect(reviewDelete).toBeLessThan(changeSetDelete);
   });
+
+  it("creates the Content Private Vault opaque plane in one named additive migration", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source.match(/content-private-vault-opaque-plane/g)).toHaveLength(1);
+    expect(source).toContain("version: 73");
+    for (const table of [
+      "content_encrypted_vaults",
+      "content_encrypted_vault_endpoints",
+      "content_encrypted_vault_key_epochs",
+      "content_encrypted_vault_key_envelopes",
+      "content_encrypted_vault_grants",
+      "content_encrypted_vault_disclosures",
+      "content_encrypted_vault_objects",
+      "content_encrypted_vault_object_revisions",
+      "content_encrypted_vault_sync_events",
+      "content_encrypted_vault_jobs",
+      "content_encrypted_vault_job_results",
+      "content_encrypted_vault_access_events",
+    ]) {
+      expect(source).toContain(`CREATE TABLE IF NOT EXISTS ${table}`);
+    }
+    const opaquePlane = source.slice(
+      source.indexOf('name: "content-private-vault-opaque-plane"'),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf("content-private-vault-opaque-plane"),
+      ),
+    );
+    expect(opaquePlane.match(/owner_email TEXT NOT NULL,/g)).toHaveLength(12);
+    expect(opaquePlane.match(/org_id TEXT NOT NULL DEFAULT '',/g)).toHaveLength(
+      12,
+    );
+    expect(source).not.toContain(
+      "content_encrypted_vaults (\n        vault_id TEXT PRIMARY KEY,\n        owner_email TEXT NOT NULL DEFAULT 'local@localhost'",
+    );
+    expect(source).not.toContain("content_encrypted_vault_shares");
+  });
+
+  it("binds child rows to the same physical tenant scope with composite foreign keys", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+
+    expect(source).toContain("content_encrypted_vaults_vault_scope_unique");
+    expect(
+      source.match(/FOREIGN KEY \(vault_id, owner_email, org_id\)/g),
+    ).toHaveLength(8);
+    expect(source).toContain(
+      "REFERENCES content_encrypted_vaults(vault_id, owner_email, org_id) ON DELETE CASCADE",
+    );
+    expect(source).toContain(
+      "content_encrypted_vault_objects_object_scope_unique",
+    );
+    expect(source).toContain(
+      "FOREIGN KEY (object_id, vault_id, owner_email, org_id)",
+    );
+    expect(source).toContain(
+      "REFERENCES content_encrypted_vault_objects(object_id, vault_id, owner_email, org_id) ON DELETE CASCADE",
+    );
+    expect(source).toContain("content_encrypted_vault_jobs_job_scope_unique");
+    expect(source).toContain(
+      "FOREIGN KEY (job_id, vault_id, owner_email, org_id)",
+    );
+    expect(source).toContain(
+      "REFERENCES content_encrypted_vault_jobs(job_id, vault_id, owner_email, org_id) ON DELETE CASCADE",
+    );
+  });
+
+  it("keeps retained disclosure and access evidence independent of vault cascades", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const disclosure = source.slice(
+      source.indexOf(
+        "CREATE TABLE IF NOT EXISTS content_encrypted_vault_disclosures",
+      ),
+      source.indexOf(
+        "CREATE TABLE IF NOT EXISTS content_encrypted_vault_objects",
+      ),
+    );
+    const access = source.slice(
+      source.indexOf(
+        "CREATE TABLE IF NOT EXISTS content_encrypted_vault_access_events",
+      ),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf("content_encrypted_vault_access_events"),
+      ),
+    );
+
+    expect(disclosure).not.toContain("FOREIGN KEY");
+    expect(access).not.toContain("FOREIGN KEY");
+    expect(disclosure).toContain("scope_retention_idx");
+    expect(access).toContain("scope_retention_idx");
+  });
+
+  it("stores only ciphertext coordinates, never protected bodies or provider handles", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const opaquePlane = source.slice(
+      source.indexOf('name: "content-private-vault-opaque-plane"'),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf("content-private-vault-opaque-plane"),
+      ),
+    );
+
+    expect(opaquePlane).not.toMatch(/\bblob_handle/);
+    expect(opaquePlane).not.toMatch(/\bwrapped_key\b/);
+    expect(opaquePlane).not.toMatch(/\brequest_ciphertext\b/);
+    expect(opaquePlane).not.toMatch(/\bresult_ciphertext\b/);
+    expect(opaquePlane).not.toMatch(/\bciphertext\s+TEXT/);
+    expect(opaquePlane).toContain("ciphertext_byte_length INTEGER NOT NULL");
+  });
+
+  it("adds the immutable retention generation and terminal tombstone fence", () => {
+    const source = readFileSync(
+      join(__dirname, "..", "plugins", "db.ts"),
+      "utf8",
+    );
+    const migration = source.slice(
+      source.indexOf(
+        'name: "content-private-vault-retention-generation-fence"',
+      ),
+      source.indexOf(
+        "`,\n    },",
+        source.indexOf(
+          'name: "content-private-vault-retention-generation-fence"',
+        ),
+      ),
+    );
+
+    expect(source).toContain("version: 78");
+    expect(migration).toContain(
+      "trigger_generation TEXT NOT NULL DEFAULT 'legacy-v1'",
+    );
+    expect(migration).toContain("purged_at TEXT");
+    expect(migration).toContain(
+      "(phase, due_at, lease_expires_at, trigger_generation)",
+    );
+  });
 });

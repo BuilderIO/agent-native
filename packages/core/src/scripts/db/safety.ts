@@ -4,7 +4,12 @@ import { fail } from "../utils.js";
 // agent DB tools. They contain OAuth tokens, encrypted API keys, sessions, or
 // auth identity data; use the framework stores/actions instead.
 const SENSITIVE_FRAMEWORK_TABLE_RE =
-  /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+  /\b(app_secrets|oauth_tokens|user|users|session|sessions|account|accounts|verification|jwks|organization|member|invitation|org_members|org_invitations|content_encrypted_vault[a-z0-9_]*|pg_catalog|information_schema|pg_class|pg_proc|pg_namespace|pg_user|pg_roles|pg_authid|pg_shadow)\b/i;
+
+/** Protected E2EE plane tables are reachable only through reviewed stores. */
+export function isReservedProtectedTableName(value: string): boolean {
+  return /^content_encrypted_vault(?:s|_[a-z0-9_]+)$/i.test(value.trim());
+}
 
 function stripSqlNonIdentifiers(sql: string): string {
   let out = "";

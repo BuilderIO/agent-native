@@ -1,3 +1,4 @@
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
 import type { TrackingProvider, TrackingEvent } from "./types.js";
 
 const REGISTRY_KEY = Symbol.for("@agent-native/core/tracking.registry");
@@ -36,6 +37,9 @@ export function track(
   properties?: Record<string, unknown>,
   meta?: { userId?: string },
 ): void {
+  // Arbitrary analytics properties have no protected hosted-field contract.
+  // Drop the whole event instead of attempting heuristic redaction.
+  if (getProtectedExecutionContext()) return;
   const event: TrackingEvent = {
     name,
     properties,

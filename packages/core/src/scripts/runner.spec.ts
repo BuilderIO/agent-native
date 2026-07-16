@@ -94,6 +94,37 @@ describe("runScript package actions", () => {
                 return "must-not-run";
               },
             },
+            "protected-executed-action": {
+              tool: {
+                description: "Protected executed fixture action",
+                parameters: { type: "object", properties: {} },
+              },
+              resourcePrivacy: {
+                mode: "protected",
+                resourceType: "fixture",
+                placement: "enrolled_broker",
+              },
+              run: async () => {
+                writeFileSync("protected-executed-ran", "bad");
+                return "must-not-run";
+              },
+            },
+          },
+          actionExecutionResolver: {
+            placements: ["enrolled_broker"],
+            resolve: async (request) => !request.policy
+              ? { status: "execute-local" }
+              : request.actionName === "protected-executed-action"
+                ? {
+                    status: "executed",
+                    placement: "enrolled_broker",
+                    result: { plaintext: "private-cli-result-canary" },
+                  }
+                : {
+                    status: "denied",
+                    code: "fixture-denied",
+                    message: "private resolver detail must not escape",
+                  },
           },
         });
       `,
@@ -165,7 +196,7 @@ describe("runScript package actions", () => {
     });
   }, 40_000);
 
-  it("fails protected CLI actions closed without an explicit resolver", () => {
+  it("prints only a content-free receipt for protected CLI denial", () => {
     const result = spawnSync(
       tsxCommand,
       [...tsxLeadingArgs, "actions/run.ts", "protected-package-action"],
@@ -177,11 +208,44 @@ describe("runScript package actions", () => {
       },
     );
 
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("status: 'denied'");
+    expect(result.stdout).toContain("resourceType: 'fixture'");
+    expect(result.stdout).not.toContain("must-not-run");
+    expect(result.stdout).not.toContain("private resolver detail");
+    expect(result.stderr).toBe("");
+    expect(fs.existsSync(path.join(tmpDir, "protected-ran"))).toBe(false);
+  }, 40_000);
+
+  it("never prints protected CLI input or executed plaintext", () => {
+    const result = spawnSync(
+      tsxCommand,
+      [
+        ...tsxLeadingArgs,
+        "actions/run.ts",
+        "protected-executed-action",
+        "--plaintext",
+        "private-cli-input-canary",
+      ],
+      {
+        cwd: tmpDir,
+        encoding: "utf8",
+        env: { ...process.env, AGENT_USER_EMAIL: "owner@example.test" },
+        timeout: spawnTimeoutMs,
+      },
+    );
+
     expect(result.status).toBe(1);
     expect(result.stderr).toContain(
-      "requires an eligible enrolled_broker resolver",
+      "cannot deliver plaintext through the CLI transport",
     );
-    expect(fs.existsSync(path.join(tmpDir, "protected-ran"))).toBe(false);
+    expect(result.stderr).not.toContain("private-cli-input-canary");
+    expect(result.stderr).not.toContain("private-cli-result-canary");
+    expect(result.stdout).not.toContain("private-cli-input-canary");
+    expect(result.stdout).not.toContain("private-cli-result-canary");
+    expect(fs.existsSync(path.join(tmpDir, "protected-executed-ran"))).toBe(
+      false,
+    );
   }, 40_000);
 
   it("runs a package action with a positional JSON object", () => {

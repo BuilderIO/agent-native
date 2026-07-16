@@ -1,5 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+} from "../protected-execution-context.js";
 import type { AuditEvent } from "./types.js";
 
 const insertAuditEvent = vi.fn<(e: AuditEvent) => Promise<void>>();
@@ -18,6 +22,15 @@ const { recordActionAudit, recordRequiredActionAudit } =
 function lastEvent(): AuditEvent {
   return insertAuditEvent.mock.calls.at(-1)![0];
 }
+
+const PROTECTED_RECEIPT = protectedExecutionReceiptSchema.parse({
+  version: 1,
+  actionName: "protected-read",
+  resourceType: "document",
+  placement: "enrolled_broker",
+  status: "executed",
+  operationId: "operation:fixture-01",
+});
 
 beforeEach(() => {
   insertAuditEvent.mockReset();
@@ -255,6 +268,80 @@ describe("recordActionAudit attribution", () => {
     const ev = lastEvent();
     expect(ev.status).toBe("error");
     expect(ev.errorCode).toBe("DOC_LOCKED");
+  });
+
+  it("persists only receipt facts and low-cardinality lineage for protected actions", async () => {
+    const canary = "protected-plaintext-canary";
+    const target = vi.fn(() => ({
+      type: canary,
+      id: canary,
+      ownerEmail: "owner@example.com",
+    }));
+    const summary = vi.fn(() => canary);
+    getIntegrationRequestContext.mockReturnValue({
+      taskId: canary,
+      lineage: {
+        runId: canary,
+        parentTaskId: canary,
+        source: {
+          kind: "integration",
+          platform: "slack",
+          id: canary,
+          url: canary,
+        },
+        network: {
+          protocol: "a2a",
+          id: canary,
+          peer: canary,
+        },
+      },
+    });
+
+    await runWithProtectedExecutionContext(PROTECTED_RECEIPT, () =>
+      recordActionAudit({
+        config: { target, summary },
+        args: { body: canary },
+        result: { body: canary },
+        error: new Error(canary),
+        ctx: {
+          actionName: canary,
+          caller: "tool",
+          userEmail: "actor@example.com",
+          orgId: "org-example",
+          threadId: canary,
+          turnId: canary,
+        },
+        status: "error",
+      }),
+    );
+
+    const event = lastEvent();
+    expect(target).not.toHaveBeenCalled();
+    expect(summary).not.toHaveBeenCalled();
+    expect(event).toMatchObject({
+      targetType: "document",
+      targetId: "operation:fixture-01",
+      action: "protected-read",
+      summary: "Protected action executed via enrolled_broker",
+      input: null,
+      errorCode: "protected-action-failed",
+      actorKind: "agent",
+      actorEmail: "actor@example.com",
+      orgId: "org-example",
+      sourceKind: "integration",
+      sourcePlatform: "slack",
+      networkProtocol: "a2a",
+      threadId: null,
+      turnId: null,
+      runId: null,
+      taskId: null,
+      parentTaskId: null,
+      sourceId: null,
+      sourceUrl: null,
+      networkId: null,
+      networkPeer: null,
+    });
+    expect(JSON.stringify(event)).not.toContain(canary);
   });
 
   it("records an agent action blocked by approval as denied", async () => {

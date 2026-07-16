@@ -15,9 +15,12 @@ import path from "path";
 import { pathToFileURL } from "url";
 
 import {
+  ActionExecutionDeniedError,
   createActionInvocationDescriptor,
-  runActionEntry,
+  dispatchActionEntry,
+  unwrapActionExecutionOutcome,
   type ActionExecutionResolver,
+  type ExecuteActionEntryOptions,
 } from "../action-execution.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { closeDbExec } from "../db/client.js";
@@ -44,6 +47,22 @@ export interface RunScriptOptions {
   packageActionLabel?: string;
   /** Explicit CLI-scoped resolver for protected actions. */
   actionExecutionResolver?: ActionExecutionResolver;
+}
+
+async function dispatchCliAction(
+  options: ExecuteActionEntryOptions,
+): Promise<unknown> {
+  const dispatched = await dispatchActionEntry(options);
+  if (dispatched.privacy === "ordinary") {
+    return unwrapActionExecutionOutcome(dispatched.outcome);
+  }
+  if (dispatched.outcome.status === "executed") {
+    throw new ActionExecutionDeniedError(
+      "protected_plaintext_delivery_forbidden",
+      `Protected action '${dispatched.receipt.actionName}' cannot deliver plaintext through the CLI transport.`,
+    );
+  }
+  return dispatched.receipt;
 }
 
 async function runAppDbPluginIfPresent(): Promise<void> {
@@ -280,7 +299,7 @@ async function dispatchAction(
       ) {
         const parsed = parseActionArgs(args, { coerceBooleans: true });
         const context = cliActionCtx(actionName);
-        const result = await runActionEntry({
+        const result = await dispatchCliAction({
           entry: handler as ActionEntry,
           actionName,
           args: parsed,
@@ -316,7 +335,7 @@ async function dispatchAction(
       await runAppDbPluginIfPresent();
       const parsed = parseActionArgs(args, { coerceBooleans: true });
       const context = cliActionCtx(actionName);
-      const result = await runActionEntry({
+      const result = await dispatchCliAction({
         entry: packageAction,
         actionName,
         args: parsed as Record<string, string>,

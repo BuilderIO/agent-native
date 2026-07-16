@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { E2EE_SIZE_LIMITS } from "./suite.js";
+
 /**
  * Wire contracts for an end-to-end encrypted personal vault.
  *
@@ -26,6 +28,32 @@ export const opaqueProtocolPayloadSchema = z
   .string()
   .min(1)
   .max(8 * 1024 * 1024);
+
+function boundedOpaquePayloadSchema(maxBytes: number) {
+  return z
+    .string()
+    .min(1)
+    .max(maxBytes)
+    .superRefine((value, ctx) => {
+      if (new TextEncoder().encode(value).byteLength > maxBytes) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          message: `Opaque payload exceeds ${maxBytes} bytes`,
+        });
+      }
+    });
+}
+
+/** Wire-only ciphertext bodies. Persist large bodies in protected blob storage. */
+export const opaqueObjectCiphertextSchema = boundedOpaquePayloadSchema(
+  E2EE_SIZE_LIMITS.objectPlaintextBytes,
+);
+export const opaqueJobCiphertextSchema = boundedOpaquePayloadSchema(
+  E2EE_SIZE_LIMITS.jobPayloadBytes,
+);
+export const opaqueResultCiphertextSchema = boundedOpaquePayloadSchema(
+  E2EE_SIZE_LIMITS.resultPayloadBytes,
+);
 export const opaqueAlgorithmIdSchema = z
   .string()
   .min(1)
@@ -261,7 +289,7 @@ export const ciphertextObjectSchema = z
     objectType: boundedProtocolTokenSchema,
     opaqueRevision: opaqueRevisionSchema,
     algorithmId: opaqueAlgorithmIdSchema,
-    ciphertext: opaqueProtocolPayloadSchema,
+    ciphertext: opaqueObjectCiphertextSchema,
   })
   .strict()
   .superRefine((value, ctx) => {
@@ -274,19 +302,65 @@ export const ciphertextObjectSchema = z
         message: "Revision identity must match its ciphertext object",
       });
     }
+    if (
+      new TextEncoder().encode(value.ciphertext).byteLength !==
+      value.opaqueRevision.ciphertextByteLength
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ciphertext"],
+        message: "Ciphertext byte length must match the opaque revision",
+      });
+    }
   });
 
-const encryptedJobEnvelopeSchema = z
+export const encryptedJobEnvelopeSchema = z
   .object({
     algorithmId: opaqueAlgorithmIdSchema,
-    ciphertext: opaqueProtocolPayloadSchema,
+    ciphertext: opaqueJobCiphertextSchema,
     ciphertextByteLength: z
       .number()
       .int()
       .nonnegative()
-      .max(64 * 1024 * 1024),
+      .max(E2EE_SIZE_LIMITS.jobPayloadBytes),
   })
-  .strict();
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      new TextEncoder().encode(value.ciphertext).byteLength !==
+      value.ciphertextByteLength
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ciphertextByteLength"],
+        message: "Job ciphertext byte length does not match the payload",
+      });
+    }
+  });
+
+export const encryptedResultEnvelopeSchema = z
+  .object({
+    algorithmId: opaqueAlgorithmIdSchema,
+    ciphertext: opaqueResultCiphertextSchema,
+    ciphertextByteLength: z
+      .number()
+      .int()
+      .nonnegative()
+      .max(E2EE_SIZE_LIMITS.resultPayloadBytes),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (
+      new TextEncoder().encode(value.ciphertext).byteLength !==
+      value.ciphertextByteLength
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["ciphertextByteLength"],
+        message: "Result ciphertext byte length does not match the payload",
+      });
+    }
+  });
 
 export const encryptedJobStateSchema = z.enum([
   "queued",
@@ -307,12 +381,31 @@ export const encryptedQueuedJobSchema = z
     recipientEndpointId: opaqueIdSchema,
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
     request: encryptedJobEnvelopeSchema,
+    issuedAt: protocolTimestampSchema,
+    expiresAt: protocolTimestampSchema,
     state: encryptedJobStateSchema,
     serverReceivedAt: protocolTimestampSchema,
     leaseExpiresAt: protocolTimestampSchema.nullable(),
+    retryAt: protocolTimestampSchema.nullable(),
     retryCount: z.number().int().nonnegative().max(100),
   })
-  .strict();
+  .strict()
+  .superRefine((job, ctx) => {
+    if (Date.parse(job.expiresAt) <= Date.parse(job.issuedAt)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["expiresAt"],
+        message: "Encrypted job expiry must be later than issuance",
+      });
+    }
+    if (job.retryAt !== null && job.state !== "retry_wait") {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["retryAt"],
+        message: "Only retry_wait jobs may carry retryAt",
+      });
+    }
+  });
 
 export const encryptedJobResultSchema = z
   .object({
@@ -321,7 +414,8 @@ export const encryptedJobResultSchema = z
     vaultId: opaqueIdSchema,
     recipientEndpointId: opaqueIdSchema,
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-    result: encryptedJobEnvelopeSchema,
+    jobHash: opaqueIdSchema,
+    result: encryptedResultEnvelopeSchema,
     state: z.enum(["completed", "failed", "cancelled"]),
     serverReceivedAt: protocolTimestampSchema,
   })

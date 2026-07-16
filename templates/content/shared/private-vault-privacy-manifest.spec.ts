@@ -7,6 +7,7 @@ import {
 import { describe, expect, it } from "vitest";
 
 import {
+  CONTENT_PRIVATE_VAULT_V1_AUTH_ROUTING_ALIASES,
   CONTENT_PRIVATE_VAULT_V1_FAIL_CLOSED_FEATURES,
   CONTENT_PRIVATE_VAULT_V1_PRIVACY_MANIFEST,
   CONTENT_PRIVATE_VAULT_V1_PROTECTED_FIELDS,
@@ -26,6 +27,15 @@ describe("Content Private Vault privacy manifest", () => {
       providerBound: true,
       destinationBound: true,
     });
+  });
+
+  it("maps physical auth scope columns only to admitted account/workspace identity", () => {
+    expect(CONTENT_PRIVATE_VAULT_V1_AUTH_ROUTING_ALIASES).toEqual({
+      ownerEmail: "accountId",
+      orgId: "workspaceId",
+    });
+    expect(PERSONAL_VAULT_V1_HOSTED_FIELDS).not.toContain("ownerEmail");
+    expect(PERSONAL_VAULT_V1_HOSTED_FIELDS).not.toContain("orgId");
   });
 
   it("classifies every F3 plaintext domain as protected", () => {

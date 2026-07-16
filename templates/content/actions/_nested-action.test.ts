@@ -30,7 +30,7 @@ function entry(
 }
 
 describe("runInheritedActionEntry", () => {
-  it("inherits invocation capabilities and the request-scoped resolver", async () => {
+  it("inherits invocation capabilities but will not unwrap a protected nested result", async () => {
     const localRun = vi.fn();
     const invocation = createActionInvocationDescriptor("frontend", [
       "vault:read",
@@ -57,7 +57,10 @@ describe("runInheritedActionEntry", () => {
           executionResolver: resolver,
         },
       }),
-    ).resolves.toEqual({ routed: true });
+    ).rejects.toMatchObject({
+      name: "ActionExecutionDeniedError",
+      code: "nested_protected_result_requires_broker",
+    });
 
     expect(localRun).not.toHaveBeenCalled();
     expect(resolve).toHaveBeenCalledWith(

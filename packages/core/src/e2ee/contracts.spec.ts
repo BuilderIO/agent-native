@@ -196,9 +196,12 @@ describe("E2EE wire contracts", () => {
         recipientEndpointId: "endpoint:fixture-01",
         epoch: 2,
         request,
+        issuedAt: now,
+        expiresAt: "2026-07-16T13:00:00.000Z",
         state: "queued",
         serverReceivedAt: now,
         leaseExpiresAt: null,
+        retryAt: null,
         retryCount: 0,
       }).state,
     ).toBe("queued");
@@ -209,11 +212,48 @@ describe("E2EE wire contracts", () => {
         vaultId: "vault:fixture-01",
         recipientEndpointId: "endpoint:fixture-01",
         epoch: 2,
+        jobHash: "digest:job-fixture-01",
         result: request,
         state: "completed",
         serverReceivedAt: now,
       }).state,
     ).toBe("completed");
+    expect(
+      encryptedQueuedJobSchema.safeParse({
+        version: 1,
+        jobId: "job:fixture-01",
+        vaultId: "vault:fixture-01",
+        grantId: "grant:fixture-01",
+        recipientEndpointId: "endpoint:fixture-01",
+        epoch: 2,
+        request,
+        issuedAt: now,
+        expiresAt: now,
+        state: "queued",
+        serverReceivedAt: now,
+        leaseExpiresAt: null,
+        retryAt: null,
+        retryCount: 0,
+      }).success,
+    ).toBe(false);
+    expect(
+      encryptedQueuedJobSchema.safeParse({
+        version: 1,
+        jobId: "job:fixture-01",
+        vaultId: "vault:fixture-01",
+        grantId: "grant:fixture-01",
+        recipientEndpointId: "endpoint:fixture-01",
+        epoch: 2,
+        request,
+        issuedAt: now,
+        expiresAt: "2026-07-16T13:00:00.000Z",
+        state: "queued",
+        serverReceivedAt: now,
+        leaseExpiresAt: null,
+        retryAt: "2026-07-16T12:01:00.000Z",
+        retryCount: 1,
+      }).success,
+    ).toBe(false);
   });
 
   it("keeps algorithm identifiers opaque and rejects embedded algorithm objects", () => {

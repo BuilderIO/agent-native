@@ -10,7 +10,9 @@ import type { EventHandler as H3EventHandler } from "h3";
 
 import {
   createActionInvocationDescriptor,
+  dispatchActionEntry,
   runActionEntry,
+  unwrapActionExecutionOutcome,
   type ActionExecutionResolver,
   type ActionInvocationDescriptor,
 } from "../action-execution.js";
@@ -2216,6 +2218,7 @@ function seedReadOnlyToolResultsFromHistory(
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
         const entry = actions[part.name];
+        if (entry?.resourcePrivacy != null) continue;
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
@@ -2290,6 +2293,7 @@ function seedDuplicateReadOnlyToolCallsFromHistory(
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
         const entry = actions[part.name];
+        if (entry?.resourcePrivacy != null) continue;
         pendingToolCalls.set(part.id, {
           name: part.name,
           input: part.input,
@@ -2431,6 +2435,7 @@ function seedWriteToolInterruptionsFromHistory(
       for (const part of message.content) {
         if (part.type !== "tool-call") continue;
         const entry = actions[part.name];
+        if (entry?.resourcePrivacy != null) continue;
         if (entry?.readOnly === true) continue;
         pendingToolCalls.set(part.id, { name: part.name, input: part.input });
       }
@@ -3086,6 +3091,7 @@ function seedSourceSweepToolCallsFromHistory(
     if (message.role !== "assistant") continue;
     for (const part of message.content) {
       if (part.type !== "tool-call") continue;
+      if (actions[part.name]?.resourcePrivacy != null) continue;
       if (!isLikelySourceSweepTool(part.name, actions[part.name])) continue;
       seeded.push({
         name: part.name,
@@ -3335,8 +3341,23 @@ export async function runAgentLoop(opts: {
     priorToolCalls: journaledPriorToolCalls,
     priorToolResults: journaledPriorToolResults,
   } = await loadPriorTurnToolCallJournal(opts.threadId);
-  toolCallHistory.push(...journaledPriorToolCalls);
-  toolResultHistory.push(...journaledPriorToolResults);
+  toolCallHistory.push(
+    ...journaledPriorToolCalls.map((call) =>
+      actions[call.name]?.resourcePrivacy != null
+        ? { ...call, input: { protected: true as const } }
+        : call,
+    ),
+  );
+  toolResultHistory.push(
+    ...journaledPriorToolResults.map((toolResult) =>
+      actions[toolResult.name]?.resourcePrivacy != null
+        ? {
+            ...toolResult,
+            content: "Protected result omitted from hosted journal.",
+          }
+        : toolResult,
+    ),
+  );
 
   let finalGuardRetries = 0;
   let emptyFinalResponseRetries = 0;
@@ -3919,7 +3940,10 @@ export async function runAgentLoop(opts: {
       part.type === "tool-call"
         ? {
             ...part,
-            input: normalizeToolCallInputForHistory(part.input),
+            input:
+              actions[part.name]?.resourcePrivacy != null
+                ? { protected: true as const }
+                : normalizeToolCallInputForHistory(part.input),
           }
         : part,
     );
@@ -3938,7 +3962,10 @@ export async function runAgentLoop(opts: {
     if (processorChain) {
       try {
         await processorChain.runStep({
-          toolCalls: toolCallsFromContent(assistantContent),
+          // Processor/guard hooks are ordinary hosted sinks. They receive the
+          // same protected markers as continuation history, never the router's
+          // transient protected arguments.
+          toolCalls: toolCallsFromContent(assistantContentForHistory),
           ...(terminalStopReason ? { finishReason: terminalStopReason } : {}),
           usage: {
             inputTokens: usage.inputTokens,
@@ -4078,18 +4105,33 @@ export async function runAgentLoop(opts: {
     const runToolCall = async (
       toolCall: import("./engine/types.js").EngineToolCallPart,
     ): Promise<EngineContentPart> => {
-      const wireToolInput = JSON.stringify(toolCall.input ?? {});
-      const normalizedToolInput = normalizeToolCallInputForHistory(
-        toolCall.input,
-      );
       const actionEntry = actions[toolCall.name];
-      const sourceSweepGuard = shouldGuardRepeatedSourceSweep({
-        toolName: toolCall.name,
-        entry: actionEntry,
-        priorToolCalls: sourceSweepToolCallHistory,
-        actions,
-      });
+      // Protected arguments are transient transport material. They may be
+      // inspected by the execution router, but must never enter chat events,
+      // continuation history, journals, ledgers, caches, or error text.
+      // Treat malformed non-null policies as protected too: fail closed before
+      // policy validation rather than serializing an attacker-shaped value.
+      const isProtectedAction = actionEntry?.resourcePrivacy != null;
+      const protectedToolInput = Object.freeze({ protected: true as const });
+      const eventToolInput = isProtectedAction
+        ? protectedToolInput
+        : (toolCall.input as Record<string, unknown>);
+      const wireToolInput = JSON.stringify(
+        isProtectedAction ? protectedToolInput : (toolCall.input ?? {}),
+      );
+      const normalizedToolInput = isProtectedAction
+        ? protectedToolInput
+        : normalizeToolCallInputForHistory(toolCall.input);
+      const sourceSweepGuard = isProtectedAction
+        ? null
+        : shouldGuardRepeatedSourceSweep({
+            toolName: toolCall.name,
+            entry: actionEntry,
+            priorToolCalls: sourceSweepToolCallHistory,
+            actions,
+          });
       const sourceSweepDelegationGuard =
+        !isProtectedAction &&
         sourceSweepDelegationGuardActive &&
         isLikelySourceSweepDelegation({
           toolName: toolCall.name,
@@ -4103,10 +4145,12 @@ export async function runAgentLoop(opts: {
         name: toolCall.name,
         input: normalizedToolInput,
       });
-      sourceSweepToolCallHistory.push({
-        name: toolCall.name,
-        input: normalizedToolInput,
-      });
+      if (!isProtectedAction) {
+        sourceSweepToolCallHistory.push({
+          name: toolCall.name,
+          input: normalizedToolInput,
+        });
+      }
       const recordToolResult = (content: string, isError: boolean) => {
         toolResultHistory.push({
           name: toolCall.name,
@@ -4141,13 +4185,13 @@ export async function runAgentLoop(opts: {
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
+          input: eventToolInput as Record<string, string>,
         });
         send({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           completedSideEffect: false,
         });
@@ -4167,13 +4211,13 @@ export async function runAgentLoop(opts: {
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
+          input: eventToolInput as Record<string, string>,
         });
         send({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           completedSideEffect: false,
         });
@@ -4195,13 +4239,13 @@ export async function runAgentLoop(opts: {
           type: "tool_start",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, string>,
+          input: eventToolInput as Record<string, string>,
         });
         send({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           isError: true,
           completedSideEffect: false,
@@ -4251,12 +4295,12 @@ export async function runAgentLoop(opts: {
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: eventToolInput as Record<string, string>,
           });
           send({
             type: "approval_required",
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: eventToolInput as Record<string, string>,
             approvalKey,
             ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
           });
@@ -4268,7 +4312,7 @@ export async function runAgentLoop(opts: {
             const { recordActionAudit } = await import("../audit/record.js");
             await recordActionAudit({
               config: undefined,
-              args: toolCall.input,
+              args: eventToolInput,
               ctx: {
                 actionName: toolCall.name,
                 caller: "tool",
@@ -4290,7 +4334,7 @@ export async function runAgentLoop(opts: {
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: eventToolInput,
             result,
             completedSideEffect: false,
           });
@@ -4335,7 +4379,7 @@ export async function runAgentLoop(opts: {
       // calls with no completed journal entry are completely unaffected). The
       // snapshot was taken before this chunk's tools ran, so it can only match a
       // PRIOR completion, never one from the current chunk.
-      if (!actionEntry.readOnly && toolCallJournal) {
+      if (!isProtectedAction && !actionEntry.readOnly && toolCallJournal) {
         const journaled = findCompletedJournalEntry(
           toolCallJournal,
           toolCall.name,
@@ -4351,13 +4395,13 @@ export async function runAgentLoop(opts: {
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: eventToolInput as Record<string, string>,
           });
           send({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: eventToolInput,
             result,
             completedSideEffect: true,
           });
@@ -4384,7 +4428,7 @@ export async function runAgentLoop(opts: {
       // interruption budget. A just-abandoned long tool may need a short grace
       // period before its detached promise writes the ledger, so wait while the
       // current run still has budget instead of immediately re-running it.
-      if (!actionEntry.readOnly) {
+      if (!isProtectedAction && !actionEntry.readOnly) {
         const writeCacheKey = toolCallCacheKey(toolCall.name, toolCall.input);
         const priorInterruptions =
           writeToolInterruptions.get(writeCacheKey) ?? 0;
@@ -4407,13 +4451,13 @@ export async function runAgentLoop(opts: {
               type: "tool_start",
               id: toolCall.id,
               tool: toolCall.name,
-              input: toolCall.input as Record<string, string>,
+              input: eventToolInput as Record<string, string>,
             });
             send({
               type: "tool_done",
               id: toolCall.id,
               tool: toolCall.name,
-              input: toolCall.input as Record<string, unknown>,
+              input: eventToolInput,
               result,
               completedSideEffect: true,
               ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
@@ -4438,13 +4482,13 @@ export async function runAgentLoop(opts: {
             type: "tool_start",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, string>,
+            input: eventToolInput as Record<string, string>,
           });
           send({
             type: "tool_done",
             id: toolCall.id,
             tool: toolCall.name,
-            input: toolCall.input as Record<string, unknown>,
+            input: eventToolInput,
             result,
             isError: true,
             completedSideEffect: false,
@@ -4491,23 +4535,25 @@ export async function runAgentLoop(opts: {
         type: "tool_start",
         id: toolCall.id,
         tool: toolCall.name,
-        input: toolCall.input as Record<string, string>,
+        input: eventToolInput as Record<string, string>,
       });
 
       const toolCallSchemaError = toolCallErrors.get(toolCall.id);
       if (toolCallSchemaError) {
         const result = finalizeToolErrorResult(
-          toolInputSchemaErrorResult(
-            toolCall.name,
-            toolCallSchemaError.input,
-            toolCallSchemaError.error,
-          ),
+          isProtectedAction
+            ? `Invalid protected action parameters for ${toolCall.name}.`
+            : toolInputSchemaErrorResult(
+                toolCall.name,
+                toolCallSchemaError.input,
+                toolCallSchemaError.error,
+              ),
         );
         send({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           isError: true,
           completedSideEffect: false,
@@ -4529,17 +4575,19 @@ export async function runAgentLoop(opts: {
       );
       if (rawToolInputError) {
         const result = finalizeToolErrorResult(
-          toolInputSchemaErrorResult(
-            toolCall.name,
-            toolCall.input,
-            rawToolInputError,
-          ),
+          isProtectedAction
+            ? `Invalid protected action parameters for ${toolCall.name}.`
+            : toolInputSchemaErrorResult(
+                toolCall.name,
+                toolCall.input,
+                rawToolInputError,
+              ),
         );
         send({
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           isError: true,
           completedSideEffect: false,
@@ -4560,7 +4608,9 @@ export async function runAgentLoop(opts: {
       // populates the cache (see the success handler below, which also
       // leaves dedupe:false results uncached and un-cleared).
       const cacheKey =
-        actionEntry.readOnly === true && actionEntry.dedupe !== false
+        !isProtectedAction &&
+        actionEntry.readOnly === true &&
+        actionEntry.dedupe !== false
           ? toolCallCacheKey(toolCall.name, toolCall.input)
           : null;
       if (cacheKey && readOnlyToolResultCache.has(cacheKey)) {
@@ -4602,7 +4652,7 @@ export async function runAgentLoop(opts: {
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           completedSideEffect: false,
         });
@@ -4625,7 +4675,7 @@ export async function runAgentLoop(opts: {
           type: "tool_done",
           id: toolCall.id,
           tool: toolCall.name,
-          input: toolCall.input as Record<string, unknown>,
+          input: eventToolInput,
           result,
           isError: true,
           completedSideEffect: false,
@@ -4680,7 +4730,7 @@ export async function runAgentLoop(opts: {
         };
         const requestContext = getRequestContext();
         const invokeAction = () =>
-          runActionEntry({
+          dispatchActionEntry({
             entry: actionEntry,
             actionName: toolCall.name,
             args: toolCall.input as Record<string, string>,
@@ -4710,11 +4760,18 @@ export async function runAgentLoop(opts: {
         // the result to the durable ledger keyed by (threadId, toolKey) so the
         // next continuation chunk can recover it instead of re-executing the
         // side effect.
-        if (opts.threadId && !actionEntry.readOnly) {
+        if (opts.threadId && !isProtectedAction && !actionEntry.readOnly) {
           const ledgerThreadId = opts.threadId;
           const ledgerToolKey = toolCallCacheKey(toolCall.name, toolCall.input);
           actionPromise
-            .then((zombieRaw: unknown) => {
+            .then((zombieDispatch) => {
+              // This branch is installed only for ordinary actions. Preserve
+              // the pre-dispatch ledger contract by unwrapping the ordinary
+              // envelope before MCP error detection or serialization.
+              if (zombieDispatch.privacy !== "ordinary") return;
+              const zombieRaw = unwrapActionExecutionOutcome(
+                zombieDispatch.outcome,
+              );
               const zombieMcp = isMcpActionResult(zombieRaw) ? zombieRaw : null;
               if (
                 zombieMcp &&
@@ -4736,7 +4793,7 @@ export async function runAgentLoop(opts: {
             });
         }
 
-        const raw = await Promise.race([
+        const dispatched = await Promise.race([
           actionPromise,
           new Promise<never>((_, reject) => {
             timeoutSignal.addEventListener("abort", () =>
@@ -4763,64 +4820,87 @@ export async function runAgentLoop(opts: {
             );
           }),
         ]);
-        const mcpResult = isMcpActionResult(raw) ? raw : null;
-        const rawForAgent = mcpResult ? mcpResult.text : raw;
-        if (
-          mcpResult &&
-          mcpResult.raw &&
-          typeof mcpResult.raw === "object" &&
-          (mcpResult.raw as Record<string, unknown>).isError === true
-        ) {
-          isError = true;
-        }
-        mcpApp = mcpResult?.mcpApp;
-        // Demo mode is browser-local presentation state. The agent and MCP
-        // layers always receive the real, access-scoped tool result.
-        let resultForAgent: unknown = rawForAgent;
-        // Vision images for the model: MCP tools return standard `image`
-        // content parts; first-party actions opt in via the well-known
-        // `_agentImages` result field (stripped from the JSON the model
-        // reads). The images array
-        // never touches the ledger — only the compact text notes appended
-        // below are persisted.
-        let imageNotes: string[] = [];
-        if (mcpResult) {
-          const mcpImages = extractMcpToolResultImages(mcpResult.raw);
-          if (mcpImages.length > 0) toolResultImages = mcpImages;
-        } else {
-          const extracted = extractAgentImagesFromActionResult(resultForAgent);
-          resultForAgent = extracted.value;
-          imageNotes = extracted.notes;
-          if (extracted.images.length > 0) {
-            toolResultImages = extracted.images;
+        if (dispatched.privacy === "protected") {
+          // Hosted model loops are not authorized plaintext sinks. A broker may
+          // enqueue work and the model receives only the frozen, content-free
+          // receipt. Even if a resolver accidentally returns an executed value,
+          // the transient wrapper is never opened, stringified, cached, logged,
+          // journaled, or attached to the transcript here.
+          if (dispatched.outcome.status === "queued") {
+            result = JSON.stringify({
+              protected: true,
+              receipt: dispatched.receipt,
+            });
+          } else if (dispatched.outcome.status === "denied") {
+            result = `Protected action denied (${dispatched.outcome.code}).`;
+            isError = true;
+          } else {
+            result =
+              "Protected action result requires an authorized local delivery adapter.";
+            isError = true;
           }
-        }
-        if (toolResultImages) {
-          imageNotes = [
-            ...describeToolResultImages(toolResultImages),
-            ...imageNotes,
-          ];
-        }
-        let resultStr =
-          typeof resultForAgent === "string"
-            ? resultForAgent
-            : JSON.stringify(resultForAgent, null, 2);
-        if (resultStr.length > toolMaxResultChars) {
-          const truncated = resultStr.slice(0, toolMaxResultChars);
-          resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
-        }
-        // Image notes go after truncation so they always survive into the
-        // persisted result string (the durable record that an image existed).
-        if (imageNotes.length > 0) {
-          resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
-        }
-        result = resultStr;
-        if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
-          const added = expandActiveTools(
-            extractToolSearchResultNames(rawForAgent),
-          );
-          if (added.length > 0) {
-            result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+        } else {
+          const raw = unwrapActionExecutionOutcome(dispatched.outcome);
+          const mcpResult = isMcpActionResult(raw) ? raw : null;
+          const rawForAgent = mcpResult ? mcpResult.text : raw;
+          if (
+            mcpResult &&
+            mcpResult.raw &&
+            typeof mcpResult.raw === "object" &&
+            (mcpResult.raw as Record<string, unknown>).isError === true
+          ) {
+            isError = true;
+          }
+          mcpApp = mcpResult?.mcpApp;
+          // Demo mode is browser-local presentation state. The agent and MCP
+          // layers always receive the real, access-scoped tool result.
+          let resultForAgent: unknown = rawForAgent;
+          // Vision images for the model: MCP tools return standard `image`
+          // content parts; first-party actions opt in via the well-known
+          // `_agentImages` result field (stripped from the JSON the model
+          // reads). The images array
+          // never touches the ledger — only the compact text notes appended
+          // below are persisted.
+          let imageNotes: string[] = [];
+          if (mcpResult) {
+            const mcpImages = extractMcpToolResultImages(mcpResult.raw);
+            if (mcpImages.length > 0) toolResultImages = mcpImages;
+          } else {
+            const extracted =
+              extractAgentImagesFromActionResult(resultForAgent);
+            resultForAgent = extracted.value;
+            imageNotes = extracted.notes;
+            if (extracted.images.length > 0) {
+              toolResultImages = extracted.images;
+            }
+          }
+          if (toolResultImages) {
+            imageNotes = [
+              ...describeToolResultImages(toolResultImages),
+              ...imageNotes,
+            ];
+          }
+          let resultStr =
+            typeof resultForAgent === "string"
+              ? resultForAgent
+              : JSON.stringify(resultForAgent, null, 2);
+          if (resultStr.length > toolMaxResultChars) {
+            const truncated = resultStr.slice(0, toolMaxResultChars);
+            resultStr = `${truncated}\n\n...[truncated — full result was ${resultStr.length.toLocaleString()} chars; only first ${toolMaxResultChars.toLocaleString()} shown]`;
+          }
+          // Image notes go after truncation so they always survive into the
+          // persisted result string (the durable record that an image existed).
+          if (imageNotes.length > 0) {
+            resultStr = `${resultStr}\n\n${imageNotes.join("\n")}`;
+          }
+          result = resultStr;
+          if (toolCall.name === TOOL_SEARCH_ACTION_NAME && !isError) {
+            const added = expandActiveTools(
+              extractToolSearchResultNames(rawForAgent),
+            );
+            if (added.length > 0) {
+              result += `\n\nLoaded matching tool schemas for next step: ${added.join(", ")}`;
+            }
           }
         }
       } catch (err: any) {
@@ -4849,7 +4929,7 @@ export async function runAgentLoop(opts: {
       // invalidates ["action"] queries so list-* / get-* refetch. This makes
       // refresh after agent writes reliable without the model needing to
       // remember to call `refresh-screen` itself.
-      if (!isError && actionEntry.readOnly !== true) {
+      if (!isProtectedAction && !isError && actionEntry.readOnly !== true) {
         try {
           const { notifyActionChange } =
             await import("../server/action-change.js");
@@ -4869,14 +4949,16 @@ export async function runAgentLoop(opts: {
         type: "tool_done",
         id: toolCall.id,
         tool: toolCall.name,
-        input: toolCall.input as Record<string, unknown>,
+        input: eventToolInput,
         result,
         ...(isError ? { isError: true } : {}),
-        ...(isError
+        ...(isProtectedAction
           ? { completedSideEffect: false }
-          : actionEntry.readOnly !== true
-            ? { completedSideEffect: true }
-            : {}),
+          : isError
+            ? { completedSideEffect: false }
+            : actionEntry.readOnly !== true
+              ? { completedSideEffect: true }
+              : {}),
         ...(mcpApp ? { mcpApp } : {}),
         ...(actionEntry.chatUI ? { chatUI: actionEntry.chatUI } : {}),
       });
@@ -4884,7 +4966,7 @@ export async function runAgentLoop(opts: {
       if (!isError) {
         if (cacheKey) {
           readOnlyToolResultCache.set(cacheKey, result);
-        } else if (actionEntry.readOnly !== true) {
+        } else if (!isProtectedAction && actionEntry.readOnly !== true) {
           // A genuine write invalidates all cached reads. A dedupe:false
           // read-only tool also has a null cacheKey (see above) but must NOT
           // clear the cache — it isn't a write and other tools' cached reads

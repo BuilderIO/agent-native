@@ -458,3 +458,461 @@ export const documentShareProvenanceState = table(
     enabledAt: text("enabled_at").notNull().default(now()),
   },
 );
+
+/**
+ * Opaque hosted-plane state for Content Private Vault beta.
+ *
+ * `owner_email` and `org_id` are physical authentication-routing aliases for
+ * the admitted logical `accountId` and `workspaceId` fields. They deliberately
+ * do not use `ownableColumns()`: Private Vault sharing and public visibility
+ * remain fail-closed, while every store query must still scope both aliases.
+ * Ciphertext bodies live in the separate protected-ciphertext namespace; SQL
+ * contains only content-free routing coordinates and validated envelopes.
+ */
+export const contentEncryptedVaults = table(
+  "content_encrypted_vaults",
+  {
+    vaultId: text("vault_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    accountId: text("account_id").notNull(),
+    workspaceId: text("workspace_id").notNull(),
+    vaultState: text("vault_state").notNull().default("active"),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (vault) => [
+    uniqueIndex("content_encrypted_vaults_scope_unique").on(
+      vault.ownerEmail,
+      vault.orgId,
+      vault.accountId,
+      vault.workspaceId,
+    ),
+    uniqueIndex("content_encrypted_vaults_vault_scope_unique").on(
+      vault.vaultId,
+      vault.ownerEmail,
+      vault.orgId,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultEndpoints = table(
+  "content_encrypted_vault_endpoints",
+  {
+    endpointId: text("endpoint_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    endpointState: text("endpoint_state").notNull(),
+    publicIdentityJson: text("public_identity_json").notNull(),
+    healthState: text("health_state").notNull().default("unknown"),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (endpoint) => [
+    uniqueIndex("content_encrypted_vault_endpoints_vault_endpoint_unique").on(
+      endpoint.vaultId,
+      endpoint.endpointId,
+    ),
+    index("content_encrypted_vault_endpoints_scope_state_idx").on(
+      endpoint.ownerEmail,
+      endpoint.orgId,
+      endpoint.vaultId,
+      endpoint.endpointState,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultKeyEpochs = table(
+  "content_encrypted_vault_key_epochs",
+  {
+    // Deterministic internal surrogate (`${vaultId}:${epoch}`); it is never
+    // serialized into the logical hosted record.
+    id: text("id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    epoch: integer("epoch").notNull(),
+    state: text("state").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (epoch) => [
+    uniqueIndex("content_encrypted_vault_key_epochs_vault_epoch_unique").on(
+      epoch.vaultId,
+      epoch.epoch,
+    ),
+    index("content_encrypted_vault_key_epochs_scope_state_idx").on(
+      epoch.ownerEmail,
+      epoch.orgId,
+      epoch.vaultId,
+      epoch.state,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultKeyEnvelopes = table(
+  "content_encrypted_vault_key_envelopes",
+  {
+    envelopeId: text("envelope_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    epoch: integer("epoch").notNull(),
+    senderEndpointId: text("sender_endpoint_id").notNull(),
+    recipientEndpointId: text("recipient_endpoint_id").notNull(),
+    algorithmId: text("algorithm_id").notNull(),
+    ciphertextByteLength: integer("ciphertext_byte_length").notNull(),
+    expiresAt: text("expires_at"),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (envelope) => [
+    index("content_encrypted_vault_key_envelopes_recipient_epoch_idx").on(
+      envelope.ownerEmail,
+      envelope.orgId,
+      envelope.vaultId,
+      envelope.recipientEndpointId,
+      envelope.epoch,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultGrants = table(
+  "content_encrypted_vault_grants",
+  {
+    grantId: text("grant_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    recipientEndpointId: text("recipient_endpoint_id").notNull(),
+    algorithmId: text("algorithm_id").notNull(),
+    ciphertextByteLength: integer("ciphertext_byte_length").notNull(),
+    issuedAt: text("issued_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (grant) => [
+    index("content_encrypted_vault_grants_scope_expiry_idx").on(
+      grant.ownerEmail,
+      grant.orgId,
+      grant.vaultId,
+      grant.expiresAt,
+    ),
+    index("content_encrypted_vault_grants_recipient_idx").on(
+      grant.vaultId,
+      grant.recipientEndpointId,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultDisclosures = table(
+  "content_encrypted_vault_disclosures",
+  {
+    disclosureId: text("disclosure_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    grantId: text("grant_id").notNull(),
+    endpointId: text("endpoint_id").notNull(),
+    disclosureEnvelopeJson: text("disclosure_envelope_json").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (disclosure) => [
+    index("content_encrypted_vault_disclosures_scope_retention_idx").on(
+      disclosure.ownerEmail,
+      disclosure.orgId,
+      disclosure.vaultId,
+      disclosure.serverReceivedAt,
+    ),
+    index("content_encrypted_vault_disclosures_grant_idx").on(
+      disclosure.vaultId,
+      disclosure.grantId,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultObjects = table(
+  "content_encrypted_vault_objects",
+  {
+    objectId: text("object_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    objectType: text("object_type").notNull(),
+    objectState: text("object_state").notNull().default("active"),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (object) => [
+    uniqueIndex("content_encrypted_vault_objects_vault_object_unique").on(
+      object.vaultId,
+      object.objectId,
+    ),
+    uniqueIndex("content_encrypted_vault_objects_object_scope_unique").on(
+      object.objectId,
+      object.vaultId,
+      object.ownerEmail,
+      object.orgId,
+    ),
+    index("content_encrypted_vault_objects_scope_type_idx").on(
+      object.ownerEmail,
+      object.orgId,
+      object.vaultId,
+      object.objectType,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultObjectRevisions = table(
+  "content_encrypted_vault_object_revisions",
+  {
+    revisionId: text("revision_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    objectId: text("object_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    epoch: integer("epoch").notNull(),
+    algorithmId: text("algorithm_id").notNull(),
+    ciphertextByteLength: integer("ciphertext_byte_length").notNull(),
+    opaqueRevisionJson: text("opaque_revision_json").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (revision) => [
+    uniqueIndex("content_encrypted_vault_object_revisions_object_unique").on(
+      revision.objectId,
+      revision.revisionId,
+    ),
+    index("content_encrypted_vault_object_revisions_scope_cursor_idx").on(
+      revision.ownerEmail,
+      revision.orgId,
+      revision.vaultId,
+      revision.objectId,
+      revision.serverReceivedAt,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultSyncEvents = table(
+  "content_encrypted_vault_sync_events",
+  {
+    eventId: text("event_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    objectId: text("object_id"),
+    eventType: text("event_type").notNull(),
+    opaqueRevisionJson: text("opaque_revision_json"),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (event) => [
+    index("content_encrypted_vault_sync_events_scope_cursor_idx").on(
+      event.ownerEmail,
+      event.orgId,
+      event.vaultId,
+      event.serverReceivedAt,
+      event.eventId,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultJobs = table(
+  "content_encrypted_vault_jobs",
+  {
+    jobId: text("job_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    grantId: text("grant_id").notNull(),
+    recipientEndpointId: text("recipient_endpoint_id").notNull(),
+    epoch: integer("epoch").notNull(),
+    algorithmId: text("algorithm_id").notNull(),
+    ciphertextByteLength: integer("ciphertext_byte_length").notNull(),
+    issuedAt: text("issued_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    jobState: text("job_state").notNull().default("queued"),
+    retryCount: integer("retry_count").notNull().default(0),
+    retryAt: text("retry_at"),
+    leaseExpiresAt: text("lease_expires_at"),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (job) => [
+    uniqueIndex("content_encrypted_vault_jobs_job_scope_unique").on(
+      job.jobId,
+      job.vaultId,
+      job.ownerEmail,
+      job.orgId,
+    ),
+    index("content_encrypted_vault_jobs_queue_idx").on(
+      job.ownerEmail,
+      job.orgId,
+      job.vaultId,
+      job.recipientEndpointId,
+      job.jobState,
+      job.serverReceivedAt,
+    ),
+    index("content_encrypted_vault_jobs_retention_idx").on(
+      job.jobState,
+      job.serverReceivedAt,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultJobResults = table(
+  "content_encrypted_vault_job_results",
+  {
+    jobId: text("job_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    endpointId: text("endpoint_id").notNull(),
+    epoch: integer("epoch").notNull(),
+    jobHash: text("job_hash").notNull(),
+    algorithmId: text("algorithm_id").notNull(),
+    ciphertextByteLength: integer("ciphertext_byte_length").notNull(),
+    jobState: text("job_state").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (result) => [
+    index("content_encrypted_vault_job_results_scope_retention_idx").on(
+      result.ownerEmail,
+      result.orgId,
+      result.vaultId,
+      result.serverReceivedAt,
+    ),
+  ],
+);
+
+export const contentEncryptedVaultAccessEvents = table(
+  "content_encrypted_vault_access_events",
+  {
+    accessEventId: text("access_event_id").primaryKey(),
+    vaultId: text("vault_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    version: integer("version").notNull().default(1),
+    accessEventJson: text("access_event_json").notNull(),
+    serverReceivedAt: text("server_received_at").notNull().default(now()),
+  },
+  (event) => [
+    index("content_encrypted_vault_access_events_scope_retention_idx").on(
+      event.ownerEmail,
+      event.orgId,
+      event.vaultId,
+      event.serverReceivedAt,
+    ),
+  ],
+);
+
+/**
+ * Operational deletion ledger for the opaque Private Vault plane.
+ *
+ * This table is deliberately outside the logical hosted-record schemas. It
+ * stores only authenticated routing aliases, opaque resource coordinates,
+ * contractual deadlines, and a content-free crash-recovery phase. Provider
+ * locators, plaintext, errors, and user-authored labels are forbidden here.
+ */
+export const contentEncryptedVaultRetentionQueue = table(
+  "content_encrypted_vault_retention_queue",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    resourceKind: text("resource_kind").notNull(),
+    resourceId: text("resource_id").notNull(),
+    epoch: integer("epoch"),
+    /** Immutable digest of the terminal transition that created this tombstone. */
+    triggerGeneration: text("trigger_generation").notNull(),
+    phase: text("phase").notNull().default("pending"),
+    triggerAt: text("trigger_at").notNull(),
+    dueAt: text("due_at").notNull(),
+    deadlineAt: text("deadline_at").notNull(),
+    leaseOwner: text("lease_owner"),
+    leaseExpiresAt: text("lease_expires_at"),
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: text("last_attempt_at"),
+    purgedAt: text("purged_at"),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (entry) => [
+    uniqueIndex("content_encrypted_vault_retention_resource_unique").on(
+      entry.ownerEmail,
+      entry.orgId,
+      entry.vaultId,
+      entry.resourceKind,
+      entry.resourceId,
+    ),
+    index("content_encrypted_vault_retention_due_idx").on(
+      entry.phase,
+      entry.dueAt,
+      entry.leaseExpiresAt,
+      entry.triggerGeneration,
+    ),
+    index("content_encrypted_vault_retention_scope_idx").on(
+      entry.ownerEmail,
+      entry.orgId,
+      entry.vaultId,
+    ),
+  ],
+);
+
+/** Deployment-global pin preventing coordinate-only ciphertext from silently
+ * moving to a different provider store. The generation is stored only as a
+ * one-way digest; provider credentials and locators never enter SQL. */
+export const contentEncryptedVaultStorageBindings = table(
+  "content_encrypted_vault_storage_bindings",
+  {
+    bindingId: text("binding_id").primaryKey(),
+    providerId: text("provider_id").notNull(),
+    generationDigest: text("generation_digest").notNull(),
+    boundAt: text("bound_at").notNull().default(now()),
+  },
+);
+
+/**
+ * Pre-Blob crash marker and ABA fence for exact opaque object/job coordinates.
+ * The row is created before immutable ciphertext I/O, then becomes a committed
+ * or orphaned tombstone. It persists until the matching parent retention
+ * tombstone atomically takes over coordinate non-reuse during purge. It never
+ * stores bytes or a provider locator.
+ */
+export const contentEncryptedVaultCiphertextStaging = table(
+  "content_encrypted_vault_ciphertext_staging",
+  {
+    stageId: text("stage_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id").notNull().default(""),
+    vaultId: text("vault_id").notNull(),
+    coordinateKind: text("coordinate_kind").notNull(),
+    objectId: text("object_id"),
+    revisionId: text("revision_id"),
+    jobId: text("job_id"),
+    part: text("part").notNull(),
+    stagedAt: text("staged_at").notNull(),
+    expiresAt: text("expires_at").notNull(),
+    phase: text("phase").notNull().default("active"),
+    claimToken: text("claim_token"),
+    claimExpiresAt: text("claim_expires_at"),
+    finalizedAt: text("finalized_at"),
+  },
+  (stage) => [
+    index("content_encrypted_vault_ciphertext_staging_expiry_idx").on(
+      stage.phase,
+      stage.expiresAt,
+      stage.claimExpiresAt,
+      stage.stageId,
+    ),
+    index("content_encrypted_vault_ciphertext_staging_scope_idx").on(
+      stage.ownerEmail,
+      stage.orgId,
+      stage.vaultId,
+    ),
+  ],
+);

@@ -19,9 +19,12 @@
  */
 
 import {
+  ActionExecutionDeniedError,
   createActionInvocationDescriptor,
-  runActionEntry,
+  dispatchActionEntry,
+  unwrapActionExecutionOutcome,
   type ActionExecutionResolver,
+  type ExecuteActionEntryOptions,
 } from "../action-execution.js";
 import {
   MCP_APP_EXTENSION_ID,
@@ -62,6 +65,25 @@ import {
   hasMcpOAuthScope,
   verifyMcpOAuthAccessToken,
 } from "./oauth-token.js";
+
+async function dispatchDirectMcpAction(
+  options: ExecuteActionEntryOptions,
+): Promise<{ result: unknown; privacy: "ordinary" | "protected" }> {
+  const dispatched = await dispatchActionEntry(options);
+  if (dispatched.privacy === "ordinary") {
+    return {
+      result: unwrapActionExecutionOutcome(dispatched.outcome),
+      privacy: "ordinary",
+    };
+  }
+  if (dispatched.outcome.status === "executed") {
+    throw new ActionExecutionDeniedError(
+      "protected_plaintext_delivery_forbidden",
+      `Protected action '${dispatched.receipt.actionName}' cannot deliver plaintext through the MCP transport.`,
+    );
+  }
+  return { result: dispatched.receipt, privacy: "protected" };
+}
 
 export interface MCPConfig {
   /** App name shown in MCP server info */
@@ -1784,7 +1806,7 @@ export async function createMCPServerForRequest(
           "mcp",
           effectiveIdentity?.oauthScopes,
         );
-        const result = await runActionEntry({
+        const { result, privacy } = await dispatchDirectMcpAction({
           entry,
           actionName: name,
           args: (args as Record<string, string>) ?? {},
@@ -1798,6 +1820,8 @@ export async function createMCPServerForRequest(
             invocation,
           },
         });
+        const safeLinkArgs =
+          privacy === "protected" ? {} : ((args as Record<string, any>) ?? {});
         const mcpResult = isMcpActionResult(result) ? result : null;
         const rawResult = mcpResult ? mcpResult.raw : result;
         const resultForClient = mcpResult ? mcpResult.text : result;
@@ -1811,9 +1835,15 @@ export async function createMCPServerForRequest(
         // branch below degrades to the plain deep-link artifacts the tool would
         // otherwise return — no `openai/outputTemplate`, no minted embed-start,
         // no embed structuredContent — so the host shows a link, not an iframe.
-        const mcpAppResourceCandidate = requestMeta?.inlineMcpApps
-          ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
-          : null;
+        const mcpAppResourceCandidate =
+          privacy === "ordinary" && requestMeta?.inlineMcpApps
+            ? await resolveMcpAppResourceSafely(
+                config,
+                name,
+                entry,
+                requestMeta,
+              )
+            : null;
         const rawResultForClient = mcpAppResourceCandidate
           ? await withServerMintedMcpAppEmbedStart(rawResult, requestMeta)
           : rawResult;
@@ -1831,7 +1861,7 @@ export async function createMCPServerForRequest(
           !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
         const { block, _meta } = buildLinkArtifacts(
           entry,
-          (args as Record<string, any>) ?? {},
+          safeLinkArgs,
           rawResultForClient,
           requestMeta,
         );

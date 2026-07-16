@@ -98,14 +98,58 @@ describe("run-code bridge", () => {
     const entry = createRunCodeEntry(() => actions);
     const result = await entry.run({
       code: `
-        try { await appAction("read-private", { id: "private-1" }); }
-        catch (err) { console.log(err.message); }
+        console.log(JSON.stringify(await appAction("read-private", { id: "private-input-canary" })));
       `,
       timeoutMs: 30_000,
     });
 
-    expect(result).toContain("requires an eligible enrolled_broker resolver");
+    expect(result).toContain('"status":"denied"');
+    expect(result).toContain('"resourceType":"document"');
+    expect(result).not.toContain("private-input-canary");
     expect(localRun).not.toHaveBeenCalled();
+  });
+
+  it("never returns protected executed plaintext through the bridge", async () => {
+    const protectedResult = "private-run-code-result-canary";
+    const actions: Record<string, ActionEntry> = {
+      "read-private": {
+        tool,
+        readOnly: true,
+        resourcePrivacy: {
+          mode: "protected",
+          resourceType: "document",
+          placement: "enrolled_broker",
+        },
+        run: vi.fn(),
+      },
+    };
+    const entry = createRunCodeEntry(() => actions);
+    const result = await entry.run(
+      {
+        code: `
+          try { await appAction("read-private", { id: "private-run-code-input-canary" }); }
+          catch (err) { console.log(err.message); }
+        `,
+        timeoutMs: 30_000,
+      },
+      {
+        caller: "tool",
+        executionResolver: {
+          placements: ["enrolled_broker"],
+          resolve: async () => ({
+            status: "executed",
+            placement: "enrolled_broker",
+            result: { plaintext: protectedResult },
+          }),
+        },
+      },
+    );
+
+    expect(result).toContain(
+      "cannot deliver plaintext through the run-code bridge",
+    );
+    expect(result).not.toContain("private-run-code-input-canary");
+    expect(result).not.toContain(protectedResult);
   });
 
   it("forwards structured providerFetch options to provider-api-request", async () => {

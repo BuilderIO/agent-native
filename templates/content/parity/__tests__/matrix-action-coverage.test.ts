@@ -24,6 +24,28 @@ function isHiddenAgentAction(action: string) {
 }
 
 describe("Content parity matrix action coverage", () => {
+  it("keeps opaque Private Vault relay administration out of every model tool surface", () => {
+    const privateVaultActions = actionIds().filter((action) =>
+      action.includes("private-vault"),
+    );
+    expect(privateVaultActions).not.toHaveLength(0);
+    for (const action of privateVaultActions) {
+      const source = readFileSync(new URL(`${action}.ts`, actionsDir), "utf8");
+      expect(source, action).toMatch(/agentTool:\s*false/);
+      expect(source, action).toMatch(/toolCallable:\s*false/);
+    }
+  });
+
+  it("keeps ciphertext uploads off the buffering JSON action transport", () => {
+    for (const action of [
+      "put-private-vault-object",
+      "enqueue-private-vault-job",
+    ]) {
+      const source = readFileSync(new URL(`${action}.ts`, actionsDir), "utf8");
+      expect(source, action).toMatch(/http:\s*false/);
+    }
+  });
+
   it("covers every non-private action or documents why it is outside the matrix", () => {
     const represented = new Set(parityMatrix.flatMap((row) => row.actions));
     const allowlisted = new Set(

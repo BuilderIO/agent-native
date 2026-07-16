@@ -2271,9 +2271,68 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
     );
 
     expect(out.error).toBeUndefined();
-    expect(out.result.content[0].text).toContain('"brokered":true');
-    expect(out.result.content[0].text).toContain('"origin":"mcp"');
+    expect(out.result.isError).toBe(true);
+    expect(out.result.content[0].text).toContain(
+      "cannot deliver plaintext through the MCP transport",
+    );
+    expect(out.result.content[0].text).not.toContain("private-1");
+    expect(out.result.content[0].text).not.toContain("brokered");
     expect(localRun).not.toHaveBeenCalled();
+  });
+
+  it("returns only a content-free receipt for queued protected MCP calls", async () => {
+    const out = await callWeb(
+      {
+        jsonrpc: "2.0",
+        id: 305,
+        method: "tools/call",
+        params: {
+          name: "read-private",
+          arguments: { plaintext: "private-mcp-input-canary" },
+        },
+      },
+      {
+        headers: { "x-agent-native-mcp-full-catalog": "1" },
+        config: {
+          ...config,
+          actions: {
+            "read-private": {
+              tool: {
+                description: "Read private",
+                parameters: { type: "object" },
+              },
+              readOnly: true,
+              resourcePrivacy: {
+                mode: "protected",
+                resourceType: "document",
+                placement: "enrolled_broker",
+              },
+              link: ({ args }: any) => ({
+                label: "Open private",
+                view: "private",
+                url: `/private?plaintext=${args.plaintext}`,
+              }),
+              run: vi.fn(),
+            },
+          },
+          actionExecutionResolver: {
+            placements: ["enrolled_broker"],
+            resolve: async () => ({
+              status: "queued",
+              placement: "enrolled_broker",
+              queueId: "queue:protected-mcp-01",
+            }),
+          },
+        },
+      },
+    );
+
+    const serialized = JSON.stringify(out);
+    expect(out.error).toBeUndefined();
+    expect(out.result.isError).toBeUndefined();
+    expect(serialized).toContain('"status":"queued"');
+    expect(serialized).toContain("queue:protected-mcp-01");
+    expect(serialized).not.toContain("private-mcp-input-canary");
   });
 
   it("runs `tools/call` with org scope resolved from the verified token email", async () => {

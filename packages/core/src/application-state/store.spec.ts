@@ -1,6 +1,11 @@
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+} from "../protected-execution-context.js";
+
 let sqlite: Database.Database;
 
 const rawClient = {
@@ -158,5 +163,30 @@ describe("application-state store", () => {
     await expect(
       appStatePut(SESSION, "huge", { data: "x".repeat(1024 * 1024 + 1) }),
     ).rejects.toThrow(/too large for hosted SQL storage/);
+  });
+
+  it("fails closed before serializing protected plaintext and restores ordinary writes", async () => {
+    const canary = "protected-plaintext-canary";
+    const receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: "protected-read",
+      resourceType: "document",
+      placement: "enrolled_broker",
+      status: "executed",
+    });
+    const callsBefore = rawClient.execute.mock.calls.length;
+
+    await runWithProtectedExecutionContext(receipt, async () => {
+      await expect(
+        appStatePut(SESSION, "protected", { body: canary }),
+      ).rejects.toMatchObject({
+        code: "protected_application_state_forbidden",
+      });
+    });
+
+    expect(rawClient.execute).toHaveBeenCalledTimes(callsBefore);
+    await appStatePut(SESSION, "ordinary", { visible: true });
+    expect(await appStateGet(SESSION, "ordinary")).toEqual({ visible: true });
+    expect(await appStateGet(SESSION, "protected")).toBeNull();
   });
 });

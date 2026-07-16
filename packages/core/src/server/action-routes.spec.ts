@@ -783,7 +783,10 @@ describe("mountActionRoutes", () => {
       req: { json: async () => ({ protected: true }) },
     });
     expect(result).toEqual({
-      execution: "queued",
+      version: 1,
+      actionName: "inventory",
+      resourceType: "inventory",
+      status: "queued",
       queueId: "queue:fixture-01",
       placement: "enrolled_broker",
     });
@@ -816,12 +819,62 @@ describe("mountActionRoutes", () => {
       req: { json: async () => ({ id: "private-1" }) },
     };
     await expect(mounted[0].handler(event)).resolves.toEqual({
-      error:
-        "Protected action 'read-private' requires an eligible enrolled_broker resolver.",
-      code: "protected_execution_unavailable",
+      version: 1,
+      actionName: "read-private",
+      resourceType: "document",
+      placement: "enrolled_broker",
+      status: "denied",
     });
     expect(event._status).toBe(503);
     expect(run).not.toHaveBeenCalled();
+  });
+
+  it("never returns protected input or executed plaintext over HTTP", async () => {
+    const protectedInput = "private-http-input-canary";
+    const protectedResult = "private-http-result-canary";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "read-private": {
+          readOnly: true,
+          resourcePrivacy: {
+            mode: "protected",
+            resourceType: "document",
+            placement: "enrolled_broker",
+          },
+          run: vi.fn(),
+        } as any,
+      },
+      {
+        getOwnerFromEvent: async () => "viewer@example.com",
+        resolveActionExecution: async () => ({
+          placements: ["enrolled_broker"],
+          resolve: async () => ({
+            status: "executed",
+            placement: "enrolled_broker",
+            result: { plaintext: protectedResult },
+          }),
+        }),
+      },
+    );
+
+    const event: any = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({ plaintext: protectedInput }) },
+    };
+    const result = await mounted[0].handler(event);
+    const serialized = JSON.stringify(result);
+    expect(event._status).toBe(403);
+    expect(result).toEqual({
+      error:
+        "Protected action 'read-private' cannot deliver plaintext through the HTTP action transport.",
+      code: "protected_plaintext_delivery_forbidden",
+    });
+    expect(serialized).not.toContain(protectedInput);
+    expect(serialized).not.toContain(protectedResult);
   });
 
   it("refuses tools-bridge calls when toolCallable === false", async () => {

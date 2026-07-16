@@ -12,10 +12,13 @@ import * as jose from "jose";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import {
+  ActionExecutionDeniedError,
   createActionInvocationDescriptor,
+  dispatchActionEntry,
   isActionExecutionDeniedError,
-  runActionEntry,
+  unwrapActionExecutionOutcome,
   type ActionExecutionResolver,
+  type ExecuteActionEntryOptions,
 } from "../action-execution.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -47,6 +50,38 @@ import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+
+async function dispatchDirectHttpAction(
+  options: ExecuteActionEntryOptions,
+  event: any,
+): Promise<{ result: unknown; acceptedMutation: boolean }> {
+  const dispatched = await dispatchActionEntry(options);
+  if (dispatched.privacy === "ordinary") {
+    return {
+      result: unwrapActionExecutionOutcome(dispatched.outcome),
+      acceptedMutation: true,
+    };
+  }
+  if (dispatched.outcome.status === "executed") {
+    throw new ActionExecutionDeniedError(
+      "protected_plaintext_delivery_forbidden",
+      `Protected action '${dispatched.receipt.actionName}' cannot deliver plaintext through the HTTP action transport.`,
+    );
+  }
+  if (dispatched.outcome.status === "denied") {
+    setResponseStatus(
+      event,
+      new ActionExecutionDeniedError(
+        dispatched.outcome.code,
+        dispatched.outcome.message,
+      ).statusCode,
+    );
+  }
+  return {
+    result: dispatched.receipt,
+    acceptedMutation: dispatched.outcome.status === "queued",
+  };
+}
 
 async function operatorTokensEqual(
   supplied: string,
@@ -611,28 +646,34 @@ export function mountActionRoutes(
                 caller,
                 resolvedCaller?.capabilities,
               );
-              const result = await runActionEntry({
-                entry,
-                actionName: name,
-                args: params,
-                resolver: await options?.resolveActionExecution?.(event),
-                invocation,
-                context: {
-                  userEmail,
-                  orgId: orgId ?? null,
-                  caller,
-                  actionName: name,
-                  invocation,
-                  ...(entry.operatorOnly ? { operatorAuthorized: true } : {}),
-                  ...(resolvedCaller?.delegationJti
-                    ? {
-                        networkProtocol: "a2a",
-                        networkId: resolvedCaller.delegationJti,
-                        networkPeer: resolvedCaller.delegationIssuer,
-                      }
-                    : {}),
-                },
-              });
+              const { result, acceptedMutation } =
+                await dispatchDirectHttpAction(
+                  {
+                    entry,
+                    actionName: name,
+                    args: params,
+                    resolver: await options?.resolveActionExecution?.(event),
+                    invocation,
+                    context: {
+                      userEmail,
+                      orgId: orgId ?? null,
+                      caller,
+                      actionName: name,
+                      invocation,
+                      ...(entry.operatorOnly
+                        ? { operatorAuthorized: true }
+                        : {}),
+                      ...(resolvedCaller?.delegationJti
+                        ? {
+                            networkProtocol: "a2a",
+                            networkId: resolvedCaller.delegationJti,
+                            networkPeer: resolvedCaller.delegationIssuer,
+                          }
+                        : {}),
+                    },
+                  },
+                  event,
+                );
 
               // Auto-refresh the UI after a successful mutating action. GET
               // actions and actions explicitly flagged readOnly are skipped.
@@ -648,7 +689,7 @@ export function mountActionRoutes(
                 typeof entry.readOnly === "boolean"
                   ? entry.readOnly
                   : method === "GET";
-              if (!isReadOnly) {
+              if (!isReadOnly && acceptedMutation) {
                 try {
                   await notifyActionChange({
                     actionName: name,

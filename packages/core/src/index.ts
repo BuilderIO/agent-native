@@ -44,7 +44,7 @@ export {
 export {
   ActionExecutionDeniedError,
   createActionInvocationDescriptor,
-  executeActionEntry,
+  dispatchActionEntry,
   isActionExecutionDeniedError,
   runActionEntry,
   unwrapActionExecutionOutcome,
@@ -58,6 +58,10 @@ export {
   type ProtectedActionPlacement,
   type ResourcePrivacyExecutionPolicy,
 } from "./action-execution.js";
+export {
+  logProtectedExecutionReceipt,
+  type ProtectedLogLevel,
+} from "./protected-logger.js";
 export {
   embedApp,
   MCP_APP_REQUEST_ORIGIN_CSP_SOURCE,

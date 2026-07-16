@@ -33,8 +33,11 @@ import crypto from "node:crypto";
 import http from "node:http";
 
 import {
+  ActionExecutionDeniedError,
   createActionInvocationDescriptor,
-  runActionEntry,
+  dispatchActionEntry,
+  unwrapActionExecutionOutcome,
+  type ExecuteActionEntryOptions,
 } from "../action-execution.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
@@ -62,6 +65,22 @@ const DEFAULT_MAX_OUTPUT_CHARS = 50_000;
 const MAX_OUTPUT_CHARS = 200_000;
 /** Hard cap on bridge request bodies so sandboxed code can't exhaust parent memory. */
 const BRIDGE_MAX_BODY_BYTES = 10 * 1024 * 1024;
+
+async function dispatchRunCodeBridgeAction(
+  options: ExecuteActionEntryOptions,
+): Promise<unknown> {
+  const dispatched = await dispatchActionEntry(options);
+  if (dispatched.privacy === "ordinary") {
+    return unwrapActionExecutionOutcome(dispatched.outcome);
+  }
+  if (dispatched.outcome.status === "executed") {
+    throw new ActionExecutionDeniedError(
+      "protected_plaintext_delivery_forbidden",
+      `Protected action '${dispatched.receipt.actionName}' cannot deliver plaintext through the run-code bridge.`,
+    );
+  }
+  return dispatched.receipt;
+}
 
 /** Tools callable via the sandbox bridge by default. */
 const DEFAULT_BRIDGE_TOOLS = new Set([
@@ -789,7 +808,7 @@ function handleBridgeRequest(
   const invocation = createActionInvocationDescriptor("run-code", [
     "app-action:read",
   ]);
-  runActionEntry({
+  dispatchRunCodeBridgeAction({
     entry,
     actionName: toolName,
     args: toolArgs,

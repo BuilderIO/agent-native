@@ -1,5 +1,6 @@
 import type { AgentLoopUsage } from "../agent/production-agent.js";
 import type { AgentChatEvent, AgentToolInput } from "../agent/types.js";
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
 import { type AgentSpan, endAgentSpan, startAgentSpan } from "./tracing.js";
 import { trackingIdentityProperties } from "./tracking-identity.js";
 import type { TraceSpan, TraceSummary, ObservabilityConfig } from "./types.js";
@@ -229,6 +230,10 @@ export async function instrumentAgentLoop(opts: {
     | undefined;
 }): Promise<AgentLoopUsage> {
   const { runAgentLoop, loopOpts, runId, threadId, userId, config } = opts;
+  const protectedContext = getProtectedExecutionContext();
+  const protectedErrorMessage = protectedContext
+    ? "Protected execution failed"
+    : null;
   const runStart = Date.now();
   const parentSpanId = spanId();
   const precedingResponsePromise =
@@ -262,6 +267,8 @@ export async function instrumentAgentLoop(opts: {
       opts.experimentAssignments?.length === 1
         ? opts.experimentAssignments[0].variantId
         : undefined,
+    "agent.protected_placement": protectedContext?.receipt.placement,
+    "agent.protected_resource_type": protectedContext?.receipt.resourceType,
   });
 
   const spans: TraceSpan[] = [];
@@ -318,7 +325,7 @@ export async function instrumentAgentLoop(opts: {
           spanId: sid,
           startMs: Date.now(),
           toolName: event.tool,
-          input: event.input,
+          input: protectedContext ? {} : event.input,
           otelSpan: null,
         };
         pendingTools.set(counter, entry);
@@ -364,7 +371,9 @@ export async function instrumentAgentLoop(opts: {
         // we record the result on the entry so its `.then` handler ends it.
         const otelEndResult = {
           status: (isError ? "error" : "success") as "success" | "error",
-          errorMessage: isError ? (event.result as string) : null,
+          errorMessage: isError
+            ? (protectedErrorMessage ?? (event.result as string))
+            : null,
         };
         if (pending?.otelSpan) {
           openOtelToolSpans.delete(pending.otelSpan);
@@ -392,9 +401,11 @@ export async function instrumentAgentLoop(opts: {
           costCentsX100: 0,
           durationMs: pending ? Date.now() - pending.startMs : 0,
           status: isError ? "error" : "success",
-          errorMessage: isError ? event.result : null,
+          errorMessage: isError
+            ? (protectedErrorMessage ?? event.result)
+            : null,
           metadata:
-            config.captureToolArgs && pending
+            !protectedContext && config.captureToolArgs && pending
               ? // Strip Authorization/api-key/token-shaped values before
                 // persisting (M14 in the MCP/A2A audit). Tool-runtime
                 // execution still sees the unredacted input — only the
@@ -418,17 +429,22 @@ export async function instrumentAgentLoop(opts: {
   let usage: AgentLoopUsage | undefined;
   let runStatus: "success" | "error" = "success";
   let errorMessage: string | null = null;
-  let runMetadata: Record<string, unknown> | null = opts.metadata ?? null;
+  let runMetadata: Record<string, unknown> | null = protectedContext
+    ? null
+    : (opts.metadata ?? null);
   try {
     usage = await runAgentLoop({ ...loopOpts, send: instrumentedSend });
   } catch (err: any) {
     const classification = opts.classifyError?.(err) ?? null;
     runStatus = classification?.status ?? "error";
-    errorMessage =
-      classification?.errorMessage === undefined
+    errorMessage = protectedContext
+      ? protectedErrorMessage
+      : classification?.errorMessage === undefined
         ? (err?.message ?? String(err))
         : classification.errorMessage;
-    const errorMetadata = classification?.metadata ?? null;
+    const errorMetadata = protectedContext
+      ? null
+      : (classification?.metadata ?? null);
     runMetadata =
       runMetadata || errorMetadata
         ? { ...(runMetadata ?? {}), ...(errorMetadata ?? {}) }
@@ -566,7 +582,8 @@ export async function instrumentAgentLoop(opts: {
       for (const toolSpan of openOtelToolSpans) {
         endAgentSpan(toolSpan, {
           status: "error",
-          errorMessage: "Agent run ended before tool_done.",
+          errorMessage:
+            protectedErrorMessage ?? "Agent run ended before tool_done.",
         });
       }
       openOtelToolSpans.clear();
@@ -592,7 +609,7 @@ export async function instrumentAgentLoop(opts: {
   // request cannot contend with the user's response for a gateway slot. This
   // short, awaited tail keeps serverless runtimes alive long enough to emit the
   // event, while the response content has already streamed to the client.
-  if (usage && opts.sentimentInput) {
+  if (usage && opts.sentimentInput && !protectedContext) {
     try {
       const precedingResponse = await precedingResponsePromise;
       if (precedingResponse) {

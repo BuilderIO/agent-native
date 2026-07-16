@@ -1,3 +1,4 @@
+import { getProtectedExecutionContext } from "../protected-execution-context.js";
 import { getIntegrationRequestContext } from "../server/request-context.js";
 /**
  * Audit capture entry point, called from the `defineAction` audit wrapper after
@@ -105,17 +106,30 @@ async function appendActionAudit(
     orgId: ctx?.orgId ?? null,
   };
 
-  const target = safeTarget(input.config, input.args, input.result, meta);
-  const summary = safeSummary(input.config, input.args, input.result, meta);
+  const protectedContext = getProtectedExecutionContext();
 
-  const recordInputs = input.config?.recordInputs !== false;
+  const target = protectedContext
+    ? {
+        type: protectedContext.receipt.resourceType,
+        id:
+          protectedContext.receipt.accessEvent?.accessEventId ??
+          protectedContext.receipt.operationId ??
+          protectedContext.receipt.queueId,
+      }
+    : safeTarget(input.config, input.args, input.result, meta);
+  const summary = protectedContext
+    ? `Protected action ${protectedContext.receipt.status} via ${protectedContext.receipt.placement}`
+    : safeSummary(input.config, input.args, input.result, meta);
+
+  const recordInputs =
+    !protectedContext && input.config?.recordInputs !== false;
   const inputJson = recordInputs ? redactArgsToJson(input.args) : null;
 
   const hasExplicitTargetVisibility = target?.visibility !== undefined;
   const event: AuditEvent = {
     id: crypto.randomUUID(),
     createdAt: Date.now(),
-    action: actionName,
+    action: protectedContext?.receipt.actionName ?? actionName,
     caller,
     actorKind: deriveActorKind(caller, actorEmail),
     actorEmail,
@@ -127,7 +141,12 @@ async function appendActionAudit(
     status: input.status,
     summary,
     input: inputJson,
-    errorCode: input.status === "error" ? errorCode(input.error) : null,
+    errorCode:
+      input.status === "error"
+        ? protectedContext
+          ? "protected-action-failed"
+          : errorCode(input.error)
+        : null,
     // Scope reads to the resource owner when the action declares one,
     // otherwise to the actor (the common self-mutation case).
     ownerEmail: target?.ownerEmail ?? actorEmail,
@@ -164,6 +183,19 @@ async function appendActionAudit(
       event.networkProtocol = "a2a";
       event.networkId = target?.id ?? "call-agent";
     }
+  }
+  if (protectedContext) {
+    // Preserve only low-cardinality lineage. IDs, peers, URLs, and integration
+    // payload-derived fields are not schema-validated protected facts.
+    event.threadId = null;
+    event.turnId = null;
+    event.runId = null;
+    event.taskId = null;
+    event.parentTaskId = null;
+    event.sourceId = null;
+    event.sourceUrl = null;
+    event.networkId = null;
+    event.networkPeer = null;
   }
   // org_id used for scoping defaults to the target's, else the actor's org.
   if (target?.orgId !== undefined) event.orgId = target.orgId;

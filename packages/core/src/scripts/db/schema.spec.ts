@@ -129,6 +129,23 @@ describe("db-schema", () => {
     expect(names.some((n: string) => n.startsWith("sqlite_"))).toBe(false);
   });
 
+  it("omits protected Content vault tables from agent schema prompting", async () => {
+    await withClient(async (c) => {
+      await c.execute(`CREATE TABLE notes (id TEXT PRIMARY KEY)`);
+      await c.execute(
+        `CREATE TABLE content_encrypted_vault_objects (object_id TEXT PRIMARY KEY)`,
+      );
+    });
+    const out = await runSchemaJson([]);
+    expect(out.tables.map((table: { name: string }) => table.name)).toEqual([
+      "notes",
+    ]);
+
+    const human = (await runSchema(["--db", dbFile])).join("\n");
+    expect(human).toContain("Table: notes");
+    expect(human).not.toContain("content_encrypted_vault_objects");
+  });
+
   it("emits human-readable output with annotations when no --format is given", async () => {
     await withClient(async (c) => {
       await c.execute(

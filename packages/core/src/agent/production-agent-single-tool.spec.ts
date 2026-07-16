@@ -122,21 +122,20 @@ describe("executeAgentToolCall", () => {
 
     expect(run).not.toHaveBeenCalled();
     expect(result.status).toBe("failed");
-    expect(result.output).toContain(
-      "requires an eligible enrolled_broker resolver",
+    expect(result.output).toBe(
+      "Protected action denied (protected_execution_unavailable).",
     );
+    expect(result.output).not.toContain("secret");
   });
 
-  it("routes protected loop calls with their strict origin and capabilities", async () => {
+  it("routes protected loop calls but exposes only a content-free queued receipt", async () => {
     const run = vi.fn(async () => "must not run hosted");
-    const resolve = vi.fn(async (request: any) => ({
-      status: "executed" as const,
+    const resolve = vi.fn(async (_request: any) => ({
+      status: "queued" as const,
+      queueId: "queue-123",
       placement: "enrolled_broker" as const,
-      result: {
-        brokered: true,
-        invocation: request.invocation,
-      },
     }));
+    const events: unknown[] = [];
     const result = await executeAgentToolCall({
       actions: {
         private: action(run, {
@@ -158,19 +157,63 @@ describe("executeAgentToolCall", () => {
         placements: ["enrolled_broker"],
         resolve,
       },
+      send: (event) => events.push(event),
     });
 
     expect(run).not.toHaveBeenCalled();
     expect(resolve).toHaveBeenCalledOnce();
     expect(result.status).toBe("completed");
     expect(JSON.parse(result.output)).toEqual({
-      brokered: true,
-      invocation: {
+      protected: true,
+      receipt: {
         version: 1,
-        origin: "job",
-        capabilities: ["documents:read"],
+        actionName: "private",
+        resourceType: "document",
+        placement: "enrolled_broker",
+        status: "queued",
+        queueId: "queue-123",
       },
     });
+    const serializedEvents = JSON.stringify(events);
+    expect(serializedEvents).not.toContain("ciphertext");
+    expect(serializedEvents).toContain('"protected":true');
+  });
+
+  it("refuses a protected executed value in the hosted model loop", async () => {
+    const secret = "PRIVATE_RESULT_CANARY";
+    const events: unknown[] = [];
+    const result = await executeAgentToolCall({
+      actions: {
+        private: action(async () => "must not run hosted", {
+          resourcePrivacy: {
+            mode: "protected",
+            resourceType: "document",
+            placement: "enrolled_broker",
+          },
+        }),
+      },
+      name: "private",
+      input: { value: "PRIVATE_INPUT_CANARY" },
+      callId: "call-private-executed",
+      actionExecutionResolver: {
+        placements: ["enrolled_broker"],
+        resolve: async () => ({
+          status: "executed",
+          placement: "enrolled_broker",
+          result: secret,
+        }),
+      },
+      send: (event) => events.push(event),
+    });
+
+    expect(result).toEqual({
+      status: "failed",
+      output:
+        "Protected action result requires an authorized local delivery adapter.",
+    });
+    const serialized = JSON.stringify({ result, events });
+    expect(serialized).not.toContain(secret);
+    expect(serialized).not.toContain("PRIVATE_INPUT_CANARY");
   });
 
   it.each([

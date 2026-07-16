@@ -80,4 +80,20 @@ describe("assertNoSchemaQualifiedTables", () => {
       ),
     ).toThrow();
   });
+
+  it("reserves every protected Content vault table from generic DB tools", () => {
+    const statements: Array<[string, "read" | "write" | "patch"]> = [
+      ["SELECT * FROM content_encrypted_vault_objects", "read"],
+      [
+        "INSERT INTO content_encrypted_vault_jobs (job_id) VALUES ('job:test-0001')",
+        "write",
+      ],
+      ["UPDATE content_encrypted_vaults SET vault_state = 'deleted'", "patch"],
+    ];
+    for (const [sql, operation] of statements) {
+      expect(() => assertNoSensitiveFrameworkTables(sql, operation)).toThrow(
+        /Sensitive framework table/i,
+      );
+    }
+  });
 });

@@ -1,6 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  protectedExecutionReceiptSchema,
+  runWithProtectedExecutionContext,
+} from "../protected-execution-context.js";
+import {
   flushTracking,
   registerTrackingProvider,
   track,
@@ -11,6 +15,7 @@ describe("tracking registry", () => {
   afterEach(() => {
     unregisterTrackingProvider("qa-throwing-track");
     unregisterTrackingProvider("qa-rejecting-flush");
+    unregisterTrackingProvider("qa-protected-track");
     vi.restoreAllMocks();
   });
 
@@ -45,5 +50,39 @@ describe("tracking registry", () => {
       '[tracking] Provider "qa-rejecting-flush" flush rejected:',
       expect.any(Error),
     );
+  });
+
+  it("drops protected events without suppressing concurrent ordinary events", async () => {
+    const canary = "protected-plaintext-canary";
+    const events: unknown[] = [];
+    registerTrackingProvider({
+      name: "qa-protected-track",
+      track(event) {
+        events.push(event);
+      },
+    });
+    const receipt = protectedExecutionReceiptSchema.parse({
+      version: 1,
+      actionName: "protected-read",
+      resourceType: "document",
+      placement: "enrolled_broker",
+      status: "executed",
+    });
+
+    await Promise.all([
+      runWithProtectedExecutionContext(receipt, async () => {
+        await Promise.resolve();
+        track("protected.event", { body: canary });
+      }),
+      Promise.resolve().then(() => track("ordinary.event", { visible: true })),
+    ]);
+
+    expect(events).toEqual([
+      expect.objectContaining({
+        name: "ordinary.event",
+        properties: { visible: true },
+      }),
+    ]);
+    expect(JSON.stringify(events)).not.toContain(canary);
   });
 });

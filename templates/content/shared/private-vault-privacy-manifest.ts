@@ -90,6 +90,17 @@ export const CONTENT_PRIVATE_VAULT_V1_FAIL_CLOSED_FEATURES = [
   "plaintext-import",
 ] as const;
 
+/**
+ * Physical tenant-routing columns required by the existing authenticated SQL
+ * boundary. They are aliases of already-admitted account/workspace identity,
+ * not additional logical protected-record fields, and must be removed before
+ * hosted-record validation or serialization.
+ */
+export const CONTENT_PRIVATE_VAULT_V1_AUTH_ROUTING_ALIASES = {
+  ownerEmail: "accountId",
+  orgId: "workspaceId",
+} as const;
+
 /** Exact M1/M2 policy for a Content Private Vault document. */
 export const CONTENT_PRIVATE_VAULT_V1_PRIVACY_MANIFEST =
   resourcePrivacyManifestSchema.parse({

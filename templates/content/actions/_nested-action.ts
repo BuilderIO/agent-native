@@ -1,7 +1,7 @@
 import {
   ActionExecutionDeniedError,
   createActionInvocationDescriptor,
-  runActionEntry,
+  dispatchActionEntry,
   type ActionEntry,
 } from "@agent-native/core";
 import type { ActionRunContext } from "@agent-native/core/action";
@@ -32,7 +32,7 @@ export async function runInheritedActionEntry<TResult>(options: {
     invocation,
     executionResolver: options.parentContext?.executionResolver,
   };
-  const result = await runActionEntry<TResult>({
+  const dispatched = await dispatchActionEntry<TResult>({
     entry: options.entry,
     actionName: options.actionName,
     args: options.args,
@@ -40,16 +40,23 @@ export async function runInheritedActionEntry<TResult>(options: {
     resolver: options.parentContext?.executionResolver,
     invocation,
   });
-  if (
-    result &&
-    typeof result === "object" &&
-    "execution" in result &&
-    result.execution === "queued"
-  ) {
+  if (dispatched.outcome.status === "queued") {
     throw new ActionExecutionDeniedError(
       "nested_action_queued",
       `Nested action '${options.actionName}' queued instead of executing; the outer action cannot report success.`,
     );
   }
-  return result as TResult;
+  if (dispatched.outcome.status === "denied") {
+    throw new ActionExecutionDeniedError(
+      dispatched.outcome.code,
+      dispatched.outcome.message,
+    );
+  }
+  if (dispatched.privacy === "protected") {
+    throw new ActionExecutionDeniedError(
+      "nested_protected_result_requires_broker",
+      `Nested protected action '${options.actionName}' executed, but its transient result cannot cross into an ordinary outer action. Route the outer protected operation through the broker.`,
+    );
+  }
+  return dispatched.outcome.result;
 }

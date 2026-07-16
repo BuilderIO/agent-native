@@ -682,10 +682,13 @@ export function generateWorkerEntry(
     const routePath = `/_agent-native/actions/${a.path ?? a.name}`;
     actionRegistrations.push(
       `  app.on(${JSON.stringify(a.method.toUpperCase())}, ${JSON.stringify(routePath)}, defineEventHandler(async (event) => {
-    const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
     try {
       const invocation = createActionInvocationDescriptor("generated-edge");
-      const result = await runActionEntry({ entry: ${varName}, actionName: ${JSON.stringify(a.name)}, args: params, context: { caller: "http", invocation }, invocation });
+      if (${varName}.resourcePrivacy != null) {
+        return await dispatchGeneratedEdgeAction({ entry: ${varName}, actionName: ${JSON.stringify(a.name)}, args: {}, context: { caller: "http", invocation }, invocation });
+      }
+      const params = ${a.method === "get" ? "parseActionSearchParams(event.url.searchParams)" : "(await readBody(event)) ?? {}"};
+      const result = await dispatchGeneratedEdgeAction({ entry: ${varName}, actionName: ${JSON.stringify(a.name)}, args: params, context: { caller: "http", invocation }, invocation });
       if (typeof result === "string") { try { return JSON.parse(result); } catch { return result; } }
       return result;
     } catch (err) {
@@ -763,10 +766,24 @@ export function generateWorkerEntry(
   return `
 // Auto-generated worker entry point for ${preset}
 import { H3, defineEventHandler, readBody, toResponse } from "h3";
-import { createActionInvocationDescriptor, isActionExecutionDeniedError, runActionEntry } from "${EDGE_SERVER_ENTRYPOINT}";
+import { ActionExecutionDeniedError, createActionInvocationDescriptor, dispatchActionEntry, isActionExecutionDeniedError, unwrapActionExecutionOutcome } from "${EDGE_SERVER_ENTRYPOINT}";
 ${includeReactRouterSsr ? 'import { createRequestHandler } from "react-router";' : ""}
 ${includeReactRouterSsr ? 'import * as serverBuild from "./server-build.js";' : ""}
 ${includeReactRouterSsr ? `import { runWithRequestContext } from "${EDGE_SERVER_ENTRYPOINT}";` : ""}
+
+async function dispatchGeneratedEdgeAction(options) {
+  const dispatched = await dispatchActionEntry(options);
+  if (dispatched.privacy === "ordinary") {
+    return unwrapActionExecutionOutcome(dispatched.outcome);
+  }
+  if (dispatched.outcome.status === "executed") {
+    throw new ActionExecutionDeniedError(
+      "protected_plaintext_delivery_forbidden",
+      \`Protected action '\${dispatched.receipt.actionName}' cannot deliver plaintext through the generated edge transport.\`,
+    );
+  }
+  return dispatched.receipt;
+}
 
 function normalizeAppBasePath(value) {
   if (!value || value === "/") return "";
