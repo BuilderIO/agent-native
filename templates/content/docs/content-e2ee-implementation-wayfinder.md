@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation brief complete; isolated Vercel/Neon fork lab and synthetic two-account isolation proof operational; production configuration inventory and E2EE implementation pending
+Status: implementation active on the isolated fork; baseline isolation, executable protocol contracts, and the first deployed adversarial proofs are implemented; E2EE runtime milestones remain pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
@@ -148,6 +148,7 @@ The first isolated integration environment is operational:
 | Verified deployment | Production deployment `dpl_CYYgExwSuUtoAdjDJSe1CyKCCSZF`; the stable alias served the final artifact                                                                                                                                 |
 | Git deployment      | Preview deployment `dpl_GjAC7ML18wzphGqbkrygXB969ETj` cloned fork commit `9f08dfc`, ran the configured monorepo build on Vercel Linux/x64, bundled ffmpeg, and reached Ready                                                         |
 | Neon                | Fork-only Neon project `curly-grass-81173036`, Vercel Marketplace resource `store_6SY2k3ZIus8VEFka`, region `iad1`, connected to production, preview, and development environments                                                   |
+| Private blob        | Fork-only Vercel Blob store `content-e2ee-private` (`store_eaA1h4cPWgMjvRFM`), private access, region `iad1`, connected to production, preview, and development environments                                                         |
 | Runtime secrets     | Independent generated values for Better Auth, scoped-secret encryption, and A2A in each environment; values were never copied into source or documentation                                                                           |
 | Runtime mode        | Database mode with Neon-backed migrations and content-free health reporting; serverless ffmpeg target pinned to `x64` for Vercel-hosted builds                                                                                       |
 
@@ -158,6 +159,7 @@ The deployed smoke and isolation proof passed:
 - Anonymous `GET /_agent-native/actions/list-documents` returned `401` with no document data.
 - Synthetic account A created private page `YF7URVpwJLF6`, titled `QA A Private Canary`.
 - Synthetic account B's private list was empty and direct navigation to A's page returned the in-app `Document unavailable` boundary. The account B UI exposed neither A's title in its tree nor A's document body.
+- A disposable private-blob probe returned `403` to an anonymous direct URL read, round-tripped byte-for-byte through an authenticated read, and returned not found to an authenticated read after deletion. The probe object was deleted; only status and digest evidence were retained.
 - `AUTH_SKIP_EMAIL_VERIFICATION` was enabled only long enough to create the synthetic QA accounts, then removed before the final deployment. It is absent from the settled production environment.
 
 This proves the fork lab, authentication, Neon persistence, and the exercised document read boundary. It does **not** prove E2EE, privileged-operator blindness, every Content resource type, or complete cross-user isolation. The existing F3/F4 matrix and adversarial suite remain mandatory.
@@ -165,7 +167,7 @@ This proves the fork lab, authentication, Neon persistence, and the exercised do
 Open lab gaps before E2EE milestone PR 3:
 
 - Connect a synthetic-only agent engine; the current status endpoint reports `configured: false`, so document storage/auth can be tested but agent runs cannot yet be included in the lab evidence.
-- Provision fork-owned blob and scheduler targets before media, queue, background-run, or deletion assertions are claimed.
+- Provision a fork-owned scheduler target before queue or background-run assertions are claimed. The private blob target is provisioned and its basic access/deletion behavior is proven, but Content media must still route through document-scoped handles before revocation is claimed.
 - Triage the 77 non-strict `agent-native doctor` findings emitted by the Content build. Many are test or deploy-environment reads, but the lab must not silently promote a noisy build to a clean security signal.
 
 ### Exact-SHA upstream handoff
@@ -237,17 +239,17 @@ Required behavior:
 
 ### Entry-gate map
 
-| Gate                                    | Must be complete before | Required output                                                                                                                                                                                                                                                                          |
-| --------------------------------------- | ----------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Production exposure inventory           | PR 1 opens              | [Unauthenticated content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md); credentialed visibility/grant counts, effective deployment configuration, provider IAM/retention, and disposable CDN/media proof remain pending                                |
-| F3 plaintext and derivative inventory   | PR 3 opens              | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending                                                                                                |
-| F4 remediation matrix                   | PR 1 opens              | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); implementation and deployed adversarial proof remain pending                                                                                                             |
-| M1 personal-vault domain                | PR 3 opens              | The settled one-vault domain contract reflected in schema invariants                                                                                                                                                                                                                     |
-| M2 protected-field and metadata budget  | PR 3 opens              | Exact hosted-field allowlist, retention/deletion table, admitted size/timing/access-pattern leakage, and schema guard                                                                                                                                                                    |
-| M3 cryptographic architecture           | PR 4 opens              | Reviewed design record selecting maintained, independently reviewed primitives/libraries for object encryption, key wrapping, device authentication, streaming, rotation, versioning, and algorithm agility, with fixed interoperability and failure vectors; no home-grown cryptography |
-| K1 device identity and enrollment       | PR 5 opens              | Existing-device or recovery-mediated enrollment ceremony; server directory cannot add a device alone                                                                                                                                                                                     |
-| K2 recovery                             | PR 5 opens              | Verified recovery-material format and lost-all-paths behavior; no Agent Native recovery key                                                                                                                                                                                              |
-| Signed desktop and agent-loop placement | PR 5 opens              | Desktop-only private-vault client; vault-scoped agent loop runs on the enrolled broker                                                                                                                                                                                                   |
+| Gate                                    | Must be complete before | Required output                                                                                                                                                                                                                                                                                                                                                          |
+| --------------------------------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Production exposure inventory           | PR 1 opens              | [Production content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md). The fork lab now has an audited operator-only aggregate inventory plus disposable CDN and private-provider proof; production visibility/grant counts and provider IAM/retention still require production operator access before upstream rollout.                   |
+| F3 plaintext and derivative inventory   | PR 3 opens              | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending                                                                                                                                                                                |
+| F4 remediation matrix                   | PR 1 opens              | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); public/private delivery, short-token expiry, operator inventory, private-provider behavior, and cross-account document isolation have deployed fork proof. Full media-route, Notion OAuth, extension, A2A, and exhaustive existence-parity proof remain. |
+| M1 personal-vault domain                | PR 3 opens              | [Versioned domain schema and Content contract frozen](./content-e2ee-m1-m2-executable-contract.md); storage invariants arrive in PR 4.                                                                                                                                                                                                                                   |
+| M2 protected-field and metadata budget  | PR 3 opens              | [Exact hosted-field allowlist, leakage budget, retention/deletion table, Content manifest, and structural rejection guard frozen](./content-e2ee-m1-m2-executable-contract.md).                                                                                                                                                                                          |
+| M3 cryptographic architecture           | PR 4 opens              | Reviewed design record selecting maintained, independently reviewed primitives/libraries for object encryption, key wrapping, device authentication, streaming, rotation, versioning, and algorithm agility, with fixed interoperability and failure vectors; no home-grown cryptography                                                                                 |
+| K1 device identity and enrollment       | PR 5 opens              | Existing-device or recovery-mediated enrollment ceremony; server directory cannot add a device alone                                                                                                                                                                                                                                                                     |
+| K2 recovery                             | PR 5 opens              | Verified recovery-material format and lost-all-paths behavior; no Agent Native recovery key                                                                                                                                                                                                                                                                              |
+| Signed desktop and agent-loop placement | PR 5 opens              | Desktop-only private-vault client; vault-scoped agent loop runs on the enrolled broker                                                                                                                                                                                                                                                                                   |
 
 The product decisions behind these gates are settled in the trust contract. The listed outputs refine them into executable schemas, ceremonies, and tests; they do not reopen vendor key escrow, hosted plaintext agent loops, or browser vault access. PR 3 may define versioned opaque envelope schemas and failing vectors, but PR 4 may not implement encryption or key custody until M3 has passed focused cryptographic design review.
 
@@ -273,6 +275,8 @@ Exit gate:
 - A public-to-private transition and token expiry no longer serve stale content through the deployed CDN.
 - A revoked media handle stops serving protected bytes.
 
+Fork evidence on 2026-07-16: preview deployment `dpl_FsbSnX2Qfr2R8Wb2thr5kvkSKFTN` served two synthetic public reads as byte-identical `200`, `Cache-Control: no-store`, `x-vercel-cache: MISS`; after the document became private, two anonymous reads were byte-identical uniform `404` responses with neither title nor body sentinel. Preview deployment `dpl_DuksDS9R6JXaXiDKDcuqHQvvcWh6` issued a 30-second document-scoped link; an immediate private-document read succeeded and a read 6.378 seconds after expiry returned the same content-free `404/no-store` shape. Private provider probes also proved anonymous direct read `403`, authenticated byte-exact retrieval, and not-found after deletion. The remaining PR 1 exit item is the complete document-media route lifecycle, including document/share revocation against a real stored handle.
+
 Estimated size: 15–30 files; 1–2 engineer-weeks.
 
 ### PR 2 — Baseline authority isolation
@@ -290,6 +294,8 @@ Scope:
 Exit gate:
 
 - Each prior audit finding has one deployed adversarial test and an explicit owner.
+
+Fork evidence on 2026-07-16: the audited `production-privacy-inventory` action required both an allowlisted authenticated operator and an out-of-band token, rejected the wrong token without counts, returned aggregate-only Content coverage, and wrote one content-free durable audit event before releasing the result. The synthetic lab reported one private document and no public/org/shared Content rows; extension and inherited-share coverage were complete, while the absent A2A queue schema was reported honestly as incomplete rather than guessed. Dynamic scoping enumerated the real Neon schema; ownable Content tables carried owner/org scope, while deployment/global framework tables were denied to raw DB tools rather than mislabeled as user-owned. Remaining closure is the feature-specific adversarial matrix, not construction of the inventory surface.
 
 Estimated size: 20–40 files; 2–3 engineer-weeks.
 
@@ -310,6 +316,8 @@ Exit gate:
 - HTTP, frontend, CLI, hosted agent, MCP, A2A, agent-team, and job invocation paths all pass through the same resolver or an equivalently proven registry transformation.
 
 Estimated size: 15–30 files; 2–3 engineer-weeks.
+
+Current implementation: Core exports strict v1 schemas and the exact M2 budget, rejects unknown hosted fields and malformed nested metadata, and ships the fixed failure corpus. Content freezes its protected-field catalog, broker placement, deny-by-default egress, retention contract, and fail-closed beta features in `shared/private-vault-privacy-manifest.ts`. The universal resolver now covers HTTP/frontend/A2A action routes, CLI, direct MCP, run-code, and generated-edge dispatch with request-scoped policy and placement-confusion rejection. Hosted agent loops, agent teams, jobs/triggers/integrations, and nested direct `.run()` call sites must still be routed before the PR 3 exit gate closes.
 
 ### PR 4 — Ciphertext relay and opaque hosted plane
 
