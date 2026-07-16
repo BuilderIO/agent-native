@@ -1,6 +1,6 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation brief complete; repository-backed F3/F4 evidence and production preflight complete; credentialed inventory and deployed proof pending
+Status: implementation brief complete; repository-backed F3/F4 evidence, public preflight, and credentialed deploy provenance complete; configuration inventory and deployed proof pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)

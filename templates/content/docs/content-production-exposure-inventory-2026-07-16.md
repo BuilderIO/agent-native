@@ -1,13 +1,13 @@
 # Content Production Exposure Inventory Preflight
 
-Status: unauthenticated content-free preflight complete; credentialed exposure inventory pending
+Status: public preflight and credentialed deployment provenance complete; credentialed configuration and exposure inventory pending
 Evidence date: 2026-07-16
 Implementation route: [Content E2EE Implementation Wayfinder](./content-e2ee-implementation-wayfinder.md)
 F3/F4 evidence: [Content E2EE F3/F4 Evidence Matrix](./content-e2ee-f3-f4-evidence-matrix.md)
 
 ## Purpose and boundary
 
-This artifact records the first safe production-exposure preflight for Content. It distinguishes:
+This artifact records the first safe production-exposure preflight for Content and a bounded authenticated Netlify follow-up. It distinguishes:
 
 - **Verified production facts** observed through public metadata or content-free HTTP responses.
 - **Repository-derived facts** that describe intended deployment wiring or available capability but do not prove effective production configuration.
@@ -15,16 +15,17 @@ This artifact records the first safe production-exposure preflight for Content. 
 
 The preflight did not read production documents, document metadata, share rows, database rows, user identities, customer data, environment values, connection strings, media objects, extension contents, provider tokens, or logs. Synthetic nonexistent route identifiers were used only to characterize response and cache behavior.
 
-This is not the credentialed production exposure inventory required before baseline PR 1 opens. It narrows that remaining inventory to explicit, content-free reads.
+This is not the complete credentialed production exposure inventory required before baseline PR 1 opens. It closes deployment provenance and narrows the remaining inventory to explicit, content-free reads.
 
 ## Methodology
 
-The read-only pass inspected four surfaces:
+The read-only pass inspected five surfaces:
 
 1. Checked-in Content deployment configuration and GitHub workflows.
 2. Public GitHub repository, environment, deployment, and check-run metadata available to the existing read token.
 3. Public Netlify site metadata projected to non-secret deployment fields.
 4. Response status and selected cache headers from the production root, health route, authenticated database-health route, synthetic public-document route, synthetic public API route, and synthetic application route.
+5. The authenticated Netlify deploy list and named deploy detail for `agent-native-content`, followed by a direct environment-configuration navigation used only to test whether the signed-in account had settings access.
 
 Local tooling and credential paths were checked for presence only. No environment variable or provider configuration value was printed.
 
@@ -32,9 +33,9 @@ Local tooling and credential paths were checked for presence only. No environmen
 
 | Surface | Classification | Evidence | Blocked unknown | Smallest safe closure action |
 | --- | --- | --- | --- | --- |
-| Live URL and deployment | Verified production | `https://content.agent-native.com` mapped publicly to Netlify site name `agent-native-content`, site ID `5c2198f5-bee4-41c3-8a6d-4869f400eec2`, and ready production deploy ID `6a58e6b5394b57000833fb79`, published from branch `main` at `2026-07-16T14:13:58Z`. Public Netlify metadata showed production commit `6d62b7a0b556...`, while upstream and fork `main` were `671c2273de06...` at probe time. Production was therefore behind both main refs at that instant. | Private build state, logs, environment metadata, and the reason for the lag were unavailable. | Use a scoped read-only Netlify credential to read the named deploy's build metadata and logs without retrieving environment values. Record only state, timestamps, commit, and sanitized failure category. |
+| Live URL and deployment | Verified production, including authenticated provenance | `https://content.agent-native.com` mapped publicly to Netlify site name `agent-native-content`, site ID `5c2198f5-bee4-41c3-8a6d-4869f400eec2`, and ready production deploy ID `6a58e6b5394b57000833fb79`. The authenticated Netlify deploy detail independently identified it as a published production deploy for `main@6d62b7a`, linked commit `6d62b7a0b556a47f5a00f295ee62c32df660692f`, and showed deploy time `2026-07-16T14:12:05.975Z`; public site metadata reported publication at `2026-07-16T14:13:58Z`. Upstream and fork `main` were `671c2273de06...` at probe time, so production was behind both main refs at that instant. | Environment metadata, settings, logs, and the reason for the lag remain unavailable to this account. | Deployment provenance needs no further Netlify read. Obtain read-only project-configuration access for environment-key presence/context and a sanitized log/build summary only if it is needed to explain the version lag; retrieve no values or raw logs. |
 | GitHub deployment metadata | Verified production metadata boundary | `BuilderIO/agent-native` was public, non-fork, with default branch `main`. The readable GitHub environments were `copilot` and `npm-publish`; recent GitHub deployments were package-publish deployments. No Netlify check run was attached to the probed main commit. | GitHub does not expose Content's Netlify production deployment state through these surfaces. | Treat Netlify, not GitHub Deployments, as the deployment source of truth. No new GitHub access is needed for this gap. |
-| Database connectivity and provider | Mixed: connectivity verified; provider repository-derived | `GET /_agent-native/health` returned `200`, `ok: true`, and content-free database health fields. The repository maps Content preview infrastructure to Neon project `quiet-heart-51077706`, and the Content Netlify build selects `NETLIFY_DATABASE_URL` before `DATABASE_URL`. | The production database provider, project, branch, replicas, backups, privileged readers, retention, and deletion behavior were not verified. Public health intentionally omits them. | First inspect Netlify environment-key presence and context without values. Then use Neon read-only project/branch/IAM metadata if that mapping is confirmed. Do not connect to the database or query rows for this provider-identification step. |
+| Database connectivity and provider | Mixed: connectivity verified; provider repository-derived | `GET /_agent-native/health` returned `200`, `ok: true`, and content-free database health fields. The repository maps Content preview infrastructure to Neon project `quiet-heart-51077706`, and the Content Netlify build selects `NETLIFY_DATABASE_URL` before `DATABASE_URL`. | The authenticated account could inspect deploys but the direct Netlify environment-configuration page returned “Page not found” with a permissions warning. The production database provider, project, branch, replicas, backups, privileged readers, retention, and deletion behavior therefore remain unverified. | Grant read-only project-configuration access and inspect environment-key presence and context without values. Then use provider read-only project/branch/IAM metadata if that mapping is confirmed. Do not connect to the database or query rows for this provider-identification step. |
 | CDN and cache | Verified production | `/` returned `200` with `public, max-age=600, stale-while-revalidate=604800, stale-if-error=3600` in both browser and CDN cache controls. A synthetic unknown application path returned the same cached `200` shell. `/_agent-native/health` returned `no-store`. Synthetic missing `/p/...` and `/api/pages/public/...` reads returned `404` with `no-cache`. | No public-to-private transition, token revocation, purge, or stale-body test was performed. No real public document was read. | Use a disposable synthetic document in the credentialed phase to run the PR 1 warm-cache privacy-transition and token-revocation test, then delete it and retain only statuses, headers, and body hashes. |
 | Authentication | Partly verified production | `/api/db-health` returned `401` with `no-cache`, while the general health endpoint remained public. The repository explicitly allowlists public document/API, agent-chat/status, Builder connection/status, and environment-status route families. | Effective identity-provider configuration, session policy, administrator roles, and account coverage remain unknown. | Run one controlled signed-out and disposable signed-in browser check, then read only presence/status booleans from authenticated configuration diagnostics. Do not record account identifiers. |
 | Local File Mode | Repository-derived | Content supports `AGENT_NATIVE_MODE=local-files`, trusted Desktop/browser folder handles, local component workspaces, and database-backed copies when local files are shared. The repository describes a fail-closed production boundary, not proof of the deployed mode. | Effective production mode, unsafe override state, registered roots, host filesystem ownership, and tenant cardinality remain unknown. | Read only the effective mode enum and unsafe-override presence through a sanitized deployment diagnostic. If local-file mode is enabled, prove the runtime is single-tenant without enumerating paths or filenames. |
@@ -47,14 +48,14 @@ Local tooling and credential paths were checked for presence only. No environmen
 
 ## Local read-path availability
 
-Presence-only checks found:
+Local presence-only checks found:
 
 - `gh` was installed and authenticated for public/read metadata.
 - `netlify`, `neon`, and `psql` were absent.
 - Netlify, Neon, and database credential environment variables were absent.
 - No Netlify user configuration or linked `.netlify/state.json` was present.
 
-The exact missing production read path is therefore a scoped Netlify credential for deploy/environment metadata, followed by scoped Neon and other provider read credentials if the presence-only Netlify inventory confirms those providers. Database row access is neither available nor needed for the provider-identification phase.
+The authenticated browser follow-up closed the deploy-metadata path but exposed a narrower authorization boundary: the signed-in account can read the Builder.io project's deploy history and deploy detail, but not project environment configuration. The remaining path is read-only Netlify project-configuration access, followed by scoped provider metadata access if environment-key presence confirms the provider. Database row access is neither available nor needed for the provider-identification phase.
 
 ## Sanitized command record
 
@@ -104,7 +105,7 @@ Before PR 1, an authorized operator may run the same aggregate contract as a rev
 
 ## Gate conclusion
 
-The safe preflight is complete and useful: it establishes the live Netlify site and deploy, confirms healthy database connectivity without identifying the provider, records the public-shell and missing-public-route cache behavior, proves an authenticated diagnostic rejects anonymous access, and identifies the exact absent local read paths.
+The safe preflight and credentialed deploy-provenance check are complete and useful: they establish the live Netlify site and exact production commit, confirm healthy database connectivity without identifying the provider, record the public-shell and missing-public-route cache behavior, prove an authenticated diagnostic rejects anonymous access, and identify the exact remaining permission boundary.
 
 The **production exposure inventory gate remains open**. Before PR 1 opens, the credentialed phase must still establish:
 
