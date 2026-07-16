@@ -219,6 +219,144 @@ describe("local-folder Content source", () => {
     expect(resolvedChangeSet.state).toBe("applied");
   });
 
+  it("records concurrent metadata-only edits as a conflict", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-metadata-conflict",
+        label: "Metadata conflict docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const baseline = `---\ntitle: Baseline title\ndescription: Baseline description\n---\nBody.`;
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "metadata.md": baseline },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({
+        title: "Content title",
+        description: "Content description",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.documents.id, documentId));
+
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "metadata.md": `---\ntitle: Folder title\ndescription: Folder description\n---\nBody.`,
+        },
+      }),
+    );
+
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({ id: documentId, path: "metadata.md" }),
+    ]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, documentId)),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        title: "Content title",
+        description: "Content description",
+        content: "Body.",
+      }),
+    ]);
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    expect(changeSet.kind).toBe("metadata_update");
+    expect(JSON.parse(changeSet.fieldChangesJson)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          field: "title",
+          currentValue: "Content title",
+          proposedValue: "Folder title",
+        }),
+        expect.objectContaining({
+          field: "description",
+          currentValue: "Content description",
+          proposedValue: "Folder description",
+        }),
+      ]),
+    );
+  });
+
+  it("replans inside the write transaction so a just-committed edit is not overwritten", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-transaction-race",
+        label: "Transaction race docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "race.md": "Baseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let injectedEdit = false;
+    db.transaction = async function (...args: any[]) {
+      if (!injectedEdit) {
+        injectedEdit = true;
+        await db
+          .update(schema.documents)
+          .set({
+            content: "Content edit committed after planning.",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.documents.id, documentId));
+      }
+      return originalTransaction.apply(this, args);
+    };
+
+    try {
+      const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId: connection.sourceId,
+          files: { "race.md": "Incoming folder edit." },
+        }),
+      );
+      expect(injectedEdit).toBe(true);
+      expect(result.conflicts).toEqual([
+        expect.objectContaining({ id: documentId, path: "race.md" }),
+      ]);
+      await expect(
+        db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId)),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          content: "Content edit committed after planning.",
+        }),
+      ]);
+    } finally {
+      db.transaction = originalTransaction;
+    }
+  });
+
   it("tracks stable-id renames and reviews source deletions without deleting the global page", async () => {
     const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
       connectLocalFolder.run({
@@ -463,5 +601,69 @@ describe("local-folder Content source", () => {
       sourceMode: "database",
       sourcePath: null,
     });
+  });
+
+  it("preserves document source metadata when another folder source remains", async () => {
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-shared-a",
+        label: "Shared folder A",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-shared-b",
+        label: "Shared folder B",
+        spaceId: first.spaceId,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const sharedDocument = `---\nid: shared-folder-page\n---\n# Shared page\n\nBody.`;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: first.sourceId,
+        files: { "from-a.md": sharedDocument },
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: second.sourceId,
+        files: { "from-b.md": sharedDocument },
+      }),
+    );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      disconnectLocalFolder.run({ sourceId: first.sourceId }),
+    );
+
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.sourceId, second.sourceId),
+            eq(
+              schema.contentDatabaseSourceRows.documentId,
+              "shared-folder-page",
+            ),
+          ),
+        ),
+    ).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "shared-folder-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "from-b.md",
+        sourceRootPath: "Shared folder B",
+      }),
+    ]);
   });
 });

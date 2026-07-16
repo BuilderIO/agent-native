@@ -154,7 +154,7 @@ export async function resolveContentDatabaseSpace(
   if (!userEmail) throw new Error("no authenticated user");
   const provisioned = await provisionContentSpaces(db, userEmail);
   const spaceId = args.spaceId ?? provisioned.personalSpaceId;
-  await resolveContentSpaceAccess(spaceId);
+  await resolveContentSpaceAccess(spaceId, "editor");
   return spaceId;
 }
 
@@ -254,7 +254,7 @@ export async function createContentDatabaseRecord(
           "A top-level database requires a resolved Content space",
         );
       }
-      const spaceAccess = await resolveContentSpaceAccess(spaceId);
+      const spaceAccess = await resolveContentSpaceAccess(spaceId, "editor");
       ownerEmail = getRequestUserEmail() ?? ownerEmail;
       orgId = spaceAccess.space.orgId;
       visibility = orgId ? "org" : "private";

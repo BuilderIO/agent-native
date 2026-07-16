@@ -7,6 +7,7 @@ import { schema } from "../server/db/index.js";
 import {
   listContentOrganizationMemberships,
   normalizeContentSpaceEmail,
+  resolveContentSpaceAccess,
 } from "./_content-space-access.js";
 import {
   organizationContentSpaceId,
@@ -232,12 +233,23 @@ export async function reconcileContentFilesMemberships(
   const email = normalizeContentSpaceEmail(userEmail);
   const memberships = await listContentOrganizationMemberships(email);
   const personalSpaceId = personalContentSpaceId(email);
-  const orgSpaceIds = new Map(
-    memberships.map((membership) => [
-      membership.orgId,
-      organizationContentSpaceId(membership.orgId),
-    ]),
-  );
+  const orgSpaceIds = new Map<string, string>();
+  for (const membership of memberships) {
+    const spaceId = organizationContentSpaceId(membership.orgId);
+    try {
+      await resolveContentSpaceAccess(spaceId, "editor");
+      orgSpaceIds.set(membership.orgId, spaceId);
+    } catch (error) {
+      if (
+        error instanceof Error &&
+        error.message ===
+          `Editor access is required for Content space "${spaceId}"`
+      ) {
+        continue;
+      }
+      throw error;
+    }
+  }
   const accessibleSpaceIds = [personalSpaceId, ...orgSpaceIds.values()];
   const now = new Date().toISOString();
   const result: ContentFilesReconciliation = {

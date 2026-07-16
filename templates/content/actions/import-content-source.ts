@@ -16,6 +16,7 @@ import {
   type ParsedContentSourceFile,
 } from "../shared/content-source.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import {
   organizationContentSpaceId,
   personalContentSpaceId,
@@ -203,6 +204,7 @@ export default defineAction({
           "The active organization does not have a writable Content space.",
         );
       }
+      await resolveContentSpaceAccess(defaultSpaceId, "editor");
     }
     const parsed: ParsedContentSourceFile[] = entries.map(
       ([filePath, source]) => parseContentSourceFile(filePath, source),

@@ -13,6 +13,7 @@ const TEST_DB_PATH = join(
 );
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
+const VIEWER = "files-viewer@example.com";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -99,6 +100,43 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
+  it("does not let organization viewers backfill legacy organization pages", async () => {
+    const viewerOrgId = "files-viewer-org";
+    await getDbExec().execute({
+      sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+      args: [viewerOrgId, "Viewer Org", OWNER, Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      args: ["viewer-org-owner", viewerOrgId, OWNER, "owner", Date.now()],
+    });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      args: ["viewer-org-viewer", viewerOrgId, VIEWER, "member", Date.now()],
+    });
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    await createLegacyDocument({
+      id: "viewer-legacy-org",
+      orgId: viewerOrgId,
+      title: "Viewer cannot reconcile",
+    });
+
+    await runWithRequestContext({ userEmail: VIEWER }, () =>
+      reconcileContentFilesMemberships(getDb(), VIEWER),
+    );
+
+    const [legacyDocument] = await getDb()
+      .select({ spaceId: schema.documents.spaceId })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "viewer-legacy-org"));
+    expect(legacyDocument?.spaceId).toBeNull();
+    await getDb()
+      .delete(schema.documents)
+      .where(eq(schema.documents.id, "viewer-legacy-org"));
+  });
+
   it("assigns personal and organization legacy pages to their canonical Files databases", async () => {
     await createLegacyDocument({
       id: "legacy-personal",

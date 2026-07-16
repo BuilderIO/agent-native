@@ -28,6 +28,7 @@ let organizationContentSpaceId: typeof import("./_content-spaces.js").organizati
 
 const OWNER = "owner@example.com";
 const MEMBER = "member@example.com";
+const VIEWER = "viewer@example.com";
 const OUTSIDER = "outsider@example.com";
 
 beforeAll(async () => {
@@ -127,9 +128,10 @@ describe("space-aware document writers", () => {
     ).rejects.toThrow("parent Content space");
   });
 
-  it("lets an ordinary org member create an owned org-visible root page but denies outsiders", async () => {
+  it("requires organization editor access for root page and database creation", async () => {
     const orgId = "org-shared-writers";
-    await addOrganizationMember({ orgId, email: MEMBER });
+    await addOrganizationMember({ orgId, email: MEMBER, role: "admin" });
+    await addOrganizationMember({ orgId, email: VIEWER });
     const spaceId = organizationContentSpaceId(orgId);
     const created = await runWithRequestContext(
       { userEmail: MEMBER, orgId },
@@ -165,6 +167,16 @@ describe("space-aware document writers", () => {
       filesMemberships(createdDatabase.database.documentId),
     ).resolves.toHaveLength(1);
 
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
+        createDocument.run({ title: "Viewer page", spaceId }),
+      ),
+    ).rejects.toThrow("Editor access is required");
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId }, () =>
+        createContentDatabase.run({ title: "Viewer database", spaceId }),
+      ),
+    ).rejects.toThrow("Editor access is required");
     await expect(
       runWithRequestContext({ userEmail: OUTSIDER }, () =>
         createDocument.run({ title: "No entry", spaceId }),

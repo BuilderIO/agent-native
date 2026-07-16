@@ -82,7 +82,10 @@ import {
 } from "./_builder-cms-source-adapter.js";
 import { mergeBuilderCmsWriteSettingsIntoJson } from "./_builder-cms-write-settings.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
-import { provisionContentSpaces } from "./_content-spaces.js";
+import {
+  organizationContentSpaceId,
+  provisionContentSpaces,
+} from "./_content-spaces.js";
 import {
   databaseItemsPositionScope,
   documentsPositionScope,
@@ -5144,9 +5147,14 @@ export async function importBuilderCmsEntriesAsDatabaseItems(args: {
     );
   }
   if (!resolvedDatabaseSpaceId) {
-    resolvedDatabaseSpaceId = (
-      await provisionContentSpaces(db, args.database.ownerEmail)
-    ).personalSpaceId;
+    const provisioned = await provisionContentSpaces(
+      db,
+      args.database.ownerEmail,
+    );
+    const legacyOrgId = args.database.orgId ?? databaseDocument.orgId;
+    resolvedDatabaseSpaceId = legacyOrgId
+      ? organizationContentSpaceId(legacyOrgId)
+      : provisioned.personalSpaceId;
   }
   const databaseSpaceId = resolvedDatabaseSpaceId;
   if (
