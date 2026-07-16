@@ -174,7 +174,7 @@ const messages = {
       "Der Desktop-Recorder hat den Vorgang abgeschlossen und eine lokale Kopie gespeichert, aber Clips konnte sie nicht hochladen. Sie können es über das Clips-Menü erneut versuchen, ohne erneut aufzunehmen.",
     retryLibrary: "Sie können es in der Bibliothek erneut versuchen.",
     processingStuck:
-      "Die Verarbeitung ist nach 30 Sekunden noch nicht abgeschlossen (Status={{status}}). Der Clip wurde möglicherweise noch nicht vollständig hochgeladen. Überprüfen Sie die Serverprotokolle auf Chunk-/Finalisierungsmeldungen.",
+      "Das Speichern dauert länger als erwartet (Status={{status}}). Wenn du mit der Desktop-App aufgenommen hast, öffne Clips über die Menüleiste, um den Upload erneut zu versuchen oder eine gespeicherte lokale Kopie herunterzuladen. Prüfe danach erneut.",
     uploadingAssembling:
       "Das Hochladen und Zusammenstellen Ihres Videos dauert normalerweise nur wenige Sekunden.",
     connectStorageImportLoom:

@@ -172,7 +172,7 @@ const messages = {
       "L'enregistreur de bureau a terminé et a enregistré une copie locale, mais Clips n'a pas pu la télécharger. Vous pouvez réessayer à partir du menu Clips sans réenregistrer.",
     retryLibrary: "Vous pouvez réessayer depuis la bibliothèque.",
     processingStuck:
-      "Le traitement n'est pas terminé après 30 secondes (status={{status}}). Le téléchargement du clip n'est peut-être pas terminé – vérifiez les journaux du serveur pour les messages de fragmentation/finalisation.",
+      "L’enregistrement prend plus de temps que prévu (statut={{status}}). Si vous avez utilisé l’application de bureau, ouvrez Clips depuis la barre des menus pour réessayer l’envoi ou télécharger une copie locale enregistrée, puis vérifiez à nouveau.",
     uploadingAssembling:
       "Télécharger et assembler votre vidéo : cela ne prend généralement que quelques secondes.",
     connectStorageImportLoom: "Connectez le stockage pour importer ce Loom.",

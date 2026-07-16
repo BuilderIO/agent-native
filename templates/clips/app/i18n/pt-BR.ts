@@ -172,7 +172,7 @@ const messages = {
       "O gravador de desktop terminou e salvou uma cópia local, mas Clips não conseguiu carregá-la. Você pode tentar novamente no menu Clips sem gravar novamente.",
     retryLibrary: "Você pode tentar novamente na biblioteca.",
     processingStuck:
-      "O processamento não foi concluído após 30 segundos (status={{status}}). O upload do clipe pode não ter terminado — verifique os logs do servidor para mensagens de fragmentação/finalização.",
+      "O salvamento está demorando mais do que o esperado (status={{status}}). Se você gravou no app para desktop, abra o Clips pela barra de menus para tentar o upload novamente ou baixar uma cópia local salva e verifique outra vez.",
     uploadingAssembling:
       "Carregar e montar seu vídeo – isso geralmente leva apenas alguns segundos.",
     connectStorageImportLoom:

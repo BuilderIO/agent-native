@@ -174,7 +174,7 @@ const messages = {
       "The desktop recorder finished and saved a local copy, but Clips could not upload it. You can retry from the Clips menu without recording again.",
     retryLibrary: "You can retry from the library.",
     processingStuck:
-      "Processing has not completed after 30 seconds (status={{status}}). The clip may not have finished uploading — check the server logs for chunk/finalize messages.",
+      "Saving is taking longer than expected (status={{status}}). If you recorded in the desktop app, open Clips from the menu bar to retry or download a saved local copy, then check again.",
     uploadingAssembling:
       "Uploading and assembling your video — this usually takes just a few seconds.",
     connectStorageImportLoom: "Connect storage to import this Loom.",

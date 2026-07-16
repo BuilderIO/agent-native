@@ -874,8 +874,7 @@ export default function RecordingPage() {
     // Give a long-running desktop save an actionable recovery state without
     // claiming the upload failed while its bounded final request is still live.
     const stuckFailure = !explicitFailure && processingTimeout;
-    const isFailure =
-      explicitFailure || waitingForStorage || nativeSaveFailed;
+    const isFailure = explicitFailure || waitingForStorage || nativeSaveFailed;
     const showRecoveryState = isFailure || stuckFailure;
     const displayReason = explicitFailure
       ? storedButUnservableFailure
@@ -896,9 +895,9 @@ export default function RecordingPage() {
         ? t("recordingPage.uploadPausedSaved")
         : stuckFailure
           ? t("recordingPage.finishingClip")
-        : isFailure
-          ? t("recordingPage.savingWentWrong")
-          : t("recordingPage.finishingClip");
+          : isFailure
+            ? t("recordingPage.savingWentWrong")
+            : t("recordingPage.finishingClip");
     const failureReason = storageSetupFailure
       ? loomStorageSetupFailure
         ? t("recordingPage.loomSourcePreserved")

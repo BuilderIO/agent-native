@@ -173,7 +173,7 @@ const messages = {
       "La grabadora de escritorio terminó y guardó una copia local, pero Clips no pudo cargarla. Puedes volver a intentarlo desde el menú Clips sin volver a grabar.",
     retryLibrary: "Puedes volver a intentarlo desde la biblioteca.",
     processingStuck:
-      "El procesamiento no se ha completado después de 30 segundos (estado={{status}}). Es posible que el clip no haya terminado de cargarse; verifique los registros del servidor para ver si hay mensajes fragmentados/finalizados.",
+      "El guardado está tardando más de lo esperado (estado={{status}}). Si grabaste con la aplicación de escritorio, abre Clips desde la barra de menús para reintentar la carga o descargar una copia local guardada y vuelve a comprobarlo.",
     uploadingAssembling:
       "Cargar y ensamblar su video; esto generalmente toma solo unos segundos.",
     connectStorageImportLoom:

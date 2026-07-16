@@ -166,7 +166,7 @@ const messages = {
       "桌面錄影程式已完成並儲存本機副本，但 Clips 無法上傳。您可以從 Clips 選單重試，不需要重新錄製。",
     retryLibrary: "您可以從媒體庫重試。",
     processingStuck:
-      "處理 30 秒後仍未完成（狀態={{status}}）。剪輯可能尚未完成上傳，請查看伺服器記錄中的區塊/完成訊息。",
+      "儲存時間比預期更久（狀態={{status}}）。如果你使用桌面應用程式錄製，請從選單列開啟 Clips 以重試上傳或下載已儲存的本機副本，然後再次檢查。",
     uploadingAssembling: "正在上傳並組裝影片，通常只需要幾秒鐘。",
     connectStorageImportLoom: "連線儲存以匯入這個 Loom。",
     connectStorageFinishClip: "連線儲存以完成此剪輯的儲存。",
