@@ -605,12 +605,26 @@ export default defineEventHandler(async (event: H3Event) => {
               error: err instanceof Error ? err.message : String(err),
             },
           );
+          const priorReadyStateRaw = await readAppState(
+            `recording-upload-${recordingId}`,
+          ).catch(() => null);
+          const priorReadyState =
+            priorReadyStateRaw && typeof priorReadyStateRaw === "object"
+              ? (priorReadyStateRaw as Record<string, unknown>)
+              : {};
+          const sourceSizeBytes =
+            stateNumber(priorReadyState, "sourceSizeBytes") ??
+            stateNumber(priorReadyState, "bytesReceived");
           try {
             await writeAppState(`recording-upload-${recordingId}`, {
+              ...priorReadyState,
               recordingId,
               status: "ready",
               progress: 100,
               videoUrl: committed.videoUrl,
+              videoSizeBytes: committed.videoSizeBytes,
+              sourceSizeBytes,
+              durationMs: committed.durationMs,
               finishedAt: new Date().toISOString(),
             });
           } catch (stateErr) {
@@ -620,9 +634,6 @@ export default defineEventHandler(async (event: H3Event) => {
                 stateErr instanceof Error ? stateErr.message : String(stateErr),
             });
           }
-          const readyState = await readAppState(
-            `recording-upload-${recordingId}`,
-          ).catch(() => null);
           return {
             ok: true,
             finalized: true,
@@ -631,7 +642,7 @@ export default defineEventHandler(async (event: H3Event) => {
             status: "ready",
             videoUrl: committed.videoUrl,
             videoSizeBytes: committed.videoSizeBytes,
-            sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
+            sourceSizeBytes,
             durationMs: committed.durationMs,
             width: committed.width,
             height: committed.height,
@@ -729,6 +740,7 @@ async function handleResumableChunk(
 
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
+  let finalizedSourceSizeBytes = session.bytesUploaded;
 
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });
@@ -826,6 +838,7 @@ async function handleResumableChunk(
         bytesUploaded: start + bytes.byteLength,
         lastCommittedIndex: index,
       });
+      finalizedSourceSizeBytes = start + bytes.byteLength;
 
       if (!isFinal) {
         return { ok: true, finalized: false, index, bytes: bytes.byteLength };
@@ -877,11 +890,25 @@ async function handleResumableChunk(
         `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
         { error: err instanceof Error ? err.message : String(err) },
       );
+      const priorReadyStateRaw = await readAppState(
+        `recording-upload-${recordingId}`,
+      ).catch(() => null);
+      const priorReadyState =
+        priorReadyStateRaw && typeof priorReadyStateRaw === "object"
+          ? (priorReadyStateRaw as Record<string, unknown>)
+          : {};
+      const sourceSizeBytes =
+        stateNumber(priorReadyState, "sourceSizeBytes") ??
+        finalizedSourceSizeBytes;
       await writeAppState(`recording-upload-${recordingId}`, {
+        ...priorReadyState,
         recordingId,
         status: "ready",
         progress: 100,
         videoUrl: committed.videoUrl,
+        videoSizeBytes: committed.videoSizeBytes,
+        sourceSizeBytes,
+        durationMs: committed.durationMs,
         finishedAt: new Date().toISOString(),
       }).catch((stateErr) =>
         console.warn(
@@ -889,9 +916,6 @@ async function handleResumableChunk(
           stateErr,
         ),
       );
-      const readyState = await readAppState(
-        `recording-upload-${recordingId}`,
-      ).catch(() => null);
       return {
         ok: true,
         finalized: true,
@@ -900,7 +924,7 @@ async function handleResumableChunk(
         status: "ready",
         videoUrl: committed.videoUrl,
         videoSizeBytes: committed.videoSizeBytes,
-        sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
+        sourceSizeBytes,
         durationMs: committed.durationMs,
         width: committed.width,
         height: committed.height,

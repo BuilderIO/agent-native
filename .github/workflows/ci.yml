@@ -446,6 +446,8 @@ jobs:
       - name: Build packages for source-backed guards
         run: |
           pnpm --filter @agent-native/recap-cli build
+          pnpm --filter @agent-native/toolkit build
+          pnpm --filter @agent-native/core build
           pnpm --filter @agent-native/creative-context build
 
       - name: Run security guards

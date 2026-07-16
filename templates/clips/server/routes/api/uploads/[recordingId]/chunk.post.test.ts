@@ -536,6 +536,67 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockSetResponseStatus).toHaveBeenCalledWith({}, 409);
   });
 
+  it("preserves buffered source-byte proof when finalize committed before its response was lost", async () => {
+    mockAppState.set(`${CHUNK_PREFIX}000000`, { bytes: 10 });
+    mockAppState.set(UPLOAD_KEY, {
+      recordingId: "rec-1",
+      status: "uploading",
+      bytesReceived: 10,
+    });
+    mockFinalizeRun.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "ready",
+          videoUrl: "https://cdn.example/rec-1.webm",
+          videoSizeBytes: 10,
+          durationMs: 1_234,
+          width: 1280,
+          height: 720,
+          hasAudio: true,
+          hasCamera: false,
+        },
+      ];
+      throw new Error("response connection closed");
+    });
+    setRequest({
+      query: {
+        index: "1",
+        total: "2",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+    });
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual(
+        expect.objectContaining({
+          ok: true,
+          finalized: true,
+          recoveredAfterFinalizeError: true,
+          sourceSizeBytes: 10,
+        }),
+      );
+    } finally {
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({
+        status: "ready",
+        bytesReceived: 10,
+        sourceSizeBytes: 10,
+      }),
+    );
+  });
+
   it("rejects a chunk above the per-chunk byte cap before any owner or db work", async () => {
     mockGetHeader.mockReturnValue(String(5 * 1024 * 1024));
     setRequest({
@@ -672,5 +733,72 @@ describe("/api/uploads/:recordingId/chunk route", () => {
     expect(mockRelayChunk).not.toHaveBeenCalled();
     expect(mockSetResumableSession).not.toHaveBeenCalled();
     expect(mockFinalizeRun).not.toHaveBeenCalled();
+  });
+
+  it("returns exact resumable source-byte proof when finalize committed before its response was lost", async () => {
+    mockGetResumableSession.mockResolvedValue({
+      providerId: "s3",
+      sessionId: "sess-1",
+      meta: { objectKey: "clips/rec-1.webm" },
+      bytesUploaded: 100,
+      lastCommittedIndex: 2,
+    });
+    mockRelayChunk.mockResolvedValue({ ok: true, status: 200 });
+    mockFinalizeRun.mockImplementationOnce(async () => {
+      mockSelectRows.rows = [
+        {
+          id: "rec-1",
+          status: "ready",
+          videoUrl: "https://cdn.example/rec-1.webm",
+          videoSizeBytes: 105,
+          durationMs: 1_234,
+          width: 1280,
+          height: 720,
+          hasAudio: true,
+          hasCamera: false,
+        },
+      ];
+      throw new Error("response connection closed");
+    });
+    setRequest({
+      query: {
+        index: "3",
+        total: "4",
+        isFinal: "1",
+        mimeType: "video/webm",
+      },
+      body: new Uint8Array([1, 2, 3, 4, 5]),
+    });
+    const consoleLog = vi
+      .spyOn(console, "log")
+      .mockImplementation(() => undefined);
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const consoleWarn = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      await expect(handler({} as any)).resolves.toEqual(
+        expect.objectContaining({
+          ok: true,
+          finalized: true,
+          recoveredAfterFinalizeError: true,
+          sourceSizeBytes: 105,
+        }),
+      );
+    } finally {
+      consoleLog.mockRestore();
+      consoleError.mockRestore();
+      consoleWarn.mockRestore();
+    }
+
+    expect(mockAppState.get(UPLOAD_KEY)).toEqual(
+      expect.objectContaining({
+        status: "ready",
+        sourceSizeBytes: 105,
+      }),
+    );
   });
 });

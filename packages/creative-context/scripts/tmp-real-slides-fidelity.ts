@@ -42,6 +42,14 @@ const requireFromCore = createRequire(
   new URL("../../core/package.json", import.meta.url),
 );
 const sharp = requireFromCore("sharp") as typeof import("sharp");
+const poppinsDir =
+  "file:///Users/steve/Projects/builder/agent-native/framework/templates/slides/node_modules/@fontsource/poppins/files";
+const poppinsCss = [300, 400, 500, 600, 700, 800]
+  .map(
+    (weight) =>
+      `@font-face{font-family:'Poppins';font-style:normal;font-weight:${weight};src:url('${poppinsDir}/poppins-latin-${weight}-normal.woff2') format('woff2')}`,
+  )
+  .join("");
 const browser = await chromium.launch({ headless: true });
 const metrics: Array<Record<string, unknown>> = [];
 
@@ -116,7 +124,7 @@ try {
       const stem = sourceNames[key]!.replace("-source.png", "");
       const htmlName = `${stem}-compiled.html`;
       const pngName = `${stem}-compiled.png`;
-      const html = `<!doctype html><html><head><meta charset="utf-8"><style>html,body{margin:0;width:1600px;height:900px;overflow:hidden;background:#111}.stage{width:1600px;height:900px;overflow:hidden}.stage>.fmd-slide{transform:scale(1.666666667);transform-origin:0 0}</style></head><body><div class="stage">${slide.html}</div></body></html>`;
+      const html = `<!doctype html><html><head><meta charset="utf-8"><style>${poppinsCss}html,body{margin:0;width:1600px;height:900px;overflow:hidden;background:#111}.stage{width:1600px;height:900px;overflow:hidden}.stage>.fmd-slide{transform:scale(1.666666667);transform-origin:0 0}</style></head><body><div class="stage">${slide.html}</div></body></html>`;
       writeFileSync(path.join(outputDir, htmlName), html);
       const page = await browser.newPage({
         viewport: { width: 1600, height: 900 },
@@ -125,6 +133,7 @@ try {
         waitUntil: "networkidle",
         timeout: 120_000,
       });
+      await page.evaluate(() => document.fonts.ready);
       await page.screenshot({ path: path.join(outputDir, pngName) });
       await page.close();
 

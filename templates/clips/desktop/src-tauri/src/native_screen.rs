@@ -1318,13 +1318,68 @@ pub async fn native_fullscreen_recording_stop_and_upload(
     // final post instead of re-uploading the whole file.
     #[cfg(target_os = "macos")]
     if let Some(live) = session.live_upload.take() {
+        let verified_duration_ms = match probe_local_media_duration_ms(&saved.file_path) {
+            Ok(media_duration_ms)
+                if media_durations_materially_match(duration_ms, media_duration_ms) =>
+            {
+                media_duration_ms
+            }
+            Ok(media_duration_ms) => {
+                let error = format!(
+                    "Clip may be incomplete. The local media duration ({media_duration_ms} ms) did not match the recorded duration ({duration_ms} ms)."
+                );
+                live.ctrl.cancelled.store(true, Ordering::SeqCst);
+                let _ = live.result_rx.await;
+                saved.last_attempt_at = Some(now_iso());
+                saved.last_error = Some(error.clone());
+                saved.retry_count = saved.retry_count.saturating_add(1);
+                let _ = write_saved_recording_metadata(&app, &saved);
+                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                let error = format!(
+                    "{error} The clip was saved locally and can be retried from the Clips menu."
+                );
+                emit_native_upload_finished(
+                    &app,
+                    &server_url,
+                    &recording_id,
+                    false,
+                    Some(error.clone()),
+                    Some(&saved.file_path),
+                );
+                return Err(error);
+            }
+            Err(probe_error) => {
+                let error = format!(
+                    "Clip may be incomplete. The local media duration could not be verified ({probe_error})."
+                );
+                live.ctrl.cancelled.store(true, Ordering::SeqCst);
+                let _ = live.result_rx.await;
+                saved.last_attempt_at = Some(now_iso());
+                saved.last_error = Some(error.clone());
+                saved.retry_count = saved.retry_count.saturating_add(1);
+                let _ = write_saved_recording_metadata(&app, &saved);
+                emit_native_upload_progress(&app, "failed", "Upload paused", None, None);
+                let error = format!(
+                    "{error} The clip was saved locally and can be retried from the Clips menu."
+                );
+                emit_native_upload_finished(
+                    &app,
+                    &server_url,
+                    &recording_id,
+                    false,
+                    Some(error.clone()),
+                    Some(&saved.file_path),
+                );
+                return Err(error);
+            }
+        };
         eprintln!(
-            "[live-upload] stop: signalling finalize for {recording_id} (duration_ms={duration_ms})"
+            "[live-upload] stop: signalling finalize for {recording_id} (measured_duration_ms={verified_duration_ms})"
         );
         emit_native_upload_progress(&app, "uploading", "Uploading clip", None, None);
         live.ctrl
             .duration_ms
-            .store(duration_ms as u64, Ordering::SeqCst);
+            .store(verified_duration_ms as u64, Ordering::SeqCst);
         live.ctrl.finalize.store(true, Ordering::SeqCst);
         let result = match live.result_rx.await {
             Ok(inner) => inner,
@@ -1343,7 +1398,7 @@ pub async fn native_fullscreen_recording_stop_and_upload(
                 emit_native_upload_finished(&app, &server_url, &recording_id, true, None, None);
                 Ok(NativeFullscreenUploadResult {
                     recording_id,
-                    duration_ms,
+                    duration_ms: verified_duration_ms,
                     width: session.width,
                     height: session.height,
                     bytes,
