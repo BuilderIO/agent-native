@@ -10,6 +10,7 @@ const INLINE_PART_TARGET_BYTES = 120 * 1024;
 
 type AffineTransform = [number, number, number, number, number, number];
 const IDENTITY_TRANSFORM: AffineTransform = [1, 0, 0, 1, 0, 0];
+const TEXT_INSET_PX = 9.6;
 
 type JsonObject = Record<string, unknown>;
 
@@ -665,7 +666,7 @@ function shapeMarkup(
         ? "flex-end"
         : "flex-start";
   const overflow = shapeType === "TEXT_BOX" ? "visible" : "hidden";
-  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:${overflow}"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:${overflow};display:flex;flex-direction:column;justify-content:${justifyContent};padding:9.6px">${textContent}</div></div>`;
+  return `<div class="gslide-element gslide-shape gslide-shape-${escapeAttr(shapeType.toLowerCase())}" data-source-object-id="${escapeAttr(objectId)}" style="${baseStyle};${fill};${outline};${geometry};overflow:${overflow}"><div class="gslide-text" style="${textScaleCompensation};box-sizing:border-box;overflow:${overflow};display:flex;flex-direction:column;justify-content:${justifyContent};padding:${TEXT_INSET_PX}px">${textContent}</div></div>`;
 }
 
 function textScaleCompensationCss(element: JsonObject): string {
@@ -764,7 +765,7 @@ function compileRichText(
   return paragraphs
     .map(
       (paragraph) =>
-        `<p style="margin:0;${paragraphCss(paragraph.style)}">${paragraph.bullet ? `<span class="gslide-bullet" style="${textRunCss(paragraph.bulletStyle ?? {}, state.themeColors)}">${escapeHtml(paragraph.bullet)}&nbsp;</span>` : ""}${paragraph.runs.join("") || "<br>"}</p>`,
+        `<p style="margin:0;${paragraphCss(paragraph.style, Boolean(paragraph.bullet))}">${paragraph.bullet ? `<span class="gslide-bullet" style="${bulletLayoutCss(paragraph.style)};${textRunCss(paragraph.bulletStyle ?? {}, state.themeColors)}">${escapeHtml(paragraph.bullet)}&nbsp;</span>` : ""}${paragraph.runs.join("") || "<br>"}</p>`,
     )
     .join("");
 }
@@ -1168,7 +1169,7 @@ function textRunCss(style: JsonObject, theme: Map<string, string>): string {
   });
 }
 
-function paragraphCss(style: JsonObject): string {
+function paragraphCss(style: JsonObject, hasBullet = false): string {
   const alignment = text(style.alignment);
   const lineSpacing = number(style.lineSpacing);
   const indentStart = dimensionToPx(record(style.indentStart));
@@ -1186,7 +1187,7 @@ function paragraphCss(style: JsonObject): string {
           "padding-right": `${round(dimensionToPx(record(style.indentEnd)))}px`,
         }
       : {}),
-    ...(record(style.indentFirstLine)
+    ...(!hasBullet && record(style.indentFirstLine)
       ? {
           "text-indent": `${round(indentFirstLine - indentStart)}px`,
         }
@@ -1204,6 +1205,20 @@ function paragraphCss(style: JsonObject): string {
           "padding-bottom": `${round(dimensionToPx(record(style.spaceBelow)))}px`,
         }
       : {}),
+  });
+}
+
+function bulletLayoutCss(style: JsonObject): string {
+  const indentStart = dimensionToPx(record(style.indentStart));
+  const indentFirstLine = dimensionToPx(record(style.indentFirstLine));
+  const hangingWidth = Math.max(
+    0,
+    TEXT_INSET_PX + indentStart - indentFirstLine,
+  );
+  return css({
+    display: "inline-block",
+    "margin-left": `-${round(hangingWidth)}px`,
+    width: `${round(hangingWidth)}px`,
   });
 }
 
