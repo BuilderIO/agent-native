@@ -234,6 +234,15 @@ terminal. O `ask_app` de propriedade do aplicativo no Dispatch usa o mesmo
 contrato de tarefa durável e status, com a concessão do aplicativo selecionado
 verificada tanto no envio quanto na consulta.
 
+Se uma leitura de status transitória e limitada estiver indisponível,
+`ask_app_status` poderá retornar `status: "unknown"`,
+`statusRead: "unavailable"`, `retryable: true`, o `app` e o `taskId` originais,
+e `pollAfterMs` / `poll`. Isso significa que a leitura de status está
+indisponível, não que a tarefa durável falhou. Tente novamente `ask_app_status`
+com exatamente o mesmo `app` e `taskId`; nunca reenvie `ask_app` para recuperar,
+pois o envio pode duplicar o trabalho. Erros permanentes de autenticação, de não
+encontrado e de protocolo continuam sendo erros.
+
 ## Autenticação {#authentication}
 
 O endpoint MCP suporta MCP remoto padrão OAuth mais o substituto de token de portador existente:
