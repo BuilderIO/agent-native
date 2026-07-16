@@ -553,6 +553,11 @@ export default defineAction({
     const now = nowIso();
     const slotId = args.slotId ?? runId;
     const variantScopeId = args.variantScopeId ?? context?.threadId ?? null;
+    // A run derived from a prior asset (refine/edit/restyle, or a caller that
+    // sets sourceAssetId directly) is an iteration on the existing candidate
+    // set, not a new direction — always add it to the tray instead of
+    // resetting it, regardless of whether the caller remembered the flag.
+    const appendVariant = args.appendVariant || Boolean(args.sourceAssetId);
     // Capture identity at insert time so the org-admin audit log can filter
     // by owner / org without re-resolving who triggered the run later.
     const ownerEmail = getRequestUserEmail() ?? null;
@@ -656,7 +661,7 @@ export default defineAction({
       sessionId: session?.id ?? null,
       threadId: context?.threadId ?? null,
       variantScopeId,
-      appendVariant: args.appendVariant,
+      appendVariant,
       prompt: args.prompt,
       slotId,
       status: "pending",
@@ -861,7 +866,7 @@ export default defineAction({
         sessionId: session?.id ?? null,
         threadId: context?.threadId ?? null,
         variantScopeId,
-        appendVariant: args.appendVariant,
+        appendVariant,
         prompt: args.prompt,
         slotId,
         status: "ready",
@@ -909,7 +914,7 @@ export default defineAction({
         sessionId: session?.id ?? null,
         threadId: context?.threadId ?? null,
         variantScopeId,
-        appendVariant: args.appendVariant,
+        appendVariant,
         prompt: args.prompt,
         slotId,
         status: "failed",
