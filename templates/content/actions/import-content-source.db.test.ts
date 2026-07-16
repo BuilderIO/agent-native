@@ -18,6 +18,7 @@ type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
 let schema: Schema;
 let importContentSourceAction: typeof import("./import-content-source.js").default;
+let provisionContentSpaces: typeof import("./_content-spaces.js").provisionContentSpaces;
 
 const OWNER = "owner@example.com";
 const VIEWER = "import-viewer@example.com";
@@ -30,6 +31,8 @@ beforeAll(async () => {
   schema = dbModule.schema;
   importContentSourceAction = (await import("./import-content-source.js"))
     .default;
+  provisionContentSpaces = (await import("./_content-spaces.js"))
+    .provisionContentSpaces;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -71,6 +74,13 @@ describe("import-content-source descriptions", () => {
       sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
       args: ["import-viewer-membership", ORG_ID, VIEWER, "member", Date.now()],
     });
+    await getDbExec().execute({
+      sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+      args: ["import-owner-membership", ORG_ID, OWNER, "owner", Date.now()],
+    });
+    await runWithRequestContext({ userEmail: OWNER, orgId: ORG_ID }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
 
     await expect(
       runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>

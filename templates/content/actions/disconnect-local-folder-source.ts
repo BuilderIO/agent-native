@@ -36,44 +36,18 @@ export default defineAction({
     }
     await resolveContentSpaceAccess(target.database.spaceId, "editor");
     const spaceId = target.database.spaceId;
-    const rows = await db
-      .select({ documentId: schema.contentDatabaseSourceRows.documentId })
-      .from(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
-    const documentIds = [...new Set(rows.map((row) => row.documentId))];
-    const remainingLocalRows = documentIds.length
-      ? await db
-          .select({
-            documentId: schema.contentDatabaseSourceRows.documentId,
-            sourceDisplayKey: schema.contentDatabaseSourceRows.sourceDisplayKey,
-            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
-            sourceName: schema.contentDatabaseSources.sourceName,
-          })
-          .from(schema.contentDatabaseSourceRows)
-          .innerJoin(
-            schema.contentDatabaseSources,
-            eq(
-              schema.contentDatabaseSources.id,
-              schema.contentDatabaseSourceRows.sourceId,
-            ),
-          )
-          .where(
-            and(
-              inArray(schema.contentDatabaseSourceRows.documentId, documentIds),
-              ne(schema.contentDatabaseSourceRows.sourceId, sourceId),
-              eq(
-                schema.contentDatabaseSources.sourceType,
-                LOCAL_FOLDER_SOURCE_TYPE,
-              ),
-            ),
-          )
-      : [];
-    const remainingLocalRowByDocument = new Map(
-      remainingLocalRows.map((row) => [row.documentId, row]),
-    );
+    let disconnectedDocuments = 0;
     const now = new Date().toISOString();
 
     await db.transaction(async (tx: any) => {
+      const rows = await tx
+        .select({ documentId: schema.contentDatabaseSourceRows.documentId })
+        .from(schema.contentDatabaseSourceRows)
+        .where(eq(schema.contentDatabaseSourceRows.sourceId, sourceId));
+      const documentIds: string[] = [
+        ...new Set<string>(rows.map((row: any) => String(row.documentId))),
+      ];
+      disconnectedDocuments = documentIds.length;
       await tx
         .delete(schema.contentDatabaseSourceExecutions)
         .where(eq(schema.contentDatabaseSourceExecutions.sourceId, sourceId));
@@ -102,6 +76,47 @@ export default defineAction({
       await tx
         .delete(schema.contentDatabaseSources)
         .where(eq(schema.contentDatabaseSources.id, sourceId));
+      type RemainingLocalRow = {
+        documentId: string;
+        sourceDisplayKey: string | null;
+        sourceValuesJson: string | null;
+        sourceName: string;
+      };
+      const remainingLocalRows: RemainingLocalRow[] = documentIds.length
+        ? await tx
+            .select({
+              documentId: schema.contentDatabaseSourceRows.documentId,
+              sourceDisplayKey:
+                schema.contentDatabaseSourceRows.sourceDisplayKey,
+              sourceValuesJson:
+                schema.contentDatabaseSourceRows.sourceValuesJson,
+              sourceName: schema.contentDatabaseSources.sourceName,
+            })
+            .from(schema.contentDatabaseSourceRows)
+            .innerJoin(
+              schema.contentDatabaseSources,
+              eq(
+                schema.contentDatabaseSources.id,
+                schema.contentDatabaseSourceRows.sourceId,
+              ),
+            )
+            .where(
+              and(
+                inArray(
+                  schema.contentDatabaseSourceRows.documentId,
+                  documentIds,
+                ),
+                ne(schema.contentDatabaseSourceRows.sourceId, sourceId),
+                eq(
+                  schema.contentDatabaseSources.sourceType,
+                  LOCAL_FOLDER_SOURCE_TYPE,
+                ),
+              ),
+            )
+        : [];
+      const remainingLocalRowByDocument = new Map<string, RemainingLocalRow>(
+        remainingLocalRows.map((row) => [row.documentId, row]),
+      );
       const documentsToClear = documentIds.filter(
         (documentId) => !remainingLocalRowByDocument.has(documentId),
       );
@@ -155,7 +170,7 @@ export default defineAction({
     return {
       success: true,
       sourceId,
-      disconnectedDocuments: documentIds.length,
+      disconnectedDocuments,
       localFilesDeleted: 0,
     };
   },

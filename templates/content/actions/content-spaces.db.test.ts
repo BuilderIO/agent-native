@@ -222,9 +222,83 @@ describe("Content space provisioning", () => {
     ]);
   });
 
+  it("does not create or seed organization resources from a viewer session", async () => {
+    const orgId = "org-viewer-provisioning";
+    const spaceId = organizationContentSpaceId(orgId);
+    await addOrganization(orgId, "Viewer Provisioning");
+    await addMember("viewer-provisioning", orgId, MEMBER);
+
+    const viewerResult = await runWithRequestContext(
+      { userEmail: MEMBER },
+      () => provisionContentSpaces(getDb(), MEMBER),
+    );
+    expect(viewerResult.spaceIds).toContain(spaceId);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentSpaces)
+        .where(eq(schema.contentSpaces.id, spaceId)),
+    ).resolves.toEqual([]);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabases)
+        .where(eq(schema.contentDatabases.spaceId, spaceId)),
+    ).resolves.toEqual([]);
+
+    await addMember("owner-viewer-provisioning", orgId, OWNER, "owner");
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
+    const [filesDatabase] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, spaceId),
+          eq(schema.contentDatabases.systemRole, "files"),
+        ),
+      );
+    await getDb()
+      .delete(schema.documentPropertyDefinitions)
+      .where(
+        eq(schema.documentPropertyDefinitions.databaseId, filesDatabase!.id),
+      );
+    await getDb()
+      .update(schema.contentDatabases)
+      .set({ primaryBlocksPropertyId: null, blocksSeeded: 0 })
+      .where(eq(schema.contentDatabases.id, filesDatabase!.id));
+
+    await runWithRequestContext({ userEmail: MEMBER }, () =>
+      provisionContentSpaces(getDb(), MEMBER),
+    );
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documentPropertyDefinitions)
+        .where(
+          eq(schema.documentPropertyDefinitions.databaseId, filesDatabase!.id),
+        ),
+    ).resolves.toEqual([]);
+    await runWithRequestContext({ userEmail: MEMBER }, async () => {
+      await expect(resolveContentSpaceAccess(spaceId)).resolves.toMatchObject({
+        role: "viewer",
+      });
+      await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
+        spaces: expect.arrayContaining([
+          expect.objectContaining({ id: spaceId, role: "viewer" }),
+        ]),
+      });
+    });
+  });
+
   it("does not let a stale catalog reference grant a non-member visibility", async () => {
     await addOrganization("org-shared", "Shared");
+    await addMember("owner-shared", "org-shared", OWNER, "owner");
     await addMember("member-shared", "org-shared", MEMBER);
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      provisionContentSpaces(getDb(), OWNER),
+    );
     await runWithRequestContext({ userEmail: MEMBER }, () =>
       provisionContentSpaces(getDb(), MEMBER),
     );

@@ -82,13 +82,20 @@ function sourceValues(args: {
   });
 }
 
-function bodyChangeJson(args: { currentHash: string; incomingHash: string }) {
+function bodyChangeJson(args: {
+  currentHash: string;
+  incomingHash: string;
+  currentMetadataHash: string;
+  incomingMetadataHash: string;
+}) {
   return JSON.stringify({
     summary: "Local folder and Content both changed since the last sync.",
     currentExcerpt: null,
     proposedExcerpt: null,
     currentHash: args.currentHash,
     proposedHash: args.incomingHash,
+    currentMetadataHash: args.currentMetadataHash,
+    proposedMetadataHash: args.incomingMetadataHash,
   });
 }
 
@@ -391,7 +398,7 @@ export default defineAction({
           if (plan.conflict) {
             const changeSetId = opaqueId(
               "content_source_change",
-              `${sourceId}:${plan.id}:${plan.incomingHash}`,
+              `${sourceId}:${plan.id}:${plan.incomingHash}:${plan.incomingMetadataHash}`,
             );
             await tx
               .insert(schema.contentDatabaseSourceChangeSets)
@@ -416,6 +423,8 @@ export default defineAction({
                 bodyChangeJson: bodyChangeJson({
                   currentHash: plan.localHash!,
                   incomingHash: plan.incomingHash,
+                  currentMetadataHash: plan.localMetadataHash!,
+                  incomingMetadataHash: plan.incomingMetadataHash,
                 }),
                 createdAt: now,
                 updatedAt: now,
@@ -447,6 +456,8 @@ export default defineAction({
                 bodyChangeJson: bodyChangeJson({
                   currentHash: plan.incomingHash,
                   incomingHash: plan.localHash!,
+                  currentMetadataHash: plan.incomingMetadataHash,
+                  incomingMetadataHash: plan.localMetadataHash!,
                 }),
                 createdAt: now,
                 updatedAt: now,

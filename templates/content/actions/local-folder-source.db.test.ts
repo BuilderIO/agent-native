@@ -296,6 +296,42 @@ describe("local-folder Content source", () => {
         }),
       ]),
     );
+
+    const nextResult = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: {
+          "metadata.md": `---\ntitle: Newer folder title\ndescription: Newer folder description\n---\nBody.`,
+        },
+      }),
+    );
+    expect(nextResult.conflicts).toHaveLength(1);
+    const proposals = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+    expect(proposals).toHaveLength(2);
+    expect(new Set(proposals.map((proposal) => proposal.id)).size).toBe(2);
+    expect(
+      proposals.map((proposal) => JSON.parse(proposal.fieldChangesJson)),
+    ).toEqual(
+      expect.arrayContaining([
+        expect.arrayContaining([
+          expect.objectContaining({ proposedValue: "Folder title" }),
+        ]),
+        expect.arrayContaining([
+          expect.objectContaining({ proposedValue: "Newer folder title" }),
+        ]),
+      ]),
+    );
   });
 
   it("replans inside the write transaction so a just-committed edit is not overwritten", async () => {
@@ -352,6 +388,100 @@ describe("local-folder Content source", () => {
           content: "Content edit committed after planning.",
         }),
       ]);
+    } finally {
+      db.transaction = originalTransaction;
+    }
+  });
+
+  it("refuses to accept a staged folder revision after Content changes again", async () => {
+    const connection = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-resolution-race",
+        label: "Resolution race docs",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve-race.md": "Baseline body." },
+      }),
+    );
+    const documentId = first.created[0]!.id;
+    await getDb()
+      .update(schema.documents)
+      .set({
+        title: "Content title at review",
+        content: "Content body at review.",
+        updatedAt: new Date().toISOString(),
+      })
+      .where(eq(schema.documents.id, documentId));
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: connection.sourceId,
+        files: { "resolve-race.md": "Folder body under review." },
+      }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(
+            schema.contentDatabaseSourceChangeSets.sourceId,
+            connection.sourceId,
+          ),
+          eq(schema.contentDatabaseSourceChangeSets.documentId, documentId),
+        ),
+      );
+
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let injectedEdit = false;
+    db.transaction = async function (...args: any[]) {
+      if (!injectedEdit) {
+        injectedEdit = true;
+        await db
+          .update(schema.documents)
+          .set({
+            title: "Content title after review",
+            content: "Content body committed after review.",
+            updatedAt: new Date().toISOString(),
+          })
+          .where(eq(schema.documents.id, documentId));
+      }
+      return originalTransaction.apply(this, args);
+    };
+
+    try {
+      await expect(
+        runWithRequestContext({ userEmail: OWNER }, () =>
+          resolveLocalFolderConflict.run({
+            changeSetId: changeSet.id,
+            decision: "accept_source",
+            sourceContent: "Folder body under review.",
+          }),
+        ),
+      ).rejects.toThrow("Content changed after this conflict was reviewed");
+      expect(injectedEdit).toBe(true);
+      await expect(
+        db
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, documentId)),
+      ).resolves.toEqual([
+        expect.objectContaining({
+          title: "Content title after review",
+          content: "Content body committed after review.",
+        }),
+      ]);
+      await expect(
+        db
+          .select()
+          .from(schema.contentDatabaseSourceChangeSets)
+          .where(eq(schema.contentDatabaseSourceChangeSets.id, changeSet.id)),
+      ).resolves.toEqual([expect.objectContaining({ state: "proposed" })]);
     } finally {
       db.transaction = originalTransaction;
     }
@@ -446,6 +576,88 @@ describe("local-folder Content source", () => {
           ),
         ),
     ).resolves.toHaveLength(0);
+  });
+
+  it("keeps a remaining folder link when accepting deletion from another source", async () => {
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-delete-shared-a",
+        label: "Delete shared A",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-delete-shared-b",
+        label: "Delete shared B",
+        spaceId: first.spaceId,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const source = `---\nid: shared-delete-page\n---\nBody.`;
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: first.sourceId,
+        files: { "from-a.md": source },
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({
+        sourceId: second.sourceId,
+        files: { "from-b.md": source },
+      }),
+    );
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      syncLocalFolder.run({ sourceId: first.sourceId, files: {} }),
+    );
+    const [changeSet] = await getDb()
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, first.sourceId),
+          eq(
+            schema.contentDatabaseSourceChangeSets.documentId,
+            "shared-delete-page",
+          ),
+        ),
+      );
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      resolveLocalFolderConflict.run({
+        changeSetId: changeSet.id,
+        decision: "accept_source",
+      }),
+    );
+
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.sourceId, second.sourceId),
+            eq(
+              schema.contentDatabaseSourceRows.documentId,
+              "shared-delete-page",
+            ),
+          ),
+        ),
+    ).resolves.toHaveLength(1);
+    await expect(
+      getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "shared-delete-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "local-files",
+        sourceKind: "file",
+        sourcePath: "from-b.md",
+        sourceRootPath: "Delete shared B",
+      }),
+    ]);
   });
 
   it("keeps database-primary edits and stages them for export", async () => {
@@ -663,6 +875,77 @@ describe("local-folder Content source", () => {
         sourceKind: "file",
         sourcePath: "from-b.md",
         sourceRootPath: "Shared folder B",
+      }),
+    ]);
+  });
+
+  it("rechecks remaining folder links inside the disconnect transaction", async () => {
+    const first = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-disconnect-race-a",
+        label: "Disconnect race A",
+        createSourceBackedSpace: true,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const second = await runWithRequestContext({ userEmail: OWNER }, () =>
+      connectLocalFolder.run({
+        connectionId: "desktop-folder-disconnect-race-b",
+        label: "Disconnect race B",
+        spaceId: first.spaceId,
+        truthPolicy: "source_primary",
+      }),
+    );
+    const sharedDocument = `---\nid: disconnect-race-page\n---\nBody.`;
+    for (const [sourceId, path] of [
+      [first.sourceId, "a.md"],
+      [second.sourceId, "b.md"],
+    ] as const) {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        syncLocalFolder.run({
+          sourceId,
+          files: { [path]: sharedDocument },
+        }),
+      );
+    }
+
+    const db = getDb();
+    const originalTransaction = db.transaction;
+    let removedCompetingSource = false;
+    db.transaction = async function (...args: any[]) {
+      if (!removedCompetingSource) {
+        removedCompetingSource = true;
+        await db
+          .delete(schema.contentDatabaseSourceRows)
+          .where(
+            eq(schema.contentDatabaseSourceRows.sourceId, second.sourceId),
+          );
+        await db
+          .delete(schema.contentDatabaseSources)
+          .where(eq(schema.contentDatabaseSources.id, second.sourceId));
+      }
+      return originalTransaction.apply(this, args);
+    };
+    try {
+      await runWithRequestContext({ userEmail: OWNER }, () =>
+        disconnectLocalFolder.run({ sourceId: first.sourceId }),
+      );
+    } finally {
+      db.transaction = originalTransaction;
+    }
+
+    expect(removedCompetingSource).toBe(true);
+    await expect(
+      db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, "disconnect-race-page")),
+    ).resolves.toEqual([
+      expect.objectContaining({
+        sourceMode: "database",
+        sourceKind: null,
+        sourcePath: null,
+        sourceRootPath: null,
       }),
     ]);
   });

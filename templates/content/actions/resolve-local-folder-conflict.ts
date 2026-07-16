@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
-import { and, eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -13,6 +13,20 @@ const MAX_SOURCE_FILE_BYTES = 2 * 1024 * 1024;
 
 function hash(content: string) {
   return createHash("sha256").update(content).digest("hex");
+}
+
+function metadataHash(value: {
+  title: string;
+  description?: string | null;
+  icon?: string | null;
+}) {
+  return hash(
+    JSON.stringify({
+      title: value.title,
+      description: value.description ?? "",
+      icon: value.icon ?? null,
+    }),
+  );
 }
 
 function parseObject(value: string | null | undefined) {
@@ -110,6 +124,14 @@ export default defineAction({
       typeof bodyChange.proposedHash === "string"
         ? bodyChange.proposedHash
         : null;
+    const reviewedContentHash =
+      typeof bodyChange.currentHash === "string"
+        ? bodyChange.currentHash
+        : null;
+    const reviewedMetadataHash =
+      typeof bodyChange.currentMetadataHash === "string"
+        ? bodyChange.currentMetadataHash
+        : null;
     if (!sourceDeletion && !proposedHash)
       throw new Error("Conflict is missing its source hash");
     if (
@@ -130,6 +152,15 @@ export default defineAction({
         "The supplied folder revision changed after review; refresh before resolving",
       );
     }
+    if (
+      decision === "accept_source" &&
+      !sourceDeletion &&
+      (!reviewedContentHash || !reviewedMetadataHash)
+    ) {
+      throw new Error(
+        "Conflict is missing its reviewed Content revision; refresh before resolving",
+      );
+    }
 
     const now = new Date().toISOString();
     await db.transaction(async (tx: any) => {
@@ -145,50 +176,110 @@ export default defineAction({
               ),
             ),
           );
+        const [remainingLocalRow] = await tx
+          .select({
+            sourceDisplayKey: schema.contentDatabaseSourceRows.sourceDisplayKey,
+            sourceValuesJson: schema.contentDatabaseSourceRows.sourceValuesJson,
+            sourceName: schema.contentDatabaseSources.sourceName,
+          })
+          .from(schema.contentDatabaseSourceRows)
+          .innerJoin(
+            schema.contentDatabaseSources,
+            eq(
+              schema.contentDatabaseSources.id,
+              schema.contentDatabaseSourceRows.sourceId,
+            ),
+          )
+          .where(
+            and(
+              eq(
+                schema.contentDatabaseSourceRows.documentId,
+                target.document.id,
+              ),
+              ne(schema.contentDatabaseSourceRows.sourceId, target.source.id),
+              eq(
+                schema.contentDatabaseSources.sourceType,
+                LOCAL_FOLDER_SOURCE_TYPE,
+              ),
+            ),
+          )
+          .orderBy(schema.contentDatabaseSources.id)
+          .limit(1);
+        const remainingValues = parseObject(
+          remainingLocalRow?.sourceValuesJson,
+        );
+        const remainingPath =
+          typeof remainingValues.relativePath === "string"
+            ? remainingValues.relativePath
+            : remainingLocalRow?.sourceDisplayKey;
         await tx
           .update(schema.documents)
-          .set({
-            sourceMode: null,
-            sourceKind: null,
-            sourcePath: null,
-            sourceRootPath: null,
-            sourceUpdatedAt: null,
-            updatedAt: now,
-          })
+          .set(
+            remainingLocalRow
+              ? {
+                  sourceMode: "local-files",
+                  sourceKind: "file",
+                  sourcePath: remainingPath ?? null,
+                  sourceRootPath: remainingLocalRow.sourceName,
+                  sourceUpdatedAt: now,
+                  updatedAt: now,
+                }
+              : {
+                  sourceMode: null,
+                  sourceKind: null,
+                  sourcePath: null,
+                  sourceRootPath: null,
+                  sourceUpdatedAt: null,
+                  updatedAt: now,
+                },
+          )
           .where(eq(schema.documents.id, target.document.id));
       } else if (decision === "accept_source") {
+        const [currentDocument] = await tx
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, target.document.id));
+        if (
+          !currentDocument ||
+          hash(currentDocument.content) !== reviewedContentHash ||
+          metadataHash(currentDocument) !== reviewedMetadataHash
+        ) {
+          throw new Error(
+            "Content changed after this conflict was reviewed; refresh before resolving",
+          );
+        }
         const metadata = proposedMetadata(target.changeSet.fieldChangesJson);
         const resolvedTitle = Object.prototype.hasOwnProperty.call(
           metadata,
           "title",
         )
           ? (metadata.title ?? "")
-          : target.document.title;
+          : currentDocument.title;
         const resolvedDescription = Object.prototype.hasOwnProperty.call(
           metadata,
           "description",
         )
           ? (metadata.description ?? "")
-          : (target.document.description ?? "");
+          : (currentDocument.description ?? "");
         const resolvedIcon = Object.prototype.hasOwnProperty.call(
           metadata,
           "icon",
         )
           ? (metadata.icon ?? null)
-          : (target.document.icon ?? null);
+          : (currentDocument.icon ?? null);
         await tx
           .insert(schema.documentVersions)
           .values({
             id: `content_document_version_${createHash("sha256")
               .update(
-                `${target.document.id}:${target.document.updatedAt}:${proposedHash}`,
+                `${currentDocument.id}:${currentDocument.updatedAt}:${proposedHash}`,
               )
               .digest("hex")
               .slice(0, 32)}`,
-            ownerEmail: target.document.ownerEmail,
-            documentId: target.document.id,
-            title: target.document.title,
-            content: target.document.content,
+            ownerEmail: currentDocument.ownerEmail,
+            documentId: currentDocument.id,
+            title: currentDocument.title,
+            content: currentDocument.content,
             createdAt: now,
           })
           .onConflictDoNothing();
