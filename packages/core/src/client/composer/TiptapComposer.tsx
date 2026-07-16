@@ -10,6 +10,7 @@ import {
   IconTool,
   IconX,
   IconClipboardList,
+  IconKey,
   IconPencil,
   IconPlugConnected,
 } from "@tabler/icons-react";
@@ -57,6 +58,7 @@ import {
   TooltipTrigger,
 } from "../components/ui/tooltip.js";
 import { isTrustedFrameMessage } from "../frame.js";
+import { useT } from "../i18n.js";
 import { useBuilderConnectFlow } from "../settings/useBuilderStatus.js";
 import { ComposerPlusMenu } from "./ComposerPlusMenu.js";
 import { getComposerDraftKey } from "./draft-key.js";
@@ -970,6 +972,7 @@ function ModelSelector({
   onConnectLocalRuntime?: (engine: string) => void;
   imageModel?: ComposerImageModelMenu;
 }) {
+  const t = useT();
   const [open, setOpen] = useState(false);
   const autoModelGroup = engines.find((group) => group.models.includes("auto"));
   const providerGroups = useMemo(
@@ -1114,11 +1117,37 @@ function ModelSelector({
               <span className="flex-1 min-w-0">
                 <span className="block text-[12px] font-medium text-foreground">
                   {!onConnectProvider && builderFlow.connecting
-                    ? "Connecting Builder.io…"
-                    : "Connect Builder.io"}
+                    ? t("agentPanel.connectingBuilder", {
+                        defaultValue: "Connecting Builder.io…",
+                      })
+                    : t("agentPanel.connectBuilderIo", {
+                        defaultValue: "Connect Builder.io",
+                      })}
                 </span>
                 <span className="block text-[11px] text-muted-foreground">
-                  Free credits for Claude, OpenAI &amp; Gemini
+                  {t("agentPanel.builderModelCredits", {
+                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                  })}
+                </span>
+              </span>
+            </button>
+            <button
+              type="button"
+              onClick={openLlmSettings}
+              className="flex w-full items-start gap-2 px-3 py-2 text-start hover:bg-accent/50"
+            >
+              <IconKey className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+              <span className="min-w-0 flex-1">
+                <span className="block text-[12px] font-medium text-foreground">
+                  {t("agentPanel.addOwnKeys", {
+                    defaultValue: "Add your own keys",
+                  })}
+                </span>
+                <span className="block text-[11px] text-muted-foreground">
+                  {t("agentPanel.configureProviderKeys", {
+                    defaultValue:
+                      "Configure Anthropic, OpenAI, or another provider",
+                  })}
                 </span>
               </span>
             </button>

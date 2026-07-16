@@ -30,6 +30,7 @@ import {
 } from "./change-marker.js";
 import {
   applyExtensionContentUpdate,
+  ExtensionContentEditError,
   type ExtensionContentEdit,
   type ExtensionLegacyPatch,
 } from "./content-patch.js";
@@ -1166,6 +1167,7 @@ export async function updateExtension(
 
 export interface UpdateExtensionContentOpts {
   content?: string;
+  allowFullReplacement?: boolean;
   patches?: ExtensionLegacyPatch[];
   edits?: ExtensionContentEdit[];
   format?: boolean;
@@ -1186,6 +1188,12 @@ export async function updateExtensionContent(
     !opts.format
   ) {
     return null;
+  }
+
+  if (opts.content !== undefined && opts.allowFullReplacement !== true) {
+    throw new ExtensionContentEditError(
+      "Full extension-body replacement requires explicit allowFullReplacement=true. Use patches or edits for a targeted data-only repair so the existing design is preserved.",
+    );
   }
 
   const existingRows = await db

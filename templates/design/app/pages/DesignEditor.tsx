@@ -28440,6 +28440,8 @@ function DesignEditor() {
                     ]}
                     scope={designChatScope}
                     showScopeBadge={false}
+                    showHeader={false}
+                    showTabBar={false}
                     browserTabId={browserTabId}
                     onComposerTextChange={handleComposerTextChange}
                     composerSlot={

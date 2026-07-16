@@ -18,10 +18,10 @@ const messages = {
     languageDescription:
       "Choose the interface language. This preference is saved for your account.",
     languageLabel: "Interface language",
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage team access and shared workspace resources.",
     openTeamSettings: "Open team settings",

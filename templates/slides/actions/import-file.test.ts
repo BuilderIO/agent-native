@@ -7,6 +7,15 @@ const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
 const mockPdfParseOptions = vi.hoisted(() => vi.fn());
+const mockCanvasFactory = vi.hoisted(() => ({
+  create: vi.fn(),
+  reset: vi.fn(),
+  destroy: vi.fn(),
+}));
+
+vi.mock("pdf-parse/worker", () => ({
+  CanvasFactory: mockCanvasFactory,
+}));
 
 vi.mock("pdf-parse", () => ({
   PDFParse: class {
@@ -107,6 +116,7 @@ describe("import-file PDF source extraction", () => {
     expect(result.truncated).toBe(false);
     expect(mockPdfParseOptions).toHaveBeenCalledWith({
       data: expect.any(Uint8Array),
+      CanvasFactory: mockCanvasFactory,
     });
   });
 

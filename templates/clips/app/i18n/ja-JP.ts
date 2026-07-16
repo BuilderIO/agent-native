@@ -172,7 +172,7 @@ const messages = {
       "デスクトップ レコーダーは終了し、ローカル コピーを保存しましたが、Clips はそれをアップロードできませんでした。再度録音せずに、Clips メニューから再試行できます。",
     retryLibrary: "ライブラリから再試行できます。",
     processingStuck:
-      "処理は 30 秒経過しても完了しませんでした (status={{status}})。クリップのアップロードが完了していない可能性があります。サーバー ログでチャンク/ファイナライズ メッセージを確認してください。",
+      "保存に予想以上の時間がかかっています（ステータス={{status}}）。デスクトップアプリで録画した場合は、メニューバーから Clips を開き、アップロードを再試行するか保存済みのローカルコピーをダウンロードしてから、もう一度確認してください。",
     uploadingAssembling:
       "ビデオのアップロードと組み立て - 通常、これには数秒しかかかりません。",
     connectStorageImportLoom:
@@ -222,6 +222,9 @@ const messages = {
     autoChapters: "自動チャプター",
     removeFillerWords: "つなぎ言葉を削除する",
     removeSilences: "無音部分を削除 (>1.2 秒)",
+    silenceWorking: "無音部分を削除しています…",
+    silenceCompleted: "無音部分の削除が完了しました",
+    silenceFailed: "無音部分の削除に失敗しました",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
@@ -547,6 +550,9 @@ const messages = {
     brandingUpdated: "ブランドを更新しました",
     saveFailed: "保存に失敗しました",
     organizationName: "組織名",
+    defaultVisibility: "新しい録画のデフォルトの公開範囲",
+    defaultVisibilityDescription:
+      "別の公開範囲を選択しない限り、新しい録画に適用されます。",
     brandColor: "ブランドカラー",
     brandColorPicker: "ブランドカラーピッカー",
     useColor: "{{color}} を使用してください",

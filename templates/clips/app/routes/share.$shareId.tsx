@@ -443,7 +443,10 @@ export default function ShareRoute() {
       const data = await res.json().catch(() => ({}));
       return { ok: res.ok, status: res.status, data };
     },
-    enabled: !!shareId,
+    // Private/org share links are public-shell routes, so the first render can
+    // happen before the browser session is known. Waiting avoids a transient
+    // anonymous 401/404 becoming the authenticated viewer's final state.
+    enabled: !!shareId && !sessionLoading,
     refetchInterval: (q) => {
       const payload = (q.state.data as { data?: any } | undefined)?.data;
       const rec = payload?.recording;
@@ -616,7 +619,7 @@ export default function ShareRoute() {
     }
   }
 
-  if (dataQ.isLoading) {
+  if (sessionLoading || dataQ.isLoading) {
     return (
       <>
         {agentDiscovery}
@@ -1066,6 +1069,7 @@ export default function ShareRoute() {
                 ]}
                 browserTabId={getBrowserTabId()}
                 showHeader={false}
+                showTabBar={false}
               />
             ) : (
               <PublicAgentEmptyState

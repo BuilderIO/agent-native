@@ -1,3 +1,5 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 import {
   attachLocalizedKeyboardShortcuts,
   keyboardKeyLabels,
@@ -6,6 +8,7 @@ import {
 import { designTemplateFeatureOverrides } from "../i18n-template-feature";
 
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandActions: "操作",
     commandSearch: "搜尋",

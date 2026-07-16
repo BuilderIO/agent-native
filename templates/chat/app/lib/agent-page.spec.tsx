@@ -13,6 +13,8 @@ function LegacyAgentChatSurface({
 }: {
   mode?: "panel" | "page";
   className?: string;
+  showHeader?: boolean;
+  showTabBar?: boolean;
 }) {
   return <div data-agent-page={mode} className={className} />;
 }
@@ -35,11 +37,18 @@ describe("resolveAgentPageComponent", () => {
       AgentPage as (props: { appName?: string }) => ReactElement
     )({
       appName: "Chat",
-    }) as ReactElement<{ mode?: "panel" | "page"; className?: string }>;
+    }) as ReactElement<{
+      mode?: "panel" | "page";
+      className?: string;
+      showHeader?: boolean;
+      showTabBar?: boolean;
+    }>;
 
     expect(element.type).toBe(LegacyAgentChatSurface);
     expect(element.props.mode).toBe("page");
     expect(element.props.className).toBe("h-full");
+    expect(element.props.showHeader).toBe(false);
+    expect(element.props.showTabBar).toBe(false);
   });
 
   it("keeps the legacy fallback component identity stable", () => {

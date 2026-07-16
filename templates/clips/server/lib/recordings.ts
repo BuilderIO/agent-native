@@ -60,6 +60,45 @@ export async function getEventOwnerEmail(event: H3Event): Promise<string> {
 
 export type OrganizationAccessRole = "owner" | "admin" | "member";
 
+export type RecordingVisibility = "private" | "org" | "public";
+
+export const DEFAULT_RECORDING_VISIBILITY: RecordingVisibility = "public";
+
+export function isRecordingVisibility(
+  value: unknown,
+): value is RecordingVisibility {
+  return value === "private" || value === "org" || value === "public";
+}
+
+export function resolveRecordingVisibility(
+  explicit: RecordingVisibility | null | undefined,
+  configured: unknown,
+): RecordingVisibility {
+  if (explicit) return explicit;
+  return isRecordingVisibility(configured)
+    ? configured
+    : DEFAULT_RECORDING_VISIBILITY;
+}
+
+export async function getOrganizationDefaultVisibility(
+  organizationId: string | null | undefined,
+): Promise<RecordingVisibility> {
+  if (!organizationId) return DEFAULT_RECORDING_VISIBILITY;
+
+  try {
+    const [row] = await getDb()
+      .select({
+        defaultVisibility: schema.organizationSettings.defaultVisibility,
+      })
+      .from(schema.organizationSettings)
+      .where(eq(schema.organizationSettings.organizationId, organizationId))
+      .limit(1);
+    return resolveRecordingVisibility(undefined, row?.defaultVisibility);
+  } catch {
+    return DEFAULT_RECORDING_VISIBILITY;
+  }
+}
+
 const ORG_ROLE_RANK: Record<OrganizationAccessRole, number> = {
   member: 1,
   admin: 2,
@@ -231,7 +270,7 @@ export interface RecordingRow {
   durationMs: number;
   videoUrl: string | null;
   status: "uploading" | "processing" | "ready" | "failed";
-  visibility: "private" | "org" | "public";
+  visibility: RecordingVisibility;
   ownerEmail: string;
   folderId: string | null;
   spaceIds: string[];

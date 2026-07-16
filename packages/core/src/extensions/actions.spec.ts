@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { isAgentActionStopError } from "../action.js";
 import { runWithRequestContext } from "../server/request-context.js";
 
 const extensionRow = {
@@ -551,10 +552,12 @@ describe("extensions/actions", () => {
     const result = (await actions["update-extension"].run({
       id: "ext-zoom",
       content: "<div>Lots of HTML</div>",
+      allowFullReplacement: true,
     })) as any;
 
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: "<div>Lots of HTML</div>",
+      allowFullReplacement: true,
       patches: undefined,
       edits: undefined,
       format: false,
@@ -569,6 +572,119 @@ describe("extensions/actions", () => {
       },
     });
     expect(result.extension).not.toHaveProperty("content");
+  });
+
+  it("blocks full replacement unless the caller explicitly allows it", async () => {
+    const updateExtensionContent = vi.fn();
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    let error: unknown;
+    try {
+      await actions["update-extension"].run({
+        id: "ext-zoom",
+        content: "<div>Replacement</div>",
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "extension_full_replacement_requires_explicit_intent",
+    });
+    expect(updateExtensionContent).not.toHaveBeenCalled();
+  });
+
+  it("rejects unsupported public visibility before changing content", async () => {
+    const updateExtensionContent = vi.fn();
+    const updateExtension = vi.fn();
+    mockExtensionModules({
+      store: { updateExtensionContent, updateExtension },
+    });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    let error: unknown;
+    try {
+      // guard:allow-extension-public — negative test for the runtime rejection path
+      await actions["update-extension"].run({
+        id: "ext-zoom",
+        visibility: "public",
+        content: "<div>Replacement</div>",
+        allowFullReplacement: true,
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "extension_public_visibility_unsupported",
+    });
+    expect(updateExtensionContent).not.toHaveBeenCalled();
+    expect(updateExtension).not.toHaveBeenCalled();
+    expect(
+      actions["update-extension"].tool.parameters.properties.visibility,
+    ).toMatchObject({ enum: ["private", "org"] });
+  });
+
+  it("accepts native edit arrays and reports malformed JSON without throwing", async () => {
+    const updateExtensionContent = vi.fn(async () => extensionRow);
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    const patches = [{ find: "/api/old", replace: "/api/new" }];
+    await actions["update-extension"].run({
+      id: "ext-zoom",
+      patches,
+    });
+
+    expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
+      content: undefined,
+      allowFullReplacement: false,
+      patches,
+      edits: undefined,
+      format: false,
+    });
+
+    const malformed = await actions["update-extension"].run({
+      id: "ext-zoom",
+      patches: "{not-json",
+    });
+    expect(malformed).toBe(
+      "Error: patches must be a JSON array of { find, replace } objects.",
+    );
+  });
+
+  it("stops on deterministic edit failures instead of inviting identical retries", async () => {
+    const { ExtensionContentEditError } = await import("./content-patch.js");
+    const updateExtensionContent = vi.fn(async () => {
+      throw new ExtensionContentEditError("replace found no matches");
+    });
+    mockExtensionModules({ store: { updateExtensionContent } });
+
+    const { createExtensionActionEntries } = await import("./actions.js");
+    const actions = createExtensionActionEntries();
+    let error: unknown;
+    try {
+      await actions["update-extension"].run({
+        id: "ext-zoom",
+        patches: JSON.stringify([{ find: "missing", replace: "replacement" }]),
+      });
+    } catch (caught) {
+      error = caught;
+    }
+
+    expect(isAgentActionStopError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "extension_content_edit_failed",
+    });
+    expect((error as { toolResult?: string }).toolResult).toContain(
+      "Do not retry unchanged arguments",
+    );
   });
 
   it("passes granular extension edits and formatting through to the store", async () => {
@@ -627,6 +743,7 @@ describe("extensions/actions", () => {
 
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: undefined,
+      allowFullReplacement: false,
       patches: undefined,
       edits,
       format: true,
@@ -1017,7 +1134,11 @@ describe("extensions/actions", () => {
     const { createExtensionActionEntries } = await import("./actions.js");
     const actions = createExtensionActionEntries();
     await actions["update-extension"].run(
-      { id: "ext-zoom", contentFromWorkspaceFile: "roku-analytics.html" },
+      {
+        id: "ext-zoom",
+        contentFromWorkspaceFile: "roku-analytics.html",
+        allowFullReplacement: true,
+      },
       { caller: "tool" } as any,
     );
 
@@ -1105,7 +1226,11 @@ describe("extensions/actions", () => {
     const { createExtensionActionEntries } = await import("./actions.js");
     const actions = createExtensionActionEntries();
     await actions["update-extension"].run(
-      { id: "ext-zoom", contentFromAttachment: "latest" },
+      {
+        id: "ext-zoom",
+        contentFromAttachment: "latest",
+        allowFullReplacement: true,
+      },
       {
         caller: "tool",
         attachments: [
@@ -1121,6 +1246,7 @@ describe("extensions/actions", () => {
 
     expect(updateExtensionContent).toHaveBeenCalledWith("ext-zoom", {
       content: "<div>from paste</div>",
+      allowFullReplacement: true,
       patches: undefined,
       edits: undefined,
       format: false,

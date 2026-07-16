@@ -40,6 +40,7 @@ export interface SaveImportedDesignFilesInput {
   files: ImportedDesignFile[];
   sourceType: string;
   warnings?: string[];
+  preserveExactContent?: boolean;
 }
 
 export interface SavedImportedDesignFile {
@@ -231,14 +232,11 @@ export async function saveImportedDesignFiles(
         usedFilenames,
       );
       const fileId = nanoid();
-      // Stamp missing data-agent-native-node-id attributes before persisting
-      // so imported screens are fully addressable by id-keyed editor
-      // operations immediately, instead of depending on a client-side
-      // backfill the first time someone opens the imported screen.
-      const annotatedContent = annotateScreenHtmlForPersist(
-        file.content,
-        file.fileType,
-      );
+      // Exact native clones are immutable source evidence. Other imports are
+      // annotated before persistence so editor operations can address nodes.
+      const annotatedContent = input.preserveExactContent
+        ? file.content
+        : annotateScreenHtmlForPersist(file.content, file.fileType);
       await tx.insert(schema.designFiles).values({
         id: fileId,
         designId,

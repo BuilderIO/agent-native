@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["hi-IN"],
   root: {
     commandPresentations: "प्रेज़ेंटेशन",
     searchDecks: "डेक खोजें",

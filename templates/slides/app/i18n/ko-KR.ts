@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["ko-KR"],
   root: {
     commandPresentations: "프레젠테이션",
     searchDecks: "덱 검색",

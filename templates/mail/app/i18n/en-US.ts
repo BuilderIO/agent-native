@@ -438,10 +438,10 @@ const messages = {
     suggestionWidget: "Build me a custom widget for my inbox",
   },
   settings: {
-    openAgentSettings: "Open agent settings",
+    openAgentSettings: "Open agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    agentTitle: "Agent workspace",
     aliasName: "Alias name",
     aliasNamePlaceholder: "e.g. Design team",
     recipientsOnePerLine: "Recipients (one email per line)",

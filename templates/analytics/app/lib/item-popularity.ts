@@ -20,6 +20,10 @@ const ANONYMOUS_SCOPE = "anonymous:none";
 
 export type ItemType = "dashboard" | "analysis" | "extension";
 export type Popularity = Record<string, number>;
+export type PopularityState = {
+  data: Popularity;
+  isReady: boolean;
+};
 
 let currentScope = ANONYMOUS_SCOPE;
 
@@ -94,18 +98,20 @@ export function incrementItemView(type: ItemType, id: string): void {
   write(p);
 }
 
-export function usePopularity(): Popularity {
-  const { session } = useSession();
-  const { data: org } = useOrg();
+export function usePopularity(): PopularityState {
+  const { session, isLoading: sessionLoading } = useSession();
+  const { data: org, isLoading: orgLoading } = useOrg();
   const email = session?.email?.trim() || "anonymous";
   const orgId = org?.orgId ?? "none";
   const nextScope = `${email}:${orgId}`;
 
   const [snapshot, setSnapshot] = useState<Popularity>(() => read());
+  const [readyScope, setReadyScope] = useState<string | null>(null);
 
   useEffect(() => {
     setScope(nextScope);
     setSnapshot(read());
+    setReadyScope(nextScope);
   }, [nextScope]);
 
   useEffect(() => {
@@ -117,7 +123,10 @@ export function usePopularity(): Popularity {
       window.removeEventListener("storage", refresh);
     };
   }, []);
-  return snapshot;
+  return {
+    data: snapshot,
+    isReady: !sessionLoading && !orgLoading && readyScope === nextScope,
+  };
 }
 
 export function popularityOf(

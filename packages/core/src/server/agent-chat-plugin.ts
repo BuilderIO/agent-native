@@ -497,6 +497,12 @@ export function createAgentChatPlugin(
           // Filesystem discovery unavailable (serverless bundle) — skip.
         }
       }
+      try {
+        const { mergePackageActions } = await import("./action-discovery.js");
+        mergePackageActions(templateScriptsAll);
+      } catch {
+        // Package action registration is optional.
+      }
 
       // Resource, chat, docs, db, and cross-agent scripts are available in both prod and dev modes
       const resourceScripts = await createResourceScriptEntries();

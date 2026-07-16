@@ -166,7 +166,7 @@ const messages = {
       "桌面录音机完成并保存了本地副本，但Clips无法上传。您可以从 Clips 菜单重试，而无需再次录制。",
     retryLibrary: "您可以从库中重试。",
     processingStuck:
-      "30 秒后处理尚未完成（状态={{status}}）。剪辑可能尚未完成上传 - 检查服务器日志中的块/最终消息。",
+      "保存时间比预期更长（状态={{status}}）。如果你使用桌面应用录制，请从菜单栏打开 Clips 以重试上传或下载已保存的本地副本，然后再次检查。",
     uploadingAssembling: "上传和组合视频——通常只需要几秒钟。",
     connectStorageImportLoom: "连接存储导入这个Loom。",
     connectStorageFinishClip: "连接存储以完成此剪辑的保存。",
@@ -208,6 +208,9 @@ const messages = {
     autoChapters: "汽车章节",
     removeFillerWords: "删除填充词",
     removeSilences: "消除静音 (>1.2s)",
+    silenceWorking: "正在消除静音…",
+    silenceCompleted: "静音消除完成",
+    silenceFailed: "静音消除失败",
     generatePrSummary: "生成公关摘要",
     generateSop: "生成SOP",
     generateSopTooltip:
@@ -518,6 +521,8 @@ const messages = {
     brandingUpdated: "品牌更新",
     saveFailed: "保存失败",
     organizationName: "组织名称",
+    defaultVisibility: "新录制内容的默认可见性",
+    defaultVisibilityDescription: "应用于新录制内容，除非你选择其他可见性。",
     brandColor: "品牌颜色",
     brandColorPicker: "品牌颜色选择器",
     useColor: "使用 {{color}}",

@@ -37,7 +37,7 @@ export const organizationSettings = table("organization_settings", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
 });
@@ -52,7 +52,7 @@ export const workspaces = table("workspaces", {
     enum: ["private", "org", "public"],
   })
     .notNull()
-    .default("private"),
+    .default("public"),
   createdAt: text("created_at").notNull().default(now()),
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),

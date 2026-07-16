@@ -206,6 +206,7 @@ type HostConfig = {
   styleStrength?: StyleStrength;
   includeLogo?: boolean;
   callerAppId?: string;
+  creativeContextRequestId?: string;
   layout?: PickerLayout;
   autoGenerate?: boolean;
   candidateRunIds?: string[];
@@ -363,6 +364,10 @@ function normalizeHostConfig(value: unknown): HostConfig {
     includeLogo: normalizeBoolean(record.includeLogo),
     callerAppId:
       typeof record.callerAppId === "string" ? record.callerAppId : undefined,
+    creativeContextRequestId:
+      typeof record.creativeContextRequestId === "string"
+        ? record.creativeContextRequestId
+        : undefined,
     layout: normalizePickerLayout(record.layout),
     candidateRunIds: normalizeCandidateRunIds(record.candidateRunIds),
   };
@@ -2216,6 +2221,8 @@ export function AssetPickerSurface() {
       styleStrength: normalizeStyleStrength(params.get("styleStrength")),
       includeLogo: normalizeBoolean(params.get("includeLogo")),
       callerAppId: params.get("callerAppId") ?? undefined,
+      creativeContextRequestId:
+        params.get("creativeContextRequestId") ?? undefined,
       layout: normalizePickerLayout(params.get("layout")),
       candidateRunIds: normalizeCandidateRunIds(
         params.getAll("candidateRunIds").length > 0
@@ -2760,6 +2767,7 @@ export function AssetPickerSurface() {
       includeLogo: hostConfig.includeLogo,
       source: "ui",
       callerAppId: hostConfig.callerAppId,
+      creativeContextRequestId: hostConfig.creativeContextRequestId,
     } as any);
   }, [
     count,
@@ -2768,6 +2776,7 @@ export function AssetPickerSurface() {
     effectiveAspectRatio,
     generateBatch,
     hostConfig.callerAppId,
+    hostConfig.creativeContextRequestId,
     hostConfig.includeLogo,
     hostConfig.styleStrength,
     hostConfig.tier,

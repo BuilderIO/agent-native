@@ -142,6 +142,17 @@ export function CanvasCommentPins({
   const [pins, setPins] = useState<CanvasPin[]>([]);
   const [activePinId, setActivePinId] = useState<string | null>(null);
   const containerRef = useRef<HTMLElement | null>(null);
+  const removalTimersRef = useRef<Set<ReturnType<typeof setTimeout>>>(
+    new Set(),
+  );
+
+  useEffect(
+    () => () => {
+      for (const timer of removalTimersRef.current) clearTimeout(timer);
+      removalTimersRef.current.clear();
+    },
+    [],
+  );
 
   // Reset pins when the context (slide) changes — they're scoped to one view.
   useEffect(() => {
@@ -273,7 +284,11 @@ export function CanvasCommentPins({
     updatePin(pin.id, { submitted: true });
     // Keep the acknowledgement visible just long enough to register, without
     // making a routine submit feel delayed.
-    setTimeout(() => removePin(pin.id), 220);
+    const timer = setTimeout(() => {
+      removalTimersRef.current.delete(timer);
+      removePin(pin.id);
+    }, 220);
+    removalTimersRef.current.add(timer);
   };
 
   if (!active && pins.length === 0) return null;

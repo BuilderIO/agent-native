@@ -1,9 +1,17 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  isAllowedHostedTemplateEnvKey,
   isForbiddenHostedTemplateEnvKey,
   normalizeProductionUrlEntry,
 } from "./sync-template-netlify-env";
+
+describe("isAllowedHostedTemplateEnvKey", () => {
+  it("allows the browser-restricted Google Picker configuration", () => {
+    expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_API_KEY")).toBe(true);
+    expect(isAllowedHostedTemplateEnvKey("GOOGLE_PICKER_APP_ID")).toBe(true);
+  });
+});
 
 describe("isForbiddenHostedTemplateEnvKey", () => {
   it("rejects the backend Demo mode switch", () => {

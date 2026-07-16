@@ -6,6 +6,11 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextElementProvenance } from "@agent-native/creative-context/types";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -15,6 +20,34 @@ import { notifyClients } from "../server/handlers/decks.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
 import { ASPECT_RATIO_VALUES } from "../shared/aspect-ratios.js";
 import { getDeckUrl } from "./_app-url.js";
+
+const ReuseLabelSchema = z
+  .object({
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    label: z.string().min(1),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
+  })
+  .superRefine((label, context) => {
+    const influence = label.influence ?? "reference-conditioned";
+    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
+      context.addIssue({
+        code: "custom",
+        message: "itemId and itemVersionId must be provided together",
+      });
+    }
+    if (influence !== "generated" && !label.itemId) {
+      context.addIssue({
+        code: "custom",
+        message: "Only generated labels may omit context item ids",
+      });
+    }
+  });
 
 const SlideSchema = z.object({
   id: z.string().describe("Unique slide ID, e.g. 'slide-1'"),
@@ -33,6 +66,10 @@ const SlideSchema = z.object({
     .optional()
     .describe("Layout type hint"),
   notes: z.string().optional().describe("Speaker notes for this slide"),
+  creativeContextReuseLabels: z
+    .array(ReuseLabelSchema)
+    .optional()
+    .describe("Exact context item versions that influenced this slide"),
 });
 
 // Accept either a parsed array (HTTP/agent) or a JSON string (CLI)
@@ -77,6 +114,21 @@ export default defineAction({
       .string()
       .optional()
       .describe("Optional design system ID to link to the deck"),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Immutable pack returned by pre-generation context search"),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this deck generation only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(ReuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Deck-wide exact context item versions used"),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -95,9 +147,69 @@ export default defineAction({
     deckId,
     aspectRatio,
     designSystemId,
+    contextPackId,
+    contextModeOverride,
+    reuseLabels,
   }) => {
     const db = getDb();
     const now = new Date().toISOString();
+    const validatedCreativeContext = await validateGenerationCreativeContext({
+      contextPackId,
+      contextModeOverride,
+      reuseLabels: Array.from(
+        new Map(
+          [
+            ...reuseLabels,
+            ...rawSlides.flatMap(
+              (slide) => slide.creativeContextReuseLabels ?? [],
+            ),
+          ].map((label) => [`${label.itemId}:${label.itemVersionId}`, label]),
+        ).values(),
+      ),
+    });
+    const creativeContextProvenance = {
+      contextMode: validatedCreativeContext.contextMode,
+      contextPackId: validatedCreativeContext.contextPackId,
+      reuseLabels: validatedCreativeContext.reuseLabels,
+    };
+    const elementProvenance: CreativeContextElementProvenance[] = [
+      ...reuseLabels.map((label) => ({
+        elementId: label.elementId ?? "deck",
+        influence: label.influence ?? ("reference-conditioned" as const),
+        ...(label.itemId ? { itemId: label.itemId } : {}),
+        ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+        label: label.label,
+      })),
+      ...rawSlides.flatMap((slide) => {
+        const labels = slide.creativeContextReuseLabels ?? [];
+        return labels.length
+          ? labels.map((label) => ({
+              elementId: label.elementId ?? slide.id,
+              influence: label.influence ?? ("reference-conditioned" as const),
+              ...(label.itemId ? { itemId: label.itemId } : {}),
+              ...(label.itemVersionId
+                ? { itemVersionId: label.itemVersionId }
+                : {}),
+              label: label.label,
+            }))
+          : [
+              {
+                elementId: slide.id,
+                influence: "generated" as const,
+                label: "Net-new slide",
+              },
+            ];
+      }),
+      ...(reuseLabels.length === 0 && rawSlides.length === 0
+        ? [
+            {
+              elementId: "deck",
+              influence: "generated" as const,
+              label: "Net-new deck",
+            },
+          ]
+        : []),
+    ];
 
     const slides = rawSlides.map((s) => ({
       ...s,
@@ -134,6 +246,7 @@ export default defineAction({
         updatedAt: now,
         aspectRatio: aspectRatio ?? prevData.aspectRatio,
         designSystemId: designSystemId ?? prevData.designSystemId,
+        creativeContext: creativeContextProvenance,
       };
       await db
         .update(schema.decks)
@@ -148,6 +261,13 @@ export default defineAction({
       // refresh signal (cross-process polling fallback for serverless).
       notifyClients(deckId);
       await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+      await recordGenerationCreativeContext({
+        appId: "slides",
+        artifactType: "deck",
+        artifactId: deckId,
+        ...creativeContextProvenance,
+        ...(elementProvenance.length ? { elementProvenance } : {}),
+      });
       return {
         id: deckId,
         title,
@@ -155,6 +275,7 @@ export default defineAction({
         url: getDeckUrl(deckId),
         deepLink: deckDeepLink(deckId),
         slides,
+        ...creativeContextProvenance,
       };
     }
 
@@ -187,6 +308,7 @@ export default defineAction({
     };
     if (aspectRatio) data.aspectRatio = aspectRatio;
     if (resolvedDesignSystemId) data.designSystemId = resolvedDesignSystemId;
+    data.creativeContext = creativeContextProvenance;
     await db.insert(schema.decks).values({
       id,
       title,
@@ -200,6 +322,13 @@ export default defineAction({
 
     notifyClients(id);
     await writeAppState("refresh-signal", { ts: now, source: "create-deck" });
+    await recordGenerationCreativeContext({
+      appId: "slides",
+      artifactType: "deck",
+      artifactId: id,
+      ...creativeContextProvenance,
+      ...(elementProvenance.length ? { elementProvenance } : {}),
+    });
     return {
       id,
       title,
@@ -207,6 +336,7 @@ export default defineAction({
       url: getDeckUrl(id),
       deepLink: deckDeepLink(id),
       slides,
+      ...creativeContextProvenance,
     };
   },
   link: ({ result }) => {

@@ -196,6 +196,9 @@ export default defineEventHandler(async (event: H3Event) => {
         status: schema.recordings.status,
         failureReason: schema.recordings.failureReason,
         ownerEmail: schema.recordings.ownerEmail,
+        videoUrl: schema.recordings.videoUrl,
+        videoSizeBytes: schema.recordings.videoSizeBytes,
+        durationMs: schema.recordings.durationMs,
       })
       .from(schema.recordings)
       .where(
@@ -255,7 +258,18 @@ export default defineEventHandler(async (event: H3Event) => {
     // Already finalized — retried final chunk after session was deleted. Skip
     // buffered path writes so recording-upload-* state stays correct.
     if (existing.status === "ready") {
-      return { ok: true, finalized: true };
+      const readyState = await readAppState(
+        `recording-upload-${recordingId}`,
+      ).catch(() => null);
+      return {
+        ok: true,
+        finalized: true,
+        status: "ready" as const,
+        videoUrl: existing.videoUrl,
+        videoSizeBytes: existing.videoSizeBytes,
+        durationMs: existing.durationMs,
+        sourceSizeBytes: stateNumber(readyState, "sourceSizeBytes"),
+      };
     }
 
     // Store chunks in application_state, assemble on finalize.
@@ -569,6 +583,7 @@ export default defineEventHandler(async (event: H3Event) => {
             id: schema.recordings.id,
             status: schema.recordings.status,
             videoUrl: schema.recordings.videoUrl,
+            videoSizeBytes: schema.recordings.videoSizeBytes,
             durationMs: schema.recordings.durationMs,
             width: schema.recordings.width,
             height: schema.recordings.height,
@@ -590,12 +605,26 @@ export default defineEventHandler(async (event: H3Event) => {
               error: err instanceof Error ? err.message : String(err),
             },
           );
+          const priorReadyStateRaw = await readAppState(
+            `recording-upload-${recordingId}`,
+          ).catch(() => null);
+          const priorReadyState =
+            priorReadyStateRaw && typeof priorReadyStateRaw === "object"
+              ? (priorReadyStateRaw as Record<string, unknown>)
+              : {};
+          const sourceSizeBytes =
+            stateNumber(priorReadyState, "sourceSizeBytes") ??
+            stateNumber(priorReadyState, "bytesReceived");
           try {
             await writeAppState(`recording-upload-${recordingId}`, {
+              ...priorReadyState,
               recordingId,
               status: "ready",
               progress: 100,
               videoUrl: committed.videoUrl,
+              videoSizeBytes: committed.videoSizeBytes,
+              sourceSizeBytes,
+              durationMs: committed.durationMs,
               finishedAt: new Date().toISOString(),
             });
           } catch (stateErr) {
@@ -612,6 +641,8 @@ export default defineEventHandler(async (event: H3Event) => {
             id: committed.id,
             status: "ready",
             videoUrl: committed.videoUrl,
+            videoSizeBytes: committed.videoSizeBytes,
+            sourceSizeBytes,
             durationMs: committed.durationMs,
             width: committed.width,
             height: committed.height,
@@ -709,6 +740,7 @@ async function handleResumableChunk(
 
   const raw = await readRawBody(event, false);
   const bytes: Uint8Array = raw ?? new Uint8Array(0);
+  let finalizedSourceSizeBytes = session.bytesUploaded;
 
   if (!isFinal && bytes.byteLength === 0) {
     throw createError({ statusCode: 400, message: "Empty chunk body" });
@@ -806,6 +838,7 @@ async function handleResumableChunk(
         bytesUploaded: start + bytes.byteLength,
         lastCommittedIndex: index,
       });
+      finalizedSourceSizeBytes = start + bytes.byteLength;
 
       if (!isFinal) {
         return { ok: true, finalized: false, index, bytes: bytes.byteLength };
@@ -838,6 +871,7 @@ async function handleResumableChunk(
         id: schema.recordings.id,
         status: schema.recordings.status,
         videoUrl: schema.recordings.videoUrl,
+        videoSizeBytes: schema.recordings.videoSizeBytes,
         durationMs: schema.recordings.durationMs,
         width: schema.recordings.width,
         height: schema.recordings.height,
@@ -856,11 +890,25 @@ async function handleResumableChunk(
         `[resumable-chunk-${recordingId}] finalize reported an error after committing a ready recording; returning committed success.`,
         { error: err instanceof Error ? err.message : String(err) },
       );
+      const priorReadyStateRaw = await readAppState(
+        `recording-upload-${recordingId}`,
+      ).catch(() => null);
+      const priorReadyState =
+        priorReadyStateRaw && typeof priorReadyStateRaw === "object"
+          ? (priorReadyStateRaw as Record<string, unknown>)
+          : {};
+      const sourceSizeBytes =
+        stateNumber(priorReadyState, "sourceSizeBytes") ??
+        finalizedSourceSizeBytes;
       await writeAppState(`recording-upload-${recordingId}`, {
+        ...priorReadyState,
         recordingId,
         status: "ready",
         progress: 100,
         videoUrl: committed.videoUrl,
+        videoSizeBytes: committed.videoSizeBytes,
+        sourceSizeBytes,
+        durationMs: committed.durationMs,
         finishedAt: new Date().toISOString(),
       }).catch((stateErr) =>
         console.warn(
@@ -875,6 +923,8 @@ async function handleResumableChunk(
         id: committed.id,
         status: "ready",
         videoUrl: committed.videoUrl,
+        videoSizeBytes: committed.videoSizeBytes,
+        sourceSizeBytes,
         durationMs: committed.durationMs,
         width: committed.width,
         height: committed.height,

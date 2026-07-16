@@ -9,6 +9,7 @@ const repoRoot = path.resolve(
 
 const npmPublishAllowlist = new Set([
   "@agent-native/core",
+  "@agent-native/creative-context",
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
   "@agent-native/recap-cli",

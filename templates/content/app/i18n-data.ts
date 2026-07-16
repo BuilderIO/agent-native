@@ -1,4 +1,5 @@
 import type { LocaleCode } from "@agent-native/core/client";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -2863,6 +2864,7 @@ const localFilesMessages = {
 };
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandContent: "Content",
     commandSearchDocuments: "Search documents",
@@ -2915,10 +2917,10 @@ const enUS = {
     workspaceTitle: "Workspace",
     workspaceDescription: "Manage collaborators and shared document access.",
     openTeamSettings: "Open workspace access",
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
   },
   chat: {
     publicEmptyState: "Ask me anything about this document",
@@ -8627,6 +8629,10 @@ function mergeMessages(overrides: PartialMessages): Messages {
     database: { ...enUS.database, ...overrides.database },
     localFiles: { ...enUS.localFiles, ...overrides.localFiles },
     sidebar: { ...enUS.sidebar, ...overrides.sidebar },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
   };
 }
 
@@ -8685,7 +8691,10 @@ function mergeMessagesForLocale(
       ...localeRawLiteralOverrides?.sidebar,
     },
   };
-  const base = mergeMessages(overrides);
+  const base = mergeMessages({
+    ...overrides,
+    creativeContext: creativeContextMessagesByLocale[locale],
+  });
   return {
     ...base,
     root: { ...base.root, ...rawLiteralOverrides.root },

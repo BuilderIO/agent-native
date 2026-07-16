@@ -1,9 +1,14 @@
 import {
-  IconBrain,
+  IconBook2,
+  IconChecklist,
   IconClock,
   IconExternalLink,
   IconFolder,
+  IconHistory,
+  IconHierarchy2,
+  IconNotes,
   IconPlugConnected,
+  IconTopologyRing2,
   IconSearch,
   IconShieldLock,
   IconX,
@@ -17,6 +22,7 @@ import {
   useRef,
   useState,
   type ComponentType,
+  type ReactNode,
 } from "react";
 
 import {
@@ -27,11 +33,6 @@ import {
   type McpConnectTemplateValues,
 } from "../../shared/mcp-connect-content.js";
 import { appPath } from "../api-path.js";
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipTrigger,
-} from "../components/ui/tooltip.js";
 import { useT } from "../i18n.js";
 import { useOrg } from "../org/hooks.js";
 import {
@@ -40,6 +41,7 @@ import {
   // host for the existing MCP management flow.
 } from "../resources/McpIntegrationDialog.js";
 import { McpServerDetail } from "../resources/McpServerDetail.js";
+import type { ResourceView } from "../resources/ResourcesPanel.js";
 import {
   useCreateMcpServer,
   useDeleteMcpServer,
@@ -47,12 +49,13 @@ import {
   type McpServer,
   type McpServerScope,
 } from "../resources/use-mcp-servers.js";
-import { AgentsSection } from "../settings/AgentsSection.js";
 import type {
   SettingsSearchEntry,
   SettingsTabItem,
 } from "../settings/SettingsTabsPage.js";
 import { cn } from "../utils.js";
+import { AgentEmptyState } from "./AgentEmptyState.js";
+import { AgentTabFrame } from "./AgentTabFrame.js";
 import type { AgentPageScope, AgentPageTabProps } from "./types.js";
 
 const AgentContextTab = lazy(() =>
@@ -89,6 +92,9 @@ function resolveTabId(
 ): string | null {
   const normalized = normalizeTabId(value);
   if (!normalized) return null;
+  if (normalized === "context" && tabs.some((tab) => tab.id === "snapshots")) {
+    return "snapshots";
+  }
   if (tabs.some((tab) => tab.id === normalized)) return normalized;
   const section = normalized.split(":", 1)[0];
   const owner = tabs.find((tab) =>
@@ -101,34 +107,11 @@ function resolveTabId(
 
 function updateTabHash(tabId: string) {
   if (typeof window === "undefined") return;
-  const hash = tabId === "context" ? "" : `#${encodeURIComponent(tabId)}`;
+  const hash = tabId === "files" ? "" : `#${encodeURIComponent(tabId)}`;
   window.history.pushState(
     null,
     "",
     `${window.location.pathname}${window.location.search}${hash}`,
-  );
-}
-
-function initialScope(): AgentPageScope {
-  if (typeof window === "undefined") return "user";
-  try {
-    const queryScope = new URLSearchParams(window.location.search).get("scope");
-    if (queryScope === "org" || queryScope === "user") return queryScope;
-    return localStorage.getItem("agent-page-scope") === "org" ? "org" : "user";
-  } catch {
-    return "user";
-  }
-}
-
-function updateScopeUrl(scope: AgentPageScope) {
-  if (typeof window === "undefined") return;
-  const search = new URLSearchParams(window.location.search);
-  search.set("scope", scope);
-  const query = search.toString();
-  window.history.replaceState(
-    null,
-    "",
-    `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`,
   );
 }
 
@@ -150,23 +133,60 @@ function EmptySlot({ label }: { label: string }) {
   );
 }
 
-function FilesTab({ scope }: AgentPageTabProps) {
-  return (
-    <div className="h-[calc(100vh-14rem)] min-h-[480px]">
-      <ResourcesPanel
-        key={scope}
-        showMcpServers={false}
-        scope={scope === "org" ? "shared" : "personal"}
-      />
-    </div>
-  );
-}
+const RESOURCE_TAB_COPY: Record<
+  ResourceView,
+  { title: string; description: string }
+> = {
+  files: {
+    title: "Files",
+    description: "Plain workspace files the agent can read and write.",
+  },
+  instructions: {
+    title: "Instructions",
+    description:
+      "The rules, preferences, and project guidance that steer the agent.",
+  },
+  agents: {
+    title: "Agents",
+    description: "Reusable profiles for focused sub-agents and delegated work.",
+  },
+  memory: {
+    title: "Memory",
+    description: "Durable notes the agent can retrieve across conversations.",
+  },
+  skills: {
+    title: "Skills",
+    description:
+      "Specialized instructions that give the agent repeatable abilities.",
+  },
+  learnings: {
+    title: "Learnings",
+    description:
+      "Corrections and patterns worth carrying forward for future work.",
+  },
+  "remote-agents": {
+    title: "Remote agents",
+    description: "Other agents this workspace can call through A2A.",
+  },
+};
 
-function ScopeBadge({ scope }: { scope: McpServerScope }) {
+function AgentResourceTab({
+  scope,
+  view,
+}: AgentPageTabProps & { view: ResourceView }) {
+  const copy = RESOURCE_TAB_COPY[view];
   return (
-    <span className="rounded-full border border-border bg-muted/40 px-2 py-0.5 text-[10px] font-medium text-muted-foreground">
-      {scope === "user" ? "Personal" : "Organization"}
-    </span>
+    <AgentTabFrame title={copy.title} description={copy.description}>
+      <div className="min-h-[480px]">
+        <ResourcesPanel
+          key={`${scope}-${view}`}
+          showMcpServers={false}
+          resourceFilter={view}
+          resourceTreeVariant={view === "files" ? "tree" : "collection"}
+          scope="personal"
+        />
+      </div>
+    </AgentTabFrame>
   );
 }
 
@@ -190,7 +210,7 @@ function ServerStatus({ server }: { server: McpServer }) {
   );
 }
 
-function ConnectionsTab({ scope, canManageOrg = false }: AgentPageTabProps) {
+function ConnectionsTab({ canManageOrg = false }: AgentPageTabProps) {
   const t = useT();
   const serversQuery = useMcpServers();
   const createServer = useCreateMcpServer();
@@ -202,7 +222,6 @@ function ConnectionsTab({ scope, canManageOrg = false }: AgentPageTabProps) {
   const data = serversQuery.data;
   const hasOrg = Boolean(data?.orgId);
   const canCreateOrgMcp = hasOrg && canManageOrg;
-  const activeScope: McpServerScope = scope === "org" ? "org" : "user";
 
   const onCreateMcpServer = useCallback(
     async (args: {
@@ -252,8 +271,8 @@ function ConnectionsTab({ scope, canManageOrg = false }: AgentPageTabProps) {
       <div
         key={key}
         className={cn(
-          "rounded-lg border border-border bg-card p-3 transition-colors",
-          selected && "border-foreground/30 bg-accent/20",
+          "group/connection-row py-4 transition-colors first:pt-5 last:pb-5",
+          selected && "bg-accent/20",
         )}
       >
         <div className="flex items-start gap-3">
@@ -266,12 +285,6 @@ function ConnectionsTab({ scope, canManageOrg = false }: AgentPageTabProps) {
               <span className="truncate text-sm font-medium text-foreground">
                 {server.name}
               </span>
-              <ScopeBadge scope={server.scope} />
-              {server.scope === activeScope && (
-                <span className="text-[10px] text-muted-foreground">
-                  Selected scope
-                </span>
-              )}
             </div>
             <code className="mt-1 block truncate text-[11px] text-muted-foreground">
               {server.url}
@@ -309,29 +322,23 @@ function ConnectionsTab({ scope, canManageOrg = false }: AgentPageTabProps) {
   };
 
   return (
-    <div className="space-y-8">
-      <section className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-3">
-          <div>
-            <h2 className="text-base font-semibold text-foreground">
-              MCP servers
-            </h2>
-            <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-              Tools and services this agent can reach. The page scope controls
-              where new servers are saved.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              setError(null);
-              setDialogOpen(true);
-            }}
-            className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
-          >
-            {t("mcpIntegrations.connect")}
-          </button>
-        </div>
+    <AgentTabFrame
+      title="Connections"
+      description="Tools and services this agent can reach, grouped by where they are configured."
+      actions={
+        <button
+          type="button"
+          onClick={() => {
+            setError(null);
+            setDialogOpen(true);
+          }}
+          className="cursor-pointer rounded-md bg-primary px-3 py-1.5 text-xs font-medium text-primary-foreground hover:bg-primary/90"
+        >
+          {t("mcpIntegrations.connect")}
+        </button>
+      }
+    >
+      <section className="space-y-4">
         {error && (
           <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             {error}
@@ -343,40 +350,45 @@ function ConnectionsTab({ scope, canManageOrg = false }: AgentPageTabProps) {
           <p className="rounded-md border border-destructive/20 bg-destructive/5 px-3 py-2 text-xs text-destructive">
             Could not load MCP servers.
           </p>
-        ) : data && data.user.length + data.org.length > 0 ? (
-          <div className="space-y-2">
-            {data.user.map(renderServer)}
-            {data.org.map(renderServer)}
-          </div>
         ) : (
-          <div className="rounded-lg border border-dashed border-border p-5 text-sm text-muted-foreground">
-            No MCP servers are connected yet.
+          <div className="space-y-6">
+            {[
+              { label: "Personal", servers: data?.user ?? [] },
+              { label: "Organization", servers: data?.org ?? [] },
+            ].map((section) => (
+              <section key={section.label} className="space-y-2">
+                <h2 className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                  {section.label}
+                </h2>
+                {section.servers.length > 0 ? (
+                  <div className="divide-y divide-border/60 border-y border-border/60">
+                    {section.servers.map(renderServer)}
+                  </div>
+                ) : (
+                  <AgentEmptyState
+                    icon={IconPlugConnected}
+                    title={`No ${section.label.toLowerCase()} connections yet`}
+                    description={
+                      section.label === "Personal"
+                        ? "Connect a service to give the agent access to it."
+                        : "Organization connections shared with this workspace will appear here."
+                    }
+                  />
+                )}
+              </section>
+            ))}
           </div>
         )}
         <McpIntegrationDialog
           open={dialogOpen}
           onOpenChange={setDialogOpen}
-          defaultScope={activeScope}
+          defaultScope="user"
           canCreateOrgMcp={canCreateOrgMcp}
           hasOrg={hasOrg}
           onCreateMcpServer={onCreateMcpServer}
         />
       </section>
-
-      <section className="space-y-3 border-t border-border/70 pt-6">
-        <div>
-          <h2 className="text-base font-semibold text-foreground">
-            Remote agents
-          </h2>
-          <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-            Other agents this app can call through A2A.
-          </p>
-        </div>
-        <div className="rounded-lg border border-border bg-card p-4">
-          <AgentsSection />
-        </div>
-      </section>
-    </div>
+    </AgentTabFrame>
   );
 }
 
@@ -490,129 +502,141 @@ function AccessTab({
     MCP_CONNECT_GUIDES[0];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-base font-semibold text-foreground">Access</h2>
-        <p className="mt-1 max-w-2xl text-sm leading-relaxed text-muted-foreground">
-          Choose which external clients can talk to this app&apos;s agent and
-          follow the setup for each one. Grants, scopes, and revocation will
-          live here in a future pass.
-        </p>
-      </div>
-      {urls ? (
-        <>
-          <CopyField label="MCP URL" value={urls.mcpUrl} />
-          {agentCardAvailable && (
-            <CopyField label="A2A agent card" value={urls.agentCardUrl} />
-          )}
-          <section className="space-y-3 rounded-lg border border-border bg-card p-4">
-            <div>
-              <h3 className="text-sm font-semibold text-foreground">
-                Client setup
-              </h3>
-              <p className="mt-1 text-xs text-muted-foreground">
-                These instructions are also available on the full connect page.
-              </p>
-            </div>
-            <div
-              className="flex gap-1 overflow-x-auto border-b border-border pb-2"
-              role="tablist"
-              aria-label="Choose your AI assistant"
-            >
-              {MCP_CONNECT_GUIDES.map((item) => (
-                <button
-                  key={item.id}
-                  type="button"
-                  role="tab"
-                  aria-selected={item.id === guide?.id}
-                  onClick={() => setActiveGuide(item.id)}
-                  className={cn(
-                    "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
-                    item.id === guide?.id
-                      ? "bg-accent text-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-                  )}
-                >
-                  {item.label}
-                </button>
-              ))}
-            </div>
-            {guide && templateValues && (
-              <div className="space-y-3 pt-1" role="tabpanel">
-                {guide.steps?.length ? (
-                  <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
-                    {guide.steps.map((step) => (
-                      <li key={step}>
-                        {interpolateMcpConnectTemplate(step, templateValues)}
-                      </li>
-                    ))}
-                  </ol>
-                ) : null}
-                {guide.intro && (
-                  <p className="text-xs text-muted-foreground">
-                    {interpolateMcpConnectTemplate(guide.intro, templateValues)}
-                  </p>
-                )}
-                {guide.commandTemplate && (
-                  <CopyField
-                    label="Command"
-                    value={interpolateMcpConnectTemplate(
-                      guide.commandTemplate,
-                      templateValues,
-                    )}
-                  />
-                )}
-                {guide.configTemplate && (
-                  <CopyField
-                    label="MCP config"
-                    value={interpolateMcpConnectTemplate(
-                      guide.configTemplate,
-                      templateValues,
-                    )}
-                  />
-                )}
-                {guide.action?.kind === "link" && guide.action.href && (
-                  <a
-                    href={guide.action.href}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-                  >
-                    {guide.action.label}
-                    <IconExternalLink className="size-3.5" />
-                  </a>
-                )}
-                {guide.note && (
-                  <p className="text-xs leading-relaxed text-muted-foreground">
-                    {interpolateMcpConnectTemplate(guide.note, templateValues)}
-                  </p>
-                )}
-              </div>
+    <AgentTabFrame
+      title="Access"
+      description="Choose which external clients can talk to this app's agent."
+    >
+      <div className="space-y-6">
+        {urls ? (
+          <>
+            <CopyField label="MCP URL" value={urls.mcpUrl} />
+            {agentCardAvailable && (
+              <CopyField label="A2A agent card" value={urls.agentCardUrl} />
             )}
-          </section>
-          <section className="rounded-lg border border-border/70 bg-muted/10 p-4">
-            <h3 className="text-sm font-semibold text-foreground">
-              {MCP_STATIC_TOKEN_FALLBACK.title}
-            </h3>
-            <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-              {MCP_STATIC_TOKEN_FALLBACK.state}. Open the connect page to create
-              a token for clients that cannot complete OAuth.
-            </p>
-            <a
-              href={urls.connectUrl}
-              className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
-            >
-              Open full connect page
-              <IconExternalLink className="size-3.5" />
-            </a>
-          </section>
-        </>
-      ) : (
-        <TabLoading />
-      )}
-    </div>
+            <section className="space-y-3 border-t border-border/70 pt-6">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground">
+                  Client setup
+                </h3>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  These instructions are also available on the full connect
+                  page.
+                </p>
+              </div>
+              <div
+                className="flex gap-1 overflow-x-auto border-b border-border pb-2"
+                role="tablist"
+                aria-label="Choose your AI assistant"
+              >
+                {MCP_CONNECT_GUIDES.map((item) => (
+                  <button
+                    key={item.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={item.id === guide?.id}
+                    onClick={() => setActiveGuide(item.id)}
+                    className={cn(
+                      "shrink-0 cursor-pointer rounded-md px-2.5 py-1.5 text-xs font-medium",
+                      item.id === guide?.id
+                        ? "bg-accent text-foreground"
+                        : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                    )}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              {guide && templateValues && (
+                <div className="space-y-3 pt-1" role="tabpanel">
+                  {guide.steps?.length ? (
+                    <ol className="list-decimal space-y-2 ps-5 text-xs leading-relaxed text-muted-foreground">
+                      {guide.steps.map((step) => (
+                        <li key={step}>
+                          {interpolateMcpConnectTemplate(step, templateValues)}
+                        </li>
+                      ))}
+                    </ol>
+                  ) : null}
+                  {guide.intro && (
+                    <p className="text-xs text-muted-foreground">
+                      {interpolateMcpConnectTemplate(
+                        guide.intro,
+                        templateValues,
+                      )}
+                    </p>
+                  )}
+                  {guide.commandTemplate && (
+                    <CopyField
+                      label="Command"
+                      value={interpolateMcpConnectTemplate(
+                        guide.commandTemplate,
+                        templateValues,
+                      )}
+                    />
+                  )}
+                  {guide.configTemplate && (
+                    <CopyField
+                      label="MCP config"
+                      value={interpolateMcpConnectTemplate(
+                        guide.configTemplate,
+                        templateValues,
+                      )}
+                    />
+                  )}
+                  {guide.action?.kind === "link" && guide.action.href && (
+                    <a
+                      href={guide.action.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+                    >
+                      {guide.action.label}
+                      <IconExternalLink className="size-3.5" />
+                    </a>
+                  )}
+                  {guide.note && (
+                    <p className="text-xs leading-relaxed text-muted-foreground">
+                      {interpolateMcpConnectTemplate(
+                        guide.note,
+                        templateValues,
+                      )}
+                    </p>
+                  )}
+                </div>
+              )}
+            </section>
+            <section className="border-t border-border/70 pt-6">
+              <h3 className="text-sm font-semibold text-foreground">
+                {MCP_STATIC_TOKEN_FALLBACK.title}
+              </h3>
+              <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                {MCP_STATIC_TOKEN_FALLBACK.state}. Open the connect page to
+                create a token for clients that cannot complete OAuth.
+              </p>
+              <a
+                href={urls.connectUrl}
+                className="mt-3 inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-3 py-1.5 text-xs font-medium text-foreground hover:bg-accent"
+              >
+                Open full connect page
+                <IconExternalLink className="size-3.5" />
+              </a>
+            </section>
+          </>
+        ) : (
+          <TabLoading />
+        )}
+      </div>
+    </AgentTabFrame>
   );
 }
+
+export interface AgentPageExtraTabContext extends AgentPageTabProps {
+  scopeControl: ReactNode;
+}
+
+export type AgentPageExtraTabFactory = (
+  context: AgentPageExtraTabContext,
+) => SettingsTabItem;
 
 export interface AgentTabsPageProps {
   /**
@@ -622,6 +646,8 @@ export interface AgentTabsPageProps {
    */
   appName?: string;
   extraTabs?: SettingsTabItem[];
+  /** Scoped app-specific tabs that receive the current Agent workspace scope. */
+  extraTabFactories?: AgentPageExtraTabFactory[];
   defaultTab?: string;
   className?: string;
   /** Whether to render the Agent page search box. Defaults to true. */
@@ -635,20 +661,19 @@ export interface AgentTabsPageProps {
 export function AgentTabsPage({
   appName,
   extraTabs = [],
-  defaultTab = "context",
+  extraTabFactories = [],
+  defaultTab = "files",
   className,
   enableSearch = true,
-  searchPlaceholder = "Search agent settings",
+  searchPlaceholder = "Search agent workspace",
   hiddenTabs = [],
   value,
   onValueChange,
 }: AgentTabsPageProps) {
-  const { data: org, isLoading: orgLoading } = useOrg();
-  const hasOrg = Boolean(org?.orgId);
+  const { data: org } = useOrg();
   const canManageOrg =
     !org?.orgId || org.role === "owner" || org.role === "admin";
-  const [scope, setScope] = useState<AgentPageScope>(initialScope);
-  const scopeInitialized = useRef(false);
+  const scope: AgentPageScope = "user";
   const rootRef = useRef<HTMLDivElement | null>(null);
   const searchRef = useRef<HTMLInputElement | null>(null);
   const [query, setQuery] = useState("");
@@ -656,57 +681,121 @@ export function AgentTabsPage({
     () => new Set(hiddenTabs.map((tab) => normalizeTabId(tab)).filter(Boolean)),
     [hiddenTabs],
   );
+  const scopeControl: ReactNode = null;
+  const scopedExtraTabs = useMemo(
+    () =>
+      extraTabFactories.map((factory) =>
+        factory({ scope, canManageOrg, scopeControl }),
+      ),
+    [canManageOrg, extraTabFactories, scope, scopeControl],
+  );
 
   const tabs = useMemo<SettingsTabItem[]>(
     () => [
       {
-        id: "context",
-        label: "Context",
-        icon: IconBrain,
-        keywords: "influence provenance prompt",
-        content: (
-          <div className="space-y-4">
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">Context</h1>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                See what can influence this agent and why.
-              </p>
-            </div>
-            <div className="min-h-[220px] rounded-lg border border-dashed border-border/70 bg-muted/10 p-4">
-              <Suspense fallback={<TabLoading />}>
-                <AgentContextTab scope={scope} canManageOrg={canManageOrg} />
-              </Suspense>
-            </div>
-          </div>
-        ),
-      },
-      {
         id: "files",
         label: "Files",
         icon: IconFolder,
-        keywords: "workspace resources instructions skills",
+        group: "resources",
+        keywords: "workspace plain files documents uploads",
         content: (
-          <div className="space-y-4">
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">Files</h1>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Workspace files that shape the agent&apos;s context.
-              </p>
-            </div>
-            <Suspense fallback={<TabLoading />}>
-              <FilesTab scope={scope} canManageOrg={canManageOrg} />
-            </Suspense>
-          </div>
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="files" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "instructions",
+        label: "Instructions",
+        icon: IconChecklist,
+        group: "resources",
+        keywords: "agents md rules preferences guidance",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="instructions" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "agents",
+        label: "Agents",
+        icon: IconHierarchy2,
+        group: "resources",
+        keywords: "custom sub agents delegate profiles",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="agents" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "memory",
+        label: "Memory",
+        icon: IconNotes,
+        group: "resources",
+        keywords: "long term notes memory index recall",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="memory" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "skills",
+        label: "Skills",
+        icon: IconBook2,
+        group: "resources",
+        keywords: "abilities reusable instructions workflows",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="skills" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "learnings",
+        label: "Learnings",
+        icon: IconHistory,
+        group: "resources",
+        keywords: "corrections patterns knowledge feedback",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="learnings" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "remote-agents",
+        label: "Remote agents",
+        icon: IconTopologyRing2,
+        group: "resources",
+        keywords: "a2a connected remote agents delegation",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentResourceTab scope={scope} view="remote-agents" />
+          </Suspense>
+        ),
+      },
+      {
+        id: "snapshots",
+        label: "Snapshots",
+        icon: IconHistory,
+        group: "agent",
+        keywords: "context recent loads provenance tokens",
+        content: (
+          <Suspense fallback={<TabLoading />}>
+            <AgentContextTab scope={scope} canManageOrg={canManageOrg} />
+          </Suspense>
         ),
       },
       {
         id: "connections",
         label: "Connections",
         icon: IconPlugConnected,
-        keywords: "mcp servers tools remote agents a2a",
+        group: "agent",
+        keywords: "mcp servers tools integrations",
         searchEntries: [
           { id: "mcp-servers", label: "MCP servers", keywords: "tools" },
-          { id: "remote-agents", label: "Remote agents", keywords: "a2a" },
         ],
         content: <ConnectionsTab scope={scope} canManageOrg={canManageOrg} />,
       },
@@ -714,27 +803,19 @@ export function AgentTabsPage({
         id: "jobs",
         label: "Jobs",
         icon: IconClock,
+        group: "agent",
         keywords: "scheduled automations recurring",
         content: (
-          <div className="space-y-4">
-            <div>
-              <h1 className="text-lg font-semibold text-foreground">Jobs</h1>
-              <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
-                Scheduled work that can run with this agent.
-              </p>
-            </div>
-            <div className="min-h-[220px] rounded-lg border border-dashed border-border/70 bg-muted/10 p-4">
-              <Suspense fallback={<TabLoading />}>
-                <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
-              </Suspense>
-            </div>
-          </div>
+          <Suspense fallback={<TabLoading />}>
+            <AgentJobsTab scope={scope} canManageOrg={canManageOrg} />
+          </Suspense>
         ),
       },
       {
         id: "access",
         label: "Access",
         icon: IconShieldLock,
+        group: "agent",
         keywords: "external clients oauth a2a exposure",
         searchEntries: [
           {
@@ -757,8 +838,9 @@ export function AgentTabsPage({
         ),
       },
       ...extraTabs,
+      ...scopedExtraTabs,
     ],
-    [canManageOrg, extraTabs, scope],
+    [appName, canManageOrg, extraTabs, scope, scopedExtraTabs],
   );
   const visibleTabs = useMemo(
     () => tabs.filter((tab) => !normalizedHiddenTabs.has(tab.id)),
@@ -787,22 +869,6 @@ export function AgentTabsPage({
   }, [visibleTabs]);
 
   useEffect(() => {
-    if (scopeInitialized.current || orgLoading) return;
-    scopeInitialized.current = true;
-    if (!hasOrg && scope === "org") setScope("user");
-  }, [hasOrg, orgLoading, scope]);
-
-  useEffect(() => {
-    if (orgLoading) return;
-    const resolvedScope = hasOrg ? scope : "user";
-    if (resolvedScope !== scope) {
-      setScope(resolvedScope);
-      return;
-    }
-    updateScopeUrl(resolvedScope);
-  }, [hasOrg, orgLoading, scope]);
-
-  useEffect(() => {
     if (!isControlled && !visibleTabs.some((tab) => tab.id === internalTab)) {
       setInternalTab(fallbackTab);
     }
@@ -825,15 +891,6 @@ export function AgentTabsPage({
     },
     [isControlled, onValueChange],
   );
-
-  const changeScope = (next: AgentPageScope) => {
-    if (next === "org" && !hasOrg) return;
-    setScope(next);
-    try {
-      localStorage.setItem("agent-page-scope", next);
-    } catch {}
-    updateScopeUrl(next);
-  };
 
   const searchIndex = useMemo(() => {
     const entries: Array<
@@ -893,62 +950,6 @@ export function AgentTabsPage({
         className,
       )}
     >
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-border px-4 py-3 sm:px-6">
-        <div>
-          <h1 className="text-base font-semibold text-foreground">Agent</h1>
-          <p className="mt-0.5 text-xs text-muted-foreground">
-            What can influence this agent, and why.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-muted-foreground">Scope</span>
-          <div
-            className="flex rounded-md border border-border bg-muted/30 p-0.5"
-            role="radiogroup"
-            aria-label="Agent scope"
-          >
-            <button
-              type="button"
-              role="radio"
-              aria-checked={scope !== "org" || !hasOrg}
-              onClick={() => changeScope("user")}
-              className={cn(
-                "cursor-pointer rounded px-2.5 py-1.5 text-xs font-medium",
-                scope !== "org" || !hasOrg
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground hover:text-foreground",
-              )}
-            >
-              Personal
-            </button>
-            {hasOrg && (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    role="radio"
-                    aria-checked={scope === "org"}
-                    onClick={() => changeScope("org")}
-                    className={cn(
-                      "cursor-pointer rounded px-2.5 py-1.5 text-xs font-medium",
-                      scope === "org"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground",
-                    )}
-                  >
-                    Organization
-                  </button>
-                </TooltipTrigger>
-                {!canManageOrg && (
-                  <TooltipContent>
-                    Organization settings are read-only for members.
-                  </TooltipContent>
-                )}
-              </Tooltip>
-            )}
-          </div>
-        </div>
-      </header>
       <div className="flex min-h-0 flex-1 flex-col sm:flex-row">
         <div className="flex shrink-0 flex-col gap-2 bg-background p-2 sm:min-h-0 sm:w-56 sm:overflow-y-auto sm:p-3">
           {enableSearch ? (
@@ -990,7 +991,7 @@ export function AgentTabsPage({
             >
               {results.length === 0 ? (
                 <p className="px-2 py-6 text-center text-xs text-muted-foreground">
-                  No matching agent settings
+                  No matching agent workspace items
                 </p>
               ) : (
                 results.map((entry) => (
@@ -1028,6 +1029,16 @@ export function AgentTabsPage({
                       "sm:mt-2 sm:border-t sm:border-border/60 sm:pt-2",
                   )}
                 >
+                  {group.id === "resources" && (
+                    <div className="hidden px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/50 sm:block">
+                      Agent resources
+                    </div>
+                  )}
+                  {group.id === "agent" && (
+                    <div className="hidden px-2.5 pb-1 pt-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground/50 sm:block">
+                      Agent operations
+                    </div>
+                  )}
                   <div className="contents sm:flex sm:flex-col sm:gap-1">
                     {group.tabs.map((tab) => {
                       const Icon = tab.icon as SettingsTabIcon | undefined;
@@ -1036,6 +1047,7 @@ export function AgentTabsPage({
                         <button
                           key={tab.id}
                           type="button"
+                          id={`agent-tab-${tab.id}`}
                           role="tab"
                           aria-selected={selected}
                           aria-controls={`agent-tabpanel-${tab.id}`}

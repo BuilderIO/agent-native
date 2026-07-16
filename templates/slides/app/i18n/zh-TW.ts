@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["zh-TW"],
   root: {
     commandPresentations: "簡報",
     searchDecks: "搜尋幻燈片",
