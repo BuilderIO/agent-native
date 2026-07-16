@@ -374,7 +374,7 @@ export function VideoBlock({
 
     const toastId = toast.loading(t("editor.media.uploadingVideo"));
     try {
-      const nextSrc = await uploadVideoFile(file);
+      const nextSrc = await uploadVideoFile(file, options.documentId);
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
       toast.success(t("editor.media.videoAdded"), { id: toastId });

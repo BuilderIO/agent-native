@@ -97,7 +97,10 @@ export function createContentBlockRenderContext(options?: {
       />
     ),
     uploadFile: async (file: File) => {
-      const url = await uploadImageFile(file);
+      if (!options?.documentId) {
+        throw new Error("Document media uploads require a document.");
+      }
+      const url = await uploadImageFile(file, options.documentId);
       return { url };
     },
     renderEditSurface: ({

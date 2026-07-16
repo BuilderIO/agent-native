@@ -1,5 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const { deletePrivateBlob } = vi.hoisted(() => ({
+  deletePrivateBlob: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/private-blob", () => ({ deletePrivateBlob }));
+
 vi.mock("drizzle-orm", async (importOriginal) => {
   const actual = await importOriginal<typeof import("drizzle-orm")>();
   return {
@@ -84,6 +90,15 @@ const { schema } = vi.hoisted(() => ({
       ownerEmail: "documentComments.ownerEmail",
     },
     documentShares: { resourceId: "documentShares.resourceId" },
+    documentMedia: {
+      id: "documentMedia.id",
+      documentId: "documentMedia.documentId",
+      state: "documentMedia.state",
+      revokedAt: "documentMedia.revokedAt",
+      updatedAt: "documentMedia.updatedAt",
+      deletedAt: "documentMedia.deletedAt",
+      deleteError: "documentMedia.deleteError",
+    },
   },
 }));
 
@@ -95,6 +110,11 @@ vi.mock("../server/db/index.js", () => ({
 import { deleteDocumentRecursive } from "./delete-document";
 
 type DeleteCall = { table: string; cond: unknown };
+type UpdateCall = {
+  table: string;
+  values: Record<string, unknown>;
+  cond?: unknown;
+};
 
 function tableNameFor(colRef: string): string {
   return colRef.split(".")[0];
@@ -118,10 +138,13 @@ function matches(row: Record<string, unknown>, cond: any): boolean {
 describe("deleteDocumentRecursive", () => {
   let deleteCalls: DeleteCall[];
   let selectRows: Record<string, Record<string, unknown>[]>;
+  let updateCalls: UpdateCall[];
   let db: any;
 
   beforeEach(() => {
     deleteCalls = [];
+    updateCalls = [];
+    deletePrivateBlob.mockReset();
     selectRows = {
       documents: [],
     };
@@ -141,6 +164,17 @@ describe("deleteDocumentRecursive", () => {
           const name = tableNameFor(Object.values(table)[0] as string);
           deleteCalls.push({ table: name, cond });
         },
+      }),
+      update: (table: Record<string, string>) => ({
+        set: (values: Record<string, unknown>) => ({
+          where: async (cond: unknown) => {
+            updateCalls.push({
+              table: tableNameFor(Object.values(table)[0] as string),
+              values,
+              cond,
+            });
+          },
+        }),
       }),
     };
   });
@@ -281,5 +315,47 @@ describe("deleteDocumentRecursive", () => {
     expect(
       documentDeletes.map((c: any) => c.cond.__and[0].__inArray[1].length),
     ).toEqual([90, 6]);
+  });
+
+  it("revokes every subtree medium before provider deletion and never leaks provider errors", async () => {
+    selectRows.documentMedia = [
+      {
+        id: "media-1",
+        documentId: "doc-1",
+        blobHandleJson:
+          '{"id":"opaque-handle","provider":"vercel","opaque":true}',
+      },
+      { id: "media-2", documentId: "doc-1", blobHandleJson: "not-json" },
+    ];
+    deletePrivateBlob.mockImplementation(async () => {
+      expect(updateCalls[0]).toMatchObject({
+        table: "documentMedia",
+        values: { state: "revoked" },
+      });
+      return { deleted: false, reason: "provider token" };
+    });
+
+    await deleteDocumentRecursive(db, "doc-1", "owner-a@example.com");
+
+    expect(updateCalls[0]).toMatchObject({
+      table: "documentMedia",
+      values: { state: "revoked" },
+    });
+    expect(updateCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          values: expect.objectContaining({
+            state: "delete_pending",
+            deleteError: "provider deletion was not completed",
+          }),
+        }),
+        expect.objectContaining({
+          values: expect.objectContaining({
+            state: "delete_pending",
+            deleteError: "invalid blob handle",
+          }),
+        }),
+      ]),
+    );
   });
 });

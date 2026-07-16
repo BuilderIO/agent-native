@@ -104,6 +104,7 @@ function isBuilderReconnectError(serverMessage: string): boolean {
 async function uploadMediaFile(
   file: File,
   kind: MediaUploadKind,
+  documentId?: string,
 ): Promise<string> {
   const isValidFile =
     kind === "image"
@@ -114,11 +115,15 @@ async function uploadMediaFile(
   if (!isValidFile) {
     throw new Error(`Only ${kind} files can be uploaded.`);
   }
+  if (!documentId)
+    throw new Error("Document media uploads require a document.");
 
   const form = new FormData();
   form.append("file", file, file.name || kind);
+  form.append("documentId", documentId);
+  form.append("kind", kind);
 
-  const response = await fetch(agentNativePath("/_agent-native/file-upload"), {
+  const response = await fetch(agentNativePath("/api/document-media"), {
     method: "POST",
     body: form,
   });
@@ -152,14 +157,23 @@ async function uploadMediaFile(
   return body.url;
 }
 
-export async function uploadImageFile(file: File): Promise<string> {
-  return uploadMediaFile(file, "image");
+export async function uploadImageFile(
+  file: File,
+  documentId?: string,
+): Promise<string> {
+  return uploadMediaFile(file, "image", documentId);
 }
 
-export async function uploadVideoFile(file: File): Promise<string> {
-  return uploadMediaFile(file, "video");
+export async function uploadVideoFile(
+  file: File,
+  documentId?: string,
+): Promise<string> {
+  return uploadMediaFile(file, "video", documentId);
 }
 
-export async function uploadAudioFile(file: File): Promise<string> {
-  return uploadMediaFile(file, "audio");
+export async function uploadAudioFile(
+  file: File,
+  documentId?: string,
+): Promise<string> {
+  return uploadMediaFile(file, "audio", documentId);
 }

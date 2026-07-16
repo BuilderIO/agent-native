@@ -1137,6 +1137,7 @@ export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
   position: number,
+  documentId?: string,
 ): Promise<void> {
   if (files.length === 0) return;
 
@@ -1159,7 +1160,7 @@ export async function uploadAndInsertImageFiles(
 
   for (const pending of pendingUploads) {
     try {
-      const src = await uploadImageFile(pending.file);
+      const src = await uploadImageFile(pending.file, documentId);
       if (!view.dom.isConnected) return;
       updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
     } catch (error) {
@@ -1189,6 +1190,7 @@ export async function uploadAndInsertVideoFiles(
   view: EditorView,
   files: File[],
   position: number,
+  documentId?: string,
 ): Promise<void> {
   if (files.length === 0) return;
 
@@ -1211,7 +1213,7 @@ export async function uploadAndInsertVideoFiles(
 
   for (const pending of pendingUploads) {
     try {
-      const src = await uploadVideoFile(pending.file);
+      const src = await uploadVideoFile(pending.file, documentId);
       if (!view.dom.isConnected) return;
       updatePendingMediaNode(view, "video", pending.uploadId, { src });
     } catch (error) {
@@ -1241,6 +1243,7 @@ export async function uploadAndInsertAudioFiles(
   view: EditorView,
   files: File[],
   position: number,
+  documentId?: string,
 ): Promise<void> {
   if (files.length === 0) return;
 
@@ -1263,7 +1266,7 @@ export async function uploadAndInsertAudioFiles(
 
   for (const pending of pendingUploads) {
     try {
-      const src = await uploadAudioFile(pending.file);
+      const src = await uploadAudioFile(pending.file, documentId);
       if (!view.dom.isConnected) return;
       updatePendingMediaNode(view, "audio", pending.uploadId, { src });
     } catch (error) {
@@ -1849,13 +1852,28 @@ export function VisualEditor({
         });
         const position = coords?.pos ?? view.state.selection.from;
         if (imageFiles.length > 0) {
-          void uploadAndInsertImageFiles(view, imageFiles, position);
+          void uploadAndInsertImageFiles(
+            view,
+            imageFiles,
+            position,
+            documentId,
+          );
         }
         if (videoFiles.length > 0) {
-          void uploadAndInsertVideoFiles(view, videoFiles, position);
+          void uploadAndInsertVideoFiles(
+            view,
+            videoFiles,
+            position,
+            documentId,
+          );
         }
         if (audioFiles.length > 0) {
-          void uploadAndInsertAudioFiles(view, audioFiles, position);
+          void uploadAndInsertAudioFiles(
+            view,
+            audioFiles,
+            position,
+            documentId,
+          );
         }
         return true;
       },
@@ -1880,6 +1898,7 @@ export function VisualEditor({
             view,
             imageFiles,
             view.state.selection.from,
+            documentId,
           );
         }
         if (videoFiles.length > 0) {
@@ -1887,6 +1906,7 @@ export function VisualEditor({
             view,
             videoFiles,
             view.state.selection.from,
+            documentId,
           );
         }
         if (audioFiles.length > 0) {
@@ -1894,6 +1914,7 @@ export function VisualEditor({
             view,
             audioFiles,
             view.state.selection.from,
+            documentId,
           );
         }
         return true;

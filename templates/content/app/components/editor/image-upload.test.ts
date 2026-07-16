@@ -16,11 +16,11 @@ describe("image uploads", () => {
     vi.unstubAllGlobals();
   });
 
-  it("uploads image files through the framework file-upload endpoint", async () => {
+  it("uploads image files only through Content's document-media endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       status: 201,
-      json: async () => ({ url: "https://cdn.example.com/diagram.png" }),
+      json: async () => ({ url: "/api/document-media/media-1" }),
     });
     vi.stubGlobal("fetch", fetchMock);
 
@@ -28,12 +28,12 @@ describe("image uploads", () => {
       type: "image/png",
     });
 
-    await expect(uploadImageFile(file)).resolves.toBe(
-      "https://cdn.example.com/diagram.png",
+    await expect(uploadImageFile(file, "document-1")).resolves.toBe(
+      "/api/document-media/media-1",
     );
 
     expect(fetchMock).toHaveBeenCalledWith(
-      expect.stringContaining("/_agent-native/file-upload"),
+      expect.stringContaining("/api/document-media"),
       expect.objectContaining({
         method: "POST",
         body: expect.any(FormData),
@@ -41,6 +41,7 @@ describe("image uploads", () => {
     );
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     const uploadedFile = body.get("file") as File;
+    expect(body.get("documentId")).toBe("document-1");
     expect(uploadedFile.name).toBe("diagram.png");
     expect(uploadedFile.type).toBe("image/png");
   });
@@ -61,8 +62,8 @@ describe("image uploads", () => {
       type: "image/png",
     });
 
-    await expect(uploadImageFile(file)).rejects.toThrow(
-      "Connect Builder.io in Settings -> File uploads",
+    await expect(uploadImageFile(file, "document-1")).rejects.toThrow(
+      "Image uploads need file storage",
     );
   });
 
@@ -82,7 +83,7 @@ describe("image uploads", () => {
       type: "image/png",
     });
 
-    await expect(uploadImageFile(file)).rejects.toThrow(
+    await expect(uploadImageFile(file, "document-1")).rejects.toThrow(
       "Reconnect Builder.io in Settings -> File uploads",
     );
   });
@@ -99,6 +100,19 @@ describe("image uploads", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("fails closed before any request without a document id", async () => {
+    const fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+    const file = new File(["image-bytes"], "diagram.png", {
+      type: "image/png",
+    });
+
+    await expect(uploadImageFile(file)).rejects.toThrow(
+      "Document media uploads require a document.",
+    );
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it("uploads video files through the framework file-upload endpoint", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -111,12 +125,13 @@ describe("image uploads", () => {
       type: "video/mp4",
     });
 
-    await expect(uploadVideoFile(file)).resolves.toBe(
+    await expect(uploadVideoFile(file, "document-1")).resolves.toBe(
       "https://cdn.example.com/demo.mp4",
     );
 
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     const uploadedFile = body.get("file") as File;
+    expect(body.get("documentId")).toBe("document-1");
     expect(uploadedFile.name).toBe("demo.mp4");
     expect(uploadedFile.type).toBe("video/mp4");
   });
@@ -147,12 +162,13 @@ describe("image uploads", () => {
       type: "audio/mpeg",
     });
 
-    await expect(uploadAudioFile(file)).resolves.toBe(
+    await expect(uploadAudioFile(file, "document-1")).resolves.toBe(
       "https://cdn.example.com/demo.mp3",
     );
 
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     const uploadedFile = body.get("file") as File;
+    expect(body.get("documentId")).toBe("document-1");
     expect(uploadedFile.name).toBe("demo.mp3");
     expect(uploadedFile.type).toBe("audio/mpeg");
   });

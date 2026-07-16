@@ -40,6 +40,37 @@ export const documentVersions = table("document_versions", {
   createdAt: text("created_at").notNull().default(now()),
 });
 
+/** Opaque, revocable private-blob references owned by Content documents. */
+export const documentMedia = table(
+  "document_media",
+  {
+    id: text("id").primaryKey(),
+    documentId: text("document_id").notNull(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    blobHandleJson: text("blob_handle_json").notNull(),
+    mimeType: text("mime_type").notNull(),
+    size: integer("size").notNull(),
+    filename: text("filename").notNull(),
+    state: text("state").notNull().default("active"),
+    deleteError: text("delete_error"),
+    revokedAt: text("revoked_at"),
+    deletedAt: text("deleted_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (media) => [
+    index("document_media_document_state_idx").on(
+      media.documentId,
+      media.state,
+    ),
+    index("document_media_owner_document_idx").on(
+      media.ownerEmail,
+      media.documentId,
+    ),
+  ],
+);
+
 export const documentPreviewDrafts = table(
   "document_preview_drafts",
   {

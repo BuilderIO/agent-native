@@ -398,7 +398,7 @@ export function AudioBlock({
 
     const toastId = toast.loading(t("editor.media.uploadingAudio"));
     try {
-      const nextSrc = await uploadAudioFile(file);
+      const nextSrc = await uploadAudioFile(file, options.documentId);
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
       toast.success(t("editor.media.audioAdded"), { id: toastId });

@@ -694,6 +694,28 @@ const runContentMigrations = runMigrations(
           owner_email
         )`,
     },
+    {
+      version: 70,
+      name: "content-private-document-media",
+      sql: `CREATE TABLE IF NOT EXISTS document_media (
+        id TEXT PRIMARY KEY,
+        document_id TEXT NOT NULL,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
+        blob_handle_json TEXT NOT NULL,
+        mime_type TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        filename TEXT NOT NULL,
+        state TEXT NOT NULL DEFAULT 'active',
+        delete_error TEXT,
+        revoked_at TEXT,
+        deleted_at TEXT,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+        updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS document_media_document_state_idx ON document_media (document_id, state);
+      CREATE INDEX IF NOT EXISTS document_media_owner_document_idx ON document_media (owner_email, document_id)`,
+    },
   ],
   { table: "content_migrations" },
 );

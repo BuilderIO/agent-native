@@ -1,10 +1,12 @@
 import { defineAction } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
+import { deletePrivateBlob } from "@agent-native/core/private-blob";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { parsePrivateBlobHandle } from "../server/lib/document-media.js";
 import { chunks } from "./_batch-utils.js";
 import {
   deleteLocalFileDocument,
@@ -175,6 +177,61 @@ export async function deleteDocumentRecursive(
 ): Promise<string[]> {
   const { documentIds, ownedDatabaseIds } =
     await collectDocumentSubtreeForDelete(db, id, ownerEmail);
+
+  const mediaRows = await db
+    .select()
+    .from(schema.documentMedia)
+    .where(inArray(schema.documentMedia.documentId, documentIds));
+  const revokedAt = new Date().toISOString();
+  // Fail closed before provider I/O: a cutoff cannot leave later media readable.
+  if (mediaRows.length > 0) {
+    await db
+      .update(schema.documentMedia)
+      .set({ state: "revoked", revokedAt, updatedAt: revokedAt })
+      .where(
+        inArray(
+          schema.documentMedia.id,
+          mediaRows.map((media) => media.id),
+        ),
+      );
+  }
+  for (const media of mediaRows) {
+    const handle = parsePrivateBlobHandle(media.blobHandleJson);
+    if (!handle) {
+      await db
+        .update(schema.documentMedia)
+        .set({
+          state: "delete_pending",
+          deleteError: "invalid blob handle",
+          updatedAt: new Date().toISOString(),
+        })
+        .where(eq(schema.documentMedia.id, media.id));
+      continue;
+    }
+    try {
+      const result = await deletePrivateBlob(handle);
+      await db
+        .update(schema.documentMedia)
+        .set({
+          state: result.deleted ? "deleted" : "delete_pending",
+          deletedAt: result.deleted ? new Date().toISOString() : null,
+          updatedAt: new Date().toISOString(),
+          deleteError: result.reason
+            ? "provider deletion was not completed"
+            : null,
+        })
+        .where(eq(schema.documentMedia.id, media.id));
+    } catch (error) {
+      await db
+        .update(schema.documentMedia)
+        .set({
+          state: "delete_pending",
+          updatedAt: new Date().toISOString(),
+          deleteError: "provider deletion failed",
+        })
+        .where(eq(schema.documentMedia.id, media.id));
+    }
+  }
 
   const propertyDefinitionIds: string[] = [];
   await deleteWhereIn(ownedDatabaseIds, async (databaseIdBatch) => {

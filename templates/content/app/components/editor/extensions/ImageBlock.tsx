@@ -767,7 +767,7 @@ export function ImageBlock({
 
     const toastId = toast.loading(t("editor.media.uploadingImage"));
     try {
-      const nextSrc = await uploadImageFile(file);
+      const nextSrc = await uploadImageFile(file, options.documentId);
       updateAttributes({ src: nextSrc });
       setSourcePanelOpen(false);
       toast.success(t("editor.media.imageAdded"), { id: toastId });

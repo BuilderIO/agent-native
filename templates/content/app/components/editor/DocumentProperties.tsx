@@ -2112,7 +2112,7 @@ function FilesMediaValueEditor({
     try {
       const uploadedUrls: string[] = [];
       for (const file of selectedFiles) {
-        uploadedUrls.push(await uploadImageFile(file));
+        uploadedUrls.push(await uploadImageFile(file, documentId));
       }
       setItems((current) => [...current, ...uploadedUrls]);
       toast.success(

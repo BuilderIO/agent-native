@@ -147,6 +147,15 @@ describe("content db.ts migration entries follow the naming convention", () => {
       "content_database_source_fields_source_key_idx",
     );
   });
+
+  it("keeps the uniquely named v70 private document-media migration and indexes", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*70,\s*name:\s*"content-private-document-media"/,
+    );
+    expect(dbTsSource).toContain("CREATE TABLE IF NOT EXISTS document_media");
+    expect(dbTsSource).toContain("document_media_document_state_idx");
+    expect(dbTsSource).toContain("document_media_owner_document_idx");
+  });
 });
 
 /**
