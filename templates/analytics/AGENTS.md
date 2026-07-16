@@ -175,6 +175,15 @@ details live in `.agents/skills/`.
   or bespoke workflow cannot be done faithfully with the built-in dashboard JSON
   config/components or saved-analysis markdown/chart format, automatically build
   it as an extension instead and tell the user why.
+- For an existing extension-backed dashboard or migrated surface such as Risk
+  Meeting, separate data repair from visual redesign. Inspect the dashboard and
+  extension first, then use `update-extension` `patches`/`edits` that touch only
+  the data-loading seam. Preserve the existing layout, CSS, copy, and
+  interactions; never reconstruct the full HTML body for a data-only fix.
+  `update-extension` blocks full-body replacement unless
+  `allowFullReplacement: true` is explicit, and that flag is reserved for a
+  user-requested broad rewrite or a complete replacement body supplied by the
+  user. If a focused edit fails, do not retry unchanged arguments.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the

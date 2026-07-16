@@ -222,6 +222,9 @@ const messages = {
     autoChapters: "自動チャプター",
     removeFillerWords: "つなぎ言葉を削除する",
     removeSilences: "無音部分を削除 (>1.2 秒)",
+    silenceWorking: "無音部分を削除しています…",
+    silenceCompleted: "無音部分の削除が完了しました",
+    silenceFailed: "無音部分の削除に失敗しました",
     generatePrSummary: "PRサマリーを生成する",
     generateSop: "SOPを生成する",
     generateSopTooltip:
@@ -547,6 +550,9 @@ const messages = {
     brandingUpdated: "ブランドを更新しました",
     saveFailed: "保存に失敗しました",
     organizationName: "組織名",
+    defaultVisibility: "新しい録画のデフォルトの公開範囲",
+    defaultVisibilityDescription:
+      "別の公開範囲を選択しない限り、新しい録画に適用されます。",
     brandColor: "ブランドカラー",
     brandColorPicker: "ブランドカラーピッカー",
     useColor: "{{color}} を使用してください",

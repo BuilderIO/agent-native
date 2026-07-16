@@ -39,6 +39,7 @@ const ptBR = {
   theme: {
     light: "claro",
     dark: "escuro",
+    toggle: "Alternar tema",
     label: "Tema: {{theme}}",
   },
   docs: {

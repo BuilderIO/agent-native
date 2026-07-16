@@ -19,6 +19,7 @@ import { useT } from "../i18n.js";
 import { useActionQuery } from "../use-action.js";
 import { useChatThreads, type ChatThreadSummary } from "../use-chat-threads.js";
 import { cn } from "../utils.js";
+import { AgentTabFrame } from "./AgentTabFrame.js";
 import type { AgentPageTabProps } from "./types.js";
 
 type PreviewQuery = {
@@ -256,7 +257,7 @@ function SystemSectionList({
                 %
               </span>
             </div>
-            <div className="divide-y divide-border/60 rounded-md border border-border/60">
+            <div className="divide-y divide-border/60 border-y border-border/60">
               {group.items
                 .slice()
                 .sort((a, b) => b.tokenCount - a.tokenCount)
@@ -331,171 +332,154 @@ export function AgentContextTab({ scope }: AgentPageTabProps) {
   const preview = previewQuery.data;
   const previewManifest = preview ? previewAsManifest(preview) : null;
   const budget = resolveContextWindow(preview?.model);
-  const title = t("contextXray.pageTitle", { defaultValue: "Context" });
+  const title = t("contextXray.pageTitle", { defaultValue: "Snapshots" });
+  const description = t("contextXray.headerDescription", {
+    defaultValue:
+      "Inspect the latest combined snapshot of what the agent loaded and why.",
+  });
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-8 p-6 lg:p-10">
-      <header className="space-y-3">
-        <div className="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <p className="text-xs font-medium uppercase tracking-[0.16em] text-muted-foreground">
-              {t("contextXray.agent", { defaultValue: "Agent" })}
-            </p>
-            <h1 className="text-2xl font-semibold tracking-tight">{title}</h1>
-            <p className="mt-1 max-w-2xl text-sm text-muted-foreground">
-              {t("contextXray.headerDescription", {
-                defaultValue:
-                  "See the system instructions and conversation tokens that shape the agent.",
-              })}
-            </p>
-          </div>
-          {previewManifest ? (
-            <ContextMeter manifest={previewManifest} enabled />
-          ) : null}
-        </div>
+    <AgentTabFrame
+      title={title}
+      description={description}
+      actions={
+        previewManifest ? (
+          <ContextMeter manifest={previewManifest} enabled />
+        ) : null
+      }
+    >
+      <div className="space-y-7">
         {previewManifest ? (
           <ContextSplitMeter manifest={previewManifest} budget={budget} />
         ) : null}
-      </header>
 
-      <section className="space-y-4">
-        <div className="flex flex-wrap items-end justify-between gap-3">
+        <section className="space-y-4">
+          <div className="flex justify-end">
+            <div className="inline-flex rounded-md bg-muted/50 p-0.5">
+              <button
+                type="button"
+                onClick={() => setView("list")}
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1.5 text-xs",
+                  view === "list"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+              >
+                <IconList className="size-3.5" />
+                {t("contextXray.list", { defaultValue: "List" })}
+              </button>
+              <button
+                type="button"
+                onClick={() => setView("map")}
+                className={cn(
+                  "flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1.5 text-xs",
+                  view === "map"
+                    ? "bg-background text-foreground shadow-sm"
+                    : "text-muted-foreground",
+                )}
+              >
+                <IconChartTreemap className="size-3.5" />
+                {t("contextXray.treemap", { defaultValue: "Treemap" })}
+              </button>
+            </div>
+          </div>
+          {previewQuery.isLoading ? (
+            <div className="rounded-md border border-border/60 p-8 text-center text-sm text-muted-foreground">
+              {t("contextXray.loadingPreview", {
+                defaultValue: "Loading recent snapshot…",
+              })}
+            </div>
+          ) : previewQuery.error ? (
+            <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              {t("contextXray.previewUnavailable", {
+                defaultValue: "A recent snapshot is not available yet.",
+              })}
+            </div>
+          ) : previewManifest ? (
+            view === "map" ? (
+              <ContextTreemap
+                segments={[]}
+                systemSections={previewManifest.systemSections}
+              />
+            ) : (
+              <SystemSectionList
+                sections={previewManifest.systemSections ?? []}
+                totalTokens={previewManifest.totalTokens}
+              />
+            )
+          ) : (
+            <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              {t("contextXray.noPreview", {
+                defaultValue:
+                  "No recent snapshot is available for this scope yet.",
+              })}
+            </div>
+          )}
+        </section>
+
+        <section className="space-y-3">
           <div>
             <h2 className="text-lg font-semibold">
-              {t("contextXray.whatAgentKnows", {
-                defaultValue: "What the agent knows",
-              })}
+              {t("contextXray.liveThread", { defaultValue: "Live thread" })}
             </h2>
             <p className="text-sm text-muted-foreground">
-              {t("contextXray.orderedSystemDescription", {
+              {t("contextXray.liveThreadDescription", {
                 defaultValue:
-                  "Ordered system context is grouped by where it comes from. System sections are visible here but cannot be evicted from a thread.",
+                  "The latest thread snapshot, when one exists. This is a single current snapshot, not an append-only history.",
               })}
             </p>
           </div>
-          <div className="inline-flex rounded-md bg-muted/50 p-0.5">
-            <button
-              type="button"
-              onClick={() => setView("list")}
-              className={cn(
-                "flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1.5 text-xs",
-                view === "list"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-            >
-              <IconList className="size-3.5" />
-              {t("contextXray.list", { defaultValue: "List" })}
-            </button>
-            <button
-              type="button"
-              onClick={() => setView("map")}
-              className={cn(
-                "flex cursor-pointer items-center gap-1.5 rounded px-2.5 py-1.5 text-xs",
-                view === "map"
-                  ? "bg-background text-foreground shadow-sm"
-                  : "text-muted-foreground",
-              )}
-            >
-              <IconChartTreemap className="size-3.5" />
-              {t("contextXray.treemap", { defaultValue: "Treemap" })}
-            </button>
-          </div>
-        </div>
-        {previewQuery.isLoading ? (
-          <div className="rounded-md border border-border/60 p-8 text-center text-sm text-muted-foreground">
-            {t("contextXray.loadingPreview", {
-              defaultValue: "Loading context preview…",
-            })}
-          </div>
-        ) : previewQuery.error ? (
-          <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            {t("contextXray.previewUnavailable", {
-              defaultValue: "Context preview is not available yet.",
-            })}
-          </div>
-        ) : previewManifest ? (
-          view === "map" ? (
-            <ContextTreemap
-              segments={[]}
-              systemSections={previewManifest.systemSections}
-            />
-          ) : (
-            <SystemSectionList
-              sections={previewManifest.systemSections ?? []}
-              totalTokens={previewManifest.totalTokens}
-            />
-          )
-        ) : (
-          <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            {t("contextXray.noPreview", {
-              defaultValue:
-                "No context preview is available for this scope yet.",
-            })}
-          </div>
-        )}
-      </section>
-
-      <section className="space-y-3">
-        <div>
-          <h2 className="text-lg font-semibold">
-            {t("contextXray.liveThread", { defaultValue: "Live thread" })}
-          </h2>
-          <p className="text-sm text-muted-foreground">
-            {t("contextXray.liveThreadDescription", {
-              defaultValue:
-                "The latest thread snapshot, when one exists. This is a single current snapshot, not an append-only history.",
-            })}
-          </p>
-        </div>
-        {latestThread && liveManifestQuery.data ? (
-          <div className="space-y-3 rounded-md border border-border/60 p-4">
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <div className="min-w-0">
-                <div className="truncate text-sm font-medium">
-                  {latestThread.title ||
-                    latestThread.preview ||
-                    t("contextXray.latestThread", {
-                      defaultValue: "Latest thread",
-                    })}
+          {latestThread && liveManifestQuery.data ? (
+            <div className="space-y-3 border-y border-border/60 py-4">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <div className="truncate text-sm font-medium">
+                    {latestThread.title ||
+                      latestThread.preview ||
+                      t("contextXray.latestThread", {
+                        defaultValue: "Latest thread",
+                      })}
+                  </div>
+                  <div className="text-xs text-muted-foreground">
+                    {formatTokens(liveManifestQuery.data.totalTokens)} tokens ·{" "}
+                    {latestThread.id}
+                  </div>
                 </div>
-                <div className="text-xs text-muted-foreground">
-                  {formatTokens(liveManifestQuery.data.totalTokens)} tokens ·{" "}
-                  {latestThread.id}
-                </div>
+                <ContextMeter threadId={latestThread.id} />
               </div>
-              <ContextMeter threadId={latestThread.id} />
+              <ContextTreemap
+                segments={liveManifestQuery.data.segments}
+                systemSections={liveManifestQuery.data.systemSections}
+              />
             </div>
-            <ContextTreemap
-              segments={liveManifestQuery.data.segments}
-              systemSections={liveManifestQuery.data.systemSections}
-            />
-          </div>
-        ) : (
-          <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
-            {t("contextXray.noLiveThread", {
-              defaultValue: "No live thread snapshot is available yet.",
-            })}
-          </div>
-        )}
-      </section>
+          ) : (
+            <div className="rounded-md border border-dashed border-border p-8 text-center text-sm text-muted-foreground">
+              {t("contextXray.noLiveThread", {
+                defaultValue: "No live thread snapshot is available yet.",
+              })}
+            </div>
+          )}
+        </section>
 
-      <section className="flex gap-3 rounded-md border border-border/60 bg-muted/20 p-4">
-        <IconInfoCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        <div className="space-y-1 text-sm text-muted-foreground">
-          <p className="font-medium text-foreground">
-            {t("contextXray.orderedTokensTitle", {
-              defaultValue: "Context is ordered tokens, not weighted tokens.",
-            })}
-          </p>
-          <p>
-            {t("contextXray.orderedTokensDescription", {
-              defaultValue:
-                "Required framework and enterprise policy come first, followed by inherited template, workspace, and organization instructions. Personal instructions and memory arrive later and can narrow or override earlier guidance where the prompt permits. These system sections are not evictable; only run-local conversation segments support pin, evict, and restore.",
-            })}
-          </p>
-        </div>
-      </section>
-    </div>
+        <section className="flex gap-3 border-t border-border/70 pt-5">
+          <IconInfoCircle className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="space-y-1 text-sm text-muted-foreground">
+            <p className="font-medium text-foreground">
+              {t("contextXray.orderedTokensTitle", {
+                defaultValue:
+                  "Snapshots show ordered tokens, not weighted tokens.",
+              })}
+            </p>
+            <p>
+              {t("contextXray.orderedTokensDescription", {
+                defaultValue:
+                  "Required framework and enterprise policy come first, followed by inherited template, workspace, and organization instructions. Personal instructions and memory arrive later and can narrow or override earlier guidance where the prompt permits. These system sections are not evictable; only run-local conversation segments support pin, evict, and restore.",
+              })}
+            </p>
+          </div>
+        </section>
+      </div>
+    </AgentTabFrame>
   );
 }

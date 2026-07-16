@@ -214,6 +214,9 @@ const messages = {
     autoChapters: "فصول السيارات",
     removeFillerWords: "إزالة كلمات الحشو",
     removeSilences: "إزالة فترات الصمت (> 1.2 ثانية)",
+    silenceWorking: "جارٍ إزالة فترات الصمت…",
+    silenceCompleted: "اكتملت إزالة فترات الصمت",
+    silenceFailed: "فشلت إزالة فترات الصمت",
     generatePrSummary: "إنشاء ملخص للعلاقات العامة",
     generateSop: "توليد SOP",
     generateSopTooltip:
@@ -540,6 +543,9 @@ const messages = {
     brandingUpdated: "تم تحديث العلامة التجارية",
     saveFailed: "فشل الحفظ",
     organizationName: "اسم المؤسسة",
+    defaultVisibility: "الرؤية الافتراضية للتسجيلات الجديدة",
+    defaultVisibilityDescription:
+      "تُطبّق على التسجيلات الجديدة ما لم تختر رؤية مختلفة.",
     brandColor: "لون العلامة التجارية",
     brandColorPicker: "منتقي لون العلامة التجارية",
     useColor: "استخدم {{color}}",

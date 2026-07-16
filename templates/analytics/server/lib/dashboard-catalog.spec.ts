@@ -141,12 +141,38 @@ describe("dashboard catalog", () => {
       "agent-native-templates-first-party",
     );
     expect(entry?.dataSources).toEqual(["first-party"]);
-    expect(entry?.panelCount).toBe(36);
+    expect(entry?.panelCount).toBe(38);
 
     const config = cloneDashboardConfig(entry!);
     expect(config.name).toBe("Agent Native Templates (First-party)");
-    expect(config.panels).toHaveLength(39);
-    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(39);
+    expect(config.panels).toHaveLength(41);
+    expect(new Set(config.panels.map((panel) => panel.id)).size).toBe(41);
+    expect(
+      config.filters?.find((filter) => filter.id === "emailFilter"),
+    ).toMatchObject({ default: "exclude_builder" });
+    const recurringIndex = config.panels.findIndex(
+      (panel) => panel.id === "recurring-users-by-template",
+    );
+    expect(recurringIndex).toBeGreaterThanOrEqual(0);
+    expect(config.panels[recurringIndex + 1]?.id).toBe(
+      "recurring-users-by-template-bar",
+    );
+    for (const id of [
+      "recurring-users-by-template",
+      "recurring-users-by-template-bar",
+    ]) {
+      expect(config.panels.find((panel) => panel.id === id)).toEqual(
+        buildPanel(id),
+      );
+    }
+    const recurringDaily = config.panels[recurringIndex];
+    const recurringWeekly = config.panels[recurringIndex + 1];
+    expect(recurringDaily?.sql).not.toContain("date_trunc('week'");
+    expect(recurringWeekly?.sql).toContain("date_trunc('week'");
+    expect(recurringWeekly?.config?.barSize).toBe(40);
+    expect(recurringWeekly?.config?.description).toContain(
+      "Weekly distinct signed-in visitors",
+    );
     const sentimentPanels = config.panels.filter((panel) =>
       panel.id.startsWith("llm-"),
     );

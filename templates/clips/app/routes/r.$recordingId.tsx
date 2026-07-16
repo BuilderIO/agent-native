@@ -20,6 +20,8 @@ import {
   isLoomEmbedBackedRecording,
   isLoomRecordingSource,
 } from "@shared/loom";
+import { CLIP_SHARE_REF, REF_PARAM } from "@shared/share-attribution";
+import { STALE_PENDING_TRANSCRIPT_REASON } from "@shared/transcript-status";
 import {
   IconShare3,
   IconArrowLeft,
@@ -124,6 +126,13 @@ interface GeneratedWorkflowState {
   error?: string;
 }
 
+interface SilenceRemovalStatus {
+  kind?: "remove-silences";
+  status?: "queued" | "working" | "completed" | "failed";
+  message?: string | null;
+  updatedAt?: string;
+}
+
 function useIsCompactRecordingLayout() {
   const [isCompact, setIsCompact] = useState(false);
 
@@ -218,7 +227,7 @@ export default function RecordingPage() {
   const [searchParams] = useSearchParams();
   const startMs = parseTimeParam(searchParams.get("t"));
   const panelParam = searchParams.get("panel");
-  const { session } = useSession();
+  const { session, isLoading: sessionLoading } = useSession();
   const playerRef = useRef<VideoPlayerHandle | null>(null);
 
   const [panel, setPanel] = useState<SidePanel>("agent");
@@ -289,7 +298,11 @@ export default function RecordingPage() {
       recordingId: recordingId ?? "",
     },
     {
-      enabled: !!recordingId,
+      // `/r/*` is intentionally reachable before auth so signed-out visitors
+      // can see the sign-in state. Do not send the protected action until the
+      // browser has finished resolving the session, or an authenticated viewer
+      // can be rendered as signed out from the initial 403.
+      enabled: !!recordingId && !sessionLoading,
       refetchInterval: (q) => {
         const data = q.state.data as any;
         const rec = data?.recording;
@@ -335,6 +348,20 @@ export default function RecordingPage() {
       },
     },
   );
+
+  const playerDataAccessStatus = playerDataQ.isError
+    ? (playerDataQ.error as { status?: number } | undefined)?.status
+    : undefined;
+  const playerDataForbidden =
+    playerDataAccessStatus === 401 || playerDataAccessStatus === 403;
+
+  useEffect(() => {
+    if (!recordingId || !playerDataForbidden) return;
+    navigate(
+      `/share/${encodeURIComponent(recordingId)}?${REF_PARAM}=${CLIP_SHARE_REF}`,
+      { replace: true },
+    );
+  }, [recordingId, playerDataForbidden, navigate]);
 
   const recording = playerDataQ.data?.recording;
   const role = playerDataQ.data?.role as
@@ -425,9 +452,35 @@ export default function RecordingPage() {
       );
     },
   });
+  const silenceRemovalStatusQ = useQuery<SilenceRemovalStatus | null>({
+    queryKey: [
+      "app-state",
+      "clips-ai-request-status",
+      recording?.id ?? "",
+      appStateVersion,
+    ],
+    enabled: Boolean(recording?.id),
+    placeholderData: (previous) => previous,
+    refetchInterval: (query) =>
+      query.state.data?.status === "queued" ||
+      query.state.data?.status === "working"
+        ? 2000
+        : false,
+    queryFn: async ({ signal }) => {
+      if (!recording?.id) return null;
+      return readClientAppState<SilenceRemovalStatus>(
+        `clips-ai-request-status-${recording.id}`,
+        { signal },
+      );
+    },
+  });
   const generatedWorkflow =
     generatedWorkflowQ.data?.recordingId === recording?.id
       ? generatedWorkflowQ.data
+      : null;
+  const silenceRemovalStatus =
+    silenceRemovalStatusQ.data?.kind === "remove-silences"
+      ? silenceRemovalStatusQ.data
       : null;
 
   const isLoomEmbedBacked = isLoomEmbedBackedRecording(recording);
@@ -538,7 +591,10 @@ export default function RecordingPage() {
   const handleAiError = (err: Error) =>
     toast.error(err?.message ?? t("recordingPage.aiRequestFailed"));
   const requestTranscript = useActionMutation("request-transcript" as any, {
-    onSuccess: () => void playerDataQ.refetch(),
+    onSuccess: (result: any) => {
+      void playerDataQ.refetch();
+      if (result?.queued) toast.success(t("transcriptPanel.transcribing"));
+    },
     onError: (err: Error) =>
       toast.error(
         t("recordingPage.retryFailed", {
@@ -583,9 +639,16 @@ export default function RecordingPage() {
     onError: handleAiError,
   });
   const removeSilences = useActionMutation("remove-silences" as any, {
-    onSuccess: () => toast.success(t("recordingPage.silenceQueued")),
+    onSuccess: () => {
+      toast.success(t("recordingPage.silenceQueued"));
+      void silenceRemovalStatusQ.refetch();
+    },
     onError: handleAiError,
   });
+  const silenceRemovalBusy =
+    removeSilences.isPending ||
+    silenceRemovalStatus?.status === "queued" ||
+    silenceRemovalStatus?.status === "working";
   const generateWorkflow = useActionMutation("generate-workflow" as any, {
     onSuccess: () => {
       toast.success(t("recordingPage.workflowQueued"));
@@ -659,24 +722,37 @@ export default function RecordingPage() {
 
   // Self-heal stuck transcripts. Older recordings (before finalize-recording
   // learned to auto-trigger transcription) can sit in `pending` forever with no
-  // worker to pick them up. When the owner opens one, kick off a transcript
-  // once per page mount; request-transcript skips fresh pending rows so this
-  // does not duplicate the finalize-recording background worker during HMR.
+  // worker to pick them up. A stale pending presentation gets a forced retry so
+  // a transient worker/provider failure does not require a manual click.
   useEffect(() => {
     if (!recording) return;
     if (role !== "owner" && role !== "admin" && role !== "editor") return;
     if (recording.status !== "ready") return;
-    if (transcriptStatus !== "pending") return;
-    if (transcriptKickedRef.current === recording.id) return;
-    transcriptKickedRef.current = recording.id;
+    const stalePending =
+      transcriptStatus === "failed" &&
+      transcriptFailureReason === STALE_PENDING_TRANSCRIPT_REASON;
+    if (transcriptStatus !== "pending" && !stalePending) return;
+    const recoveryKey = `${recording.id}:${stalePending ? "stale" : "pending"}`;
+    if (transcriptKickedRef.current === recoveryKey) return;
+    transcriptKickedRef.current = recoveryKey;
     fetch(agentNativePath("/_agent-native/actions/request-transcript"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recordingId: recording.id }),
+      body: JSON.stringify({
+        recordingId: recording.id,
+        ...(stalePending ? { force: true } : {}),
+      }),
     })
       .catch(() => {})
       .finally(() => playerDataQ.refetch());
-  }, [recording?.id, recording?.status, transcriptStatus, role, playerDataQ]);
+  }, [
+    recording?.id,
+    recording?.status,
+    transcriptStatus,
+    transcriptFailureReason,
+    role,
+    playerDataQ,
+  ]);
 
   // Long browser-extension clips can still be uploading chunks or assembling
   // for more than 30s. Keep polling before surfacing a stuck-state fallback.
@@ -717,7 +793,7 @@ export default function RecordingPage() {
 
   if (!recordingId) return null;
 
-  if (playerDataQ.isLoading) {
+  if (sessionLoading || playerDataQ.isLoading || playerDataForbidden) {
     return (
       <div className="flex items-center justify-center h-screen w-full bg-background">
         <Spinner className="h-8 w-8" />
@@ -1043,16 +1119,16 @@ export default function RecordingPage() {
           value="agent"
           className="mt-0 flex flex-1 min-h-0 flex-col data-[state=inactive]:hidden"
         >
+          {generatedWorkflow ? (
+            <GeneratedWorkflowNotice workflow={generatedWorkflow} />
+          ) : null}
           <AgentPanel
             browserTabId={browserTabId}
             scope={recordingScope}
+            showHeader={false}
+            showTabBar={false}
             emptyStateText={t("recordingPage.askAboutClip")}
             dynamicSuggestions={false}
-            chatNotice={
-              generatedWorkflow ? (
-                <GeneratedWorkflowNotice workflow={generatedWorkflow} />
-              ) : null
-            }
             suggestions={
               canEdit
                 ? [
@@ -1197,6 +1273,38 @@ export default function RecordingPage() {
             {titleGenerationPaused ? (
               <BuilderCreditsTitleNotice className="mt-2" />
             ) : null}
+            {silenceRemovalStatus ? (
+              <div
+                className="mt-1 flex items-center gap-1.5 text-xs text-muted-foreground"
+                role="status"
+                aria-live="polite"
+              >
+                {silenceRemovalStatus.status === "queued" ||
+                silenceRemovalStatus.status === "working" ? (
+                  <Spinner className="size-3" />
+                ) : null}
+                <span>
+                  {silenceRemovalStatus.status === "queued"
+                    ? t("recordingPage.silenceQueued")
+                    : silenceRemovalStatus.status === "working"
+                      ? t("recordingPage.silenceWorking", {
+                          defaultValue: "Removing silences…",
+                        })
+                      : silenceRemovalStatus.status === "completed"
+                        ? t("recordingPage.silenceCompleted", {
+                            defaultValue: "Silence removal complete",
+                          })
+                        : t("recordingPage.silenceFailed", {
+                            defaultValue: "Silence removal failed",
+                          })}
+                </span>
+                {silenceRemovalStatus.message ? (
+                  <span className="truncate">
+                    · {silenceRemovalStatus.message}
+                  </span>
+                ) : null}
+              </div>
+            ) : null}
           </div>
 
           {canUseNativeEditor ? (
@@ -1287,7 +1395,7 @@ export default function RecordingPage() {
                   {t("recordingPage.removeFillerWords")}
                 </DropdownMenuItem>
                 <DropdownMenuItem
-                  disabled={removeSilences.isPending}
+                  disabled={silenceRemovalBusy}
                   onSelect={() =>
                     removeSilences.mutate({
                       recordingId: recording.id,

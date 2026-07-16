@@ -1794,9 +1794,19 @@ export async function insertRunEvent(
   // It can also race with `appendTerminalRunEvent` (max-seq + 1) when a
   // run aborts at the same time the producer emits its final event.
   // Treat the second write as a no-op so the run completes cleanly.
+  // A producer can also outlive a stale-run reap or explicit abort. Reject
+  // those zombie writes atomically once the run row is terminal. Allowing a
+  // missing run row preserves the existing startRun race where the producer
+  // may emit before the non-blocking run-row insert has landed.
   await client.execute({
-    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data) VALUES (?, ?, ?, ?) ON CONFLICT (run_id, seq) DO NOTHING`,
-    args: [runId, seq, Date.now(), eventData],
+    sql: `INSERT INTO agent_run_events (run_id, seq, event_at, event_data)
+      SELECT ?, ?, ?, ?
+      WHERE NOT EXISTS (
+        SELECT 1 FROM agent_runs
+        WHERE id = ? AND status <> 'running'
+      )
+      ON CONFLICT (run_id, seq) DO NOTHING`,
+    args: [runId, seq, Date.now(), eventData, runId],
   });
 }
 

@@ -18,9 +18,10 @@ const copy: RealtimeVoiceModeCopy = {
   promptDescription:
     "Voice mode keeps listening while the agent navigates and takes actions.",
   setupTitle: "Set up voice mode",
-  setupDescription: "Connect Builder or use your OpenAI key.",
-  connectBuilder: "Connect Builder",
-  useOpenAiKey: "Use OpenAI API key",
+  setupDescription:
+    "Connect Builder.io to use managed voice with free credits, or add your own keys.",
+  connectBuilder: "Connect Builder.io",
+  useOpenAiKey: "Add your own keys",
   startWithOpenAiKey: "Start with OpenAI key",
   startVoiceMode: "Start voice mode",
   keepDictating: "Keep dictating",
@@ -194,7 +195,7 @@ describe("RealtimeVoiceMode", () => {
     expect(onStartVoiceMode).not.toHaveBeenCalled();
   });
 
-  it("makes Builder the primary setup action and OpenAI the secondary", () => {
+  it("makes Builder the primary setup action and own keys the secondary", () => {
     const onConnectBuilder = vi.fn();
     const onUseOpenAiKey = vi.fn();
 
@@ -228,12 +229,12 @@ describe("RealtimeVoiceMode", () => {
       document.querySelectorAll<HTMLButtonElement>("button"),
     );
     expect(
-      buttons.find((button) => button.textContent === "Connect Builder")
+      buttons.find((button) => button.textContent === "Connect Builder.io")
         ?.className,
     ).toContain("whitespace-nowrap");
     act(() =>
       buttons
-        .find((button) => button.textContent === "Connect Builder")
+        .find((button) => button.textContent === "Connect Builder.io")
         ?.click(),
     );
     expect(onConnectBuilder).toHaveBeenCalledOnce();

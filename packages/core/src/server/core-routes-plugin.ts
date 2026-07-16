@@ -180,6 +180,7 @@ import {
 } from "./scoped-key-storage.js";
 import { createTranscribeVoiceHandler } from "./transcribe-voice.js";
 import { createVoiceProvidersStatusHandler } from "./voice-providers-status.js";
+import { createWorkspaceProviderOAuthHandler } from "./workspace-provider-oauth.js";
 
 /**
  * The base path prefix for all framework-level routes.
@@ -1202,6 +1203,17 @@ export function createCoreRoutesPlugin(
       }
 
       const P = FRAMEWORK_ROUTE_PREFIX;
+
+      for (const provider of ["figma", "google_drive", "notion"] as const) {
+        getH3App(nitroApp).use(
+          `${P}/connections/oauth/${provider}/start`,
+          createWorkspaceProviderOAuthHandler(provider, "start"),
+        );
+        getH3App(nitroApp).use(
+          `${P}/connections/oauth/${provider}/callback`,
+          createWorkspaceProviderOAuthHandler(provider, "callback"),
+        );
+      }
 
       getH3App(nitroApp).use(createHttpResponseTelemetryMiddleware());
 

@@ -88,6 +88,8 @@ export interface SqlPanelConfig {
   pivot?: PivotConfig;
   /** Stack bar/area series on top of each other instead of side-by-side / overlapping. */
   stacked?: boolean;
+  /** Fixed bar width in pixels for bar charts. Values are clamped by the renderer. */
+  barSize?: number;
   /** Show the chart legend. Defaults to true for chart renderers. */
   legend?: boolean;
   /** Optional display labels for exact metric values, e.g. {"0":"normal"}. */

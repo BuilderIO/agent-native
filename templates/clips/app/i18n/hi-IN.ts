@@ -214,6 +214,9 @@ const messages = {
     autoChapters: "ऑटो अध्याय",
     removeFillerWords: "पूरक शब्द हटाएँ",
     removeSilences: "मौन हटाएँ (>1.2s)",
+    silenceWorking: "मौन हटाए जा रहे हैं…",
+    silenceCompleted: "मौन हटाना पूरा हुआ",
+    silenceFailed: "मौन हटाना विफल रहा",
     generatePrSummary: "पीआर सारांश तैयार करें",
     generateSop: "SOP उत्पन्न करें",
     generateSopTooltip:
@@ -532,6 +535,9 @@ const messages = {
     brandingUpdated: "ब्रांडिंग अपडेट हुई",
     saveFailed: "सहेजने में विफल",
     organizationName: "संगठन का नाम",
+    defaultVisibility: "नई रिकॉर्डिंग की डिफ़ॉल्ट दृश्यता",
+    defaultVisibilityDescription:
+      "जब तक आप कोई अलग दृश्यता न चुनें, यह नई रिकॉर्डिंग पर लागू होगी।",
     brandColor: "ब्रांड रंग",
     brandColorPicker: "ब्रांड रंग चयनकर्ता",
     useColor: "{{color}} उपयोग करें",

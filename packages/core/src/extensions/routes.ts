@@ -24,6 +24,7 @@ import {
 } from "../server/request-context.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
+import { ExtensionContentEditError } from "./content-patch.js";
 import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import {
   getLocalExtension,
@@ -101,6 +102,10 @@ export function createExtensionsHandler() {
       if (err instanceof ForbiddenError) {
         setResponseStatus(event, 403);
         return { error: err.message };
+      }
+      if (err instanceof ExtensionContentEditError) {
+        setResponseStatus(event, 400);
+        return { error: err.message, errorCode: err.code };
       }
       throw err;
     }
@@ -373,6 +378,16 @@ async function dispatch(
     const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
     if (localResponse) return localResponse;
     const body = await readBody(event);
+    if (
+      typeof body.visibility === "string" &&
+      body.visibility.trim().toLowerCase() === "public"
+    ) {
+      setResponseStatus(event, 403);
+      return {
+        error:
+          "Extensions cannot be made public — use private or org visibility instead. No content changes were applied.",
+      };
+    }
     const hasContentUpdate =
       body.content !== undefined ||
       body.patches !== undefined ||
@@ -388,6 +403,9 @@ async function dispatch(
     if (hasContentUpdate) {
       result = await updateExtensionContent(parts[0], {
         content: body.content,
+        allowFullReplacement:
+          body.allowFullReplacement === true ||
+          body.allowFullReplacement === "true",
         patches: body.patches,
         edits: body.edits,
         format: body.format === true || body.format === "true",

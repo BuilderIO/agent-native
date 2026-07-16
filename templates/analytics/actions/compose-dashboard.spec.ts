@@ -121,6 +121,8 @@ const LARGE_METRICS = [
 
 const SIGNED_IN_ACTIVITY_METRICS = [
   "repeat-users",
+  "recurring-users-by-template",
+  "recurring-users-by-template-bar",
   "retention-over-time",
   "one-day-retention-by-template",
   "seven-day-retention-by-template",
@@ -177,7 +179,10 @@ describe("compose-dashboard", () => {
     expect(panels).toHaveLength(21);
     expect(saved.config.filters).toEqual([
       expect.objectContaining({ id: "timeRange", default: "90d" }),
-      expect.objectContaining({ id: "emailFilter", default: "all" }),
+      expect.objectContaining({
+        id: "emailFilter",
+        default: "exclude_builder",
+      }),
     ]);
 
     // Each panel has the canonical first-party shape.
@@ -234,6 +239,7 @@ describe("compose-dashboard", () => {
     for (const metric of [
       "signups-over-time",
       "pageviews-over-time",
+      "recurring-users-by-template",
       "dau-over-time",
       "wau-over-time",
       "one-day-retention-by-template",
@@ -248,8 +254,23 @@ describe("compose-dashboard", () => {
     }
   });
 
+  it("groups the recurring bar panel into Monday-based weekly buckets", () => {
+    const panel = buildPanel("recurring-users-by-template-bar")!;
+    expect(panel.sql).toContain("date_trunc('week', a.event_date::date)");
+    expect(panel.sql).toContain("COUNT(DISTINCT a.user_key)");
+    expect(panel.config.barSize).toBe(40);
+    expect(panel.config.description).toContain(
+      "Weekly distinct signed-in visitors",
+    );
+  });
+
   it("uses the canonical template fallback for active-user panels", () => {
-    for (const metric of ["dau-over-time", "wau-over-time"]) {
+    for (const metric of [
+      "recurring-users-by-template",
+      "recurring-users-by-template-bar",
+      "dau-over-time",
+      "wau-over-time",
+    ]) {
       const panel = buildPanel(metric)!;
       expect(panel.sql).toContain("properties::jsonb ->> 'templateId'");
       expect(panel.sql).toContain(

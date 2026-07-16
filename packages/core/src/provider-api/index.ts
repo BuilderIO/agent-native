@@ -20,9 +20,11 @@ import {
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 } from "../oauth-tokens/index.js";
+import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
+import { resolveWorkspaceConnectionForApp } from "../workspace-connections/store.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
@@ -66,6 +68,7 @@ export const PROVIDER_API_IDS = [
   "gong",
   "google_calendar",
   "google_drive",
+  "google_slides",
   "granola",
   "grafana",
   "hubspot",
@@ -345,6 +348,22 @@ export type ProviderApiAuthKind =
       type: "oauth-bearer";
       oauthProvider: string;
       tokenLabel: string;
+      workspaceProvider?: string;
+    }
+  | {
+      type: "oauth-bearer-or-api-key-header";
+      oauthProvider: string;
+      tokenLabel: string;
+      key: string;
+      header: string;
+      workspaceProvider: string;
+    }
+  | {
+      type: "oauth-bearer-or-bearer-key";
+      oauthProvider: string;
+      tokenLabel: string;
+      key: string;
+      workspaceProvider: string;
     }
   | {
       type: "prometheus";
@@ -837,9 +856,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Figma REST API",
     defaultBaseUrl: "https://api.figma.com/v1",
     auth: {
-      type: "api-key-header",
+      type: "oauth-bearer-or-api-key-header",
+      oauthProvider: "figma",
+      tokenLabel: "Figma OAuth token",
       key: "FIGMA_ACCESS_TOKEN",
       header: "X-Figma-Token",
+      workspaceProvider: "figma",
     },
     credentialKeys: ["FIGMA_ACCESS_TOKEN"],
     docsUrls: [
@@ -1042,6 +1064,7 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       type: "oauth-bearer",
       oauthProvider: "google",
       tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_drive",
     },
     credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
     docsUrls: ["https://developers.google.com/drive/api/reference/rest/v3"],
@@ -1053,6 +1076,35 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
       { label: "Get file metadata", method: "GET", path: "/files/{fileId}" },
     ],
     notes: [
+      "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
+    ],
+  },
+  google_slides: {
+    id: "google_slides",
+    label: "Google Slides API",
+    defaultBaseUrl: "https://slides.googleapis.com/v1",
+    auth: {
+      type: "oauth-bearer",
+      oauthProvider: "google",
+      tokenLabel: "Google OAuth token",
+      workspaceProvider: "google_drive",
+    },
+    credentialKeys: ["GOOGLE_OAUTH_ACCOUNT"],
+    docsUrls: [
+      "https://developers.google.com/workspace/slides/api/reference/rest",
+    ],
+    specUrls: ["https://slides.googleapis.com/$discovery/rest?version=v1"],
+    allowedHostSuffixes: ["googleapis.com"],
+    templateUses: ["brain", "content", "slides", "dispatch"],
+    examples: [
+      {
+        label: "Get presentation with slides and speaker notes",
+        method: "GET",
+        path: "/presentations/{presentationId}",
+      },
+    ],
+    notes: [
+      "Read-only creative context imports require https://www.googleapis.com/auth/presentations.readonly. Inventorying presentation metadata in Drive also requires https://www.googleapis.com/auth/drive.metadata.readonly.",
       "Uses the current user's stored Google OAuth account. Pass accountId when the user has multiple Google accounts connected.",
     ],
   },
@@ -1190,13 +1242,15 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Notion",
     defaultBaseUrl: "https://api.notion.com/v1",
     auth: {
-      type: "bearer",
-      keys: ["NOTION_API_KEY"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "notion",
+      tokenLabel: "Notion OAuth token",
+      key: "NOTION_API_KEY",
       workspaceProvider: "notion",
     },
     credentialKeys: ["NOTION_API_KEY"],
     docsUrls: ["https://developers.notion.com/reference/intro"],
-    defaultHeaders: { "Notion-Version": "2022-06-28" },
+    defaultHeaders: { "Notion-Version": "2026-03-11" },
     templateUses: ["analytics", "brain", "content", "dispatch"],
     examples: [{ label: "Search", method: "POST", path: "/search", body: {} }],
   },
@@ -2949,6 +3003,12 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "api-key-header") return `api-key-header:${auth.header}`;
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
+  if (auth.type === "oauth-bearer-or-api-key-header") {
+    return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}`;
+  }
+  if (auth.type === "oauth-bearer-or-bearer-key") {
+    return `oauth-bearer:${auth.oauthProvider}-or-bearer-key:${auth.key}`;
+  }
   return "prometheus-basic-or-bearer";
 }
 
@@ -3234,10 +3294,86 @@ async function resolveAuth(
   if (auth.type === "oauth-bearer") {
     const oauthProvider =
       runtime.oauthProviderOverrides?.[config.id] ?? auth.oauthProvider;
-    const credential = await resolveOAuthBearerToken({
-      auth: { ...auth, oauthProvider },
+    const credential =
+      auth.workspaceProvider && args.connectionId
+        ? await resolveConnectionBoundOAuthBearerToken({
+            auth: { ...auth, oauthProvider },
+            runtime,
+            ctx,
+            workspaceProvider: auth.workspaceProvider,
+            connectionId: args.connectionId,
+            accountId: args.accountId,
+          })
+        : await resolveOAuthBearerToken({
+            auth: { ...auth, oauthProvider },
+            ctx,
+            accountId: args.accountId,
+          });
+    return {
+      headers: { Authorization: `Bearer ${credential.value}` },
+      credentialSources: [omitCredentialValue(credential)],
+      secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-bearer-or-api-key-header") {
+    if (args.connectionId) {
+      const credential = await resolveConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+        },
+        runtime,
+        ctx,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+        workspaceProvider: auth.workspaceProvider,
+      });
+      return {
+        headers: { Authorization: `Bearer ${credential.value}` },
+        credentialSources: [omitCredentialValue(credential)],
+        secretValues: [credential.value],
+      };
+    }
+    const credential = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.key,
       ctx,
-      accountId: args.accountId,
+      runtime,
+    });
+    return {
+      headers: { [auth.header]: credential.value },
+      credentialSources: [omitCredentialValue(credential)],
+      secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-bearer-or-bearer-key") {
+    if (args.connectionId) {
+      const credential = await resolveConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+        },
+        runtime,
+        ctx,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+        workspaceProvider: auth.workspaceProvider,
+      });
+      return {
+        headers: { Authorization: `Bearer ${credential.value}` },
+        credentialSources: [omitCredentialValue(credential)],
+        secretValues: [credential.value],
+      };
+    }
+    const credential = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.key,
+      ctx,
+      runtime,
     });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
@@ -3491,6 +3627,53 @@ async function resolveOAuthBearerToken(options: {
   };
 }
 
+async function resolveConnectionBoundOAuthBearerToken(options: {
+  auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  workspaceProvider: string;
+  connectionId?: string | null;
+  accountId?: string | null;
+}): Promise<ProviderApiResolvedCredential> {
+  const requestedConnectionId = options.connectionId?.trim();
+  if (!requestedConnectionId) {
+    throw new Error(
+      `${options.auth.tokenLabel} requires an explicit workspace connection selection.`,
+    );
+  }
+  const resolved = await resolveWorkspaceConnectionForApp({
+    appId: options.runtime.appId,
+    provider: options.workspaceProvider,
+    connectionId: requestedConnectionId,
+    requireConnected: true,
+  });
+  if (!resolved.available || !resolved.connection) {
+    throw new Error(resolved.reason);
+  }
+  const connectionAccountId = resolved.connection.accountId?.trim();
+  if (!connectionAccountId) {
+    throw new Error(
+      `${options.auth.tokenLabel} workspace connection ${requestedConnectionId} is missing its OAuth account binding.`,
+    );
+  }
+  const requestedAccountId = options.accountId?.trim();
+  if (requestedAccountId && requestedAccountId !== connectionAccountId) {
+    throw new Error(
+      `${options.auth.tokenLabel} account ${requestedAccountId} does not match workspace connection ${requestedConnectionId}.`,
+    );
+  }
+  const credential = await resolveOAuthBearerToken({
+    auth: options.auth,
+    ctx: options.ctx,
+    accountId: connectionAccountId,
+  });
+  return {
+    ...credential,
+    connectionId: resolved.connection.id,
+    connectionLabel: resolved.connection.label,
+  };
+}
+
 async function getValidOAuthAccessToken(options: {
   oauthProvider: string;
   accountId: string;
@@ -3522,9 +3705,193 @@ async function getValidOAuthAccessToken(options: {
   ) {
     return refreshGoogleOAuthToken(options, refreshToken);
   }
+  if (options.oauthProvider === "figma") {
+    return refreshFigmaOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "notion") {
+    return refreshNotionOAuthToken(options, refreshToken);
+  }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
   );
+}
+
+async function refreshFigmaOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret("FIGMA_CLIENT_ID"),
+    resolveSecret("FIGMA_CLIENT_SECRET"),
+  ]);
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "FIGMA_CLIENT_ID and FIGMA_CLIENT_SECRET are required to refresh Figma OAuth tokens.",
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    "https://api.figma.com/v1/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    "Figma",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Figma OAuth refresh failed (${response.status}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    token_type: data.token_type ?? "bearer",
+    expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
+    refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshNotionOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const [clientId, clientSecret] = await Promise.all([
+    resolveSecret("NOTION_CLIENT_ID"),
+    resolveSecret("NOTION_CLIENT_SECRET"),
+  ]);
+  if (!clientId || !clientSecret) {
+    throw new Error(
+      "NOTION_CLIENT_ID and NOTION_CLIENT_SECRET are required to refresh Notion OAuth tokens.",
+    );
+  }
+  const { response, data } = await fetchBoundedOAuthRefreshJson<{
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  }>(
+    "https://api.notion.com/v1/oauth/token",
+    {
+      method: "POST",
+      headers: {
+        Authorization: `Basic ${Buffer.from(`${clientId}:${clientSecret}`).toString("base64")}`,
+        "Content-Type": "application/json",
+        "Notion-Version": "2026-03-11",
+      },
+      body: JSON.stringify({
+        grant_type: "refresh_token",
+        refresh_token: refreshToken,
+      }),
+    },
+    "Notion",
+  );
+  if (!response.ok || !data.access_token) {
+    throw new Error(`Notion OAuth refresh failed (${response.status}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    token_type: data.token_type ?? "bearer",
+    expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
+    refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+const OAUTH_REFRESH_TIMEOUT_MS = 10_000;
+const OAUTH_REFRESH_MAX_BYTES = 256 * 1024;
+
+async function fetchBoundedOAuthRefreshJson<T extends Record<string, unknown>>(
+  url: string,
+  init: RequestInit,
+  providerLabel: string,
+): Promise<{ response: Response; data: T }> {
+  let response: Response;
+  try {
+    response = await fetch(url, {
+      ...init,
+      signal: AbortSignal.timeout(OAUTH_REFRESH_TIMEOUT_MS),
+    });
+  } catch {
+    throw new Error(`${providerLabel} OAuth refresh request failed.`);
+  }
+  const declaredLength = Number(response.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > OAUTH_REFRESH_MAX_BYTES
+  ) {
+    throw new Error(
+      `${providerLabel} OAuth refresh response exceeded the size limit.`,
+    );
+  }
+  if (!response.body) return { response, data: {} as T };
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let length = 0;
+  try {
+    while (true) {
+      const chunk = await reader.read();
+      if (chunk.done) break;
+      length += chunk.value.byteLength;
+      if (length > OAUTH_REFRESH_MAX_BYTES) {
+        await reader.cancel();
+        break;
+      }
+      chunks.push(chunk.value);
+    }
+  } catch {
+    throw new Error(`${providerLabel} OAuth refresh request failed.`);
+  }
+  if (length > OAUTH_REFRESH_MAX_BYTES) {
+    throw new Error(
+      `${providerLabel} OAuth refresh response exceeded the size limit.`,
+    );
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString("utf8"));
+    return {
+      response,
+      data:
+        parsed && typeof parsed === "object" && !Array.isArray(parsed)
+          ? (parsed as T)
+          : ({} as T),
+    };
+  } catch {
+    return { response, data: {} as T };
+  }
 }
 
 async function refreshGoogleOAuthToken(
@@ -3536,7 +3903,16 @@ async function refreshGoogleOAuthToken(
   },
   refreshToken: string,
 ): Promise<string> {
-  const credentialCandidates = resolveGoogleProviderCredentialCandidates();
+  const [scopedClientId, scopedClientSecret] = await Promise.all([
+    resolveSecret("GOOGLE_CLIENT_ID"),
+    resolveSecret("GOOGLE_CLIENT_SECRET"),
+  ]);
+  const credentialCandidates = dedupeGoogleOAuthCredentials([
+    ...(scopedClientId && scopedClientSecret
+      ? [{ clientId: scopedClientId, clientSecret: scopedClientSecret }]
+      : []),
+    ...resolveGoogleProviderCredentialCandidates(),
+  ]);
   if (!credentialCandidates.length) {
     throw new Error(
       "GOOGLE_CLIENT_ID/SECRET not set for Google OAuth refresh.",
@@ -3601,6 +3977,17 @@ async function refreshGoogleOAuthToken(
     options.ownerEmail,
   );
   return data.access_token;
+}
+
+function dedupeGoogleOAuthCredentials(
+  candidates: Array<{ clientId: string; clientSecret: string }>,
+): Array<{ clientId: string; clientSecret: string }> {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.clientId)) return false;
+    seen.add(candidate.clientId);
+    return true;
+  });
 }
 
 function normalizeMethod(

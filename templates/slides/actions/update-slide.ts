@@ -1,6 +1,14 @@
 import { defineAction } from "@agent-native/core";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  mergeCreativeContextReuseLabels,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -23,6 +31,60 @@ function deckDeepLink(deckId: string): string {
   });
 }
 
+const reuseLabelSchema = z
+  .object({
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    label: z.string().min(1),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
+  })
+  .superRefine((label, context) => {
+    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
+      context.addIssue({
+        code: "custom",
+        message: "itemId and itemVersionId must be provided together",
+      });
+    }
+    if (
+      (label.influence ?? "reference-conditioned") !== "generated" &&
+      !label.itemId
+    ) {
+      context.addIssue({
+        code: "custom",
+        message: "Only generated labels may omit context item ids",
+      });
+    }
+  });
+
+function storedCreativeContext(value: unknown): {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+} | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  if (
+    record.contextMode !== "off" &&
+    record.contextMode !== "auto" &&
+    record.contextMode !== "pinned"
+  ) {
+    return null;
+  }
+  return {
+    contextMode: record.contextMode,
+    contextPackId:
+      typeof record.contextPackId === "string" ? record.contextPackId : null,
+    reuseLabels: Array.isArray(record.reuseLabels)
+      ? (record.reuseLabels as CreativeContextReuseLabel[])
+      : [],
+  };
+}
+
 export default defineAction({
   description:
     "Surgically edit a slide's content using search-replace or full replacement. " +
@@ -42,10 +104,36 @@ export default defineAction({
       .string()
       .optional()
       .describe("Full HTML to replace entire slide content"),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe(
+        "Exact pack used for this edit; omit to inherit the deck pack.",
+      ),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this edit only without changing the saved preference or deck pack.",
+      ),
+    reuseLabels: z
+      .array(reuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Exact context item versions that influenced this slide edit."),
   }),
   http: false,
   run: async (args) => {
-    const { deckId, slideId, find, replace, fullContent } = args;
+    const {
+      deckId,
+      slideId,
+      find,
+      replace,
+      fullContent,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    } = args;
     if (!find && !fullContent) {
       throw new Error("Either --find or --fullContent is required");
     }
@@ -83,17 +171,17 @@ export default defineAction({
         throw new Error(`Deck ${deckId} not found`);
       }
 
-      await createDeckVersionSnapshot(
-        {
-          id: row.id,
-          title: row.title ?? "Untitled",
-          data: row.data ?? "",
-          ownerEmail: row.ownerEmail ?? "",
-        },
-        { label: "Before slide edit" },
-      );
-
       const deck = JSON.parse(row.data);
+      const existingContext = storedCreativeContext(deck.creativeContext);
+      if (
+        existingContext &&
+        contextPackId !== undefined &&
+        contextPackId !== existingContext.contextPackId
+      ) {
+        throw new Error(
+          "The slide edit must use the deck's existing creative-context pack",
+        );
+      }
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       const slideIndex = Array.isArray(deck.slides)
         ? // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -139,12 +227,113 @@ export default defineAction({
       // an open editor uses to tell an intentional external edit apart from a
       // stale poll echo — only a newer timestamp is reconciled into the view.
       if (applied) {
+        const effectivePackId = contextPackId ?? existingContext?.contextPackId;
+        const requestedLabels: CreativeContextReuseLabel[] = reuseLabels.length
+          ? reuseLabels
+          : [
+              {
+                kind: "slide",
+                label: "Net-new slide edit",
+                dataRole: "untrusted-reference",
+                elementId: slideId,
+                influence: "generated",
+              },
+            ];
+        const validated = await validateGenerationCreativeContext({
+          contextPackId: effectivePackId,
+          contextPackSource:
+            contextPackId === undefined ? "inherited" : "explicit",
+          contextModeOverride,
+          reuseLabels: requestedLabels,
+          reuseLabelsSource: reuseLabels.length ? "explicit" : "inherited",
+        });
+        const contextMode =
+          validated.contextMode === "off"
+            ? "off"
+            : (existingContext?.contextMode ?? validated.contextMode);
+        const slideReuseLabels = validated.reuseLabels.map((label) => ({
+          ...label,
+          elementId: slideId,
+        }));
+        const mergedReuseLabels = mergeCreativeContextReuseLabels(
+          existingContext?.reuseLabels ?? [],
+          slideReuseLabels,
+        );
+        const previous =
+          contextMode === "off"
+            ? null
+            : await getGenerationCreativeContext(
+                {
+                  appId: "slides",
+                  artifactType: "deck",
+                  artifactId: deckId,
+                },
+                { accessScope: "artifact-access-asserted" },
+              );
+        const editedElementProvenance = slideReuseLabels.map((label) => ({
+          elementId: slideId,
+          influence: label.influence ?? ("reference-conditioned" as const),
+          ...(label.itemId ? { itemId: label.itemId } : {}),
+          ...(label.itemVersionId
+            ? { itemVersionId: label.itemVersionId }
+            : {}),
+          label: label.label,
+        }));
+        const elementProvenance =
+          contextMode === "off"
+            ? editedElementProvenance
+            : replaceCreativeContextElementProvenance(
+                previous?.elementProvenance ?? [],
+                editedElementProvenance,
+              );
+        slide.creativeContextReuseLabels = slideReuseLabels;
+        deck.creativeContext =
+          contextMode === "off" && existingContext
+            ? existingContext
+            : {
+                contextMode,
+                contextPackId: validated.contextPackId,
+                reuseLabels: mergedReuseLabels,
+              };
+        await createDeckVersionSnapshot(
+          {
+            id: row.id,
+            title: row.title ?? "Untitled",
+            data: row.data ?? "",
+            ownerEmail: row.ownerEmail ?? "",
+          },
+          { label: "Before slide edit" },
+        );
         const now = new Date().toISOString();
         deck.updatedAt = now;
-        await db
-          .update(schema.decks)
-          .set({ data: JSON.stringify(deck), updatedAt: now })
-          .where(eq(schema.decks.id, deckId));
+        await db.transaction(async (tx: any) => {
+          await tx
+            .update(schema.decks)
+            .set({ data: JSON.stringify(deck), updatedAt: now })
+            .where(eq(schema.decks.id, deckId));
+          await recordGenerationCreativeContext(
+            {
+              appId: "slides",
+              artifactType: "deck",
+              artifactId: deckId,
+              contextMode,
+              contextPackId: validated.contextPackId,
+              reuseLabels:
+                contextMode === "off" ? slideReuseLabels : mergedReuseLabels,
+              elementProvenance,
+            },
+            { db: tx },
+          );
+        });
+        return {
+          applied,
+          notFound,
+          slide,
+          slideIndex,
+          contextMode,
+          contextPackId: validated.contextPackId,
+          reuseLabels: slideReuseLabels,
+        };
       }
 
       return { applied, notFound, slide, slideIndex };
@@ -190,6 +379,13 @@ export default defineAction({
       slideId,
       applied,
       deepLink: deckDeepLink(deckId),
+      ...(rmw.contextMode
+        ? {
+            contextMode: rmw.contextMode,
+            contextPackId: rmw.contextPackId,
+            reuseLabels: rmw.reuseLabels,
+          }
+        : {}),
     };
 
     if (fit.status === "overflows") {

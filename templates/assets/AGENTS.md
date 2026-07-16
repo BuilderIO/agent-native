@@ -40,6 +40,13 @@ Detailed library, generation, image, embed, and engine rules live in
 
 ## Application State
 
+- Before generation, follow the creative-context reuse ladder in
+  `.agents/skills/creative-context/SKILL.md`: explicit request and current
+  asset/kit first, then a pinned/current pack, then narrow library search.
+  Respect `creative-context.contextMode: "off"` without silently restoring a
+  pack. This shared Agent-page Library does not replace Assets' existing
+  `/library` media workflow.
+
 - `navigation` exposes library, asset, generation, picker, embed, and selection
   context. Human Library state uses
   `{ view: "library", selection: "all" | libraryId, tab, scope, folderId, search }`.
@@ -109,6 +116,9 @@ prompt, aspectRatio }`.
   surfaces.
 
 ## Skills
+
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.
 
 Read the relevant skill before deeper work:
 

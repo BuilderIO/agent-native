@@ -1,4 +1,5 @@
 import type { LocaleCode } from "@agent-native/core/client";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import zhTW from "./i18n/zh-TW";
 
@@ -573,6 +574,7 @@ const auditEnUS = {
 } satisfies Record<string, string>;
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
@@ -592,10 +594,10 @@ const enUS = {
     collapseSidebar: "Collapse sidebar",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     title: "Settings",
     description: "Asset generation, storage, and brand kit access.",
     connections: "Connections",
@@ -3460,13 +3462,27 @@ function mergeMessages(overrides: PartialMessages): Messages {
     },
     brandKits: { ...enUS.brandKits, ...overrides.brandKits },
     library: { ...enUS.library, ...overrides.library },
+    creativeContext: {
+      ...enUS.creativeContext,
+      ...overrides.creativeContext,
+    },
   };
+}
+
+function mergeLocalizedMessages(
+  locale: Exclude<LocaleCode, "en-US">,
+  overrides: PartialMessages,
+): Messages {
+  return mergeMessages({
+    ...overrides,
+    creativeContext: creativeContextMessagesByLocale[locale],
+  });
 }
 
 export const messagesByLocale = {
   "en-US": enUS,
-  "zh-TW": mergeMessages(zhTW),
-  "zh-CN": mergeMessages({
+  "zh-TW": mergeLocalizedMessages("zh-TW", zhTW),
+  "zh-CN": mergeLocalizedMessages("zh-CN", {
     library: {
       allLibraries: "所有库",
       noDrafts: "暂无草稿。",
@@ -4277,7 +4293,7 @@ export const messagesByLocale = {
       yourBrandKits: "您的品牌套件",
     },
   }),
-  "es-ES": mergeMessages({
+  "es-ES": mergeLocalizedMessages("es-ES", {
     library: {
       allLibraries: "Todas las bibliotecas",
       noDrafts: "Aún no hay borradores.",
@@ -4747,7 +4763,7 @@ export const messagesByLocale = {
       daysAgo: "hace {{count}} d",
     },
   }),
-  "fr-FR": mergeMessages({
+  "fr-FR": mergeLocalizedMessages("fr-FR", {
     library: {
       allLibraries: "Toutes les bibliothèques",
       noDrafts: "Aucun brouillon pour l'instant.",
@@ -5195,7 +5211,7 @@ export const messagesByLocale = {
       daysAgo: "il y a {{count}} j",
     },
   }),
-  "de-DE": mergeMessages({
+  "de-DE": mergeLocalizedMessages("de-DE", {
     library: {
       allLibraries: "Alle Bibliotheken",
       noDrafts: "Noch keine Entwürfe.",
@@ -5551,7 +5567,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsDeDE,
   }),
-  "ja-JP": mergeMessages({
+  "ja-JP": mergeLocalizedMessages("ja-JP", {
     library: {
       allLibraries: "すべてのライブラリ",
       noDrafts: "下書きはまだありません。",
@@ -5897,7 +5913,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsJaJP,
   }),
-  "ko-KR": mergeMessages({
+  "ko-KR": mergeLocalizedMessages("ko-KR", {
     library: {
       allLibraries: "모든 라이브러리",
       noDrafts: "아직 초안이 없습니다.",
@@ -6242,7 +6258,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsKoKR,
   }),
-  "pt-BR": mergeMessages({
+  "pt-BR": mergeLocalizedMessages("pt-BR", {
     library: {
       allLibraries: "Todas as bibliotecas",
       noDrafts: "Ainda não há rascunhos.",
@@ -6689,7 +6705,7 @@ export const messagesByLocale = {
       daysAgo: "há {{count}} d",
     },
   }),
-  "hi-IN": mergeMessages({
+  "hi-IN": mergeLocalizedMessages("hi-IN", {
     library: {
       allLibraries: "सभी लाइब्रेरी",
       noDrafts: "अभी तक कोई ड्राफ़्ट नहीं।",
@@ -7032,7 +7048,7 @@ export const messagesByLocale = {
     },
     brandKits: brandKitsHiIN,
   }),
-  "ar-SA": mergeMessages({
+  "ar-SA": mergeLocalizedMessages("ar-SA", {
     library: {
       allLibraries: "جميع المكتبات",
       noDrafts: "لا توجد مسودات بعد.",

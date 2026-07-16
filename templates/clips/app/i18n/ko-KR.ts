@@ -218,6 +218,9 @@ const messages = {
     autoChapters: "자동 챕터",
     removeFillerWords: "필러 단어 제거",
     removeSilences: "무음 제거(>1.2초)",
+    silenceWorking: "무음 구간을 제거하는 중…",
+    silenceCompleted: "무음 구간 제거 완료",
+    silenceFailed: "무음 구간 제거 실패",
     generatePrSummary: "PR 요약 생성",
     generateSop: "SOP 생성",
     generateSopTooltip:
@@ -539,6 +542,9 @@ const messages = {
     brandingUpdated: "브랜딩이 업데이트됨",
     saveFailed: "저장 실패",
     organizationName: "조직 이름",
+    defaultVisibility: "새 녹화의 기본 공개 범위",
+    defaultVisibilityDescription:
+      "다른 공개 범위를 선택하지 않으면 새 녹화에 적용됩니다.",
     brandColor: "브랜드 색상",
     brandColorPicker: "브랜드 색상 선택기",
     useColor: "{{color}} 사용",

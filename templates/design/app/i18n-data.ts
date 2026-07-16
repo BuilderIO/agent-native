@@ -1,4 +1,5 @@
 import type { LocaleCode } from "@agent-native/core/client";
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
 
 import { breakpointBarOverrides } from "./i18n-breakpoints";
 import {
@@ -11,6 +12,7 @@ import { designTemplateFeatureOverrides } from "./i18n-template-feature";
 import zhTW from "./i18n/zh-TW";
 
 const enUS = {
+  creativeContext: creativeContextMessagesByLocale["en-US"],
   root: {
     commandActions: "Actions",
     commandSearch: "Search",
@@ -31,10 +33,10 @@ const enUS = {
     collapseSidebar: "Collapse sidebar",
   },
   settings: {
-    agentTitle: "Agent settings",
+    agentTitle: "Agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    openAgentSettings: "Open agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    openAgentSettings: "Open agent workspace",
     languageTitle: "Language",
     languageDescription: "Choose the interface language for Design.",
     languageLabel: "Interface language",
@@ -1552,7 +1554,11 @@ function mergeLocalizedMessages(
   overrides: PartialMessages,
 ): Messages {
   return attachLocalizedKeyboardShortcuts(
-    mergeMessages(overrides),
+    mergeMessages(
+      mergePartialMessages(overrides, {
+        creativeContext: creativeContextMessagesByLocale[locale],
+      }),
+    ),
     keyboardShortcutLabels[locale],
     keyboardKeyLabels[locale],
   );

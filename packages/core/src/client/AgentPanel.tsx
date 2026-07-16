@@ -220,7 +220,7 @@ type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-width"?: string;
 };
 const AGENT_PANEL_HEADER_CLASS =
-  "agent-native-shell-topbar relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2 border-b border-border";
+  "agent-native-shell-topbar relative z-[240] flex h-12 shrink-0 items-center justify-between gap-2";
 const AGENT_PANEL_HEADER_STYLE = {
   paddingLeft: 8,
   paddingRight: 8,
@@ -422,6 +422,12 @@ export function shouldShowAgentPanelChatTabBar(
   return mainTabs.length > 1 || hasSubTabs;
 }
 
+export function shouldShowAgentPanelSidebarChatTabs(
+  tabs: MultiTabAssistantChatHeaderProps["tabs"],
+) {
+  return tabs.some((tab) => !tab.parentThreadId);
+}
+
 export function shouldShowAgentPanelPageNewChatButton(
   tabs: MultiTabAssistantChatHeaderProps["tabs"],
   activeTabId: string,
@@ -588,16 +594,9 @@ export interface AgentPanelProps extends Omit<
   storageKey?: string;
   /** Restore the previously active chat thread on mount. Default: true. */
   restoreActiveThread?: boolean;
-  /**
-   * Bind the chat to a specific resource (deck, design, dashboard, ...).
-   * When set, chats started inside the panel inherit this scope and tuck
-   * away when the user leaves that resource. General chats stay visible
-   * across resource navigation. Scoped chats get a context badge with a
-   * Detach escape hatch. Templates compute this from the current route —
-   * see the `Layout` files for each template.
-   */
+  /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
-  /** Show the compact scope chip above the composer. Default: true. */
+  /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;
@@ -1230,7 +1229,7 @@ function AgentPanelInner({
             />
           }
         />
-        {!onCollapse && mode === "chat" && (
+        {mode === "chat" && (
           <IconTooltip content={t("agentPanel.newChat")}>
             <button
               onClick={addTab}
@@ -1567,147 +1566,289 @@ function AgentPanelInner({
       closeAllTabs,
       showHistory,
       toggleHistory,
-    }: MultiTabAssistantChatHeaderProps) => (
-      <div
-        className="agent-sidebar-chat-header flex flex-col shrink-0"
-        data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
-        data-agent-sidebar-chat-header-active={
-          headerMenuOpen || feedbackOpen ? "" : undefined
-        }
-      >
-        {/* Top bar: mode buttons + actions */}
+    }: MultiTabAssistantChatHeaderProps) => {
+      const { activeTab, childTabs, focusParentId, hasSubTabs, mainTabs } =
+        getAgentPanelChatTabGroups(tabs, activeTabId);
+      const showSidebarChatTabs =
+        Boolean(onCollapse) &&
+        mode === "chat" &&
+        shouldShowAgentPanelSidebarChatTabs(tabs);
+
+      return (
         <div
-          className={AGENT_PANEL_HEADER_CLASS}
-          style={AGENT_PANEL_HEADER_STYLE}
+          className="agent-sidebar-chat-header flex flex-col shrink-0"
+          data-agent-sidebar-chat-header={onCollapse ? "" : undefined}
+          data-agent-sidebar-chat-header-active={
+            headerMenuOpen || feedbackOpen ? "" : undefined
+          }
         >
-          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
-            {shouldShowAgentPanelModeButtons(Boolean(onCollapse))
-              ? renderModeButtons(mode)
-              : null}
+          {/* Top bar: chat tabs/mode buttons + actions */}
+          <div
+            className={cn(
+              AGENT_PANEL_HEADER_CLASS,
+              !onCollapse && "border-b border-border",
+            )}
+            style={AGENT_PANEL_HEADER_STYLE}
+          >
+            <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden">
+              {showSidebarChatTabs ? (
+                <div className="agent-tabs-scroll flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto">
+                  {mainTabs.map((tab) => {
+                    const isActive =
+                      tab.id === activeTabId ||
+                      (tab.id === focusParentId &&
+                        activeTab?.parentThreadId === tab.id);
+                    return (
+                      <div
+                        key={tab.id}
+                        role="button"
+                        tabIndex={0}
+                        ref={isActive ? activeTabRefCb : undefined}
+                        onClick={() => setActiveTabId(tab.id)}
+                        onKeyDown={activateOnKeyDown(() =>
+                          setActiveTabId(tab.id),
+                        )}
+                        className={cn(
+                          "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                          isActive
+                            ? "bg-accent text-foreground"
+                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                        )}
+                      >
+                        <span className="truncate pe-1">{tab.label}</span>
+                        {tab.status === "running" && (
+                          <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                        )}
+                        <button
+                          type="button"
+                          aria-label="Close tab"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            closeTab(tab.id);
+                          }}
+                          className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                          style={{
+                            position: "absolute",
+                            right: 0,
+                            top: 0,
+                            bottom: 0,
+                            width: 28,
+                            paddingRight: 6,
+                            borderRadius: "0 6px 6px 0",
+                            background:
+                              "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                          }}
+                        >
+                          <IconX size={10} />
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : shouldShowAgentPanelModeButtons(Boolean(onCollapse)) ? (
+                renderModeButtons(mode)
+              ) : null}
+            </div>
+            <div className="flex items-center gap-0.5">
+              {renderHeaderActions({
+                activeChatSessionId: activeTabId,
+                activeTabId,
+                activeTabMessageCount,
+                addTab,
+                clearActiveTab,
+                closeAllTabs,
+                closeOtherTabs,
+                closeTab,
+                showHistory,
+                tabs,
+                toggleHistory,
+              })}
+            </div>
           </div>
-          <div className="flex items-center gap-0.5">
-            {renderHeaderActions({
-              activeChatSessionId: activeTabId,
-              activeTabId,
-              activeTabMessageCount,
-              addTab,
-              clearActiveTab,
-              closeAllTabs,
-              closeOtherTabs,
-              closeTab,
-              showHistory,
-              tabs,
-              toggleHistory,
-            })}
-          </div>
-        </div>
-        {mode === "chat" && chatNotice ? (
-          <div className="border-b border-border">{chatNotice}</div>
-        ) : null}
-        {/* Tab bar: only visible when there is actually more than one tab to switch between. */}
-        {showTabBar &&
-          (mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
-          (() => {
-            const {
-              activeTab,
-              childTabs,
-              focusParentId,
-              hasSubTabs,
-              mainTabs,
-            } = getAgentPanelChatTabGroups(tabs, activeTabId);
-            const showChatTabBar =
-              mode === "chat" &&
-              shouldShowAgentPanelChatTabBar(tabs, activeTabId);
-            const showCliTabBar =
-              mode === "cli" &&
-              canUseCodeTools &&
-              shouldShowAgentPanelCliTabBar(cliTabs);
+          {mode === "chat" && chatNotice ? (
+            <div className="border-b border-border">{chatNotice}</div>
+          ) : null}
+          {/* Tab bar: only visible when there is actually more than one tab to switch between. */}
+          {showTabBar &&
+            (mode === "chat" || (mode === "cli" && canUseCodeTools)) &&
+            (() => {
+              const showChatTabBar =
+                mode === "chat" &&
+                shouldShowAgentPanelChatTabBar(tabs, activeTabId);
+              const showCliTabBar =
+                mode === "cli" &&
+                canUseCodeTools &&
+                shouldShowAgentPanelCliTabBar(cliTabs);
 
-            if (!showChatTabBar && !showCliTabBar) return null;
+              if (!showChatTabBar && !showCliTabBar) return null;
 
-            return (
-              <>
-                <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
-                  <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
-                    {mode === "chat"
-                      ? mainTabs.map((tab) => {
-                          // Highlight the parent tab if a child is active
-                          const isActive =
-                            tab.id === activeTabId ||
-                            (tab.id === focusParentId &&
-                              activeTab?.parentThreadId === tab.id);
-                          return (
-                            <div
-                              key={tab.id}
-                              role="button"
-                              tabIndex={0}
-                              ref={isActive ? activeTabRefCb : undefined}
-                              onClick={() => setActiveTabId(tab.id)}
-                              onKeyDown={activateOnKeyDown(() =>
-                                setActiveTabId(tab.id),
-                              )}
-                              className={cn(
-                                "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
-                                isActive
-                                  ? "bg-accent text-foreground"
-                                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                              )}
-                            >
-                              <span className="truncate pe-1">{tab.label}</span>
-                              {tab.status === "running" && (
-                                <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                              )}
-                              <button
-                                type="button"
-                                aria-label="Close tab"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  closeTab(tab.id);
-                                }}
-                                className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                                style={{
-                                  position: "absolute",
-                                  right: 0,
-                                  top: 0,
-                                  bottom: 0,
-                                  width: 28,
-                                  paddingRight: 6,
-                                  borderRadius: "0 6px 6px 0",
-                                  background:
-                                    "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                                }}
+              return (
+                <>
+                  {!showSidebarChatTabs && (
+                    <div className="flex items-center px-2 py-1 border-b border-border gap-0.5">
+                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                        {mode === "chat"
+                          ? mainTabs.map((tab) => {
+                              // Highlight the parent tab if a child is active
+                              const isActive =
+                                tab.id === activeTabId ||
+                                (tab.id === focusParentId &&
+                                  activeTab?.parentThreadId === tab.id);
+                              return (
+                                <div
+                                  key={tab.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  ref={isActive ? activeTabRefCb : undefined}
+                                  onClick={() => setActiveTabId(tab.id)}
+                                  onKeyDown={activateOnKeyDown(() =>
+                                    setActiveTabId(tab.id),
+                                  )}
+                                  className={cn(
+                                    "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer max-w-[150px]",
+                                    isActive
+                                      ? "bg-accent text-foreground"
+                                      : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                  )}
+                                >
+                                  <span className="truncate pe-1">
+                                    {tab.label}
+                                  </span>
+                                  {tab.status === "running" && (
+                                    <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                                  )}
+                                  <button
+                                    type="button"
+                                    aria-label="Close tab"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      closeTab(tab.id);
+                                    }}
+                                    className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                                    style={{
+                                      position: "absolute",
+                                      right: 0,
+                                      top: 0,
+                                      bottom: 0,
+                                      width: 28,
+                                      paddingRight: 6,
+                                      borderRadius: "0 6px 6px 0",
+                                      background:
+                                        "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                                    }}
+                                  >
+                                    <IconX size={10} />
+                                  </button>
+                                </div>
+                              );
+                            })
+                          : cliTabs.map((id, i) => (
+                              <div
+                                key={id}
+                                role="button"
+                                tabIndex={0}
+                                ref={
+                                  id === activeCliTab
+                                    ? activeTabRefCb
+                                    : undefined
+                                }
+                                onClick={() => setActiveCliTab(id)}
+                                onKeyDown={activateOnKeyDown(() =>
+                                  setActiveCliTab(id),
+                                )}
+                                className={cn(
+                                  "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
+                                  id === activeCliTab
+                                    ? "bg-accent text-foreground"
+                                    : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                                )}
                               >
-                                <IconX size={10} />
-                              </button>
-                            </div>
-                          );
-                        })
-                      : cliTabs.map((id, i) => (
+                                <span>Terminal {i + 1}</span>
+                                <button
+                                  type="button"
+                                  aria-label="Close tab"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    closeCliTab(id);
+                                  }}
+                                  className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
+                                  style={{
+                                    position: "absolute",
+                                    right: 0,
+                                    top: 0,
+                                    bottom: 0,
+                                    width: 28,
+                                    paddingRight: 6,
+                                    borderRadius: "0 6px 6px 0",
+                                    background:
+                                      "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
+                                  }}
+                                >
+                                  <IconX size={10} />
+                                </button>
+                              </div>
+                            ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Sub-agent tab row — shown when the active context has children */}
+                  {mode === "chat" && hasSubTabs && (
+                    <div
+                      className={cn(
+                        "flex items-center px-2 py-0.5 gap-0.5 bg-muted/30",
+                        !showSidebarChatTabs && "border-b border-border",
+                      )}
+                    >
+                      <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
+                        <div
+                          role="button"
+                          tabIndex={0}
+                          onClick={() => setActiveTabId(focusParentId)}
+                          onKeyDown={activateOnKeyDown(() =>
+                            setActiveTabId(focusParentId),
+                          )}
+                          className={cn(
+                            "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
+                            activeTabId === focusParentId
+                              ? "bg-accent text-foreground"
+                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
+                          )}
+                        >
+                          Main
+                        </div>
+                        {childTabs.map((tab) => (
                           <div
-                            key={id}
+                            key={tab.id}
                             role="button"
                             tabIndex={0}
                             ref={
-                              id === activeCliTab ? activeTabRefCb : undefined
+                              tab.id === activeTabId
+                                ? activeTabRefCb
+                                : undefined
                             }
-                            onClick={() => setActiveCliTab(id)}
+                            onClick={() => setActiveTabId(tab.id)}
                             onKeyDown={activateOnKeyDown(() =>
-                              setActiveCliTab(id),
+                              setActiveTabId(tab.id),
                             )}
                             className={cn(
-                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2.5 py-1.5 text-[11px] font-medium cursor-pointer",
-                              id === activeCliTab
+                              "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
+                              tab.id === activeTabId
                                 ? "bg-accent text-foreground"
                                 : "text-muted-foreground hover:bg-accent hover:text-foreground",
                             )}
                           >
-                            <span>Terminal {i + 1}</span>
+                            <span className="truncate pe-1">
+                              {tab.subAgentName || tab.label}
+                            </span>
+                            {tab.status === "running" && (
+                              <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
+                            )}
                             <button
                               type="button"
                               aria-label="Close tab"
                               onClick={(e) => {
                                 e.stopPropagation();
-                                closeCliTab(id);
+                                closeTab(tab.id);
                               }}
                               className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
                               style={{
@@ -1715,96 +1856,26 @@ function AgentPanelInner({
                                 right: 0,
                                 top: 0,
                                 bottom: 0,
-                                width: 28,
-                                paddingRight: 6,
+                                width: 24,
+                                paddingRight: 4,
                                 borderRadius: "0 6px 6px 0",
                                 background:
                                   "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
                               }}
                             >
-                              <IconX size={10} />
+                              <IconX size={8} />
                             </button>
                           </div>
                         ))}
-                  </div>
-                </div>
-                {/* Sub-agent tab row — shown when the active context has children */}
-                {mode === "chat" && hasSubTabs && (
-                  <div className="flex items-center px-2 py-0.5 border-b border-border gap-0.5 bg-muted/30">
-                    <div className="agent-tabs-scroll flex items-center gap-0.5 min-w-0 overflow-x-auto flex-1">
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={() => setActiveTabId(focusParentId)}
-                        onKeyDown={activateOnKeyDown(() =>
-                          setActiveTabId(focusParentId),
-                        )}
-                        className={cn(
-                          "flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer",
-                          activeTabId === focusParentId
-                            ? "bg-accent text-foreground"
-                            : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                        )}
-                      >
-                        Main
                       </div>
-                      {childTabs.map((tab) => (
-                        <div
-                          key={tab.id}
-                          role="button"
-                          tabIndex={0}
-                          ref={
-                            tab.id === activeTabId ? activeTabRefCb : undefined
-                          }
-                          onClick={() => setActiveTabId(tab.id)}
-                          onKeyDown={activateOnKeyDown(() =>
-                            setActiveTabId(tab.id),
-                          )}
-                          className={cn(
-                            "agent-tab relative flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-[10px] font-medium cursor-pointer max-w-[140px]",
-                            tab.id === activeTabId
-                              ? "bg-accent text-foreground"
-                              : "text-muted-foreground hover:bg-accent hover:text-foreground",
-                          )}
-                        >
-                          <span className="truncate pe-1">
-                            {tab.subAgentName || tab.label}
-                          </span>
-                          {tab.status === "running" && (
-                            <span className="h-1 w-1 shrink-0 rounded-full bg-muted-foreground/50 animate-pulse" />
-                          )}
-                          <button
-                            type="button"
-                            aria-label="Close tab"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              closeTab(tab.id);
-                            }}
-                            className="agent-tab-close flex items-center justify-end text-muted-foreground hover:text-foreground"
-                            style={{
-                              position: "absolute",
-                              right: 0,
-                              top: 0,
-                              bottom: 0,
-                              width: 24,
-                              paddingRight: 4,
-                              borderRadius: "0 6px 6px 0",
-                              background:
-                                "linear-gradient(to right, transparent, hsl(var(--accent)) 40%)",
-                            }}
-                          >
-                            <IconX size={8} />
-                          </button>
-                        </div>
-                      ))}
                     </div>
-                  </div>
-                )}
-              </>
-            );
-          })()}
-      </div>
-    ),
+                  )}
+                </>
+              );
+            })()}
+        </div>
+      );
+    },
     [
       mode,
       renderHeaderActions,
@@ -2512,7 +2583,8 @@ export interface AgentChatSurfaceProps extends AgentPanelProps {
   /**
    * Layout treatment for the reusable chat surface. Use "page" when rendering
    * chat as the primary route content instead of inside the sidebar shell.
-   * Default: "panel".
+   * Default: "panel". Inline header and chat-tab chrome are hidden by default;
+   * pass `showHeader` or `showTabBar` to opt into those controls.
    */
   mode?: AgentChatSurfaceMode;
   /**
@@ -2541,13 +2613,15 @@ export function shouldAllowAgentChatSurfaceSettingsMode(
  * Reusable chat surface backed by AgentPanel internals.
  *
  * This gives page-level routes the same tabbed conversations, composer,
- * model controls, scoped chat behavior, and recovery boundary used by the
+ * model controls, context chips, and recovery boundary used by the
  * sidebar without introducing a second chat implementation.
  */
 export function AgentChatSurface({
   mode = "panel",
   className,
   defaultMode = "chat",
+  showHeader = false,
+  showTabBar = false,
   isFullscreen,
   style,
   chatViewTransition = false,
@@ -2556,12 +2630,14 @@ export function AgentChatSurface({
 }: AgentChatSurfaceProps) {
   const pageMode = mode === "page";
   const defaultShowPageNewChatButton =
-    shouldDefaultAgentChatSurfacePageNewChatButton(mode, props.showTabBar);
+    shouldDefaultAgentChatSurfacePageNewChatButton(mode, showTabBar);
 
   return (
     <AgentPanel
       {...props}
       defaultMode={defaultMode}
+      showHeader={showHeader}
+      showTabBar={showTabBar}
       isFullscreen={isFullscreen ?? pageMode}
       allowSettingsMode={shouldAllowAgentChatSurfaceSettingsMode(
         mode,
@@ -2626,14 +2702,9 @@ export interface AgentSidebarProps {
   openOnChatRunning?: boolean;
   /** Override the fullscreen menu action, for templates with a chat-first page. */
   onFullscreenRequest?: () => void;
-  /**
-   * Bind chats to a resource. When set, every chat started here is
-   * scoped to `{type, id}`, the tab bar/history partition by that scope,
-   * and a "Working on {label}" badge appears with a Detach option.
-   * Templates compute this from the active route (see template layouts).
-   */
+  /** Ambient resource context rendered as a composer chip. */
   scope?: import("./use-chat-threads.js").ChatThreadScope | null;
-  /** Show the compact scope chip above the composer. Default: true. */
+  /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
   /** Stable browser tab id used for tab-scoped app-state context. */
   browserTabId?: string;

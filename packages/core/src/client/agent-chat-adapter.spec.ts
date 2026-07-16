@@ -1218,6 +1218,7 @@ describe("createAgentChatAdapter", () => {
             ],
           },
           {
+            id: "recovery-message-1",
             role: "user",
             content: [
               {
@@ -1239,10 +1240,127 @@ describe("createAgentChatAdapter", () => {
       "Continue from where you left off and finish my last request.",
     );
     expect(body.displayMessage).toBe("Build a CS operations tool");
+    expect(body.internalContinuation).toBe(true);
     expect(body.history).toEqual([
       { role: "user", content: "Build a CS operations tool" },
       { role: "assistant", content: "The agent stopped before finishing." },
     ]);
+
+    await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Build a CS operations tool" }],
+          },
+          {
+            role: "assistant",
+            content: [
+              {
+                type: "text",
+                text: "The agent stopped before finishing.",
+              },
+            ],
+          },
+          {
+            id: "recovery-message-1",
+            role: "user",
+            content: [
+              {
+                type: "text",
+                text: "Continue from where you left off and finish my last request.",
+              },
+            ],
+            metadata: {
+              custom: { agentNativeRecoveryAction: "continue" },
+            },
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(chatPosts).toHaveLength(1);
+  });
+
+  it("adopts the active run for queued recovery instead of posting again after it finishes", async () => {
+    vi.stubGlobal("window", { dispatchEvent: vi.fn() });
+    vi.stubGlobal(
+      "CustomEvent",
+      class CustomEvent {
+        type: string;
+        detail: unknown;
+        constructor(type: string, init?: { detail?: unknown }) {
+          this.type = type;
+          this.detail = init?.detail;
+        }
+      },
+    );
+
+    const fetchSpy = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url === "/_agent-native/agent-chat" && init?.method === "POST") {
+        return jsonResponse({ activeRunId: "run-finishing" }, 409);
+      }
+      if (url.includes("/runs/run-finishing/events")) {
+        return sseResponse([
+          {
+            type: "text",
+            text: "Stopped because mutate-dashboard failed 3 times.",
+          },
+          { type: "done" },
+        ]);
+      }
+      return jsonResponse({ error: "unexpected" }, 500);
+    });
+    vi.stubGlobal("fetch", fetchSpy);
+
+    const adapter = createAgentChatAdapter({
+      apiUrl: "/_agent-native/agent-chat",
+      threadId: "thread-recovery-conflict",
+    });
+    const results = await drain(
+      adapter.run({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "Update the dashboard" }],
+          },
+          {
+            id: "queued-recovery-1",
+            role: "user",
+            content: [
+              { type: "text", text: "Continue from where you stopped." },
+            ],
+            metadata: {
+              custom: { agentNativeRecoveryAction: "continue" },
+            },
+          },
+        ],
+        abortSignal: new AbortController().signal,
+      } as any),
+    );
+
+    const chatPosts = fetchSpy.mock.calls.filter(
+      ([url, init]) =>
+        url === "/_agent-native/agent-chat" && init?.method === "POST",
+    );
+    expect(chatPosts).toHaveLength(1);
+    expect(JSON.parse(chatPosts[0][1].body as string)).toMatchObject({
+      internalContinuation: true,
+      message: "Continue from where you stopped.",
+    });
+    expect(
+      fetchSpy.mock.calls.some(([url]) =>
+        String(url).includes("/runs/run-finishing/events"),
+      ),
+    ).toBe(true);
+    expect((results.at(-1) as any).content.at(-1).text).toBe(
+      "Stopped because mutate-dashboard failed 3 times.",
+    );
   });
 
   it("auto-continues without surfacing loop limit text", async () => {

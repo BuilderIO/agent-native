@@ -151,6 +151,22 @@ describe("VideoPlayer playback", () => {
     expect(onPlay).toHaveBeenCalledTimes(1);
   });
 
+  it("rewinds an ended autoplay player when replay is requested", () => {
+    const video = getVideo();
+    Object.defineProperty(video, "ended", {
+      configurable: true,
+      value: true,
+    });
+    video.currentTime = 10;
+
+    act(() => {
+      handleRef.current?.play();
+    });
+
+    expect(video.currentTime).toBe(0);
+    expect(video.paused).toBe(false);
+  });
+
   it("suppresses the synthetic click that follows a touch tap instead of double-toggling playback", () => {
     const surface = getPlayerSurface();
     const video = getVideo();

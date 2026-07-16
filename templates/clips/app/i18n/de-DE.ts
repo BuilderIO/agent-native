@@ -225,6 +225,9 @@ const messages = {
     autoChapters: "Automatische Kapitel",
     removeFillerWords: "Entfernen Sie Füllwörter",
     removeSilences: "Stille entfernen (>1,2 s)",
+    silenceWorking: "Stille wird entfernt…",
+    silenceCompleted: "Entfernen der Stille abgeschlossen",
+    silenceFailed: "Entfernen der Stille fehlgeschlagen",
     generatePrSummary: "Erstellen Sie eine PR-Zusammenfassung",
     generateSop: "Generieren Sie SOP",
     generateSopTooltip:
@@ -555,6 +558,9 @@ const messages = {
     brandingUpdated: "Branding aktualisiert",
     saveFailed: "Speichern fehlgeschlagen",
     organizationName: "Name der Organisation",
+    defaultVisibility: "Standard-Sichtbarkeit neuer Aufnahmen",
+    defaultVisibilityDescription:
+      "Wird auf neue Aufnahmen angewendet, sofern du keine andere Sichtbarkeit auswählst.",
     brandColor: "Markenfarbe",
     brandColorPicker: "Markenfarbauswahl",
     useColor: "Verwenden Sie {{color}}",

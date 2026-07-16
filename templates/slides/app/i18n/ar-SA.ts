@@ -1,4 +1,7 @@
+import { creativeContextMessagesByLocale } from "@agent-native/creative-context/messages";
+
 const messages = {
+  creativeContext: creativeContextMessagesByLocale["ar-SA"],
   root: {
     commandPresentations: "العروض التقديمية",
     searchDecks: "البحث في العروض",

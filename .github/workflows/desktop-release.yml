@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - ".github/workflows/desktop-release.yml"
       - "packages/desktop-app/**"
       - "packages/shared-app-config/**"
   workflow_dispatch:
@@ -17,8 +18,8 @@ permissions:
   contents: write
 
 env:
-  # Deterministic version for auto-triggered builds: base version from
-  # package.json + run number ensures uniqueness without committing back.
+  # Stable patch version for auto-triggered builds. The run number ensures
+  # uniqueness without committing version bumps back to the repository.
   AUTO_VERSION_SUFFIX: ${{ github.run_number }}
 
 jobs:
@@ -37,10 +38,10 @@ jobs:
             echo "version=${{ inputs.version }}" >> "$GITHUB_OUTPUT"
           elif [ "${{ github.event_name }}" = "push" ]; then
             BASE=$(node -p "require('./packages/desktop-app/package.json').version")
-            # Use a prerelease tag (-N) not build metadata (+N): npm version
-            # silently strips +metadata when writing package.json, which would
-            # cause every run to collide on the same release tag and assets.
-            echo "version=${BASE}-${AUTO_VERSION_SUFFIX}" >> "$GITHUB_OUTPUT"
+            # Keep automatic releases on the stable update channel. The
+            # updater and download feed intentionally ignore prereleases.
+            NEXT=$(node -e 'const [major, minor] = process.argv[1].split("."); console.log(`${major}.${minor}.${process.env.AUTO_VERSION_SUFFIX}`)' "$BASE")
+            echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
           else
             echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> "$GITHUB_OUTPUT"
           fi

@@ -135,6 +135,8 @@ export type VisualizePlanInput = {
 
 export type UpdatePlanInput = {
   planId: string;
+  expectedUpdatedAt?: string;
+  allowDestructive?: boolean;
   title?: string;
   brief?: string;
   status?: PlanStatus;

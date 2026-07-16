@@ -39,6 +39,7 @@ const jaJP = {
   theme: {
     light: "ライト",
     dark: "ダーク",
+    toggle: "テーマを切り替え",
     label: "テーマ: {{theme}}",
   },
   docs: {

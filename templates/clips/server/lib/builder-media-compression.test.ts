@@ -5,6 +5,7 @@ const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockRecordingRow = vi.hoisted(() => ({
   ownerEmail: "owner@example.com",
   orgId: "org-test",
+  durationMs: 1_592_773,
   videoUrl:
     "https://cdn.builder.io/o/assets%2Forg-probe%2Fasset-worker?apiKey=org-probe&token=asset-worker&alt=media",
 }));
@@ -53,6 +54,7 @@ vi.mock("../db/index.js", () => ({
       ownerEmail: "recordings.ownerEmail",
       orgId: "recordings.orgId",
       videoUrl: "recordings.videoUrl",
+      durationMs: "recordings.durationMs",
     },
   },
 }));
@@ -70,6 +72,7 @@ import {
   applyMediaWorkerCallback,
   builderCompressedMediaUrl,
   extractBuilderMediaTarget,
+  mediaDurationsMateriallyMatch,
   queueBuilderMediaCompression,
   runBuilderMediaCompressionForRecording,
 } from "./builder-media-compression";
@@ -126,6 +129,11 @@ describe("builder-media-compression", () => {
     expect(
       extractBuilderMediaTarget("https://example.com/assets/org/asset.mp4"),
     ).toBeNull();
+  });
+
+  it("rejects compressed output that is materially shorter than the source", () => {
+    expect(mediaDurationsMateriallyMatch(1_592_773, 483_000)).toBe(false);
+    expect(mediaDurationsMateriallyMatch(1_592_773, 1_593_259)).toBe(true);
   });
 
   it("records a terminal skip instead of retrying videos above the compression size gate", async () => {
@@ -214,13 +222,7 @@ describe("builder-media-compression", () => {
     });
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (url: string | URL) => {
-        const href = String(url);
-        if (href.includes("optimized=true")) {
-          return new Response(null, { status: 404 });
-        }
-        return new Response("builder unavailable", { status: 503 });
-      }),
+      vi.fn(async () => new Response("builder unavailable", { status: 503 })),
     );
 
     const result = await runBuilderMediaCompressionForRecording({
@@ -230,6 +232,10 @@ describe("builder-media-compression", () => {
     });
 
     expect(result?.status).toBe("failed");
+    expect(fetch).toHaveBeenCalledTimes(1);
+    const [requestUrl] = vi.mocked(fetch).mock.calls[0];
+    expect(String(requestUrl)).toContain("/api/v1/compress-media/");
+    expect(String(requestUrl)).not.toContain("/compressed");
     expect(mockWriteAppState).toHaveBeenLastCalledWith(
       "recording-builder-compression-rec-give-up",
       expect.objectContaining({
@@ -270,6 +276,7 @@ describe("builder-media-compression", () => {
       jobId: "rec-1:compress",
       status: "done",
       outputUrl: "https://attacker.example.com/video.mp4",
+      durationMs: 1_592_773,
     });
 
     expect(result).toEqual({
@@ -313,6 +320,7 @@ describe("builder-media-compression", () => {
       jobId: "rec-1:compress",
       status: "done",
       outputUrl: compressedUrl,
+      durationMs: 1_592_773,
     });
 
     expect(result).toEqual({

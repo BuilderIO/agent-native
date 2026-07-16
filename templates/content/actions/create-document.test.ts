@@ -5,6 +5,18 @@ const mocks = vi.hoisted(() => ({
   getRequestUserEmail: vi.fn(),
   isContentLocalFileMode: vi.fn(),
   writeAppState: vi.fn(),
+  recordGenerationCreativeContext: vi.fn(),
+  validateGenerationCreativeContext: vi.fn(
+    async (input: {
+      contextModeOverride?: "off";
+      reuseLabels?: Array<Record<string, unknown>>;
+    }) => ({
+      contextMode: input.contextModeOverride === "off" ? "off" : "auto",
+      contextPackId: null,
+      reuseLabels: input.reuseLabels ?? [],
+      results: [],
+    }),
+  ),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
@@ -19,6 +31,11 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 vi.mock("./_local-file-documents.js", () => ({
   createLocalFileDocument: mocks.createLocalFileDocument,
   isContentLocalFileMode: mocks.isContentLocalFileMode,
+}));
+
+vi.mock("@agent-native/creative-context/server", () => ({
+  recordGenerationCreativeContext: mocks.recordGenerationCreativeContext,
+  validateGenerationCreativeContext: mocks.validateGenerationCreativeContext,
 }));
 
 import createDocument from "./create-document";

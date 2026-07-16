@@ -208,6 +208,9 @@ const messages = {
     autoChapters: "汽车章节",
     removeFillerWords: "删除填充词",
     removeSilences: "消除静音 (>1.2s)",
+    silenceWorking: "正在消除静音…",
+    silenceCompleted: "静音消除完成",
+    silenceFailed: "静音消除失败",
     generatePrSummary: "生成公关摘要",
     generateSop: "生成SOP",
     generateSopTooltip:
@@ -518,6 +521,8 @@ const messages = {
     brandingUpdated: "品牌更新",
     saveFailed: "保存失败",
     organizationName: "组织名称",
+    defaultVisibility: "新录制内容的默认可见性",
+    defaultVisibilityDescription: "应用于新录制内容，除非你选择其他可见性。",
     brandColor: "品牌颜色",
     brandColorPicker: "品牌颜色选择器",
     useColor: "使用 {{color}}",

@@ -11,6 +11,19 @@ import {
 } from "@agent-native/core/collab";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  getGenerationCreativeContext,
+  mergeCreativeContextReuseLabels,
+  recordGenerationCreativeContext,
+  replaceCreativeContextElementProvenance,
+  resolveGenerationCreativeContext,
+  validateCreativeContextReuseLabels,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type {
+  CreativeContextElementProvenance,
+  CreativeContextReuseLabel,
+} from "@agent-native/creative-context/types";
 import { eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -74,6 +87,34 @@ const DEFAULT_RESPONSIVE_BREAKPOINTS = [390, 768, 1440].map((widthPx) => ({
   prefix: widthToPrefix(widthPx),
 }));
 
+const reuseLabelSchema = z
+  .object({
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    label: z.string().min(1),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
+  })
+  .superRefine((label, context) => {
+    const influence = label.influence ?? "reference-conditioned";
+    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
+      context.addIssue({
+        code: "custom",
+        message: "itemId and itemVersionId must be provided together",
+      });
+    }
+    if (influence !== "generated" && !label.itemId) {
+      context.addIssue({
+        code: "custom",
+        message: "Only generated labels may omit context item ids",
+      });
+    }
+  });
+
 function hasBreakpointSet(value: unknown): boolean {
   if (!value || typeof value !== "object" || Array.isArray(value)) {
     return false;
@@ -128,26 +169,193 @@ function withGenerationSessionLock<T>(
   return next;
 }
 
-async function updateGenerationSessionForSavedFiles(
+interface DesignCreativeContextProvenance {
+  contextMode: "off" | "auto" | "pinned";
+  contextPackId: string | null;
+  reuseLabels: CreativeContextReuseLabel[];
+}
+
+async function resolveDesignCreativeContext(input: {
+  prompt: string;
+  generationSession: DesignGenerationSession | null;
+  contextPackId?: string;
+  contextModeOverride?: "off";
+  reuseLabels: CreativeContextReuseLabel[];
+}): Promise<DesignCreativeContextProvenance> {
+  if (input.contextModeOverride === "off") {
+    const validated = await validateGenerationCreativeContext({
+      contextPackId: input.contextPackId,
+      contextModeOverride: "off",
+      reuseLabels: input.reuseLabels,
+    });
+    return {
+      contextMode: validated.contextMode,
+      contextPackId: validated.contextPackId,
+      reuseLabels: validated.reuseLabels,
+    };
+  }
+
+  const sessionContext = input.generationSession?.creativeContext;
+  if (sessionContext) {
+    if (
+      input.contextPackId !== undefined &&
+      input.contextPackId !== sessionContext.contextPackId
+    ) {
+      throw new Error(
+        "generate-design must preserve the generation session's creative-context pack",
+      );
+    }
+    const requestedLabels = input.reuseLabels.length
+      ? input.reuseLabels
+      : sessionContext.reuseLabels;
+    if (!sessionContext.contextPackId) {
+      return {
+        contextMode: sessionContext.contextMode,
+        contextPackId: null,
+        reuseLabels: validateCreativeContextReuseLabels(requestedLabels, {
+          generatedOnly: true,
+        }),
+      };
+    }
+    const validated = await validateGenerationCreativeContext({
+      contextPackId: sessionContext.contextPackId,
+      contextPackSource: "inherited",
+      reuseLabels: requestedLabels,
+      reuseLabelsSource: input.reuseLabels.length ? "explicit" : "inherited",
+    });
+    return {
+      contextMode: sessionContext.contextMode,
+      contextPackId: validated.contextPackId,
+      reuseLabels: validated.reuseLabels,
+    };
+  }
+
+  if (input.contextPackId) {
+    const validated = await validateGenerationCreativeContext({
+      contextPackId: input.contextPackId,
+      reuseLabels: input.reuseLabels.length ? input.reuseLabels : undefined,
+    });
+    return {
+      contextMode: validated.contextMode,
+      contextPackId: validated.contextPackId,
+      reuseLabels: validated.reuseLabels,
+    };
+  }
+
+  const resolved = await resolveGenerationCreativeContext({
+    query: input.prompt,
+    role: "design",
+  });
+  if (!input.reuseLabels.length) {
+    return {
+      contextMode: resolved.contextMode,
+      contextPackId: resolved.contextPackId,
+      reuseLabels: resolved.reuseLabels,
+    };
+  }
+  const validated = await validateGenerationCreativeContext({
+    contextPackId: resolved.contextPackId,
+    reuseLabels: input.reuseLabels,
+  });
+  return {
+    contextMode: validated.contextMode,
+    contextPackId: validated.contextPackId,
+    reuseLabels: validated.reuseLabels,
+  };
+}
+
+function provenanceForSavedFiles(
+  savedFiles: readonly { id: string; filename: string }[],
+  generationSession: DesignGenerationSession | null,
+  reuseLabels: readonly CreativeContextReuseLabel[],
+): CreativeContextElementProvenance[] {
+  return savedFiles.flatMap((file) => {
+    const frame = generationSession?.frames.find(
+      (candidate) => candidate.filename === file.filename,
+    );
+    const elementId = frame?.frameId ?? file.id;
+    const labels = reuseLabels.filter(
+      (label) =>
+        !label.elementId ||
+        label.elementId === file.id ||
+        label.elementId === file.filename ||
+        label.elementId === frame?.frameId,
+    );
+    if (!labels.length) {
+      return [
+        {
+          elementId,
+          influence: "generated" as const,
+          label: file.filename,
+        },
+      ];
+    }
+    return labels.map((label) => ({
+      elementId,
+      influence: label.influence ?? ("reference-conditioned" as const),
+      ...(label.itemId ? { itemId: label.itemId } : {}),
+      ...(label.itemVersionId ? { itemVersionId: label.itemVersionId } : {}),
+      label: label.label,
+    }));
+  });
+}
+
+async function finalizeGenerationForSavedFiles(
   designId: string,
-  savedFilenames: string[],
+  savedFiles: readonly { id: string; filename: string }[],
+  generationSession: DesignGenerationSession | null,
+  creativeContext: DesignCreativeContextProvenance,
 ) {
   await withGenerationSessionLock(designId, async () => {
     const key = designGenerationSessionKey(designId);
     const rawSession = await readAppState(key).catch(() => null);
-    if (!rawSession || typeof rawSession !== "object") return;
-    const session = rawSession as unknown as DesignGenerationSession;
-    if (session.designId !== designId || !Array.isArray(session.frames)) {
-      return;
+    if (rawSession && typeof rawSession === "object") {
+      const session = rawSession as unknown as DesignGenerationSession;
+      if (session.designId === designId && Array.isArray(session.frames)) {
+        const nextSession = updateGenerationSessionWithSavedFiles(
+          session,
+          savedFiles.map((file) => file.filename),
+        );
+        if (nextSession !== session) {
+          await writeAppState(
+            key,
+            nextSession as unknown as Record<string, unknown>,
+          );
+        }
+      }
     }
 
-    const nextSession = updateGenerationSessionWithSavedFiles(
-      session,
-      savedFilenames,
+    const nextElementProvenance = provenanceForSavedFiles(
+      savedFiles,
+      generationSession,
+      creativeContext.reuseLabels,
     );
-    if (nextSession === session) return;
-
-    await writeAppState(key, nextSession as unknown as Record<string, unknown>);
+    const previous =
+      creativeContext.contextMode === "off"
+        ? null
+        : await getGenerationCreativeContext(
+            {
+              appId: "design",
+              artifactType: "design",
+              artifactId: designId,
+            },
+            { accessScope: "artifact-access-asserted" },
+          );
+    const elementProvenance =
+      previous?.contextMode === creativeContext.contextMode &&
+      previous.contextPackId === creativeContext.contextPackId
+        ? replaceCreativeContextElementProvenance(
+            previous.elementProvenance,
+            nextElementProvenance,
+          )
+        : nextElementProvenance;
+    await recordGenerationCreativeContext({
+      appId: "design",
+      artifactType: "design",
+      artifactId: designId,
+      ...creativeContext,
+      elementProvenance,
+    });
   });
 }
 
@@ -189,6 +397,22 @@ const generateDesignAgentParameters = {
       description:
         "Optional JSON array of overview-canvas placements keyed by filename or fileId. " +
         "Pass explicit x/y/width/height for every generated screen; desktop is 1440x1024.",
+    },
+    contextPackId: {
+      type: "string",
+      description:
+        "Immutable creative-context pack. Omit to preserve the active generation session pack.",
+    },
+    contextModeOverride: {
+      type: "string",
+      enum: ["off"],
+      description:
+        "Disable Creative Context for this generation only without changing the saved preference.",
+    },
+    reuseLabels: {
+      type: "string",
+      description:
+        "Optional JSON array of exact item/version labels, with elementId set to a target filename or frame id when evidence applies to one screen.",
     },
     primaryViewport: {
       type: "string",
@@ -353,6 +577,26 @@ const generateDesignAction = defineAction({
           "Reference each screen by filename or fileId and include x/y/width/height " +
           "from generate-screens regions or your planned canvas layout.",
       ),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe(
+        "Immutable creative-context pack. Omit to preserve the generation session pack.",
+      ),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this generation only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .preprocess(
+        (value) => (typeof value === "string" ? JSON.parse(value) : value),
+        z.array(reuseLabelSchema).optional().default([]),
+      )
+      .describe(
+        "Exact item/version labels used by the generated files or frames.",
+      ),
     primaryViewport: z
       .enum(["mobile", "tablet", "desktop"])
       .optional()
@@ -381,11 +625,26 @@ const generateDesignAction = defineAction({
     tweaks,
     canvasFrames,
     primaryViewport,
+    contextPackId,
+    contextModeOverride,
+    reuseLabels,
   }) => {
     await assertAccess("design", designId, "editor");
     if (designSystemId) {
       await assertAccess("design-system", designSystemId, "viewer");
     }
+    const rawGenerationSession = (await readAppState(
+      designGenerationSessionKey(designId),
+    ).catch(() => null)) as DesignGenerationSession | null;
+    const generationSession =
+      rawGenerationSession?.designId === designId ? rawGenerationSession : null;
+    const creativeContextProvenance = await resolveDesignCreativeContext({
+      prompt,
+      generationSession,
+      contextPackId,
+      contextModeOverride,
+      reuseLabels,
+    });
 
     const db = getDb();
     const now = new Date().toISOString();
@@ -579,6 +838,7 @@ const generateDesignAction = defineAction({
           lastPrompt: prompt,
           generatedAt: now,
           fileCount: files.length,
+          creativeContext: creativeContextProvenance,
         };
         if (normalizedTweaks !== undefined) {
           mergedData.tweaks = normalizedTweaks;
@@ -659,6 +919,10 @@ const generateDesignAction = defineAction({
           current.lastPrompt !== prompt ||
           current.generatedAt !== now ||
           current.fileCount !== files.length ||
+          !jsonValuesEqual(
+            current.creativeContext,
+            creativeContextProvenance,
+          ) ||
           (normalizedTweaks !== undefined &&
             !jsonValuesEqual(current.tweaks, normalizedTweaks))
         ) {
@@ -700,9 +964,11 @@ const generateDesignAction = defineAction({
         .where(eq(schema.designs.id, designId));
     }
 
-    await updateGenerationSessionForSavedFiles(
+    await finalizeGenerationForSavedFiles(
       designId,
-      savedFiles.map((file) => file.filename),
+      savedFiles,
+      generationSession,
+      creativeContextProvenance,
     );
 
     return {
@@ -712,6 +978,7 @@ const generateDesignAction = defineAction({
       savedFiles,
       placedFrames,
       fileCount: savedFiles.length,
+      ...creativeContextProvenance,
     };
   },
   link: ({ result }) => {

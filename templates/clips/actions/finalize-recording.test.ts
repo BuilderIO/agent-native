@@ -346,6 +346,24 @@ describe("finalize-recording media serve verification", () => {
     }
   });
 
+  it("does not mark ready when the provider serves fewer bytes than uploaded", async () => {
+    seedBufferedRecording();
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("ok", {
+        status: 206,
+        headers: { "content-range": "bytes 0-1/2" },
+      }),
+    );
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toThrow(/byte count mismatch/i);
+
+    expect(mockUpdateSet).not.toHaveBeenCalledWith(
+      expect.objectContaining({ status: "ready" }),
+    );
+  });
+
   it("only reads one probe chunk when a server ignores the range request", async () => {
     const chunkKeys = seedBufferedRecording();
     let reads = 0;
@@ -367,7 +385,11 @@ describe("finalize-recording media serve verification", () => {
     });
 
     expect(result).toEqual(
-      expect.objectContaining({ id: "rec_1", status: "ready" }),
+      expect.objectContaining({
+        id: "rec_1",
+        status: "ready",
+        sourceSizeBytes: 11,
+      }),
     );
     expect(reads).toBe(1);
     expect(cancelled).toBe(true);

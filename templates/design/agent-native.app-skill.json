@@ -38,6 +38,15 @@
   ],
   "skills": [
     {
+      "path": ".agents/skills/design-templates",
+      "visibility": "both",
+      "exportAs": "design-templates"
+    },
+    {
+      "path": ".agents/skills/creative-context",
+      "visibility": "internal"
+    },
+    {
       "path": ".agents/skills/design-generation",
       "visibility": "both",
       "exportAs": "design-exploration"

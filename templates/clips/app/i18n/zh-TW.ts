@@ -208,6 +208,9 @@ const messages = {
     autoChapters: "自動章節",
     removeFillerWords: "移除口頭禪",
     removeSilences: "消除靜音 (>1.2s)",
+    silenceWorking: "正在消除靜音…",
+    silenceCompleted: "靜音消除完成",
+    silenceFailed: "靜音消除失敗",
     generatePrSummary: "產生 PR 摘要",
     generateSop: "產生 SOP",
     generateSopTooltip:
@@ -518,6 +521,8 @@ const messages = {
     brandingUpdated: "品牌更新",
     saveFailed: "儲存失敗",
     organizationName: "組織名稱",
+    defaultVisibility: "新錄製內容的預設可見性",
+    defaultVisibilityDescription: "套用於新錄製內容，除非你選擇其他可見性。",
     brandColor: "品牌顏色",
     brandColorPicker: "品牌顏色選取器",
     useColor: "使用 {{color}}",

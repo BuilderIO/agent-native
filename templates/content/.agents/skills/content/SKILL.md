@@ -21,6 +21,12 @@ actions, and an optional local-file source of truth.
 
 ## Choose The Path
 
+- Before drafting or materially rewriting, read the `creative-context` skill.
+  Retrieve voice, terminology, audience guidance, and factual evidence as
+  separate roles; respect opt-out and pinned packs. Apply the exact reuse
+  ladder: approved native template/asset unchanged, compose approved pieces,
+  lightly adapt a real example, generate from narrow references, then net-new
+  only when the relevant corpus is empty.
 - Use Content actions when the Content MCP/action tools are available:
   `list-documents`, `search-documents`, `get-document`, `pull-document`,
   `create-document`, `edit-document`, `update-document`, `delete-document`,
@@ -40,6 +46,16 @@ actions, and an optional local-file source of truth.
   running, treat this skill as repo-editing guidance. Edit configured
   `.md`/`.mdx` files directly, preserve frontmatter and MDX imports, and tell
   the user the Content action surface was not available.
+
+Retrieval is separate from drafting. Exact source item versions may support
+claims; voice examples alone may not. Persist the immutable `contextPackId` and
+reuse labels with document generation provenance so later edits can explain
+what influenced the copy.
+
+For `create-document`, pass the pre-drafting search result's `contextPackId`
+and exact `reuseLabels`. Do not let the final write action search after the
+document body has already been authored; post-hoc search is not provenance.
+Omit both only when the Library is empty or creative context is explicitly Off.
 
 ## Action Examples
 

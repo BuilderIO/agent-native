@@ -7,6 +7,7 @@ import {
   type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import { useMemo } from "react";
 
 import {
@@ -48,6 +49,8 @@ export default function SettingsRoute() {
         generalSearchEntries={generalSearchEntries}
         general={
           <div className="mx-auto w-full max-w-2xl space-y-6">
+            <CreativeContextSettingsLink />
+
             <Card id="language" className="scroll-mt-16">
               <CardHeader>
                 <CardTitle className="text-base">

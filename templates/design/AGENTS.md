@@ -164,6 +164,10 @@ patterns live in `.agents/skills/`.
   `inspectorTab: "extensions"` after installing it.
 - Follow linked design-system tokens and `customInstructions` whenever present;
   explicit user instructions in the current turn still win.
+- Before generation, follow the creative-context reuse ladder in
+  `.agents/skills/creative-context/SKILL.md`: explicit request and current
+  design first, then a pinned/current pack, then narrow library search. Respect
+  `creative-context.contextMode: "off"` without silently restoring a pack.
 - For reusable design-system setup from Figma, connected code/GitHub, local
   code/design files, or optional `design.md`, use Builder-backed DSI indexing
   through `index-design-system-with-builder` or the Design System Setup `.fig`
@@ -468,6 +472,8 @@ Read the relevant skill before deeper work:
 - `responsive-breakpoints` for Framer-style breakpoint editing (single DOM,
   cascading width-scoped overrides, the managed breakpoints media block).
 - `design-systems` for tokens, brand extraction, and linked systems.
+- `creative-context` for cross-app source reuse, pinned packs, provenance, and
+  context opt-out.
 - `export-handoff` for HTML/PNG/SVG/ZIP/code handoff.
 - `full-app-build` for flag-gated fusion-backed full app building.
 - `shader-fills` for code-backed GLSL shader fills/effects (editable source

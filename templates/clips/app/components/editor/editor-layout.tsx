@@ -70,6 +70,7 @@ import { cn } from "@/lib/utils";
 import { computePeaks, type WaveformPeaks } from "@/lib/waveform-peaks";
 
 import { ChaptersEditor } from "./chapters-editor";
+import { defaultSelectionRange } from "./editor-selection";
 import { EditorToolbar } from "./editor-toolbar";
 import { StitchManager } from "./stitch-manager";
 import { ThumbnailPicker } from "./thumbnail-picker";
@@ -594,10 +595,8 @@ export function EditorLayout({ recordingId, className }: EditorLayoutProps) {
   }, [playheadMs, recordingId, selectionRange, split, trim, undo]);
 
   // Default selection window so the TrimHandles have something to render.
-  const effectiveSelection = selectionRange ?? {
-    startMs: 0,
-    endMs: durationMs || 1_000,
-  };
+  const effectiveSelection =
+    selectionRange ?? defaultSelectionRange(playheadMs, durationMs);
 
   if (playerDataQuery.isLoading) {
     return (

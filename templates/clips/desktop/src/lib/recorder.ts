@@ -81,6 +81,10 @@ import {
   type CapturedTranscript,
   type TranscriptionCapture,
 } from "./transcription-capture";
+import {
+  verifyFinalizeReceipt,
+  type FinalizeReceipt,
+} from "./upload-verification";
 import { shouldResampleVideoForUpload } from "./upload-video-stream";
 
 export type { LocalExportedFile } from "./local-export";
@@ -761,10 +765,11 @@ async function recoverReadyRecordingAfterFinalizeError({
     preferAuthenticated: true,
   });
   if (!recovered) return false;
-  await deleteBrowserRecordingBackup(recordingId).catch((err) => {
-    console.warn("[clips-recorder] recovered backup cleanup failed:", err);
-  });
-  return true;
+  await markBrowserRecordingBackupError(
+    recordingId,
+    "Upload completed, but its final receipt could not be verified. The local backup was kept.",
+  ).catch(() => {});
+  return false;
 }
 
 export async function listBrowserRecordingBackups(): Promise<
@@ -800,7 +805,7 @@ async function postBackupChunk(
   url: string,
   blob: Blob,
   authToken?: string,
-): Promise<void> {
+): Promise<FinalizeReceipt | null> {
   const res = await fetch(url, {
     method: "POST",
     headers: buildRetryHeaders(
@@ -810,13 +815,13 @@ async function postBackupChunk(
     credentials: "include",
     body: blob,
   });
+  const body = await res.text().catch(() => "");
   if (!res.ok) {
-    const body = await res.text().catch(() => "");
     throw new Error(
       `Upload retry failed (${res.status}): ${body.slice(0, 200)}`,
     );
   }
-  await res.text().catch(() => {});
+  return body ? (JSON.parse(body) as FinalizeReceipt) : null;
 }
 
 async function resetBrowserRecordingBackupUpload(
@@ -855,7 +860,7 @@ async function replayBrowserBackupToResumableSession(
   meta: BrowserRecordingBackupMeta,
   chunks: BrowserRecordingBackupChunk[],
   authToken?: string,
-): Promise<void> {
+): Promise<FinalizeReceipt | null> {
   // The backup is stored in raw MediaRecorder blobs, which have arbitrary
   // boundaries. A resumable provider needs every non-final request aligned,
   // so replay a logical file rather than reusing those blob boundaries.
@@ -894,7 +899,7 @@ async function replayBrowserBackupToResumableSession(
   // aligned it is intentionally empty; the route sends the provider's close
   // request with the bytes committed by the previous chunks.
   const finalBody = recording.slice(offset, recording.size, meta.mimeType);
-  await postBackupChunk(
+  return postBackupChunk(
     chunkUrl(meta.serverUrl, meta.recordingId, fullChunks, true, {
       total: String(totalPosts),
       mimeType: meta.mimeType,
@@ -938,11 +943,12 @@ export async function retryBrowserRecordingBackup(input: {
 
     if (uploadMode === "streaming") {
       try {
-        await replayBrowserBackupToResumableSession(
+        const receipt = await replayBrowserBackupToResumableSession(
           meta,
           validatedChunks,
           input.authToken,
         );
+        verifyFinalizeReceipt(receipt, meta);
       } catch (err) {
         if (
           await recoverReadyRecordingAfterFinalizeError({
@@ -993,11 +999,12 @@ export async function retryBrowserRecordingBackup(input: {
       },
     );
     try {
-      await postBackupChunk(
+      const receipt = await postBackupChunk(
         finalChunkUrl,
         new Blob([], { type: meta.mimeType }),
         input.authToken,
       );
+      verifyFinalizeReceipt(receipt, meta);
     } catch (err) {
       if (
         await recoverReadyRecordingAfterFinalizeError({
@@ -1057,7 +1064,6 @@ async function createServerRecording(
         hasCamera,
         hasAudio,
         spaceIds: [],
-        visibility: "public",
         ...(options?.requestStreaming
           ? {
               requestStreaming: true,
@@ -3317,15 +3323,23 @@ async function startRecordingInner(
     backupMeta = { ...backupMeta, ...patch };
     await putBrowserRecordingBackupMeta(backupMeta);
   };
-  persistBackupMeta().catch((err) => {
-    console.warn("[clips-recorder] local backup metadata failed:", err);
-  });
+  let backupFailure: Error | null = null;
+  const backupWrites = new Set<Promise<void>>();
+  let initialBackupWrite: Promise<void>;
+  initialBackupWrite = persistBackupMeta()
+    .catch((err) => {
+      backupFailure = err instanceof Error ? err : new Error(String(err));
+      console.warn("[clips-recorder] local backup metadata failed:", err);
+    })
+    .finally(() => {
+      backupWrites.delete(initialBackupWrite);
+    });
+  backupWrites.add(initialBackupWrite);
 
   // Every raw MediaRecorder blob is mirrored to IndexedDB on both upload paths.
   // If uploads fail the recording can still be recovered locally — replayed to
   // the server (the retry first resets any resumable session so replay routes
   // through the buffered chunk path) or exported to a local file.
-  const backupWrites = new Set<Promise<void>>();
   const backupChunkLocally = (blob: Blob): Promise<void> => {
     const backupIdx = backupChunkCount++;
     backupBytes += blob.size;
@@ -3347,6 +3361,7 @@ async function startRecordingInner(
           mimeType: chunkMimeType,
         });
       } catch (err) {
+        backupFailure = err instanceof Error ? err : new Error(String(err));
         console.warn("[clips-recorder] local chunk backup failed:", err);
       }
     })().finally(() => {
@@ -3687,22 +3702,25 @@ async function startRecordingInner(
             ? displaySettings.height
             : null;
       const finalMimeType = mimeType || backupMeta.mimeType || "video/webm";
-      await persistBackupMeta({
-        durationMs,
-        width,
-        height,
-        bytes: backupBytes,
-        hasAudio: uploadCombined.getAudioTracks().length > 0,
-        hasCamera: wantsCamera,
-        chunkCount: backupChunkCount,
-        mimeType: finalMimeType,
-        lastError: null,
-      }).catch((err) => {
+      try {
+        await persistBackupMeta({
+          durationMs,
+          width,
+          height,
+          bytes: backupBytes,
+          hasAudio: uploadCombined.getAudioTracks().length > 0,
+          hasCamera: wantsCamera,
+          chunkCount: backupChunkCount,
+          mimeType: finalMimeType,
+          lastError: null,
+        });
+      } catch (err) {
+        backupFailure = err instanceof Error ? err : new Error(String(err));
         console.warn(
           "[clips-recorder] local backup final metadata failed:",
           err,
         );
-      });
+      }
 
       // Null the data handler so the final MediaRecorder teardown
       // doesn't keep the closure (which captures `inflight`, the URL
@@ -3810,7 +3828,19 @@ async function startRecordingInner(
           // Opening the browser must not make the desktop look idle until every
           // trailing backup write and the final metadata are durable.
           ensureBackupDurable: async () => {
-            await Promise.allSettled([...backupWrites]);
+            await Promise.all([...backupWrites]);
+            if (backupFailure) throw backupFailure;
+            await persistBackupMeta({
+              durationMs,
+              width,
+              height,
+              bytes: backupBytes,
+              hasAudio: uploadCombined.getAudioTracks().length > 0,
+              hasCamera: wantsCamera,
+              chunkCount: backupChunkCount,
+              mimeType: finalMimeType,
+              lastError: null,
+            });
           },
           attemptFinalize: async () => {
             try {
@@ -3832,6 +3862,13 @@ async function startRecordingInner(
                   `Finalize failed (${finalRes.status}): ${bodyText.slice(0, 200)}`,
                 );
               }
+              const receipt = bodyText
+                ? (JSON.parse(bodyText) as FinalizeReceipt)
+                : null;
+              verifyFinalizeReceipt(receipt, {
+                bytes: backupBytes,
+                durationMs,
+              });
             } catch (err) {
               console.error("[clips-recorder] finalize fetch failed:", err);
               const error = err instanceof Error ? err : new Error(String(err));

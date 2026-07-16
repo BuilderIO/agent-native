@@ -9,6 +9,13 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
+import {
+  delimitUntrustedReference,
+  getGenerationCreativeContext,
+  recordGenerationCreativeContext,
+  resolveGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
+import type { CreativeContextReuseLabel } from "@agent-native/creative-context/types";
 import { eq, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -179,6 +186,18 @@ export default defineAction({
       .describe(
         "Set by A2A callers (e.g. 'slides', 'design'). Audit log filters on this.",
       ),
+    creativeContextRequestId: z
+      .string()
+      .optional()
+      .describe(
+        "Internal immutable creative-context request ID supplied by the Assets picker.",
+      ),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this image generation only without changing the saved preference.",
+      ),
     activateSessionAsset: z.coerce
       .boolean()
       .default(true)
@@ -211,6 +230,155 @@ export default defineAction({
     const session = args.sessionId
       ? await requireGenerationSessionInLibrary(args.sessionId, args.libraryId)
       : null;
+    const contextOff = args.contextModeOverride === "off";
+    const lineageAssetId = args.sourceAssetId ?? args.subjectAssetId;
+    const [lineageAsset] = lineageAssetId
+      ? await db
+          .select({
+            id: schema.assets.id,
+            libraryId: schema.assets.libraryId,
+          })
+          .from(schema.assets)
+          .where(eq(schema.assets.id, lineageAssetId))
+          .limit(1)
+      : [null];
+    if (
+      lineageAssetId &&
+      (!lineageAsset || lineageAsset.libraryId !== args.libraryId)
+    ) {
+      throw new Error("Source asset must belong to this asset library.");
+    }
+    const sessionCreativeContext =
+      session && !contextOff
+        ? await getGenerationCreativeContext(
+            {
+              appId: "assets",
+              artifactType: "generation-session",
+              artifactId: session.id,
+            },
+            { accessScope: "artifact-access-asserted" },
+          )
+        : null;
+    const pickerCreativeContext =
+      args.creativeContextRequestId && !contextOff
+        ? await getGenerationCreativeContext({
+            appId: "assets",
+            artifactType: "generation-request",
+            artifactId: args.creativeContextRequestId,
+          })
+        : null;
+    const lineageCreativeContext =
+      lineageAsset && !contextOff
+        ? await getGenerationCreativeContext(
+            {
+              appId: "assets",
+              artifactType: "asset",
+              artifactId: lineageAsset.id,
+            },
+            { accessScope: "artifact-access-asserted" },
+          )
+        : null;
+    if (
+      args.creativeContextRequestId &&
+      !contextOff &&
+      !pickerCreativeContext
+    ) {
+      throw new Error(
+        "The creative-context picker request is missing or inaccessible. Reopen the picker to preserve its generation context.",
+      );
+    }
+    if (session && !contextOff && !sessionCreativeContext) {
+      throw new Error(
+        "The generation session has no immutable creative-context snapshot. Create a new session before generating more images.",
+      );
+    }
+    if (
+      sessionCreativeContext &&
+      pickerCreativeContext &&
+      sessionCreativeContext.contextPackId !==
+        pickerCreativeContext.contextPackId
+    ) {
+      throw new Error(
+        "The picker and generation session use different creative-context snapshots.",
+      );
+    }
+    const immutableContexts = [
+      sessionCreativeContext,
+      pickerCreativeContext,
+      lineageCreativeContext,
+    ].filter((value) => value !== null);
+    if (
+      immutableContexts.some(
+        (value) => value.contextPackId !== immutableContexts[0]?.contextPackId,
+      )
+    ) {
+      throw new Error(
+        "The generation session, picker, and source asset use different creative-context snapshots.",
+      );
+    }
+    const storedCreativeContext =
+      sessionCreativeContext ??
+      pickerCreativeContext ??
+      lineageCreativeContext ??
+      null;
+    const creativeContext = contextOff
+      ? await resolveGenerationCreativeContext({
+          role: "assets",
+          contextModeOverride: "off",
+        })
+      : storedCreativeContext?.contextPackId
+        ? await resolveGenerationCreativeContext({
+            role: "assets",
+            contextPackId: storedCreativeContext.contextPackId,
+            contextPackSource: "inherited",
+          })
+        : storedCreativeContext
+          ? {
+              contextMode: storedCreativeContext.contextMode,
+              contextPackId: null,
+              reuseLabels: [],
+              results: [],
+            }
+          : await resolveGenerationCreativeContext({
+              query: args.prompt,
+              role: "assets",
+            });
+    const creativeContextText = creativeContext.results
+      .map((result) => `${result.kind}: ${result.title}\n${result.excerpt}`)
+      .join("\n\n")
+      .split("<<<UNTRUSTED_REFERENCE>>>")
+      .join("")
+      .split("<<<END_UNTRUSTED_REFERENCE>>>")
+      .join("")
+      .trim();
+    const creativeContextInstructions = creativeContextText
+      ? delimitUntrustedReference(creativeContextText)
+      : "";
+    const creativeContextReuseLabels =
+      creativeContext.reuseLabels as CreativeContextReuseLabel[];
+    const creativeContextProvenance = {
+      contextMode: creativeContext.contextMode,
+      contextPackId: creativeContext.contextPackId,
+      reuseLabels: creativeContextReuseLabels,
+    };
+    const elementProvenanceFor = (elementId: string) =>
+      creativeContextProvenance.reuseLabels.length
+        ? creativeContextProvenance.reuseLabels.map((label) => ({
+            elementId: label.elementId ?? elementId,
+            influence: label.influence ?? ("reference-conditioned" as const),
+            ...(label.itemId ? { itemId: label.itemId } : {}),
+            ...(label.itemVersionId
+              ? { itemVersionId: label.itemVersionId }
+              : {}),
+            label: label.label,
+          }))
+        : [
+            {
+              elementId,
+              influence: "generated" as const,
+              label: "Net-new image",
+            },
+          ];
     if (
       session?.presetId &&
       args.presetId &&
@@ -516,7 +684,11 @@ export default defineAction({
     const compiledPrompt = compilePrompt({
       libraryTitle: library.title,
       styleBrief,
-      customInstructions: [library.customInstructions, presetInstructions]
+      customInstructions: [
+        library.customInstructions,
+        presetInstructions,
+        creativeContextInstructions,
+      ]
         .filter((item) => item?.trim())
         .join("\n\n"),
       prompt: promptForRun,
@@ -618,6 +790,7 @@ export default defineAction({
       sessionId: session?.id,
       referenceSelection,
       settingsUsed,
+      creativeContext: creativeContextProvenance,
     };
     await db.insert(schema.assetGenerationRuns).values({
       id: runId,
@@ -639,6 +812,13 @@ export default defineAction({
       orgId,
       metadata: stringifyJson(baseMetadata),
       createdAt: now,
+    });
+    await recordGenerationCreativeContext({
+      appId: "assets",
+      artifactType: "generation-run",
+      artifactId: runId,
+      ...creativeContextProvenance,
+      elementProvenance: elementProvenanceFor(runId),
     });
 
     await upsertVariantSlot({
@@ -740,6 +920,7 @@ export default defineAction({
               provider: generated.provider,
               providerGenerationId: generated.providerGenerationId,
               creditsCharged: generated.creditsCharged,
+              creativeContext: creativeContextProvenance,
             }),
           })
           .where(eq(schema.assetGenerationRuns.id, runId));
@@ -748,6 +929,7 @@ export default defineAction({
           dismissed: true,
           artifactType: "image",
           Artifacts: [],
+          ...creativeContextProvenance,
         };
       }
       const asset = await withToolActivity(
@@ -792,10 +974,18 @@ export default defineAction({
               sourceUrl: generated.sourceUrl,
               providerGenerationId: generated.providerGenerationId,
               creditsCharged: generated.creditsCharged,
+              creativeContext: creativeContextProvenance,
             },
             category,
           }),
       );
+      await recordGenerationCreativeContext({
+        appId: "assets",
+        artifactType: "asset",
+        artifactId: asset.id,
+        ...creativeContextProvenance,
+        elementProvenance: elementProvenanceFor(asset.id),
+      });
       if (session) {
         const itemCreatedAt = nowIso();
         await db.insert(schema.assetGenerationSessionItems).values({
@@ -841,6 +1031,7 @@ export default defineAction({
             provider: generated.provider,
             providerGenerationId: generated.providerGenerationId,
             creditsCharged: generated.creditsCharged,
+            creativeContext: creativeContextProvenance,
           }),
         })
         .where(eq(schema.assetGenerationRuns.id, runId));
@@ -868,6 +1059,7 @@ export default defineAction({
         Artifacts: [
           `Image: ${serialized.url} (ID: ${asset.id}, Run: ${runId})`,
         ],
+        ...creativeContextProvenance,
       };
     } catch (err) {
       const message =

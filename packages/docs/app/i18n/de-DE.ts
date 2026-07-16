@@ -39,6 +39,7 @@ const deDE = {
   theme: {
     light: "hell",
     dark: "dunkel",
+    toggle: "Design wechseln",
     label: "Design: {{theme}}",
   },
   docs: {

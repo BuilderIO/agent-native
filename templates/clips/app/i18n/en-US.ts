@@ -161,6 +161,9 @@ const messages = {
     chapterQueued: "Chapter request queued",
     fillerQueued: "Filler-word removal queued",
     silenceQueued: "Silence removal queued",
+    silenceWorking: "Removing silences…",
+    silenceCompleted: "Silence removal complete",
+    silenceFailed: "Silence removal failed",
     workflowQueued: "Workflow request queued",
     pageTitle: "Clip recording · Clips",
     loomMissingUrl: "This Loom recording is missing its source URL.",
@@ -536,6 +539,9 @@ const messages = {
     brandingUpdated: "Branding updated",
     saveFailed: "Failed to save",
     organizationName: "Organization name",
+    defaultVisibility: "Default recording visibility",
+    defaultVisibilityDescription:
+      "Applied to new recordings unless you choose a different visibility.",
     brandColor: "Brand color",
     brandColorPicker: "Brand color picker",
     useColor: "Use {{color}}",
@@ -602,10 +608,10 @@ const messages = {
     pageTitle: "Join team · Clips",
   },
   settings: {
-    openAgentSettings: "Open agent settings",
+    openAgentSettings: "Open agent workspace",
     agentDescription:
-      "Open the agent sidebar settings for model, API keys, automations, voice, and other agent controls.",
-    agentTitle: "Agent settings",
+      "Open the agent workspace for model, API keys, automations, voice, and other agent controls.",
+    agentTitle: "Agent workspace",
     title: "Settings",
     pageTitle: "Settings · Clips",
     intro: "Preferences and connected services for this Clips workspace.",

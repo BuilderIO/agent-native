@@ -224,6 +224,9 @@ const messages = {
     autoChapters: "capítulos automáticos",
     removeFillerWords: "Eliminar palabras de relleno",
     removeSilences: "Eliminar silencios (>1,2s)",
+    silenceWorking: "Eliminando silencios…",
+    silenceCompleted: "Eliminación de silencios completada",
+    silenceFailed: "No se pudieron eliminar los silencios",
     generatePrSummary: "Generar resumen de relaciones públicas",
     generateSop: "Generar SOP",
     generateSopTooltip:
@@ -552,6 +555,9 @@ const messages = {
     brandingUpdated: "Marca actualizada",
     saveFailed: "No se pudo guardar",
     organizationName: "Nombre de la organización",
+    defaultVisibility: "Visibilidad predeterminada de las nuevas grabaciones",
+    defaultVisibilityDescription:
+      "Se aplica a las nuevas grabaciones, a menos que elijas otra visibilidad.",
     brandColor: "Color de la marca",
     brandColorPicker: "Selector de color de marca",
     useColor: "Utilice {{color}}",

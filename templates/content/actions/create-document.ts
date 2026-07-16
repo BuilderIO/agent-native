@@ -6,6 +6,10 @@ import {
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import {
+  recordGenerationCreativeContext,
+  validateGenerationCreativeContext,
+} from "@agent-native/creative-context/server";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
@@ -36,6 +40,34 @@ function assertCanWriteAppState() {
   );
 }
 
+const reuseLabelSchema = z
+  .object({
+    itemId: z.string().min(1).optional(),
+    itemVersionId: z.string().min(1).optional(),
+    kind: z.string().min(1),
+    label: z.string().min(1),
+    dataRole: z.literal("untrusted-reference").default("untrusted-reference"),
+    elementId: z.string().min(1).optional(),
+    influence: z
+      .enum(["reused", "adapted", "reference-conditioned", "generated"])
+      .optional(),
+  })
+  .superRefine((label, context) => {
+    const influence = label.influence ?? "reference-conditioned";
+    if (Boolean(label.itemId) !== Boolean(label.itemVersionId)) {
+      context.addIssue({
+        code: "custom",
+        message: "itemId and itemVersionId must be provided together",
+      });
+    }
+    if (influence !== "generated" && !label.itemId) {
+      context.addIssue({
+        code: "custom",
+        message: "Only generated labels may omit context item ids",
+      });
+    }
+  });
+
 export default defineAction({
   description: "Create a new document.",
   schema: z.object({
@@ -53,6 +85,21 @@ export default defineAction({
       ),
     parentId: z.string().nullish().describe("Parent document ID for nesting"),
     icon: z.string().optional().describe("Emoji icon"),
+    contextPackId: z
+      .string()
+      .optional()
+      .describe("Immutable pack returned by pre-generation context search"),
+    contextModeOverride: z
+      .literal("off")
+      .optional()
+      .describe(
+        "Disable Creative Context for this document generation only without changing the saved preference.",
+      ),
+    reuseLabels: z
+      .array(reuseLabelSchema)
+      .optional()
+      .default([])
+      .describe("Exact context item versions used to draft this document"),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -66,10 +113,45 @@ export default defineAction({
     }),
   },
   run: async (args) => {
+    const validatedCreativeContext = await validateGenerationCreativeContext({
+      contextPackId: args.contextPackId,
+      contextModeOverride: args.contextModeOverride,
+      reuseLabels: args.reuseLabels,
+    });
+    const creativeContextProvenance = {
+      contextMode: validatedCreativeContext.contextMode,
+      contextPackId: validatedCreativeContext.contextPackId,
+      reuseLabels: validatedCreativeContext.reuseLabels,
+    };
+    const elementProvenanceFor = (documentId: string) =>
+      creativeContextProvenance.reuseLabels.length
+        ? creativeContextProvenance.reuseLabels.map((label) => ({
+            elementId: label.elementId ?? documentId,
+            influence: label.influence ?? ("reference-conditioned" as const),
+            ...(label.itemId ? { itemId: label.itemId } : {}),
+            ...(label.itemVersionId
+              ? { itemVersionId: label.itemVersionId }
+              : {}),
+            label: label.label,
+          }))
+        : [
+            {
+              elementId: documentId,
+              influence: "generated" as const,
+              label: "Net-new document",
+            },
+          ];
     if (await isContentLocalFileMode()) {
       assertCanWriteAppState();
       const doc = await createLocalFileDocument(args);
       await writeAppState("refresh-signal", { ts: Date.now() });
+      await recordGenerationCreativeContext({
+        appId: "content",
+        artifactType: "document",
+        artifactId: doc.id,
+        ...creativeContextProvenance,
+        elementProvenance: elementProvenanceFor(doc.id),
+      });
       return {
         ...doc,
         urlPath: `/page/${doc.id}`,
@@ -78,6 +160,7 @@ export default defineAction({
           view: "editor",
           params: { documentId: doc.id },
         }),
+        ...creativeContextProvenance,
       };
     }
 
@@ -198,6 +281,13 @@ export default defineAction({
       );
 
     await writeAppState("refresh-signal", { ts: Date.now() });
+    await recordGenerationCreativeContext({
+      appId: "content",
+      artifactType: "document",
+      artifactId: doc.id,
+      ...creativeContextProvenance,
+      elementProvenance: elementProvenanceFor(doc.id),
+    });
 
     return {
       id: doc.id,
@@ -221,6 +311,7 @@ export default defineAction({
       canManage: inheritedRole === "owner" || inheritedRole === "admin",
       createdAt: doc.createdAt,
       updatedAt: doc.updatedAt,
+      ...creativeContextProvenance,
     };
   },
   link: ({ result }) => {

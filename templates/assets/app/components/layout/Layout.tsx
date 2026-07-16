@@ -13,6 +13,7 @@ import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_TOKEN_QUERY_PARAM,
 } from "@agent-native/core/shared";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -170,6 +171,7 @@ export function Layout({ children }: LayoutProps) {
           <GenerationResults threadId={threadId} />
         )}
         imageModelMenu={imageModelMenu}
+        composerSlot={<CreativeContextComposerChip />}
       >
         {appFrame}
       </AgentSidebar>

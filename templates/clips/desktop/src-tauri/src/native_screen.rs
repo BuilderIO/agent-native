@@ -3892,6 +3892,7 @@ async fn upload_prepared_recording_file(
                 has_camera,
                 upload_mode,
                 false,
+                None,
                 buffer,
             )
             .await?;
@@ -3934,6 +3935,7 @@ async fn upload_prepared_recording_file(
             has_camera,
             upload_mode,
             prepared.locally_transcoded,
+            Some(total_bytes),
             final_body,
         )
         .await?;
@@ -3964,6 +3966,7 @@ async fn upload_prepared_recording_file(
                 has_camera,
                 upload_mode,
                 false,
+                None,
                 buffer,
             )
             .await?;
@@ -4000,6 +4003,7 @@ async fn upload_prepared_recording_file(
             has_camera,
             upload_mode,
             prepared.locally_transcoded,
+            Some(total_bytes),
             Vec::new(),
         )
         .await?;
@@ -4127,6 +4131,7 @@ async fn send_upload_post(
     has_camera: bool,
     upload_mode: NativeUploadMode,
     locally_transcoded: bool,
+    expected_source_bytes: Option<u64>,
     body: Vec<u8>,
 ) -> Result<(), String> {
     let body_len = body.len();
@@ -4177,11 +4182,88 @@ async fn send_upload_post(
             body.chars().take(400).collect::<String>()
         ));
     }
+    if is_final {
+        verify_native_finalize_receipt(
+            &body,
+            expected_source_bytes.ok_or_else(|| {
+                "Clip may be incomplete: final upload had no local byte count".to_string()
+            })?,
+            duration_ms.ok_or_else(|| {
+                "Clip may be incomplete: final upload had no local duration".to_string()
+            })?,
+        )?;
+    }
     eprintln!(
         "[clips-tray] native upload post ok recording={recording_id} mode={} index={index}/{total} final={is_final}",
         upload_mode.label()
     );
     Ok(())
+}
+
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct NativeFinalizeReceipt {
+    ok: bool,
+    finalized: bool,
+    status: Option<String>,
+    source_size_bytes: Option<u64>,
+    duration_ms: Option<u128>,
+}
+
+fn verify_native_finalize_receipt(
+    body: &str,
+    expected_source_bytes: u64,
+    expected_duration_ms: u128,
+) -> Result<(), String> {
+    let receipt: NativeFinalizeReceipt = serde_json::from_str(body).map_err(|_| {
+        "Clip may be incomplete. The final upload receipt was unreadable; the local backup was kept."
+            .to_string()
+    })?;
+    if !receipt.ok || !receipt.finalized || receipt.status.as_deref() != Some("ready") {
+        return Err(
+            "Clip may be incomplete. Finalization was not confirmed; the local backup was kept."
+                .to_string(),
+        );
+    }
+    if receipt.source_size_bytes != Some(expected_source_bytes) {
+        return Err(format!(
+            "Clip may be incomplete. The server did not confirm all {expected_source_bytes} source bytes; the local backup was kept."
+        ));
+    }
+    let actual_duration_ms = receipt.duration_ms.unwrap_or(0);
+    let tolerance_ms = 5_000_u128.max(expected_duration_ms / 50);
+    if actual_duration_ms == 0 || actual_duration_ms.abs_diff(expected_duration_ms) > tolerance_ms {
+        return Err(
+            "Clip may be incomplete. The uploaded duration did not match the local recording; the local backup was kept."
+                .to_string(),
+        );
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod native_finalize_receipt_tests {
+    use super::verify_native_finalize_receipt;
+
+    #[test]
+    fn accepts_only_matching_ready_receipts() {
+        let ready = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":581614005,"durationMs":1593259}"#;
+        assert!(verify_native_finalize_receipt(ready, 581_614_005, 1_592_773).is_ok());
+
+        let short = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":581614005,"durationMs":483000}"#;
+        assert!(
+            verify_native_finalize_receipt(short, 581_614_005, 1_592_773)
+                .unwrap_err()
+                .contains("duration")
+        );
+
+        let partial = r#"{"ok":true,"finalized":true,"status":"ready","sourceSizeBytes":183000000,"durationMs":1592773}"#;
+        assert!(
+            verify_native_finalize_receipt(partial, 581_614_005, 1_592_773)
+                .unwrap_err()
+                .contains("581614005")
+        );
+    }
 }
 
 fn upload_url(

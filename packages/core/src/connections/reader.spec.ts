@@ -257,7 +257,7 @@ describe("provider reader registry", () => {
           providerId: "notion",
           operations: {
             search: async (_params, context) => {
-              await context.requireCredentials();
+              await context.requireCredentials(["NOTION_API_KEY"]);
               return {
                 providerId: "notion",
                 operation: "search",

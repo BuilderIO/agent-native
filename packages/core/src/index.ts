@@ -299,6 +299,9 @@ export {
   type WorkspaceConnectionPublicCredentialRef,
   type WorkspaceConnectionStatus,
   workspaceConnectionIsAvailableToApp,
+  registerWorkspaceConnectionLifecycleListener,
+  type WorkspaceConnectionLifecycleEvent,
+  type WorkspaceConnectionLifecycleListener,
 } from "./workspace-connections/index.js";
 
 // Reusable workspace connection provider catalog

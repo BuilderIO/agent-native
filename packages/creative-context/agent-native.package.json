@@ -1,0 +1,104 @@
+{
+  "manifestVersion": 1,
+  "name": "@agent-native/creative-context",
+  "actions": [
+    "confirm-canonical-logo",
+    "continue-context-import",
+    "creative-context-a2a",
+    "get-brand-profile",
+    "get-context-import-status",
+    "get-context-item",
+    "get-context-pack",
+    "infer-brand-dna",
+    "list-canonical-logo-candidates",
+    "list-context-connections",
+    "list-context-packs",
+    "list-context-sources",
+    "list-context-suggestions",
+    "manage-brand-profile",
+    "manage-context-pack",
+    "manage-context-source",
+    "manage-layout-template",
+    "preview-context-import",
+    "process-context-purge",
+    "propose-brand-dna",
+    "propose-canonical-logo",
+    "publish-brand-dna",
+    "recommend-context-roots",
+    "record-context-feedback",
+    "review-context-items",
+    "run-embedding-bakeoff",
+    "search-creative-context",
+    "set-brand-dna",
+    "start-context-import",
+    "start-context-enrichment"
+  ],
+  "schemaEntryPoint": "@agent-native/creative-context/schema",
+  "docs": {
+    "llms": "docs/llms.txt",
+    "llmsFull": "docs/llms-full.txt",
+    "skills": ["creative-context"]
+  },
+  "requiredSecrets": [
+    {
+      "key": "CREATIVE_CONTEXT_A2A_KEY",
+      "label": "Isolated Creative Context A2A signing key",
+      "optional": true
+    },
+    {
+      "key": "GOOGLE_CLIENT_ID",
+      "label": "Google OAuth client ID for Drive and Slides",
+      "optional": true
+    },
+    {
+      "key": "GOOGLE_CLIENT_SECRET",
+      "label": "Google OAuth client secret for Drive and Slides",
+      "optional": true
+    },
+    {
+      "key": "FIGMA_CLIENT_ID",
+      "label": "Figma OAuth client ID",
+      "optional": true
+    },
+    {
+      "key": "FIGMA_CLIENT_SECRET",
+      "label": "Figma OAuth client secret",
+      "optional": true
+    },
+    {
+      "key": "FIGMA_ACCESS_TOKEN",
+      "label": "Figma personal access token fallback",
+      "optional": true
+    },
+    {
+      "key": "NOTION_CLIENT_ID",
+      "label": "Notion OAuth client ID",
+      "optional": true
+    },
+    {
+      "key": "NOTION_CLIENT_SECRET",
+      "label": "Notion OAuth client secret",
+      "optional": true
+    },
+    {
+      "key": "GEMINI_API_KEY",
+      "label": "Gemini multimodal embedding key",
+      "optional": true
+    },
+    {
+      "key": "COHERE_API_KEY",
+      "label": "Cohere multimodal embedding key",
+      "optional": true
+    },
+    {
+      "key": "VOYAGE_API_KEY",
+      "label": "Voyage multimodal embedding key",
+      "optional": true
+    }
+  ],
+  "peerProviders": ["builder-browser", "figma", "google-drive", "notion"],
+  "eject": {
+    "sourceRoot": "src",
+    "targetDirectory": "packages/creative-context"
+  }
+}

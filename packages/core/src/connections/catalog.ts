@@ -22,6 +22,7 @@ export type WorkspaceConnectionTemplateUse =
 export type WorkspaceConnectionProviderId =
   | "slack"
   | "github"
+  | "figma"
   | "notion"
   | "gmail"
   | "google_drive"
@@ -44,6 +45,13 @@ export interface WorkspaceConnectionProvider {
   credentialKeys: readonly WorkspaceConnectionCredentialKey[];
   capabilities: readonly WorkspaceConnectionCapability[];
   recommendedTemplateUses: readonly WorkspaceConnectionTemplateUse[];
+  oauth?: {
+    provider: string;
+    authorizationUrl: string;
+    tokenUrl: string;
+    refreshUrl?: string;
+    scopes: readonly string[];
+  };
 }
 
 export interface ListWorkspaceConnectionProvidersOptions {
@@ -93,19 +101,47 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     recommendedTemplateUses: ["brain", "analytics", "dispatch"],
   }),
   defineWorkspaceConnectionProvider({
+    id: "figma",
+    label: "Figma",
+    description:
+      "Design files, frames, components, rendered previews, and library context for creative workflows.",
+    credentialKeys: [
+      {
+        key: "FIGMA_ACCESS_TOKEN",
+        label: "Figma personal access token (fallback)",
+        description:
+          "Optional fallback for local or individual use. Workspace OAuth is preferred.",
+        required: false,
+      },
+    ],
+    oauth: {
+      provider: "figma",
+      authorizationUrl: "https://www.figma.com/oauth",
+      tokenUrl: "https://api.figma.com/v1/oauth/token",
+      refreshUrl: "https://api.figma.com/v1/oauth/token",
+      scopes: [
+        "current_user:read",
+        "file_content:read",
+        "file_metadata:read",
+        "projects:read",
+      ],
+    },
+    capabilities: ["search", "import", "docs"],
+    recommendedTemplateUses: ["brain", "design", "slides", "content"],
+  }),
+  defineWorkspaceConnectionProvider({
     id: "notion",
     label: "Notion",
     description:
       "Workspace docs, wikis, pages, and databases for knowledge capture and search.",
-    credentialKeys: [
-      {
-        key: "NOTION_API_KEY",
-        label: "Notion API key",
-        description:
-          "Integration secret with access to the pages or databases shared with the integration.",
-        required: true,
-      },
-    ],
+    credentialKeys: [],
+    oauth: {
+      provider: "notion",
+      authorizationUrl: "https://api.notion.com/v1/oauth/authorize",
+      tokenUrl: "https://api.notion.com/v1/oauth/token",
+      refreshUrl: "https://api.notion.com/v1/oauth/token",
+      scopes: [],
+    },
     capabilities: ["search", "import", "docs"],
     recommendedTemplateUses: ["brain", "content", "dispatch"],
   }),
@@ -148,6 +184,15 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     ],
     capabilities: ["search", "import", "docs"],
     recommendedTemplateUses: ["brain", "content", "slides", "dispatch"],
+    oauth: {
+      provider: "google",
+      authorizationUrl: "https://accounts.google.com/o/oauth2/v2/auth",
+      tokenUrl: "https://oauth2.googleapis.com/token",
+      scopes: [
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+        "https://www.googleapis.com/auth/presentations.readonly",
+      ],
+    },
   }),
   defineWorkspaceConnectionProvider({
     id: "hubspot",

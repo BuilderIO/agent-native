@@ -64,7 +64,6 @@ import {
   loomEmbedUrlForRecording,
 } from "../../../../shared/loom.js";
 import { getDb, schema } from "../../../db/index.js";
-import { builderCompressedMediaUrl } from "../../../lib/builder-media-compression.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import { verifySharePassword } from "../../../lib/share-password.js";
 
@@ -89,8 +88,6 @@ const PROXIED_HEADER_NAMES = [
 const PROVIDER_MEDIA_FETCH_TIMEOUT_MS = 30_000;
 const PROTECTED_MEDIA_ACCESS_TTL_SECONDS = 6 * 60 * 60;
 const PROTECTED_MEDIA_COOKIE_PREFIX = "clips_media_";
-const COMPRESSED_BUILDER_MEDIA_MISS_TTL_MS = 5_000;
-const compressedBuilderMediaMisses = new Map<string, number>();
 
 function appPath(path: string): string {
   if (!path.startsWith("/")) return path;
@@ -148,42 +145,6 @@ function isRecursiveVideoRouteUrl(value: string, recordingId: string): boolean {
   } catch {
     return false;
   }
-}
-
-function shouldSkipCompressedBuilderMediaProbe(
-  compressedSourceUrl: string,
-): boolean {
-  const expiresAt = compressedBuilderMediaMisses.get(compressedSourceUrl);
-  if (!expiresAt) return false;
-  if (expiresAt <= Date.now()) {
-    compressedBuilderMediaMisses.delete(compressedSourceUrl);
-    return false;
-  }
-  return true;
-}
-
-function rememberCompressedBuilderMediaMiss(compressedSourceUrl: string): void {
-  if (compressedBuilderMediaMisses.size > 1_000) {
-    for (const [url, expiresAt] of compressedBuilderMediaMisses) {
-      if (expiresAt <= Date.now()) compressedBuilderMediaMisses.delete(url);
-    }
-  }
-  compressedBuilderMediaMisses.set(
-    compressedSourceUrl,
-    Date.now() + COMPRESSED_BUILDER_MEDIA_MISS_TTL_MS,
-  );
-}
-
-function shouldFallbackToOriginalMedia(
-  upstream: Response | { error: string; status: number },
-): boolean {
-  return upstream.status >= 500 || [403, 404, 416].includes(upstream.status);
-}
-
-function shouldRememberCompressedBuilderMediaMiss(
-  upstream: Response | { error: string; status: number },
-): boolean {
-  return upstream.status >= 500 || [403, 404].includes(upstream.status);
 }
 
 async function fetchProviderMedia(
@@ -492,31 +453,7 @@ export default defineEventHandler(async (event: H3Event) => {
 
         let upstream: Response | { error: string; status: number };
         try {
-          const compressedSourceUrl = builderCompressedMediaUrl(sourceUrl);
-          if (
-            compressedSourceUrl &&
-            !shouldSkipCompressedBuilderMediaProbe(compressedSourceUrl)
-          ) {
-            try {
-              upstream = await fetchProviderMedia(
-                compressedSourceUrl,
-                rangeHeader,
-              );
-            } catch (err) {
-              upstream = {
-                status: statusCodeForProviderFetchError(err),
-                error: messageForProviderFetchError(err),
-              };
-            }
-            if (shouldRememberCompressedBuilderMediaMiss(upstream)) {
-              rememberCompressedBuilderMediaMiss(compressedSourceUrl);
-            }
-            if (shouldFallbackToOriginalMedia(upstream)) {
-              upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
-            }
-          } else {
-            upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
-          }
+          upstream = await fetchProviderMedia(sourceUrl, rangeHeader);
         } catch (err) {
           setResponseStatus(event, statusCodeForProviderFetchError(err));
           return { error: messageForProviderFetchError(err) };

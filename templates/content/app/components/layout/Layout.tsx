@@ -1,5 +1,6 @@
 import { AgentSidebar, getBrowserTabId, useT } from "@agent-native/core/client";
 import { InvitationBanner } from "@agent-native/core/client/org";
+import { CreativeContextComposerChip } from "@agent-native/creative-context/client";
 import { HeaderActionsProvider } from "@agent-native/toolkit/app-shell";
 import { IconMenu2 } from "@tabler/icons-react";
 import {
@@ -174,6 +175,7 @@ export function Layout({ children }: LayoutProps) {
           ]}
           scope={documentScope}
           browserTabId={getBrowserTabId()}
+          composerSlot={<CreativeContextComposerChip />}
         >
           <main
             className="agent-native-app-main relative flex min-w-0 min-h-0 flex-1 flex-col overflow-x-hidden"

@@ -17,6 +17,7 @@ describe("workspace connection provider catalog", () => {
     ).toEqual([
       "slack",
       "github",
+      "figma",
       "notion",
       "gmail",
       "google_drive",
@@ -25,6 +26,26 @@ describe("workspace connection provider catalog", () => {
       "clips",
       "generic",
     ]);
+  });
+
+  it("publishes read-only OAuth metadata for creative context providers", () => {
+    expect(getWorkspaceConnectionProvider("figma")?.oauth).toMatchObject({
+      provider: "figma",
+      refreshUrl: "https://api.figma.com/v1/oauth/token",
+      scopes: expect.arrayContaining([
+        "file_content:read",
+        "file_metadata:read",
+        "projects:read",
+      ]),
+    });
+    expect(
+      getWorkspaceConnectionProvider("google_drive")?.oauth?.scopes,
+    ).toEqual(
+      expect.arrayContaining([
+        "https://www.googleapis.com/auth/drive.metadata.readonly",
+        "https://www.googleapis.com/auth/presentations.readonly",
+      ]),
+    );
   });
 
   it("looks up providers and narrows provider ids", () => {

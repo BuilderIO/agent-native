@@ -6,6 +6,8 @@ const createSsrfSafeDispatcher = vi.fn();
 const listOAuthAccountsByOwner = vi.fn();
 const saveOAuthTokens = vi.fn();
 const deleteOAuthTokens = vi.fn();
+const resolveWorkspaceConnectionForApp = vi.fn();
+const resolveSecret = vi.fn();
 
 vi.mock("../credentials/index.js", () => ({
   resolveCredential,
@@ -21,6 +23,15 @@ vi.mock("../oauth-tokens/index.js", () => ({
   listOAuthAccountsByOwner,
   saveOAuthTokens,
 }));
+
+vi.mock("../workspace-connections/store.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../workspace-connections/store.js")
+  >()),
+  resolveWorkspaceConnectionForApp,
+}));
+
+vi.mock("../server/credential-provider.js", () => ({ resolveSecret }));
 
 const { createProviderApiRuntime } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
@@ -39,8 +50,18 @@ describe("provider API runtime", () => {
     isBlockedExtensionUrlWithDns.mockReset();
     createSsrfSafeDispatcher.mockReset();
     listOAuthAccountsByOwner.mockReset();
+    listOAuthAccountsByOwner.mockResolvedValue([]);
     saveOAuthTokens.mockReset();
     deleteOAuthTokens.mockReset();
+    resolveWorkspaceConnectionForApp.mockReset();
+    resolveSecret.mockReset();
+    resolveSecret.mockResolvedValue(null);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: false,
+      connection: null,
+      appAccess: null,
+      reason: "No matching workspace connection.",
+    });
     resetProviderQuotaStateForTests();
     vi.unstubAllEnvs();
     vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "0");
@@ -97,6 +118,421 @@ describe("provider API runtime", () => {
       string
     >;
     expect(headers).not.toHaveProperty("Authorization");
+  });
+
+  it("prefers Figma OAuth and falls back to a scoped PAT", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock.mockImplementation(
+      async () =>
+        new Response(JSON.stringify({ name: "Example" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+    );
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "FIGMA_ACCESS_TOKEN" ? "figma-test-example" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "design",
+      providerIds: ["figma"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({ provider: "figma", path: "/files/example" });
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toMatchObject({
+      "X-Figma-Token": "figma-test-example",
+    });
+
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "figma-user",
+        displayName: "Figma user",
+        tokens: { access_token: "figma-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "figma-connection",
+        label: "Figma user",
+        accountId: "figma-user",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    await runtime.executeRequest({
+      provider: "figma",
+      path: "/files/example",
+      connectionId: "figma-connection",
+    });
+    const oauthHeaders = fetchMock.mock.calls.at(-1)?.[1]?.headers as Record<
+      string,
+      string
+    >;
+    expect(oauthHeaders.Authorization).toBe("Bearer figma-oauth-example");
+    expect(oauthHeaders).not.toHaveProperty("X-Figma-Token");
+  });
+
+  it("never falls back to an admin Figma token after an explicit connection fails", async () => {
+    resolveCredential.mockImplementation(async (key: string) =>
+      key === "FIGMA_ACCESS_TOKEN" ? "admin-token-must-not-be-used" : null,
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "design",
+      providerIds: ["figma"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "figma",
+        path: "/files/explicit-connection",
+        connectionId: "figma-denied",
+      }),
+    ).rejects.toThrow(/No matching workspace connection/i);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+  });
+
+  it("refreshes Figma OAuth with the v1 token endpoint and preserves rotated refresh tokens", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "FIGMA_CLIENT_ID"
+        ? "figma-client-id"
+        : key === "FIGMA_CLIENT_SECRET"
+          ? "figma-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "figma-user",
+        displayName: "Figma user",
+        tokens: {
+          access_token: "expired-figma-access",
+          refresh_token: "figma-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "figma-connection",
+        label: "Figma user",
+        accountId: "figma-user",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "figma-access-new",
+            refresh_token: "figma-refresh-rotated",
+            expires_in: 3600,
+            token_type: "bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ name: "Design system" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "design",
+      providerIds: ["figma"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "figma",
+      path: "/files/example",
+      connectionId: "figma-connection",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.figma.com/v1/oauth/token",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "grant_type=refresh_token",
+    );
+    expect(String(fetchMock.mock.calls[0]?.[1]?.body)).toContain(
+      "refresh_token=figma-refresh-old",
+    );
+    expect(resolveSecret).toHaveBeenCalledWith("FIGMA_CLIENT_ID");
+    expect(resolveSecret).toHaveBeenCalledWith("FIGMA_CLIENT_SECRET");
+    expect(fetchMock.mock.calls[1]?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer figma-access-new",
+    });
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "figma",
+      "figma-user",
+      expect.objectContaining({
+        access_token: "figma-access-new",
+        refresh_token: "figma-refresh-rotated",
+      }),
+      "ada@example.com",
+    );
+  });
+
+  it("bounds Figma refresh responses and never exposes provider error detail", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "FIGMA_CLIENT_ID"
+        ? "figma-client-id"
+        : key === "FIGMA_CLIENT_SECRET"
+          ? "figma-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "figma-user",
+        displayName: "Figma user",
+        tokens: {
+          access_token: "expired-figma-access",
+          refresh_token: "figma-refresh",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "figma-connection",
+        label: "Figma user",
+        accountId: "figma-user",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(JSON.stringify({ message: "sensitive provider detail" }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "design",
+      providerIds: ["figma"],
+      getCredentialContext: () => credentialContext,
+    });
+    const request = runtime.executeRequest({
+      provider: "figma",
+      path: "/files/example",
+      connectionId: "figma-connection",
+    });
+
+    await expect(request).rejects.toThrow("Figma OAuth refresh failed (401).");
+    await expect(request).rejects.not.toThrow("sensitive provider detail");
+    expect(fetchMock.mock.calls[0]?.[1]?.signal).toBeInstanceOf(AbortSignal);
+
+    fetchMock.mockResolvedValueOnce(
+      new Response("{}", {
+        status: 200,
+        headers: { "content-length": String(300 * 1024) },
+      }),
+    );
+    await expect(
+      runtime.executeRequest({
+        provider: "figma",
+        path: "/files/example",
+        connectionId: "figma-connection",
+      }),
+    ).rejects.toThrow("Figma OAuth refresh response exceeded the size limit.");
+  });
+
+  it("refreshes Notion OAuth with scoped client credentials when env is absent", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "NOTION_CLIENT_ID"
+        ? "vault-notion-client-id"
+        : key === "NOTION_CLIENT_SECRET"
+          ? "vault-notion-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "notion-user",
+        displayName: "Notion user",
+        tokens: {
+          access_token: "expired-notion-access",
+          refresh_token: "notion-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "notion-connection",
+        label: "Notion user",
+        accountId: "notion-user",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "notion-access-new",
+            refresh_token: "notion-refresh-rotated",
+            expires_in: 3600,
+            token_type: "bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ results: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "content",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "notion",
+      path: "/search",
+      method: "POST",
+      body: {},
+      connectionId: "notion-connection",
+    });
+
+    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+      "https://api.notion.com/v1/oauth/token",
+    );
+    expect(resolveSecret).toHaveBeenCalledWith("NOTION_CLIENT_ID");
+    expect(resolveSecret).toHaveBeenCalledWith("NOTION_CLIENT_SECRET");
+    expect(saveOAuthTokens).toHaveBeenCalledWith(
+      "notion",
+      "notion-user",
+      expect.objectContaining({
+        access_token: "notion-access-new",
+        refresh_token: "notion-refresh-rotated",
+      }),
+      "ada@example.com",
+    );
+  });
+
+  it("reports Notion refresh failures by status without provider detail", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "NOTION_CLIENT_ID"
+        ? "vault-notion-client-id"
+        : key === "NOTION_CLIENT_SECRET"
+          ? "vault-notion-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "notion-user",
+        displayName: "Notion user",
+        tokens: {
+          access_token: "expired-notion-access",
+          refresh_token: "notion-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "notion-connection",
+        label: "Notion user",
+        accountId: "notion-user",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({ error: "sensitive Notion provider detail" }),
+        { status: 400, headers: { "content-type": "application/json" } },
+      ),
+    );
+    const runtime = createProviderApiRuntime({
+      appId: "content",
+      providerIds: ["notion"],
+      getCredentialContext: () => credentialContext,
+    });
+    const request = runtime.executeRequest({
+      provider: "notion",
+      path: "/search",
+      method: "POST",
+      body: {},
+      connectionId: "notion-connection",
+    });
+
+    await expect(request).rejects.toThrow("Notion OAuth refresh failed (400).");
+    await expect(request).rejects.not.toThrow(
+      "sensitive Notion provider detail",
+    );
+  });
+
+  it("binds Google Slides requests to the selected Google Drive workspace connection", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "google-account-2",
+        displayName: "Work Google",
+        tokens: { access_token: "google-slides-oauth" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "drive-connection-2",
+        label: "Work Google",
+        accountId: "google-account-2",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const runtime = createProviderApiRuntime({
+      appId: "slides",
+      providerIds: ["google_slides"],
+      getCredentialContext: () => credentialContext,
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+
+    await runtime.executeRequest({
+      provider: "google_slides",
+      path: "/presentations/deck-1",
+      connectionId: "drive-connection-2",
+    });
+
+    expect(resolveWorkspaceConnectionForApp).toHaveBeenCalledWith({
+      appId: "slides",
+      provider: "google_drive",
+      connectionId: "drive-connection-2",
+      requireConnected: true,
+    });
+    expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toMatchObject({
+      Authorization: "Bearer google-slides-oauth",
+    });
+  });
+
+  it("catalogs the Google Slides read-only provider", async () => {
+    const runtime = createProviderApiRuntime({
+      appId: "creative-context",
+      providerIds: ["google_slides"],
+      getCredentialContext: () => credentialContext,
+    });
+    const [slides] = await runtime.listCatalog("google_slides");
+    expect(slides).toMatchObject({
+      id: "google_slides",
+      auth: "oauth-bearer:google",
+    });
+    expect(slides.notes).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("presentations.readonly"),
+      ]),
+    );
   });
 
   it("keeps Clay requests on the exact official API origin", async () => {
@@ -411,8 +847,13 @@ describe("provider API runtime", () => {
   });
 
   it("deletes stale Google OAuth grants after permanent refresh failures", async () => {
-    vi.stubEnv("GOOGLE_CLIENT_ID", "google-client-id");
-    vi.stubEnv("GOOGLE_CLIENT_SECRET", "google-client-secret");
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "GOOGLE_CLIENT_ID"
+        ? "vault-google-client-id"
+        : key === "GOOGLE_CLIENT_SECRET"
+          ? "vault-google-client-secret"
+          : null,
+    );
     listOAuthAccountsByOwner.mockResolvedValue([
       {
         accountId: "docs@example.com",
@@ -450,6 +891,9 @@ describe("provider API runtime", () => {
       "google-docs",
       "docs@example.com",
     );
+    expect(
+      String(vi.mocked(globalThis.fetch).mock.calls[0]?.[1]?.body),
+    ).toContain("client_id=vault-google-client-id");
     expect(saveOAuthTokens).not.toHaveBeenCalled();
   });
 

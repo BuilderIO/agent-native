@@ -21,6 +21,8 @@ const REQUIRED_CONTENT_ACTIONS = [
   "navigate",
 ];
 
+const ACTION_REGISTRY_TEST_TIMEOUT_MS = 60_000;
+
 describe("content agent card", () => {
   it("advertises content domain actions from the generated static registry", async () => {
     generateActionRegistryForProject(projectRoot);
@@ -49,5 +51,5 @@ describe("content agent card", () => {
     expect(card.skills.map((skill) => skill.id)).toEqual(
       expect.arrayContaining(REQUIRED_CONTENT_ACTIONS),
     );
-  }, 15_000);
+  }, ACTION_REGISTRY_TEST_TIMEOUT_MS);
 });

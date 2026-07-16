@@ -107,6 +107,15 @@ const BAR_TOOLTIP_CURSOR_PROPS = {
   ry: 4,
 } as const;
 
+const MAX_CONFIGURED_BAR_SIZE = 120;
+
+export function resolveBarSize(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) {
+    return undefined;
+  }
+  return Math.min(Math.round(value), MAX_CONFIGURED_BAR_SIZE);
+}
+
 const CHART_LEGEND_WRAPPER_STYLE: CSSProperties = {
   fontSize: 11,
   paddingTop: 8,
@@ -1853,6 +1862,7 @@ function BarRenderer({
   const seriesNameFormatter = (name: string) =>
     formatSeriesLabelForPanel(panel, name);
   const { hiddenKeys, toggleSeries, filterSeries } = useSeriesVisibility(yKeys);
+  const barSize = resolveBarSize(panel.config?.barSize);
 
   return (
     <ChartFrame
@@ -1909,6 +1919,7 @@ function BarRenderer({
                 stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
               }
               stackId={stacked ? "stack" : undefined}
+              barSize={barSize}
               hide={hiddenKeys.has(key)}
             />
           ))}

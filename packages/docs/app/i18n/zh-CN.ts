@@ -39,6 +39,7 @@ const zhCN = {
   theme: {
     light: "浅色",
     dark: "深色",
+    toggle: "切换主题",
     label: "主题：{{theme}}",
   },
   docs: {

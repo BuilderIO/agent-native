@@ -104,7 +104,7 @@ const migrations = runMigrations(
       slug TEXT NOT NULL,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now')),
       owner_email TEXT NOT NULL DEFAULT 'local@localhost',
@@ -348,7 +348,7 @@ const migrations = runMigrations(
       organization_id TEXT PRIMARY KEY,
       brand_color TEXT NOT NULL DEFAULT '#18181B',
       brand_logo_url TEXT,
-      default_visibility TEXT NOT NULL DEFAULT 'private',
+      default_visibility TEXT NOT NULL DEFAULT 'public',
       created_at TEXT NOT NULL DEFAULT (datetime('now')),
       updated_at TEXT NOT NULL DEFAULT (datetime('now'))
     )`,

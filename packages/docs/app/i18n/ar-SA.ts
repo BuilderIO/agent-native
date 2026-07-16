@@ -39,6 +39,7 @@ const arSA = {
   theme: {
     light: "فاتح",
     dark: "داكن",
+    toggle: "تبديل السمة",
     label: "السمة: {{theme}}",
   },
   docs: {

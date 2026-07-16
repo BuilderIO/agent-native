@@ -7,6 +7,7 @@ import {
   type SettingsSearchEntry,
 } from "@agent-native/core/client";
 import { TeamPage } from "@agent-native/core/client/org";
+import { CreativeContextSettingsLink } from "@agent-native/creative-context/client";
 import { useSetPageTitle } from "@agent-native/toolkit/app-shell";
 import { useMemo } from "react";
 
@@ -53,6 +54,8 @@ export default function SettingsRoute() {
           <p className="text-sm leading-6 text-muted-foreground">
             {t("settings.description")}
           </p>
+
+          <CreativeContextSettingsLink />
 
           <Card id="language" className="scroll-mt-16">
             <CardHeader>
