@@ -1,11 +1,12 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation brief complete; repository-backed F3/F4 prerequisite evidence active; deployed proof pending
+Status: implementation brief complete; repository-backed F3/F4 evidence and production preflight complete; credentialed inventory and deployed proof pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
 Baseline audit: [Content Data-Isolation Audit](./content-data-isolation-audit-2026-07-13.md)
 F3/F4 evidence: [Content E2EE F3/F4 Evidence Matrix](./content-e2ee-f3-f4-evidence-matrix.md)
+Production preflight: [Content Production Exposure Inventory Preflight](./content-production-exposure-inventory-2026-07-16.md)
 Cross-app direction: [Agent Native E2EE Expansion Strategy](./agent-native-e2ee-expansion-strategy.md)
 
 ## Answer
@@ -206,7 +207,7 @@ Required behavior:
 
 | Gate | Must be complete before | Required output |
 | --- | --- | --- |
-| Production exposure inventory | PR 1 opens | Content-free inventory of deployed CDN/blob/auth/local-file/A2A configuration and current visibility/grant counts |
+| Production exposure inventory | PR 1 opens | [Unauthenticated content-free preflight complete](./content-production-exposure-inventory-2026-07-16.md); credentialed visibility/grant counts, effective deployment configuration, provider IAM/retention, and disposable CDN/media proof remain pending |
 | F3 plaintext and derivative inventory | PR 3 opens | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending |
 | F4 remediation matrix | PR 1 opens | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); implementation and deployed adversarial proof remain pending |
 | M1 personal-vault domain | PR 3 opens | The settled one-vault domain contract reflected in schema invariants |
@@ -232,7 +233,7 @@ Scope:
 
 Entry evidence:
 
-- Run the production exposure inventory.
+- Complete the credentialed phase of the [production exposure inventory](./content-production-exposure-inventory-2026-07-16.md), including content-free counts and disposable media/CDN proof; do not treat the safe preflight as gate closure.
 - Confirm the deployed media provider's anonymous-read behavior with a disposable asset before choosing the remediation path.
 
 Exit gate:
@@ -251,7 +252,7 @@ Scope:
 - Define backward compatibility for existing extensions: old grants default to viewer-safe/no-egress behavior and require an explicit capability upgrade rather than being silently grandfathered.
 - Replace shared-secret arbitrary A2A identity assertion with peer-specific bounded trust.
 - Enforce Local File Mode as single-tenant by construction or refuse unsafe hosted configuration.
-- Add a content-free production privileged-access inventory.
+- Add the operator-authorized, non-public, non-agent-callable `production-privacy-inventory` aggregate action specified by the [production preflight](./content-production-exposure-inventory-2026-07-16.md). Before PR 1, close the immediate inventory gate with an equivalent reviewed one-off read-only report; PR 2 makes that contract reusable and audited.
 - Install dependencies and rerun `pnpm action db-check-scoping --format json`; retain the output with the PR evidence.
 
 Exit gate:
@@ -465,7 +466,7 @@ To honor the preference for one production PR without weakening the security bou
 
 ## Ready-to-work boundary
 
-The brief is complete enough to enter `/work`. Work begins with the production exposure inventory and the F3/F4 evidence artifacts, then lands baseline PRs 1–2 upstream. Before implementation PR 3 opens, the team converts the settled M1/M2 policies into the exact field, retention, and deletion tables required by the entry-gate map. Before PR 4 opens, M3 selects and reviews the cryptographic architecture. Before PR 5 opens, the team converts the settled device and recovery contracts into executable ceremonies and vectors.
+The brief is complete enough to enter `/work`. The repository F3/F4 pass and unauthenticated production preflight are complete, but the credentialed production exposure inventory remains a PR 1 entry gate. After that gate closes, work lands baseline PRs 1–2 upstream. Before implementation PR 3 opens, the team converts the settled M1/M2 policies into the exact field, retention, and deletion tables required by the entry-gate map. Before PR 4 opens, M3 selects and reviews the cryptographic architecture. Before PR 5 opens, the team converts the settled device and recovery contracts into executable ceremonies and vectors.
 
 Those are named deliverables inside the work plan, not unresolved product forks. If an implementation finding would require server-held recovery keys, hosted plaintext vault-agent loops, browser vault access, a broader metadata allowance, or a plaintext fallback, work stops and returns to shaping.
 
@@ -481,4 +482,4 @@ Those are named deliverables inside the work plan, not unresolved product forks.
 
 ## Decision
 
-Run the production exposure inventory immediately and land baseline security PRs 1–2 upstream. Then use an integration fork for six sequential E2EE milestone PRs with one active review at a time, and mirror the exact reviewed commit graph into one same-repository upstream E2EE production PR. This preserves one-PR delivery for the E2EE feature without holding known isolation fixes hostage to it. Keep the final merge disabled until official previews, independent assurance, synthetic canaries, and exact-account rollout succeed.
+Complete the credentialed phase of the [production exposure inventory](./content-production-exposure-inventory-2026-07-16.md) and land baseline security PRs 1–2 upstream. Then use an integration fork for six sequential E2EE milestone PRs with one active review at a time, and mirror the exact reviewed commit graph into one same-repository upstream E2EE production PR. This preserves one-PR delivery for the E2EE feature without holding known isolation fixes hostage to it. Keep the final merge disabled until official previews, independent assurance, synthetic canaries, and exact-account rollout succeed.
