@@ -1,6 +1,7 @@
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 
+import { assertContextItemSqlTextLimits } from "../connectors/normalize.js";
 import { reassembleNativeCreativeArtifact } from "../native-artifact-reassembly.js";
 import { nativeCreativeArtifactFromMetadata } from "../native-artifact.js";
 import { getCreativeContext } from "../server/context.js";
@@ -259,6 +260,44 @@ export async function applyLayoutTemplateSuggestion(input: {
     input.operation === "promote"
       ? await loadCompiledLayoutSource(row.itemId, row.itemVersionId)
       : null;
+  const projectionItem = source
+    ? {
+        externalId: `layout-template:${row.id}`,
+        kind: "layout_template",
+        title: source!.detail.item.title,
+        content: source!.compiled.html,
+        summary: source!.detail.version.summary ?? undefined,
+        mimeType: "text/html",
+        contentHash: await sha256(
+          `${row.id}:${source!.detail.version.id}:${source!.compiled.html}`,
+        ),
+        upstreamAccess: "available" as const,
+        curationStatus: "included" as const,
+        curationRank: "canonical" as const,
+        provenance: {
+          ...source!.detail.item.provenance,
+          promotedFromSuggestionId: row.id,
+          promotedFromItemId: source!.detail.item.id,
+          promotedFromItemVersionId: source!.detail.version.id,
+        },
+        metadata: {
+          promotedFromSuggestionId: row.id,
+          nativeArtifact: {
+            ...source!.compiled.artifact,
+            childExternalIds: undefined,
+            manifest: undefined,
+          },
+        },
+        edges: source!.compiled.evidence.map((evidence) => ({
+          relation: "derived-from",
+          toItemId: evidence.itemId,
+          toItemVersionId: evidence.itemVersionId,
+        })),
+      }
+    : null;
+  if (projectionItem) {
+    assertContextItemSqlTextLimits(projectionItem);
+  }
   if (input.operation === "promote" && !projectionItemId) {
     const sources = await listContextSources({ kind: "manual", limit: 100 });
     let projectionSource = sources.sources.find(
@@ -274,41 +313,7 @@ export async function applyLayoutTemplateSuggestion(input: {
     }
     const ingested = await ingestItems({
       sourceId: projectionSource.id,
-      items: [
-        {
-          externalId: `layout-template:${row.id}`,
-          kind: "layout_template",
-          title: source!.detail.item.title,
-          content: source!.compiled.html,
-          summary: source!.detail.version.summary ?? undefined,
-          mimeType: "text/html",
-          contentHash: await sha256(
-            `${row.id}:${source!.detail.version.id}:${source!.compiled.html}`,
-          ),
-          upstreamAccess: "available",
-          curationStatus: "included",
-          curationRank: "canonical",
-          provenance: {
-            ...source!.detail.item.provenance,
-            promotedFromSuggestionId: row.id,
-            promotedFromItemId: source!.detail.item.id,
-            promotedFromItemVersionId: source!.detail.version.id,
-          },
-          metadata: {
-            promotedFromSuggestionId: row.id,
-            nativeArtifact: {
-              ...source!.compiled.artifact,
-              childExternalIds: undefined,
-              manifest: undefined,
-            },
-          },
-          edges: source!.compiled.evidence.map((evidence) => ({
-            relation: "derived-from",
-            toItemId: evidence.itemId,
-            toItemVersionId: evidence.itemVersionId,
-          })),
-        },
-      ],
+      items: [projectionItem!],
     });
     projectionItemId = ingested.itemIds[0] ?? null;
     if (!projectionItemId) throw new Error("Failed to promote layout template");

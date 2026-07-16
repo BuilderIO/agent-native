@@ -266,6 +266,77 @@ describe("creative context access and revocation", () => {
     });
   });
 
+  it("rejects an oversized compiled layout before creating its projection", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const server = await import("../server/index.js");
+    const promote = vi.fn(async () => {});
+    server.configureCreativeContext({
+      projections: {
+        layoutTemplate: { promote, demote: vi.fn(async () => {}) },
+      },
+    });
+    const html = `<div class="fmd-slide google-slides-native" data-slide-id="slide-1"><p>${"界".repeat(44_000)}</p></div>`;
+    await exec.execute({
+      sql: `UPDATE creative_context_items
+        SET mime_type = ?, provenance = ? WHERE id = ?`,
+      args: [
+        "text/html",
+        JSON.stringify({
+          compiler: "@agent-native/creative-context:google-slides-native",
+        }),
+        "allowed",
+      ],
+    });
+    await exec.execute({
+      sql: `UPDATE creative_context_item_versions
+        SET content = ?, mime_type = ?, metadata = ? WHERE id = ?`,
+      args: [
+        html,
+        "text/html",
+        JSON.stringify({
+          nativeArtifact: {
+            schemaVersion: 1,
+            app: "slides",
+            format: "slides-html",
+            rootExternalId: "presentation-1:slide-1",
+            fidelityReport: {
+              exact: { count: 1 },
+              approximated: { count: 0, reasons: [] },
+              imageFallback: { count: 0, reasons: [] },
+            },
+          },
+        }),
+        "allowed-v2",
+      ],
+    });
+    const suggestion = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        store.proposeCreativeContextSuggestion({
+          kind: "layout-template",
+          itemId: "allowed",
+          itemVersionId: "allowed-v2",
+        }),
+    );
+
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        () =>
+          store.applyLayoutTemplateSuggestion({
+            suggestionId: suggestion.id,
+            operation: "promote",
+          }),
+      ),
+    ).rejects.toThrow(/native content.*exceeds.*split the artifact/i);
+    expect(promote).not.toHaveBeenCalled();
+    const projectionCount = await exec.execute({
+      sql: "SELECT COUNT(*) AS count FROM creative_context_items WHERE kind = 'layout_template'",
+      args: [],
+    });
+    expect(Number(projectionCount.rows[0]?.count)).toBe(0);
+  });
+
   it("never trusts a caller-supplied layout projection item id", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     const server = await import("../server/index.js");
@@ -562,6 +633,69 @@ describe("creative context access and revocation", () => {
       args: [String(items.rows[0]!.id)],
     });
     expect(versions.rows).toHaveLength(1);
+  });
+
+  it("rejects direct ingest that bypasses normalized SQL text limits", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const ingest = (
+      item: Parameters<typeof store.ingestItems>[0]["items"][0],
+    ) =>
+      asAlice(() => store.ingestItems({ sourceId: "source-1", items: [item] }));
+    const base = {
+      kind: "document",
+      title: "Oversized direct ingest",
+      contentHash: "oversized-direct-hash",
+    };
+
+    await expect(
+      ingest({
+        ...base,
+        externalId: "oversized-searchable",
+        content: "界".repeat(22_000),
+      }),
+    ).rejects.toThrow(/searchable content.*exceeds.*normalize or chunk/i);
+    await expect(
+      ingest({
+        ...base,
+        externalId: "oversized-summary",
+        content: "bounded",
+        summary: "🙂".repeat(2_049),
+      }),
+    ).rejects.toThrow(/summary.*exceeds.*normalize the summary/i);
+    await expect(
+      ingest({
+        ...base,
+        externalId: "oversized-chunks",
+        content: "bounded",
+        chunks: [
+          { ordinal: 0, text: "a".repeat(40_000) },
+          { ordinal: 1, text: "b".repeat(30_000) },
+        ],
+      }),
+    ).rejects.toThrow(/chunks exceed.*normalize or split/i);
+    await expect(
+      ingest({
+        ...base,
+        externalId: "oversized-native",
+        kind: "google-slides-slide",
+        mimeType: "text/html",
+        content: `<div>${"🙂".repeat(32_768)}</div>`,
+        metadata: {
+          nativeArtifact: { app: "slides", format: "slides-html" },
+        },
+      }),
+    ).rejects.toThrow(/native content.*exceeds.*private blob storage/i);
+
+    const rows = await exec.execute({
+      sql: "SELECT id FROM creative_context_items WHERE external_id LIKE 'oversized-%'",
+      args: [],
+    });
+    expect(rows.rows).toHaveLength(0);
   });
 
   it("keeps prior native code immutable across resync and resolves hierarchical children by source version", async () => {

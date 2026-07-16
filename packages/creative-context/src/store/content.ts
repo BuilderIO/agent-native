@@ -22,6 +22,7 @@ import {
   sql,
 } from "drizzle-orm";
 
+import { assertContextItemSqlTextLimits } from "../connectors/normalize.js";
 import { matchesCreativeSearchMode } from "../search/mode.js";
 import { getCreativeContext } from "../server/context.js";
 import type {
@@ -195,6 +196,9 @@ async function ingestItemsAttempt(
     undefined,
     { skipResourceBody: true },
   );
+  for (const item of batch.items) {
+    assertContextItemSqlTextLimits(item);
+  }
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
   const timestamp = batch.completedAt ?? nowIso();

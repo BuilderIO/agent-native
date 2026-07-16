@@ -11,9 +11,9 @@ import type {
 } from "../types.js";
 
 const DEFAULT_CHUNK_CHARS = 4_000;
-const MAX_SEARCHABLE_CONTENT_CHARS = 64_000;
-const MAX_SUMMARY_CHARS = 8_000;
-const MAX_NATIVE_CONTENT_CHARS = 128 * 1024;
+export const MAX_SEARCHABLE_CONTENT_BYTES = 64 * 1024;
+export const MAX_SUMMARY_BYTES = 8 * 1024;
+export const MAX_NATIVE_CONTENT_BYTES = 128 * 1024;
 
 export interface NormalizeContextItemInput {
   externalId: string;
@@ -59,14 +59,14 @@ export function normalizeContextItem(
     (input.mimeType === "text/html" &&
       (nativeArtifact?.format === "slides-html" ||
         nativeArtifact?.format === "design-html"));
-  const content = boundText(
-    preserveContent
-      ? input.content.replace(/\r\n?/g, "\n").trim()
-      : normalizeWhitespace(input.content),
-    preserveContent ? MAX_NATIVE_CONTENT_CHARS : MAX_SEARCHABLE_CONTENT_CHARS,
-  );
+  const candidateContent = preserveContent
+    ? input.content.replace(/\r\n?/g, "\n").trim()
+    : normalizeWhitespace(input.content);
+  const content = preserveContent
+    ? requireBoundedNativeContent(candidateContent)
+    : boundText(candidateContent, MAX_SEARCHABLE_CONTENT_BYTES);
   const summary = input.summary
-    ? boundText(normalizeWhitespace(input.summary), MAX_SUMMARY_CHARS)
+    ? boundText(normalizeWhitespace(input.summary), MAX_SUMMARY_BYTES)
     : undefined;
   const chunks = boundChunks(input.chunks ?? chunkContextText(content));
   const normalized = {
@@ -104,18 +104,95 @@ export function normalizeContextItem(
   };
 }
 
-function boundText(value: string, maxChars: number): string {
-  return value.length <= maxChars ? value : value.slice(0, maxChars);
+function boundText(value: string, maxBytes: number): string {
+  if (Buffer.byteLength(value, "utf8") <= maxBytes) return value;
+  let bytes = 0;
+  let endOffset = 0;
+  for (const codePoint of value) {
+    const codePointBytes = Buffer.byteLength(codePoint, "utf8");
+    if (bytes + codePointBytes > maxBytes) break;
+    bytes += codePointBytes;
+    endOffset += codePoint.length;
+  }
+  return value.slice(0, endOffset);
+}
+
+function requireBoundedNativeContent(value: string): string {
+  const bytes = Buffer.byteLength(value, "utf8");
+  if (bytes > MAX_NATIVE_CONTENT_BYTES) {
+    throw new Error(
+      `Creative context native content is ${bytes} bytes and exceeds the ${MAX_NATIVE_CONTENT_BYTES}-byte SQL inline limit; split the artifact or store it in private blob storage instead of truncating it`,
+    );
+  }
+  return value;
+}
+
+export function assertContextItemSqlTextLimits(
+  item: Pick<
+    NormalizedContextItem,
+    "content" | "summary" | "mimeType" | "metadata" | "chunks"
+  >,
+): void {
+  const nativeArtifact = item.metadata?.nativeArtifact;
+  const isNativeContent =
+    item.mimeType === "text/html" &&
+    typeof nativeArtifact === "object" &&
+    nativeArtifact !== null &&
+    !Array.isArray(nativeArtifact) &&
+    ((nativeArtifact as Record<string, unknown>).format === "slides-html" ||
+      (nativeArtifact as Record<string, unknown>).format === "design-html");
+  const contentLimit = isNativeContent
+    ? MAX_NATIVE_CONTENT_BYTES
+    : MAX_SEARCHABLE_CONTENT_BYTES;
+  assertSqlTextLimit(
+    isNativeContent ? "native content" : "searchable content",
+    item.content,
+    contentLimit,
+    isNativeContent
+      ? "split the artifact or store it in private blob storage"
+      : "normalize or chunk the source before ingest",
+  );
+  if (item.summary) {
+    assertSqlTextLimit(
+      "summary",
+      item.summary,
+      MAX_SUMMARY_BYTES,
+      "normalize the summary before ingest",
+    );
+  }
+  let chunkBytes = 0;
+  for (const chunk of item.chunks ?? []) {
+    chunkBytes += Buffer.byteLength(chunk.text, "utf8");
+    if (chunkBytes > MAX_SEARCHABLE_CONTENT_BYTES) {
+      throw new Error(
+        `Creative context chunks exceed the ${MAX_SEARCHABLE_CONTENT_BYTES}-byte SQL text limit; normalize or split the chunks before ingest`,
+      );
+    }
+  }
+}
+
+function assertSqlTextLimit(
+  label: string,
+  value: string,
+  maxBytes: number,
+  guidance: string,
+): void {
+  const bytes = Buffer.byteLength(value, "utf8");
+  if (bytes > maxBytes) {
+    throw new Error(
+      `Creative context ${label} is ${bytes} bytes and exceeds the ${maxBytes}-byte SQL text limit; ${guidance}`,
+    );
+  }
 }
 
 function boundChunks(
   chunks: NormalizedContextChunk[],
 ): NormalizedContextChunk[] {
-  let remaining = MAX_SEARCHABLE_CONTENT_CHARS;
+  let remaining = MAX_SEARCHABLE_CONTENT_BYTES;
   return chunks.flatMap((chunk) => {
     if (remaining <= 0) return [];
     const text = boundText(chunk.text, remaining);
-    remaining -= text.length;
+    remaining -= Buffer.byteLength(text, "utf8");
     return text
       ? [
           {
