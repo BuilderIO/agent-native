@@ -232,6 +232,28 @@ struct NativeFullscreenSession {
     /// Stop flag for the background disk-space monitor thread. Set to true
     /// when the session is finalized or discarded so the thread exits cleanly.
     disk_monitor_stop: Option<Arc<AtomicBool>>,
+    /// Rotated-out segments whose SCRecordingOutput hasn't confirmed its moov
+    /// write yet. Rotation used to block up to SCK_FINALIZE_TIMEOUT and then
+    /// DELETE the segment when the callback didn't fire — on macOS 26 the
+    /// finalize regularly outlives that window, which turned slow checkpoints
+    /// into five silently-discarded minutes each. The stream/output objects
+    /// are parked here (keeping the writer alive so it can finish in the
+    /// background) and resolved at stop time.
+    #[cfg(target_os = "macos")]
+    deferred_finalizes: Vec<DeferredSegmentFinalize>,
+}
+
+#[cfg(target_os = "macos")]
+struct DeferredSegmentFinalize {
+    /// The rotated-out backend, kept whole (its Drop impl prevents
+    /// destructuring) so the SCStream/SCRecordingOutput stay alive while the
+    /// writer finishes in the background.
+    backend: NativeFullscreenBackend,
+    finish: Arc<RecordingFinish>,
+    segment: PathBuf,
+    /// Captured duration of this segment, for loss accounting if it turns out
+    /// unrecoverable at stop time.
+    recorded: Duration,
 }
 
 #[derive(Clone)]
@@ -1560,11 +1582,44 @@ fn rotate_screencapturekit_segment(
         segment_path.display()
     );
     let rotation_started = Instant::now();
-    let stop_outcome = finalize_active_backend(session, true);
-    if let Err(err) = &stop_outcome {
-        eprintln!("[clips-tray] segment rotation finalize reported an error: {err}");
+    // Stop the current stream WITHOUT waiting for its finalize callback:
+    // stop_capture returns immediately; the moov write happens in the
+    // background. The stream/output objects are parked so the writer stays
+    // alive — a slow finalize costs nothing, and the segment's playability is
+    // judged at stop time instead of being deleted on a 10s timeout (which
+    // silently discarded five minutes per slow checkpoint on macOS 26).
+    let old_recorded = session.current_segment_started_at.elapsed();
+    if let Some(mut old_backend) = session.backend.take() {
+        let parked_finish = match &mut old_backend {
+            NativeFullscreenBackend::ScreenCaptureKit { stream, finish, .. } => {
+                if let Err(err) = stream.stop_capture() {
+                    eprintln!("[clips-tray] segment rotation stop_capture reported: {err:?}");
+                }
+                Some(Arc::clone(finish))
+            }
+            _ => None,
+        };
+        if let Some(finish) = parked_finish {
+            let old_segment = session
+                .segments
+                .last()
+                .cloned()
+                .unwrap_or_else(|| session.path.clone());
+            crate::diag::tray_diag_global(serde_json::json!({
+                "event": "segment-finalize-deferred",
+                "segment": old_segment.file_name().map(|n| n.to_string_lossy().to_string()),
+                "recordedS": old_recorded.as_secs(),
+            }));
+            session.deferred_finalizes.push(DeferredSegmentFinalize {
+                backend: old_backend,
+                finish,
+                segment: old_segment,
+                recorded: old_recorded,
+            });
+        } else {
+            let _ = stop_native_recording(&mut old_backend, false);
+        }
     }
-    recover_from_unusable_current_segment(session, "segment rotation", true);
 
     let start_result = start_screencapturekit_backend_at(
         &segment_path,
@@ -1596,6 +1651,11 @@ fn rotate_screencapturekit_segment(
     session.restart.segment_counter = next_counter;
     session.current_segment_started_at = Instant::now();
     session.paused_at = None;
+    crate::diag::tray_diag_global(serde_json::json!({
+        "event": "segment-rotated",
+        "gapMs": rotation_started.elapsed().as_millis() as u64,
+        "segment": next_counter,
+    }));
     Ok(())
 }
 
@@ -1650,6 +1710,8 @@ fn take_and_finalize_active_session(
     // failure doesn't orphan the file.
     let stop_outcome = finalize_active_backend(&mut session, true);
     recover_from_unusable_current_segment(&mut session, "final stop", false);
+    #[cfg(target_os = "macos")]
+    resolve_deferred_finalizes(&mut session);
     println!(
         "[clips-tray] finalize backend done (ok={}); {}",
         stop_outcome.is_ok(),
@@ -1748,7 +1810,7 @@ fn recover_from_unusable_current_segment(
 
     let dropped = session.segments.pop();
     if dropped.as_ref() == Some(&current) {
-        let _ = std::fs::remove_file(&current);
+        quarantine_segment_file(&current);
         session.lost_segment_count = session.lost_segment_count.saturating_add(1);
         session.lost_segment_duration = session
             .lost_segment_duration
@@ -1763,6 +1825,68 @@ fn recover_from_unusable_current_segment(
     false
 }
 
+/// Move an unusable segment into a `lost-segments` sibling folder instead of
+/// deleting it — a moov-less MP4 is not playable today, but the bytes are the
+/// user's footage and future recovery tooling (or a fixed finalize) may still
+/// salvage them. Deleting was how slow checkpoints silently ate recordings.
+fn quarantine_segment_file(segment: &Path) {
+    let Some(parent) = segment.parent() else {
+        return;
+    };
+    let dir = parent.join("lost-segments");
+    let _ = std::fs::create_dir_all(&dir);
+    if let Some(name) = segment.file_name() {
+        let _ = std::fs::rename(segment, dir.join(name));
+    }
+    crate::diag::tray_diag_global(serde_json::json!({
+        "event": "segment-quarantined",
+        "segment": segment.file_name().map(|n| n.to_string_lossy().to_string()),
+    }));
+}
+
+/// Give every parked (rotated-out) segment's writer a last chance to finish
+/// its moov, then judge playability. Still-unusable segments are removed from
+/// the concat list, accounted as lost, and quarantined — never deleted.
+#[cfg(target_os = "macos")]
+fn resolve_deferred_finalizes(session: &mut NativeFullscreenSession) {
+    if session.deferred_finalizes.is_empty() {
+        return;
+    }
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let parked: Vec<DeferredSegmentFinalize> = session.deferred_finalizes.drain(..).collect();
+    for deferred in parked {
+        let remaining = deadline
+            .saturating_duration_since(Instant::now())
+            .max(Duration::from_secs(2));
+        let wait_started = Instant::now();
+        let outcome = deferred.finish.wait(remaining);
+        crate::diag::tray_diag_global(serde_json::json!({
+            "event": "deferred-finalize",
+            "segment": deferred.segment.file_name().map(|n| n.to_string_lossy().to_string()),
+            "ok": matches!(outcome, Some(Ok(()))),
+            "timedOut": outcome.is_none(),
+            "waitedMs": wait_started.elapsed().as_millis() as u64,
+        }));
+        // Release the stream/output objects — if the writer hasn't finished
+        // by now it never will for this process.
+        drop(deferred.backend);
+        if !playable_recording_file(&deferred.segment, session.mime_type) {
+            eprintln!(
+                "[clips-tray] rotated segment never finalized; quarantining {} (~{}s lost)",
+                deferred.segment.display(),
+                deferred.recorded.as_secs()
+            );
+            session.segments.retain(|path| path != &deferred.segment);
+            session.lost_segment_count = session.lost_segment_count.saturating_add(1);
+            session.lost_segment_duration = session
+                .lost_segment_duration
+                .checked_add(deferred.recorded)
+                .unwrap_or(session.lost_segment_duration);
+            quarantine_segment_file(&deferred.segment);
+        }
+    }
+}
+
 /// Best-effort cleanup of a session being discarded (cancel, or a stale
 /// session displaced by a new start). Finalizes any active backend and
 /// deletes every on-disk artifact — segment files and the final path.
@@ -1771,6 +1895,10 @@ fn discard_session(session: &mut NativeFullscreenSession) {
         stop.store(true, Ordering::Relaxed);
     }
     let _ = finalize_active_backend(session, false);
+    // Parked rotation writers: drop the objects (aborting any in-flight
+    // finalize); their segment files are deleted with the rest below.
+    #[cfg(target_os = "macos")]
+    session.deferred_finalizes.clear();
     for segment in &session.segments {
         let _ = std::fs::remove_file(segment);
     }
@@ -3187,6 +3315,8 @@ fn new_fullscreen_session(
         restart,
         pending_recording_output: false,
         disk_monitor_stop: None,
+        #[cfg(target_os = "macos")]
+        deferred_finalizes: Vec::new(),
     }
 }
 
@@ -5599,6 +5729,7 @@ mod segment_recovery_tests {
             },
             pending_recording_output: false,
             disk_monitor_stop: None,
+            deferred_finalizes: Vec::new(),
         }
     }
 

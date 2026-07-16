@@ -1051,8 +1051,14 @@ mod macos {
         use crate::native_speech::macos::MicVoiceProcessingMode;
 
         #[test]
-        fn combined_sck_capture_is_only_selected_for_supported_meetings() {
-            assert!(should_use_combined_sck_capture(SessionOwner::Meeting, true));
+        fn combined_sck_capture_stays_disabled() {
+            // Combined SCK capture is force-disabled (macOS 26 sessions emitted
+            // zero finals through it); every owner uses the split path until
+            // it's re-verified on Tahoe. This pins the disable.
+            assert!(!should_use_combined_sck_capture(
+                SessionOwner::Meeting,
+                true
+            ));
             assert!(!should_use_combined_sck_capture(
                 SessionOwner::Meeting,
                 false
