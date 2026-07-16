@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  getReviewPinPosition,
   getReviewPopoverPlacement,
   placeReviewDraftPin,
   type ReviewDraftPin,
@@ -58,6 +59,29 @@ describe("review canvas draft state", () => {
     expect(getReviewPopoverPlacement({ xPct: 20, yPct: 30 })).toEqual({
       horizontal: "start",
       vertical: "below",
+    });
+  });
+
+  it("keeps the clicked position after associating a layer", () => {
+    expect(
+      getReviewPinPosition({
+        nodeId: "hero-title",
+        selector: "body > main > h1",
+        point: { xPct: 18, yPct: 72 },
+      }),
+    ).toEqual({
+      point: { xPct: 18, yPct: 72 },
+      source: "node",
+    });
+
+    expect(
+      getReviewPinPosition({
+        selector: "body > main > section:nth-of-type(2)",
+        point: { xPct: 81, yPct: 24 },
+      }),
+    ).toEqual({
+      point: { xPct: 81, yPct: 24 },
+      source: "selector",
     });
   });
 });

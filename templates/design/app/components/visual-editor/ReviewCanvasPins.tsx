@@ -61,6 +61,7 @@ import {
   type ReviewAnchorPoint,
 } from "../../../shared/review-anchor";
 import {
+  getReviewPinPosition,
   getReviewPopoverPlacement,
   placeReviewDraftPin,
   type ReviewDraftPin,
@@ -97,11 +98,6 @@ interface ReviewCanvasPinsProps {
   sourceVersionHash?: string;
   repromptDraftRequest?: RepromptDraftRequest | null;
   onRepromptDraftConsumed?: (nonce: number) => void;
-}
-
-interface PinPosition {
-  point: ReviewAnchorPoint;
-  source: "node" | "selector" | "point";
 }
 
 interface ReviewFrameNodeGeometry {
@@ -326,19 +322,6 @@ function anchorAtPoint(
         : {}),
     },
   };
-}
-
-function resolvePinPosition(
-  canvas: HTMLElement,
-  anchor: unknown,
-  frameGeometry: Record<string, ReviewFrameNodeGeometry>,
-): PinPosition | null {
-  const resolved = resolveReviewAnchor(
-    anchor,
-    (nodeId) => nodePoint(canvas, nodeId, frameGeometry[nodeId]),
-    (selector) => selectorPoint(canvas, selector),
-  );
-  return resolved ? { point: resolved.point, source: resolved.source } : null;
 }
 
 export function ReviewCanvasPins({
@@ -1016,7 +999,7 @@ export function ReviewCanvasPins({
     (thread) => thread.root.status === "open" && thread.root.anchor,
   );
   const draftPinPosition = draftPin
-    ? resolvePinPosition(canvas, draftPin.anchor, frameNodeGeometry)
+    ? getReviewPinPosition(draftPin.anchor)
     : null;
 
   return (
@@ -1048,11 +1031,7 @@ export function ReviewCanvasPins({
         </div>
       ) : null}
       {openThreads.map((thread, index) => {
-        const position = resolvePinPosition(
-          canvas,
-          thread.root.anchor,
-          frameNodeGeometry,
-        );
+        const position = getReviewPinPosition(thread.root.anchor);
         if (!position) return null;
         return (
           <ReviewPin
