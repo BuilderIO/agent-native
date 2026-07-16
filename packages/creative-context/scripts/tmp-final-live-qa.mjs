@@ -207,6 +207,14 @@ async function verifyComposer(page, app) {
   });
   await page.waitForTimeout(2_000);
   const toggle = page.getByRole("button", { name: "Toggle agent" }).first();
+  console.log(
+    "COMPOSER_DEBUG",
+    app.name,
+    page.url(),
+    await toggle.count(),
+    (await toggle.count()) ? await toggle.isVisible() : false,
+    (await page.locator("body").innerText()).slice(0, 300),
+  );
   if ((await toggle.count()) && (await toggle.isVisible())) {
     await toggle.click();
   } else {

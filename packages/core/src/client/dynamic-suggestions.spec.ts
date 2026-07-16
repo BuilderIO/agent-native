@@ -86,7 +86,7 @@ describe("mergeAgentSuggestions", () => {
     ).toEqual(["Draft a reply", "Summarize this thread", "Search my inbox"]);
   });
 
-  it("preserves the existing static list when no dynamic suggestions are available", () => {
+  it("caps the static list when no dynamic suggestions are available", () => {
     expect(
       mergeAgentSuggestions({
         dynamicSuggestions: [],
