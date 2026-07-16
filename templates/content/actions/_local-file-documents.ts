@@ -4,7 +4,6 @@ import {
   deleteLocalArtifactFile,
   ensureLocalArtifactRoot,
   getLocalArtifactApp,
-  isAgentNativeLocalFileMode,
   loadAgentNativeManifest,
   listLocalArtifactFiles,
   readLocalArtifactFile,
@@ -55,13 +54,6 @@ function localOptions(): LocalArtifactOptions {
     appId: CONTENT_APP_ID,
     defaults: CONTENT_LOCAL_DEFAULTS,
   };
-}
-
-export async function isContentLocalFileMode() {
-  return isAgentNativeLocalFileMode({
-    appId: CONTENT_APP_ID,
-    defaults: CONTENT_LOCAL_DEFAULTS,
-  });
 }
 
 function encodeIdPath(filePath: string): string {
@@ -242,7 +234,6 @@ function localFileDocumentsCacheScope() {
   return JSON.stringify({
     manifest: process.env.AGENT_NATIVE_MANIFEST,
     manifestPath: process.env.AGENT_NATIVE_MANIFEST_PATH,
-    mode: process.env.AGENT_NATIVE_MODE,
     dataMode: process.env.AGENT_NATIVE_DATA_MODE,
   });
 }

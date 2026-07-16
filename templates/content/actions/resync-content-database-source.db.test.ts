@@ -7,7 +7,9 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
 
+import { getDbExec } from "@agent-native/core/db";
 import { and, eq, ne } from "drizzle-orm";
 import {
   afterAll,
@@ -554,6 +556,7 @@ let seedCollabFromText: typeof import("@agent-native/core/collab").seedFromText;
 let getCollabText: typeof import("@agent-native/core/collab").getText;
 
 const OWNER = "owner@example.com";
+const IMPORT_SPACE_ID = "builder_import_test_space";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -562,6 +565,35 @@ beforeAll(async () => {
   schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  const { systemIdsForContentSpace } = await import("./_content-spaces.js");
+  const filesIds = systemIdsForContentSpace(IMPORT_SPACE_ID, "files");
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: filesIds.documentId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    title: "Files",
+    content: "",
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: filesIds.databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesIds.documentId,
+    title: "Files",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+  )`);
   resync = (await import("./_database-source-utils.js"))
     .resyncBuilderCmsSourceSnapshot;
   importBuilderEntries = (await import("./_database-source-utils.js"))
@@ -1255,6 +1287,7 @@ it("resync re-links only the source's own rows, never another collection's (self
   const databaseDocId = "doc_db_resync";
   await db.insert(schema.documents).values({
     id: databaseDocId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     title: "DB",
     createdAt: now,
@@ -1262,6 +1295,7 @@ it("resync re-links only the source's own rows, never another collection's (self
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     documentId: databaseDocId,
     title: "DB",
@@ -1388,6 +1422,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   const databaseDocId = "doc_db_resync_duplicate_keys";
   await db.insert(schema.documents).values({
     id: databaseDocId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     title: "DB duplicate keys",
     createdAt: now,
@@ -1395,6 +1430,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     documentId: databaseDocId,
     title: "DB duplicate keys",

@@ -2,6 +2,7 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -29,6 +30,12 @@ beforeAll(async () => {
     .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+  )`);
 }, 60000);
 
 afterAll(() => {
@@ -69,10 +76,18 @@ describe("import-content-source descriptions", () => {
     ]);
     await expect(
       getDb()
-        .select({ description: schema.documents.description })
+        .select({
+          description: schema.documents.description,
+          spaceId: schema.documents.spaceId,
+        })
         .from(schema.documents)
         .where(eq(schema.documents.id, "doc_description_roundtrip")),
-    ).resolves.toEqual([{ description: "Initial stable guidance" }]);
+    ).resolves.toEqual([
+      {
+        description: "Initial stable guidance",
+        spaceId: expect.stringMatching(/^content_space_personal_/),
+      },
+    ]);
 
     const updated = await runWithRequestContext({ userEmail: OWNER }, () =>
       importContentSourceAction.run({
