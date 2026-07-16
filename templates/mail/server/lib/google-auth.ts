@@ -1894,7 +1894,7 @@ async function getDefaultOwnedAccountAccessToken(
     ) ?? accounts[0];
   if (!account) throw new Error("No Google account connected");
   const tokens = account.tokens as unknown as GoogleTokens;
-  if (!tokens?.access_token) {
+  if (!tokens?.access_token && !tokens?.refresh_token) {
     throw new Error(`No valid access token for ${account.accountId}`);
   }
   return getValidAccessToken(account.accountId, tokens, ownerEmail);
@@ -1913,7 +1913,7 @@ async function getOwnedAccountAccessToken(
     throw new Error(`Account ${accountEmail} is not connected for this user`);
   }
   const tokens = account.tokens as unknown as GoogleTokens;
-  if (!tokens?.access_token) {
+  if (!tokens?.access_token && !tokens?.refresh_token) {
     throw new Error(`No valid access token for ${account.accountId}`);
   }
   return getValidAccessToken(account.accountId, tokens, ownerEmail);
@@ -1989,7 +1989,31 @@ export async function markAllUnreadReadForAccount(input: {
   }
   invalidateListCacheForOwner(ownerEmail);
 
-  const remaining = await listGmailMessageReferences(accessToken, "is:unread");
+  let remaining: GmailMessageReference[];
+  try {
+    remaining = await listGmailMessageReferences(accessToken, "is:unread");
+  } catch (err: any) {
+    return {
+      mode: "all-unread",
+      accountEmail,
+      matchedMessages: matched.length,
+      matchedThreads: new Set(matched.map((message) => message.threadId)).size,
+      excludedMessages: excluded.length,
+      excludedThreads: new Set(excluded.map((message) => message.threadId))
+        .size,
+      changedMessages: mutation.succeeded.length,
+      batchCount: mutation.batchCount,
+      failures: mutation.failed,
+      remainingUnreadMessages: null,
+      remainingUnreadThreads: null,
+      remainingProtectedMessages: null,
+      remainingProtectedThreads: null,
+      unexpectedUnreadMessages: null,
+      unexpectedUnreadThreads: null,
+      verificationComplete: false,
+      verificationError: err?.message ?? "Unread verification failed",
+    };
+  }
   const remainingProtected = remaining.filter((message) =>
     excludedThreadIds.has(message.threadId),
   );

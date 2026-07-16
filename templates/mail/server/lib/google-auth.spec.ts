@@ -6,6 +6,7 @@ import { getOAuthAccounts } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
+  createOAuth2Client,
   gmailBatchGetThreads,
   gmailGetThread,
   gmailListMessages as gmailListMessagesApi,
@@ -31,6 +32,10 @@ vi.mock("@agent-native/core/oauth-tokens", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getOAuthAccounts: vi.fn(),
   isOAuthConnected: vi.fn(),
+  resolveSecret: vi.fn(async (key: string) =>
+    key === "GOOGLE_CLIENT_ID" ? "client-id" : "client-secret",
+  ),
+  runWithRequestContext: vi.fn(async (_context, fn) => fn()),
 }));
 
 vi.mock("./google-api.js", () => ({
@@ -748,6 +753,31 @@ describe("markAllUnreadReadForAccount", () => {
     ]);
   });
 
+  it("returns structured mutation proof when the verification read fails", async () => {
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({
+        messages: [{ id: "message-1", threadId: "thread-1" }],
+      } as any)
+      .mockRejectedValueOnce(new Error("verification unavailable"));
+
+    const result = await markAllUnreadReadForAccount({
+      ownerEmail: "owner@example.com",
+      accountEmail: "connected@example.com",
+      excludeThreadIds: [],
+    });
+
+    expect(result).toMatchObject({
+      matchedMessages: 1,
+      changedMessages: 1,
+      batchCount: 1,
+      failures: [],
+      remainingUnreadMessages: null,
+      unexpectedUnreadMessages: null,
+      verificationComplete: false,
+      verificationError: "verification unavailable",
+    });
+  });
+
   it("rejects an unowned account before listing or mutating Gmail", async () => {
     vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([]);
 
@@ -822,4 +852,40 @@ describe("gmailBatchModifyByAccount", () => {
       expect.any(Object),
     );
   });
+
+  it.each([
+    ["explicit secondary", "secondary@example.com"],
+    ["default account", undefined],
+  ])(
+    "refreshes a refresh-token-only %s grant",
+    async (_label, accountEmail) => {
+      vi.mocked(listOAuthAccountsByOwner).mockResolvedValue([
+        {
+          accountId: "secondary@example.com",
+          owner: "owner@example.com",
+          tokens: { refresh_token: "refresh-only" },
+        },
+      ] as any);
+      vi.mocked(createOAuth2Client).mockReturnValue({
+        refreshToken: vi.fn().mockResolvedValue({
+          access_token: "refreshed-access-token",
+          expires_in: 3600,
+        }),
+      } as any);
+
+      const result = await gmailBatchModifyByAccount(
+        "owner@example.com",
+        [{ id: "message-refresh", accountEmail }],
+        undefined,
+        ["UNREAD"],
+      );
+
+      expect(result).toEqual({ succeeded: ["message-refresh"], failed: [] });
+      expect(googleFetch).toHaveBeenCalledWith(
+        expect.stringContaining("messages/batchModify"),
+        "refreshed-access-token",
+        expect.any(Object),
+      );
+    },
+  );
 });

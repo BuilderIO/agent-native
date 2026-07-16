@@ -13,11 +13,12 @@ export interface BulkMarkReadResult {
   changedMessages: number;
   batchCount: number;
   failures: BulkMarkReadFailure[];
-  remainingUnreadMessages: number;
-  remainingUnreadThreads: number;
-  remainingProtectedMessages: number;
-  remainingProtectedThreads: number;
-  unexpectedUnreadMessages: number;
-  unexpectedUnreadThreads: number;
+  remainingUnreadMessages: number | null;
+  remainingUnreadThreads: number | null;
+  remainingProtectedMessages: number | null;
+  remainingProtectedThreads: number | null;
+  unexpectedUnreadMessages: number | null;
+  unexpectedUnreadThreads: number | null;
   verificationComplete: boolean;
+  verificationError?: string;
 }

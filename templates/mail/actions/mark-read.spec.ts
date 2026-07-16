@@ -211,5 +211,24 @@ describe("mark-read action", () => {
     await expect(
       action.run({ scope: "all-unread", accountEmail: ACCOUNT } as any),
     ).rejects.toThrow(/10.*2|2.*10/);
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.objectContaining({ ts: expect.any(Number) }),
+    );
+  });
+
+  it("refreshes the UI even when a bulk helper throws after a mutation", async () => {
+    mocks.isConnected.mockResolvedValue(true);
+    mocks.markAllUnreadReadForAccount.mockRejectedValue(
+      new Error("provider verification crashed"),
+    );
+
+    await expect(
+      action.run({ scope: "all-unread", accountEmail: ACCOUNT } as any),
+    ).rejects.toThrow("provider verification crashed");
+    expect(mocks.writeAppState).toHaveBeenCalledWith(
+      "refresh-signal",
+      expect.objectContaining({ ts: expect.any(Number) }),
+    );
   });
 });

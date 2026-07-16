@@ -118,15 +118,23 @@ export default defineAction({
         accountEmail: args.accountEmail.trim(),
         excludeThreadIds,
       };
-      const result = (await isConnected(ownerEmail))
-        ? await markAllUnreadReadForAccount(input)
-        : await markAllLocalUnreadRead(input);
-
-      await writeAppState("refresh-signal", { ts: Date.now() });
+      let result;
+      try {
+        result = (await isConnected(ownerEmail))
+          ? await markAllUnreadReadForAccount(input)
+          : await markAllLocalUnreadRead(input);
+      } finally {
+        // A provider verification read can fail after Gmail accepted the
+        // mutation. Always make the UI discard its pre-mutation list cache.
+        await writeAppState("refresh-signal", { ts: Date.now() });
+      }
 
       if (!result.verificationComplete) {
+        const verificationDetail = result.verificationError
+          ? `verification failed: ${result.verificationError}`
+          : `${result.unexpectedUnreadMessages} unexpected unread messages remain`;
         const error = new Error(
-          `Bulk mark-read incomplete for ${result.accountEmail}: matched ${result.matchedMessages}, excluded ${result.excludedMessages}, changed ${result.changedMessages}; ${result.failures.length} failed and ${result.unexpectedUnreadMessages} unexpected unread messages remain`,
+          `Bulk mark-read incomplete for ${result.accountEmail}: matched ${result.matchedMessages}, excluded ${result.excludedMessages}, changed ${result.changedMessages}; ${result.failures.length} failed and ${verificationDetail}`,
         ) as Error & { details?: typeof result };
         error.details = result;
         throw error;
