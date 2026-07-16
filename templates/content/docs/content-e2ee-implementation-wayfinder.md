@@ -1,10 +1,11 @@
 # Content E2EE Implementation Wayfinder
 
-Status: implementation brief complete; ready for `/work`
+Status: implementation brief complete; repository-backed F3/F4 prerequisite evidence active; deployed proof pending
 Decision date: 2026-07-16
 Trust contract: [Content Encryption Trust Contracts](./content-encryption-trust-contracts.md)
 Security map: [Content Security and E2EE Wayfinder](./content-security-e2ee-wayfinder.md)
 Baseline audit: [Content Data-Isolation Audit](./content-data-isolation-audit-2026-07-13.md)
+F3/F4 evidence: [Content E2EE F3/F4 Evidence Matrix](./content-e2ee-f3-f4-evidence-matrix.md)
 Cross-app direction: [Agent Native E2EE Expansion Strategy](./agent-native-e2ee-expansion-strategy.md)
 
 ## Answer
@@ -206,8 +207,8 @@ Required behavior:
 | Gate | Must be complete before | Required output |
 | --- | --- | --- |
 | Production exposure inventory | PR 1 opens | Content-free inventory of deployed CDN/blob/auth/local-file/A2A configuration and current visibility/grant counts |
-| F3 plaintext and derivative inventory | PR 3 opens | Repository-backed location, reader, retention, deletion, and derivative map |
-| F4 remediation matrix | PR 1 opens | One owner, adversarial test, and deployed evidence requirement per baseline finding |
+| F3 plaintext and derivative inventory | PR 3 opens | [Repository evidence complete](./content-e2ee-f3-f4-evidence-matrix.md#f3--plaintext-and-derivative-inventory); production readers, retention, backups, and deletion proof remain pending |
+| F4 remediation matrix | PR 1 opens | [Repository matrix complete](./content-e2ee-f3-f4-evidence-matrix.md#f4--baseline-remediation-evidence-matrix); implementation and deployed adversarial proof remain pending |
 | M1 personal-vault domain | PR 3 opens | The settled one-vault domain contract reflected in schema invariants |
 | M2 protected-field and metadata budget | PR 3 opens | Exact hosted-field allowlist, retention/deletion table, admitted size/timing/access-pattern leakage, and schema guard |
 | M3 cryptographic architecture | PR 4 opens | Reviewed design record selecting maintained, independently reviewed primitives/libraries for object encryption, key wrapping, device authentication, streaming, rotation, versioning, and algorithm agility, with fixed interoperability and failure vectors; no home-grown cryptography |
