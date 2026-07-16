@@ -967,6 +967,12 @@ pub async fn native_fullscreen_recording_begin(
                     .map(|ms| ms.to_string())
                     .unwrap_or_else(|| "n/a".to_string())
             );
+            crate::diag::tray_diag_global(serde_json::json!({
+                "event": "recording-output-attached",
+                "micReady": mic_ready_before_attach,
+                "micSamples": mic_samples_before_attach,
+                "micWarmWaitMs": mic_warm_wait_ms.map(|ms| ms as u64),
+            }));
         }
         // Rebaseline the duration clock: the warm phase ran during the
         // countdown, so `started_at` (set at warm time) is several seconds
@@ -1941,6 +1947,16 @@ pub(crate) fn start_screencapturekit_backend_at(
             device.name, device.id
         );
     }
+    if capture_microphone_in_recording {
+        crate::diag::tray_diag_global(serde_json::json!({
+            "event": "recording-mic-pinned",
+            "requestedId": mic_device_id,
+            "requestedLabel": mic_device_label,
+            "resolved": selected_mic
+                .as_ref()
+                .map(|device| format!("{} ({})", device.name, device.id)),
+        }));
+    }
     let stream_name = format!("{} full-screen recording", crate::product_name());
     config.set_stream_name(Some(&stream_name));
 
@@ -2492,17 +2508,53 @@ fn is_phone_input_name(value: &str) -> bool {
         || value.contains("phone microphone")
 }
 
+/// True for virtual/loopback/aggregate inputs that record silence or system
+/// audio instead of the user's voice — never auto-pick these as "the mic".
+/// The input list is full of them on a real machine: our own VPIO aggregate
+/// (`CADefaultDeviceAggregate-<pid>-N`), Descript/Loom loopback drivers,
+/// Background Music, speakers exposed as inputs. On a Mac mini (no built-in
+/// mic) the old "first non-phone device" fallback pinned these and every
+/// recording captured NO voice while whisper (own device resolution)
+/// transcribed fine.
+#[cfg(target_os = "macos")]
+fn is_virtual_input_device(device: &AudioInputDevice) -> bool {
+    let id = device.id.to_lowercase();
+    let name = normalize_audio_device_name(&device.name);
+    id.contains("aggregate")
+        || id.contains("loopback")
+        || name.contains("loopback")
+        || id.starts_with("bgmdevice")
+        || name.contains("background music")
+        || id.contains("speaker")
+        || name.contains("speaker")
+        || name.contains("lautsprecher")
+        // Bundle-id style ids are virtual audio drivers (com.descript.…,
+        // com.loom.…, com.krisp.…), not capture hardware.
+        || id.starts_with("com.")
+}
+
 #[cfg(target_os = "macos")]
 fn preferred_default_microphone_device(devices: &[AudioInputDevice]) -> Option<AudioInputDevice> {
-    devices
+    let real: Vec<&AudioInputDevice> = devices
         .iter()
+        .filter(|device| !is_virtual_input_device(device))
+        .collect();
+    real.iter()
         .find(|device| is_built_in_input_name(&device.name))
         .or_else(|| {
-            devices
-                .iter()
-                .find(|device| !is_phone_input_name(&device.name))
+            // Physical inputs next — USB/HDA engines (e.g. a desk mic or
+            // webcam mic on a Mac mini).
+            real.iter().find(|device| {
+                device.id.starts_with("AppleUSBAudioEngine")
+                    || device.id.starts_with("AppleHDAEngineInput")
+                    || device.id.starts_with("BuiltInMicrophoneDevice")
+            })
         })
-        .cloned()
+        .or_else(|| real.iter().find(|device| !is_phone_input_name(&device.name)))
+        .map(|device| (*device).clone())
+    // All remaining candidates are virtual or phones → None, which leaves the
+    // pin unset and lets ScreenCaptureKit use the macOS default input. A
+    // sane default beats pinning a device that records no voice.
 }
 
 #[cfg(target_os = "macos")]

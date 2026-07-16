@@ -252,6 +252,7 @@ pub fn run() {
             // Capture stdout/stderr to a persistent log file before anything
             // else runs so startup errors and panics land on disk too.
             logfile::init(app.handle());
+            diag::init(app.handle());
 
             // Keeps the app from yanking the user out of fullscreen when the
             // popover appears. Production bundles reinforce this with LSUIElement=1.
