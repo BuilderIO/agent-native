@@ -769,7 +769,7 @@ async function recoverReadyRecordingAfterFinalizeError({
     recordingId,
     "Upload completed, but its final receipt could not be verified. The local backup was kept.",
   ).catch(() => {});
-  return false;
+  return true;
 }
 
 export async function listBrowserRecordingBackups(): Promise<

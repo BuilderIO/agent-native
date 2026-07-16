@@ -694,12 +694,14 @@ function compileRichText(
     style: JsonObject;
     runs: string[];
     bullet?: string;
+    bulletStyle?: JsonObject;
   }> = [];
   let nestingLevel = 0;
   let current = {
     style: inheritedParagraphStyle(inherited, nestingLevel),
     runs: [] as string[],
     bullet: undefined as string | undefined,
+    bulletStyle: undefined as JsonObject | undefined,
   };
   const flush = () => {
     if (current.runs.length || paragraphs.length === 0)
@@ -708,6 +710,7 @@ function compileRichText(
       style: inheritedParagraphStyle(inherited, nestingLevel),
       runs: [],
       bullet: undefined,
+      bulletStyle: undefined,
     };
   };
   for (const value of elements) {
@@ -724,7 +727,13 @@ function compileRichText(
         inheritedParagraphStyle(inherited, nestingLevel),
         record(marker.style) ?? {},
       );
-      current.bullet = text(record(marker.bullet)?.glyph);
+      const bullet = record(marker.bullet);
+      current.bullet = text(bullet?.glyph);
+      current.bulletStyle = resolveBulletStyle(
+        textObject,
+        bullet,
+        nestingLevel,
+      );
       continue;
     }
     const run = record(entry?.textRun) ?? record(entry?.autoText);
@@ -755,9 +764,27 @@ function compileRichText(
   return paragraphs
     .map(
       (paragraph) =>
-        `<p style="margin:0;${paragraphCss(paragraph.style)}">${paragraph.bullet ? `<span class="gslide-bullet">${escapeHtml(paragraph.bullet)}&nbsp;</span>` : ""}${paragraph.runs.join("") || "<br>"}</p>`,
+        `<p style="margin:0;${paragraphCss(paragraph.style)}">${paragraph.bullet ? `<span class="gslide-bullet" style="${textRunCss(paragraph.bulletStyle ?? {}, state.themeColors)}">${escapeHtml(paragraph.bullet)}&nbsp;</span>` : ""}${paragraph.runs.join("") || "<br>"}</p>`,
     )
     .join("");
+}
+
+function resolveBulletStyle(
+  textObject: JsonObject | null,
+  bullet: JsonObject | null,
+  nestingLevel: number,
+): JsonObject | undefined {
+  if (!bullet) return undefined;
+  const lists = record(textObject?.lists);
+  const list = record(lists?.[text(bullet.listId) ?? ""]);
+  const levels = record(list?.nestingLevel);
+  const inherited = record(levels?.[String(nestingLevel)]);
+  const style = deepMerge(
+    {},
+    record(inherited?.bulletStyle) ?? {},
+    record(bullet.bulletStyle) ?? {},
+  );
+  return Object.keys(style).length ? style : undefined;
 }
 
 function inheritedParagraphStyle(
@@ -1144,12 +1171,14 @@ function textRunCss(style: JsonObject, theme: Map<string, string>): string {
 function paragraphCss(style: JsonObject): string {
   const alignment = text(style.alignment);
   const lineSpacing = number(style.lineSpacing);
+  const indentStart = dimensionToPx(record(style.indentStart));
+  const indentFirstLine = dimensionToPx(record(style.indentFirstLine));
   return css({
     ...(alignment ? { "text-align": paragraphAlignment(alignment) } : {}),
     ...(lineSpacing ? { "line-height": String(round(lineSpacing / 100)) } : {}),
     ...(record(style.indentStart)
       ? {
-          "padding-left": `${round(dimensionToPx(record(style.indentStart)))}px`,
+          "padding-left": `${round(indentStart)}px`,
         }
       : {}),
     ...(record(style.indentEnd)
@@ -1159,7 +1188,7 @@ function paragraphCss(style: JsonObject): string {
       : {}),
     ...(record(style.indentFirstLine)
       ? {
-          "text-indent": `${round(dimensionToPx(record(style.indentFirstLine)))}px`,
+          "text-indent": `${round(indentFirstLine - indentStart)}px`,
         }
       : {}),
     ...(text(style.direction) === "RIGHT_TO_LEFT"

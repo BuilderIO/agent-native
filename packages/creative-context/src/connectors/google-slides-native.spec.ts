@@ -620,6 +620,55 @@ describe("Google Slides native compiler", () => {
                   },
                 },
               },
+              {
+                objectId: "bullet-body",
+                size: {
+                  width: { magnitude: 500, unit: "PX" },
+                  height: { magnitude: 120, unit: "PX" },
+                },
+                transform: {
+                  scaleX: 1,
+                  scaleY: 1,
+                  translateY: 120,
+                  unit: "PX",
+                },
+                shape: {
+                  shapeType: "TEXT_BOX",
+                  text: {
+                    textElements: [
+                      {
+                        paragraphMarker: {
+                          style: {
+                            indentStart: { magnitude: 36, unit: "PT" },
+                            indentFirstLine: { magnitude: 18, unit: "PT" },
+                          },
+                          bullet: {
+                            listId: "fixture-list",
+                            glyph: "●",
+                            bulletStyle: {
+                              foregroundColor: {
+                                opaqueColor: { themeColor: "LIGHT1" },
+                              },
+                              fontSize: { magnitude: 15, unit: "PT" },
+                            },
+                          },
+                        },
+                      },
+                      {
+                        textRun: {
+                          content: "Hanging bullet",
+                          style: {
+                            foregroundColor: {
+                              opaqueColor: { themeColor: "LIGHT1" },
+                            },
+                            fontSize: { magnitude: 15, unit: "PT" },
+                          },
+                        },
+                      },
+                    ],
+                  },
+                },
+              },
             ],
           },
         ],
@@ -642,6 +691,10 @@ describe("Google Slides native compiler", () => {
       'gslide-shape-text_box" data-source-object-id="slide-title" style="',
     );
     expect(slide!.html).toContain("overflow:visible");
+    expect(slide!.html).toContain("padding-left:48px;text-indent:-24px");
+    expect(slide!.html).toContain(
+      '<span class="gslide-bullet" style="font-size:20px;color:#ffffff">●&nbsp;</span>',
+    );
     expect(slide!.html).not.toContain("background-color:#000000");
     expect(slide!.html).not.toContain("\u000b");
     expect(slide!.html).toContain("rotate(-90deg)");
