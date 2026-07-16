@@ -5,11 +5,12 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
-import { assertAccess, type ShareRole } from "@agent-native/core/sharing";
+import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { inheritDocumentSharesAtomically } from "../server/lib/share-inheritance.js";
 import type {
   ContentDatabaseResponse,
   CreateDatabaseRequest,
@@ -89,11 +90,7 @@ export async function createContentDatabaseRecord(
   let ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
   let orgId = getRequestOrgId() ?? null;
-  let inheritedShares: Array<{
-    principalType: "user" | "org";
-    principalId: string;
-    role: ShareRole;
-  }> = [];
+  let inheritanceSourceId: string | null = null;
 
   if (documentId) {
     const access = await assertAccess("document", documentId, "editor");
@@ -133,14 +130,7 @@ export async function createContentDatabaseRecord(
       orgId = (parent.orgId as string | null) ?? null;
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
-      inheritedShares = await db
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, parentId));
+      inheritanceSourceId = parentId;
     }
 
     documentId = nanoid();
@@ -185,18 +175,14 @@ export async function createContentDatabaseRecord(
       },
     );
 
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: documentId!,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: getRequestUserEmail() ?? ownerEmail ?? "",
-          createdAt: now,
-        })),
-      );
+    if (inheritanceSourceId) {
+      await inheritDocumentSharesAtomically({
+        db,
+        sourceResourceId: inheritanceSourceId,
+        targetResourceIds: [documentId!],
+        createdBy: getRequestUserEmail() ?? ownerEmail ?? "",
+        createdAt: now,
+      });
     }
   }
 

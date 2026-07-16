@@ -156,6 +156,23 @@ describe("content db.ts migration entries follow the naming convention", () => {
     expect(dbTsSource).toContain("document_media_document_state_idx");
     expect(dbTsSource).toContain("document_media_owner_document_idx");
   });
+
+  it("keeps the uniquely named v71 inherited-share provenance migration and indexes", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*71,\s*name:\s*"document-share-inheritance-provenance"/,
+    );
+    expect(dbTsSource).toContain(
+      "CREATE TABLE IF NOT EXISTS document_share_inheritances",
+    );
+    expect(dbTsSource).toContain("document_share_inheritances_source_idx");
+    expect(dbTsSource).toContain("document_share_inheritances_target_idx");
+    expect(dbTsSource).toContain(
+      "CREATE TABLE IF NOT EXISTS document_share_provenance_state",
+    );
+    expect(dbTsSource).toContain(
+      "SELECT 'v1', (SELECT COUNT(*) FROM document_shares)",
+    );
+  });
 });
 
 /**

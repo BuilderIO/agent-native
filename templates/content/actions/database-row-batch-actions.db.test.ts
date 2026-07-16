@@ -173,9 +173,22 @@ describe("database row batch actions", () => {
         updatedAt: now,
       },
     ]);
+    const sourceShareId = nextId("share");
     await db.insert(schema.documentShares).values({
-      id: nextId("share"),
+      id: sourceShareId,
       resourceId: databaseDocumentId,
+      principalType: "user",
+      principalId: COLLABORATOR,
+      role: "editor",
+      createdBy: OWNER,
+      createdAt: now,
+    });
+    // A separately granted child can have the exact same principal and role.
+    // It is not inherited and must never acquire provenance by resemblance.
+    const independentMatchingShareId = nextId("share");
+    await db.insert(schema.documentShares).values({
+      id: independentMatchingShareId,
+      resourceId: rows[0].documentId,
       principalType: "user",
       principalId: COLLABORATOR,
       role: "editor",
@@ -251,6 +264,33 @@ describe("database row batch actions", () => {
       COLLABORATOR,
       COLLABORATOR,
     ]);
+
+    const provenance = await db
+      .select()
+      .from(schema.documentShareInheritances)
+      .where(
+        inArray(schema.documentShareInheritances.targetResourceId, [
+          rows[0].documentId,
+          ...(result.duplicatedDocumentIds ?? []),
+        ]),
+      );
+    expect(provenance).toHaveLength(2);
+    expect(provenance).toEqual(
+      expect.arrayContaining(
+        (result.duplicatedDocumentIds ?? []).map((targetResourceId) =>
+          expect.objectContaining({
+            sourceShareId,
+            sourceResourceId: databaseDocumentId,
+            targetResourceId,
+          }),
+        ),
+      ),
+    );
+    expect(
+      provenance.some(
+        (entry) => entry.childShareId === independentMatchingShareId,
+      ),
+    ).toBe(false);
   });
 
   it("rejects mixed database duplicate batches before writing", async () => {

@@ -179,7 +179,9 @@ export interface ProductionPrivacyInventory {
     databasesByVisibility: CountMap;
     directSharesByPrincipalType: CountMap;
     inheritedShareRelationships: number | null;
+    legacyShareRowsBeforeProvenance: number | null;
     parentChildEquivalentShareRows: number;
+    unclassifiedParentChildEquivalentShareRows: number;
     orphanedShareRows: number;
     localFileBackedDocuments: number;
     databaseSourcesByType: CountMap;
@@ -229,6 +231,27 @@ export async function buildProductionPrivacyInventory(): Promise<ProductionPriva
   const parentChildEquivalentShareRows = await scalarCount(
     "SELECT COUNT(*) AS count FROM document_shares child_share JOIN documents child ON child.id = child_share.resource_id JOIN document_shares parent_share ON parent_share.resource_id = child.parent_id AND parent_share.principal_type = child_share.principal_type AND parent_share.principal_id = child_share.principal_id AND parent_share.role = child_share.role WHERE child.parent_id IS NOT NULL",
   );
+  const inheritanceTableAvailable = await tableExists(
+    "document_share_inheritances",
+  );
+  const provenanceStateAvailable = await tableExists(
+    "document_share_provenance_state",
+  );
+  const legacyShareRowsBeforeProvenance = provenanceStateAvailable
+    ? await scalarCount(
+        "SELECT legacy_share_rows AS count FROM document_share_provenance_state WHERE id = 'v1'",
+      )
+    : null;
+  const inheritedShareRelationships = inheritanceTableAvailable
+    ? await scalarCount(
+        "SELECT COUNT(*) AS count FROM document_share_inheritances inheritance JOIN document_shares child_share ON child_share.id = inheritance.child_share_id AND child_share.resource_id = inheritance.target_resource_id",
+      )
+    : null;
+  const unclassifiedParentChildEquivalentShareRows = inheritanceTableAvailable
+    ? await scalarCount(
+        "SELECT COUNT(*) AS count FROM document_shares child_share JOIN documents child ON child.id = child_share.resource_id JOIN document_shares parent_share ON parent_share.resource_id = child.parent_id AND parent_share.principal_type = child_share.principal_type AND parent_share.principal_id = child_share.principal_id AND parent_share.role = child_share.role LEFT JOIN document_share_inheritances inheritance ON inheritance.child_share_id = child_share.id WHERE child.parent_id IS NOT NULL AND inheritance.child_share_id IS NULL",
+      )
+    : parentChildEquivalentShareRows;
   const orphanedShareRows = await scalarCount(
     "SELECT COUNT(*) AS count FROM document_shares share_row LEFT JOIN documents document ON document.id = share_row.resource_id WHERE document.id IS NULL",
   );
@@ -339,8 +362,10 @@ export async function buildProductionPrivacyInventory(): Promise<ProductionPriva
       documentsByVisibility,
       databasesByVisibility,
       directSharesByPrincipalType,
-      inheritedShareRelationships: null,
+      inheritedShareRelationships,
+      legacyShareRowsBeforeProvenance,
       parentChildEquivalentShareRows,
+      unclassifiedParentChildEquivalentShareRows,
       orphanedShareRows,
       localFileBackedDocuments,
       databaseSourcesByType,
@@ -354,7 +379,11 @@ export async function buildProductionPrivacyInventory(): Promise<ProductionPriva
     },
     coverage: {
       extensions: extensionCapabilityColumns && consentGrantColumns,
-      inheritedShares: false,
+      inheritedShares:
+        inheritanceTableAvailable &&
+        provenanceStateAvailable &&
+        legacyShareRowsBeforeProvenance === 0 &&
+        unclassifiedParentChildEquivalentShareRows === 0,
       a2aQueue: a2aQueueAvailable,
       a2aPeers: a2aRegistryValid,
     },

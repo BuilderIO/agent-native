@@ -413,3 +413,42 @@ export const documentBlockFieldContents = table(
 );
 
 export const documentShares = createSharesTable("document_shares");
+
+/**
+ * Exact lineage for grants copied from one document to a child document.
+ *
+ * This is intentionally separate from the framework-owned shares table. A
+ * grant that merely happens to match a parent's grant is not inheritance; only
+ * the copy operation writes a row here. Legacy matching rows therefore remain
+ * unclassified instead of being guessed during migration.
+ */
+export const documentShareInheritances = table(
+  "document_share_inheritances",
+  {
+    childShareId: text("child_share_id").primaryKey(),
+    sourceShareId: text("source_share_id").notNull(),
+    sourceResourceId: text("source_resource_id").notNull(),
+    targetResourceId: text("target_resource_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+  },
+  (inheritance) => [
+    index("document_share_inheritances_source_idx").on(
+      inheritance.sourceResourceId,
+      inheritance.sourceShareId,
+    ),
+    index("document_share_inheritances_target_idx").on(
+      inheritance.targetResourceId,
+    ),
+  ],
+);
+
+/** Migration watermark that prevents legacy grants from being mistaken for a
+ * fully classified provenance corpus. The count is deliberately aggregate-only. */
+export const documentShareProvenanceState = table(
+  "document_share_provenance_state",
+  {
+    id: text("id").primaryKey(),
+    legacyShareRows: integer("legacy_share_rows").notNull(),
+    enabledAt: text("enabled_at").notNull().default(now()),
+  },
+);

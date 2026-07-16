@@ -76,6 +76,15 @@ describe("privacy inventory", () => {
       if (statement.includes("FROM document_shares GROUP BY")) {
         return result([{ bucket: "user", count: 4 }]);
       }
+      if (statement.includes("LEFT JOIN document_share_inheritances")) {
+        return result([{ count: 0 }]);
+      }
+      if (statement.includes("FROM document_share_inheritances inheritance")) {
+        return result([{ count: 2 }]);
+      }
+      if (statement.includes("FROM document_share_provenance_state")) {
+        return result([{ count: 0 }]);
+      }
       if (statement.includes("child_share")) return result([{ count: 2 }]);
       if (statement.includes("LEFT JOIN documents"))
         return result([{ count: 1 }]);
@@ -128,8 +137,10 @@ describe("privacy inventory", () => {
       authorizationClass: "deployment-security-admin",
       counts: {
         documentsByVisibility: { private: 3, org: 0, public: 1, other: 2 },
-        inheritedShareRelationships: null,
+        inheritedShareRelationships: 2,
+        legacyShareRowsBeforeProvenance: 0,
         parentChildEquivalentShareRows: 2,
+        unclassifiedParentChildEquivalentShareRows: 0,
         orphanedShareRows: 1,
         localFileBackedDocuments: 5,
         mediaByStorageKind: { privateBlob: 7, other: 0 },
@@ -151,7 +162,7 @@ describe("privacy inventory", () => {
       },
       coverage: {
         extensions: true,
-        inheritedShares: false,
+        inheritedShares: true,
         a2aQueue: true,
         a2aPeers: true,
       },
@@ -281,6 +292,42 @@ describe("privacy inventory", () => {
       "input-required": 0,
       other: 0,
     });
+  });
+
+  it("does not guess inherited shares when the provenance table is absent", async () => {
+    const baseExecute = mocks.execute.getMockImplementation();
+    mocks.execute.mockImplementation(async (statement: string) => {
+      if (
+        statement.includes("sqlite_master") &&
+        (statement.includes("'document_share_inheritances'") ||
+          statement.includes("'document_share_provenance_state'"))
+      ) {
+        return result([{ count: 0 }]);
+      }
+      return baseExecute!(statement);
+    });
+
+    const inventory = await buildProductionPrivacyInventory();
+
+    expect(inventory.counts.inheritedShareRelationships).toBeNull();
+    expect(inventory.counts.legacyShareRowsBeforeProvenance).toBeNull();
+    expect(inventory.counts.unclassifiedParentChildEquivalentShareRows).toBe(2);
+    expect(inventory.coverage.inheritedShares).toBe(false);
+  });
+
+  it("keeps inherited-share coverage false when migration observed legacy grants", async () => {
+    const baseExecute = mocks.execute.getMockImplementation();
+    mocks.execute.mockImplementation(async (statement: string) => {
+      if (statement.includes("FROM document_share_provenance_state")) {
+        return result([{ count: 4 }]);
+      }
+      return baseExecute!(statement);
+    });
+
+    const inventory = await buildProductionPrivacyInventory();
+
+    expect(inventory.counts.legacyShareRowsBeforeProvenance).toBe(4);
+    expect(inventory.coverage.inheritedShares).toBe(false);
   });
 
   it("requires the deployment allowlist and refuses agent invocation surfaces", () => {

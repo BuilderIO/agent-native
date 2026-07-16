@@ -14,6 +14,7 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
+import { inheritDocumentSharesAtomically } from "../server/lib/share-inheritance.js";
 import {
   createLocalFileDocument,
   isContentLocalFileMode,
@@ -106,11 +107,6 @@ export default defineAction({
     let hideFromSearch = 0;
     const db = getDb();
     let inheritedRole: "owner" | ShareRole = "owner";
-    let inheritedShares: Array<{
-      principalType: "user" | "org";
-      principalId: string;
-      role: ShareRole;
-    }> = [];
 
     if (parentId) {
       const parentAccess = await assertAccess("document", parentId, "editor");
@@ -120,14 +116,6 @@ export default defineAction({
       visibility = parent.visibility ?? "private";
       hideFromSearch = parent.hideFromSearch ?? 0;
       inheritedRole = parentAccess.role;
-      inheritedShares = await db
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, parentId));
     }
 
     const now = new Date().toISOString();
@@ -173,18 +161,14 @@ export default defineAction({
       },
     );
 
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: id,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: currentUserEmail,
-          createdAt: now,
-        })),
-      );
+    if (parentId) {
+      await inheritDocumentSharesAtomically({
+        db,
+        sourceResourceId: parentId,
+        targetResourceIds: [id],
+        createdBy: currentUserEmail,
+        createdAt: now,
+      });
     }
 
     const [doc] = await db

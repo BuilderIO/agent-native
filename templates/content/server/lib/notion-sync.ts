@@ -19,6 +19,7 @@ import {
   pushDocumentToNotionPage,
   readNotionPageAsDocument,
 } from "./notion.js";
+import { inheritDocumentSharesAtomically } from "./share-inheritance.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
 type LinkRow = InferSelectModel<typeof schema.documentSyncLinks>;
@@ -457,29 +458,12 @@ async function listLinkedChildrenForParent(
 
 async function inheritShares(parentId: string, childId: string, now: string) {
   const db = getDb();
-  const shares = await db
-    .select({
-      principalType: schema.documentShares.principalType,
-      principalId: schema.documentShares.principalId,
-      role: schema.documentShares.role,
-      createdBy: schema.documentShares.createdBy,
-    })
-    .from(schema.documentShares)
-    .where(eq(schema.documentShares.resourceId, parentId));
-
-  if (shares.length === 0) return;
-
-  await db.insert(schema.documentShares).values(
-    shares.map((share) => ({
-      id: nanoid(),
-      resourceId: childId,
-      principalType: share.principalType,
-      principalId: share.principalId,
-      role: share.role,
-      createdBy: share.createdBy,
-      createdAt: now,
-    })),
-  );
+  await inheritDocumentSharesAtomically({
+    db,
+    sourceResourceId: parentId,
+    targetResourceIds: [childId],
+    createdAt: now,
+  });
 }
 
 async function createLinkedChildDocument(args: {

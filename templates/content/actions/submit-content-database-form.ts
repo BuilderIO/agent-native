@@ -7,6 +7,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { inheritDocumentShares } from "../server/lib/share-inheritance.js";
 import type {
   ContentDatabaseView,
   SubmitContentDatabaseFormResponse,
@@ -307,15 +308,6 @@ export default defineAction({
         .select({ max: sql<number>`COALESCE(MAX(position), -1)` })
         .from(schema.contentDatabaseItems)
         .where(eq(schema.contentDatabaseItems.databaseId, databaseId));
-      const inheritedShares = await tx
-        .select({
-          principalType: schema.documentShares.principalType,
-          principalId: schema.documentShares.principalId,
-          role: schema.documentShares.role,
-        })
-        .from(schema.documentShares)
-        .where(eq(schema.documentShares.resourceId, database.documentId));
-
       await tx.insert(schema.documents).values({
         id: documentId,
         ownerEmail: database.ownerEmail,
@@ -341,19 +333,13 @@ export default defineAction({
         createdAt: now,
         updatedAt: now,
       });
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          inheritedShares.map((share) => ({
-            id: nanoid(),
-            resourceId: documentId,
-            principalType: share.principalType,
-            principalId: share.principalId,
-            role: share.role,
-            createdBy,
-            createdAt: now,
-          })),
-        );
-      }
+      await inheritDocumentShares({
+        db: tx,
+        sourceResourceId: database.documentId,
+        targetResourceIds: [documentId],
+        createdBy,
+        createdAt: now,
+      });
       if (standardValues.length > 0) {
         await tx.insert(schema.documentPropertyValues).values(
           standardValues.map(([propertyId, value]) => ({

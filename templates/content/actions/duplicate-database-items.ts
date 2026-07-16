@@ -5,6 +5,7 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, gte, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { inheritDocumentShares } from "../server/lib/share-inheritance.js";
 import {
   databaseRowBatchSchema,
   resolveDatabaseRowsForBatch,
@@ -53,15 +54,6 @@ export default defineAction({
       list.push(value);
       valuesByDocumentId.set(value.documentId, list);
     }
-
-    const inheritedShares = await db
-      .select({
-        principalType: schema.documentShares.principalType,
-        principalId: schema.documentShares.principalId,
-        role: schema.documentShares.role,
-      })
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, database.documentId));
 
     const duplicates = rows.map((row, index) => ({
       sourceItemId: row.item.id,
@@ -148,21 +140,15 @@ export default defineAction({
         await tx.insert(schema.documentPropertyValues).values(duplicatedValues);
       }
 
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          duplicates.flatMap((duplicate) =>
-            inheritedShares.map((share) => ({
-              id: nanoid(),
-              resourceId: duplicate.duplicatedDocumentId,
-              principalType: share.principalType,
-              principalId: share.principalId,
-              role: share.role,
-              createdBy: currentUserEmail,
-              createdAt: now,
-            })),
-          ),
-        );
-      }
+      await inheritDocumentShares({
+        db: tx,
+        sourceResourceId: database.documentId,
+        targetResourceIds: duplicates.map(
+          (duplicate) => duplicate.duplicatedDocumentId,
+        ),
+        createdBy: currentUserEmail,
+        createdAt: now,
+      });
     });
 
     await writeAppState("refresh-signal", { ts: Date.now() });

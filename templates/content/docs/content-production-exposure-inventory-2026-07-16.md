@@ -113,9 +113,15 @@ origins, principals, paths, or error text. Optional schema/configuration gaps
 are represented by fixed zero buckets plus `coverage: false`; malformed A2A or
 extension capability configuration is not reported as a clean empty state.
 `parentChildEquivalentShareRows` is retained as a bounded migration diagnostic,
-not proof of inheritance. Exact inherited-share counts require additive
-provenance for copied grants; until that lands, `inheritedShareRelationships` is
-`null` and inherited-share coverage is false.
+not proof of inheritance. Additive `document_share_inheritances` provenance now
+records every copied source/child grant atomically. The inventory counts only
+live child grants with an exact provenance row. Matching parent/child grants
+without provenance are reported separately as
+`unclassifiedParentChildEquivalentShareRows`; any such row keeps inherited-share
+coverage false instead of being guessed into the inherited count. A migration
+watermark also records the aggregate number of preexisting share rows; any
+legacy row keeps coverage false because its origin cannot be reconstructed
+honestly.
 
 Infrastructure IAM, provider retention, backups, CDN policy, model-provider policy, and support access remain separate read-only provider exports; the application action cannot establish those facts.
 

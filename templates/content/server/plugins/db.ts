@@ -716,6 +716,31 @@ const runContentMigrations = runMigrations(
       CREATE INDEX IF NOT EXISTS document_media_document_state_idx ON document_media (document_id, state);
       CREATE INDEX IF NOT EXISTS document_media_owner_document_idx ON document_media (owner_email, document_id)`,
     },
+    {
+      version: 71,
+      name: "document-share-inheritance-provenance",
+      sql: `CREATE TABLE IF NOT EXISTS document_share_inheritances (
+        child_share_id TEXT PRIMARY KEY,
+        source_share_id TEXT NOT NULL,
+        source_resource_id TEXT NOT NULL,
+        target_resource_id TEXT NOT NULL,
+        created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      CREATE INDEX IF NOT EXISTS document_share_inheritances_source_idx
+        ON document_share_inheritances (source_resource_id, source_share_id);
+      CREATE INDEX IF NOT EXISTS document_share_inheritances_target_idx
+        ON document_share_inheritances (target_resource_id);
+      CREATE TABLE IF NOT EXISTS document_share_provenance_state (
+        id TEXT PRIMARY KEY,
+        legacy_share_rows INTEGER NOT NULL,
+        enabled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+      );
+      INSERT INTO document_share_provenance_state (id, legacy_share_rows, enabled_at)
+        SELECT 'v1', (SELECT COUNT(*) FROM document_shares), CURRENT_TIMESTAMP
+        WHERE NOT EXISTS (
+          SELECT 1 FROM document_share_provenance_state WHERE id = 'v1'
+        )`,
+    },
   ],
   { table: "content_migrations" },
 );

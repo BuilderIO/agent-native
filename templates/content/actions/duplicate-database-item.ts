@@ -6,6 +6,7 @@ import { and, eq, gte, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { inheritDocumentShares } from "../server/lib/share-inheritance.js";
 import { getContentDatabaseResponse } from "./_database-utils.js";
 import { nanoid } from "./_property-utils.js";
 
@@ -64,15 +65,6 @@ export default defineAction({
       .from(schema.documentPropertyValues)
       .where(eq(schema.documentPropertyValues.documentId, row.document.id));
 
-    const inheritedShares = await db
-      .select({
-        principalType: schema.documentShares.principalType,
-        principalId: schema.documentShares.principalId,
-        role: schema.documentShares.role,
-      })
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, row.database.documentId));
-
     await db.transaction(async (tx) => {
       await tx
         .update(schema.contentDatabaseItems)
@@ -128,19 +120,13 @@ export default defineAction({
         updatedAt: now,
       });
 
-      if (inheritedShares.length > 0) {
-        await tx.insert(schema.documentShares).values(
-          inheritedShares.map((share) => ({
-            id: nanoid(),
-            resourceId: nextDocumentId,
-            principalType: share.principalType,
-            principalId: share.principalId,
-            role: share.role,
-            createdBy: getRequestUserEmail() ?? row.document.ownerEmail,
-            createdAt: now,
-          })),
-        );
-      }
+      await inheritDocumentShares({
+        db: tx,
+        sourceResourceId: row.database.documentId,
+        targetResourceIds: [nextDocumentId],
+        createdBy: getRequestUserEmail() ?? row.document.ownerEmail,
+        createdAt: now,
+      });
 
       if (values.length > 0) {
         await tx.insert(schema.documentPropertyValues).values(

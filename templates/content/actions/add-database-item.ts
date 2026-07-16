@@ -6,6 +6,7 @@ import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { inheritDocumentSharesAtomically } from "../server/lib/share-inheritance.js";
 import {
   isComputedPropertyType,
   type DocumentPropertyType,
@@ -101,28 +102,13 @@ export default defineAction({
       });
     });
 
-    const inheritedShares = await db
-      .select({
-        principalType: schema.documentShares.principalType,
-        principalId: schema.documentShares.principalId,
-        role: schema.documentShares.role,
-      })
-      .from(schema.documentShares)
-      .where(eq(schema.documentShares.resourceId, database.documentId));
-
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: documentId,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: getRequestUserEmail() ?? database.ownerEmail,
-          createdAt: now,
-        })),
-      );
-    }
+    await inheritDocumentSharesAtomically({
+      db,
+      sourceResourceId: database.documentId,
+      targetResourceIds: [documentId],
+      createdBy: getRequestUserEmail() ?? database.ownerEmail,
+      createdAt: now,
+    });
 
     const initialValues = Object.entries(propertyValues ?? {});
     if (initialValues.length > 0) {
