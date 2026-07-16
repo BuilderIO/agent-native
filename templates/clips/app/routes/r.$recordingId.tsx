@@ -871,12 +871,12 @@ export default function RecordingPage() {
     const nativeSaveFailed =
       searchParams.get("saveFailed") === "1" ||
       isNativeSaveFailureReason(rawFailureReason);
-    // Treat "stuck on processing/uploading past the 30s mark" as a failure
-    // too — otherwise the user stares at a spinner forever when finalize
-    // silently dies (e.g. chunk route 401s, storage provider throws).
+    // Give a long-running desktop save an actionable recovery state without
+    // claiming the upload failed while its bounded final request is still live.
     const stuckFailure = !explicitFailure && processingTimeout;
     const isFailure =
-      explicitFailure || stuckFailure || waitingForStorage || nativeSaveFailed;
+      explicitFailure || waitingForStorage || nativeSaveFailed;
+    const showRecoveryState = isFailure || stuckFailure;
     const displayReason = explicitFailure
       ? storedButUnservableFailure
         ? t("recordingPage.clipDataPreserved")
@@ -894,6 +894,8 @@ export default function RecordingPage() {
         : t("recordingPage.connectStorageFinishClip")
       : nativeSaveFailed
         ? t("recordingPage.uploadPausedSaved")
+        : stuckFailure
+          ? t("recordingPage.finishingClip")
         : isFailure
           ? t("recordingPage.savingWentWrong")
           : t("recordingPage.finishingClip");
@@ -903,7 +905,7 @@ export default function RecordingPage() {
         : t("recordingPage.clipDataPreserved")
       : displayReason;
     const detail = failureDetail(rawFailureReason);
-    if (!isFailure) {
+    if (!showRecoveryState) {
       return (
         <div className="flex min-h-screen w-full flex-col bg-background">
           <header className="flex min-w-0 shrink-0 items-center gap-3 border-b border-border px-3 py-2 sm:px-4 sm:py-3">

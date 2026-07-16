@@ -1799,26 +1799,38 @@ export function App() {
   });
 
   const loadPendingUploads = useCallback(async () => {
-    try {
-      const nativeList = await invoke<Omit<PendingNativeUpload, "kind">[]>(
+    const [nativeResult, browserResult] = await Promise.allSettled([
+      invoke<Omit<PendingNativeUpload, "kind">[]>(
         "native_fullscreen_pending_uploads",
+      ),
+      listBrowserRecordingBackups(),
+    ]);
+    if (nativeResult.status === "rejected") {
+      console.warn(
+        "[clips-tray] native pending upload lookup failed:",
+        nativeResult.reason,
       );
-      const browserList = await listBrowserRecordingBackups();
-      const nativeUploads = Array.isArray(nativeList)
-        ? nativeList.map((upload) => ({
+    }
+    if (browserResult.status === "rejected") {
+      console.warn(
+        "[clips-tray] browser pending upload lookup failed:",
+        browserResult.reason,
+      );
+    }
+    const nativeUploads =
+      nativeResult.status === "fulfilled" && Array.isArray(nativeResult.value)
+        ? nativeResult.value.map((upload) => ({
             ...upload,
             kind: "native" as const,
           }))
         : [];
-      setPendingUploads(
-        [...nativeUploads, ...browserList].sort((a, b) =>
-          b.savedAt.localeCompare(a.savedAt),
-        ),
-      );
-    } catch (err) {
-      console.warn("[clips-tray] pending upload lookup failed:", err);
-      setPendingUploads([]);
-    }
+    const browserUploads =
+      browserResult.status === "fulfilled" ? browserResult.value : [];
+    setPendingUploads(
+      [...nativeUploads, ...browserUploads].sort((a, b) =>
+        b.savedAt.localeCompare(a.savedAt),
+      ),
+    );
   }, []);
 
   useEffect(() => {
@@ -2490,9 +2502,25 @@ export function App() {
   // we just render the normal pre-record panel so the user at least knows
   // where they are. No recording-only UI lives here.
 
+  const pendingUploadBanner =
+    pendingUploads.length > 0 ? (
+      <PendingUploadBanner
+        uploads={pendingUploads}
+        retryingUploadId={retryingUploadId}
+        exportingUploadId={exportingUploadId}
+        dismissingUploadId={dismissingUploadId}
+        onExport={exportPendingUpload}
+        onRetry={retryPendingUpload}
+        onDismiss={dismissPendingUpload}
+        onOpenFolder={openPendingUploadFolder}
+        onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
+      />
+    ) : null;
+
   if (popoverView === "settings") {
     return (
       <div className="app app-settings" ref={appRef}>
+        {pendingUploadBanner}
         <Setup
           initial={serverUrl}
           serverUrl={serverUrl}
@@ -2527,6 +2555,7 @@ export function App() {
   if (popoverView === "meetings") {
     return (
       <div className="app app-popover-view" ref={appRef}>
+        {pendingUploadBanner}
         <MeetingsPopoverView
           meetings={meetings}
           loading={meetingsLoading}
@@ -2552,6 +2581,7 @@ export function App() {
   if (popoverView === "dictation") {
     return (
       <div className="app app-popover-view" ref={appRef}>
+        {pendingUploadBanner}
         <DictationPopoverView
           voiceEnabled={voiceDictationEnabled}
           voiceShortcut={voiceShortcut}
@@ -2581,6 +2611,7 @@ export function App() {
           submitterEmail={signedInAs}
         />
         <UpdateBanner />
+        {pendingUploadBanner}
         {signInPending ? (
           <div className="signin-pending">
             <div className="signin-pending-spinner" />
@@ -2629,20 +2660,7 @@ export function App() {
     <div className="app" ref={appRef}>
       <Header mode={mode} onModeChange={setMode} submitterEmail={signedInAs} />
       <UpdateBanner />
-
-      {pendingUploads.length > 0 ? (
-        <PendingUploadBanner
-          uploads={pendingUploads}
-          retryingUploadId={retryingUploadId}
-          exportingUploadId={exportingUploadId}
-          dismissingUploadId={dismissingUploadId}
-          onExport={exportPendingUpload}
-          onRetry={retryPendingUpload}
-          onDismiss={dismissPendingUpload}
-          onOpenFolder={openPendingUploadFolder}
-          onConnectStorage={(upload) => openVideoStorageSetup(upload.serverUrl)}
-        />
-      ) : null}
+      {pendingUploadBanner}
 
       {localRecordingMode !== "off" ? (
         <LocalRecordingModeBanner mode={localRecordingMode} />
