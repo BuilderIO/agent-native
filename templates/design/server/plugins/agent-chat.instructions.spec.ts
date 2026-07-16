@@ -39,7 +39,7 @@ describe("select and reprompt agent contract", () => {
       "the design must remain unchanged until the user accepts a preview",
     );
     expect(agentChatSource).toContain('"propose-node-rewrite"');
-    expect(agentChatSource).toContain('"resolve-node-rewrite"');
+    expect(agentChatSource).toContain("frontend-only resolve-node-rewrite");
     expect(designAgentGuide.slice(0, 6_000)).toContain("[Reprompt selection]");
     expect(designAgentGuide.slice(0, 6_000)).toContain("propose-node-rewrite");
     expect(agentChatSource).toContain("[Selection question]");

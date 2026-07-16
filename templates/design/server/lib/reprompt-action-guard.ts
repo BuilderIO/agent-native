@@ -1,9 +1,6 @@
 import { getThread, type ActionEntry } from "@agent-native/core/server";
 
-const REPROMPT_MUTATION_ALLOWLIST = new Set([
-  "propose-node-rewrite",
-  "resolve-node-rewrite",
-]);
+const REPROMPT_MUTATION_ALLOWLIST = new Set(["propose-node-rewrite"]);
 
 export function isRepromptSelectionMessage(value: string): boolean {
   return /(?:^|\n)\[Reprompt selection\](?:\n|$)/.test(value);
@@ -81,21 +78,24 @@ export function guardRepromptActionRegistry(
           run: async (args, context) => {
             if (context?.caller === "tool" && context.threadId) {
               const thread = await getThread(context.threadId);
-              if (thread) {
-                const intent = threadSelectionIntent(thread);
-                if (
-                  intent === "reprompt" &&
-                  !REPROMPT_MUTATION_ALLOWLIST.has(name)
-                ) {
-                  throw new Error(
-                    `The current [Reprompt selection] turn is preview-only. Do not call ${name}; call propose-node-rewrite with the captured repromptId, target, and baseVersionHash instead.`,
-                  );
-                }
-                if (intent === "question") {
-                  throw new Error(
-                    `The current [Selection question] turn is read-only. Answer the user's question without calling ${name} or changing the design.`,
-                  );
-                }
+              if (!thread) {
+                throw new Error(
+                  `Cannot verify the agent thread for mutating action ${name}.`,
+                );
+              }
+              const intent = threadSelectionIntent(thread);
+              if (
+                intent === "reprompt" &&
+                !REPROMPT_MUTATION_ALLOWLIST.has(name)
+              ) {
+                throw new Error(
+                  `The current [Reprompt selection] turn is preview-only. Do not call ${name}; call propose-node-rewrite with the captured repromptId, target, and baseVersionHash instead.`,
+                );
+              }
+              if (intent === "question") {
+                throw new Error(
+                  `The current [Selection question] turn is read-only. Answer the user's question without calling ${name} or changing the design.`,
+                );
               }
             }
             return entry.run(args, context);

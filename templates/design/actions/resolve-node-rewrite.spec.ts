@@ -25,6 +25,7 @@ const mocks = vi.hoisted(() => {
     file,
     selectChain,
     listAppState: vi.fn(),
+    readAppState: vi.fn(),
     deleteAppState: vi.fn(),
     readLiveSourceFile: vi.fn(),
     writeInlineSourceFile: vi.fn(),
@@ -38,6 +39,7 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/application-state", () => ({
   listAppState: mocks.listAppState,
+  readAppState: mocks.readAppState,
   deleteAppState: mocks.deleteAppState,
 }));
 
@@ -114,6 +116,11 @@ describe("resolve-node-rewrite", () => {
         value: proposal(),
       },
     ]);
+    mocks.readAppState.mockImplementation(async (key: string) =>
+      key === designRepromptProposalStateKey("design_1", "file_1")
+        ? proposal()
+        : { repromptId: "reprompt_1" },
+    );
     mocks.deleteAppState.mockResolvedValue(true);
     mocks.readLiveSourceFile.mockResolvedValue({
       content: mocks.file.content,
@@ -128,6 +135,7 @@ describe("resolve-node-rewrite", () => {
   });
 
   it("accepts one variant as a single version-checked inline write", async () => {
+    expect(action.agentTool).toBe(false);
     const result = await action.run({
       proposalId: "proposal_1",
       resolution: "accept",
@@ -187,6 +195,24 @@ describe("resolve-node-rewrite", () => {
         ],
       }),
     );
+  });
+
+  it("preserves a newer pending refinement while resolving the visible proposal", async () => {
+    const pendingKey = designRepromptPendingStateKey("design_1", "file_1");
+    mocks.readAppState.mockImplementation(async (key: string) =>
+      key === pendingKey ? { repromptId: "reprompt_2" } : proposal(),
+    );
+
+    await action.run({
+      proposalId: "proposal_1",
+      resolution: "reject",
+    });
+
+    expect(mocks.deleteAppState).toHaveBeenCalledTimes(1);
+    expect(mocks.deleteAppState).toHaveBeenCalledWith(
+      designRepromptProposalStateKey("design_1", "file_1"),
+    );
+    expect(mocks.deleteAppState).not.toHaveBeenCalledWith(pendingKey);
   });
 
   it("fails closed on a version mismatch and leaves proposal state intact", async () => {

@@ -67,6 +67,41 @@ describe("guardRepromptActionRegistry", () => {
     ).resolves.toBe("edited");
   });
 
+  it("blocks proposal resolution during a preview-only reprompt turn", async () => {
+    const resolve = vi.fn();
+    mocks.getThread.mockResolvedValue({
+      preview: "[Reprompt selection]\nrepromptId: reprompt-1",
+      threadData: "{}",
+    });
+    const actions = guardRepromptActionRegistry({
+      "resolve-node-rewrite": actionEntry(resolve),
+    });
+
+    await expect(
+      actions["resolve-node-rewrite"]!.run(
+        { proposalId: "proposal-1", resolution: "accept" },
+        { caller: "tool", threadId: "thread-1" },
+      ),
+    ).rejects.toThrow("preview-only");
+    expect(resolve).not.toHaveBeenCalled();
+  });
+
+  it("fails closed when a mutating tool call has no verifiable thread", async () => {
+    const edit = vi.fn();
+    mocks.getThread.mockResolvedValue(null);
+    const actions = guardRepromptActionRegistry({
+      "edit-design": actionEntry(edit),
+    });
+
+    await expect(
+      actions["edit-design"]!.run(
+        {},
+        { caller: "tool", threadId: "missing-thread" },
+      ),
+    ).rejects.toThrow("Cannot verify the agent thread");
+    expect(edit).not.toHaveBeenCalled();
+  });
+
   it("detects the reprompt marker in hidden chat context", async () => {
     const edit = vi.fn();
     mocks.getThread.mockResolvedValue({

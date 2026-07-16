@@ -7,11 +7,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   readClientAppState: vi.fn(),
+  setClientAppState: vi.fn().mockResolvedValue(undefined),
+  sendToAgent: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client", () => ({
   readClientAppState: mocks.readClientAppState,
-  setClientAppState: vi.fn().mockResolvedValue(undefined),
+  setClientAppState: mocks.setClientAppState,
   useActionMutation: () => ({
     isPending: false,
     mutateAsync: vi.fn().mockResolvedValue(undefined),
@@ -51,7 +53,7 @@ vi.mock("@/components/ui/tooltip", () => ({
 }));
 
 vi.mock("@/lib/agent-chat", () => ({
-  sendToDesignAgentChatAndConfirm: vi.fn(),
+  sendToDesignAgentChatAndConfirm: mocks.sendToAgent,
 }));
 
 import {
@@ -94,6 +96,8 @@ describe("NodeRewriteProposal overview positioning", () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", ResizeObserverMock);
     mocks.readClientAppState.mockReset();
+    mocks.setClientAppState.mockClear();
+    mocks.sendToAgent.mockReset();
     proposalSnapshot = {
       proposalId: "proposal-1",
       repromptId: "reprompt-1",
@@ -187,6 +191,56 @@ describe("NodeRewriteProposal overview positioning", () => {
     await act(async () => next?.click());
     expect(proposal?.textContent).toContain("2 of 3");
     expect(proposal?.textContent).toContain("Second hero");
+    expect(mocks.setClientAppState).not.toHaveBeenCalled();
+  });
+
+  it("does not erase a newer pending refinement when delivery fails", async () => {
+    mocks.sendToAgent.mockResolvedValue({
+      delivered: false,
+      reason: "offline",
+    });
+    mocks.readClientAppState.mockResolvedValue({
+      repromptId: "newer-reprompt",
+    });
+    await act(async () => {
+      root.render(
+        <NodeRewriteProposal
+          designId="design-1"
+          fileId="screen-1"
+          canvasSelector=".proposal-test-canvas"
+          proposalSnapshot={proposalSnapshot}
+        />,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>(
+      'input[placeholder="designEditor.nodeRewrite.refinePlaceholder"]',
+    );
+    await act(async () => {
+      if (!input) return;
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )?.set?.call(input, "Make it warmer");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    const refine = document.querySelector<HTMLButtonElement>(
+      '[aria-label="designEditor.nodeRewrite.refine"]',
+    );
+    await act(async () => {
+      refine?.click();
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(mocks.setClientAppState).toHaveBeenCalledWith(
+      "design-reprompt-pending:design-1:screen-1",
+      expect.objectContaining({ instruction: "Make it warmer" }),
+    );
+    expect(mocks.setClientAppState).not.toHaveBeenCalledWith(
+      "design-reprompt-pending:design-1:screen-1",
+      null,
+    );
   });
 
   it("shows review controls in the viewport while the target canvas is culled", async () => {

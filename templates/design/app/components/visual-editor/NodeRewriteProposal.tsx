@@ -385,14 +385,8 @@ export function NodeRewriteProposal({
     (index: number) => {
       if (!proposal || index === chosenIndex) return;
       setChosenIndex(index);
-      const nextProposal = {
-        ...proposal,
-        chosenIndex: index,
-      };
-      setProposal(nextProposal);
-      void setClientAppState(stateKey, nextProposal).catch(() => {});
     },
-    [chosenIndex, proposal, stateKey],
+    [chosenIndex, proposal],
   );
 
   const resolve = useCallback(
@@ -480,7 +474,12 @@ export function NodeRewriteProposal({
       setRefinement("");
       toast.success(t("designEditor.nodeRewrite.refinementSent"));
     } catch (error) {
-      await setClientAppState(pendingKey, null).catch(() => {});
+      const currentPending = await readClientAppState<{
+        repromptId?: unknown;
+      }>(pendingKey).catch(() => null);
+      if (currentPending?.repromptId === repromptId) {
+        await setClientAppState(pendingKey, null).catch(() => {});
+      }
       toast.error(
         error instanceof Error && error.message
           ? error.message

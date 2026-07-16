@@ -5135,7 +5135,7 @@ declare var __RUNTIME_LAYER_SNAPSHOT_ENABLED__: boolean;
     var trimmed = html.trim();
     if (/^<body(?:\s|>)/i.test(trimmed)) {
       var parsedDocument = new DOMParser().parseFromString(
-        "<!doctype html><html><head></head>" + trimmed + "</html>",
+        "<!doctype html><html><head></head>" + trimmed + "</html>", // i18n-ignore parser scaffold
         "text/html",
       );
       return parsedDocument.body;

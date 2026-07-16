@@ -19,8 +19,8 @@ patterns live in `.agents/skills/`.
 - A message beginning with `[Reprompt selection]` is preview-only. Call
   `propose-node-rewrite` with its exact `repromptId`, target, and base hash;
   never call `edit-design`, `update-design`, `update-file`, `generate-design`,
-  `apply-visual-edit`, or another content writer. Only
-  `resolve-node-rewrite` may persist an explicitly accepted proposal.
+  `apply-visual-edit`, or another content writer. Only the frontend-only
+  `resolve-node-rewrite` action may persist an explicitly accepted proposal.
 - A message beginning with `[Selection question]` is read-only. Answer about
   the captured element and subtree without calling content-writing actions.
 - When a user wants an established public system as a starting point, call

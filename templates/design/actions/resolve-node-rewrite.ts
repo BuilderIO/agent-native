@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core";
 import {
   deleteAppState,
   listAppState,
+  readAppState,
 } from "@agent-native/core/application-state";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -139,19 +140,30 @@ async function clearProposalState(
   proposalKey: string,
   proposal: NodeRewriteProposal,
 ): Promise<void> {
+  const pendingKey = designRepromptPendingStateKey(
+    proposal.designId,
+    proposal.fileId,
+  );
+  const [currentProposal, currentPending] = await Promise.all([
+    readAppState(proposalKey),
+    readAppState(pendingKey),
+  ]);
   await Promise.all([
-    deleteAppState(proposalKey),
-    deleteAppState(
-      designRepromptPendingStateKey(proposal.designId, proposal.fileId),
-    ),
+    currentProposal?.proposalId === proposal.proposalId
+      ? deleteAppState(proposalKey)
+      : Promise.resolve(false),
+    currentPending?.repromptId === proposal.repromptId
+      ? deleteAppState(pendingKey)
+      : Promise.resolve(false),
   ]);
 }
 
 export default defineAction({
+  agentTool: false,
   description:
     "Accept or reject a pending scoped Design node rewrite. Accept performs one " +
     "version-checked inline/Yjs content transaction; reject changes no design content. " +
-    "Both resolutions clear the proposal and its paired pending reprompt.",
+    "Both resolutions clear the proposal and its matching paired pending reprompt.",
   schema: z.object({
     proposalId: z.string().min(1),
     resolution: z.enum(["accept", "reject"]),
