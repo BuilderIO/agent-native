@@ -150,6 +150,7 @@ describe("clone-creative-context-design", () => {
           }),
         ]),
       }),
+      { artifactAccess: { resourceType: "design", resourceId: "design-1" } },
     );
     expect(result).toMatchObject({
       reusedWithoutRegeneration: true,
