@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core";
+import { defineAction, isActionExecutionDeniedError } from "@agent-native/core";
 import { writeAppState } from "@agent-native/core/application-state";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
@@ -9,21 +9,28 @@ import {
   assertContentDatabaseLifecycleAccess,
   collectInlineDatabaseOwnerBlockIds,
 } from "./_content-database-lifecycle.js";
+import { runInheritedActionEntry } from "./_nested-action.js";
 import pullDocumentAction from "./pull-document.js";
 
 async function shouldClearStaleInlineOwnership(args: {
   ownerDocumentId: string | null;
   ownerBlockId: string | null;
+  context?: import("@agent-native/core/action").ActionRunContext;
 }) {
   if (!args.ownerDocumentId || !args.ownerBlockId) return false;
   let content: string | null = null;
   try {
-    const host = await pullDocumentAction.run({
-      id: args.ownerDocumentId,
-      format: "markdown",
+    const host = await runInheritedActionEntry<{
+      content?: string | null;
+    }>({
+      entry: pullDocumentAction,
+      actionName: "pull-document",
+      args: { id: args.ownerDocumentId, format: "markdown" },
+      parentContext: args.context,
     });
     content = String(host.content ?? "");
-  } catch {
+  } catch (error) {
+    if (isActionExecutionDeniedError(error)) throw error;
     const hostAccess = await resolveAccess("document", args.ownerDocumentId);
     if (!hostAccess) return false;
     content = String(hostAccess.resource.content ?? "");
@@ -38,13 +45,14 @@ export default defineAction({
   schema: z.object({
     databaseId: z.string().describe("Content database ID"),
   }),
-  run: async ({ databaseId }) => {
+  run: async ({ databaseId }, context) => {
     const ownership = await assertContentDatabaseLifecycleAccess(databaseId);
     const db = getDb();
     const now = new Date().toISOString();
     const clearInlineOwnership = await shouldClearStaleInlineOwnership({
       ownerDocumentId: ownership.database.ownerDocumentId,
       ownerBlockId: ownership.database.ownerBlockId,
+      context,
     });
 
     await db

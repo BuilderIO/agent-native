@@ -3,6 +3,12 @@ import type { ActionEntry } from "./agent/production-agent.js";
 
 export type ActionInvocationOrigin =
   | ActionRunContext["caller"]
+  | "agent-chat"
+  | "agent-team"
+  | "job"
+  | "trigger"
+  | "integration"
+  | "voice"
   | "run-code"
   | "generated-edge";
 
@@ -137,8 +143,26 @@ function canonicalInvocation(
     "cli",
     "mcp",
     "a2a",
+    "agent-chat",
+    "agent-team",
+    "job",
+    "trigger",
+    "integration",
+    "voice",
     "run-code",
     "generated-edge",
+  ];
+  const toolLoopOrigins: readonly ActionInvocationOrigin[] = [
+    "tool",
+    "mcp",
+    "a2a",
+    "agent-chat",
+    "agent-team",
+    "job",
+    "trigger",
+    "integration",
+    "voice",
+    "run-code",
   ];
   if (
     descriptor.version !== 1 ||
@@ -151,9 +175,11 @@ function canonicalInvocation(
         capability.trim().length === 0 ||
         capability.length > 256,
     ) ||
-    (descriptor.origin !== "run-code" &&
-      descriptor.origin !== "generated-edge" &&
-      descriptor.origin !== caller) ||
+    (caller === "tool"
+      ? !toolLoopOrigins.includes(descriptor.origin)
+      : descriptor.origin !== "run-code" &&
+        descriptor.origin !== "generated-edge" &&
+        descriptor.origin !== caller) ||
     (descriptor.origin === "generated-edge" && caller !== "http")
   ) {
     return null;

@@ -1,3 +1,4 @@
+import { createActionInvocationDescriptor } from "@agent-native/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -69,5 +70,41 @@ describe("set-mcp-app-access", () => {
       }),
     ).rejects.toThrow(/Unknown app/);
     expect(mocks.setAccess).not.toHaveBeenCalled();
+  });
+
+  it("inherits invocation and resolver context for the nested list action", async () => {
+    const invocation = createActionInvocationDescriptor("frontend", [
+      "dispatch:read",
+    ]);
+    const resolve = vi.fn().mockResolvedValue({
+      status: "executed",
+      result: { mode: "all-apps", routed: true },
+      placement: "trusted_endpoint",
+    });
+    const result = await setMcpAppAccess.run(
+      { mode: "all-apps", selectedAppIds: [] },
+      {
+        caller: "frontend",
+        actionName: "set-mcp-app-access",
+        invocation,
+        executionResolver: {
+          placements: ["trusted_endpoint"],
+          resolve,
+        },
+      },
+    );
+
+    expect(result).toEqual({ mode: "all-apps", routed: true });
+    expect(mocks.listAccess).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledWith(
+      expect.objectContaining({
+        actionName: "list-mcp-app-access",
+        invocation,
+        context: expect.objectContaining({
+          actionName: "list-mcp-app-access",
+          invocation,
+        }),
+      }),
+    );
   });
 });

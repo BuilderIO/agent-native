@@ -4,6 +4,7 @@ import { z } from "zod";
 
 import { recordAudit } from "../server/lib/dispatch-store.js";
 import { setDispatchMcpAppAccessSettings } from "../server/lib/mcp-access-store.js";
+import { runInheritedActionEntry } from "./_nested-action.js";
 import listMcpAppAccess from "./list-mcp-app-access.js";
 
 const modeSchema = z.enum(["all-apps", "selected-apps"]);
@@ -20,7 +21,7 @@ export default defineAction({
       .default([])
       .describe("App IDs to expose when mode is selected-apps."),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     const agents = await discoverAgents("dispatch");
     const knownIds = new Set(["dispatch", ...agents.map((agent) => agent.id)]);
     const selectedAppIds = Array.from(
@@ -51,6 +52,11 @@ export default defineAction({
       metadata: { mode: args.mode, selectedAppIds },
     }).catch(() => {});
 
-    return listMcpAppAccess.run({});
+    return runInheritedActionEntry({
+      entry: listMcpAppAccess,
+      actionName: "list-mcp-app-access",
+      args: {},
+      parentContext: context,
+    });
   },
 });

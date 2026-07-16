@@ -1,5 +1,6 @@
 ---
 "@agent-native/core": minor
+"@agent-native/dispatch": patch
 ---
 
-Add request-scoped action execution routing with fail-closed protected-resource placement across HTTP, CLI, MCP, run-code, and generated edge action transports.
+Add request-scoped action execution routing with fail-closed protected-resource placement across direct transports, agent loops, and nested action dispatches.

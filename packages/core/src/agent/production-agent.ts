@@ -8,6 +8,12 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
+import {
+  createActionInvocationDescriptor,
+  runActionEntry,
+  type ActionExecutionResolver,
+  type ActionInvocationDescriptor,
+} from "../action-execution.js";
 import { isAgentActionStopError } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
@@ -912,6 +918,22 @@ export interface ProductionAgentOptions {
   actions?: Record<string, ActionEntry>;
   /** @deprecated Use `actions` instead */
   scripts?: Record<string, ActionEntry>;
+  /** App-scoped or per-request resolver for protected action execution. */
+  actionExecutionResolver?:
+    | ActionExecutionResolver
+    | ((
+        event: any,
+      ) =>
+        | ActionExecutionResolver
+        | undefined
+        | Promise<ActionExecutionResolver | undefined>);
+  /** Resolve the strict origin/capabilities stamped onto this request's tools. */
+  resolveActionInvocation?: (
+    event: any,
+  ) =>
+    | ActionInvocationDescriptor
+    | undefined
+    | Promise<ActionInvocationDescriptor | undefined>;
   /** Static system prompt string, or async function called per-request with the H3 event */
   systemPrompt: string | ((event: any) => string | Promise<string>);
   /** Falls back to ANTHROPIC_API_KEY env var. Ignored when `engine` is provided. */
@@ -2485,6 +2507,10 @@ export interface ExecuteAgentToolCallOptions {
   turnId?: string;
   approvedToolCalls?: string[];
   send?: (event: AgentChatEvent) => void;
+  /** Strict origin for this externally selected tool call. Defaults to voice. */
+  invocation?: ActionInvocationDescriptor;
+  /** Request/app-scoped protected-action resolver. */
+  actionExecutionResolver?: ActionExecutionResolver;
 }
 
 /**
@@ -2580,6 +2606,9 @@ export async function executeAgentToolCall(
       threadId: options.threadId,
       turnId: options.turnId,
       approvedToolCalls: options.approvedToolCalls,
+      actionInvocation:
+        options.invocation ?? createActionInvocationDescriptor("voice"),
+      actionExecutionResolver: options.actionExecutionResolver,
     });
   } catch (error) {
     return {
@@ -3197,6 +3226,10 @@ export async function runAgentLoop(opts: {
    * runs and the loop is byte-for-byte unchanged (zero overhead).
    */
   processors?: Processor[];
+  /** Strict origin/capabilities shared by every action in this loop. */
+  actionInvocation?: ActionInvocationDescriptor;
+  /** Request/app-scoped protected-action resolver. */
+  actionExecutionResolver?: ActionExecutionResolver;
 }): Promise<AgentLoopUsage> {
   const {
     engine,
@@ -3209,6 +3242,12 @@ export async function runAgentLoop(opts: {
     send,
     signal,
   } = opts;
+  const actionInvocation =
+    opts.actionInvocation ??
+    createActionInvocationDescriptor(
+      getRequestContext()?.isIntegrationCaller ? "integration" : "tool",
+    );
+  const actionExecutionResolver = opts.actionExecutionResolver;
   const finalResponseGuardRequestText =
     opts.finalResponseGuardRequestText ??
     resolveFinalResponseGuardRequestText(messages);
@@ -4197,6 +4236,8 @@ export async function runAgentLoop(opts: {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
                     caller: "tool",
+                    invocation: actionInvocation,
+                    executionResolver: actionExecutionResolver,
                   }),
                 )
               : actionEntry.needsApproval === true;
@@ -4627,6 +4668,8 @@ export async function runAgentLoop(opts: {
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
           caller: "tool" as const,
+          invocation: actionInvocation,
+          executionResolver: actionExecutionResolver,
           attachments: opts.attachments,
           signal,
           // Audit attribution: the action name + the agent thread/turn that
@@ -4637,10 +4680,14 @@ export async function runAgentLoop(opts: {
         };
         const requestContext = getRequestContext();
         const invokeAction = () =>
-          actionEntry.run(
-            toolCall.input as Record<string, string>,
-            actionContext,
-          );
+          runActionEntry({
+            entry: actionEntry,
+            actionName: toolCall.name,
+            args: toolCall.input as Record<string, string>,
+            context: actionContext,
+            resolver: actionExecutionResolver,
+            invocation: actionInvocation,
+          });
         // Keep a reference to the action promise so we can attach a zombie-
         // detection continuation AFTER Promise.race abandons it on run abort.
         // The promise itself is not awaited here — Promise.race owns the await.
@@ -6207,6 +6254,16 @@ export function createProductionAgentHandler(
       }
     }
 
+    const requestActionExecutionResolver =
+      typeof options.actionExecutionResolver === "function"
+        ? await options.actionExecutionResolver(event)
+        : options.actionExecutionResolver;
+    const requestActionInvocation =
+      (await options.resolveActionInvocation?.(event)) ??
+      createActionInvocationDescriptor(
+        getRequestContext()?.isIntegrationCaller ? "integration" : "agent-chat",
+      );
+
     const {
       message,
       history = [],
@@ -6641,14 +6698,20 @@ export function createProductionAgentHandler(
         try {
           const viewScreenAction = resolvedActions["view-screen"];
           if (viewScreenAction) {
-            const result = await viewScreenAction.run(
-              {},
-              {
+            const result = await runActionEntry({
+              entry: viewScreenAction,
+              actionName: "view-screen",
+              args: {},
+              resolver: requestActionExecutionResolver,
+              invocation: requestActionInvocation,
+              context: {
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
                 caller: "tool",
+                invocation: requestActionInvocation,
+                executionResolver: requestActionExecutionResolver,
               },
-            );
+            });
             if (result && result !== "(no output)") {
               const screenText =
                 typeof result === "string"
@@ -7742,6 +7805,11 @@ export function createProductionAgentHandler(
                   providerOptions: options.providerOptions,
                   executionMode: requestMode,
                   maxIterations: loopSettings.maxIterations,
+                  actionInvocation: createActionInvocationDescriptor(
+                    "agent-team",
+                    requestActionInvocation.capabilities,
+                  ),
+                  actionExecutionResolver: requestActionExecutionResolver,
                 });
 
                 // Attribute custom-agent sub-calls under their own label
@@ -7975,6 +8043,8 @@ export function createProductionAgentHandler(
           maxIterations: loopSettings.maxIterations,
           finalResponseGuard: options.finalResponseGuard,
           finalResponseGuardRequestText: messageToPersist,
+          actionInvocation: requestActionInvocation,
+          actionExecutionResolver: requestActionExecutionResolver,
           ...(options.toolLimits ? { toolLimits: options.toolLimits } : {}),
           ...(threadId
             ? { threadId: effectiveThreadId, turnId: effectiveTurnId }

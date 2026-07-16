@@ -7,7 +7,8 @@
  *   pnpm action view-screen
  */
 
-import { defineAction } from "@agent-native/core";
+import { defineAction, type ActionEntry } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { z } from "zod";
 
@@ -30,19 +31,24 @@ import {
   listWorkspaceResourceOptions,
   listWorkspaceResourcesForApp,
 } from "../server/lib/workspace-resources-store.js";
+import { runInheritedActionEntry } from "./_nested-action.js";
 
 async function runLocalDispatchAction(
   name: string,
   args: Record<string, unknown>,
+  parentContext?: ActionRunContext,
 ) {
   const modulePath = `./${name}.js`;
   const module = (await import(/* @vite-ignore */ modulePath)) as {
-    default?: {
-      run: (args: Record<string, unknown>) => unknown | Promise<unknown>;
-    };
+    default?: ActionEntry;
   };
   if (!module.default) throw new Error(`Dispatch action not found: ${name}`);
-  return module.default.run(stripUndefined(args));
+  return runInheritedActionEntry({
+    entry: module.default,
+    actionName: name,
+    args: stripUndefined(args),
+    parentContext,
+  });
 }
 
 function stripUndefined(args: Record<string, unknown>) {
@@ -56,7 +62,9 @@ export default defineAction({
     "See what the user is currently looking at in the dispatch UI, including navigation state and a compact operational summary.",
   schema: z.object({}),
   http: false,
-  run: async () => {
+  run: async (_, context) => {
+    const runDispatchAction = (name: string, args: Record<string, unknown>) =>
+      runLocalDispatchAction(name, args, context);
     const [navigation, overview, vaultOverview] = await Promise.all([
       readAppState("navigation"),
       listOverview(),
@@ -84,8 +92,8 @@ export default defineAction({
     }
     if (navigation?.view === "agents") {
       const [connectedAgents, mcpAccess] = await Promise.all([
-        runLocalDispatchAction("list-connected-agents", {}),
-        runLocalDispatchAction("list-mcp-app-access", {}),
+        runDispatchAction("list-connected-agents", {}),
+        runDispatchAction("list-mcp-app-access", {}),
       ]);
       screen.connectedAgents = connectedAgents;
       screen.mcpAppAccess = mcpAccess;
@@ -224,16 +232,16 @@ export default defineAction({
         const nav = navigation as Record<string, any>;
         const [sources, candidates, dreams, settings] = await Promise.all([
           listThreadDebugSources(),
-          runLocalDispatchAction("list-dream-candidates", {
+          runDispatchAction("list-dream-candidates", {
             sourceId: nav.sourceId,
             ownerEmail: nav.ownerEmail,
             limit: 10,
           }),
-          runLocalDispatchAction("list-dreams", {
+          runDispatchAction("list-dreams", {
             status: nav.status,
             limit: 10,
           }),
-          runLocalDispatchAction("get-dream-settings", {}),
+          runDispatchAction("get-dream-settings", {}),
         ]);
         screen.dreamSources = sources;
         screen.dreamCandidates = candidates;
@@ -242,7 +250,7 @@ export default defineAction({
 
         const dreamId = nav.dreamId ?? nav.id;
         if (dreamId) {
-          screen.dreamDetail = await runLocalDispatchAction("get-dream", {
+          screen.dreamDetail = await runDispatchAction("get-dream", {
             id: dreamId,
           });
         }

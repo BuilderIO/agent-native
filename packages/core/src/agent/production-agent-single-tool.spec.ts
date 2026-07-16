@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
+import { createActionInvocationDescriptor } from "../action-execution.js";
 import { executeAgentToolCall, type ActionEntry } from "./production-agent.js";
 
 function action(
@@ -25,7 +26,15 @@ function action(
 
 describe("executeAgentToolCall", () => {
   it("uses the guarded agent loop to execute one action", async () => {
-    const run = vi.fn(async ({ value }: { value: string }) => ({ value }));
+    const run = vi.fn(
+      async (
+        { value }: { value: string },
+        ctx?: import("../action.js").ActionRunContext,
+      ) => ({
+        value,
+        invocation: ctx?.invocation,
+      }),
+    );
 
     const result = await executeAgentToolCall({
       actions: { inspect: action(run) },
@@ -36,7 +45,10 @@ describe("executeAgentToolCall", () => {
 
     expect(run).toHaveBeenCalledOnce();
     expect(result.status).toBe("completed");
-    expect(JSON.parse(result.output)).toEqual({ value: "ready" });
+    expect(JSON.parse(result.output)).toEqual({
+      value: "ready",
+      invocation: { version: 1, origin: "voice", capabilities: [] },
+    });
   });
 
   it("keeps approval-gated actions paused", async () => {
@@ -88,6 +100,106 @@ describe("executeAgentToolCall", () => {
     expect(result).toEqual({
       status: "failed",
       output: "Unknown or unavailable tool: hidden",
+    });
+  });
+
+  it("fails protected voice actions closed without a resolver", async () => {
+    const run = vi.fn(async () => "must not run hosted");
+    const result = await executeAgentToolCall({
+      actions: {
+        private: action(run, {
+          resourcePrivacy: {
+            mode: "protected",
+            resourceType: "document",
+            placement: "enrolled_broker",
+          },
+        }),
+      },
+      name: "private",
+      input: { value: "secret" },
+      callId: "call-private-denied",
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(result.status).toBe("failed");
+    expect(result.output).toContain(
+      "requires an eligible enrolled_broker resolver",
+    );
+  });
+
+  it("routes protected loop calls with their strict origin and capabilities", async () => {
+    const run = vi.fn(async () => "must not run hosted");
+    const resolve = vi.fn(async (request: any) => ({
+      status: "executed" as const,
+      placement: "enrolled_broker" as const,
+      result: {
+        brokered: true,
+        invocation: request.invocation,
+      },
+    }));
+    const result = await executeAgentToolCall({
+      actions: {
+        private: action(run, {
+          resourcePrivacy: {
+            mode: "protected",
+            resourceType: "document",
+            placement: "enrolled_broker",
+          },
+        }),
+      },
+      name: "private",
+      input: { value: "ciphertext" },
+      callId: "call-private-brokered",
+      invocation: createActionInvocationDescriptor("job", [
+        "documents:read",
+        "documents:read",
+      ]),
+      actionExecutionResolver: {
+        placements: ["enrolled_broker"],
+        resolve,
+      },
+    });
+
+    expect(run).not.toHaveBeenCalled();
+    expect(resolve).toHaveBeenCalledOnce();
+    expect(result.status).toBe("completed");
+    expect(JSON.parse(result.output)).toEqual({
+      brokered: true,
+      invocation: {
+        version: 1,
+        origin: "job",
+        capabilities: ["documents:read"],
+      },
+    });
+  });
+
+  it.each([
+    "mcp",
+    "a2a",
+    "agent-chat",
+    "agent-team",
+    "job",
+    "trigger",
+    "integration",
+    "voice",
+  ] as const)("preserves the %s loop invocation origin", async (origin) => {
+    const run = vi.fn(
+      async (_args, ctx?: import("../action.js").ActionRunContext) =>
+        ctx?.invocation,
+    );
+    const result = await executeAgentToolCall({
+      actions: { inspect: action(run) },
+      name: "inspect",
+      input: { value: "ready" },
+      callId: `call-${origin}`,
+      invocation: createActionInvocationDescriptor(origin, ["fixture:read"]),
+    });
+
+    expect(result.status).toBe("completed");
+    expect(JSON.parse(result.output)).toEqual({
+      version: 1,
+      origin,
+      capabilities: ["fixture:read"],
     });
   });
 });

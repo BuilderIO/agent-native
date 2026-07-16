@@ -16,6 +16,7 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { runInheritedActionEntry } from "./_nested-action.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -367,12 +368,14 @@ async function applyTranscriptToDocument({
   mediaType,
   placeholderText,
   transcript,
+  context,
 }: {
   documentId: string;
   mediaUrl: string;
   mediaType: MediaType;
   placeholderText?: string;
   transcript: string;
+  context?: import("@agent-native/core/action").ActionRunContext;
 }): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
   const freshAccess = await assertAccess("document", documentId, "editor");
   const freshDoc = freshAccess.resource;
@@ -397,7 +400,12 @@ async function applyTranscriptToDocument({
   }
 
   if (nextContent && nextContent !== content) {
-    await updateDocument.run({ id: documentId, content: nextContent });
+    await runInheritedActionEntry({
+      entry: updateDocument,
+      actionName: "update-document",
+      args: { id: documentId, content: nextContent },
+      parentContext: context,
+    });
     return { sqlUpdated: true, collabUpdated: false };
   }
 
@@ -424,7 +432,10 @@ export default defineAction({
         "Exact placeholder text inside the already-created Transcript toggle. When provided, this action replaces it with the transcript.",
       ),
   }),
-  run: async ({ documentId, mediaUrl, mediaType, placeholderText }) => {
+  run: async (
+    { documentId, mediaUrl, mediaType, placeholderText },
+    context,
+  ) => {
     const access = await assertAccess("document", documentId, "editor");
     assertMediaUrlInDocument({
       content: (access.resource.content as string | null) ?? "",
@@ -452,6 +463,7 @@ export default defineAction({
       mediaType,
       placeholderText,
       transcript,
+      context,
     });
 
     return {

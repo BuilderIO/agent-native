@@ -15,6 +15,7 @@ import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
+import { runInheritedActionEntry } from "./_nested-action.js";
 import {
   executeBuilderSourceExecutionWithDeps,
   realExecutionDeps,
@@ -47,6 +48,7 @@ function realBatchDeps(
     ExecuteBuilderSourceBatchRequest,
     "databaseId" | "documentId" | "sourceId"
   >,
+  context?: import("@agent-native/core/action").ActionRunContext,
 ): ExecuteBuilderSourceBatchDeps {
   return {
     resolveDatabase: (request) => resolveDatabaseForSourceMutation(request),
@@ -67,7 +69,14 @@ function realBatchDeps(
       let preparationTimings;
       if (transition?.publicationTransition) {
         preparationTimings = (
-          await prepareBuilderSourceExecution.run(executionArgs)
+          await runInheritedActionEntry<
+            Awaited<ReturnType<typeof prepareBuilderSourceExecution.run>>
+          >({
+            entry: prepareBuilderSourceExecution,
+            actionName: "prepare-builder-source-execution",
+            args: executionArgs,
+            parentContext: context,
+          })
         ).timings;
       }
       try {
@@ -84,8 +93,14 @@ function realBatchDeps(
         if (!isMissingGateMessage(errorMessage(error))) {
           throw error;
         }
-        const preparation =
-          await prepareBuilderSourceExecution.run(executionArgs);
+        const preparation = await runInheritedActionEntry<
+          Awaited<ReturnType<typeof prepareBuilderSourceExecution.run>>
+        >({
+          entry: prepareBuilderSourceExecution,
+          actionName: "prepare-builder-source-execution",
+          args: executionArgs,
+          parentContext: context,
+        });
         const response = await executeBuilderSourceExecutionWithDeps(
           executionArgs,
           realExecutionDeps(args.sourceId),
@@ -347,7 +362,11 @@ export default defineAction({
   }),
   run: async (
     args: ExecuteBuilderSourceBatchRequest,
+    context,
   ): Promise<ExecuteBuilderSourceBatchResponse> => {
-    return executeBuilderSourceBatchWithDeps(args, realBatchDeps(args));
+    return executeBuilderSourceBatchWithDeps(
+      args,
+      realBatchDeps(args, context),
+    );
   },
 });
