@@ -312,6 +312,7 @@
     "@tiptap/starter-kit": "3.27.1",
     "@tiptap/y-tiptap": "^3.0.5",
     "@uiw/react-codemirror": "^4.25.10",
+    "@vercel/blob": "2.6.1",
     "ajv": "^8.20.0",
     "better-auth": "1.6.16",
     "better-sqlite3": "^12.8.0",

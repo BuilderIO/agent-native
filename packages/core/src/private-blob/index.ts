@@ -16,3 +16,4 @@ export {
   setPrivateBlobPublicUploadFallbackEnabled,
   unregisterPrivateBlobProvider,
 } from "./registry.js";
+export { vercelPrivateBlobProvider } from "./vercel.js";
