@@ -168,6 +168,24 @@ describe("action discovery", () => {
     expect(registry["public-metadata"].requiresAuth).toBe(false);
   });
 
+  it("preserves deployment operator step-up policy", () => {
+    const operatorOnly = {
+      tokenEnv: "TEST_OPERATOR_TOKEN",
+      adminEmailsEnv: "TEST_OPERATOR_EMAILS",
+    };
+    const registry = loadActionsFromStaticRegistry({
+      inventory: {
+        default: {
+          tool: { description: "Inventory", parameters: {} },
+          operatorOnly,
+          run: async () => ({ ok: true }),
+        },
+      },
+    });
+
+    expect(registry.inventory.operatorOnly).toEqual(operatorOnly);
+  });
+
   it("preserves publicAgent metadata from static defineAction entries", () => {
     const registry = loadActionsFromStaticRegistry({
       "public-search": {

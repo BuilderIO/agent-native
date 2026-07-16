@@ -32,6 +32,15 @@ Every agent-exposed action is a tool in the model's context window. There is a r
 - **`agentTool: false` is NOT `toolCallable: false`.** They are different switches:
   - `agentTool: false` → hidden from the **model entirely** (it is no longer a tool the agent can see or call). Still frontend/HTTP-callable.
   - `toolCallable: false` → only blocks the **sandboxed extension ("tools") iframe bridge** (`appAction(...)`). The action stays fully visible to the model, the UI, the CLI, MCP, and A2A. Use it for high-blast-radius operations (account/org/auth changes), not for trimming the tool list.
+- **Deployment-operator disclosures need step-up authorization.** For a
+  bounded administrative action that returns deployment-wide metadata, set
+  `operatorOnly: { tokenEnv, adminEmailsEnv }`. The HTTP action route then
+  requires an authenticated email in the comma-separated allowlist plus a
+  high-entropy token (at least 32 characters) in
+  `X-Agent-Native-Operator-Token`. It rejects A2A/network callers and fails
+  closed with `503` when the deployment token is missing or too short. Keep the
+  action `agentTool: false` and `toolCallable: false`; never persist or log the
+  step-up token.
 - **Remove or hide stale actions.** When the UI stops using an action, delete it or set `agentTool: false` — do not leave it exposed to the model as dead tool weight. The advisory audit below helps you spot these.
 
 ### Audit Script (Advisory)

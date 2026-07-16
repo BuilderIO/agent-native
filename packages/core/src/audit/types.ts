@@ -70,6 +70,12 @@ export interface ActionAuditConfig {
    * `enabled` is set explicitly.
    */
   onRead?: boolean;
+  /**
+   * Fail the action closed unless its audit event is durably appended. Use
+   * only for sensitive reads or disclosures whose contract requires a receipt.
+   * A required audit cannot be disabled by AGENT_NATIVE_AUDIT_ENABLED=false.
+   */
+  required?: boolean;
   /** Capture the (redacted) call arguments. Default `true`. */
   recordInputs?: boolean;
   /** Resolve the mutated resource + its ownership for scoped reads. */

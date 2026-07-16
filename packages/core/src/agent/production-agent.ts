@@ -561,6 +561,8 @@ export interface ActionEntry {
    *  Defaults to true; false lets safe metadata/read actions run with
    *  `ctx.userEmail` undefined when auth resolution returns 401/403. */
   requiresAuth?: boolean;
+  /** Deployment-operator step-up policy enforced by the HTTP action route. */
+  operatorOnly?: import("../action.js").ActionOperatorOnlyConfig;
   /** Max HTTP request body in bytes; the route 413s on `Content-Length` before
    *  parsing. For public, no-auth POST actions. */
   maxBodyBytes?: number;

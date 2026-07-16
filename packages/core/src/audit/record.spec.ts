@@ -12,7 +12,8 @@ vi.mock("../server/request-context.js", () => ({
   getIntegrationRequestContext,
 }));
 
-const { recordActionAudit } = await import("./record.js");
+const { recordActionAudit, recordRequiredActionAudit } =
+  await import("./record.js");
 
 function lastEvent(): AuditEvent {
   return insertAuditEvent.mock.calls.at(-1)![0];
@@ -69,6 +70,41 @@ describe("recordActionAudit gating", () => {
       status: "success",
     });
     expect(insertAuditEvent).not.toHaveBeenCalled();
+  });
+
+  it("fails a required receipt closed when auditing is disabled or storage fails", async () => {
+    process.env.AGENT_NATIVE_AUDIT_ENABLED = "false";
+    await expect(
+      recordRequiredActionAudit({
+        config: { required: true },
+        args: {},
+        ctx: { actionName: "sensitive-read", caller: "frontend" },
+        status: "success",
+      }),
+    ).rejects.toThrow("Required audit receipt is unavailable");
+
+    delete process.env.AGENT_NATIVE_AUDIT_ENABLED;
+    insertAuditEvent.mockRejectedValueOnce(new Error("db down"));
+    await expect(
+      recordRequiredActionAudit({
+        config: { required: true },
+        args: {},
+        ctx: { actionName: "sensitive-read", caller: "frontend" },
+        status: "success",
+      }),
+    ).rejects.toThrow("db down");
+  });
+
+  it("confirms a required receipt only after durable insertion", async () => {
+    await expect(
+      recordRequiredActionAudit({
+        config: { required: true },
+        args: {},
+        ctx: { actionName: "sensitive-read", caller: "frontend" },
+        status: "success",
+      }),
+    ).resolves.toBeUndefined();
+    expect(insertAuditEvent).toHaveBeenCalledTimes(1);
   });
 });
 

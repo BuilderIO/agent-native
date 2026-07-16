@@ -42,6 +42,49 @@ import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
 
+async function operatorTokensEqual(
+  supplied: string,
+  expected: string,
+): Promise<boolean> {
+  const encoder = new TextEncoder();
+  const [left, right] = await Promise.all([
+    crypto.subtle.digest("SHA-256", encoder.encode(supplied)),
+    crypto.subtle.digest("SHA-256", encoder.encode(expected)),
+  ]);
+  const a = new Uint8Array(left);
+  const b = new Uint8Array(right);
+  let difference = a.length ^ b.length;
+  for (let index = 0; index < Math.max(a.length, b.length); index += 1) {
+    difference |= (a[index] ?? 0) ^ (b[index] ?? 0);
+  }
+  return difference === 0;
+}
+
+async function authorizeOperatorAction(
+  event: any,
+  entry: ActionEntry,
+  userEmail: string | undefined,
+  networkCaller = false,
+): Promise<"authorized" | "denied" | "unavailable"> {
+  const policy = entry.operatorOnly;
+  if (!policy) return "authorized";
+  if (networkCaller) return "denied";
+  const expected = process.env[policy.tokenEnv]?.trim();
+  if (!expected || expected.length < 32) return "unavailable";
+  const allowed = new Set(
+    (process.env[policy.adminEmailsEnv] ?? "")
+      .split(",")
+      .map((email) => email.trim().toLowerCase())
+      .filter(Boolean),
+  );
+  const email = userEmail?.trim().toLowerCase();
+  const supplied = getHeader(event, "x-agent-native-operator-token")?.trim();
+  if (!email || !allowed.has(email) || !supplied) return "denied";
+  return (await operatorTokensEqual(supplied, expected))
+    ? "authorized"
+    : "denied";
+}
+
 async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   const required =
     actionName === "list-feature-flags"
@@ -456,6 +499,19 @@ export function mountActionRoutes(
             requestOrigin: getRequestURL(event).origin,
           },
           async () => {
+            const operatorAuthorization = await authorizeOperatorAction(
+              event,
+              entry,
+              userEmail,
+              Boolean(resolvedCaller),
+            );
+            if (operatorAuthorization !== "authorized") {
+              setResponseStatus(
+                event,
+                operatorAuthorization === "unavailable" ? 503 : 403,
+              );
+              return { error: "Operator authorization required" };
+            }
             if (getHeader(event, "x-agent-native-extension-bridge") === "1") {
               const extensionId = getHeader(
                 event,
@@ -540,6 +596,7 @@ export function mountActionRoutes(
                 orgId: orgId ?? null,
                 caller,
                 actionName: name,
+                ...(entry.operatorOnly ? { operatorAuthorized: true } : {}),
                 ...(resolvedCaller?.delegationJti
                   ? {
                       networkProtocol: "a2a",

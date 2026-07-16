@@ -214,3 +214,7 @@ function emptyBinding(): ExtensionCapabilityBinding {
 }
 
 export type { ExtensionAcceptedGrantsV1 };
+export {
+  normalizeExtensionAcceptedGrants,
+  normalizeExtensionCapabilityManifest,
+} from "./capability-policy.js";

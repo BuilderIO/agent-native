@@ -34,7 +34,7 @@ export {
   type AuditReadScope,
 } from "./store.js";
 
-export { recordActionAudit } from "./record.js";
+export { recordActionAudit, recordRequiredActionAudit } from "./record.js";
 
 export {
   runAuditCleanupOnce,

@@ -89,6 +89,8 @@ export interface ActionRunContext {
    * programmatic `run()` calls that bypass the dispatcher.
    */
   actionName?: string;
+  /** Server-established proof for deployment-operator-only actions. */
+  operatorAuthorized?: boolean;
   /**
    * Agent conversation thread + turn that triggered this call, populated only
    * inside the agent tool loop (`caller: "tool"`). Lets the audit log link a
@@ -97,6 +99,13 @@ export interface ActionRunContext {
    */
   threadId?: string;
   turnId?: string;
+}
+
+export interface ActionOperatorOnlyConfig {
+  /** Environment variable containing a high-entropy step-up token. */
+  tokenEnv: string;
+  /** Environment variable containing comma-separated authorized emails. */
+  adminEmailsEnv: string;
 }
 
 export interface AgentActionStopOptions {
@@ -349,6 +358,8 @@ interface DefineActionWithSchema<
    *  Defaults to true. Set to false only for metadata/read actions that safely
    *  handle `ctx.userEmail` / `getRequestUserEmail()` being undefined. */
   requiresAuth?: boolean;
+  /** Require both an allowlisted session and an out-of-band operator token. */
+  operatorOnly?: ActionOperatorOnlyConfig;
   /** Max HTTP request body in bytes. When set, the route 413s on the declared
    *  `Content-Length` before parsing. Use for public, no-auth POST actions;
    *  unset = no route-level cap. */
@@ -489,6 +500,8 @@ interface DefineActionWithParams<
   /** Whether the HTTP/frontend action route must have an authenticated owner.
    *  Defaults to true. See the schema overload above. */
   requiresAuth?: boolean;
+  /** Require both an allowlisted session and an out-of-band operator token. */
+  operatorOnly?: ActionOperatorOnlyConfig;
   /** Max HTTP request body in bytes; 413s on `Content-Length` before parsing.
    *  See the schema overload above. */
   maxBodyBytes?: number;
@@ -567,6 +580,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly tool: import("./agent/types.js").ActionTool;
   readonly http?: ActionHttpConfig | false;
   readonly requiresAuth?: boolean;
+  readonly operatorOnly?: ActionOperatorOnlyConfig;
   readonly maxBodyBytes?: number;
   readonly agentTool?: boolean;
   readonly readOnly?: boolean;
@@ -815,6 +829,9 @@ export function defineAction(options: any) {
     ...(typeof options.requiresAuth === "boolean"
       ? { requiresAuth: options.requiresAuth }
       : {}),
+    ...(options.operatorOnly && typeof options.operatorOnly === "object"
+      ? { operatorOnly: options.operatorOnly }
+      : {}),
     ...(typeof options.maxBodyBytes === "number"
       ? { maxBodyBytes: options.maxBodyBytes }
       : {}),
@@ -856,9 +873,8 @@ export function defineAction(options: any) {
 /**
  * Wrap an action's (already input/output-validated) run so each call records an
  * audit event after it resolves — on success and on error. Best-effort: the
- * recorder swallows its own failures and the original result/throw is always
- * preserved, so auditing can never change an action's behavior. The DB-touching
- * recorder is imported lazily so merely defining an action pulls in no DB code.
+ * Best-effort audit preserves the original result. Actions with
+ * `audit.required` fail closed unless their receipt is durably appended.
  */
 function wrapRunWithAudit(
   run: (args: any, ctx?: ActionRunContext) => any,
@@ -874,15 +890,19 @@ function wrapRunWithAudit(
       error = err;
       threw = true;
     }
+    const required = auditConfig?.required === true;
     try {
-      const { recordActionAudit } = await import("./audit/record.js");
-      await recordActionAudit(
+      const { recordActionAudit, recordRequiredActionAudit } =
+        await import("./audit/record.js");
+      const record = required ? recordRequiredActionAudit : recordActionAudit;
+      await record(
         threw
           ? { config: auditConfig, args, ctx, status: "error", error }
           : { config: auditConfig, args, ctx, status: "success", result },
       );
-    } catch {
-      // Recorder failed to load/run — never affect the action.
+    } catch (auditError) {
+      if (required) throw auditError;
+      // Best-effort recorder failures never affect ordinary actions.
     }
     if (threw) throw error;
     return result;

@@ -67,6 +67,11 @@ minimum useful addition is `target: () => ({ type, id })`.
 - **Opt a noisy write out** with `audit: { enabled: false }`.
 - **Skip capturing arguments** (large/sensitive payloads) with
   `audit: { recordInputs: false }`. Inputs are credential-redacted regardless.
+- **Require a durable receipt before releasing a sensitive result** with
+  `audit: { required: true, onRead: true }`. Required auditing overrides the
+  global audit-disable setting and fails the action closed if the event cannot
+  be appended. Ordinary audit events remain best effort. Keep required-event
+  targets and summaries content-free because the receipt itself is durable.
 
 ## Reading the log
 

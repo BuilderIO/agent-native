@@ -116,6 +116,22 @@ describe("defineAction", () => {
     expect(action.agentTool).toBe(false);
   });
 
+  it("threads through deployment operator step-up policy", () => {
+    const action = defineAction({
+      description: "deployment inventory",
+      parameters: {},
+      operatorOnly: {
+        tokenEnv: "TEST_OPERATOR_TOKEN",
+        adminEmailsEnv: "TEST_OPERATOR_EMAILS",
+      },
+      run: async () => "ok",
+    });
+    expect(action.operatorOnly).toEqual({
+      tokenEnv: "TEST_OPERATOR_TOKEN",
+      adminEmailsEnv: "TEST_OPERATOR_EMAILS",
+    });
+  });
+
   it("leaves agentTool undefined when not specified (default-exposed)", () => {
     const action = defineAction({
       description: "normal action",

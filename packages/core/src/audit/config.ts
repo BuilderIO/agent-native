@@ -51,6 +51,7 @@ export function resolveAuditAttach(
   config: ActionAuditConfig | undefined,
   readOnly: boolean | undefined,
 ): boolean {
+  if (config?.required === true) return true;
   if (config && typeof config.enabled === "boolean") return config.enabled;
   // Read-only actions are not audited unless they opt in via `onRead`.
   if (readOnly === true) return config?.onRead === true;

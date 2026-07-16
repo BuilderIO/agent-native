@@ -120,6 +120,7 @@
     "./event-bus": "./dist/event-bus/index.js",
     "./fetch-tool": "./dist/extensions/fetch-tool.js",
     "./extensions/url-safety": "./dist/extensions/url-safety.js",
+    "./extensions/capabilities": "./dist/extensions/capabilities.js",
     "./tools/url-safety": "./dist/extensions/url-safety.js",
     "./file-upload": "./dist/file-upload/index.js",
     "./file-upload/actions/upload-image": "./dist/file-upload/actions/upload-image.js",

@@ -9,6 +9,7 @@ const mockGetOrgContext = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: undefined })),
 );
 const mockVerifyA2ATokenWithClaims = vi.hoisted(() => vi.fn());
+const mockAuthorizeExtensionCapability = vi.hoisted(() => vi.fn());
 
 vi.mock("h3", () => ({
   createError: (opts: any) =>
@@ -54,12 +55,18 @@ vi.mock("../a2a-claims.js", () => ({
   verifyA2ATokenWithClaims: (...args: unknown[]) =>
     mockVerifyA2ATokenWithClaims(...args),
 }));
+vi.mock("../extensions/capabilities.js", () => ({
+  authorizeExtensionCapability: (...args: unknown[]) =>
+    mockAuthorizeExtensionCapability(...args),
+}));
 
 describe("mountActionRoutes", () => {
   afterEach(() => {
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
     delete process.env.AGENT_USER_TIMEZONE;
+    delete process.env.TEST_OPERATOR_TOKEN;
+    delete process.env.TEST_OPERATOR_EMAILS;
     mockNotifyActionChange.mockReset();
     mockResolveOrgIdForEmail.mockReset();
     mockGetSession.mockReset();
@@ -67,7 +74,49 @@ describe("mountActionRoutes", () => {
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     mockVerifyA2ATokenWithClaims.mockReset();
+    mockAuthorizeExtensionCapability.mockReset();
     vi.restoreAllMocks();
+  });
+
+  it("enforces the server-side extension action grant before running the action", async () => {
+    mockAuthorizeExtensionCapability.mockResolvedValue({ allowed: false });
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+    const run = vi.fn(async () => ({ ok: true }));
+    mountActionRoutes(
+      nitroApp,
+      { "save-note": { run, readOnly: false } as any },
+      { getOwnerFromEvent: async () => "viewer@example.com" },
+    );
+
+    const event = {
+      _method: "POST",
+      _headers: {
+        "x-agent-native-extension-bridge": "1",
+        "x-agent-native-extension-id": "extension-1",
+      },
+      req: { json: async () => ({}) },
+    };
+    const result = await mounted[0].handler(event);
+
+    expect(result).toEqual({
+      error: "Action 'save-note' is not granted to this extension.",
+    });
+    expect(event._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+    expect(mockAuthorizeExtensionCapability).toHaveBeenCalledWith(
+      "extension-1",
+      {
+        helper: "appAction",
+        action: "save-note",
+        readOnly: false,
+      },
+    );
   });
 
   it("uses action error statusCode for HTTP responses", async () => {
@@ -597,6 +646,89 @@ describe("mountActionRoutes", () => {
   // ---------------------------------------------------------------------
   // Tools-bridge gating (audit H5)
   // ---------------------------------------------------------------------
+
+  it("requires an allowlisted session and out-of-band token for operator actions", async () => {
+    process.env.TEST_OPERATOR_TOKEN = "t".repeat(32);
+    process.env.TEST_OPERATOR_EMAILS = "security@example.com";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async (_args, ctx) => ({
+      ok: true,
+      operatorAuthorized: ctx?.operatorAuthorized,
+    }));
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        inventory: {
+          operatorOnly: {
+            tokenEnv: "TEST_OPERATOR_TOKEN",
+            adminEmailsEnv: "TEST_OPERATOR_EMAILS",
+          },
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "security@example.com" },
+    );
+
+    const denied: any = {
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: async () => ({}) },
+    };
+    await expect(mounted[0].handler(denied)).resolves.toEqual({
+      error: "Operator authorization required",
+    });
+    expect(denied._status).toBe(403);
+    expect(run).not.toHaveBeenCalled();
+
+    const allowed: any = {
+      _method: "POST",
+      _headers: { "x-agent-native-operator-token": "t".repeat(32) },
+      req: { json: async () => ({}) },
+    };
+    await expect(mounted[0].handler(allowed)).resolves.toEqual({
+      ok: true,
+      operatorAuthorized: true,
+    });
+  });
+
+  it("fails an operator action closed when step-up configuration is missing", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn();
+    mountActionRoutes(
+      {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      },
+      {
+        inventory: {
+          operatorOnly: {
+            tokenEnv: "TEST_OPERATOR_TOKEN",
+            adminEmailsEnv: "TEST_OPERATOR_EMAILS",
+          },
+          run,
+        } as any,
+      },
+      { getOwnerFromEvent: async () => "security@example.com" },
+    );
+
+    const event: any = {
+      _method: "POST",
+      _headers: { "x-agent-native-operator-token": "x".repeat(32) },
+      req: { json: async () => ({}) },
+    };
+    await expect(mounted[0].handler(event)).resolves.toEqual({
+      error: "Operator authorization required",
+    });
+    expect(event._status).toBe(503);
+    expect(run).not.toHaveBeenCalled();
+  });
 
   it("refuses tools-bridge calls when toolCallable === false", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
