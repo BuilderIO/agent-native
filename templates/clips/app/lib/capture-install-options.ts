@@ -23,6 +23,15 @@ export function hasDownloadedDesktopApp(): boolean {
   }
 }
 
+const downloadedListeners = new Set<() => void>();
+
+export function subscribeDownloaded(callback: () => void): () => void {
+  downloadedListeners.add(callback);
+  return () => {
+    downloadedListeners.delete(callback);
+  };
+}
+
 export function markDesktopAppDownloaded(): void {
   try {
     // Downloading (or successfully launching) the app also hides the promo.
@@ -31,6 +40,7 @@ export function markDesktopAppDownloaded(): void {
   } catch {
     // Download tracking is best-effort and must not block the installer.
   }
+  downloadedListeners.forEach((fn) => fn());
 }
 
 export function hasDismissedDesktopPromo(): boolean {

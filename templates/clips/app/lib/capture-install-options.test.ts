@@ -41,10 +41,9 @@ describe("capture install options", () => {
 
     markDesktopPromoDismissed();
     expect(hasDismissedDesktopPromo()).toBe(true);
-    // dismissed-only users are treated as downloaded for CTA label migration
-    // (legacy: a single key covered both states before the flag split).
+    // Legacy fallback: dismissed key is treated as downloaded so existing users
+    // see "Open desktop app" without needing to click through again.
     expect(hasDownloadedDesktopApp()).toBe(true);
-    // But the downloaded storage key itself was never written.
     expect(values.get("clips.desktop-app.downloaded")).toBeUndefined();
   });
 

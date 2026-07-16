@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client";
+import { appPath, useT } from "@agent-native/core/client";
 import {
   IconBrandApple,
   IconBrandChrome,
@@ -7,7 +7,7 @@ import {
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, useSyncExternalStore } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -20,19 +20,14 @@ import {
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
   hasDownloadedDesktopApp,
+  subscribeDownloaded,
 } from "@/lib/capture-install-options";
 import { cn } from "@/lib/utils";
 
-/**
- * SSR-safe read of the "already downloaded" hint. Drives CTA wording only; the
- * click always tries to open the app and falls back to the download page.
- */
+// SSR snapshot is always false; same-tab markDesktopAppDownloaded() notifies
+// subscribers so mounted CTAs flip to "Open" without a reload.
 function useHasDownloadedDesktopApp(): boolean {
-  const [downloaded, setDownloaded] = useState(false);
-  useEffect(() => {
-    setDownloaded(hasDownloadedDesktopApp());
-  }, []);
-  return downloaded;
+  return useSyncExternalStore(subscribeDownloaded, hasDownloadedDesktopApp, () => false);
 }
 
 type PopoverPlacement = {
@@ -108,10 +103,9 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
         </div>
       )}
 
-      <button
-        type="button"
-        onClick={() => attemptOpenDesktopApp(desktopHref)}
-        className="flex w-full items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
+      <a
+        href={appPath(desktopHref)}
+        className="flex items-start gap-3 rounded-md border border-border p-3 text-start transition hover:bg-accent"
       >
         <DesktopIcon className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
         <span className="min-w-0 flex-1">
@@ -122,7 +116,7 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
             {t("captureInstall.desktopDescription")}
           </span>
         </span>
-      </button>
+      </a>
     </div>
   );
 }
@@ -139,10 +133,7 @@ export function CaptureInstallButton({
   const downloaded = useHasDownloadedDesktopApp();
   const label = downloaded ? (downloadedChildren ?? children) : children;
 
-  // Once downloaded (or after a successful launch), the CTA opens the app
-  // directly — no installer chooser. Not-yet-downloaded users still see the
-  // Chrome/desktop choice when the extension is available.
-  if (downloaded || !clipsChromeExtensionEnabled) {
+  if (downloaded) {
     const { onClick, ...restButtonProps } = buttonProps;
     return (
       <Button
@@ -155,6 +146,14 @@ export function CaptureInstallButton({
         }}
       >
         {label}
+      </Button>
+    );
+  }
+
+  if (!clipsChromeExtensionEnabled) {
+    return (
+      <Button asChild className={className} {...buttonProps}>
+        <a href={appPath(desktopHref)}>{label}</a>
       </Button>
     );
   }
@@ -186,7 +185,7 @@ export function CaptureInstallInlineLink({
 
   const label = downloaded ? (downloadedChildren ?? children) : children;
 
-  if (downloaded || !clipsChromeExtensionEnabled) {
+  if (downloaded) {
     return (
       <button
         type="button"
@@ -195,6 +194,14 @@ export function CaptureInstallInlineLink({
       >
         {label}
       </button>
+    );
+  }
+
+  if (!clipsChromeExtensionEnabled) {
+    return (
+      <a href={appPath(desktopHref)} className={className}>
+        {label}
+      </a>
     );
   }
 

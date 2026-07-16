@@ -259,6 +259,16 @@ pub fn run() {
                 if let Err(err) = app.deep_link().register_all() {
                     eprintln!("[clips-tray] deep link register_all failed: {err}");
                 }
+                // On Linux/Windows a cold launch from clips:// arrives as startup
+                // arguments rather than an on_open_url event. Consume it here so
+                // the popover appears and the browser does not hit its fallback.
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let url_strings: Vec<String> =
+                        urls.iter().map(|u| u.to_string()).collect();
+                    dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
+                    present_popover(app.handle());
+                    let _ = app.handle().emit("clips:deep-link", url_strings);
+                }
             }
 
             if let Err(err) = notifications::show_meeting_notification_window(app.handle()) {
