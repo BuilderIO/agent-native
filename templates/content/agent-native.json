@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "doctor": {
+    "dbToolScopingDenylist": {
+      "content_encrypted_vault_storage_bindings": "Deployment-wide provider binding metadata contains no tenant data and must never be exposed through database tools."
+    }
+  }
+}

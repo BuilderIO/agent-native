@@ -168,7 +168,7 @@ Open lab gaps before E2EE milestone PR 3:
 
 - Connect a synthetic-only agent engine; the current status endpoint reports `configured: false`, so document storage/auth can be tested but agent runs cannot yet be included in the lab evidence.
 - Provision a fork-owned scheduler target before queue or background-run assertions are claimed. The private blob target is provisioned and its basic access/deletion behavior is proven, but Content media must still route through document-scoped handles before revocation is claimed.
-- Triage the 77 non-strict `agent-native doctor` findings emitted by the Content build. Many are test or deploy-environment reads, but the lab must not silently promote a noisy build to a clean security signal.
+- Triage the remaining 79 non-strict `agent-native doctor` findings emitted by the Content build. The three findings introduced by the opaque hosted plane are explicitly resolved; the older findings are still a separate noisy-build gap and must not be mistaken for a clean security signal.
 
 ### Exact-SHA upstream handoff
 
