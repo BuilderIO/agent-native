@@ -847,6 +847,7 @@ export default function RecordingPage() {
             >
               <Link to="/library" replace>
                 <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
+                SHOMIX-2
               </Link>
             </Button>
             <div className="min-w-0 flex-1">
