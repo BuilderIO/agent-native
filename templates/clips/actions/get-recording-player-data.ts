@@ -118,8 +118,8 @@ export default defineAction({
       throw new ForbiddenError("Recording has expired");
     }
 
-    let hasExplicitShare = access.role !== "owner";
-    if (rec.visibility === "public" && access.role === "viewer") {
+    let hasExplicitShare = access.role === "owner";
+    if (rec.visibility === "public" && access.role !== "owner") {
       const userEmail = getRequestUserEmail()?.trim().toLowerCase();
       const orgId = getRequestOrgId();
       const principals = [];

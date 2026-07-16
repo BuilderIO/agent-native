@@ -17,6 +17,7 @@ import { and, eq, inArray, isNull, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { lockCalendarAccount } from "../server/lib/calendar-event-meetings.js";
 import { revokeToken } from "../server/lib/google-calendar-client.js";
 
 export default defineAction({
@@ -90,52 +91,62 @@ export default defineAction({
       }).catch(() => {});
     }
 
-    // Preserve recorded meetings, but hide unrecorded calendar placeholders
-    // tied to this account. Without this cleanup, those materialized rows stay
-    // visible after the account and its calendar-event cache are removed.
-    const syncedEvents = await db
-      .select({
-        id: schema.calendarEvents.id,
-        meetingId: schema.calendarEvents.meetingId,
-      })
-      .from(schema.calendarEvents)
-      .where(eq(schema.calendarEvents.calendarAccountId, args.id));
-    const syncedCalendarEventIds = syncedEvents.map((event) => event.id);
-    const syncedMeetingIds = syncedEvents
-      .map((event) => event.meetingId)
-      .filter((meetingId): meetingId is string => Boolean(meetingId));
-    if (syncedCalendarEventIds.length > 0 || syncedMeetingIds.length > 0) {
-      await db
-        .update(schema.meetings)
-        .set({ trashedAt: new Date().toISOString() })
-        .where(
-          and(
-            or(
-              syncedMeetingIds.length > 0
-                ? inArray(schema.meetings.id, syncedMeetingIds)
-                : undefined,
-              syncedCalendarEventIds.length > 0
-                ? inArray(
-                    schema.meetings.calendarEventId,
-                    syncedCalendarEventIds,
-                  )
-                : undefined,
-            )!,
-            isNull(schema.meetings.recordingId),
-            isNull(schema.meetings.trashedAt),
-          ),
-        );
-    }
+    await db.transaction(async (tx) => {
+      // Materialization takes this same account-row write lock before it
+      // snapshots/claims an event and inserts a meeting. Taking it before
+      // this cleanup snapshot prevents a new unrecorded meeting from being
+      // inserted after the rows below have been inspected.
+      if (!(await lockCalendarAccount(tx, args.id, account.ownerEmail))) {
+        throw new Error(`Calendar account not found: ${args.id}`);
+      }
 
-    // Drop the synced events for this account so the meetings tab clears.
-    await db
-      .delete(schema.calendarEvents)
-      .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+      // Preserve recorded meetings, but hide unrecorded calendar placeholders
+      // tied to this account. Without this cleanup, those materialized rows
+      // stay visible after the account and its event cache are removed.
+      const syncedEvents = await tx
+        .select({
+          id: schema.calendarEvents.id,
+          meetingId: schema.calendarEvents.meetingId,
+        })
+        .from(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+      const syncedCalendarEventIds = syncedEvents.map((event) => event.id);
+      const syncedMeetingIds = syncedEvents
+        .map((event) => event.meetingId)
+        .filter((meetingId): meetingId is string => Boolean(meetingId));
+      if (syncedCalendarEventIds.length > 0 || syncedMeetingIds.length > 0) {
+        await tx
+          .update(schema.meetings)
+          .set({ trashedAt: new Date().toISOString() })
+          .where(
+            and(
+              or(
+                syncedMeetingIds.length > 0
+                  ? inArray(schema.meetings.id, syncedMeetingIds)
+                  : undefined,
+                syncedCalendarEventIds.length > 0
+                  ? inArray(
+                      schema.meetings.calendarEventId,
+                      syncedCalendarEventIds,
+                    )
+                  : undefined,
+              )!,
+              isNull(schema.meetings.recordingId),
+              isNull(schema.meetings.trashedAt),
+            ),
+          );
+      }
 
-    // Drop the account row itself.
-    await db
-      .delete(schema.calendarAccounts)
-      .where(eq(schema.calendarAccounts.id, args.id));
+      // Drop the synced events for this account so the meetings tab clears.
+      await tx
+        .delete(schema.calendarEvents)
+        .where(eq(schema.calendarEvents.calendarAccountId, args.id));
+
+      // Drop the account row itself.
+      await tx
+        .delete(schema.calendarAccounts)
+        .where(eq(schema.calendarAccounts.id, args.id));
+    });
 
     await writeAppState("refresh-signal", { ts: Date.now() });
     return { id: args.id, disconnected: true };

@@ -28,4 +28,29 @@ describe("asset picker auth handoff", () => {
       ),
     ).toBe("https://assets.agent-native.com/picker?mediaType=image");
   });
+
+  it("adds a nonce-bound exact-origin callback to the top-level URL", () => {
+    expect(
+      standaloneAssetPickerUrl(
+        "https://assets.agent-native.com/picker?embedded=1",
+        "https://clips.agent-native.com",
+        {
+          handoffId: "handoff-123",
+          returnOrigin: "https://clips.agent-native.com/chat",
+        },
+      ),
+    ).toBe(
+      "https://assets.agent-native.com/picker?mediaType=image&__an_asset_picker_handoff=handoff-123&__an_asset_picker_return_origin=https%3A%2F%2Fclips.agent-native.com",
+    );
+  });
+
+  it("omits an invalid callback target", () => {
+    expect(
+      standaloneAssetPickerUrl(
+        "https://assets.agent-native.com/picker",
+        "https://clips.agent-native.com",
+        { handoffId: "handoff-123", returnOrigin: "javascript:alert(1)" },
+      ),
+    ).toBe("https://assets.agent-native.com/picker?mediaType=image");
+  });
 });
