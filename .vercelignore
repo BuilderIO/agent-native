@@ -1,12 +1,3 @@
-.vercel
-**/.vercel
-**/node_modules
-**/dist
-**/build
-**/.output
-**/coverage
-packages/core/corpus
-
 # The Content lab builds from the monorepo root, but it does not need every
 # sibling app or desktop artifact in the CLI upload. Keep the workspace
 # packages built by the root postinstall plus the one deployed template.
@@ -45,3 +36,14 @@ animation-plans
 docs
 plans
 skills
+
+# Generated outputs must come last so package/template re-includes above do
+# not accidentally bring local build products back into the archive.
+.vercel
+**/.vercel
+**/node_modules
+**/dist
+**/build
+**/.output
+**/coverage
+packages/core/corpus
