@@ -27,7 +27,11 @@ import { cn } from "@/lib/utils";
 // SSR snapshot is always false; same-tab markDesktopAppDownloaded() notifies
 // subscribers so mounted CTAs flip to "Open" without a reload.
 function useHasDownloadedDesktopApp(): boolean {
-  return useSyncExternalStore(subscribeDownloaded, hasDownloadedDesktopApp, () => false);
+  return useSyncExternalStore(
+    subscribeDownloaded,
+    hasDownloadedDesktopApp,
+    () => false,
+  );
 }
 
 type PopoverPlacement = {
