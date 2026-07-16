@@ -14,11 +14,6 @@ import type { DocumentUpdateResponse } from "../shared/api.js";
 import { BUILDER_CMS_BODY_CONTENT_KEY } from "./_builder-cms-source-adapter.js";
 import { reconcileInlineDatabasesForDocument } from "./_content-database-lifecycle.js";
 import { serializeDocumentSource } from "./_document-source.js";
-import {
-  isLocalDocumentId,
-  isContentLocalFileMode,
-  updateLocalFileDocument,
-} from "./_local-file-documents.js";
 
 // Not (yet) part of the shared API surface — kept local to avoid touching
 // shared/api.ts, which another workstream owns concurrently. Structural
@@ -197,16 +192,6 @@ export default defineAction({
     // agent flag.
     const isAgentCaller =
       ctx?.caller === "tool" || ctx?.caller === "mcp" || ctx?.caller === "a2a";
-
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const doc = await updateLocalFileDocument(id, args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-        softDeletedDatabaseIds: [],
-      };
-    }
 
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;

@@ -43,6 +43,7 @@ type DocumentListRow = Omit<typeof schema.documents.$inferSelect, "content">;
 // string below; opened documents use their dedicated document read path instead.
 export const contentDatabaseListDocumentSelection = {
   id: schema.documents.id,
+  spaceId: schema.documents.spaceId,
   parentId: schema.documents.parentId,
   title: schema.documents.title,
   description: schema.documents.description,
@@ -462,7 +463,12 @@ export async function getDatabaseItemByDocumentId(
         schema.contentDatabaseItems.id,
       ),
     )
-    .where(and(...clauses));
+    .where(and(...clauses))
+    .orderBy(
+      sql`CASE WHEN ${schema.contentDatabaseSourceRows.sourceId} IS NOT NULL THEN 0 ELSE 1 END`,
+      sql`CASE WHEN ${schema.contentDatabases.systemRole} IS NULL THEN 0 ELSE 1 END`,
+      asc(schema.contentDatabases.id),
+    );
   return row ?? null;
 }
 

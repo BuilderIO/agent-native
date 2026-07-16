@@ -5,10 +5,6 @@ import { z } from "zod";
 
 import "../server/db/index.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
-import {
-  getLocalFileDocument,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
 
 /**
  * Collab-aware "ingest the final" read for external agents.
@@ -65,25 +61,6 @@ export default defineAction({
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   run: async ({ id, format }) => {
-    if (await isContentLocalFileMode()) {
-      const doc = await getLocalFileDocument(id);
-      if (doc.source?.kind === "folder") {
-        throw new Error("Folders cannot be pulled as markdown documents");
-      }
-      return {
-        id: doc.id,
-        title: doc.title,
-        description: doc.description ?? "",
-        content: formatDocumentContent(doc.content ?? "", format),
-        format,
-        deepLink: buildDeepLink({
-          app: "content",
-          view: "editor",
-          params: { documentId: doc.id },
-        }),
-      };
-    }
-
     const access = await resolveAccess("document", id);
     if (!access) throw new Error(`Document "${id}" not found`);
 

@@ -14,6 +14,9 @@ export default defineAction({
   }),
   run: async ({ databaseId }) => {
     const { database } = await assertContentDatabaseLifecycleAccess(databaseId);
+    if (database.systemRole) {
+      throw new Error("System Content databases cannot be deleted");
+    }
     const db = getDb();
     const deletedAt = database.deletedAt ?? new Date().toISOString();
 

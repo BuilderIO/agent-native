@@ -2797,6 +2797,9 @@ const localFilesMessages = {
   summaryUnchanged: "{{count}} unchanged",
   summarySkipped: "{{count}} skipped",
   summaryErrors: "{{count}} errors",
+  summaryConflicts: "{{count}} conflicts",
+  conflictNeedsReview:
+    "Content and the folder both changed; review is required.",
   pageTitle: "Local files",
   foldersRemembered: "Folders remembered",
   linkedCount: "{{count}} linked",
@@ -3111,11 +3114,14 @@ const enUS = {
       "“{{title}}” and all its sub-pages will be permanently deleted. This cannot be undone.",
     deletePageQuestion: "Delete page?",
     localFiles: "Local files",
+    files: "Files",
+    loadingFiles: "Loading files…",
     localFilesActions: "Local files actions",
     localFilesRemoved: "Local files removed",
     localFilesRemovedDescription: "{{count}} items removed",
     manageLocalFolders: "Manage folders",
     new: "New",
+    newDatabase: "New database",
     newPage: "New page",
     nextStep: "Next step",
     notionConfigureOAuthAuthorize:
@@ -3147,6 +3153,7 @@ const enUS = {
       "Sync documents with your Notion workspace.",
     notionUploadCredentialsJson: "Upload credentials JSON",
     noFilesYet: "No files yet",
+    noWorkspaces: "No workspaces yet",
     noLocalFilesYet: "No local files yet",
     noOrganizationPagesYet: "No organization pages yet",
     noPagesFound: "No pages found",
@@ -3172,6 +3179,7 @@ const enUS = {
     trash: "Trash",
     favorites: "Favorites",
     untitled: "Untitled",
+    workspaces: "Workspaces",
   },
 };
 
@@ -8859,6 +8867,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "无法重新排序页面",
+      loadingFiles: "正在加载文件…",
+      newDatabase: "新建数据库",
+      noWorkspaces: "还没有工作区",
       collapse: "折叠侧边栏",
       expand: "展开侧边栏",
       failedCreatePage: "创建页面失败",
@@ -9046,6 +9057,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "No se pueden reordenar las páginas",
+      loadingFiles: "Cargando archivos…",
+      newDatabase: "Nueva base de datos",
+      noWorkspaces: "Aún no hay espacios de trabajo",
       collapse: "Contraer barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "No se pudo crear la página",
@@ -9234,6 +9248,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Impossible de réordonner les pages",
+      loadingFiles: "Chargement des fichiers…",
+      newDatabase: "Nouvelle base de données",
+      noWorkspaces: "Aucun espace de travail pour le moment",
       collapse: "Réduire la barre latérale",
       expand: "Développer la barre latérale",
       failedCreatePage: "Échec de la création de la page",
@@ -9420,6 +9437,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Seiten können nicht neu angeordnet werden",
+      loadingFiles: "Dateien werden geladen…",
+      newDatabase: "Neue Datenbank",
+      noWorkspaces: "Noch keine Arbeitsbereiche",
       collapse: "Seitenleiste einklappen",
       expand: "Seitenleiste ausklappen",
       failedCreatePage: "Seite konnte nicht erstellt werden",
@@ -9606,6 +9626,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "ページを並べ替えられません",
+      loadingFiles: "ファイルを読み込んでいます…",
+      newDatabase: "新しいデータベース",
+      noWorkspaces: "ワークスペースはまだありません",
       collapse: "サイドバーを折りたたむ",
       expand: "サイドバーを展開",
       failedCreatePage: "ページを作成できませんでした",
@@ -9781,6 +9804,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "페이지 순서를 변경할 수 없습니다",
+      loadingFiles: "파일을 불러오는 중…",
+      newDatabase: "새 데이터베이스",
+      noWorkspaces: "아직 워크스페이스가 없습니다",
       collapse: "사이드바 접기",
       expand: "사이드바 펼치기",
       failedCreatePage: "페이지를 만들지 못했습니다",
@@ -9968,6 +9994,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "Não é possível reordenar páginas",
+      loadingFiles: "Carregando arquivos…",
+      newDatabase: "Novo banco de dados",
+      noWorkspaces: "Ainda não há espaços de trabalho",
       collapse: "Recolher barra lateral",
       expand: "Expandir barra lateral",
       failedCreatePage: "Falha ao criar página",
@@ -10141,6 +10170,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "पेजों को फिर से क्रमबद्ध नहीं किया जा सकता",
+      loadingFiles: "फ़ाइलें लोड हो रही हैं…",
+      newDatabase: "नया डेटाबेस",
+      noWorkspaces: "अभी कोई कार्यस्थान नहीं है",
       collapse: "साइडबार संकुचित करें",
       expand: "साइडबार फैलाएं",
       failedCreatePage: "पेज नहीं बन सका",
@@ -10317,6 +10349,9 @@ export const messagesByLocale = {
     },
     sidebar: {
       cannotReorderPages: "تعذرت إعادة ترتيب الصفحات",
+      loadingFiles: "جارٍ تحميل الملفات…",
+      newDatabase: "قاعدة بيانات جديدة",
+      noWorkspaces: "لا توجد مساحات عمل بعد",
       collapse: "طي الشريط الجانبي",
       expand: "توسيع الشريط الجانبي",
       failedCreatePage: "فشل إنشاء الصفحة",

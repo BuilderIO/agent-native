@@ -7,8 +7,11 @@
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+// guard:allow-unscoped — isolated SQLite fixtures intentionally inspect rows directly.
 
-import { and, eq, ne } from "drizzle-orm";
+import { getDbExec } from "@agent-native/core/db";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { and, eq, ne, or } from "drizzle-orm";
 import {
   afterAll,
   afterEach,
@@ -554,6 +557,7 @@ let seedCollabFromText: typeof import("@agent-native/core/collab").seedFromText;
 let getCollabText: typeof import("@agent-native/core/collab").getText;
 
 const OWNER = "owner@example.com";
+const IMPORT_SPACE_ID = "builder_import_test_space";
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -562,6 +566,35 @@ beforeAll(async () => {
   schema = dbModule.schema;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
+  const { systemIdsForContentSpace } = await import("./_content-spaces.js");
+  const filesIds = systemIdsForContentSpace(IMPORT_SPACE_ID, "files");
+  const now = new Date().toISOString();
+  await getDb().insert(schema.documents).values({
+    id: filesIds.documentId,
+    spaceId: IMPORT_SPACE_ID,
+    ownerEmail: OWNER,
+    title: "Files",
+    content: "",
+    visibility: "private",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDb().insert(schema.contentDatabases).values({
+    id: filesIds.databaseId,
+    spaceId: IMPORT_SPACE_ID,
+    systemRole: "files",
+    ownerEmail: OWNER,
+    documentId: filesIds.documentId,
+    title: "Files",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL, created_by TEXT NOT NULL, created_at INTEGER NOT NULL
+  )`);
+  await getDbExec().execute(`CREATE TABLE IF NOT EXISTS org_members (
+    id TEXT PRIMARY KEY, org_id TEXT NOT NULL, email TEXT NOT NULL, role TEXT NOT NULL, joined_at INTEGER NOT NULL
+  )`);
   resync = (await import("./_database-source-utils.js"))
     .resyncBuilderCmsSourceSnapshot;
   importBuilderEntries = (await import("./_database-source-utils.js"))
@@ -1255,6 +1288,7 @@ it("resync re-links only the source's own rows, never another collection's (self
   const databaseDocId = "doc_db_resync";
   await db.insert(schema.documents).values({
     id: databaseDocId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     title: "DB",
     createdAt: now,
@@ -1262,6 +1296,7 @@ it("resync re-links only the source's own rows, never another collection's (self
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     documentId: databaseDocId,
     title: "DB",
@@ -1388,6 +1423,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   const databaseDocId = "doc_db_resync_duplicate_keys";
   await db.insert(schema.documents).values({
     id: databaseDocId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     title: "DB duplicate keys",
     createdAt: now,
@@ -1395,6 +1431,7 @@ it("records freshly imported Builder row identities even when title and URL keys
   });
   await db.insert(schema.contentDatabases).values({
     id: databaseId,
+    spaceId: IMPORT_SPACE_ID,
     ownerEmail: OWNER,
     documentId: databaseDocId,
     title: "DB duplicate keys",
@@ -1535,6 +1572,83 @@ it("records freshly imported Builder row identities even when title and URL keys
     .from(schema.contentDatabaseSourceRows)
     .where(eq(schema.contentDatabaseSourceRows.sourceId, "src-duplicates"));
   expect(concurrentSourceRows).toHaveLength(2);
+});
+
+it("repairs a legacy organization database into its organization space", async () => {
+  builderReadMock.mode = "full";
+  builderReadMock.calls = [];
+  const db = getDb();
+  const now = new Date().toISOString();
+  const orgId = "legacy-builder-org";
+  const databaseId = "legacy_org_builder_database";
+  const databaseDocumentId = "legacy_org_builder_document";
+  await getDbExec().execute({
+    sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
+    args: [orgId, "Legacy Builder Org", OWNER, Date.now()],
+  });
+  await getDbExec().execute({
+    sql: "INSERT INTO org_members (id, org_id, email, role, joined_at) VALUES (?, ?, ?, ?, ?)",
+    args: ["legacy-builder-org-owner", orgId, OWNER, "owner", Date.now()],
+  });
+  await db.insert(schema.documents).values({
+    id: databaseDocumentId,
+    spaceId: null,
+    ownerEmail: OWNER,
+    orgId,
+    title: "Legacy org Builder database",
+    visibility: "org",
+    createdAt: now,
+    updatedAt: now,
+  });
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    spaceId: null,
+    ownerEmail: OWNER,
+    orgId,
+    documentId: databaseDocumentId,
+    title: "Legacy org Builder database",
+    createdAt: now,
+    updatedAt: now,
+  });
+  const [database] = await db
+    .select()
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const read = await (
+    await import("./_builder-cms-read-client.js")
+  ).readBuilderCmsContentEntries({ model: "collection-duplicates" });
+  const entries = read.state === "live" ? read.entries.slice(0, 1) : [];
+
+  await runWithRequestContext({ userEmail: OWNER, orgId }, () =>
+    importBuilderEntries({
+      database,
+      entries,
+      now,
+      sourceTable: "collection-duplicates",
+      existingSourceRows: [],
+    }),
+  );
+
+  const { organizationContentSpaceId } = await import("./_content-spaces.js");
+  const expectedSpaceId = organizationContentSpaceId(orgId);
+  const [repairedDatabase] = await db
+    .select({ spaceId: schema.contentDatabases.spaceId })
+    .from(schema.contentDatabases)
+    .where(eq(schema.contentDatabases.id, databaseId));
+  const repairedDocuments = await db
+    .select({ id: schema.documents.id, spaceId: schema.documents.spaceId })
+    .from(schema.documents)
+    .where(
+      or(
+        eq(schema.documents.id, databaseDocumentId),
+        eq(schema.documents.parentId, databaseDocumentId),
+      ),
+    );
+  expect(repairedDatabase?.spaceId).toBe(expectedSpaceId);
+  expect(repairedDocuments).toHaveLength(2);
+  expect(
+    repairedDocuments.every((row) => row.spaceId === expectedSpaceId),
+  ).toBe(true);
 });
 
 it("resync advances Builder partial reads with a cursor and converges on the final page", async () => {
