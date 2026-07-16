@@ -45,7 +45,7 @@
       }
     },
     "shell": {
-      "open": "(((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)).+|(zoommtg://([A-Za-z0-9-]+\\.)*zoom\\.us/join\\?.+))"
+      "open": "(((mailto:\\w+)|(tel:\\w+)|(https?://\\w+)).+|(zoommtg://([A-Za-z0-9-]+\\.)*zoom\\.us/join\\?.+)|(ms-settings:[A-Za-z0-9._?=&-]+))"
     },
     "updater": {
       "active": true,

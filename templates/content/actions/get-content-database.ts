@@ -11,6 +11,7 @@ import type {
 import {
   CONTENT_DATABASE_MAX_READ_LIMIT,
   getContentDatabaseResponse,
+  getDocumentContextPath,
 } from "./_database-utils.js";
 
 export default defineAction({
@@ -78,6 +79,17 @@ export default defineAction({
       };
     }
 
-    return getContentDatabaseResponse(resolvedDatabaseId, { limit, offset });
+    const response = await getContentDatabaseResponse(resolvedDatabaseId, {
+      limit,
+      offset,
+    });
+    const [document] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, database.documentId));
+    return {
+      ...response,
+      contextPath: document ? await getDocumentContextPath(document) : [],
+    };
   },
 });

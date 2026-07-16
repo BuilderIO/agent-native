@@ -59,7 +59,9 @@ function buildTitleContext({
 }): string | undefined {
   const parts: string[] = [];
   if (currentTitle && !isDefaultTitle(currentTitle)) {
-    parts.push(`Current title: ${currentTitle}`);
+    parts.push(
+      `Current title: ${currentTitle}\nWhen regenerating, do not return this title verbatim; choose a more specific alternative when the transcript supports one.`,
+    );
   }
   if (agentsContext) parts.push(agentsContext);
   return parts.length > 0 ? parts.join("\n\n") : undefined;
@@ -237,9 +239,14 @@ export default defineAction({
 
         if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
+        const titleMatchesCurrent =
+          fresh.title?.trim().toLocaleLowerCase() ===
+          generatedTitle.trim().toLocaleLowerCase();
+
         if (
-          isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-          fresh.title === rec.title
+          !titleMatchesCurrent &&
+          (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+            fresh.title === rec.title)
         ) {
           await db
             .update(schema.recordings)
@@ -272,12 +279,18 @@ export default defineAction({
           };
         }
 
-        return {
-          updated: false,
-          skipped: true,
-          reason: "Recording title changed before generation completed",
-          recordingId: args.recordingId,
-        };
+        if (!titleMatchesCurrent) {
+          return {
+            updated: false,
+            skipped: true,
+            reason: "Recording title changed before generation completed",
+            recordingId: args.recordingId,
+          };
+        }
+
+        console.warn(
+          `[clips] AI title regeneration returned the existing title for ${args.recordingId}; queueing a refinement instead`,
+        );
       }
     } catch (err) {
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
@@ -302,9 +315,14 @@ export default defineAction({
 
       if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
+      const titleMatchesCurrent =
+        fresh.title?.trim().toLocaleLowerCase() ===
+        fallbackTitle.trim().toLocaleLowerCase();
+
       if (
-        isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-        fresh.title === rec.title
+        !titleMatchesCurrent &&
+        (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+          fresh.title === rec.title)
       ) {
         await db
           .update(schema.recordings)

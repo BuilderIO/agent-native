@@ -16,6 +16,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 type Row = { id: string; status: string; fields: string };
 
 const mockAssertAccess = vi.hoisted(() => vi.fn(async () => {}));
+const mockInvalidatePublicFormCache = vi.hoisted(() => vi.fn());
 
 const store = vi.hoisted(() => new Map<string, Row>());
 const selectDelay = vi.hoisted(() => ({ ms: 0 }));
@@ -27,6 +28,10 @@ vi.mock("@agent-native/core", () => ({
 
 vi.mock("@agent-native/core/sharing", () => ({
   assertAccess: (...args: unknown[]) => mockAssertAccess(...args),
+}));
+
+vi.mock("../server/lib/public-form-ssr.js", () => ({
+  invalidatePublicFormCache: mockInvalidatePublicFormCache,
 }));
 
 vi.mock("drizzle-orm", () => ({

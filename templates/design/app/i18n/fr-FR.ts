@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "Connectez-vous pour commenter",
     panelTitle: "Retours",
     placeholder: "Laissez un commentaire…",
+    commentingOn: "Commentaire sur {{name}}",
     emptyState: "Aucun commentaire de révision pour le moment.",
     clickToPin: "Cliquez n’importe où pour épingler un commentaire",
     escToExit: "Appuyez sur Esc pour quitter",

@@ -6,6 +6,7 @@ export interface ContentSourceDocument {
   parentId: string | null;
   title: string;
   content: string;
+  description?: string;
   icon: string | null;
   position: number;
   isFavorite: boolean;
@@ -31,6 +32,7 @@ export interface ParsedContentSourceFile {
   parentId?: string | null;
   title: string;
   content: string;
+  description?: string;
   icon?: string | null;
   position?: number;
   isFavorite?: boolean;
@@ -152,6 +154,7 @@ export function serializeContentSourceDocument(
   const frontmatter = [
     frontmatterLine("id", doc.id),
     frontmatterLine("title", doc.title || "Untitled"),
+    frontmatterLine("description", doc.description),
     frontmatterLine("parentId", doc.parentId),
     frontmatterLine("icon", doc.icon),
     frontmatterLine("position", doc.position),
@@ -196,6 +199,10 @@ export function parseContentSourceFile(
     parentId,
     title,
     content,
+    description:
+      typeof metadata.description === "string"
+        ? metadata.description
+        : undefined,
     icon: hasOwn(metadata, "icon")
       ? typeof metadata.icon === "string"
         ? metadata.icon

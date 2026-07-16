@@ -424,6 +424,7 @@ const messages = {
     invite: "邀请",
     embed: "嵌入",
     shareLink: "分享链接",
+    shareWithHumans: "与人分享",
     shareWithAgents: "与代理商分享",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
@@ -434,6 +435,8 @@ const messages = {
     retryAgentLink: "重试",
     gifPreview: "GIF 预览",
     openPlayer: "开放玩家",
+    chooseFile: "选择文件",
+    remove: "消除",
     downloadMp4: "下载MP4",
     embedsNeedPublic: "嵌入需要公共剪辑",
     embedPublicDescription:

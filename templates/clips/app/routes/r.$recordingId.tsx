@@ -205,6 +205,10 @@ function parseTimeParam(raw: string | null): number {
   return (hours * 3600 + minutes * 60 + seconds) * 1000;
 }
 
+function buildSignInHref(returnTo: string): string {
+  return `${agentNativePath("/_agent-native/sign-in")}?return=${encodeURIComponent(returnTo)}`;
+}
+
 export default function RecordingPage() {
   const t = useT();
   useAutoTitleBridge();
@@ -256,6 +260,7 @@ export default function RecordingPage() {
   );
   const lastPlayerStateWriteRef = useRef(0);
   const readyMediaPollRef = useRef<{ key: string; until: number } | null>(null);
+  const [metadataRefreshUntil, setMetadataRefreshUntil] = useState(0);
 
   useEffect(() => {
     if (
@@ -325,6 +330,7 @@ export default function RecordingPage() {
         // `update-recording` and we want the skeleton to swap in promptly.
         if (shouldShowGeneratedTitleSkeleton(rec, data?.transcript?.status))
           return 3000;
+        if (Date.now() < metadataRefreshUntil) return 2000;
         return false;
       },
     },
@@ -542,6 +548,8 @@ export default function RecordingPage() {
   });
   const regenerateTitle = useActionMutation("regenerate-title" as any, {
     onSuccess: (result: any) => {
+      setMetadataRefreshUntil(Date.now() + 60_000);
+      void playerDataQ.refetch();
       if (result?.updated) {
         toast.success(t("recordingPage.titleUpdated"));
       } else if (result?.reason === "builder_credits_paused") {
@@ -559,7 +567,11 @@ export default function RecordingPage() {
     onError: handleAiError,
   });
   const regenerateSummary = useActionMutation("regenerate-summary" as any, {
-    onSuccess: () => toast.success(t("recordingPage.descriptionQueued")),
+    onSuccess: () => {
+      setMetadataRefreshUntil(Date.now() + 60_000);
+      void playerDataQ.refetch();
+      toast.success(t("recordingPage.descriptionQueued"));
+    },
     onError: handleAiError,
   });
   const regenerateChapters = useActionMutation("regenerate-chapters" as any, {
@@ -614,16 +626,21 @@ export default function RecordingPage() {
   }
   function handleGenerateWorkflow(kind: WorkflowKind) {
     if (!recording) return;
+    if (generatedWorkflow?.status === "generating") return;
     setEditing(false);
     setPanel("agent");
     window.dispatchEvent(
       new CustomEvent("agent-panel:set-mode", { detail: { mode: "chat" } }),
     );
+    window.dispatchEvent(new Event("agent-panel:open"));
     generateWorkflow.mutate({
       recordingId: recording.id,
       kind,
     } as any);
   }
+
+  const workflowBusy =
+    generateWorkflow.isPending || generatedWorkflow?.status === "generating";
 
   useEffect(() => {
     if (recording && panel === "settings" && !canEdit) setPanel("agent");
@@ -709,18 +726,36 @@ export default function RecordingPage() {
   }
 
   if (playerDataQ.isError || !recording) {
+    const needsSignIn = !session;
+    const returnTo =
+      typeof window === "undefined"
+        ? `/r/${recordingId}`
+        : window.location.pathname + window.location.search;
     return (
       <div className="flex flex-col items-center justify-center h-screen w-full bg-background px-6">
         <h1 className="text-xl font-semibold mb-2">
-          {t("recordingPage.recordingNotFound")}
+          {needsSignIn
+            ? t("sharePage.clipUnavailable")
+            : t("recordingPage.recordingNotFound")}
         </h1>
         <p className="text-sm text-muted-foreground mb-4">
-          {(playerDataQ.error as Error | undefined)?.message ??
-            t("recordingPage.noAccess")}
+          {needsSignIn
+            ? t("sharePage.clipUnavailableMessage")
+            : ((playerDataQ.error as Error | undefined)?.message ??
+              t("recordingPage.noAccess"))}
         </p>
-        <Button asChild variant="outline">
-          <Link to="/">{t("recordingPage.backToLibrary")}</Link>
-        </Button>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          {needsSignIn ? (
+            <Button asChild>
+              <a href={buildSignInHref(returnTo)}>{t("sharePage.signIn")}</a>
+            </Button>
+          ) : null}
+          <Button asChild variant="outline">
+            <Link to="/library" replace>
+              {t("recordingPage.backToLibrary")}
+            </Link>
+          </Button>
+        </div>
       </div>
     );
   }
@@ -784,7 +819,7 @@ export default function RecordingPage() {
               className="shrink-0"
               aria-label={t("recordingPage.back")}
             >
-              <Link to="/">
+              <Link to="/library" replace>
                 <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
               </Link>
             </Button>
@@ -956,7 +991,9 @@ export default function RecordingPage() {
               : t("recordingPage.checkAgain")}
           </Button>
           <Button asChild variant="ghost" size="sm">
-            <Link to="/">{t("recordingPage.backToLibrary")}</Link>
+            <Link to="/library" replace>
+              {t("recordingPage.backToLibrary")}
+            </Link>
           </Button>
         </div>
       </div>
@@ -1136,7 +1173,7 @@ export default function RecordingPage() {
             className="shrink-0"
             aria-label={t("recordingPage.back")}
           >
-            <Link to="/">
+            <Link to="/library" replace>
               <IconArrowLeft className="h-4 w-4 rtl:-scale-x-100" />
             </Link>
           </Button>
@@ -1174,7 +1211,7 @@ export default function RecordingPage() {
             </Button>
           ) : null}
 
-          {canEdit ? (
+          {canEdit && !editing ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button
@@ -1221,6 +1258,7 @@ export default function RecordingPage() {
                   onSelect={() =>
                     regenerateSummary.mutate({
                       recordingId: recording.id,
+                      openInChat: true,
                     } as any)
                   }
                 >
@@ -1264,7 +1302,7 @@ export default function RecordingPage() {
                   const menuItem = (
                     <DropdownMenuItem
                       key={item.kind}
-                      disabled={generateWorkflow.isPending}
+                      disabled={workflowBusy}
                       onSelect={() => handleGenerateWorkflow(item.kind)}
                       className={
                         item.tooltipKey ? "justify-between gap-3" : undefined
@@ -1319,24 +1357,26 @@ export default function RecordingPage() {
             </DropdownMenu>
           ) : null}
 
-          <ShareRecordingPopover
-            recordingId={recording.id}
-            recordingTitle={recording.title}
-            initialVisibility={recording.visibility}
-            initialRole={role}
-            videoUrl={recording.videoUrl}
-            animatedThumbnailUrl={recording.animatedThumbnailUrl}
-            isLoomRecording={isLoomEmbedBacked}
-            hasPassword={Boolean(recording.hasPassword)}
-          >
-            <Button
-              className="shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
-              size="sm"
+          {!editing ? (
+            <ShareRecordingPopover
+              recordingId={recording.id}
+              recordingTitle={recording.title}
+              initialVisibility={recording.visibility}
+              initialRole={role}
+              videoUrl={recording.videoUrl}
+              animatedThumbnailUrl={recording.animatedThumbnailUrl}
+              isLoomRecording={isLoomEmbedBacked}
+              hasPassword={Boolean(recording.hasPassword)}
             >
-              <IconShare3 className="h-4 w-4" />
-              {t("recordingPage.share")}
-            </Button>
-          </ShareRecordingPopover>
+              <Button
+                className="shrink-0 gap-1.5 bg-primary text-primary-foreground hover:bg-primary/90"
+                size="sm"
+              >
+                <IconShare3 className="h-4 w-4" />
+                {t("recordingPage.share")}
+              </Button>
+            </ShareRecordingPopover>
+          ) : null}
 
           {canDelete || canDownloadRecording ? (
             <RecordingOptionsMenu
@@ -1486,7 +1526,7 @@ export default function RecordingPage() {
                     ) : null}
                   </div>
                   {recording.description ? (
-                    <p className="mt-3 line-clamp-2 text-sm text-muted-foreground">
+                    <p className="mt-3 whitespace-pre-wrap break-words text-sm text-muted-foreground">
                       {recording.description}
                     </p>
                   ) : null}
@@ -1528,7 +1568,7 @@ function GeneratedWorkflowNotice({
   const status = workflow.status ?? (workflow.content ? "ready" : "generating");
   const content =
     typeof workflow.content === "string" ? workflow.content.trim() : "";
-  const isReady = status === "ready" && content.length > 0;
+  const isReady = status !== "failed" && content.length > 0;
   const isFailed = status === "failed";
   const title = workflowTitle(workflow.kind);
 

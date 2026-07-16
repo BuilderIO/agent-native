@@ -12,6 +12,7 @@ import {
 
 export const BUILDER_CMS_BODY_CONTENT_KEY = "__builder.body.content";
 export const BUILDER_CMS_BODY_BLOCKS_HASH_KEY = "__builder.body.blocksHash";
+export const BUILDER_CMS_BODY_LAST_UPDATED_KEY = "__builder.body.lastUpdated";
 export const BUILDER_CMS_BODY_SIDECARS_KEY = "__builder.body.sidecarsJson";
 export const BUILDER_CMS_BODY_LOSSLESS_CONTENT_KEY =
   "__builder.body.losslessContent";

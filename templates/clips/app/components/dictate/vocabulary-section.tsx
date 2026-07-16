@@ -66,6 +66,7 @@ export function VocabularySection() {
   const removeTerm = useActionMutation<unknown, { id: string }>(
     "remove-vocabulary-term",
     {
+      method: "DELETE",
       onMutate: async (vars) => {
         await queryClient.cancelQueries({ queryKey: QUERY_KEY });
         const prev = queryClient.getQueryData(QUERY_KEY);

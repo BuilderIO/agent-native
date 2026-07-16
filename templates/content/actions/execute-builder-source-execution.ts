@@ -15,6 +15,10 @@ import {
   type ExecuteBuilderSourceExecutionRequest,
 } from "../shared/api.js";
 import {
+  lookupBuilderCmsSafeModelIntent,
+  type BuilderCmsIntentMatch,
+} from "./_builder-cms-intent-lookup.js";
+import {
   type BuilderCmsEntryLiveState,
   readBuilderCmsEntryLiveState,
 } from "./_builder-cms-read-client.js";
@@ -33,11 +37,13 @@ import {
   builderCmsExecutionIdempotencyKey,
   resolveBuilderCmsExecutionPushMode,
   validateBuilderCmsExecutionDryRun,
+  BUILDER_CMS_EXECUTION_MARKER_FIELD,
 } from "./_builder-cms-write-adapter.js";
 import {
   type BuilderCmsWriteResult,
   executeBuilderCmsWrite,
 } from "./_builder-cms-write-client.js";
+import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
   getContentDatabaseSourceSnapshotForWrite,
   resolveDatabaseForSourceMutation,
@@ -53,6 +59,7 @@ export interface BuilderSourceExecutionRecord {
   state: ContentDatabaseSourceExecutionState | string;
   idempotencyKey: string;
   payloadJson: string;
+  attemptToken?: string | null;
   updatedAt: string;
 }
 
@@ -69,6 +76,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     database: DatabaseRecord,
   ) => Promise<ContentDatabaseSource | null>;
   getExecution: (args: {
+    ownerEmail: string;
     sourceId: string;
     changeSetId: string;
     idempotencyKey: string;
@@ -87,6 +95,13 @@ export interface ExecuteBuilderSourceExecutionDeps {
     payload: unknown;
     now: string;
     staleBefore: string;
+    attemptToken: string;
+  }) => Promise<boolean>;
+  checkpointResponse?: (args: {
+    executionId: string;
+    attemptToken: string;
+    payload: unknown;
+    now: string;
   }) => Promise<boolean>;
   markExecutionSucceeded: (args: {
     executionId: string;
@@ -94,6 +109,7 @@ export interface ExecuteBuilderSourceExecutionDeps {
     summary: string;
     payload: unknown;
     now: string;
+    attemptToken?: string;
   }) => Promise<void>;
   markExecutionFailed: (args: {
     executionId: string;
@@ -101,6 +117,8 @@ export interface ExecuteBuilderSourceExecutionDeps {
     payload: unknown;
     lastError: string;
     now: string;
+    attemptToken?: string;
+    state?: "failed" | "reconciliation_required";
   }) => Promise<void>;
   executeWrite: (args: {
     request: BuilderCmsExecutionPayload["request"];
@@ -118,6 +136,15 @@ export interface ExecuteBuilderSourceExecutionDeps {
     now: string;
   }) => Promise<void>;
   getResponse: (databaseId: string) => Promise<ContentDatabaseResponse>;
+  lookupSafeModelIntent?: (args: {
+    marker?: string;
+    exactTitle?: string;
+    intendedFields?: Record<string, unknown>;
+  }) => Promise<{
+    count: number;
+    matchingIntentCount?: number;
+    matches: BuilderCmsIntentMatch[];
+  }>;
 }
 
 const RUNNING_EXECUTION_TIMEOUT_MS = 10 * 60 * 1000;
@@ -182,11 +209,34 @@ function staleRunningCutoff(now: string) {
   ).toISOString();
 }
 
+export function builderExecutionAffectedRows(result: unknown) {
+  return (
+    (
+      result as {
+        rowsAffected?: number;
+        changes?: number;
+        rowCount?: number | null;
+      }
+    ).rowsAffected ??
+    (result as { changes?: number }).changes ??
+    (result as { rowCount?: number | null }).rowCount ??
+    0
+  );
+}
+
+export function builderExecutionConflict(message: string) {
+  return Object.assign(new Error(message), { statusCode: 409 });
+}
+
 function isReclaimableRunningExecution(
   execution: BuilderSourceExecutionRecord,
   now: string,
 ) {
-  if (execution.state !== "running") return true;
+  if (
+    execution.state !== "running" &&
+    execution.state !== "reconciliation_required"
+  )
+    return true;
   const updatedAt = Date.parse(execution.updatedAt);
   if (!Number.isFinite(updatedAt)) return false;
   return updatedAt < Date.parse(staleRunningCutoff(now));
@@ -204,6 +254,40 @@ function executionResponsePayload(args: {
       entryId: args.writeResult.entryId,
       body: args.writeResult.responseBody,
       error: args.writeResult.error,
+    },
+  };
+}
+
+function createDraftIntent(request: BuilderCmsExecutionPayload["request"]) {
+  if (request.method !== "POST") return null;
+  const body = recordValue(request.body);
+  const data = recordValue(body?.data);
+  if (!data) return null;
+  const marker =
+    typeof data[BUILDER_CMS_EXECUTION_MARKER_FIELD] === "string"
+      ? data[BUILDER_CMS_EXECUTION_MARKER_FIELD]
+      : undefined;
+  const exactTitle = typeof data.title === "string" ? data.title : undefined;
+  const intendedFields = Object.fromEntries(
+    Object.entries(data).filter(
+      ([key]) => key !== BUILDER_CMS_EXECUTION_MARKER_FIELD,
+    ),
+  );
+  return { marker, exactTitle, intendedFields };
+}
+
+function recoveredWriteResult(
+  match: BuilderCmsIntentMatch,
+): BuilderCmsWriteResult {
+  return {
+    ok: true,
+    status: 200,
+    entryId: match.id,
+    responseBody: {
+      id: match.id,
+      lastUpdated: match.lastUpdated,
+      published: match.published,
+      recoveredByReadOnlyLookup: true,
     },
   };
 }
@@ -275,10 +359,11 @@ function parseSourceValues(
   }
 }
 
-function builderCmsReconciledSourceValuesJson(args: {
+export function builderCmsReconciledSourceValuesJson(args: {
   existingSourceValuesJson: string | null | undefined;
   snapshotSourceValues: Record<string, DocumentPropertyValue> | undefined;
   changeSet: ContentDatabaseSourceChangeSet;
+  plan: BuilderCmsExecutionPlan;
 }) {
   const next = {
     ...(args.snapshotSourceValues ?? {}),
@@ -297,6 +382,32 @@ function builderCmsReconciledSourceValuesJson(args: {
     }
     if (bodyChange.sidecarsJson !== undefined) {
       next[BUILDER_CMS_BODY_SIDECARS_KEY] = bodyChange.sidecarsJson;
+    }
+  }
+  const requestData = args.plan.payload.request.body.data;
+  if (
+    requestData &&
+    typeof requestData === "object" &&
+    !Array.isArray(requestData)
+  ) {
+    for (const [fieldName, value] of Object.entries(requestData)) {
+      // Builder blocks remain in body/blob storage. The compact body hash above
+      // is the durable proof used by later required-field validation.
+      if (fieldName === "blocks") continue;
+      const sourceFieldKey = `data.${fieldName}`;
+      next[sourceFieldKey] = value as DocumentPropertyValue;
+      if (
+        value &&
+        typeof value === "object" &&
+        !Array.isArray(value) &&
+        (value as Record<string, unknown>)["@type"] ===
+          "@builder.io/core:Reference" &&
+        typeof (value as Record<string, unknown>).id === "string"
+      ) {
+        next[`__agent_native_builder_reference_id:${sourceFieldKey}`] = (
+          value as Record<string, unknown>
+        ).id as string;
+      }
     }
   }
   return JSON.stringify(next);
@@ -476,6 +587,7 @@ async function reconcileBuilderCmsWrite(args: {
     existingSourceValuesJson: row?.sourceValuesJson,
     snapshotSourceValues: snapshotRow?.sourceValues,
     changeSet: args.changeSet,
+    plan: args.plan,
   });
   const patchWithValues = {
     ...patch,
@@ -535,22 +647,49 @@ export function realExecutionDeps(
     getSourceSnapshot: (database) =>
       getContentDatabaseSourceSnapshotForWrite(database, sourceId),
     getExecution: async (args) => {
+      const [claim] = await getDb()
+        .select({
+          executionId: schema.contentDatabaseSourceExecutionClaims.executionId,
+        })
+        .from(schema.contentDatabaseSourceExecutionClaims)
+        .where(
+          and(
+            eq(
+              schema.contentDatabaseSourceExecutionClaims.ownerEmail,
+              args.ownerEmail,
+            ),
+            eq(
+              schema.contentDatabaseSourceExecutionClaims.sourceId,
+              args.sourceId,
+            ),
+            eq(
+              schema.contentDatabaseSourceExecutionClaims.idempotencyKey,
+              args.idempotencyKey,
+            ),
+          ),
+        )
+        .limit(1);
+      if (!claim) return null;
       const [execution] = await getDb()
         .select()
         .from(schema.contentDatabaseSourceExecutions)
         .where(
           and(
-            eq(schema.contentDatabaseSourceExecutions.sourceId, args.sourceId),
+            eq(schema.contentDatabaseSourceExecutions.id, claim.executionId),
             eq(
-              schema.contentDatabaseSourceExecutions.changeSetId,
-              args.changeSetId,
-            ),
-            eq(
-              schema.contentDatabaseSourceExecutions.idempotencyKey,
-              args.idempotencyKey,
+              schema.contentDatabaseSourceExecutions.ownerEmail,
+              args.ownerEmail,
             ),
           ),
-        );
+        )
+        .limit(1);
+      if (
+        execution?.sourceId !== args.sourceId ||
+        execution?.changeSetId !== args.changeSetId ||
+        execution?.idempotencyKey !== args.idempotencyKey
+      ) {
+        return null;
+      }
       return execution ?? null;
     },
     updateExecutionState: async (args) => {
@@ -573,6 +712,7 @@ export function realExecutionDeps(
           summary: args.summary,
           payloadJson: JSON.stringify(args.payload),
           lastError: null,
+          attemptToken: args.attemptToken,
           updatedAt: args.now,
         })
         .where(
@@ -593,45 +733,93 @@ export function realExecutionDeps(
             ),
           ),
         );
-      const changes =
-        (result as { rowsAffected?: number; changes?: number }).rowsAffected ??
-        (result as { rowsAffected?: number; changes?: number }).changes ??
-        0;
-      return changes > 0;
+      return builderExecutionAffectedRows(result) > 0;
     },
-    markExecutionSucceeded: async (args) => {
-      const db = getDb();
-      await db
+    checkpointResponse: async (args) => {
+      const result = await getDb()
         .update(schema.contentDatabaseSourceExecutions)
         .set({
-          state: "succeeded",
-          summary: args.summary,
+          state: "response_received",
+          summary: "Builder response received; reconciling locally.",
           payloadJson: JSON.stringify(args.payload),
           lastError: null,
           updatedAt: args.now,
         })
-        .where(eq(schema.contentDatabaseSourceExecutions.id, args.executionId));
-      await db
-        .update(schema.contentDatabaseSourceChangeSets)
-        .set({ state: "applied", updatedAt: args.now })
-        .where(eq(schema.contentDatabaseSourceChangeSets.id, args.changeSetId));
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+            eq(
+              schema.contentDatabaseSourceExecutions.attemptToken,
+              args.attemptToken,
+            ),
+          ),
+        );
+      return builderExecutionAffectedRows(result) > 0;
+    },
+    markExecutionSucceeded: async (args) => {
+      const db = getDb();
+      await db.transaction(async (tx) => {
+        const result = await tx
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: "succeeded",
+            summary: args.summary,
+            payloadJson: JSON.stringify(args.payload),
+            lastError: null,
+            updatedAt: args.now,
+          })
+          .where(
+            args.attemptToken
+              ? and(
+                  eq(
+                    schema.contentDatabaseSourceExecutions.id,
+                    args.executionId,
+                  ),
+                  eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    args.attemptToken,
+                  ),
+                )
+              : eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+          );
+        if (args.attemptToken && builderExecutionAffectedRows(result) === 0) {
+          throw new Error("Execution lease was reclaimed before completion.");
+        }
+        await tx
+          .update(schema.contentDatabaseSourceChangeSets)
+          .set({ state: "applied", updatedAt: args.now })
+          .where(
+            eq(schema.contentDatabaseSourceChangeSets.id, args.changeSetId),
+          );
+      });
     },
     markExecutionFailed: async (args) => {
       await getDb()
         .update(schema.contentDatabaseSourceExecutions)
         .set({
-          state: "failed",
+          state: args.state ?? "failed",
           summary: args.summary,
           payloadJson: JSON.stringify(args.payload),
           lastError: args.lastError,
           updatedAt: args.now,
         })
-        .where(eq(schema.contentDatabaseSourceExecutions.id, args.executionId));
+        .where(
+          args.attemptToken
+            ? and(
+                eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+                eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  args.attemptToken,
+                ),
+              )
+            : eq(schema.contentDatabaseSourceExecutions.id, args.executionId),
+        );
     },
     executeWrite: (args) => executeBuilderCmsWrite(args),
     readLiveEntry: (args) => readBuilderCmsEntryLiveState(args),
     reconcileWrite: reconcileBuilderCmsWrite,
     getResponse: (databaseId) => getContentDatabaseResponse(databaseId),
+    lookupSafeModelIntent: lookupBuilderCmsSafeModelIntent,
   };
 }
 
@@ -639,177 +827,142 @@ export async function executeBuilderSourceExecutionWithDeps(
   args: ExecuteBuilderSourceExecutionRequest,
   deps: ExecuteBuilderSourceExecutionDeps,
 ) {
-  const database = await deps.resolveDatabase(args);
-  if (!database) throw new Error("Database not found.");
-  await deps.assertEditor(database);
-
-  const source = await deps.getSourceSnapshot(database);
-  if (!source || source.sourceType !== "builder-cms") {
-    throw new Error("Attach a Builder CMS source before executing a write.");
-  }
-
-  const changeSet = source.changeSets.find(
-    (candidate) => candidate.id === args.changeSetId,
-  );
-  if (!changeSet) throw new Error("Source change-set not found.");
-  if (changeSet.direction !== "outbound") {
-    throw new Error("Only outbound Builder change sets can be executed.");
-  }
-
-  const resolvedPushMode = resolveBuilderCmsExecutionPushMode({
-    source,
-    changeSet,
-  });
-  const effectivePushMode =
-    resolvedPushMode === "none" ? "autosave" : resolvedPushMode;
-  const pushMode = executablePushMode(
-    args.pushModeConfirmation ?? effectivePushMode,
-  );
-  if (!pushMode) {
-    throw new Error(
-      "Builder execution requires Autosave, Draft, or Publish push mode.",
+  const timing = createBuilderSourceTiming("execute_builder_source_execution");
+  try {
+    const { database, source } = await timing.measure(
+      "snapshot_read_and_diff_load",
+      async () => {
+        const database = await deps.resolveDatabase(args);
+        if (!database) throw new Error("Database not found.");
+        await deps.assertEditor(database);
+        const source = await deps.getSourceSnapshot(database);
+        return { database, source };
+      },
     );
-  }
-  // The gate key is keyed on the RAW resolved push mode (matching the plan in
-  // buildBuilderCmsExecutionPlan) — NOT on pushModeConfirmation. Keying on the
-  // confirmation would let a caller's confirmation diverge the key from the
-  // prepared gate; the confirmation is still validated inside the plan below.
-  const expectedKey = builderCmsExecutionIdempotencyKey({
-    sourceId: source.id,
-    changeSetId: changeSet.id,
-    pushMode: resolvedPushMode,
-  });
-  if (args.idempotencyKey && args.idempotencyKey !== expectedKey) {
-    throw new Error(
-      "Execution idempotency key does not match this write plan.",
-    );
-  }
-
-  const execution = await deps.getExecution({
-    sourceId: source.id,
-    changeSetId: changeSet.id,
-    idempotencyKey: expectedKey,
-  });
-  if (!execution) {
-    throw new Error("Prepare the Builder execution gate before executing it.");
-  }
-  const now = deps.now();
-  if (execution.state === "succeeded") {
-    return deps.getResponse(database.id);
-  }
-  if (!isReclaimableRunningExecution(execution, now)) {
-    throw new Error("Builder execution is already running.");
-  }
-
-  if (changeSet.state !== "approved") {
-    throw new Error("Approve the Builder change set before executing it.");
-  }
-
-  const plan = buildBuilderCmsExecutionPlan({
-    source,
-    changeSet,
-    pushModeConfirmation: pushMode,
-    publicationTransition: args.publicationTransition,
-    confirmUnpublish: args.confirmUnpublish,
-  });
-  const storedPayload = parsePayload(execution.payloadJson);
-  const validatedPayload = validateBuilderCmsExecutionDryRun({
-    storedPayload,
-    plan,
-    now,
-  });
-  const dryRun = validatedPayload.dryRun;
-  if (dryRun?.status !== "validated") {
-    const message =
-      dryRun?.status === "stale" && dryRun.mismatches.length > 0
-        ? dryRun.mismatches.join(" ")
-        : (plan.lastError ?? "Builder execution is blocked.");
-    await deps.updateExecutionState({
-      executionId: execution.id,
-      state: "blocked",
-      summary: `${plan.summary} Execution blocked before write.`,
-      payload: validatedPayload,
-      lastError: message,
-      now,
-    });
-    throw new Error(message);
-  }
-  if (plan.state !== "ready") {
-    const message = plan.lastError ?? "Builder execution is not ready.";
-    await deps.updateExecutionState({
-      executionId: execution.id,
-      state: plan.state,
-      summary: plan.summary,
-      payload: validatedPayload,
-      lastError: message,
-      now,
-    });
-    throw new Error(message);
-  }
-
-  if (
-    source.capabilities.liveWritesEnabled !== true ||
-    source.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL
-  ) {
-    const message =
-      source.capabilities.liveWritesEnabled === true
-        ? `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`
-        : "Live Builder writes are disabled for this source.";
-    await deps.updateExecutionState({
-      executionId: execution.id,
-      state:
-        source.capabilities.liveWritesEnabled === true
-          ? "blocked"
-          : "write_disabled",
-      summary: `${plan.summary} Execution blocked before write.`,
-      payload: validatedPayload,
-      lastError: message,
-      now,
-    });
-    throw new Error(message);
-  }
-
-  const storedWriteResult = successfulStoredWriteResult(storedPayload);
-  if (storedWriteResult) {
-    const payloadWithResponse = executionResponsePayload({
-      payload: validatedPayload,
-      writeResult: storedWriteResult,
-    });
-    const reconciledAt = deps.now();
-    try {
-      await deps.reconcileWrite({
-        database,
-        source,
-        changeSet,
-        plan,
-        writeResult: storedWriteResult,
-        now: reconciledAt,
-      });
-    } catch (error) {
-      const lastError = reconciliationErrorMessage(error);
-      await deps.markExecutionFailed({
-        executionId: execution.id,
-        summary: `Builder ${plan.pushMode} execution reconciliation failed.`,
-        payload: payloadWithResponse,
-        lastError,
-        now: deps.now(),
-      });
-      throw new Error(lastError);
+    if (!source || source.sourceType !== "builder-cms") {
+      throw new Error("Attach a Builder CMS source before executing a write.");
     }
-    await deps.markExecutionSucceeded({
-      executionId: execution.id,
-      changeSetId: changeSet.id,
-      summary: `Builder ${plan.pushMode} execution succeeded.`,
-      payload: payloadWithResponse,
-      now: reconciledAt,
-    });
-    return deps.getResponse(database.id);
-  }
+    if (source.sourceTable !== BUILDER_CMS_SAFE_WRITE_MODEL) {
+      throw new Error(
+        `Live Builder writes are only allowed for ${BUILDER_CMS_SAFE_WRITE_MODEL}.`,
+      );
+    }
 
-  if (requiresLivePreflight(plan.payload.effect)) {
-    const entryId = plan.payload.target.entryId;
-    if (!entryId) {
-      const message = "Builder entry no longer exists; refresh the source.";
+    const gateStartedAt = timing.start();
+    const changeSet = source.changeSets.find(
+      (candidate) => candidate.id === args.changeSetId,
+    );
+    if (!changeSet) throw new Error("Source change-set not found.");
+    if (changeSet.direction !== "outbound") {
+      throw new Error("Only outbound Builder change sets can be executed.");
+    }
+
+    const resolvedPushMode = resolveBuilderCmsExecutionPushMode({
+      source,
+      changeSet,
+    });
+    const effectivePushMode =
+      resolvedPushMode === "none" ? "autosave" : resolvedPushMode;
+    const pushMode = executablePushMode(
+      args.pushModeConfirmation ?? effectivePushMode,
+    );
+    if (!pushMode) {
+      throw new Error(
+        "Builder execution requires Autosave, Draft, or Publish push mode.",
+      );
+    }
+    // The gate key is keyed on the RAW resolved push mode (matching the plan in
+    // buildBuilderCmsExecutionPlan) — NOT on pushModeConfirmation. Keying on the
+    // confirmation would let a caller's confirmation diverge the key from the
+    // prepared gate; the confirmation is still validated inside the plan below.
+    const expectedKey = builderCmsExecutionIdempotencyKey({
+      sourceId: source.id,
+      changeSetId: changeSet.id,
+      pushMode: resolvedPushMode,
+    });
+    if (args.idempotencyKey && args.idempotencyKey !== expectedKey) {
+      throw new Error(
+        "Execution idempotency key does not match this write plan.",
+      );
+    }
+
+    const execution = await deps.getExecution({
+      ownerEmail: database.ownerEmail,
+      sourceId: source.id,
+      changeSetId: changeSet.id,
+      idempotencyKey: expectedKey,
+    });
+    if (!execution) {
+      throw new Error(
+        "Prepare the Builder execution gate before executing it.",
+      );
+    }
+    const now = deps.now();
+    if (execution.state === "succeeded") {
+      timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
+      timing.ensure("write_dispatch");
+      const response = await timing.measure(
+        "reconciliation_and_persistence",
+        () => deps.getResponse(database.id),
+      );
+      const result = { ...response, timings: timing.finish() };
+      timing.log("succeeded");
+      return result;
+    }
+    const initialStoredPayload = parsePayload(execution.payloadJson);
+    const hasSuccessfulResponse = Boolean(
+      successfulStoredWriteResult(initialStoredPayload),
+    );
+    if (
+      !hasSuccessfulResponse &&
+      !isReclaimableRunningExecution(execution, now)
+    ) {
+      throw builderExecutionConflict(
+        execution.state === "reconciliation_required"
+          ? "Builder reconciliation required; wait for the recovery window before a read-only lookup. Do not retry."
+          : "Builder execution is already running.",
+      );
+    }
+
+    if (changeSet.state !== "approved") {
+      throw new Error("Approve the Builder change set before executing it.");
+    }
+
+    const plan = buildBuilderCmsExecutionPlan({
+      source,
+      changeSet,
+      pushModeConfirmation: pushMode,
+      publicationTransition: args.publicationTransition,
+      confirmUnpublish: args.confirmUnpublish,
+    });
+    const storedPayload = initialStoredPayload;
+    const storedRequest = recordValue(storedPayload.request) as
+      | BuilderCmsExecutionPayload["request"]
+      | null;
+    const storedIntent = storedRequest
+      ? createDraftIntent(storedRequest)
+      : null;
+    const planIntent = createDraftIntent(plan.payload.request);
+    const legacyPreMarkerCreate = Boolean(
+      planIntent?.marker && storedIntent && !storedIntent.marker,
+    );
+    const validationStoredPayload = legacyPreMarkerCreate
+      ? {
+          ...storedPayload,
+          request: plan.payload.request,
+        }
+      : storedPayload;
+    const validatedPayload = validateBuilderCmsExecutionDryRun({
+      storedPayload: validationStoredPayload,
+      plan,
+      now,
+    });
+    const dryRun = validatedPayload.dryRun;
+    if (dryRun?.status !== "validated") {
+      const message =
+        dryRun?.status === "stale" && dryRun.mismatches.length > 0
+          ? dryRun.mismatches.join(" ")
+          : (plan.lastError ?? "Builder execution is blocked.");
       await deps.updateExecutionState({
         executionId: execution.id,
         state: "blocked",
@@ -820,109 +973,300 @@ export async function executeBuilderSourceExecutionWithDeps(
       });
       throw new Error(message);
     }
-
-    const liveState = await deps.readLiveEntry({
-      model: plan.payload.target.model,
-      entryId,
-    });
-    const targetRow = sourceRowForChangeSet(source, changeSet);
-    const message = livePreflightBlockMessage({
-      liveState,
-      baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
-      baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
-      effect: plan.payload.effect,
-    });
-    if (message) {
+    if (plan.state !== "ready") {
+      const message = plan.lastError ?? "Builder execution is not ready.";
       await deps.updateExecutionState({
         executionId: execution.id,
-        state: "blocked",
-        summary: `${plan.summary} Execution blocked before write.`,
-        payload: {
-          ...validatedPayload,
-          livePreflight: {
-            checkedAt: now,
-            exists: liveState.exists,
-            published: liveState.published,
-            lastUpdated: liveState.lastUpdated,
-            blocksHash: liveState.blocksHash,
-            id: liveState.id,
-          },
-        },
+        state: plan.state,
+        summary: plan.summary,
+        payload: validatedPayload,
         lastError: message,
         now,
       });
       throw new Error(message);
     }
-  }
 
-  const claimed = await deps.claimExecution({
-    executionId: execution.id,
-    summary: `Running Builder ${plan.pushMode} execution.`,
-    payload: validatedPayload,
-    now,
-    staleBefore: staleRunningCutoff(now),
-  });
-  if (!claimed) {
-    throw new Error("Builder execution is already running.");
-  }
+    if (source.capabilities.liveWritesEnabled !== true) {
+      const message = "Live Builder writes are disabled for this source.";
+      await deps.updateExecutionState({
+        executionId: execution.id,
+        state: "write_disabled",
+        summary: `${plan.summary} Execution blocked before write.`,
+        payload: validatedPayload,
+        lastError: message,
+        now,
+      });
+      throw new Error(message);
+    }
 
-  const writeResult = await deps.executeWrite({
-    request: plan.payload.request,
-  });
-  const payloadWithResponse = executionResponsePayload({
-    payload: validatedPayload,
-    writeResult,
-  });
+    let storedWriteResult = successfulStoredWriteResult(storedPayload);
+    if (!storedWriteResult && planIntent && deps.lookupSafeModelIntent) {
+      const lookup = await deps.lookupSafeModelIntent(
+        legacyPreMarkerCreate
+          ? {
+              exactTitle: storedIntent?.exactTitle,
+              intendedFields: storedIntent?.intendedFields,
+            }
+          : {
+              marker: planIntent.marker,
+              intendedFields: planIntent.intendedFields,
+            },
+      );
+      const matchingIntentCount = lookup.matchingIntentCount ?? lookup.count;
+      if (lookup.count > 1) {
+        const lastError =
+          "Builder reconciliation required: more than one remote draft matches this execution intent.";
+        await deps.markExecutionFailed({
+          executionId: execution.id,
+          state: "reconciliation_required",
+          summary: "Builder execution requires reconciliation.",
+          payload: validatedPayload,
+          lastError,
+          now: deps.now(),
+        });
+        throw builderExecutionConflict(lastError);
+      }
+      if (lookup.count === 1 && matchingIntentCount !== 1) {
+        const lastError = legacyPreMarkerCreate
+          ? "Builder reconciliation required: an exact-title legacy candidate exists, but its intended fields do not match. Do not retry."
+          : "Builder reconciliation required: the remote draft marker exists, but its intended fields drifted. Do not retry.";
+        await deps.markExecutionFailed({
+          executionId: execution.id,
+          state: "reconciliation_required",
+          summary: "Builder execution requires reconciliation.",
+          payload: validatedPayload,
+          lastError,
+          now: deps.now(),
+        });
+        throw builderExecutionConflict(lastError);
+      }
+      if (lookup.count === 1) {
+        storedWriteResult = recoveredWriteResult(lookup.matches[0]!);
+      }
+    }
+    if (storedWriteResult) {
+      timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
+      timing.ensure("write_dispatch");
+      const reconciliationStartedAt = timing.start();
+      const payloadWithResponse = executionResponsePayload({
+        payload: validatedPayload,
+        writeResult: storedWriteResult,
+      });
+      const reconciledAt = deps.now();
+      try {
+        await deps.reconcileWrite({
+          database,
+          source,
+          changeSet,
+          plan,
+          writeResult: storedWriteResult,
+          now: reconciledAt,
+        });
+      } catch (error) {
+        timing.record(
+          "reconciliation_and_persistence",
+          reconciliationStartedAt,
+        );
+        const lastError = reconciliationErrorMessage(error);
+        await deps.markExecutionFailed({
+          executionId: execution.id,
+          state: "reconciliation_required",
+          summary: `Builder ${plan.pushMode} execution requires reconciliation.`,
+          payload: payloadWithResponse,
+          lastError,
+          now: deps.now(),
+        });
+        throw builderExecutionConflict(lastError);
+      }
+      await deps.markExecutionSucceeded({
+        executionId: execution.id,
+        changeSetId: changeSet.id,
+        summary: `Builder ${plan.pushMode} execution succeeded.`,
+        payload: payloadWithResponse,
+        now: reconciledAt,
+      });
+      const response = await deps.getResponse(database.id);
+      timing.record("reconciliation_and_persistence", reconciliationStartedAt);
+      const result = { ...response, timings: timing.finish() };
+      timing.log("succeeded");
+      return result;
+    }
 
-  if (!writeResult.ok) {
-    const lastError =
-      writeResult.error ??
-      `Builder write request failed with HTTP ${writeResult.status}.`;
-    await deps.markExecutionFailed({
+    if (requiresLivePreflight(plan.payload.effect)) {
+      const entryId = plan.payload.target.entryId;
+      if (!entryId) {
+        const message = "Builder entry no longer exists; refresh the source.";
+        await deps.updateExecutionState({
+          executionId: execution.id,
+          state: "blocked",
+          summary: `${plan.summary} Execution blocked before write.`,
+          payload: validatedPayload,
+          lastError: message,
+          now,
+        });
+        throw new Error(message);
+      }
+
+      const liveState = await deps.readLiveEntry({
+        model: plan.payload.target.model,
+        entryId,
+      });
+      const targetRow = sourceRowForChangeSet(source, changeSet);
+      console.info("builder_source_live_preflight", {
+        executionId: execution.id,
+        changeSetId: changeSet.id,
+        targetEntryId: entryId,
+        baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
+        liveLastUpdated: liveState.lastUpdated,
+        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+        liveBlocksHash: liveState.blocksHash,
+        livePublished: liveState.published,
+      });
+      const message = livePreflightBlockMessage({
+        liveState,
+        baselineLastUpdated: targetRow?.lastSourceUpdatedAt ?? null,
+        baselineBlocksHash: changeSet.bodyChange?.currentHash ?? null,
+        effect: plan.payload.effect,
+      });
+      if (message) {
+        await deps.updateExecutionState({
+          executionId: execution.id,
+          state: "blocked",
+          summary: `${plan.summary} Execution blocked before write.`,
+          payload: {
+            ...validatedPayload,
+            livePreflight: {
+              checkedAt: now,
+              exists: liveState.exists,
+              published: liveState.published,
+              lastUpdated: liveState.lastUpdated,
+              blocksHash: liveState.blocksHash,
+              id: liveState.id,
+            },
+          },
+          lastError: message,
+          now,
+        });
+        throw new Error(message);
+      }
+    }
+
+    const attemptToken = crypto.randomUUID();
+    const claimed = await deps.claimExecution({
       executionId: execution.id,
-      summary: `Builder ${plan.pushMode} execution failed.`,
-      payload: payloadWithResponse,
-      lastError,
-      now: deps.now(),
+      summary: `Running Builder ${plan.pushMode} execution.`,
+      payload: validatedPayload,
+      now,
+      staleBefore: staleRunningCutoff(now),
+      attemptToken,
     });
-    throw new Error(lastError);
-  }
+    if (!claimed) {
+      throw builderExecutionConflict("Builder execution is already running.");
+    }
+    timing.record("approval_gate_and_dry_run_validation", gateStartedAt);
 
-  const succeededAt = deps.now();
-  try {
-    await deps.reconcileWrite({
-      database,
-      source,
-      changeSet,
-      plan,
+    const writeResult = await timing.measure("write_dispatch", () =>
+      deps.executeWrite({ request: plan.payload.request }),
+    );
+    const payloadWithResponse = executionResponsePayload({
+      payload: validatedPayload,
       writeResult,
-      now: succeededAt,
     });
-  } catch (error) {
-    const lastError = reconciliationErrorMessage(error);
-    await deps.markExecutionFailed({
-      executionId: execution.id,
-      summary: `Builder ${plan.pushMode} execution reconciliation failed.`,
-      payload: payloadWithResponse,
-      lastError,
-      now: deps.now(),
-    });
-    throw new Error(lastError);
-  }
-  await deps.markExecutionSucceeded({
-    executionId: execution.id,
-    changeSetId: changeSet.id,
-    summary: `Builder ${plan.pushMode} execution succeeded.`,
-    payload: payloadWithResponse,
-    now: succeededAt,
-  });
 
-  return deps.getResponse(database.id);
+    if (!writeResult.ok) {
+      const lastError =
+        writeResult.error ??
+        `Builder write request failed with HTTP ${writeResult.status}.`;
+      await deps.markExecutionFailed({
+        executionId: execution.id,
+        state: writeResult.ambiguity ? "reconciliation_required" : "failed",
+        summary: writeResult.ambiguity
+          ? `Builder ${plan.pushMode} execution requires reconciliation.`
+          : `Builder ${plan.pushMode} execution failed.`,
+        payload: payloadWithResponse,
+        lastError,
+        now: deps.now(),
+        attemptToken,
+      });
+      throw writeResult.ambiguity
+        ? builderExecutionConflict(lastError)
+        : new Error(lastError);
+    }
+
+    const reconciliationStartedAt = timing.start();
+    if (deps.checkpointResponse) {
+      const checkpointed = await deps.checkpointResponse({
+        executionId: execution.id,
+        attemptToken,
+        payload: payloadWithResponse,
+        now: deps.now(),
+      });
+      if (!checkpointed) {
+        throw new Error(
+          "Execution lease was reclaimed before response checkpoint.",
+        );
+      }
+    } else {
+      await deps.updateExecutionState({
+        executionId: execution.id,
+        state: "response_received",
+        summary: "Builder response received; reconciling locally.",
+        payload: payloadWithResponse,
+        lastError: null,
+        now: deps.now(),
+      });
+    }
+
+    const succeededAt = deps.now();
+    try {
+      await deps.reconcileWrite({
+        database,
+        source,
+        changeSet,
+        plan,
+        writeResult,
+        now: succeededAt,
+      });
+    } catch (error) {
+      timing.record("reconciliation_and_persistence", reconciliationStartedAt);
+      const lastError = reconciliationErrorMessage(error);
+      await deps.markExecutionFailed({
+        executionId: execution.id,
+        state: "reconciliation_required",
+        summary: `Builder ${plan.pushMode} execution requires reconciliation.`,
+        payload: payloadWithResponse,
+        lastError,
+        now: deps.now(),
+        attemptToken,
+      });
+      throw builderExecutionConflict(lastError);
+    }
+    await deps.markExecutionSucceeded({
+      executionId: execution.id,
+      changeSetId: changeSet.id,
+      summary: `Builder ${plan.pushMode} execution succeeded.`,
+      payload: payloadWithResponse,
+      now: succeededAt,
+      attemptToken,
+    });
+
+    const response = await deps.getResponse(database.id);
+    timing.record("reconciliation_and_persistence", reconciliationStartedAt);
+    const result = { ...response, timings: timing.finish() };
+    timing.log("succeeded");
+    return result;
+  } catch (error) {
+    timing.ensure("approval_gate_and_dry_run_validation");
+    timing.ensure("write_dispatch");
+    timing.ensure("reconciliation_and_persistence");
+    timing.log("failed");
+    throw error;
+  }
 }
 
 export default defineAction({
   description:
-    "Execute a prepared Builder CMS write gate. This performs a real Builder write only when the approved outbound change-set, push mode, source capability, safe test model, and idempotency gates all pass.",
+    "Execute a prepared Builder CMS write gate. This performs a real Builder write only when the approved outbound change-set, push mode, per-source capability, validation, publication, and idempotency gates all pass.",
   schema: z.object({
     databaseId: z.string().optional().describe("Database ID"),
     documentId: z.string().optional().describe("Database document/page ID"),

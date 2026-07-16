@@ -12,6 +12,7 @@ const messages = {
     signInToComment: "Inicia sesión para comentar",
     panelTitle: "Opiniones",
     placeholder: "Deja tus comentarios…",
+    commentingOn: "Comentando en {{name}}",
     emptyState: "Aún no hay comentarios de revisión.",
     clickToPin: "Haz clic en cualquier lugar para fijar un comentario",
     escToExit: "Pulsa Esc para salir",

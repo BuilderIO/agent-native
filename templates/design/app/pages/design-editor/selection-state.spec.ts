@@ -6,6 +6,7 @@ import {
   isDocumentShellCodeLayerNode,
   pendingEditTargetsSelectedElement,
   resolveEscapePopSelectionAction,
+  shouldClearSelectionForReviewThreadTarget,
   shouldEscapeToOverview,
 } from "./selection-state";
 
@@ -107,6 +108,32 @@ describe("resolveEscapePopSelectionAction", () => {
         viewMode: "overview",
       }),
     ).toEqual({ kind: "deselect" });
+  });
+});
+
+describe("shouldClearSelectionForReviewThreadTarget", () => {
+  it("clears stale layer context when thread focus changes screens", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: "screen-b",
+      }),
+    ).toBe(true);
+  });
+
+  it("preserves selection for same-screen and design-wide threads", () => {
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: "screen-a",
+      }),
+    ).toBe(false);
+    expect(
+      shouldClearSelectionForReviewThreadTarget({
+        activeFileId: "screen-a",
+        targetId: null,
+      }),
+    ).toBe(false);
   });
 });
 

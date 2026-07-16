@@ -198,7 +198,7 @@ describe("dashboard report email", () => {
       expect.any(Object),
     );
     expect(lightweight.page.goto).toHaveBeenCalledWith(
-      expect.stringContaining("reportPanelLimit=8"),
+      expect.not.stringContaining("reportPanelLimit"),
       expect.any(Object),
     );
     expect(lightweight.browser.newPage).toHaveBeenCalledWith({
@@ -237,6 +237,74 @@ describe("dashboard report email", () => {
     expect(emailArgs.html).not.toContain("border:1px solid #e5e7eb");
     expect(emailArgs.html).toContain("border:0;outline:0;border-radius:0");
     expect(emailArgs.text).toContain("reportSettings=1");
+  });
+
+  it("does not run a limited fallback attempt unless explicitly requested", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser({ waitForFails: true });
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: false,
+      screenshotMode: "none",
+    });
+    expect(mocks.launch).toHaveBeenCalledTimes(2);
+    expect(full.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+    expect(lightweight.page.goto).toHaveBeenCalledWith(
+      expect.not.stringContaining("reportPanelLimit"),
+      expect.any(Object),
+    );
+  });
+
+  it("runs a third panel-limited attempt when allowLimitedFallback is set and earlier attempts fail", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser({ waitForFails: true });
+    const limited = createBrowser();
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser)
+      .mockResolvedValueOnce(limited.browser);
+
+    const result = await sendDashboardReportSubscription(subscription(), {
+      allowLimitedFallback: true,
+    });
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "limited",
+    });
+    expect(mocks.launch).toHaveBeenCalledTimes(3);
+    expect(limited.page.goto).toHaveBeenCalledWith(
+      expect.stringContaining("reportPanelLimit=8"),
+      expect.any(Object),
+    );
+    const emailArgs = mocks.sendEmail.mock.calls[0]?.[0];
+    expect(emailArgs.html).toContain("limited fallback image");
+    expect(emailArgs.html).toContain("Open the full dashboard");
+    expect(emailArgs.text).toContain("limited fallback image");
+  });
+
+  it("carries the earlier attempt's error forward when a later attempt succeeds", async () => {
+    const full = createBrowser({ waitForFails: true });
+    const lightweight = createBrowser();
+    mocks.launch
+      .mockResolvedValueOnce(full.browser)
+      .mockResolvedValueOnce(lightweight.browser);
+
+    const result = await sendDashboardReportSubscription(subscription());
+
+    expect(result).toMatchObject({
+      screenshotAttached: true,
+      screenshotMode: "full-lightweight",
+    });
+    expect(result.screenshotError).toEqual(expect.stringContaining("full:"));
   });
 
   it("pre-seeds the signed embed token as a session cookie before navigating", async () => {
@@ -430,14 +498,14 @@ describe("dashboard report email", () => {
         .mockRejectedValueOnce(new Error("lightweight launch failed"));
 
       const sendPromise = sendDashboardReportSubscription(subscription());
-      await vi.advanceTimersByTimeAsync(125_000);
+      await vi.advanceTimersByTimeAsync(110_000);
       const result = await sendPromise;
 
       expect(result).toMatchObject({
         screenshotAttached: false,
         screenshotMode: "none",
         screenshotError: expect.stringContaining(
-          "full capture exceeded 125000ms while launching the screenshot browser",
+          "full capture exceeded 110000ms while launching the screenshot browser",
         ),
       });
       resolveLateLaunch(late.browser);

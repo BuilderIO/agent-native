@@ -14,6 +14,54 @@ export interface ResolvedReviewAnchor {
   source: "node" | "point";
 }
 
+export function createElementReviewAnchor(input: {
+  nodeId?: string | null;
+  rect?: { x: number; y: number; width: number; height: number } | null;
+  viewportWidth?: number | null;
+  viewportHeight?: number | null;
+}): DesignReviewAnchor | null {
+  const nodeId = input.nodeId?.trim() ?? "";
+  const rect = input.rect;
+  const hasRect = Boolean(
+    rect &&
+    Number.isFinite(rect.x) &&
+    Number.isFinite(rect.y) &&
+    Number.isFinite(rect.width) &&
+    rect.width > 0 &&
+    Number.isFinite(rect.height) &&
+    rect.height > 0 &&
+    typeof input.viewportWidth === "number" &&
+    Number.isFinite(input.viewportWidth) &&
+    input.viewportWidth > 0 &&
+    typeof input.viewportHeight === "number" &&
+    Number.isFinite(input.viewportHeight) &&
+    input.viewportHeight > 0,
+  );
+  if (!nodeId && !hasRect) return null;
+
+  const point = hasRect
+    ? {
+        xPct:
+          finitePercentage(
+            (((rect?.x ?? 0) + (rect?.width ?? 0) / 2) /
+              (input.viewportWidth as number)) *
+              100,
+          ) ?? 50,
+        yPct:
+          finitePercentage(
+            (((rect?.y ?? 0) + (rect?.height ?? 0) / 2) /
+              (input.viewportHeight as number)) *
+              100,
+          ) ?? 50,
+      }
+    : { xPct: 50, yPct: 50 };
+
+  return {
+    ...(nodeId ? { nodeId } : {}),
+    point,
+  };
+}
+
 function finitePercentage(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   return Math.min(100, Math.max(0, value));
