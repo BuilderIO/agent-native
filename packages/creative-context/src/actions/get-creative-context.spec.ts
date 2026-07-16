@@ -366,6 +366,10 @@ describe("get-context-item public-agent boundary", () => {
       },
       instruction: expect.stringContaining("exact clone action"),
     });
+    expect(result.version.content).toContain(
+      "Oversized native code is omitted",
+    );
+    expect(JSON.stringify(result)).not.toContain("x".repeat(1_000));
     expect(mocks.getCreativeContextItemByExternalId).not.toHaveBeenCalled();
   });
 
@@ -423,5 +427,9 @@ describe("get-context-item public-agent boundary", () => {
       instruction: expect.stringContaining("never concatenate"),
     });
     expect(result.version.nativeCode.content).toBeNull();
+    expect(result.version.content).toContain(
+      "Oversized native code is omitted",
+    );
+    expect(JSON.stringify(result)).not.toContain("x".repeat(1_000));
   });
 });

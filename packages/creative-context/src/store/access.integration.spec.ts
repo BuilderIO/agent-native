@@ -266,6 +266,121 @@ describe("creative context access and revocation", () => {
     });
   });
 
+  it("never trusts a caller-supplied layout projection item id", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const server = await import("../server/index.js");
+    const demote = vi.fn(async () => {});
+    server.configureCreativeContext({
+      projections: {
+        layoutTemplate: { promote: vi.fn(async () => {}), demote },
+      },
+    });
+    const proposed = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        store.proposeCreativeContextSuggestion({
+          kind: "layout-template",
+          itemId: "allowed",
+          itemVersionId: "allowed-v2",
+          payload: { projectionItemId: "guessed-item", note: "keep" },
+        }),
+    );
+    expect(proposed.payload).toEqual({ note: "keep" });
+
+    await exec.execute({
+      sql: `INSERT INTO creative_context_sources
+        (id, name, kind, config, upstream_access, status, health_status,
+         item_count, restricted_item_count, owner_email, org_id, visibility,
+         created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "outside-source",
+        "Outside tenant",
+        "manual",
+        "{}",
+        "available",
+        "active",
+        "healthy",
+        1,
+        0,
+        "mallory@example.test",
+        "org-2",
+        "private",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_items
+        (id, source_id, external_id, kind, title, current_version_id,
+         current_content_hash, status, upstream_access, curation_status,
+         curation_rank, inventory_state, index_state, tags, colors, provenance,
+         metadata, created_at, updated_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "outside-projection",
+        "outside-source",
+        "outside-projection",
+        "layout_template",
+        "Outside projection",
+        "outside-version",
+        "outside-hash",
+        "active",
+        "available",
+        "included",
+        "canonical",
+        "available",
+        "indexed",
+        "[]",
+        "[]",
+        JSON.stringify({
+          promotedFromSuggestionId: "malicious-layout-suggestion",
+        }),
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "mallory@example.test",
+        "org-2",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_suggestions
+        (id, kind, status, item_id, item_version_id, payload, created_at,
+         updated_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "malicious-layout-suggestion",
+        "layout-template",
+        "promoted",
+        "allowed",
+        "allowed-v2",
+        JSON.stringify({ projectionItemId: "outside-projection" }),
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        store.applyLayoutTemplateSuggestion({
+          suggestionId: "malicious-layout-suggestion",
+          operation: "demote",
+        }),
+    );
+
+    const outside = await exec.execute(
+      "SELECT status FROM creative_context_items WHERE id = 'outside-projection'",
+    );
+    expect(outside.rows[0]?.status).toBe("active");
+    expect(demote).toHaveBeenCalledWith({
+      suggestionId: "malicious-layout-suggestion",
+      projectionItemId: null,
+    });
+  });
+
   it("requires a host access proof before sharing generation history", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     const { assertGenerationArtifactAccess } =

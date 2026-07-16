@@ -24,7 +24,7 @@ import {
   getCreativeContextItemByExternalId,
 } from "../store/index.js";
 
-const MAX_STORED_NATIVE_CODE_BYTES = 128 * 1024;
+const MAX_PUBLIC_NATIVE_CODE_BYTES = 128 * 1024;
 
 export default defineAction({
   description:
@@ -49,6 +49,9 @@ export default defineAction({
     const nativeCode = nativeArtifact
       ? await publicNativeCode(context, nativeArtifact)
       : null;
+    const nativeCodeOversized = Boolean(
+      nativeCode && "oversized" in nativeCode && nativeCode.oversized,
+    );
     return {
       ...publicContext,
       pendingJobId: await ensureContextItemHydration(context.item.id),
@@ -69,7 +72,9 @@ export default defineAction({
           sanitizePublicString(context.version.title),
         ),
         content: delimitUntrustedReference(
-          sanitizePublicString(context.version.content),
+          nativeCodeOversized
+            ? "Oversized native code is omitted from this public result. Use version.nativeCode.retrieval."
+            : sanitizePublicString(context.version.content),
         ),
         nativeCode: nativeArtifact && nativeCode ? nativeCode : null,
         summary: context.version.summary
@@ -136,7 +141,7 @@ async function publicNativeCode(
         ).html;
     validateCompiledNativeHtml(content, artifact);
     const byteLength = Buffer.byteLength(content, "utf8");
-    if (byteLength <= MAX_STORED_NATIVE_CODE_BYTES) {
+    if (byteLength <= MAX_PUBLIC_NATIVE_CODE_BYTES) {
       return {
         dataRole: UNTRUSTED_REFERENCE_ROLE,
         format: artifact.format,
@@ -152,7 +157,7 @@ async function publicNativeCode(
       content: null,
       oversized: true,
       byteLength,
-      maxInlineBytes: MAX_STORED_NATIVE_CODE_BYTES,
+      maxInlineBytes: MAX_PUBLIC_NATIVE_CODE_BYTES,
       retrieval: nativeCodeRetrieval(context, artifact),
       instruction:
         "Use the exact clone action for the complete artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment.",
