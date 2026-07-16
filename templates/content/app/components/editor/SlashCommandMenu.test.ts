@@ -8,6 +8,8 @@ import StarterKit from "@tiptap/starter-kit";
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  buildHeadingCommands,
+  CONTENT_HEADING_LEVELS,
   equationNodeContent,
   getEquationInsertionRange,
   inlineDatabaseBlockContent,
@@ -81,6 +83,53 @@ describe("slash command menu trigger", () => {
     expect(parseSlashCommandQuery("hello/world")).toBeNull();
     expect(parseSlashCommandQuery("hello /world")).toBeNull();
     expect(parseSlashCommandQuery("open https://example.com/path")).toBeNull();
+  });
+});
+
+describe("heading slash commands", () => {
+  it("offers all six HTML heading levels for insert and turn-into flows", () => {
+    expect(CONTENT_HEADING_LEVELS).toEqual([1, 2, 3, 4, 5, 6]);
+
+    const toggleCommands = buildHeadingCommands("toggle");
+    const setCommands = buildHeadingCommands("set");
+
+    expect(toggleCommands.map((command) => command.titleKey)).toEqual([
+      "editor.heading1",
+      "editor.heading2",
+      "editor.heading3",
+      "editor.heading4",
+      "editor.heading5",
+      "editor.heading6",
+    ]);
+    expect(toggleCommands.map((command) => command.shortcut)).toEqual([
+      "#",
+      "##",
+      "###",
+      "####",
+      "#####",
+      "######",
+    ]);
+    expect(setCommands.map((command) => command.titleKey)).toEqual(
+      toggleCommands.map((command) => command.titleKey),
+    );
+  });
+
+  it("runs the matching heading command for levels five and six", () => {
+    const chain: any = {
+      focus: vi.fn(() => chain),
+      toggleHeading: vi.fn(() => chain),
+      setHeading: vi.fn(() => chain),
+      run: vi.fn(() => true),
+    };
+    const editor = { chain: () => chain } as any;
+
+    buildHeadingCommands("toggle")[4]?.action(editor, {
+      slashRange: null,
+    });
+    buildHeadingCommands("set")[5]?.action(editor, { slashRange: null });
+
+    expect(chain.toggleHeading).toHaveBeenCalledWith({ level: 5 });
+    expect(chain.setHeading).toHaveBeenCalledWith({ level: 6 });
   });
 });
 

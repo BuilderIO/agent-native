@@ -1,16 +1,20 @@
 import { IconTemplate } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
 
+import { cn } from "@/lib/utils";
+
 export function TemplatePreview({
   html,
   title,
   width,
   height,
+  className,
 }: {
   html?: string | null;
   title: string;
   width?: number | null;
   height?: number | null;
+  className?: string;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scale, setScale] = useState(0.25);
@@ -40,7 +44,12 @@ export function TemplatePreview({
 
   if (!html) {
     return (
-      <div className="flex aspect-video items-center justify-center bg-muted/50">
+      <div
+        className={cn(
+          "flex aspect-video items-center justify-center bg-muted/50",
+          className,
+        )}
+      >
         <IconTemplate className="size-8 text-muted-foreground/35" />
       </div>
     );
@@ -49,7 +58,10 @@ export function TemplatePreview({
   return (
     <div
       ref={containerRef}
-      className="relative aspect-video overflow-hidden bg-white"
+      className={cn(
+        "relative aspect-video overflow-hidden bg-white",
+        className,
+      )}
     >
       <iframe
         title={`${title} preview`}

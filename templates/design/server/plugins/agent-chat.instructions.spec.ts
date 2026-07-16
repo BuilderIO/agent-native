@@ -13,7 +13,11 @@ const reviewFeedbackSkill = readFileSync(
   ),
   "utf8",
 );
-const templateAgents = readFileSync(
+const designTemplateSkill = readFileSync(
+  new URL("../../.agents/skills/design-templates/SKILL.md", import.meta.url),
+  "utf8",
+);
+const designAgentGuide = readFileSync(
   new URL("../../AGENTS.md", import.meta.url),
   "utf8",
 );
@@ -36,9 +40,28 @@ describe("select and reprompt agent contract", () => {
     );
     expect(agentChatSource).toContain('"propose-node-rewrite"');
     expect(agentChatSource).toContain('"resolve-node-rewrite"');
-    expect(templateAgents.slice(0, 6_000)).toContain("[Reprompt selection]");
-    expect(templateAgents.slice(0, 6_000)).toContain("propose-node-rewrite");
+    expect(designAgentGuide.slice(0, 6_000)).toContain("[Reprompt selection]");
+    expect(designAgentGuide.slice(0, 6_000)).toContain("propose-node-rewrite");
     expect(agentChatSource).toContain("[Selection question]");
-    expect(templateAgents.slice(0, 6_000)).toContain("[Selection question]");
+    expect(designAgentGuide.slice(0, 6_000)).toContain("[Selection question]");
   });
+});
+
+describe("design template agent instructions", () => {
+  it.each([
+    ["agent chat system prompt", agentChatSource],
+    ["design-templates skill", designTemplateSkill],
+    ["Design AGENTS guide", designAgentGuide],
+  ])(
+    "uses the main action surface and resolves templates or prior designs in the %s",
+    (_surface, instructions) => {
+      expect(instructions).toContain("list-design-templates");
+      expect(instructions).toContain("list-designs");
+      expect(instructions).toContain("create-design-from-template");
+      expect(instructions).toContain("get-design-snapshot");
+      expect(instructions).toContain("edit-design");
+      expect(instructions).not.toMatch(/`list-templates`/);
+      expect(instructions).not.toMatch(/`save-as-template`/);
+    },
+  );
 });
