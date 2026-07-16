@@ -162,7 +162,8 @@ describe("realistic connector acceptance corpus", () => {
       first.items[0]?.sourceVersion,
     );
     expect(revised.items[1]?.contentHash).not.toBe(first.items[1]?.contentHash);
-    expect(revised.items[2]?.contentHash).toBe(first.items[2]?.contentHash);
+    expect(revised.items[2]?.content).toBe(first.items[2]?.content);
+    expect(revised.items[2]?.contentHash).not.toBe(first.items[2]?.contentHash);
   });
 
   it("keeps Figma frame identity stable across real file revisions", async () => {

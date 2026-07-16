@@ -543,7 +543,6 @@ describe("creative context access and revocation", () => {
       ];
       const media = [
         {
-          id: "ccm_asset_a",
           kind: "image" as const,
           accessMode: "public" as const,
           url: "https://cdn.example.test/a.png",
@@ -551,7 +550,6 @@ describe("creative context access and revocation", () => {
           metadata: { role: input.assetRole },
         },
         {
-          id: "ccm_asset_b",
           kind: "image" as const,
           accessMode: "public" as const,
           url: "https://cdn.example.test/b.png",

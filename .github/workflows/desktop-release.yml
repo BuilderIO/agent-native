@@ -39,8 +39,23 @@ jobs:
           elif [ "${{ github.event_name }}" = "push" ]; then
             BASE=$(node -p "require('./packages/desktop-app/package.json').version")
             # Keep automatic releases on the stable update channel. The
-            # updater and download feed intentionally ignore prereleases.
-            NEXT=$(node -e 'const [major, minor] = process.argv[1].split("."); console.log(`${major}.${minor}.${process.env.AUTO_VERSION_SUFFIX}`)' "$BASE")
+            # updater and download feed intentionally ignore prereleases. Use
+            # both the run number and remote stable tags so a reset workflow
+            # counter can never move the stable channel backwards.
+            NEXT=$(node -e '
+              const { execFileSync } = require("node:child_process");
+              const [major, minor, patch] = process.argv[1].split(".").map(Number);
+              const runNumber = Number(process.env.AUTO_VERSION_SUFFIX);
+              const tags = execFileSync("git", ["ls-remote", "--tags", "origin", `v${major}.${minor}.*`], { encoding: "utf8" });
+              const stableTag = new RegExp(`refs/tags/v${major}\\.${minor}\\.(\\d+)$`);
+              let releasedPatch = -1;
+              for (const line of tags.split("\\n")) {
+                const match = line.match(stableTag);
+                if (match) releasedPatch = Math.max(releasedPatch, Number(match[1]));
+              }
+              const nextPatch = Math.max(patch + 1, runNumber, releasedPatch + 1);
+              console.log(`${major}.${minor}.${nextPatch}`);
+            ' "$BASE")
             echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
           else
             echo "version=$(node -p "require('./packages/desktop-app/package.json').version")" >> "$GITHUB_OUTPUT"
