@@ -1,12 +1,15 @@
 import { resolveBuilderCredential } from "@agent-native/core/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { builderBlocksHash, builderEntryBlocks } from "../shared/builder-mdx";
 import {
   builderCmsListEntryFields,
   listBuilderCmsModels,
   readBuilderCmsContentEntry,
   readBuilderCmsContentEntries,
+  readBuilderCmsEntryLiveState,
   readBuilderCmsModelFields,
+  summarizeBuilderCmsEntryFidelity,
 } from "./_builder-cms-read-client";
 
 vi.mock("@agent-native/core/server", () => ({
@@ -23,6 +26,66 @@ describe("Builder CMS read client", () => {
     delete process.env.BUILDER_CMS_MCP_ENDPOINT;
     delete process.env.BUILDER_CMS_MCP_SEARCH_TEXT;
     delete process.env.BUILDER_CMS_READ_LIMIT;
+  });
+
+  it("summarizes bounded rich-content fidelity without returning article text", () => {
+    const fidelity = summarizeBuilderCmsEntryFidelity({
+      id: "entry-1",
+      model: "agent-native-blog-article-test",
+      title: "Fixture",
+      urlPath: "/blog/fixture",
+      updatedAt: "2026-07-14T00:00:00.000Z",
+      sourceValues: {},
+      rawEntry: {
+        id: "entry-1",
+        model: "agent-native-blog-article-test",
+        data: {
+          blocks: [
+            {
+              component: {
+                name: "Text",
+                options: {
+                  text: '<h2>Heading</h2><ul><li>One</li><li>Two</li></ul><p><a href="https://www.youtube.com/watch?v=test">Watch</a></p><table><tbody><tr><td>Cell</td></tr></tbody></table><blockquote>Quote</blockquote><code>const x = 1</code>',
+                },
+              },
+            },
+            {
+              component: {
+                name: "Image",
+                options: { image: "https://example.com/a.jpg" },
+              },
+            },
+            {
+              component: {
+                name: "Video",
+                options: { video: "https://example.com/a.mp4" },
+              },
+            },
+          ],
+        },
+      },
+    } as Parameters<typeof summarizeBuilderCmsEntryFidelity>[0]);
+
+    expect(fidelity).toEqual({
+      topLevelBlockCount: 3,
+      componentCount: 3,
+      textBlockCount: 1,
+      imageBlockCount: 1,
+      htmlImageCount: 0,
+      markdownImageSyntaxCount: 0,
+      videoBlockCount: 1,
+      headingCount: 1,
+      unorderedListCount: 1,
+      orderedListCount: 0,
+      listItemCount: 2,
+      linkCount: 1,
+      tableCount: 1,
+      escapedTableMarkupCount: 0,
+      codeCount: 1,
+      blockquoteCount: 1,
+      escapedBlockquoteMarkupCount: 0,
+      hasYouTubeLink: true,
+    });
   });
 
   it("builds additive list projections without reintroducing heavy body fields", () => {
@@ -265,6 +328,12 @@ describe("Builder CMS read client", () => {
                               "Governance &amp; Security",
                             ],
                           },
+                          {
+                            name: "author",
+                            type: "reference",
+                            model: "author",
+                            required: true,
+                          },
                         ],
                       },
                     ],
@@ -293,6 +362,12 @@ describe("Builder CMS read client", () => {
         options: ["Headless CMS", "Governance &amp; Security"],
         required: false,
       },
+      {
+        name: "author",
+        type: "reference",
+        model: "author",
+        required: true,
+      },
     ]);
   });
 
@@ -306,6 +381,8 @@ describe("Builder CMS read client", () => {
         "https://cdn.test.builder.io/api/v3/content/blog_article",
       );
       expect(input.searchParams.get("apiKey")).toBe("public-key");
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(input.searchParams.get("cachebust")).toBe("true");
       expect(input.searchParams.get("limit")).toBe("100");
       expect(input.searchParams.get("offset")).toBe("0");
       expect(input.searchParams.get("fields")).toContain("data.title");
@@ -324,6 +401,7 @@ describe("Builder CMS read client", () => {
           results: [
             {
               id: "builder-entry-1",
+              published: "draft",
               lastUpdated: "2026-06-08T12:00:00.000Z",
               data: {
                 title: "Builder title",
@@ -363,6 +441,7 @@ describe("Builder CMS read client", () => {
           title: "Builder title",
           urlPath: "/blog/builder-title",
           updatedAt: "2026-06-08T12:00:00.000Z",
+          rawEntry: { published: "draft" },
           sourceValues: {
             "data.topics": ["AI", "CMS"],
             "data.tags": ["Agents"],
@@ -373,6 +452,118 @@ describe("Builder CMS read client", () => {
         },
       ],
     });
+  });
+
+  it("performs authenticated, cachebusted raw fidelity reads without projection or enrichment", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) => {
+      if (key === "BUILDER_PUBLIC_KEY") return "public-key";
+      if (key === "BUILDER_PRIVATE_KEY") return "private-key";
+      return null;
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(input.searchParams.get("noCache")).toBe("true");
+      expect(Number(input.searchParams.get("cachebust"))).toBeGreaterThan(0);
+      expect(input.searchParams.get("enrich")).toBe("false");
+      expect(input.searchParams.has("fields")).toBe(false);
+      expect(init?.headers).toMatchObject({
+        accept: "application/json",
+        authorization: "Bearer private-key",
+      });
+      return new Response(
+        JSON.stringify({
+          results: [
+            {
+              id: "builder-entry-raw",
+              published: "draft",
+              data: {
+                title: "Raw title",
+                blocks: [{ id: "block-1" }],
+                author: {
+                  "@type": "@builder.io/core:Reference",
+                  id: "author-1",
+                },
+              },
+            },
+          ],
+        }),
+        { status: 200 },
+      );
+    });
+
+    const result = await readBuilderCmsContentEntries({
+      model: "blog-article",
+      rawData: true,
+      requirePrivateKey: true,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(result.entries[0]?.rawEntry?.data).toEqual({
+      title: "Raw title",
+      blocks: [{ id: "block-1" }],
+      author: {
+        "@type": "@builder.io/core:Reference",
+        id: "author-1",
+      },
+    });
+  });
+
+  it("fails closed before a required authenticated fidelity read", async () => {
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const fetchImpl = vi.fn();
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "blog-article",
+        rawData: true,
+        requirePrivateKey: true,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "unconfigured",
+      entries: [],
+      progress: { readMode: "none" },
+    });
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it("keeps an empty unpublished-inclusive Content API result authoritative", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) => {
+      if (key === "BUILDER_PUBLIC_KEY") return "public-key";
+      if (key === "BUILDER_PRIVATE_KEY") return "private-key";
+      return null;
+    });
+    const fetchImpl = vi.fn(async (input: URL, init?: RequestInit) => {
+      expect(input.pathname).toBe(
+        "/api/v3/content/agent-native-blog-article-test",
+      );
+      expect(input.searchParams.get("includeUnpublished")).toBe("true");
+      expect(init?.headers).toMatchObject({
+        accept: "application/json",
+        authorization: "Bearer private-key",
+      });
+      return new Response(JSON.stringify({ results: [] }), { status: 200 });
+    });
+
+    await expect(
+      readBuilderCmsContentEntries({
+        model: "agent-native-blog-article-test",
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toMatchObject({
+      state: "live",
+      entries: [],
+      progress: {
+        readMode: "builder-api",
+        partial: false,
+        hasMore: false,
+      },
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
   it("requests mapped model fields through Builder MCP list reads", async () => {
@@ -562,6 +753,85 @@ describe("Builder CMS read client", () => {
     expect(listResult.entries[0]?.rawEntry?.data?.blocks).toBeUndefined();
     expect(entryResult?.rawEntry?.data?.blocks).toHaveLength(1);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("uses the hydration body representation for uncached live preflight hashes", async () => {
+    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
+    resolveBuilderCredentialMock.mockImplementation(async (key) =>
+      key === "BUILDER_PUBLIC_KEY" ? "public-key" : null,
+    );
+    const canonicalBlocks = [
+      {
+        "@type": "@builder.io/sdk:Element",
+        "@version": 2,
+        id: "text-1",
+        component: {
+          name: "Text",
+          options: { text: "<p>Canonical enriched body.</p>" },
+        },
+      },
+    ];
+    const fetchImpl = vi.fn(async (input: URL) => {
+      const fields = input.searchParams.get("fields") ?? "";
+      const hasCanonicalBodyProjection =
+        input.searchParams.get("enrich") === "true" &&
+        input.searchParams.get("noCache") === "true" &&
+        fields.includes("data.blocks") &&
+        fields.includes("data.blocksString");
+      return new Response(
+        JSON.stringify({
+          id: "builder-entry-1",
+          published: "draft",
+          lastUpdated: 1_786_000_000_000,
+          data: {
+            title: "Builder title",
+            blocks: hasCanonicalBodyProjection
+              ? canonicalBlocks
+              : [
+                  {
+                    ...canonicalBlocks[0],
+                    component: {
+                      name: "Text",
+                      options: { text: "<p>Alternate default projection.</p>" },
+                    },
+                  },
+                ],
+          },
+        }),
+        { status: 200 },
+      );
+    });
+
+    const hydrated = await readBuilderCmsContentEntry({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    const live = await readBuilderCmsEntryLiveState({
+      model: "blog_article",
+      entryId: "builder-entry-1",
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+
+    expect(hydrated).not.toBeNull();
+    const baselineHash = builderBlocksHash(
+      builderEntryBlocks(hydrated!.rawEntry!),
+    );
+    expect(live).toMatchObject({
+      exists: true,
+      published: "draft",
+      lastUpdated: 1_786_000_000_000,
+      blocksHash: baselineHash,
+      id: "builder-entry-1",
+    });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+    for (const [input] of fetchImpl.mock.calls) {
+      expect(input.searchParams.get("enrich")).toBe("true");
+      expect(input.searchParams.get("noCache")).toBe("true");
+      expect(input.searchParams.get("cachebust")).toMatch(/^\d+$/);
+      expect(input.searchParams.get("fields")).toContain("data.blocks");
+      expect(input.searchParams.get("fields")).toContain("data.blocksString");
+    }
   });
 
   it("can return an initial partial Builder Content API page for fast refresh", async () => {

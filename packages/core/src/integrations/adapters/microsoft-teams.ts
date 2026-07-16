@@ -8,6 +8,7 @@ import type {
   IntegrationStatus,
   OutgoingMessage,
   PlatformAdapter,
+  PlatformDeliveryReceipt,
 } from "../types.js";
 
 const BOT_FRAMEWORK_SCOPE = "https://api.botframework.com/.default";
@@ -201,7 +202,7 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const serviceUrl = normalizeServiceUrl(
         context.platformContext.serviceUrl,
       );
@@ -242,6 +243,7 @@ export function microsoftTeamsAdapter(): PlatformAdapter {
           `Microsoft Teams reply failed (HTTP ${response.status})`,
         );
       }
+      return { status: "delivered" };
     },
 
     formatAgentResponse(text: string): OutgoingMessage {

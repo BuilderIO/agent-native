@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.14.11
+
+### Patch Changes
+
+- cdfa357: Fix infinite render loop in DreamsRoute caused by the `useEffect` fallback clearing `selectedDreamId` to `null` while `dreams` was still loading. Added a `dreamsQuery.isLoading` guard to prevent the fallback from running before data resolves.
+
 ## 0.14.10
 
 ### Patch Changes

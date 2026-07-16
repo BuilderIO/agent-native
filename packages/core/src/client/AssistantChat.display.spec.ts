@@ -1648,6 +1648,25 @@ describe("chat submit and stop hardening", () => {
     expect(helperSource).toContain("includeActivity: true");
     expect(helperSource).toContain("settleVisibleInterruptedTools()");
   });
+
+  it("wakes the dequeue loop after its startup guard expires", () => {
+    const source = readFileSync("src/client/AssistantChat.tsx", {
+      encoding: "utf8",
+    });
+    const start = source.indexOf("// Auto-dequeue:");
+    const end = source.indexOf(
+      "// Clear frozen reconnect content + forceStopped",
+    );
+    const dequeueSource = source.slice(start, end);
+
+    expect(source).toContain(
+      "const [queueWakeVersion, setQueueWakeVersion] = useState(0);",
+    );
+    expect(dequeueSource).toContain(
+      "setQueueWakeVersion((version) => version + 1);",
+    );
+    expect(dequeueSource).toContain("queueWakeVersion,");
+  });
 });
 
 describe("waitForThreadRunToClear", () => {
@@ -2250,6 +2269,52 @@ describe("AssistantMessageListErrorBoundary", () => {
 
     expect(container.textContent).toContain("Recovered messages");
     expect(analyticsMock.captureError).not.toHaveBeenCalled();
+  });
+
+  it("preserves message disclosure state when the message reset key changes", () => {
+    function StatefulMessageList() {
+      const [expanded, setExpanded] = React.useState(false);
+      return React.createElement(
+        "button",
+        {
+          type: "button",
+          "aria-expanded": expanded,
+          onClick: () => setExpanded((value) => !value),
+        },
+        expanded ? "open" : "closed",
+      );
+    }
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages:1" },
+          React.createElement(StatefulMessageList),
+        ),
+      );
+    });
+
+    act(() => {
+      container.querySelector("button")?.click();
+    });
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
+
+    act(() => {
+      root.render(
+        React.createElement(
+          AssistantMessageListErrorBoundary,
+          { resetKey: "messages:2" },
+          React.createElement(StatefulMessageList),
+        ),
+      );
+    });
+
+    expect(
+      container.querySelector("button")?.getAttribute("aria-expanded"),
+    ).toBe("true");
   });
 });
 

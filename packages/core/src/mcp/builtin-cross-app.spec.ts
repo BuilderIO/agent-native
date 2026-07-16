@@ -427,6 +427,9 @@ describe("ask_app — honest routing metadata", () => {
       app: "mail",
       message: "hello",
       async: true,
+      approvedActions: [
+        { tool: "send-email", input: { to: "alice@example.test" } },
+      ],
     });
 
     expect(askAgent).not.toHaveBeenCalled();
@@ -439,6 +442,9 @@ describe("ask_app — honest routing metadata", () => {
           orgDomain: "acme.com",
           requestOrigin: "https://mail.example.com",
         },
+        approvedActions: [
+          { tool: "send-email", input: { to: "alice@example.test" } },
+        ],
       },
     );
     expect(result).toMatchObject({

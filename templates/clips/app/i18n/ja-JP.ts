@@ -449,6 +449,7 @@ const messages = {
     invite: "招待",
     embed: "埋め込み",
     shareLink: "共有リンク",
+    shareWithHumans: "人と共有する",
     shareWithAgents: "エージェントと共有する",
     copyAgentPrompt: "エージェント用プロンプトをコピー",
     agentPrompt:
@@ -459,6 +460,8 @@ const messages = {
     retryAgentLink: "再試行",
     gifPreview: "GIF プレビュー",
     openPlayer: "プレーヤーを開く",
+    chooseFile: "ファイルを選択してください",
+    remove: "取り除く",
     downloadMp4: "ダウンロード",
     embedsNeedPublic: "埋め込みにはパブリッククリップが必要です",
     embedPublicDescription:

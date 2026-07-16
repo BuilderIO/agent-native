@@ -875,7 +875,7 @@ export default function DeckEditor() {
               className="md:hidden fixed inset-0 bg-black/50 z-30"
               onClick={() => setSidebarOpen(false)}
             />
-            <div className="absolute z-40 h-full min-h-0 md:relative">
+            <div className="absolute z-[70] h-full min-h-0 md:relative">
               <DndContext
                 sensors={sensors}
                 collisionDetection={closestCenter}

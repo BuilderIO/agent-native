@@ -4,9 +4,11 @@ import {
   builderReviewDestinationLine,
   builderReviewEffectiveRowEffect,
   builderReviewIntentSummary,
+  builderReviewHasUnconfirmedUnpublish,
   builderReviewPublicationTransitionsMap,
   builderReviewResultStatus,
   builderReviewRowEffectLabel,
+  builderReviewScopedTransitionSelections,
 } from "./BuilderSourceReviewDialog";
 
 describe("BuilderSourceReviewDialog publication intent helpers", () => {
@@ -91,6 +93,10 @@ describe("BuilderSourceReviewDialog publication intent helpers", () => {
       labelKey: "needsAttention",
       tone: "warn",
     });
+    expect(builderReviewResultStatus("reconciliation_required")).toEqual({
+      labelKey: "reconciliationRequired",
+      tone: "warn",
+    });
     expect(builderReviewResultStatus("write_disabled").labelKey).toBe(
       "checksOnly",
     );
@@ -116,5 +122,38 @@ describe("BuilderSourceReviewDialog publication intent helpers", () => {
         confirmUnpublish: true,
       },
     });
+  });
+
+  it("clears latent transitions when a row is deselected", () => {
+    expect(
+      builderReviewScopedTransitionSelections(["change-1"], {
+        "change-1": { publicationTransition: "publish" },
+        "change-2": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: false,
+        },
+      }),
+    ).toEqual({
+      "change-1": { publicationTransition: "publish" },
+    });
+  });
+
+  it("does not let an unselected unpublish block the selected rows", () => {
+    expect(
+      builderReviewHasUnconfirmedUnpublish(["change-1"], {
+        "change-2": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: false,
+        },
+      }),
+    ).toBe(false);
+    expect(
+      builderReviewHasUnconfirmedUnpublish(["change-2"], {
+        "change-2": {
+          publicationTransition: "unpublish",
+          confirmUnpublish: false,
+        },
+      }),
+    ).toBe(true);
   });
 });

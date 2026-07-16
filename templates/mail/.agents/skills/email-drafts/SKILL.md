@@ -121,6 +121,23 @@ const drafts = await listAppState("compose-");
 
 The `send-email` action accepts an optional `attachments` array. Each entry must reference a file that was previously uploaded via the media-upload endpoint (`/api/media/upload`). Pass the server-side `filename` (the key returned by the upload endpoint, e.g. `abc123.pdf`), and optionally `originalName` (display name for the recipient) and `mimeType`. The attachment plumbing resolves the file from `data/uploads/` or from the configured file-storage URL recorded by the upload endpoint, then includes it as a MIME multipart attachment in the outgoing Gmail message. Do not store or paste attachment bytes, base64, or `data:` URLs in draft state/settings; files are never sent speculatively — only attach what the user has explicitly provided and confirmed.
 
+### Local files from an MCP host
+
+A hosted Mail app cannot read a path on the MCP host's local filesystem. Use
+`create-attachment-upload` with the file's display name. It returns a
+five-minute, owner-bound `uploadUrl`, a `PUT` method, and the attachment handle
+Mail expects. From the local host, upload the raw bytes directly:
+
+```bash
+curl --fail-with-body --request PUT --header '<Authorization header>' --data-binary @/absolute/path/to/report.pdf '<uploadUrl>'
+```
+
+Use the response's `attachment` object in the draft/send request. The upload
+Authorization header is a short-lived bearer credential: do not log, persist,
+reuse, or share it. Creating or consuming it does not send mail. Keep `send-email` behind its
+normal explicit-intent and human-approval gate; for drafting, pass the handle
+through `ask_app` or open the returned compose deep link.
+
 Example:
 ```json
 {

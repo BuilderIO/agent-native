@@ -333,12 +333,14 @@ export default defineConfig({
 
 ### ビルド / ランタイム {#env-runtime}
 
-| 変数                        | 説明                                                                                                                                                                                |
-| --------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `PORT`                      | サーバー ポート (Node.js のみ)                                                                                                                                                      |
-| `NITRO_PRESET`              | ビルド時にビルド プリセットをオーバーライドする                                                                                                                                     |
-| `APP_BASE_PATH`             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。 |
-| `AGENT_PROD_CODE_EXECUTION` | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                |
+| 変数                                        | 説明                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `PORT`                                      | サーバー ポート (Node.js のみ)                                                                                                                                                                                                                                                                                                                                                                                |
+| `NITRO_PRESET`                              | ビルド時にビルド プリセットをオーバーライドする                                                                                                                                                                                                                                                                                                                                                               |
+| `APP_BASE_PATH`                             | プレフィックス (例: `/mail`) の下でアプリをマウントします。 `npx @agent-native/core@latest deploy` によって自動的に設定されます。スタンドアロンの場合は未設定のままにしておきます。                                                                                                                                                                                                                           |
+| `AGENT_PROD_CODE_EXECUTION`                 | オプションの実稼働コード実行モード: `off` (デフォルト)、`sandboxed`、または `trusted`。 [Production Code Execution](#production-code-execution) を参照してください。                                                                                                                                                                                                                                          |
+| `AGENT_NATIVE_BUILDER_RELAY_SECRET`         | プレビューに安全な Builder 認証リレー専用の、32 文字以上の共有 HMAC シークレット。認証を分離されたプレビュー データベースに保存する必要がある場合に限り、承認済みの企業コールバック デプロイメントとプレビュー デプロイメントの両方に同じ値を設定します。                                                                                                                                                     |
+| `AGENT_NATIVE_BUILDER_RELAY_TARGET_ORIGINS` | 企業コールバック専用の、完全一致する信頼済みプレビューオリジンをカンマ区切りで指定する許可リスト（例: `https://0123456789abcdef01234567--content.netlify.app`）。企業コールバックのデプロイメントにのみ設定します。Netlify オリジンには 24 桁の 16 進 ID を含む、不変かつデプロイ固有のパーマリンクが必要です。変更可能な `deploy-preview-*` エイリアス、ワイルドカード、ドメインサフィックスは拒否されます。 |
 
 データベース接続変数 (`DATABASE_URL`、`DATABASE_AUTH_TOKEN`、アプリごとの `<APP_NAME>_DATABASE_URL`) は [Database](/docs/database#production) に存在します。
 
@@ -373,7 +375,7 @@ OAuth プロバイダー資格情報 (Google、GitHub)、静的 MCP ベアラー
 
 ### 強力な秘密の生成 {#env-generate-secrets}
 
-「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`) については、次のコマンドを使用して新しい値を生成します。
+「32 文字以上のランダム」とマークされたシークレット (`BETTER_AUTH_SECRET`、`OAUTH_STATE_SECRET`、`A2A_SECRET`、`SECRETS_ENCRYPTION_KEY`、`AGENT_NATIVE_BUILDER_RELAY_SECRET`) については、次のコマンドを使用して新しい値を生成します。
 
 ```bash
 openssl rand -hex 32

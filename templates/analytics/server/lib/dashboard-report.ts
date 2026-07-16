@@ -49,13 +49,17 @@ const DASHBOARD_REPORT_CID = "dashboard-report-snapshot";
 const LOCAL_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SCREENSHOT_TIMEOUT_MS = 90_000;
 const SERVERLESS_SECOND_READY_TIMEOUT_MS = 45_000;
-const SERVERLESS_FULL_ATTEMPT_TIMEOUT_MS = 125_000;
-const SERVERLESS_LIGHTWEIGHT_ATTEMPT_TIMEOUT_MS = 85_000;
+// Keep enough room under Netlify's 300s background-function limit for the
+// bounded browser-close/profile-cleanup steps after each failed attempt and
+// for the final email send. The three attempts total 225s; cleanup can spend
+// up to 60s, leaving a small delivery buffer.
+const SERVERLESS_FULL_ATTEMPT_TIMEOUT_MS = 110_000;
+const SERVERLESS_LIGHTWEIGHT_ATTEMPT_TIMEOUT_MS = 70_000;
 const BROWSER_CLEANUP_TIMEOUT_MS = 10_000;
 const SCREENSHOT_VIEWPORT_PADDING = 64;
 
 type DashboardScreenshotAttempt = {
-  label: "full" | "full-lightweight";
+  label: "full" | "full-lightweight" | "limited";
   viewport: { width: number; height: number };
   captureScale?: number;
   readyTimeout?: number;
@@ -770,9 +774,10 @@ function storedAttemptError(message: string): string {
 async function captureDashboardPngWithFallback(
   sub: DashboardReportSubscription,
   snapshot: ReportSnapshot,
+  options?: { includeLimitedFallback?: boolean },
 ): Promise<{
   png: Buffer | null;
-  mode: "full" | "full-lightweight" | "none";
+  mode: "full" | "full-lightweight" | "limited" | "none";
   error?: string;
 }> {
   const serverless = isServerlessBrowserRuntime();
@@ -792,7 +797,6 @@ async function captureDashboardPngWithFallback(
       label: "full-lightweight",
       viewport: { width: 1200, height: 1400 },
       captureScale: 0.7,
-      reportPanelLimit: 8,
       ...(serverless
         ? {
             readyTimeout: 55_000,
@@ -802,13 +806,34 @@ async function captureDashboardPngWithFallback(
         : {}),
     },
   ];
+  if (options?.includeLimitedFallback) {
+    // Only added on the final sweep after the 1-hour retry window, when the
+    // alternative is a no-image fallback email. All three serverless attempt
+    // totalTimeouts sum to 225s, leaving room for bounded cleanup and email
+    // delivery under the 300s Netlify background-function timeout.
+    attempts.push({
+      label: "limited",
+      viewport: { width: 1200, height: 1400 },
+      captureScale: 0.7,
+      reportPanelLimit: 8,
+      ...(serverless
+        ? {
+            readyTimeout: 40_000,
+            secondReadyTimeout: 10_000,
+            totalTimeout: 45_000,
+          }
+        : {}),
+    });
+  }
   const errors: string[] = [];
 
   for (const attempt of attempts) {
     try {
+      const png = await captureDashboardPng(sub, snapshot, attempt);
       return {
-        png: await captureDashboardPng(sub, snapshot, attempt),
+        png,
         mode: attempt.label,
+        ...(errors.length ? { error: errors.join(" | ") } : {}),
       };
     } catch (err) {
       const attemptError = errorMessage(err);
@@ -837,7 +862,10 @@ function reportDate(snapshot: ReportSnapshot): string {
 
 function renderReportEmailHtml(
   snapshot: ReportSnapshot,
-  options: { screenshotAttached: boolean },
+  options: {
+    screenshotAttached: boolean;
+    screenshotMode: "full" | "full-lightweight" | "limited" | "none";
+  },
 ): string {
   const title = escapeHtml(snapshot.title);
   const dashboardUrl = escapeHtml(snapshot.dashboardUrl);
@@ -850,6 +878,12 @@ function renderReportEmailHtml(
     : `<div style="margin:18px 0;padding:14px 16px;border:1px solid #e5e7eb;border-radius:8px;background:#f9fafb;color:#374151;font-size:14px;line-height:1.5;">
       The dashboard image was unavailable for this run. Open the live dashboard to view the latest report.
     </div>`;
+  const limitedScreenshotNotice =
+    options.screenshotMode === "limited"
+      ? `<div style="margin:12px 0 0;padding:12px 14px;border:1px solid #f3c46b;border-radius:8px;background:#fff8e6;color:#6b4f14;font-size:13px;line-height:1.45;">
+      This is a limited fallback image and may omit some dashboard panels. <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open the full dashboard</a> to see every panel.
+    </div>`
+      : "";
 
   return `<!doctype html>
 <html>
@@ -858,6 +892,7 @@ function renderReportEmailHtml(
       Here's your report of <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">${title}</a> for ${date}
     </p>
     ${screenshotBlock}
+    ${limitedScreenshotNotice}
     <p style="margin:18px 0 0;color:#525866;font-size:13px;line-height:1.45;">
       <a href="${dashboardUrl}" style="color:#2563eb;text-decoration:none;">Open dashboard</a>
       <span style="color:#9ca3af;"> · </span>
@@ -869,7 +904,10 @@ function renderReportEmailHtml(
 
 function renderReportText(
   snapshot: ReportSnapshot,
-  options: { screenshotAttached: boolean },
+  options: {
+    screenshotAttached: boolean;
+    screenshotMode: "full" | "full-lightweight" | "limited" | "none";
+  },
 ): string {
   const lines = [
     `Daily dashboard report: ${snapshot.title}`,
@@ -879,6 +917,11 @@ function renderReportText(
   ];
   if (!options.screenshotAttached) {
     lines.push("Dashboard image unavailable for this run.");
+  }
+  if (options.screenshotMode === "limited") {
+    lines.push(
+      `This is a limited fallback image and may omit some dashboard panels. Open the full dashboard: ${snapshot.dashboardUrl}`,
+    );
   }
   return lines.join("\n");
 }
@@ -897,17 +940,20 @@ export async function sendDashboardReportSubscription(
   options: {
     requireScreenshot?: boolean;
     skipEmailWithoutScreenshot?: boolean;
+    allowLimitedFallback?: boolean;
   } = {},
 ): Promise<{
   dashboardUrl: string;
   recipientCount: number;
   screenshotAttached: boolean;
-  screenshotMode: "full" | "full-lightweight" | "none";
+  screenshotMode: "full" | "full-lightweight" | "limited" | "none";
   screenshotError?: string;
   emailsSent: boolean;
 }> {
   const snapshot = await collectReportSnapshot(sub);
-  const capture = await captureDashboardPngWithFallback(sub, snapshot);
+  const capture = await captureDashboardPngWithFallback(sub, snapshot, {
+    includeLimitedFallback: options?.allowLimitedFallback,
+  });
   if (!capture.png && options.requireScreenshot) {
     throw new Error(
       capture.error
@@ -926,8 +972,14 @@ export async function sendDashboardReportSubscription(
     };
   }
   const screenshotAttached = Boolean(capture.png);
-  const html = renderReportEmailHtml(snapshot, { screenshotAttached });
-  const text = renderReportText(snapshot, { screenshotAttached });
+  const html = renderReportEmailHtml(snapshot, {
+    screenshotAttached,
+    screenshotMode: capture.mode,
+  });
+  const text = renderReportText(snapshot, {
+    screenshotAttached,
+    screenshotMode: capture.mode,
+  });
   const subject = `Daily dashboard: ${snapshot.title}`;
 
   for (const to of sub.recipients) {

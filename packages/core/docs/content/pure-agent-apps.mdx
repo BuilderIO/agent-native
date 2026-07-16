@@ -95,22 +95,66 @@ The `--headless` flag only chooses the initial scaffold. It does not choose a
 different architecture. You can later move the same `actions/`, instructions,
 skills, and SQL state into a chat app or full application surface.
 
-## Add chat later {#add-chat-later}
+## Add a UI later {#add-chat-later}
 
 `--headless` is not a permanent runtime mode, and there is no `agent-native`
-command that converts an existing action-only project into a chat app in place.
-When people need a browser conversation surface, use the [Chat template](/docs/template-chat)
-as the migration reference and keep the durable action and database contract:
+command that converts an existing action-only project into a browser app in
+place. When people need a UI, use the [Chat template](/docs/template-chat) as
+the migration reference and keep the durable action and database contract:
 
-1. Scaffold a temporary Chat app with the framework version you are migrating
-   to: `npx @agent-native/core@latest create my-chat-reference --template chat`.
-2. Bring its browser shell, server plugins, and UI dependencies into the
-   existing project. In particular, add the full-page `<AgentChatSurface>` and
-   an `agent-chat` plugin that loads the existing action registry.
-3. Keep your action names, Zod schemas, SQL data, instructions, and skills.
-   Chat calls those same actions; it does not replace them.
-4. Verify both surfaces: run `pnpm typecheck`, start the browser app with
-   `pnpm dev`, then complete one chat turn that calls an existing action.
+<Diagram id="doc-block-ui-later" title="One contract, multiple surfaces" summary={"Start with a headless workflow, then add a browser UI without rewriting the actions, data, instructions, or skills underneath."}>
+
+```html
+<div class="diagram-ui-path">
+  <div class="diagram-panel" data-rough>
+    <span class="diagram-pill accent">Start headless</span
+    ><small class="diagram-muted">jobs · CLI · external agents</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel" data-rough>
+    <span class="diagram-pill">Add a UI</span
+    ><small class="diagram-muted">chat · routes · durable pages</small>
+  </div>
+  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
+  <div class="diagram-panel ok" data-rough>
+    <span class="diagram-pill ok">Keep the contract</span
+    ><small class="diagram-muted">actions · SQL · instructions · skills</small>
+  </div>
+</div>
+```
+
+```css
+.diagram-ui-path {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.diagram-ui-path .diagram-panel {
+  display: flex;
+  min-width: 150px;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  text-align: center;
+}
+.diagram-ui-path .diagram-arrow {
+  font-size: 22px;
+  line-height: 1;
+}
+```
+
+</Diagram>
+
+1. Scaffold the first workflow with `npx @agent-native/core@latest create my-agent --headless`.
+2. When a browser surface becomes useful, bring in the template's shell, server
+   plugins, and UI dependencies. For chat, that includes `<AgentChatSurface>`
+   and an `agent-chat` plugin that loads the existing action registry.
+3. Keep your action names, Zod schemas, SQL data, instructions, and skills. A
+   UI calls those same actions; it does not replace them.
+4. Verify both surfaces with `pnpm typecheck`, `pnpm dev`, and one UI flow that
+   calls an existing action.
 
 Use `agent-native add` for integration blueprints, not for this conversion.
 Choose chat when people need conversational steering, approvals, or durable

@@ -53,6 +53,7 @@ const messages = {
     signInToComment: "登入後評論",
     panelTitle: "意見回饋",
     placeholder: "留下意見…",
+    commentingOn: "正在評論 {{name}}",
     emptyState: "目前沒有審閱評論。",
     clickToPin: "點選任意位置以固定意見",
     escToExit: "按 Esc 退出",

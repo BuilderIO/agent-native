@@ -1,3 +1,5 @@
+import { createHmac, timingSafeEqual } from "node:crypto";
+
 export interface A2AToolResultSummary {
   tool: string;
   result: string;
@@ -6,6 +8,121 @@ export interface A2AToolResultSummary {
 export interface A2AArtifactResponseOptions {
   baseUrl?: string;
   includeReferencedArtifacts?: boolean;
+  includePersistedArtifactMarker?: boolean;
+}
+
+export interface A2AArtifactIdentity {
+  resourceType:
+    | "document"
+    | "deck"
+    | "dashboard"
+    | "analysis"
+    | "image"
+    | "design"
+    | "monitor"
+    | "form";
+  id: string;
+  sourceAction: string;
+  titleAtAction?: string;
+  url?: string;
+}
+
+const ARTIFACT_IDENTITY_WRITE_TOOLS = new Set([
+  "save-monitor",
+  "create-form",
+  "submit-content-database-form",
+  "add-database-item",
+  "create-document",
+  "update-document",
+  "create-deck",
+  "duplicate-deck",
+  "add-slide",
+  "update-dashboard",
+  "rename-dashboard",
+  "save-analysis",
+  "generate-image",
+  "edit-image",
+  "refine-image",
+  "restyle-image",
+  "save-generated-image",
+  "save-generated-asset",
+  "export-image",
+  "export-asset",
+  "generate-image-batch",
+  "create-design",
+  "generate-design",
+  "create-file",
+  "duplicate-design",
+]);
+
+const PERSISTED_ARTIFACT_MARKER = "agent-native:persisted-artifacts=";
+const PERSISTED_ARTIFACT_MARKER_PATTERN =
+  /\s*<!--\s*agent-native:persisted-artifacts=[A-Za-z0-9_-]+\.[a-f0-9]{64}\s*-->/g;
+const ARTIFACT_RESOURCE_TYPES = new Set<A2AArtifactIdentity["resourceType"]>([
+  "document",
+  "deck",
+  "dashboard",
+  "analysis",
+  "image",
+  "design",
+  "monitor",
+  "form",
+]);
+
+function persistedArtifactIdentitiesFromMarker(
+  result: string,
+): A2AArtifactIdentity[] {
+  const secret = process.env.A2A_SECRET;
+  if (!secret) return [];
+  const match = result.match(
+    /<!--\s*agent-native:persisted-artifacts=([A-Za-z0-9_-]+)\.([a-f0-9]{64})\s*-->/,
+  );
+  if (!match) return [];
+  try {
+    const payload = match[1];
+    const expected = createHmac("sha256", secret).update(payload).digest();
+    const supplied = Buffer.from(match[2], "hex");
+    if (
+      supplied.length !== expected.length ||
+      !timingSafeEqual(supplied, expected)
+    ) {
+      return [];
+    }
+    const parsed = JSON.parse(Buffer.from(payload, "base64url").toString());
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .slice(0, 12)
+      .filter((identity): identity is A2AArtifactIdentity => {
+        const item = asRecord(identity);
+        return (
+          !!item &&
+          ARTIFACT_RESOURCE_TYPES.has(
+            item.resourceType as A2AArtifactIdentity["resourceType"],
+          ) &&
+          typeof item.id === "string" &&
+          typeof item.sourceAction === "string"
+        );
+      });
+  } catch {
+    return [];
+  }
+}
+
+function withPersistedArtifactMarker(
+  text: string,
+  toolResults: A2AToolResultSummary[],
+): string {
+  const identities = extractA2AArtifactIdentities(toolResults).slice(0, 12);
+  const secret = process.env.A2A_SECRET;
+  if (identities.length === 0 || !secret) return text;
+  const payload = Buffer.from(JSON.stringify(identities)).toString("base64url");
+  const signature = createHmac("sha256", secret).update(payload).digest("hex");
+  const marker = `<!-- ${PERSISTED_ARTIFACT_MARKER}${payload}.${signature} -->`;
+  return text ? `${text}\n\n${marker}` : marker;
+}
+
+export function stripA2APersistedArtifactMarkers(text: string): string {
+  return text.replace(PERSISTED_ARTIFACT_MARKER_PATTERN, "").trim();
 }
 
 interface CreatedDocumentArtifact {
@@ -617,12 +734,22 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
 
     if (
       toolResult.tool === "generate-image" ||
+      toolResult.tool === "edit-image" ||
       toolResult.tool === "refine-image" ||
+      toolResult.tool === "restyle-image" ||
       toolResult.tool === "get-asset" ||
       toolResult.tool === "save-generated-image" ||
+      toolResult.tool === "save-generated-asset" ||
       toolResult.tool === "export-image"
     ) {
       addImageArtifact(images, parsed);
+      continue;
+    }
+
+    if (toolResult.tool === "export-asset") {
+      if (stringValue(parsed.artifactType) === "image") {
+        addImageArtifact(images, parsed);
+      }
       continue;
     }
 
@@ -728,6 +855,114 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
     monitors: [...monitors.values()],
     forms: [...forms.values()],
   };
+}
+
+/**
+ * Extract a compact, verified identity ledger from successful artifact tools.
+ * The ledger deliberately excludes raw tool results so it is safe to retain in
+ * long-lived thread context and stable even when a resource is later renamed.
+ */
+export function extractA2AArtifactIdentities(
+  results: A2AToolResultSummary[],
+): A2AArtifactIdentity[] {
+  const identities = new Map<string, A2AArtifactIdentity>();
+
+  const remember = (identity: A2AArtifactIdentity) => {
+    identities.set(`${identity.resourceType}:${identity.id}`, identity);
+  };
+
+  for (const result of results) {
+    if (result.tool === "call-agent") {
+      for (const identity of persistedArtifactIdentitiesFromMarker(
+        result.result,
+      )) {
+        remember({ ...identity, sourceAction: "call-agent" });
+      }
+      continue;
+    }
+    if (!ARTIFACT_IDENTITY_WRITE_TOOLS.has(result.tool)) continue;
+    const artifacts = collectArtifacts([result]);
+    for (const document of artifacts.documents) {
+      remember({
+        resourceType: "document",
+        id: document.id,
+        sourceAction: result.tool,
+        titleAtAction: document.title,
+        url: document.url,
+      });
+    }
+    for (const deck of artifacts.decks) {
+      remember({
+        resourceType: "deck",
+        id: deck.id,
+        sourceAction: result.tool,
+        url: deck.url,
+      });
+    }
+    for (const dashboard of artifacts.dashboards) {
+      remember({
+        resourceType: "dashboard",
+        id: dashboard.id,
+        sourceAction: result.tool,
+        titleAtAction: dashboard.title,
+        url: dashboard.url,
+      });
+    }
+    for (const analysis of artifacts.analyses) {
+      remember({
+        resourceType: "analysis",
+        id: analysis.id,
+        sourceAction: result.tool,
+        titleAtAction: analysis.title,
+        url: analysis.url,
+      });
+    }
+    for (const image of artifacts.images) {
+      remember({
+        resourceType: "image",
+        id: image.id,
+        sourceAction: result.tool,
+        titleAtAction: image.title,
+        url: image.url,
+      });
+    }
+    for (const design of artifacts.designShells) {
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        titleAtAction: design.title,
+      });
+    }
+    for (const design of artifacts.generatedDesigns) {
+      remember({
+        resourceType: "design",
+        id: design.id,
+        sourceAction: result.tool,
+        url: design.url,
+      });
+    }
+    for (const monitor of artifacts.monitors) {
+      remember({
+        resourceType: "monitor",
+        id: monitor.id,
+        sourceAction: result.tool,
+        titleAtAction: monitor.name,
+        url: monitor.url,
+      });
+    }
+    for (const form of artifacts.forms) {
+      remember({
+        resourceType: "form",
+        id: form.id,
+        sourceAction: result.tool,
+        titleAtAction: form.title,
+        url: form.url,
+      });
+    }
+  }
+
+  return [...identities.values()];
 }
 
 type DownstreamArtifact =
@@ -1131,6 +1366,10 @@ export function appendA2AArtifactLinks(
   const baseUrl = normalizeBaseUrl(options.baseUrl);
   const includeReferencedArtifacts =
     options.includeReferencedArtifacts ?? false;
+  const finalize = (value: string) =>
+    options.includePersistedArtifactMarker
+      ? withPersistedArtifactMarker(value, toolResults)
+      : value;
   const {
     documents,
     decks,
@@ -1160,7 +1399,7 @@ export function appendA2AArtifactLinks(
     ) ||
       /\b(?:done|created|ready|here(?:'s| is)|complete|finished)\b/i.test(text))
   ) {
-    return formatIncompleteDesignMessage(incompleteShells);
+    return finalize(formatIncompleteDesignMessage(incompleteShells));
   }
 
   const unverifiedRefs = findUnverifiedArtifactReferences(
@@ -1174,15 +1413,17 @@ export function appendA2AArtifactLinks(
     generatedDesigns,
   );
   if (unverifiedRefs.length > 0) {
-    return formatUnverifiedArtifactMessage(
-      unverifiedRefs,
-      documents,
-      decks,
-      dashboards,
-      analyses,
-      images,
-      generatedDesigns,
-      baseUrl,
+    return finalize(
+      formatUnverifiedArtifactMessage(
+        unverifiedRefs,
+        documents,
+        decks,
+        dashboards,
+        analyses,
+        images,
+        generatedDesigns,
+        baseUrl,
+      ),
     );
   }
 
@@ -1258,9 +1499,11 @@ export function appendA2AArtifactLinks(
     }
   }
 
-  if (missingLines.length === 0) return text;
+  if (missingLines.length === 0) {
+    return finalize(text);
+  }
   const artifactBlock = `Artifacts:\n${missingLines.join("\n")}`;
-  return text ? `${text}\n\n${artifactBlock}` : artifactBlock;
+  return finalize(text ? `${text}\n\n${artifactBlock}` : artifactBlock);
 }
 
 export function buildA2ARecoverableArtifactMessage(
