@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs dispatch"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter dispatch build"
+command = "_p=NETLIFY_DATABASE_URL_PR_${REVIEW_ID:-0} && export DATABASE_URL=${!_p:-${NETLIFY_DATABASE_URL:-$DATABASE_URL}} && pnpm install && NITRO_PRESET=netlify pnpm --filter dispatch build"
 publish = "templates/dispatch/dist"
 functions = "templates/dispatch/.netlify/functions-internal"
 

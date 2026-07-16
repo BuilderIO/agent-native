@@ -1,6 +1,6 @@
 [build]
 ignore = "node ./scripts/netlify-ignore-build.mjs chat"
-command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"
+command = "_p=NETLIFY_DATABASE_URL_PR_${REVIEW_ID:-0} && export DATABASE_URL=${!_p:-${NETLIFY_DATABASE_URL:-$DATABASE_URL}} && pnpm install && NITRO_PRESET=netlify pnpm --filter chat build"
 publish = "templates/chat/dist"
 functions = "templates/chat/.netlify/functions-internal"
 
