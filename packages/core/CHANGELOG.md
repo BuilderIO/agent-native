@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.103.0
+
+### Minor Changes
+
+- 0af0783: Let Content connect manifest-declared local folders to its normal database-backed workspace without enabling a separate local-file data mode.
+
 ## 0.102.2
 
 ### Patch Changes
