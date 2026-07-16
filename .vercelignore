@@ -6,3 +6,42 @@
 **/.output
 **/coverage
 packages/core/corpus
+
+# The Content lab builds from the monorepo root, but it does not need every
+# sibling app or desktop artifact in the CLI upload. Keep the workspace
+# packages built by the root postinstall plus the one deployed template.
+templates/*
+!templates/content/
+!templates/content/**
+packages/*
+!packages/core/
+!packages/core/**
+!packages/recap-cli/
+!packages/recap-cli/**
+!packages/shared-app-config/
+!packages/shared-app-config/**
+!packages/toolkit/
+!packages/toolkit/**
+!packages/code-agents-ui/
+!packages/code-agents-ui/**
+!packages/migrate/
+!packages/migrate/**
+!packages/pinpoint/
+!packages/pinpoint/**
+!packages/scheduling/
+!packages/scheduling/**
+!packages/embedding/
+!packages/embedding/**
+!packages/dispatch/
+!packages/dispatch/**
+
+.agents
+.changeset
+.claude
+.github
+.screenshots
+.vscode
+animation-plans
+docs
+plans
+skills
