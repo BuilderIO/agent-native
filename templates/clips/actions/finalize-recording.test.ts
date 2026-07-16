@@ -509,7 +509,13 @@ describe("finalize-recording resumable recovery", () => {
     mockUpdateWhere.mockResolvedValue(undefined);
     vi.stubGlobal(
       "fetch",
-      vi.fn(async () => new Response("ok", { status: 206 })),
+      vi.fn(
+        async () =>
+          new Response("ok", {
+            status: 206,
+            headers: { "content-range": "bytes 0-1/3" },
+          }),
+      ),
     );
 
     const result = await finalizeRecording.run({
