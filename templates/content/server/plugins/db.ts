@@ -3,6 +3,7 @@ import {
   getDbExec,
   runMigrations,
 } from "@agent-native/core/db";
+import { trackPluginInit } from "@agent-native/core/server";
 
 import { repairUnseededBlocksFields } from "../../actions/_property-utils.js";
 import * as schema from "../db/schema.js";
@@ -1107,7 +1108,7 @@ const runContentSourceMigrations = runMigrations(
  * adds missing columns — never drops, renames, or retypes anything — and any
  * failure here is logged and swallowed so it can never fail boot.
  */
-export default async function contentDatabasePlugin(
+async function initializeContentDatabase(
   nitroApp: Parameters<typeof runContentMigrations>[0],
 ) {
   await runContentMigrations(nitroApp);
@@ -1143,4 +1144,37 @@ export default async function contentDatabasePlugin(
     // legacy databases without their primary Blocks field until a full reboot.
     scheduleBlocksRepairRetry();
   }
+}
+
+let contentDatabaseReadyPromise: Promise<void> | undefined;
+
+/**
+ * One process-wide migration barrier shared by every plugin that depends on
+ * Content's schema. Nitro starts async plugins concurrently, so filename order
+ * alone is not a readiness guarantee on serverless cold starts.
+ */
+export function awaitContentDatabaseReady(
+  nitroApp: Parameters<typeof runContentMigrations>[0],
+): Promise<void> {
+  if (!contentDatabaseReadyPromise) {
+    contentDatabaseReadyPromise = initializeContentDatabase(nitroApp).catch(
+      (error) => {
+        contentDatabaseReadyPromise = undefined;
+        throw error;
+      },
+    );
+  }
+  return contentDatabaseReadyPromise;
+}
+
+export default function contentDatabasePlugin(
+  nitroApp: Parameters<typeof runContentMigrations>[0],
+): Promise<void> {
+  const ready = awaitContentDatabaseReady(nitroApp);
+  if (nitroApp) {
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/health", "/api/private-vault"],
+    });
+  }
+  return ready;
 }

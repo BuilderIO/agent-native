@@ -10,6 +10,8 @@ const legacyPrivateBlobModuleLoaded = vi.hoisted(() => vi.fn());
 const insertValues = vi.hoisted(() => vi.fn());
 const selectLimit = vi.hoisted(() => vi.fn());
 const getDb = vi.hoisted(() => vi.fn());
+const awaitContentDatabaseReady = vi.hoisted(() => vi.fn());
+const trackPluginInit = vi.hoisted(() => vi.fn());
 
 const insert = vi.hoisted(() => vi.fn());
 const select = vi.hoisted(() => vi.fn());
@@ -23,6 +25,8 @@ vi.mock("../db/index.js", () => ({
   },
 }));
 vi.mock("drizzle-orm", () => ({ eq: vi.fn(() => "predicate") }));
+vi.mock("./db.js", () => ({ awaitContentDatabaseReady }));
+vi.mock("@agent-native/core/server", () => ({ trackPluginInit }));
 
 vi.mock("@agent-native/core/protected-ciphertext", () => ({
   registerProtectedCiphertextProvider,
@@ -40,6 +44,7 @@ describe("Content protected ciphertext plugin", () => {
     vi.resetAllMocks();
     vercelProtectedCiphertextProvider.isConfigured.mockReturnValue(false);
     vercelProtectedCiphertextProvider.storageGeneration.mockReturnValue(null);
+    awaitContentDatabaseReady.mockResolvedValue(undefined);
     insertValues.mockReturnValue({ onConflictDoNothing: vi.fn() });
     selectLimit.mockResolvedValue([]);
     insert.mockReturnValue({ values: insertValues });
@@ -84,6 +89,42 @@ describe("Content protected ciphertext plugin", () => {
       }),
     );
     expect(registerProtectedCiphertextProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("waits for migrations and registers a request readiness barrier", async () => {
+    let releaseDatabase!: () => void;
+    awaitContentDatabaseReady.mockReturnValue(
+      new Promise<void>((resolve) => {
+        releaseDatabase = resolve;
+      }),
+    );
+    const nitroApp = {};
+
+    const ready = contentProtectedCiphertextPlugin(nitroApp);
+    await Promise.resolve();
+    expect(registerProtectedCiphertextProvider).not.toHaveBeenCalled();
+    expect(trackPluginInit).toHaveBeenCalledWith(nitroApp, ready, {
+      paths: ["/_agent-native/health", "/api/private-vault"],
+    });
+
+    releaseDatabase();
+    await ready;
+    expect(registerProtectedCiphertextProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it("collapses binding database failures to a stable startup error", async () => {
+    vercelProtectedCiphertextProvider.isConfigured.mockReturnValue(true);
+    vercelProtectedCiphertextProvider.storageGeneration.mockReturnValue(
+      "store:test-generation-v1",
+    );
+    insertValues.mockReturnValue({
+      onConflictDoNothing: vi.fn().mockRejectedValue(new Error("raw query")),
+    });
+
+    await expect(contentProtectedCiphertextPlugin()).rejects.toThrow(
+      "Protected ciphertext storage binding is unavailable",
+    );
+    expect(registerProtectedCiphertextProvider).not.toHaveBeenCalled();
   });
 
   it("fails closed when deployment storage identity changes", async () => {

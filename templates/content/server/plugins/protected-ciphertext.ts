@@ -4,9 +4,11 @@ import {
   registerProtectedCiphertextProvider,
   vercelProtectedCiphertextProvider,
 } from "@agent-native/core/protected-ciphertext";
+import { trackPluginInit } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
+import { awaitContentDatabaseReady } from "./db.js";
 
 const BINDING_ID = "content-private-vault-v1";
 
@@ -16,8 +18,8 @@ function digestBinding(providerId: string, generation: string): string {
     .digest("hex");
 }
 
-/** Register opaque E2EE ciphertext storage independently of legacy media blobs. */
-export default async function contentProtectedCiphertextPlugin() {
+async function initializeProtectedCiphertext(nitroApp: unknown) {
+  await awaitContentDatabaseReady(nitroApp as never);
   if (vercelProtectedCiphertextProvider.isConfigured()) {
     const generation = vercelProtectedCiphertextProvider.storageGeneration?.();
     if (!generation) {
@@ -33,17 +35,22 @@ export default async function contentProtectedCiphertextPlugin() {
         generation,
       ),
     };
-    await getDb()
-      .insert(schema.contentEncryptedVaultStorageBindings)
-      .values(expected)
-      .onConflictDoNothing();
-    const [bound] = await getDb()
-      .select()
-      .from(schema.contentEncryptedVaultStorageBindings)
-      .where(
-        eq(schema.contentEncryptedVaultStorageBindings.bindingId, BINDING_ID),
-      )
-      .limit(1);
+    let bound: typeof expected | undefined;
+    try {
+      await getDb()
+        .insert(schema.contentEncryptedVaultStorageBindings)
+        .values(expected)
+        .onConflictDoNothing();
+      [bound] = await getDb()
+        .select()
+        .from(schema.contentEncryptedVaultStorageBindings)
+        .where(
+          eq(schema.contentEncryptedVaultStorageBindings.bindingId, BINDING_ID),
+        )
+        .limit(1);
+    } catch {
+      throw new Error("Protected ciphertext storage binding is unavailable");
+    }
     if (
       !bound ||
       bound.providerId !== expected.providerId ||
@@ -55,4 +62,17 @@ export default async function contentProtectedCiphertextPlugin() {
     }
   }
   registerProtectedCiphertextProvider(vercelProtectedCiphertextProvider);
+}
+
+/** Register opaque E2EE ciphertext storage independently of legacy media blobs. */
+export default function contentProtectedCiphertextPlugin(
+  nitroApp?: unknown,
+): Promise<void> {
+  const ready = initializeProtectedCiphertext(nitroApp);
+  if (nitroApp) {
+    trackPluginInit(nitroApp, ready, {
+      paths: ["/_agent-native/health", "/api/private-vault"],
+    });
+  }
+  return ready;
 }
