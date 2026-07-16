@@ -14,10 +14,9 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  createLocalFileDocument,
-  isContentLocalFileMode,
-} from "./_local-file-documents.js";
+import { ensureDocumentFilesMembership } from "./_content-files.js";
+import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { provisionContentSpaces } from "./_content-spaces.js";
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 function nanoid(size = 12): string {
@@ -29,13 +28,6 @@ function nanoid(size = 12): string {
   return id;
 }
 
-function assertCanWriteAppState() {
-  if (getRequestUserEmail() || process.env.AGENT_USER_EMAIL) return;
-  throw new Error(
-    "Application state access requires an authenticated request context or AGENT_USER_EMAIL env var",
-  );
-}
-
 export default defineAction({
   description: "Create a new document.",
   schema: z.object({
@@ -43,6 +35,10 @@ export default defineAction({
       .string()
       .optional()
       .describe("Pre-generated document ID (for optimistic UI)"),
+    spaceId: z
+      .string()
+      .optional()
+      .describe("Content space for a new top-level document"),
     title: z.string().describe("Document title"),
     content: z.string().optional().describe("Markdown content"),
     description: z
@@ -66,21 +62,6 @@ export default defineAction({
     }),
   },
   run: async (args) => {
-    if (await isContentLocalFileMode()) {
-      assertCanWriteAppState();
-      const doc = await createLocalFileDocument(args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-        deepLink: buildDeepLink({
-          app: "content",
-          view: "editor",
-          params: { documentId: doc.id },
-        }),
-      };
-    }
-
     const title = args.title;
 
     let content = args.content || "";
@@ -130,6 +111,28 @@ export default defineAction({
         .where(eq(schema.documentShares.resourceId, parentId));
     }
 
+    let spaceId: string;
+    if (parentId) {
+      const [parent] = await db
+        .select({ spaceId: schema.documents.spaceId })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, parentId));
+      if (!parent?.spaceId) {
+        throw new Error(`Parent document "${parentId}" has no Content space`);
+      }
+      if (args.spaceId && args.spaceId !== parent.spaceId) {
+        throw new Error("Nested documents must use their parent Content space");
+      }
+      spaceId = parent.spaceId;
+    } else {
+      const provisioned = await provisionContentSpaces(db, currentUserEmail);
+      spaceId = args.spaceId ?? provisioned.personalSpaceId;
+      const spaceAccess = await resolveContentSpaceAccess(spaceId, "editor");
+      ownerEmail = currentUserEmail;
+      orgId = spaceAccess.space.orgId;
+      visibility = orgId ? "org" : "private";
+    }
+
     const now = new Date().toISOString();
     const id = args.id || nanoid();
 
@@ -154,38 +157,45 @@ export default defineAction({
 
         const position = (maxPos[0]?.max ?? -1) + 1;
 
-        await db.insert(schema.documents).values({
-          id,
-          ownerEmail,
-          orgId,
-          parentId,
-          title,
-          content,
-          description,
-          icon,
-          position,
-          isFavorite: 0,
-          hideFromSearch,
-          visibility,
-          createdAt: now,
-          updatedAt: now,
+        await db.transaction(async (tx) => {
+          await tx.insert(schema.documents).values({
+            id,
+            spaceId,
+            ownerEmail,
+            orgId,
+            parentId,
+            title,
+            content,
+            description,
+            icon,
+            position,
+            isFavorite: 0,
+            hideFromSearch,
+            visibility,
+            createdAt: now,
+            updatedAt: now,
+          });
+
+          if (inheritedShares.length > 0) {
+            await tx.insert(schema.documentShares).values(
+              inheritedShares.map((share) => ({
+                id: nanoid(),
+                resourceId: id,
+                principalType: share.principalType,
+                principalId: share.principalId,
+                role: share.role,
+                createdBy: currentUserEmail,
+                createdAt: now,
+              })),
+            );
+          }
+          await ensureDocumentFilesMembership(tx, id, now, {
+            userEmail: currentUserEmail,
+            orgId: orgId ?? undefined,
+          });
         });
       },
     );
-
-    if (inheritedShares.length > 0) {
-      await db.insert(schema.documentShares).values(
-        inheritedShares.map((share) => ({
-          id: nanoid(),
-          resourceId: id,
-          principalType: share.principalType,
-          principalId: share.principalId,
-          role: share.role,
-          createdBy: currentUserEmail,
-          createdAt: now,
-        })),
-      );
-    }
 
     const [doc] = await db
       .select()

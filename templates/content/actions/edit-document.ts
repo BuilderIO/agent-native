@@ -10,11 +10,6 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import {
-  getLocalFileDocument,
-  isContentLocalFileMode,
-  updateLocalFileDocument,
-} from "./_local-file-documents.js";
 
 interface TextEdit {
   find: string;
@@ -72,19 +67,8 @@ export default defineAction({
       if (edit.replace === undefined) edit.replace = "";
     }
 
-    const localFileMode = await isContentLocalFileMode();
-    const existing = await (async () => {
-      if (localFileMode) {
-        const doc = await getLocalFileDocument(id);
-        if (doc.source?.kind === "folder") {
-          throw new Error("Folders cannot be edited directly");
-        }
-        return doc;
-      }
-
-      const access = await assertAccess("document", id, "editor");
-      return access.resource;
-    })();
+    const access = await assertAccess("document", id, "editor");
+    const existing = access.resource;
 
     // ─── Apply edits to the document markdown ───────────────────────────────
     //
@@ -126,16 +110,6 @@ export default defineAction({
 
     if (changeCount === 0) {
       return { applied: 0, total: edits.length, results };
-    }
-
-    if (localFileMode) {
-      await updateLocalFileDocument(id, { content });
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        applied: changeCount,
-        total: edits.length,
-        results,
-      };
     }
 
     // Persist. The fresh updatedAt is the signal the open editor uses to tell an

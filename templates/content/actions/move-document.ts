@@ -9,11 +9,6 @@ import {
   parseDocumentFavorite,
   parseDocumentHideFromSearch,
 } from "../server/lib/documents.js";
-import {
-  isLocalDocumentId,
-  isContentLocalFileMode,
-  moveLocalFileDocument,
-} from "./_local-file-documents.js";
 import { documentsPositionScope, withPositionLock } from "./_position-utils.js";
 
 async function assertParentIsNotDescendant({
@@ -214,15 +209,6 @@ export default defineAction({
       throw new Error("A document cannot be moved under itself");
     }
 
-    if ((await isContentLocalFileMode()) && isLocalDocumentId(id)) {
-      const doc = await moveLocalFileDocument(id, args);
-      await writeAppState("refresh-signal", { ts: Date.now() });
-      return {
-        ...doc,
-        urlPath: `/page/${doc.id}`,
-      };
-    }
-
     const access = await assertAccess("document", id, "editor");
     const existing = access.resource;
     const ownerEmail = existing.ownerEmail as string;
@@ -242,6 +228,9 @@ export default defineAction({
         );
         if (parentAccess.resource.ownerEmail !== ownerEmail) {
           throw new Error("Parent document must belong to the same owner");
+        }
+        if (parentAccess.resource.spaceId !== existing.spaceId) {
+          throw new Error("Parent document must be in the same Content space");
         }
         if (!sameRootSection(parentAccess.resource, existing)) {
           throw new Error("Parent document must be in the same section");

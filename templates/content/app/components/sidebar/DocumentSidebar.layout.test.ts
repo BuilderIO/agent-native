@@ -149,21 +149,20 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("if (activeAncestorIds.has(id)) return");
   });
 
-  it("keeps sidebar create actions split between pages and databases", () => {
+  it("scopes sidebar creation to the selected Content space", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const treeItem = readSidebarSource("./DocumentTreeItem.tsx");
     const messages = readSidebarSource("../../i18n-data.ts");
 
-    expect(sidebar).toContain("useCreateContentDatabase(null)");
-    expect(sidebar).toContain("const handleCreateDatabase = useCallback");
-    expect(sidebar).toContain("parentId: parentId ?? null");
-    expect(sidebar).toContain("navigateToDocument(result.database.documentId)");
-    expect(sidebar).toContain("const renderNewButton = () => (");
-    expect(sidebar).toContain("const renderCollapsedNewButton = () => (");
-    expect(sidebar).toContain('t("sidebar.new")');
-    expect(sidebar).toContain('t("sidebar.page")');
-    expect(sidebar).toContain('t("sidebar.database")');
-    expect(sidebar).not.toContain("const renderNewPageButton = () => (");
+    expect(sidebar).toContain("useContentSpaces()");
+    expect(sidebar).toContain("selectedSpace?.id");
+    expect(sidebar).toContain("spaceId: selectedSpace?.id");
+    expect(sidebar).toContain("const renderNewButton = () =>");
+    expect(sidebar).toContain("const renderCollapsedNewButton = () =>");
+    expect(sidebar).toContain('t("sidebar.newPage")');
+    expect(sidebar).not.toContain(
+      "onClick={() => void handleCreateDatabase(null)}",
+    );
 
     expect(treeItem).toContain("onCreateChildPage");
     expect(treeItem).toContain("onCreateChildDatabase");
@@ -172,12 +171,8 @@ describe("document sidebar layout", () => {
     expect(treeItem).toContain('t("sidebar.database")');
     expect(treeItem).not.toContain("onCreateChild: (parentId: string)");
 
-    expect(messages).toContain('new: "New"');
-    expect(messages).toContain('page: "Page"');
-    expect(messages).toContain('database: "Database"');
-    expect(messages).toContain(
-      'failedCreateDatabase: "Failed to create database"',
-    );
+    expect(messages).toContain('workspaces: "Workspaces"');
+    expect(messages).toContain('files: "Files"');
   });
 
   it("keeps the trashed inline database lifecycle visible in the sidebar", () => {

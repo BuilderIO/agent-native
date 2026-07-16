@@ -6,14 +6,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   createLocalFileDocument,
+  listLocalFileDocuments,
   localFileDocumentId,
   moveLocalFileDocument,
   removeContentLocalFileRoots,
   updateLocalFileDocument,
 } from "./_local-file-documents";
-import editDocument from "./edit-document";
-import pullDocument from "./pull-document";
-import searchDocuments from "./search-documents";
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: vi.fn(),
@@ -24,7 +22,6 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 const tmpRoots: string[] = [];
 const OLD_ENV = {
-  AGENT_NATIVE_MODE: process.env.AGENT_NATIVE_MODE,
   AGENT_NATIVE_DATA_MODE: process.env.AGENT_NATIVE_DATA_MODE,
   AGENT_NATIVE_MANIFEST: process.env.AGENT_NATIVE_MANIFEST,
   AGENT_NATIVE_MANIFEST_PATH: process.env.AGENT_NATIVE_MANIFEST_PATH,
@@ -67,7 +64,6 @@ function setupLocalContentRepo(options: { profile?: string } = {}) {
     },
   });
   process.env.AGENT_NATIVE_MANIFEST_PATH = manifestPath;
-  process.env.AGENT_NATIVE_MODE = "local-files";
   return root;
 }
 
@@ -115,47 +111,7 @@ describe("content local file documents", () => {
     expect(readFile(root, "docs/raw.mdx")).toBe(rawMdx);
   });
 
-  it("lets agent edit/search/pull actions operate on local files", async () => {
-    const root = setupLocalContentRepo();
-    writeFile(
-      root,
-      "docs/guide.mdx",
-      '---\ntitle: "Guide"\n---\n\nAlpha beta needle.',
-    );
-    writeFile(
-      root,
-      "blog/hidden.mdx",
-      '---\ntitle: "Hidden"\nhideFromSearch: true\n---\n\nneedle secret',
-    );
-    const id = localFileDocumentId("docs/guide.mdx");
-
-    await expect(
-      editDocument.run({ id, find: "beta", replace: "gamma" }),
-    ).resolves.toMatchObject({ applied: 1, total: 1 });
-    expect(readFile(root, "docs/guide.mdx")).toContain("Alpha gamma needle.");
-
-    await expect(
-      searchDocuments.run({ query: "needle", limit: 10 }),
-    ).resolves.toMatchObject({
-      documents: [
-        expect.objectContaining({
-          id,
-          title: "Guide",
-          snippet: expect.stringContaining("needle"),
-        }),
-      ],
-    });
-
-    await expect(
-      pullDocument.run({ id, format: "markdown" }),
-    ).resolves.toMatchObject({
-      id,
-      title: "Guide",
-      content: expect.stringContaining("Alpha gamma needle."),
-    });
-  });
-
-  it("reuses parsed local documents across repeated searches", async () => {
+  it("reuses parsed local documents across explicit compatibility reads", async () => {
     const root = setupLocalContentRepo();
     writeFile(root, "docs/guide.mdx", "# Guide\n\nAlpha needle.");
     writeFile(root, "docs/other.mdx", "# Other\n\nBeta needle.");
@@ -167,28 +123,29 @@ describe("content local file documents", () => {
           typeof filePath === "string" && filePath.endsWith(".mdx"),
       ).length;
 
-    await searchDocuments.run({ query: "needle", limit: 10 });
-    const opensAfterFirstSearch = localContentOpens();
-    expect(opensAfterFirstSearch).toBeGreaterThan(0);
+    const first = await listLocalFileDocuments();
+    expect(
+      first.filter((document) => document.source?.kind === "file"),
+    ).toHaveLength(2);
+    const opensAfterFirstRead = localContentOpens();
+    expect(opensAfterFirstRead).toBeGreaterThan(0);
 
-    await searchDocuments.run({ query: "alpha", limit: 10 });
-    expect(localContentOpens()).toBe(opensAfterFirstSearch);
+    await listLocalFileDocuments();
+    expect(localContentOpens()).toBe(opensAfterFirstRead);
 
     await updateLocalFileDocument(localFileDocumentId("docs/guide.mdx"), {
       content: "# Guide\n\nFresh needle.",
     });
 
     openSpy.mockClear();
-    await expect(
-      searchDocuments.run({ query: "fresh", limit: 10 }),
-    ).resolves.toMatchObject({
-      documents: [
+    await expect(listLocalFileDocuments()).resolves.toEqual(
+      expect.arrayContaining([
         expect.objectContaining({
           id: localFileDocumentId("docs/guide.mdx"),
-          snippet: expect.stringContaining("Fresh needle"),
+          content: expect.stringContaining("Fresh needle"),
         }),
-      ],
-    });
+      ]),
+    );
     expect(localContentOpens()).toBeGreaterThan(0);
   });
 

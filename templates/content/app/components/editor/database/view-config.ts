@@ -299,7 +299,8 @@ function normalizeClientDatabaseView(
     value.type === "gallery" ||
     value.type === "calendar" ||
     value.type === "timeline" ||
-    value.type === "form"
+    value.type === "form" ||
+    value.type === "sidebar"
       ? value.type
       : "table";
   return createDatabaseView(
@@ -460,6 +461,7 @@ export function databaseViewDefaultName(type: ContentDatabaseViewType) {
   if (type === "calendar") return "Calendar";
   if (type === "timeline") return "Timeline";
   if (type === "form") return "Form";
+  if (type === "sidebar") return "Sidebar";
   return "Table";
 }
 

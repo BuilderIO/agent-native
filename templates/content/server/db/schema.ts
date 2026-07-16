@@ -11,6 +11,7 @@ import {
 
 export const documents = table("documents", {
   id: text("id").primaryKey(),
+  spaceId: text("space_id"),
   parentId: text("parent_id"),
   title: text("title").notNull().default("Untitled"),
   content: text("content").notNull().default(""),
@@ -30,6 +31,58 @@ export const documents = table("documents", {
   updatedAt: text("updated_at").notNull().default(now()),
   ...ownableColumns(),
 });
+
+export const contentSpaces = table(
+  "content_spaces",
+  {
+    id: text("id").primaryKey(),
+    name: text("name").notNull(),
+    kind: text("kind").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    filesDatabaseId: text("files_database_id").notNull(),
+    createdBy: text("created_by").notNull(),
+    archivedAt: text("archived_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (space) => [
+    uniqueIndex("content_spaces_files_database_unique").on(
+      space.filesDatabaseId,
+    ),
+    index("content_spaces_owner_org_idx").on(space.ownerEmail, space.orgId),
+    index("content_spaces_org_idx").on(space.orgId),
+  ],
+);
+
+export const contentSpaceCatalogItems = table(
+  "content_space_catalog_items",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    catalogDatabaseId: text("catalog_database_id").notNull(),
+    databaseItemId: text("database_item_id").notNull(),
+    documentId: text("document_id").notNull(),
+    spaceId: text("space_id").notNull(),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (catalogItem) => [
+    uniqueIndex("content_space_catalog_items_catalog_space_unique").on(
+      catalogItem.catalogDatabaseId,
+      catalogItem.spaceId,
+    ),
+    uniqueIndex("content_space_catalog_items_catalog_item_unique").on(
+      catalogItem.catalogDatabaseId,
+      catalogItem.databaseItemId,
+    ),
+    index("content_space_catalog_items_owner_catalog_idx").on(
+      catalogItem.ownerEmail,
+      catalogItem.catalogDatabaseId,
+    ),
+    index("content_space_catalog_items_space_idx").on(catalogItem.spaceId),
+  ],
+);
 
 export const documentVersions = table("document_versions", {
   id: text("id").primaryKey(),
@@ -160,47 +213,67 @@ export const documentPropertyDefinitions = table(
   },
 );
 
-export const contentDatabases = table("content_databases", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  orgId: text("org_id"),
-  documentId: text("document_id").notNull(),
-  ownerDocumentId: text("owner_document_id"),
-  ownerBlockId: text("owner_block_id"),
-  title: text("title").notNull().default("Untitled database"),
-  viewConfigJson: text("view_config_json").notNull().default("{}"),
-  // Single source of truth for the primary "Content" Blocks field — the one
-  // backed by `documents.content`. A DB-enforced single-primary invariant: at
-  // most one property id lives here, so two concurrent seeds can never produce
-  // two aliasing primaries. NULL means there is currently no primary Blocks
-  // field (never seeded, or the primary was intentionally deleted).
-  primaryBlocksPropertyId: text("primary_blocks_property_id"),
-  // 1 once a database has been seeded with its primary Blocks field at least
-  // once. Distinguishes "never seeded" (legacy database needing backfill) from
-  // "primary intentionally deleted" (seeded once, then removed — must NOT be
-  // reseeded). See delete-document-property.
-  blocksSeeded: integer("blocks_seeded").notNull().default(0),
-  deletedAt: text("deleted_at"),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const contentDatabases = table(
+  "content_databases",
+  {
+    id: text("id").primaryKey(),
+    spaceId: text("space_id"),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    documentId: text("document_id").notNull(),
+    ownerDocumentId: text("owner_document_id"),
+    ownerBlockId: text("owner_block_id"),
+    title: text("title").notNull().default("Untitled database"),
+    systemRole: text("system_role"),
+    viewConfigJson: text("view_config_json").notNull().default("{}"),
+    // Single source of truth for the primary "Content" Blocks field — the one
+    // backed by `documents.content`. A DB-enforced single-primary invariant: at
+    // most one property id lives here, so two concurrent seeds can never produce
+    // two aliasing primaries. NULL means there is currently no primary Blocks
+    // field (never seeded, or the primary was intentionally deleted).
+    primaryBlocksPropertyId: text("primary_blocks_property_id"),
+    // 1 once a database has been seeded with its primary Blocks field at least
+    // once. Distinguishes "never seeded" (legacy database needing backfill) from
+    // "primary intentionally deleted" (seeded once, then removed — must NOT be
+    // reseeded). See delete-document-property.
+    blocksSeeded: integer("blocks_seeded").notNull().default(0),
+    deletedAt: text("deleted_at"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (database) => [
+    uniqueIndex("content_databases_space_system_role_unique").on(
+      database.spaceId,
+      database.systemRole,
+    ),
+  ],
+);
 
-export const contentDatabaseItems = table("content_database_items", {
-  id: text("id").primaryKey(),
-  ownerEmail: text("owner_email").notNull().default("local@localhost"),
-  orgId: text("org_id"),
-  databaseId: text("database_id").notNull(),
-  documentId: text("document_id").notNull(),
-  position: integer("position").notNull().default(0),
-  bodyHydrationStatus: text("body_hydration_status")
-    .notNull()
-    .default("hydrated"),
-  bodyHydrationAttemptedAt: text("body_hydration_attempted_at"),
-  bodyHydrationError: text("body_hydration_error"),
-  bodyHydrationVersion: text("body_hydration_version"),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
-});
+export const contentDatabaseItems = table(
+  "content_database_items",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
+    databaseId: text("database_id").notNull(),
+    documentId: text("document_id").notNull(),
+    position: integer("position").notNull().default(0),
+    bodyHydrationStatus: text("body_hydration_status")
+      .notNull()
+      .default("hydrated"),
+    bodyHydrationAttemptedAt: text("body_hydration_attempted_at"),
+    bodyHydrationError: text("body_hydration_error"),
+    bodyHydrationVersion: text("body_hydration_version"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (item) => [
+    uniqueIndex("content_database_items_database_document_unique").on(
+      item.databaseId,
+      item.documentId,
+    ),
+  ],
+);
 
 export const contentDatabaseBodyHydrationQueue = table(
   "content_database_body_hydration_queue",
