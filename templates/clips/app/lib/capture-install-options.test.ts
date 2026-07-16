@@ -1,8 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
+  hasDismissedDesktopPromo,
   hasDownloadedDesktopApp,
   markDesktopAppDownloaded,
+  markDesktopPromoDismissed,
   resolveClipsChromeExtensionEnabled,
   supportsPublishedClipsChromeExtensionHost,
 } from "./capture-install-options";
@@ -24,6 +26,26 @@ describe("capture install options", () => {
     expect(hasDownloadedDesktopApp()).toBe(false);
     markDesktopAppDownloaded();
     expect(hasDownloadedDesktopApp()).toBe(true);
+    // Downloading also hides the promo.
+    expect(hasDismissedDesktopPromo()).toBe(true);
+  });
+
+  it("dismissing the promo only writes the dismissed flag, not the downloaded flag", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("window", {
+      localStorage: {
+        getItem: (key: string) => values.get(key) ?? null,
+        setItem: (key: string, value: string) => values.set(key, value),
+      },
+    });
+
+    markDesktopPromoDismissed();
+    expect(hasDismissedDesktopPromo()).toBe(true);
+    // dismissed-only users are treated as downloaded for CTA label migration
+    // (legacy: a single key covered both states before the flag split).
+    expect(hasDownloadedDesktopApp()).toBe(true);
+    // But the downloaded storage key itself was never written.
+    expect(values.get("clips.desktop-app.downloaded")).toBeUndefined();
   });
 
   it("enables the published Chrome extension on supported first-party/local hosts", () => {

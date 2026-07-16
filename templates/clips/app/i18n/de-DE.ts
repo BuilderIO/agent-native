@@ -1126,6 +1126,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     desktopTitle: "Desktop app (Lokalisiert)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Lokalisiert)",
+    openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Lokalisiert)",

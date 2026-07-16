@@ -1050,6 +1050,7 @@ const messages = {
       "瀏覽器記錄選項已就緒，正在等待 Chrome Web Store URL。",
     desktopTitle: "桌面應用程式",
     desktopDescription: "最適合全域快捷鍵、選單列錄製、會議與重複擷取。",
+    openDesktopApp: "開啟桌面應用程式",
   },
   editableTitle: {
     untitled: "未命名剪輯",
