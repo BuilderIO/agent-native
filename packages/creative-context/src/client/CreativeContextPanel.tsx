@@ -829,6 +829,7 @@ export function CreativeContextPanel({
   const [selectedRecommendationIds, setSelectedRecommendationIds] = useState<
     Set<string>
   >(() => new Set());
+  const seenRecommendationIdsRef = useRef<Set<string>>(new Set());
   const [pickerRecommendations, setPickerRecommendations] = useState<
     CreativeContextRootRecommendation[]
   >([]);
@@ -902,9 +903,20 @@ export function CreativeContextPanel({
   }, [pickerRecommendations, recommendationsQuery.data?.recommendations]);
 
   useEffect(() => {
-    setSelectedRecommendationIds(
-      new Set(availableRecommendations.map(({ externalId }) => externalId)),
+    const availableIds = new Set(
+      availableRecommendations.map(({ externalId }) => externalId),
     );
+    const previouslySeen = seenRecommendationIdsRef.current;
+    setSelectedRecommendationIds((current) => {
+      const next = new Set(
+        [...current].filter((externalId) => availableIds.has(externalId)),
+      );
+      for (const externalId of availableIds) {
+        if (!previouslySeen.has(externalId)) next.add(externalId);
+      }
+      return next;
+    });
+    seenRecommendationIdsRef.current = availableIds;
   }, [availableRecommendations]);
 
   const sources = useMemo(
@@ -1133,6 +1145,7 @@ export function CreativeContextPanel({
       setSourceName("");
       setSourceReference("");
       setPickerRecommendations([]);
+      seenRecommendationIdsRef.current.clear();
       setUploadedFiles([]);
       await sourcesQuery.refetch();
     } catch {
@@ -1665,6 +1678,7 @@ export function CreativeContextPanel({
                       setSourceReference("");
                       setUploadedFiles([]);
                       setPickerRecommendations([]);
+                      seenRecommendationIdsRef.current.clear();
                       setSelectedConnectionId("");
                       setSelectedRecommendationIds(new Set());
                       setSetupError(null);

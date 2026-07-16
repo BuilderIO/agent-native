@@ -1,5 +1,7 @@
 const GOOGLE_PICKER_SCRIPT = "https://apis.google.com/js/api.js";
 const GOOGLE_SLIDES_MIME_TYPE = "application/vnd.google-apps.presentation";
+const GOOGLE_PICKER_LOAD_TIMEOUT_MS = 15_000;
+const GOOGLE_DRIVE_FILE_ID = /^[A-Za-z0-9_-]{8,256}$/;
 
 declare global {
   interface Window {
@@ -26,18 +28,37 @@ export function googleSlidesPickerSelections(
     if (!entry || typeof entry !== "object" || Array.isArray(entry)) return [];
     const record = entry as Record<string, unknown>;
     const externalId = typeof record.id === "string" ? record.id.trim() : "";
-    if (!externalId || seen.has(externalId)) return [];
+    if (!GOOGLE_DRIVE_FILE_ID.test(externalId) || seen.has(externalId)) {
+      return [];
+    }
     seen.add(externalId);
     const title =
       typeof record.name === "string" && record.name.trim()
-        ? record.name.trim()
+        ? record.name.trim().slice(0, 300)
         : "Google Slides presentation";
-    const canonicalUrl =
-      typeof record.url === "string" && record.url.startsWith("https://")
-        ? record.url
-        : `https://docs.google.com/presentation/d/${encodeURIComponent(externalId)}/edit`;
+    const canonicalUrl = `https://docs.google.com/presentation/d/${encodeURIComponent(externalId)}/edit`;
     return [{ externalId, title, canonicalUrl }];
   });
+}
+
+async function withGooglePickerTimeout<T>(
+  promise: Promise<T>,
+  message: string,
+): Promise<T> {
+  let timeout: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(
+          () => reject(new Error(message)),
+          GOOGLE_PICKER_LOAD_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
 }
 
 async function loadGooglePicker(): Promise<void> {
@@ -53,14 +74,21 @@ async function loadGooglePicker(): Promise<void> {
         document.head.appendChild(script);
       },
     );
-    await window.__creativeContextGooglePickerScript;
+    await withGooglePickerTimeout(
+      window.__creativeContextGooglePickerScript,
+      "Google Picker script timed out.",
+    );
   }
-  await new Promise<void>((resolve, reject) => {
-    window.gapi?.load("picker", {
-      callback: resolve,
-      onerror: () => reject(new Error("Could not load Google Picker.")),
-    });
-  });
+  if (!window.gapi?.load) throw new Error("Google Picker did not initialize.");
+  await withGooglePickerTimeout(
+    new Promise<void>((resolve, reject) => {
+      window.gapi.load("picker", {
+        callback: resolve,
+        onerror: () => reject(new Error("Could not load Google Picker.")),
+      });
+    }),
+    "Google Picker initialization timed out.",
+  );
 }
 
 export async function chooseGoogleSlidesPresentations(input: {

@@ -27,12 +27,8 @@ export default defineAction({
           localCredentialSource: "creative_context_picker",
         },
       ),
-      resolveSecret("GOOGLE_PICKER_API_KEY").then(
-        (value) => value ?? resolveSecret("GOOGLE_API_KEY"),
-      ),
-      resolveSecret("GOOGLE_PICKER_APP_ID").then(
-        (value) => value ?? resolveSecret("GOOGLE_PROJECT_NUMBER"),
-      ),
+      resolveSecret("GOOGLE_PICKER_API_KEY"),
+      resolveSecret("GOOGLE_PICKER_APP_ID"),
     ]);
     if (!apiKey || !appId) {
       throw new Error(

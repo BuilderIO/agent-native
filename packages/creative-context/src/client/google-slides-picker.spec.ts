@@ -7,22 +7,29 @@ describe("googleSlidesPickerSelections", () => {
     expect(
       googleSlidesPickerSelections({
         docs: [
-          { id: "deck-1", name: "Launch", url: "https://drive.google.com/x" },
-          { id: "deck-1", name: "Duplicate" },
-          { id: "deck-2", name: "Roadmap", url: "javascript:alert(1)" },
+          {
+            id: "deck_123456789",
+            name: "Launch",
+            url: "https://attacker.example/x",
+          },
+          { id: "deck_123456789", name: "Duplicate" },
+          { id: "deck_987654321", name: "Roadmap" },
+          { id: "bad/id", name: "Invalid id" },
           { name: "Missing id" },
         ],
       }),
     ).toEqual([
       {
-        externalId: "deck-1",
+        externalId: "deck_123456789",
         title: "Launch",
-        canonicalUrl: "https://drive.google.com/x",
+        canonicalUrl:
+          "https://docs.google.com/presentation/d/deck_123456789/edit",
       },
       {
-        externalId: "deck-2",
+        externalId: "deck_987654321",
         title: "Roadmap",
-        canonicalUrl: "https://docs.google.com/presentation/d/deck-2/edit",
+        canonicalUrl:
+          "https://docs.google.com/presentation/d/deck_987654321/edit",
       },
     ]);
   });
