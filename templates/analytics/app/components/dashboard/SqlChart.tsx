@@ -117,6 +117,56 @@ const CHART_LEGEND_PROPS = {
   wrapperStyle: CHART_LEGEND_WRAPPER_STYLE,
 } as const;
 
+const CHART_RESIZE_DEBOUNCE_MS = 50;
+
+type ChartSize = {
+  width: number;
+  height: number;
+};
+
+export function hasChartSizeChanged(
+  previous: ChartSize | null,
+  next: ChartSize,
+): boolean {
+  return (
+    previous !== null &&
+    (previous.width !== next.width || previous.height !== next.height)
+  );
+}
+
+function useChartResizeAnimation() {
+  const [isAnimationActive, setIsAnimationActive] = useState(true);
+  const firstSizeRef = useRef<ChartSize | null>(null);
+  const handleResize = useCallback((width: number, height: number) => {
+    const nextSize = { width, height };
+    if (hasChartSizeChanged(firstSizeRef.current, nextSize)) {
+      setIsAnimationActive(false);
+    }
+    firstSizeRef.current = nextSize;
+  }, []);
+
+  return { isAnimationActive, handleResize };
+}
+
+function ChartResponsiveContainer({
+  children,
+}: {
+  children: (isAnimationActive: boolean) => ReactNode;
+}) {
+  const { isAnimationActive, handleResize } = useChartResizeAnimation();
+
+  return (
+    <ResponsiveContainer
+      width="100%"
+      height="100%"
+      debounce={CHART_RESIZE_DEBOUNCE_MS}
+      onResize={handleResize}
+    >
+      {children(isAnimationActive)}
+    </ResponsiveContainer>
+  );
+}
+
 const PARTIAL_DAY_TIME_ZONE = "America/Los_Angeles";
 const PARTIAL_DAY_DASH = "3 5";
 const PARTIAL_DAY_KEY_PREFIX = "__sql_chart_partial_day";
@@ -1821,41 +1871,44 @@ function PieRenderer({
 
   return (
     <ChartFrame panel={panel} legendKeys={legendKeys} colors={colors}>
-      <ResponsiveContainer width="100%" height="100%">
-        <PieChart>
-          <Pie
-            data={rows}
-            dataKey={yKey}
-            nameKey={xKey}
-            cx="50%"
-            cy="50%"
-            outerRadius={80}
-            label={(props: any) =>
-              `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
-            }
-            labelLine={false}
-          >
-            {rows.map((_, i) => (
-              <Cell key={i} fill={colors[i % colors.length]} />
-            ))}
-          </Pie>
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            content={
-              <ChartTooltip
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) =>
-                  formatYValue(v, panel.config?.yFormatter)
-                }
-              />
-            }
-          />
-          {!usesPrometheusPresentation(panel) &&
-            shouldShowLegend(panel, rows.length) && (
-              <Legend {...CHART_LEGEND_PROPS} />
-            )}
-        </PieChart>
-      </ResponsiveContainer>
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <PieChart>
+            <Pie
+              data={rows}
+              dataKey={yKey}
+              nameKey={xKey}
+              cx="50%"
+              cy="50%"
+              outerRadius={80}
+              label={(props: any) =>
+                `${seriesNameFormatter(String(props.name))} ${((props.percent ?? 0) * 100).toFixed(0)}%`
+              }
+              labelLine={false}
+              isAnimationActive={isAnimationActive}
+            >
+              {rows.map((_, i) => (
+                <Cell key={i} fill={colors[i % colors.length]} />
+              ))}
+            </Pie>
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              content={
+                <ChartTooltip
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={(v) =>
+                    formatYValue(v, panel.config?.yFormatter)
+                  }
+                />
+              }
+            />
+            {!usesPrometheusPresentation(panel) &&
+              shouldShowLegend(panel, rows.length) && (
+                <Legend {...CHART_LEGEND_PROPS} />
+              )}
+          </PieChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
@@ -1893,56 +1946,59 @@ function BarRenderer({
       onFilterLegendKey={filterSeries}
       showCustomLegend
     >
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={rows}>
-          <XAxis
-            dataKey={xKey}
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={xLabelFormatter}
-          />
-          <YAxis
-            stroke="hsl(var(--muted-foreground))"
-            fontSize={12}
-            tickLine={false}
-            axisLine={false}
-            tickFormatter={(v) => formatYValue(v, yFormatter)}
-          />
-          <CartesianGrid
-            strokeDasharray="3 3"
-            stroke="hsl(var(--border))"
-            vertical={false}
-          />
-          <Tooltip
-            {...CHART_TOOLTIP_PROPS}
-            cursor={BAR_TOOLTIP_CURSOR_PROPS}
-            labelFormatter={xLabelFormatter}
-            content={
-              <ChartTooltip
-                labelFormatter={xLabelFormatter}
-                seriesNameFormatter={seriesNameFormatter}
-                valueFormatter={(v) => formatYValue(v, yFormatter)}
-              />
-            }
-            itemSorter={(item) => -(Number(item.value) || 0)}
-          />
-          {yKeys.map((key, i) => (
-            <Bar
-              key={key}
-              dataKey={key}
-              name={seriesNameFormatter(key)}
-              fill={colors[i % colors.length]}
-              radius={
-                stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
-              }
-              stackId={stacked ? "stack" : undefined}
-              hide={hiddenKeys.has(key)}
+      <ChartResponsiveContainer>
+        {(isAnimationActive) => (
+          <BarChart data={rows}>
+            <XAxis
+              dataKey={xKey}
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={xLabelFormatter}
             />
-          ))}
-        </BarChart>
-      </ResponsiveContainer>
+            <YAxis
+              stroke="hsl(var(--muted-foreground))"
+              fontSize={12}
+              tickLine={false}
+              axisLine={false}
+              tickFormatter={(v) => formatYValue(v, yFormatter)}
+            />
+            <CartesianGrid
+              strokeDasharray="3 3"
+              stroke="hsl(var(--border))"
+              vertical={false}
+            />
+            <Tooltip
+              {...CHART_TOOLTIP_PROPS}
+              cursor={BAR_TOOLTIP_CURSOR_PROPS}
+              labelFormatter={xLabelFormatter}
+              content={
+                <ChartTooltip
+                  labelFormatter={xLabelFormatter}
+                  seriesNameFormatter={seriesNameFormatter}
+                  valueFormatter={(v) => formatYValue(v, yFormatter)}
+                />
+              }
+              itemSorter={(item) => -(Number(item.value) || 0)}
+            />
+            {yKeys.map((key, i) => (
+              <Bar
+                key={key}
+                dataKey={key}
+                name={seriesNameFormatter(key)}
+                fill={colors[i % colors.length]}
+                radius={
+                  stacked && i < yKeys.length - 1 ? [0, 0, 0, 0] : [4, 4, 0, 0]
+                }
+                stackId={stacked ? "stack" : undefined}
+                hide={hiddenKeys.has(key)}
+                isAnimationActive={isAnimationActive}
+              />
+            ))}
+          </BarChart>
+        )}
+      </ChartResponsiveContainer>
     </ChartFrame>
   );
 }
