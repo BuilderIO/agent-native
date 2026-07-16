@@ -426,6 +426,8 @@ export const documentShareInheritances = table(
   "document_share_inheritances",
   {
     childShareId: text("child_share_id").primaryKey(),
+    ownerEmail: text("owner_email").notNull().default("local@localhost"),
+    orgId: text("org_id"),
     sourceShareId: text("source_share_id").notNull(),
     sourceResourceId: text("source_resource_id").notNull(),
     targetResourceId: text("target_resource_id").notNull(),
@@ -448,6 +450,10 @@ export const documentShareProvenanceState = table(
   "document_share_provenance_state",
   {
     id: text("id").primaryKey(),
+    ownerEmail: text("owner_email")
+      .notNull()
+      .default("__deployment_security_admin__"),
+    orgId: text("org_id"),
     legacyShareRows: integer("legacy_share_rows").notNull(),
     enabledAt: text("enabled_at").notNull().default(now()),
   },

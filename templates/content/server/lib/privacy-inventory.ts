@@ -313,7 +313,7 @@ export async function buildProductionPrivacyInventory(): Promise<ProductionPriva
 
   const a2aQueueAvailable = await tableExists("a2a_tasks");
   const trustedPeers = trustedA2APeersFromEnv();
-  const rawPeerRegistry = process.env.A2A_TRUSTED_PEERS?.trim();
+  const rawPeerRegistry = process.env.A2A_TRUSTED_PEERS?.trim(); // guard:allow-env-credential — deployment-owned peer registry; only aggregate validity is returned.
   let a2aRegistryValid = true;
   if (rawPeerRegistry) {
     try {

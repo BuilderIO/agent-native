@@ -721,6 +721,8 @@ const runContentMigrations = runMigrations(
       name: "document-share-inheritance-provenance",
       sql: `CREATE TABLE IF NOT EXISTS document_share_inheritances (
         child_share_id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost',
+        org_id TEXT,
         source_share_id TEXT NOT NULL,
         source_resource_id TEXT NOT NULL,
         target_resource_id TEXT NOT NULL,
@@ -732,14 +734,35 @@ const runContentMigrations = runMigrations(
         ON document_share_inheritances (target_resource_id);
       CREATE TABLE IF NOT EXISTS document_share_provenance_state (
         id TEXT PRIMARY KEY,
+        owner_email TEXT NOT NULL DEFAULT '__deployment_security_admin__',
+        org_id TEXT,
         legacy_share_rows INTEGER NOT NULL,
         enabled_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
-      INSERT INTO document_share_provenance_state (id, legacy_share_rows, enabled_at)
-        SELECT 'v1', (SELECT COUNT(*) FROM document_shares), CURRENT_TIMESTAMP
+      INSERT INTO document_share_provenance_state (id, owner_email, legacy_share_rows, enabled_at)
+        SELECT 'v1', '__deployment_security_admin__', (SELECT COUNT(*) FROM document_shares), CURRENT_TIMESTAMP
         WHERE NOT EXISTS (
           SELECT 1 FROM document_share_provenance_state WHERE id = 'v1'
         )`,
+    },
+    {
+      version: 72,
+      name: "document-share-provenance-owner-scope",
+      sql: `ALTER TABLE document_share_inheritances ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT 'local@localhost';
+      ALTER TABLE document_share_inheritances ADD COLUMN IF NOT EXISTS org_id TEXT;
+      UPDATE document_share_inheritances
+        SET owner_email = COALESCE(
+          (SELECT owner_email FROM documents
+            WHERE documents.id = document_share_inheritances.target_resource_id),
+          owner_email
+        ),
+        org_id = COALESCE(
+          (SELECT org_id FROM documents
+            WHERE documents.id = document_share_inheritances.target_resource_id),
+          org_id
+        );
+      ALTER TABLE document_share_provenance_state ADD COLUMN IF NOT EXISTS owner_email TEXT NOT NULL DEFAULT '__deployment_security_admin__';
+      ALTER TABLE document_share_provenance_state ADD COLUMN IF NOT EXISTS org_id TEXT`,
     },
   ],
   { table: "content_migrations" },

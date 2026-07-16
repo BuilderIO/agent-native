@@ -169,8 +169,18 @@ describe("content db.ts migration entries follow the naming convention", () => {
     expect(dbTsSource).toContain(
       "CREATE TABLE IF NOT EXISTS document_share_provenance_state",
     );
+    expect(dbTsSource).toContain("(SELECT COUNT(*) FROM document_shares)");
+  });
+
+  it("keeps the uniquely named v72 inherited-share owner-scope migration", () => {
+    expect(dbTsSource).toMatch(
+      /version:\s*72,\s*name:\s*"document-share-provenance-owner-scope"/,
+    );
     expect(dbTsSource).toContain(
-      "SELECT 'v1', (SELECT COUNT(*) FROM document_shares)",
+      "ALTER TABLE document_share_inheritances ADD COLUMN IF NOT EXISTS owner_email",
+    );
+    expect(dbTsSource).toContain(
+      "ALTER TABLE document_share_provenance_state ADD COLUMN IF NOT EXISTS owner_email",
     );
   });
 });

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 
 import * as schema from "../db/schema.js";
 
@@ -54,11 +54,30 @@ async function insertInheritedShares(
 ): Promise<number> {
   if (sourceShares.length === 0) return 0;
 
+  const targetScopes = await args.db
+    .select({
+      id: schema.documents.id,
+      ownerEmail: schema.documents.ownerEmail,
+      orgId: schema.documents.orgId,
+    })
+    .from(schema.documents)
+    .where(inArray(schema.documents.id, args.targetResourceIds));
+  const scopeByTarget = new Map(
+    targetScopes.map((scope: (typeof targetScopes)[number]) => [
+      scope.id,
+      scope,
+    ]),
+  );
+  if (scopeByTarget.size !== new Set(args.targetResourceIds).size) {
+    throw new Error("Cannot inherit shares for a missing target document");
+  }
+
   const copiedShares = args.targetResourceIds.flatMap((targetResourceId) =>
     sourceShares.map((sourceShare: (typeof sourceShares)[number]) => ({
       childShareId: nanoid(),
       sourceShare,
       targetResourceId,
+      targetScope: scopeByTarget.get(targetResourceId)!,
     })),
   );
 
@@ -74,13 +93,17 @@ async function insertInheritedShares(
     })),
   );
   await args.db.insert(schema.documentShareInheritances).values(
-    copiedShares.map(({ childShareId, sourceShare, targetResourceId }) => ({
-      childShareId,
-      sourceShareId: sourceShare.id,
-      sourceResourceId: args.sourceResourceId,
-      targetResourceId,
-      createdAt: args.createdAt,
-    })),
+    copiedShares.map(
+      ({ childShareId, sourceShare, targetResourceId, targetScope }) => ({
+        childShareId,
+        ownerEmail: targetScope.ownerEmail,
+        orgId: targetScope.orgId,
+        sourceShareId: sourceShare.id,
+        sourceResourceId: args.sourceResourceId,
+        targetResourceId,
+        createdAt: args.createdAt,
+      }),
+    ),
   );
 
   return copiedShares.length;
