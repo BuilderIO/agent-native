@@ -297,7 +297,7 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   }
   if (input.provider.id === "google_drive") {
     url.searchParams.set("access_type", "offline");
-    url.searchParams.set("include_granted_scopes", "true");
+    url.searchParams.set("include_granted_scopes", "false");
     url.searchParams.set("prompt", "consent");
   }
   if (input.provider.oauth.scopes.length) {

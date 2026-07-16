@@ -224,6 +224,20 @@ export function selectRenderableLayoutThumbnails<
   return thumbnails.filter((thumbnail) => thumbnail.hasThumbnail).slice(0, 3);
 }
 
+export function mergeRecommendationSelection(
+  current: ReadonlySet<string>,
+  available: ReadonlySet<string>,
+  previouslySeen: ReadonlySet<string>,
+): Set<string> {
+  const next = new Set(
+    [...current].filter((externalId) => available.has(externalId)),
+  );
+  for (const externalId of available) {
+    if (!previouslySeen.has(externalId)) next.add(externalId);
+  }
+  return next;
+}
+
 export function buildCreativeContextSourceConfig(
   kind: ConnectorKind,
   reference: string,
@@ -907,15 +921,9 @@ export function CreativeContextPanel({
       availableRecommendations.map(({ externalId }) => externalId),
     );
     const previouslySeen = seenRecommendationIdsRef.current;
-    setSelectedRecommendationIds((current) => {
-      const next = new Set(
-        [...current].filter((externalId) => availableIds.has(externalId)),
-      );
-      for (const externalId of availableIds) {
-        if (!previouslySeen.has(externalId)) next.add(externalId);
-      }
-      return next;
-    });
+    setSelectedRecommendationIds((current) =>
+      mergeRecommendationSelection(current, availableIds, previouslySeen),
+    );
     seenRecommendationIdsRef.current = availableIds;
   }, [availableRecommendations]);
 

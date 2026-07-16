@@ -135,7 +135,7 @@ describe("workspace provider OAuth", () => {
     expect(url.searchParams.has("code_challenge")).toBe(false);
   });
 
-  it("requests incremental offline consent limited to Picker-selected Drive files", () => {
+  it("isolates offline consent to Picker-selected Drive files", () => {
     const provider = getWorkspaceConnectionProvider("google_drive")!;
     const url = new URL(
       buildWorkspaceProviderAuthorizationUrl({
@@ -152,7 +152,7 @@ describe("workspace provider OAuth", () => {
       "https://accounts.google.com/o/oauth2/v2/auth",
     );
     expect(url.searchParams.get("access_type")).toBe("offline");
-    expect(url.searchParams.get("include_granted_scopes")).toBe("true");
+    expect(url.searchParams.get("include_granted_scopes")).toBe("false");
     expect(url.searchParams.get("prompt")).toBe("consent");
     expect(url.searchParams.get("scope")?.split(" ")).toEqual([
       "https://www.googleapis.com/auth/drive.file",

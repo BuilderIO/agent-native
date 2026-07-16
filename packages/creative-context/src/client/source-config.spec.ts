@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildCreativeContextSourceConfig,
+  mergeRecommendationSelection,
   parseFigmaRecommendationBoundary,
   selectRenderableLayoutThumbnails,
 } from "./CreativeContextPanel.js";
@@ -141,5 +142,25 @@ describe("creative context source configuration", () => {
         { itemVersionId: "v5", hasThumbnail: true },
       ]).map((thumbnail) => thumbnail.itemVersionId),
     ).toEqual(["v1", "v3", "v4"]);
+  });
+
+  it("keeps explicit deck deselections while selecting newly discovered decks", () => {
+    expect(
+      mergeRecommendationSelection(
+        new Set(["still-selected"]),
+        new Set(["still-selected", "unchecked", "new-deck"]),
+        new Set(["still-selected", "unchecked"]),
+      ),
+    ).toEqual(new Set(["still-selected", "new-deck"]));
+  });
+
+  it("drops recommendations that are no longer available", () => {
+    expect(
+      mergeRecommendationSelection(
+        new Set(["available", "removed"]),
+        new Set(["available"]),
+        new Set(["available", "removed"]),
+      ),
+    ).toEqual(new Set(["available"]));
   });
 });
