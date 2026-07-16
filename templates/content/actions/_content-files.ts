@@ -169,7 +169,12 @@ export async function ensureDocumentFilesMembership(
   const filesDatabases = await db
     .select()
     .from(schema.contentDatabases)
-    .where(eq(schema.contentDatabases.systemRole, "files"));
+    .where(
+      and(
+        eq(schema.contentDatabases.systemRole, "files"),
+        eq(schema.contentDatabases.spaceId, document.spaceId),
+      ),
+    );
   return reconcileDocuments({ db, documents: [document], filesDatabases, now });
 }
 

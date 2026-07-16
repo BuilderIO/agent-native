@@ -11,7 +11,11 @@ import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import { OrgSwitcher } from "@agent-native/core/client/org";
+import {
+  OrgSwitcher,
+  useOrg,
+  useSwitchOrg,
+} from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -115,6 +119,7 @@ import {
 } from "./document-sidebar-sections";
 import { DocumentSidebarIcon, DocumentTreeItem } from "./DocumentTreeItem";
 import { NotionButton } from "./NotionButton";
+import { selectContentSpace } from "./select-content-space";
 
 function nanoid(size = 12): string {
   const chars =
@@ -231,6 +236,8 @@ export function DocumentSidebar({
   const updateDocument = useUpdateDocument();
   const contentSpacesQuery = useContentSpaces();
   const ensureContentSpaces = useEnsureContentSpaces();
+  const { data: activeOrg } = useOrg();
+  const switchOrg = useSwitchOrg();
   const contentSpaces = contentSpacesQuery.data?.spaces ?? [];
   const spaceProvisionAttemptedRef = useRef(false);
   useEffect(() => {
@@ -255,6 +262,21 @@ export function DocumentSidebar({
     contentSpaces.find((space) => space.id === storedSpaceId) ??
     contentSpaces[0] ??
     null;
+  const handleSelectContentSpace = useCallback(
+    async (space: (typeof contentSpaces)[number]) => {
+      try {
+        await selectContentSpace({
+          space,
+          activeOrgId: activeOrg?.orgId,
+          switchOrg: (orgId) => switchOrg.mutateAsync(orgId),
+          persistSelection: setStoredSpaceId,
+        });
+      } catch (error) {
+        toast.error(error instanceof Error ? error.message : String(error));
+      }
+    },
+    [activeOrg?.orgId, setStoredSpaceId, switchOrg, t],
+  );
   useEffect(() => {
     if (!selectedSpace) return;
     void setClientAppState(
@@ -1049,7 +1071,8 @@ export function DocumentSidebar({
               ? "bg-accent text-accent-foreground"
               : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
           )}
-          onClick={() => setStoredSpaceId(space.id)}
+          onClick={() => void handleSelectContentSpace(space)}
+          disabled={switchOrg.isPending}
         >
           <span className="min-w-0 flex-1 truncate text-start">
             {space.name}
