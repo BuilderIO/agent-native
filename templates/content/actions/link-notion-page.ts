@@ -4,7 +4,7 @@ import { z } from "zod";
 import { linkDocumentToNotionPage } from "../server/lib/notion-sync.js";
 import {
   flushNotionDocumentEditor,
-  getNotionDocumentOwner,
+  getNotionDocumentAuthority,
   resolveDocumentId,
 } from "./_notion-action-utils.js";
 
@@ -26,8 +26,13 @@ export default defineAction({
       throw new Error("documentId and pageId are required");
     }
 
-    const owner = await getNotionDocumentOwner(documentId);
-    await flushNotionDocumentEditor(documentId, owner);
-    return linkDocumentToNotionPage(owner, documentId, pageIdOrUrl);
+    const authority = await getNotionDocumentAuthority(documentId);
+    await flushNotionDocumentEditor(documentId, authority.documentOwnerEmail);
+    return linkDocumentToNotionPage(
+      authority.documentOwnerEmail,
+      documentId,
+      pageIdOrUrl,
+      authority.callerEmail,
+    );
   },
 });

@@ -4,7 +4,7 @@ import { z } from "zod";
 import { pushDocumentToNotion } from "../server/lib/notion-sync.js";
 import {
   flushNotionDocumentEditor,
-  getNotionDocumentOwner,
+  getNotionDocumentAuthority,
   resolveDocumentId,
 } from "./_notion-action-utils.js";
 
@@ -23,10 +23,16 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
+    const authority = await getNotionDocumentAuthority(documentId);
     if (args.flushOpenEditor) {
-      await flushNotionDocumentEditor(documentId, owner);
+      await flushNotionDocumentEditor(documentId, authority.documentOwnerEmail);
     }
-    return pushDocumentToNotion(owner, documentId);
+    return pushDocumentToNotion(
+      authority.documentOwnerEmail,
+      documentId,
+      false,
+      undefined,
+      authority.callerEmail,
+    );
   },
 });

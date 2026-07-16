@@ -4,7 +4,7 @@ import { z } from "zod";
 import { createAndLinkNotionPage } from "../server/lib/notion-sync.js";
 import {
   flushNotionDocumentEditor,
-  getNotionDocumentOwner,
+  getNotionDocumentAuthority,
   resolveDocumentId,
 } from "./_notion-action-utils.js";
 
@@ -18,8 +18,13 @@ export default defineAction({
   http: { method: "POST" },
   run: async (args) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
-    await flushNotionDocumentEditor(documentId, owner);
-    return createAndLinkNotionPage(owner, documentId, args.parentPageIdOrUrl);
+    const authority = await getNotionDocumentAuthority(documentId);
+    await flushNotionDocumentEditor(documentId, authority.documentOwnerEmail);
+    return createAndLinkNotionPage(
+      authority.documentOwnerEmail,
+      documentId,
+      args.parentPageIdOrUrl,
+      authority.callerEmail,
+    );
   },
 });

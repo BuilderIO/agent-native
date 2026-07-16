@@ -281,6 +281,11 @@ describe("createAndLinkNotionPage", () => {
       "alice@example.com",
       "doc-1",
       "parent-page",
+      "editor@example.com",
+    );
+
+    expect(notionMocks.getNotionConnectionForOwner).toHaveBeenCalledWith(
+      "editor@example.com",
     );
 
     expect(notionMocks.createNotionPageWithMarkdown).toHaveBeenCalledWith({

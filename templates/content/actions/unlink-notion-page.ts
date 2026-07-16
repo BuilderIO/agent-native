@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { unlinkDocumentFromNotion } from "../server/lib/notion-sync.js";
 import {
-  getNotionDocumentOwner,
+  getNotionDocumentAuthority,
   resolveDocumentId,
 } from "./_notion-action-utils.js";
 
@@ -16,8 +16,8 @@ export default defineAction({
   http: { method: "DELETE" },
   run: async (args) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
-    await unlinkDocumentFromNotion(owner, documentId);
+    const authority = await getNotionDocumentAuthority(documentId);
+    await unlinkDocumentFromNotion(authority.documentOwnerEmail, documentId);
     return { success: true };
   },
 });

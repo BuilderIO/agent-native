@@ -3,7 +3,7 @@ import { z } from "zod";
 
 import { refreshDocumentSyncStatus } from "../server/lib/notion-sync.js";
 import {
-  getNotionDocumentOwner,
+  getNotionDocumentAuthority,
   resolveDocumentId,
 } from "./_notion-action-utils.js";
 
@@ -16,9 +16,12 @@ export default defineAction({
   }),
   run: async (args) => {
     const documentId = resolveDocumentId(args);
-    const owner = await getNotionDocumentOwner(documentId);
-    return refreshDocumentSyncStatus(owner, documentId, {
-      autoSync: !!args.autoSync,
-    });
+    const authority = await getNotionDocumentAuthority(documentId);
+    return refreshDocumentSyncStatus(
+      authority.documentOwnerEmail,
+      documentId,
+      { autoSync: !!args.autoSync },
+      authority.callerEmail,
+    );
   },
 });

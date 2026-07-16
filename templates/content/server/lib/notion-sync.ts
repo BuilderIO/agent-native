@@ -555,6 +555,7 @@ async function deleteImportedPlaceholder(owner: string, documentId: string) {
 
 async function syncChildPagesFromPulledContent(args: {
   owner: string;
+  callerEmail: string;
   parent: DocumentRow;
   content: string;
   force: boolean;
@@ -663,10 +664,16 @@ async function syncChildPagesFromPulledContent(args: {
     }
 
     try {
-      await pullDocumentFromNotion(args.owner, childId, args.force, {
-        depth: args.depth + 1,
-        seenRemotePageIds: args.seenRemotePageIds,
-      });
+      await pullDocumentFromNotion(
+        args.owner,
+        childId,
+        args.force,
+        {
+          depth: args.depth + 1,
+          seenRemotePageIds: args.seenRemotePageIds,
+        },
+        args.callerEmail,
+      );
     } catch (error) {
       if (createdPlaceholder) {
         await deleteImportedPlaceholder(args.owner, childId);
@@ -740,10 +747,11 @@ export async function unlinkDocumentFromNotion(
 export async function getDocumentSyncStatus(
   owner: string,
   documentId: string,
+  callerEmail = owner,
 ): Promise<DocumentSyncStatus> {
   const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
-  const connection = await getNotionConnectionForOwner(owner);
+  const connection = await getNotionConnectionForOwner(callerEmail);
   if (!connection || !link) {
     return buildStatus({
       connected: Boolean(connection),
@@ -806,8 +814,9 @@ export async function linkDocumentToNotionPage(
   owner: string,
   documentId: string,
   pageIdOrUrl: string,
+  callerEmail = owner,
 ): Promise<DocumentSyncStatus> {
-  const connection = await getNotionConnectionForOwner(owner);
+  const connection = await getNotionConnectionForOwner(callerEmail);
   if (!connection) throw new Error("Connect Notion before linking a page.");
   await getDocument(documentId, owner);
   const pageId = normalizeNotionPageId(pageIdOrUrl);
@@ -821,7 +830,7 @@ export async function linkDocumentToNotionPage(
     warnings: [],
     hasConflict: false,
   });
-  return pullDocumentFromNotion(owner, documentId, true);
+  return pullDocumentFromNotion(owner, documentId, true, {}, callerEmail);
 }
 
 /**
@@ -847,12 +856,19 @@ export async function pullDocumentFromNotion(
     remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
     skipClaim?: boolean;
   } = {},
+  callerEmail = owner,
 ): Promise<DocumentSyncStatus> {
   if (childSync.skipClaim) {
-    return pullDocumentFromNotionInner(owner, documentId, force, childSync);
+    return pullDocumentFromNotionInner(
+      owner,
+      documentId,
+      force,
+      childSync,
+      callerEmail,
+    );
   }
   if (!(await claimSyncLinkWithRetry(documentId, owner))) {
-    return getDocumentSyncStatus(owner, documentId);
+    return getDocumentSyncStatus(owner, documentId, callerEmail);
   }
   try {
     return await pullDocumentFromNotionInner(
@@ -860,6 +876,7 @@ export async function pullDocumentFromNotion(
       documentId,
       force,
       childSync,
+      callerEmail,
     );
   } finally {
     await releaseSyncLink(documentId, owner);
@@ -875,10 +892,11 @@ async function pullDocumentFromNotionInner(
     seenRemotePageIds?: Set<string>;
     remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
   },
+  callerEmail: string,
 ): Promise<DocumentSyncStatus> {
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
-  const connection = await getNotionConnectionForOwner(owner);
+  const connection = await getNotionConnectionForOwner(callerEmail);
   if (!connection) throw new Error("Connect Notion before pulling.");
 
   const pageContent = await readNotionPageAsDocument(
@@ -1053,6 +1071,7 @@ async function pullDocumentFromNotionInner(
   if (currentRemotePageId) seenRemotePageIds.add(currentRemotePageId);
   await syncChildPagesFromPulledContent({
     owner,
+    callerEmail,
     parent: {
       ...freshDocument,
       title: newTitle,
@@ -1094,15 +1113,21 @@ export async function pushDocumentToNotion(
   documentId: string,
   force = false,
   internalOptions?: { skipClaim?: boolean },
+  callerEmail = owner,
 ): Promise<DocumentSyncStatus> {
   if (internalOptions?.skipClaim) {
-    return pushDocumentToNotionInner(owner, documentId, force);
+    return pushDocumentToNotionInner(owner, documentId, force, callerEmail);
   }
   if (!(await claimSyncLinkWithRetry(documentId, owner))) {
-    return getDocumentSyncStatus(owner, documentId);
+    return getDocumentSyncStatus(owner, documentId, callerEmail);
   }
   try {
-    return await pushDocumentToNotionInner(owner, documentId, force);
+    return await pushDocumentToNotionInner(
+      owner,
+      documentId,
+      force,
+      callerEmail,
+    );
   } finally {
     await releaseSyncLink(documentId, owner);
   }
@@ -1112,11 +1137,12 @@ async function pushDocumentToNotionInner(
   owner: string,
   documentId: string,
   force: boolean,
+  callerEmail: string,
 ): Promise<DocumentSyncStatus> {
   const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
-  const connection = await getNotionConnectionForOwner(owner);
+  const connection = await getNotionConnectionForOwner(callerEmail);
   if (!connection) throw new Error("Connect Notion before pushing.");
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
@@ -1306,6 +1332,7 @@ export async function refreshDocumentSyncStatus(
   owner: string,
   documentId: string,
   options?: { autoSync?: boolean },
+  callerEmail = owner,
 ): Promise<DocumentSyncStatus> {
   // Throttle Notion API calls per document (prevents excessive requests from
   // multiple tabs or rapid polling). Best-effort in serverless environments.
@@ -1317,7 +1344,7 @@ export async function refreshDocumentSyncStatus(
   if (now - lastCall < throttleMs) {
     const document = await getDocument(documentId, owner);
     const link = await getSyncLink(documentId, owner);
-    const connection = await getNotionConnectionForOwner(owner);
+    const connection = await getNotionConnectionForOwner(callerEmail);
     return buildStatus({
       connected: Boolean(connection),
       documentId,
@@ -1328,7 +1355,7 @@ export async function refreshDocumentSyncStatus(
   }
   lastRefreshAt.set(documentId, now);
 
-  const status = await getDocumentSyncStatus(owner, documentId);
+  const status = await getDocumentSyncStatus(owner, documentId, callerEmail);
   if (status.connected && status.pageId && !status.hasConflict) {
     // Only auto-pull/auto-push when the user has explicitly enabled auto-sync.
     // A plain status poll (autoSync off) must never mutate the document — it
@@ -1349,9 +1376,15 @@ export async function refreshDocumentSyncStatus(
           // pullDocumentFromNotion claim again would be a harmless no-op at
           // best, but skipping keeps claim/release paired 1:1 with the code
           // that actually acquired it.
-          return await pullDocumentFromNotion(owner, documentId, false, {
-            skipClaim: true,
-          });
+          return await pullDocumentFromNotion(
+            owner,
+            documentId,
+            false,
+            {
+              skipClaim: true,
+            },
+            callerEmail,
+          );
         } finally {
           await releaseSyncLink(documentId, owner);
         }
@@ -1361,9 +1394,15 @@ export async function refreshDocumentSyncStatus(
     if (options?.autoSync && status.localChanged && !status.remoteChanged) {
       if (await tryClaimSyncLink(documentId, owner)) {
         try {
-          return await pushDocumentToNotion(owner, documentId, false, {
-            skipClaim: true,
-          });
+          return await pushDocumentToNotion(
+            owner,
+            documentId,
+            false,
+            {
+              skipClaim: true,
+            },
+            callerEmail,
+          );
         } finally {
           await releaseSyncLink(documentId, owner);
         }
@@ -1404,7 +1443,7 @@ export async function refreshDocumentSyncStatus(
           // persisting a conflict; our own completed push (or any metadata-only
           // timestamp bump) can otherwise look like a remote content edit.
           if (link.lastSyncedContentHash) {
-            const connection = await getNotionConnectionForOwner(owner);
+            const connection = await getNotionConnectionForOwner(callerEmail);
             if (!connection) return claimedStatus;
 
             let remotePageContent: Awaited<
@@ -1460,14 +1499,26 @@ export async function refreshDocumentSyncStatus(
 
             if (!localHashChanged || !remoteHashChanged) {
               if (options?.autoSync && localHashChanged) {
-                return pushDocumentToNotion(owner, documentId, false, {
-                  skipClaim: true,
-                });
+                return pushDocumentToNotion(
+                  owner,
+                  documentId,
+                  false,
+                  {
+                    skipClaim: true,
+                  },
+                  callerEmail,
+                );
               }
               if (options?.autoSync && remoteHashChanged) {
-                return pullDocumentFromNotion(owner, documentId, false, {
-                  skipClaim: true,
-                });
+                return pullDocumentFromNotion(
+                  owner,
+                  documentId,
+                  false,
+                  {
+                    skipClaim: true,
+                  },
+                  callerEmail,
+                );
               }
               return {
                 ...claimedStatus,
@@ -1513,6 +1564,7 @@ export async function resolveDocumentSyncConflict(
   owner: string,
   documentId: string,
   direction: "pull" | "push",
+  callerEmail = owner,
 ) {
   // Defense in depth: callers (routes, actions) should already validate this,
   // but treating anything other than the literal "pull" as "push" would make
@@ -1521,17 +1573,18 @@ export async function resolveDocumentSyncConflict(
     throw new Error('direction must be "pull" or "push"');
   }
   if (direction === "pull") {
-    return pullDocumentFromNotion(owner, documentId, true);
+    return pullDocumentFromNotion(owner, documentId, true, {}, callerEmail);
   }
-  return pushDocumentToNotion(owner, documentId, true);
+  return pushDocumentToNotion(owner, documentId, true, undefined, callerEmail);
 }
 
 export async function createAndLinkNotionPage(
   owner: string,
   documentId: string,
   parentPageIdOrUrl?: string,
+  callerEmail = owner,
 ): Promise<DocumentSyncStatus> {
-  const connection = await getNotionConnectionForOwner(owner);
+  const connection = await getNotionConnectionForOwner(callerEmail);
   if (!connection) throw new Error("Connect Notion before creating a page.");
   const document = await getDocument(documentId, owner);
 
@@ -1545,7 +1598,13 @@ export async function createAndLinkNotionPage(
   const existingLink = await getSyncLink(documentId, owner);
   if (existingLink) {
     try {
-      return await pullDocumentFromNotion(owner, documentId, true);
+      return await pullDocumentFromNotion(
+        owner,
+        documentId,
+        true,
+        {},
+        callerEmail,
+      );
     } catch {
       return buildStatus({
         connected: true,
@@ -1617,7 +1676,13 @@ export async function createAndLinkNotionPage(
   // Return a status built from the link we just upserted; the next regular
   // sync cycle will complete the pull.
   try {
-    return await pullDocumentFromNotion(owner, documentId, true);
+    return await pullDocumentFromNotion(
+      owner,
+      documentId,
+      true,
+      {},
+      callerEmail,
+    );
   } catch (error) {
     const link = await getSyncLink(documentId, owner);
     return buildStatus({

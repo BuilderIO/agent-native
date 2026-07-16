@@ -3,7 +3,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { getNotionDocumentOwner } from "./_notion-action-utils.js";
+import { getNotionDocumentAuthority } from "./_notion-action-utils.js";
 
 export default defineAction({
   description:
@@ -23,15 +23,16 @@ export default defineAction({
       addNotionComment,
     } = await import("../server/lib/notion.js");
     const { getSyncLink } = await import("../server/lib/notion-sync.js");
-    const owner = await getNotionDocumentOwner(documentId);
+    const authority = await getNotionDocumentAuthority(documentId);
+    const ownerEmail = authority.documentOwnerEmail;
 
     // Check if document is linked to Notion
-    const syncLink = await getSyncLink(documentId, owner);
+    const syncLink = await getSyncLink(documentId, ownerEmail);
     if (!syncLink) {
       return "Document is not linked to Notion. Link it first.";
     }
 
-    const connection = await getNotionConnectionForOwner(owner);
+    const connection = await getNotionConnectionForOwner(authority.callerEmail);
     if (!connection) {
       return "No Notion connection. Connect to Notion first.";
     }
@@ -39,7 +40,6 @@ export default defineAction({
     const notionPageId = syncLink.remotePageId;
     const accessToken = connection.accessToken;
     const db = getDb();
-    const ownerEmail = owner;
 
     // Pull: Notion -> Local
     //

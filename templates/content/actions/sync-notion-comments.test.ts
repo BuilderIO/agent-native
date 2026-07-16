@@ -20,7 +20,7 @@ const state = vi.hoisted(() => ({
 }));
 
 const notionActionUtilsMocks = vi.hoisted(() => ({
-  getNotionDocumentOwner: vi.fn(),
+  getNotionDocumentAuthority: vi.fn(),
 }));
 
 const notionLibMocks = vi.hoisted(() => ({
@@ -127,15 +127,16 @@ async function run(documentId: string) {
 
 beforeEach(() => {
   state.rows.length = 0;
-  notionActionUtilsMocks.getNotionDocumentOwner.mockReset();
+  notionActionUtilsMocks.getNotionDocumentAuthority.mockReset();
   notionLibMocks.getNotionConnectionForOwner.mockReset();
   notionLibMocks.listNotionComments.mockReset();
   notionLibMocks.addNotionComment.mockReset();
   notionSyncMocks.getSyncLink.mockReset();
 
-  notionActionUtilsMocks.getNotionDocumentOwner.mockResolvedValue(
-    "owner-a@example.com",
-  );
+  notionActionUtilsMocks.getNotionDocumentAuthority.mockResolvedValue({
+    callerEmail: "editor-b@example.com",
+    documentOwnerEmail: "owner-a@example.com",
+  });
   notionSyncMocks.getSyncLink.mockResolvedValue({
     remotePageId: "notion-page-1",
   });
@@ -145,18 +146,20 @@ beforeEach(() => {
 });
 
 describe("sync-notion-comments", () => {
-  it("resolves the sync link via the document owner, not the requester (n3)", async () => {
+  it("uses the caller's OAuth connection while retaining owner-scoped comment rows", async () => {
     notionLibMocks.listNotionComments.mockResolvedValue([]);
 
     await run("doc-1");
 
-    expect(notionActionUtilsMocks.getNotionDocumentOwner).toHaveBeenCalledWith(
-      "doc-1",
-    );
-    // getSyncLink must be scoped by the resolved document owner.
+    expect(
+      notionActionUtilsMocks.getNotionDocumentAuthority,
+    ).toHaveBeenCalledWith("doc-1");
     expect(notionSyncMocks.getSyncLink).toHaveBeenCalledWith(
       "doc-1",
       "owner-a@example.com",
+    );
+    expect(notionLibMocks.getNotionConnectionForOwner).toHaveBeenCalledWith(
+      "editor-b@example.com",
     );
   });
 

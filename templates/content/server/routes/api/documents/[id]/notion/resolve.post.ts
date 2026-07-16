@@ -2,7 +2,7 @@ import { readBody } from "@agent-native/core/server";
 import { createError, defineEventHandler } from "h3";
 
 import { resolveDocumentSyncConflict } from "../../../../../lib/notion-sync.js";
-import { getDocumentOwnerEmail } from "../../../../../lib/notion.js";
+import { getDocumentNotionAuthority } from "../../../../../lib/notion.js";
 
 export default defineEventHandler(async (event) => {
   const id = event.context.params!.id;
@@ -19,6 +19,11 @@ export default defineEventHandler(async (event) => {
       statusMessage: "direction must be 'pull' or 'push'",
     });
   }
-  const owner = await getDocumentOwnerEmail(event, id);
-  return resolveDocumentSyncConflict(owner, id, direction);
+  const authority = await getDocumentNotionAuthority(event, id);
+  return resolveDocumentSyncConflict(
+    authority.documentOwnerEmail,
+    id,
+    direction,
+    authority.callerEmail,
+  );
 });

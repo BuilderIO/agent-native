@@ -6,23 +6,26 @@ import { assertAccess } from "@agent-native/core/sharing";
 
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
-export function getCurrentNotionOwner() {
-  const owner = getRequestUserEmail();
-  if (!owner) throw new Error("no authenticated user");
-  return owner;
+export function getCurrentNotionCaller() {
+  const callerEmail = getRequestUserEmail();
+  if (!callerEmail) throw new Error("no authenticated user");
+  return callerEmail;
 }
 
-export async function getNotionDocumentOwner(documentId: string) {
-  const userEmail = getCurrentNotionOwner();
+export async function getNotionDocumentAuthority(documentId: string) {
+  const callerEmail = getCurrentNotionCaller();
   const access = await assertAccess("document", documentId, "editor", {
-    userEmail,
+    userEmail: callerEmail,
     orgId: getRequestOrgId(),
   });
-  const owner = access?.resource?.ownerEmail;
-  if (typeof owner !== "string" || owner.length === 0) {
+  const documentOwnerEmail = access?.resource?.ownerEmail;
+  if (
+    typeof documentOwnerEmail !== "string" ||
+    documentOwnerEmail.length === 0
+  ) {
     throw new Error("Document not found");
   }
-  return owner;
+  return { callerEmail, documentOwnerEmail };
 }
 
 /**

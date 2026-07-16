@@ -22,8 +22,8 @@ vi.mock("./_document-flush.js", () => ({
 
 import {
   flushNotionDocumentEditor,
-  getCurrentNotionOwner,
-  getNotionDocumentOwner,
+  getCurrentNotionCaller,
+  getNotionDocumentAuthority,
   resolveDocumentId,
 } from "./_notion-action-utils";
 
@@ -34,24 +34,20 @@ beforeEach(() => {
   mocks.flushOpenDocumentEditorToSql.mockReset();
 });
 
-describe("getCurrentNotionOwner", () => {
+describe("getCurrentNotionCaller", () => {
   it("returns the requesting user's email", () => {
     mocks.getRequestUserEmail.mockReturnValue("requester@example.com");
-    expect(getCurrentNotionOwner()).toBe("requester@example.com");
+    expect(getCurrentNotionCaller()).toBe("requester@example.com");
   });
 
   it("throws when there is no authenticated user", () => {
     mocks.getRequestUserEmail.mockReturnValue(undefined);
-    expect(() => getCurrentNotionOwner()).toThrow("no authenticated user");
+    expect(() => getCurrentNotionCaller()).toThrow("no authenticated user");
   });
 });
 
-describe("getNotionDocumentOwner", () => {
-  it("resolves to the document owner, not the requesting editor", async () => {
-    // Regression test for n3: a shared editor calling a Notion action must
-    // scope by the document's actual owner (whose Notion OAuth connection and
-    // sync-link rows are keyed by owner email), matching the route-layer
-    // getDocumentOwnerEmail behavior — not by the requester's own email.
+describe("getNotionDocumentAuthority", () => {
+  it("keeps the shared editor's OAuth caller distinct from document ownership", async () => {
     mocks.getRequestUserEmail.mockReturnValue("editor-b@example.com");
     mocks.getRequestOrgId.mockReturnValue("org-1");
     mocks.assertAccess.mockResolvedValue({
@@ -59,10 +55,12 @@ describe("getNotionDocumentOwner", () => {
       resource: { id: "doc-1", ownerEmail: "owner-a@example.com" },
     });
 
-    const owner = await getNotionDocumentOwner("doc-1");
+    const authority = await getNotionDocumentAuthority("doc-1");
 
-    expect(owner).toBe("owner-a@example.com");
-    expect(owner).not.toBe("editor-b@example.com");
+    expect(authority).toEqual({
+      callerEmail: "editor-b@example.com",
+      documentOwnerEmail: "owner-a@example.com",
+    });
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "document",
       "doc-1",
@@ -71,7 +69,7 @@ describe("getNotionDocumentOwner", () => {
     );
   });
 
-  it("returns the requester's own email when they are the owner", async () => {
+  it("uses the owner as caller only when the owner initiated the operation", async () => {
     mocks.getRequestUserEmail.mockReturnValue("owner-a@example.com");
     mocks.getRequestOrgId.mockReturnValue(null);
     mocks.assertAccess.mockResolvedValue({
@@ -79,9 +77,39 @@ describe("getNotionDocumentOwner", () => {
       resource: { id: "doc-1", ownerEmail: "owner-a@example.com" },
     });
 
-    await expect(getNotionDocumentOwner("doc-1")).resolves.toBe(
-      "owner-a@example.com",
+    await expect(getNotionDocumentAuthority("doc-1")).resolves.toEqual({
+      callerEmail: "owner-a@example.com",
+      documentOwnerEmail: "owner-a@example.com",
+    });
+  });
+
+  it("keeps an organization editor's caller identity distinct from the owner", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("org-editor@example.com");
+    mocks.getRequestOrgId.mockReturnValue("org-1");
+    mocks.assertAccess.mockResolvedValue({
+      role: "editor",
+      resource: { id: "doc-1", ownerEmail: "owner-a@example.com" },
+    });
+
+    await expect(getNotionDocumentAuthority("doc-1")).resolves.toEqual({
+      callerEmail: "org-editor@example.com",
+      documentOwnerEmail: "owner-a@example.com",
+    });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "document",
+      "doc-1",
+      "editor",
+      { userEmail: "org-editor@example.com", orgId: "org-1" },
     );
+  });
+
+  it("rejects an unauthenticated document operation before access lookup", async () => {
+    mocks.getRequestUserEmail.mockReturnValue(undefined);
+
+    await expect(getNotionDocumentAuthority("doc-1")).rejects.toThrow(
+      "no authenticated user",
+    );
+    expect(mocks.assertAccess).not.toHaveBeenCalled();
   });
 
   it("throws Document not found when the resolved resource has no owner email", async () => {
@@ -92,7 +120,7 @@ describe("getNotionDocumentOwner", () => {
       resource: { id: "doc-1" },
     });
 
-    await expect(getNotionDocumentOwner("doc-1")).rejects.toThrow(
+    await expect(getNotionDocumentAuthority("doc-1")).rejects.toThrow(
       "Document not found",
     );
   });
@@ -104,8 +132,18 @@ describe("getNotionDocumentOwner", () => {
       new Error("No access to document doc-1"),
     );
 
-    await expect(getNotionDocumentOwner("doc-1")).rejects.toThrow(
+    await expect(getNotionDocumentAuthority("doc-1")).rejects.toThrow(
       "No access to document doc-1",
+    );
+  });
+
+  it("rejects viewers because Notion workflows require editor access", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("viewer@example.com");
+    mocks.getRequestOrgId.mockReturnValue(null);
+    mocks.assertAccess.mockRejectedValue(new Error("Requires editor access"));
+
+    await expect(getNotionDocumentAuthority("doc-1")).rejects.toThrow(
+      "Requires editor access",
     );
   });
 });

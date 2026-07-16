@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   createAndLinkNotionPage: vi.fn(),
   flushNotionDocumentEditor: vi.fn(),
-  getNotionDocumentOwner: vi.fn(),
+  getNotionDocumentAuthority: vi.fn(),
   linkDocumentToNotionPage: vi.fn(),
   pullDocumentFromNotion: vi.fn(),
   pushDocumentToNotion: vi.fn(),
@@ -20,7 +20,7 @@ vi.mock("../server/lib/notion-sync.js", () => ({
 
 vi.mock("./_notion-action-utils.js", () => ({
   flushNotionDocumentEditor: mocks.flushNotionDocumentEditor,
-  getNotionDocumentOwner: mocks.getNotionDocumentOwner,
+  getNotionDocumentAuthority: mocks.getNotionDocumentAuthority,
   resolveDocumentId: (args: { documentId?: string; id?: string }) =>
     args.documentId ?? args.id ?? "",
 }));
@@ -33,7 +33,10 @@ import resolveAction from "./resolve-notion-sync-conflict";
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.getNotionDocumentOwner.mockResolvedValue("owner@example.com");
+  mocks.getNotionDocumentAuthority.mockResolvedValue({
+    callerEmail: "editor@example.com",
+    documentOwnerEmail: "owner@example.com",
+  });
   mocks.flushNotionDocumentEditor.mockResolvedValue(undefined);
 });
 
@@ -72,7 +75,10 @@ describe("user-triggered Notion action flushes", () => {
     expect(mocks.flushNotionDocumentEditor).toHaveBeenCalledTimes(1);
 
     vi.clearAllMocks();
-    mocks.getNotionDocumentOwner.mockResolvedValue("owner@example.com");
+    mocks.getNotionDocumentAuthority.mockResolvedValue({
+      callerEmail: "editor@example.com",
+      documentOwnerEmail: "owner@example.com",
+    });
     await pushAction.run({
       documentId: "doc-1",
       flushOpenEditor: false,
@@ -82,6 +88,9 @@ describe("user-triggered Notion action flushes", () => {
     expect(mocks.pushDocumentToNotion).toHaveBeenCalledWith(
       "owner@example.com",
       "doc-1",
+      false,
+      undefined,
+      "editor@example.com",
     );
   });
 

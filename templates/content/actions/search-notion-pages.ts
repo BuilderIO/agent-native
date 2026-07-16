@@ -9,7 +9,7 @@ import type {
   NotionSearchResponse,
   NotionSearchResult,
 } from "../shared/api.js";
-import { getCurrentNotionOwner } from "./_notion-action-utils.js";
+import { getCurrentNotionCaller } from "./_notion-action-utils.js";
 
 export default defineAction({
   description: "Search connected Notion pages visible to the current user.",
@@ -18,8 +18,8 @@ export default defineAction({
   }),
   http: { method: "GET" },
   run: async ({ query }): Promise<NotionSearchResponse> => {
-    const owner = getCurrentNotionOwner();
-    const conn = await getNotionConnectionForOwner(owner);
+    const callerEmail = getCurrentNotionCaller();
+    const conn = await getNotionConnectionForOwner(callerEmail);
     if (!conn) {
       throw new Error("Notion not connected");
     }

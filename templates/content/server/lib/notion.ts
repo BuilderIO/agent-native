@@ -543,6 +543,41 @@ export async function getDocumentOwnerEmail(
   );
 }
 
+/**
+ * Separates the document's storage owner from the authenticated caller whose
+ * per-user Notion OAuth grant may be used. Shared editors must never inherit
+ * the owner's provider connection merely because they can edit the document.
+ */
+export async function getDocumentNotionAuthority(
+  event: H3Event,
+  documentId: string,
+): Promise<{ callerEmail: string; documentOwnerEmail: string }> {
+  const session = await getSession(event).catch(() => null);
+  if (!session?.email) {
+    throw createError({ statusCode: 401, statusMessage: "Unauthenticated" });
+  }
+
+  return runWithRequestContext(
+    { userEmail: session.email, orgId: session.orgId },
+    async () => {
+      const access = await assertAccess("document", documentId, "editor").catch(
+        () => null,
+      );
+      const documentOwnerEmail = access?.resource?.ownerEmail;
+      if (
+        typeof documentOwnerEmail !== "string" ||
+        documentOwnerEmail.length === 0
+      ) {
+        throw createError({
+          statusCode: 404,
+          statusMessage: "Document not found",
+        });
+      }
+      return { callerEmail: session.email, documentOwnerEmail };
+    },
+  );
+}
+
 export async function getNotionConnectionForOwner(owner: string) {
   const accounts = await listOAuthAccountsByOwner(NOTION_PROVIDER, owner);
   if (accounts.length === 0) return null;
