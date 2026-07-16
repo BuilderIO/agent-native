@@ -2010,16 +2010,21 @@ export async function markAllUnreadReadForAccount(input: {
       remainingProtectedThreads: null,
       unexpectedUnreadMessages: null,
       unexpectedUnreadThreads: null,
+      newUnreadMessages: null,
+      newUnreadThreads: null,
       verificationComplete: false,
       verificationError: err?.message ?? "Unread verification failed",
     };
   }
+  const matchedIds = new Set(matched.map((message) => message.id));
+  const selectedIds = new Set(selected.map((message) => message.id));
   const remainingProtected = remaining.filter((message) =>
     excludedThreadIds.has(message.threadId),
   );
-  const unexpectedRemaining = remaining.filter(
-    (message) => !excludedThreadIds.has(message.threadId),
+  const unexpectedRemaining = remaining.filter((message) =>
+    selectedIds.has(message.id),
   );
+  const newUnread = remaining.filter((message) => !matchedIds.has(message.id));
 
   return {
     mode: "all-unread",
@@ -2043,6 +2048,9 @@ export async function markAllUnreadReadForAccount(input: {
     unexpectedUnreadThreads: new Set(
       unexpectedRemaining.map((message) => message.threadId),
     ).size,
+    newUnreadMessages: newUnread.length,
+    newUnreadThreads: new Set(newUnread.map((message) => message.threadId))
+      .size,
     verificationComplete:
       mutation.failed.length === 0 && unexpectedRemaining.length === 0,
   };

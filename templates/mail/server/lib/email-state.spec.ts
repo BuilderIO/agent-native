@@ -6,6 +6,13 @@
  */
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const localStoreMocks = vi.hoisted(() => ({
+  locks: new Map<string, Promise<unknown>>(),
+  readLocalEmails: vi.fn(),
+  writeLocalEmails: vi.fn(),
+  withLocalEmailMutationLock: vi.fn(),
+}));
+
 import {
   archiveEmail,
   unarchiveEmail,
@@ -22,6 +29,7 @@ import {
 // ---------------------------------------------------------------------------
 
 vi.mock("@agent-native/core/settings", () => ({
+  getSettingsEmitter: () => ({ emit: vi.fn() }),
   getUserSetting: vi.fn(),
   putUserSetting: vi.fn(),
 }));
@@ -43,6 +51,12 @@ vi.mock("./google-api.js", () => ({
 
 vi.mock("./google-auth.js", () => ({
   isConnected: vi.fn(),
+}));
+
+vi.mock("./local-email-store.js", () => ({
+  readLocalEmails: localStoreMocks.readLocalEmails,
+  writeLocalEmails: localStoreMocks.writeLocalEmails,
+  withLocalEmailMutationLock: localStoreMocks.withLocalEmailMutationLock,
 }));
 
 vi.mock("./thread-cache.js", () => ({
@@ -143,6 +157,37 @@ function mockLocalEmails(emails = makeLocalEmails()) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStoreMocks.locks.clear();
+  localStoreMocks.readLocalEmails.mockImplementation(async (ownerEmail) => {
+    const data = await getUserSetting(ownerEmail, "local-emails");
+    return data && Array.isArray((data as any).emails)
+      ? (data as any).emails
+      : [];
+  });
+  localStoreMocks.writeLocalEmails.mockImplementation(
+    async (ownerEmail, emails) => {
+      await putUserSetting(ownerEmail, "local-emails", { emails });
+    },
+  );
+  localStoreMocks.withLocalEmailMutationLock.mockImplementation(
+    (ownerEmail, mutate) => {
+      const key = ownerEmail.toLowerCase();
+      const previous = localStoreMocks.locks.get(key) ?? Promise.resolve();
+      const next = previous.then(mutate, mutate);
+      localStoreMocks.locks.set(key, next);
+      next.then(
+        () => {
+          if (localStoreMocks.locks.get(key) === next)
+            localStoreMocks.locks.delete(key);
+        },
+        () => {
+          if (localStoreMocks.locks.get(key) === next)
+            localStoreMocks.locks.delete(key);
+        },
+      );
+      return next;
+    },
+  );
 });
 
 // ---------------------------------------------------------------------------

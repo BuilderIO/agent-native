@@ -721,6 +721,60 @@ describe("markAllUnreadReadForAccount", () => {
     });
   });
 
+  it("does not fail verification when unrelated unread mail arrives after the mutation snapshot", async () => {
+    const target = { id: "message-target", threadId: "thread-target" };
+    const protectedMessage = {
+      id: "message-protected",
+      threadId: "thread-protected",
+    };
+    const newlyArrived = { id: "message-new", threadId: "thread-new" };
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({
+        messages: [target, protectedMessage],
+      } as any)
+      .mockResolvedValueOnce({
+        messages: [protectedMessage, newlyArrived],
+      } as any);
+
+    const result = await markAllUnreadReadForAccount({
+      ownerEmail: "owner@example.com",
+      accountEmail: "connected@example.com",
+      excludeThreadIds: ["thread-protected"],
+    });
+
+    expect(result).toMatchObject({
+      changedMessages: 1,
+      remainingUnreadMessages: 2,
+      remainingProtectedMessages: 1,
+      unexpectedUnreadMessages: 0,
+      newUnreadMessages: 1,
+      newUnreadThreads: 1,
+      verificationComplete: true,
+    });
+  });
+
+  it("still fails verification when an initially selected message remains unread", async () => {
+    const target = { id: "message-target", threadId: "thread-target" };
+    const newlyArrived = { id: "message-new", threadId: "thread-new" };
+    vi.mocked(gmailListMessagesApi)
+      .mockResolvedValueOnce({ messages: [target] } as any)
+      .mockResolvedValueOnce({ messages: [target, newlyArrived] } as any);
+
+    const result = await markAllUnreadReadForAccount({
+      ownerEmail: "owner@example.com",
+      accountEmail: "connected@example.com",
+      excludeThreadIds: [],
+    });
+
+    expect(result).toMatchObject({
+      remainingUnreadMessages: 2,
+      unexpectedUnreadMessages: 1,
+      unexpectedUnreadThreads: 1,
+      newUnreadMessages: 1,
+      verificationComplete: false,
+    });
+  });
+
   it("reports exact chunk failures and incomplete verification above Gmail's 1000-id limit", async () => {
     const messages = Array.from({ length: 1001 }, (_, index) => ({
       id: `message-${index}`,

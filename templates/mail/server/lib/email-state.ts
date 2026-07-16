@@ -655,12 +655,14 @@ export async function markAllLocalUnreadRead(input: {
 
     const persisted = await readLocalEmails(ownerEmail);
     const remaining = persisted.filter((email) => !email.isRead);
+    const matchedIds = new Set(matched.map((email) => email.id));
     const remainingProtected = remaining.filter((email) =>
       excludedThreadIds.has(email.threadId || email.id),
     );
-    const unexpectedRemaining = remaining.filter(
-      (email) => !excludedThreadIds.has(email.threadId || email.id),
+    const unexpectedRemaining = remaining.filter((email) =>
+      selectedIds.has(email.id),
     );
+    const newUnread = remaining.filter((email) => !matchedIds.has(email.id));
 
     return {
       mode: "all-unread",
@@ -687,6 +689,10 @@ export async function markAllLocalUnreadRead(input: {
       unexpectedUnreadMessages: unexpectedRemaining.length,
       unexpectedUnreadThreads: new Set(
         unexpectedRemaining.map((email) => email.threadId || email.id),
+      ).size,
+      newUnreadMessages: newUnread.length,
+      newUnreadThreads: new Set(
+        newUnread.map((email) => email.threadId || email.id),
       ).size,
       verificationComplete: unexpectedRemaining.length === 0,
     };
