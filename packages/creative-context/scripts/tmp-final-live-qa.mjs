@@ -203,7 +203,9 @@ async function verifyLibrary(page, app) {
 
 async function verifyComposer(page, app) {
   await page.goto("/", { waitUntil: "domcontentloaded" });
-  await page.evaluate(() => window.dispatchEvent(new Event("agent-panel:open")));
+  await page.evaluate(() =>
+    window.dispatchEvent(new Event("agent-panel:open")),
+  );
   const panel = page.locator(".agent-sidebar-panel");
   await panel.waitFor({ timeout: 15_000 });
   const chip = panel
@@ -342,6 +344,10 @@ try {
           ),
         `${app.name} cloned artifact did not open: ${page.url()} ${(await page.locator("body").innerText()).slice(0, 500)}`,
       );
+      await page.screenshot({
+        path: `${outputDir}/${app.name}-clone-open.png`,
+        fullPage: true,
+      });
 
       const v2 = runNative("seed-v2", app.name, email);
       invariant(
