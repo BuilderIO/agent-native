@@ -152,7 +152,7 @@ function EmptySlot({ label }: { label: string }) {
 
 function FilesTab({ scope }: AgentPageTabProps) {
   return (
-    <div className="h-full min-h-[360px]">
+    <div className="h-[calc(100vh-14rem)] min-h-[480px]">
       <ResourcesPanel
         key={scope}
         showMcpServers={false}

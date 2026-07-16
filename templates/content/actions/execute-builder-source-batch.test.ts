@@ -154,6 +154,7 @@ describe("execute Builder source batch", () => {
       total: 3,
       succeeded: 3,
       blocked: 0,
+      reconciliationRequired: 0,
       failed: 0,
     });
     expect(result.results.map((item) => item.status)).toEqual([
@@ -161,6 +162,17 @@ describe("execute Builder source batch", () => {
       "succeeded",
       "succeeded",
     ]);
+    expect(result.timings?.map((timing) => timing.name)).toEqual([
+      "snapshot_read_and_diff_load",
+      "batch_dispatch",
+      "approval_gate_preparation_and_dry_run_validation",
+      "write_dispatch",
+      "reconciliation_and_persistence",
+      "total",
+    ]);
+    expect(result.timings?.every((timing) => timing.durationMs >= 0)).toBe(
+      true,
+    );
     expect(runOne).toHaveBeenCalledTimes(3);
   });
 
@@ -190,6 +202,7 @@ describe("execute Builder source batch", () => {
       total: 3,
       succeeded: 1,
       blocked: 1,
+      reconciliationRequired: 0,
       failed: 1,
     });
     expect(result.results).toEqual([
@@ -262,6 +275,7 @@ describe("execute Builder source batch", () => {
       total: 2,
       succeeded: 2,
       blocked: 0,
+      reconciliationRequired: 0,
       failed: 0,
     });
     expect(result.results[0]).toEqual({

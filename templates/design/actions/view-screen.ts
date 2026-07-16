@@ -244,7 +244,9 @@ export default defineAction({
           width: preset.width,
           height: preset.height,
           lockedLayerCount: 2,
-          source: "starter",
+          designSystemId: null,
+          isBuiltIn: true,
+          source: "built-in",
         };
       } else {
         const templateAccess = await resolveAccess(
@@ -253,6 +255,15 @@ export default defineAction({
         ).catch(() => null);
         if (templateAccess) {
           const template = templateAccess.resource;
+          const linkedDesignSystemId =
+            typeof template.designSystemId === "string"
+              ? template.designSystemId
+              : null;
+          const designSystemAccess = linkedDesignSystemId
+            ? await resolveAccess("design-system", linkedDesignSystemId).catch(
+                () => null,
+              )
+            : null;
           screen.template = {
             id: templateId,
             title: template.title ?? null,
@@ -261,8 +272,10 @@ export default defineAction({
             width: template.width ?? null,
             height: template.height ?? null,
             lockedLayerCount: template.lockedLayerCount ?? 0,
+            designSystemId: designSystemAccess ? linkedDesignSystemId : null,
             visibility: template.visibility ?? "private",
-            source: "saved",
+            isBuiltIn: false,
+            source: "user",
           };
         }
       }

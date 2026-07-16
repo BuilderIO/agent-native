@@ -14,6 +14,13 @@ const databaseMessages = {
   addDetailsToExistingItems: "Add details to the existing items",
   addedFieldsFromSource: "Added {{count}} fields from this source.",
   addedOneFieldFromSource: "Added 1 field from this source.",
+  addRequiredFields: "Add required fields",
+  publishingFieldsAdded: "Publishing fields added",
+  requiredBuilderFieldsReady:
+    "{{count}} required Builder fields are ready to edit in Content.",
+  requiredPublishingFields: "Required publishing fields",
+  requiredPublishingFieldsDescription:
+    "Add the metadata Builder requires before this collection can publish: {{fields}}.",
   addingDetails: "Adding details",
   addingDetailsMatchedOn: "Adding details matched on {{field}}.",
   addingItems: "Adding items",
@@ -43,6 +50,11 @@ const databaseMessages = {
   builderBodySyncing: "Content is still syncing from Builder",
   builderBodySyncingDescription:
     "Editing is paused until the Builder body finishes syncing, so the existing article content is not overwritten.",
+  builderDraftConflictTitle: "Builder content arrived while you were editing",
+  builderDraftConflictDescription:
+    "Your local draft is preserved. Keep it to replace the newly synced body locally, or reload the Builder body.",
+  keepLocalDraft: "Keep local draft",
+  reloadBuilderBody: "Reload Builder body",
   builderBodiesHydrated: "{{hydrated}} of {{total}} bodies hydrated",
   builderReviewShowingRows:
     "Showing {{shown}} of {{total}} Builder rows for this review.",
@@ -298,6 +310,9 @@ const databaseMessages = {
   retry: "Retry",
   reviewBeforeTheyReachBuilder: "Review before they reach Builder.",
   reviewDiff: "Review diff",
+  reviewDiffDescription:
+    "Loads the complete content diff before anything reaches Builder.",
+  loadingCompleteBuilderDiff: "Loading the complete Builder diff…",
   sampleMatches: "Sample matches",
   showAll: "Show all",
   sortAscending: "Sort ascending",
@@ -358,6 +373,16 @@ const databaseMessages = {
   checksOnly: "checks only",
   close: "Close",
   closeBuilderUpdateReview: "Close Builder update review",
+  cancelPreparedUpdate: "Cancel prepared update",
+  cancelPreparedUpdateQuestion: "Cancel this prepared update?",
+  cancelPreparedUpdateDescription:
+    "This stops the local execution before dispatch and keeps the audit history. Nothing is sent to Builder.",
+  keepPreparedUpdate: "Keep prepared update",
+  cancellingPreparedUpdate: "Cancelling…",
+  preparedUpdateCancelled: "Prepared Builder update cancelled",
+  preparedUpdateAlreadyCancelled:
+    "Prepared Builder update was already cancelled",
+  cancelPreparedUpdateFailed: "Prepared Builder update was not cancelled",
   disabled: "disabled",
   draft: "Draft",
   enabled: "enabled",
@@ -427,6 +452,9 @@ const databaseMessages = {
   noPendingLocalBuilderChanges: "No pending local Builder changes yet.",
   needsAttention: "Needs attention",
   failedYouCanRetry: "Failed — you can retry",
+  reconciliationRequired: "Reconciliation required — don't retry",
+  builderPushAlreadyRunning:
+    "Builder push is already running. No second write was sent.",
   needsAFreshReview: "Needs a fresh review",
   working: "Working…",
   ready: "Ready",
@@ -466,6 +494,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "为现有项目添加详情",
     addedFieldsFromSource: "已从此来源添加 {{count}} 个字段。",
     addedOneFieldFromSource: "已从此来源添加 1 个字段。",
+    addRequiredFields: "添加必填字段",
+    publishingFieldsAdded: "发布字段已添加",
+    requiredBuilderFieldsReady:
+      "{{count}} 个 Builder 必填字段已可在 Content 中编辑。",
+    requiredPublishingFields: "必填发布字段",
+    requiredPublishingFieldsDescription:
+      "添加此集合发布前 Builder 所需的元数据：{{fields}}。",
     addingDetails: "正在添加详情",
     addingDetailsMatchedOn: "正在添加按 {{field}} 匹配的详情。",
     addingItems: "正在添加项目",
@@ -510,6 +545,15 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "从来源绑定字段",
     reviewBuilderUpdate: "审查 Builder 更新",
     closeBuilderUpdateReview: "关闭 Builder 更新审查",
+    cancelPreparedUpdate: "取消已准备的更新",
+    cancelPreparedUpdateQuestion: "取消此已准备的更新？",
+    cancelPreparedUpdateDescription:
+      "这会在发送前停止本地执行并保留审计历史。不会向 Builder 发送任何内容。",
+    keepPreparedUpdate: "保留已准备的更新",
+    cancellingPreparedUpdate: "正在取消…",
+    preparedUpdateCancelled: "已取消准备好的 Builder 更新",
+    preparedUpdateAlreadyCancelled: "准备好的 Builder 更新已被取消",
+    cancelPreparedUpdateFailed: "未能取消准备好的 Builder 更新",
     whatChanged: "更改内容",
     confirmUnpublish: "确认取消发布",
     builderBodyEditsNeedSaferPath:
@@ -521,6 +565,8 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "尚无待处理的本地 Builder 更改。",
     needsAttention: "需要处理",
     failedYouCanRetry: "失败 — 您可以重试",
+    reconciliationRequired: "需要核对 — 请勿重试",
+    builderPushAlreadyRunning: "Builder 推送已在运行。未发送第二次写入。",
     needsAFreshReview: "需要重新审查",
     working: "处理中…",
     checksOnly: "仅检查",
@@ -652,6 +698,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Añadir detalles a los elementos existentes",
     addedFieldsFromSource: "Se añadieron {{count}} campos de esta fuente.",
     addedOneFieldFromSource: "Se añadió 1 campo de esta fuente.",
+    addRequiredFields: "Añadir campos obligatorios",
+    publishingFieldsAdded: "Campos de publicación añadidos",
+    requiredBuilderFieldsReady:
+      "{{count}} campos obligatorios de Builder ya se pueden editar en Content.",
+    requiredPublishingFields: "Campos de publicación obligatorios",
+    requiredPublishingFieldsDescription:
+      "Añade los metadatos que Builder requiere para publicar esta colección: {{fields}}.",
     addingDetails: "Añadiendo detalles",
     addingDetailsMatchedOn: "Añadiendo detalles coincidentes por {{field}}.",
     addingItems: "Añadiendo elementos",
@@ -704,6 +757,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Vincular un campo de una fuente",
     reviewBuilderUpdate: "Revisar actualización de Builder",
     closeBuilderUpdateReview: "Cerrar revisión de actualización de Builder",
+    cancelPreparedUpdate: "Cancelar actualización preparada",
+    cancelPreparedUpdateQuestion: "¿Cancelar esta actualización preparada?",
+    cancelPreparedUpdateDescription:
+      "Esto detiene la ejecución local antes del envío y conserva el historial de auditoría. No se envía nada a Builder.",
+    keepPreparedUpdate: "Conservar actualización preparada",
+    cancellingPreparedUpdate: "Cancelando…",
+    preparedUpdateCancelled: "Actualización preparada de Builder cancelada",
+    preparedUpdateAlreadyCancelled:
+      "La actualización preparada de Builder ya estaba cancelada",
+    cancelPreparedUpdateFailed:
+      "No se canceló la actualización preparada de Builder",
     whatChanged: "Qué cambió",
     confirmUnpublish: "Confirmar retirada de publicación",
     builderBodyEditsNeedSaferPath:
@@ -717,6 +781,9 @@ const databaseMessagesByLocale = {
       "Aún no hay cambios locales de Builder pendientes.",
     needsAttention: "Necesita atención",
     failedYouCanRetry: "Falló — puedes reintentar",
+    reconciliationRequired: "Se requiere conciliación — no reintentes",
+    builderPushAlreadyRunning:
+      "El envío a Builder ya está en curso. No se envió una segunda escritura.",
     needsAFreshReview: "Necesita una nueva revisión",
     working: "Procesando…",
     checksOnly: "Solo comprobaciones",
@@ -854,6 +921,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Ajouter des détails aux éléments existants",
     addedFieldsFromSource: "{{count}} champs ajoutés depuis cette source.",
     addedOneFieldFromSource: "1 champ ajouté depuis cette source.",
+    addRequiredFields: "Ajouter les champs obligatoires",
+    publishingFieldsAdded: "Champs de publication ajoutés",
+    requiredBuilderFieldsReady:
+      "{{count}} champs Builder obligatoires peuvent maintenant être modifiés dans Content.",
+    requiredPublishingFields: "Champs de publication obligatoires",
+    requiredPublishingFieldsDescription:
+      "Ajoutez les métadonnées requises par Builder avant de publier cette collection : {{fields}}.",
     addingDetails: "Ajout de détails",
     addingDetailsMatchedOn: "Ajout de détails correspondant à {{field}}.",
     addingItems: "Ajout d’éléments",
@@ -907,6 +981,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Lier un champ depuis une source",
     reviewBuilderUpdate: "Vérifier la mise à jour Builder",
     closeBuilderUpdateReview: "Fermer la révision de mise à jour Builder",
+    cancelPreparedUpdate: "Annuler la mise à jour préparée",
+    cancelPreparedUpdateQuestion: "Annuler cette mise à jour préparée ?",
+    cancelPreparedUpdateDescription:
+      "Cette action arrête l’exécution locale avant l’envoi et conserve l’historique d’audit. Rien n’est envoyé à Builder.",
+    keepPreparedUpdate: "Conserver la mise à jour préparée",
+    cancellingPreparedUpdate: "Annulation…",
+    preparedUpdateCancelled: "Mise à jour Builder préparée annulée",
+    preparedUpdateAlreadyCancelled:
+      "La mise à jour Builder préparée était déjà annulée",
+    cancelPreparedUpdateFailed:
+      "La mise à jour Builder préparée n’a pas été annulée",
     whatChanged: "Ce qui a changé",
     confirmUnpublish: "Confirmer la dépublication",
     builderBodyEditsNeedSaferPath:
@@ -921,6 +1006,9 @@ const databaseMessagesByLocale = {
       "Aucune modification Builder locale en attente pour l'instant.",
     needsAttention: "Nécessite une attention",
     failedYouCanRetry: "Échec — vous pouvez réessayer",
+    reconciliationRequired: "Rapprochement requis — ne réessayez pas",
+    builderPushAlreadyRunning:
+      "L’envoi vers Builder est déjà en cours. Aucune deuxième écriture n’a été envoyée.",
     needsAFreshReview: "Nécessite une nouvelle révision",
     working: "En cours…",
     checksOnly: "Vérifications uniquement",
@@ -1056,6 +1144,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Details zu vorhandenen Elementen hinzufügen",
     addedFieldsFromSource: "{{count}} Felder aus dieser Quelle hinzugefügt.",
     addedOneFieldFromSource: "1 Feld aus dieser Quelle hinzugefügt.",
+    addRequiredFields: "Pflichtfelder hinzufügen",
+    publishingFieldsAdded: "Veröffentlichungsfelder hinzugefügt",
+    requiredBuilderFieldsReady:
+      "{{count}} Builder-Pflichtfelder können jetzt in Content bearbeitet werden.",
+    requiredPublishingFields: "Erforderliche Veröffentlichungsfelder",
+    requiredPublishingFieldsDescription:
+      "Fügen Sie die Metadaten hinzu, die Builder vor der Veröffentlichung dieser Sammlung benötigt: {{fields}}.",
     addingDetails: "Details werden hinzugefügt",
     addingDetailsMatchedOn: "Details werden anhand von {{field}} hinzugefügt.",
     addingItems: "Elemente werden hinzugefügt",
@@ -1109,6 +1204,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Ein Feld aus einer Quelle verknüpfen",
     reviewBuilderUpdate: "Builder-Update prüfen",
     closeBuilderUpdateReview: "Builder-Update-Prüfung schließen",
+    cancelPreparedUpdate: "Vorbereitetes Update abbrechen",
+    cancelPreparedUpdateQuestion: "Dieses vorbereitete Update abbrechen?",
+    cancelPreparedUpdateDescription:
+      "Dadurch wird die lokale Ausführung vor dem Senden gestoppt und der Prüfverlauf bleibt erhalten. Es wird nichts an Builder gesendet.",
+    keepPreparedUpdate: "Vorbereitetes Update behalten",
+    cancellingPreparedUpdate: "Wird abgebrochen…",
+    preparedUpdateCancelled: "Vorbereitetes Builder-Update abgebrochen",
+    preparedUpdateAlreadyCancelled:
+      "Das vorbereitete Builder-Update wurde bereits abgebrochen",
+    cancelPreparedUpdateFailed:
+      "Das vorbereitete Builder-Update wurde nicht abgebrochen",
     whatChanged: "Was sich geändert hat",
     confirmUnpublish: "Zurückziehen bestätigen",
     builderBodyEditsNeedSaferPath:
@@ -1123,6 +1229,9 @@ const databaseMessagesByLocale = {
       "Noch keine ausstehenden lokalen Builder-Änderungen.",
     needsAttention: "Erfordert Aufmerksamkeit",
     failedYouCanRetry: "Fehlgeschlagen — du kannst es erneut versuchen",
+    reconciliationRequired: "Abgleich erforderlich — nicht erneut versuchen",
+    builderPushAlreadyRunning:
+      "Der Builder-Push läuft bereits. Es wurde kein zweiter Schreibvorgang gesendet.",
     needsAFreshReview: "Erfordert eine erneute Prüfung",
     working: "Wird ausgeführt…",
     checksOnly: "Nur Prüfungen",
@@ -1259,6 +1368,13 @@ const databaseMessagesByLocale = {
     addedFieldsFromSource:
       "このソースから {{count}} 個のフィールドを追加しました。",
     addedOneFieldFromSource: "このソースから 1 個のフィールドを追加しました。",
+    addRequiredFields: "必須フィールドを追加",
+    publishingFieldsAdded: "公開フィールドを追加しました",
+    requiredBuilderFieldsReady:
+      "{{count}} 個の Builder 必須フィールドを Content で編集できるようになりました。",
+    requiredPublishingFields: "公開に必要なフィールド",
+    requiredPublishingFieldsDescription:
+      "このコレクションを公開する前に Builder が必要とするメタデータを追加します: {{fields}}。",
     addingDetails: "詳細を追加中",
     addingDetailsMatchedOn: "{{field}} で一致した詳細を追加中。",
     addingItems: "アイテムを追加中",
@@ -1309,6 +1425,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "ソースからフィールドをバインド",
     reviewBuilderUpdate: "Builder の更新を確認",
     closeBuilderUpdateReview: "Builder 更新の確認を閉じる",
+    cancelPreparedUpdate: "準備済み更新をキャンセル",
+    cancelPreparedUpdateQuestion: "この準備済み更新をキャンセルしますか？",
+    cancelPreparedUpdateDescription:
+      "送信前にローカル実行を停止し、監査履歴は保持されます。Builder には何も送信されません。",
+    keepPreparedUpdate: "準備済み更新を保持",
+    cancellingPreparedUpdate: "キャンセル中…",
+    preparedUpdateCancelled: "準備済み Builder 更新をキャンセルしました",
+    preparedUpdateAlreadyCancelled:
+      "準備済み Builder 更新はすでにキャンセルされています",
+    cancelPreparedUpdateFailed:
+      "準備済み Builder 更新をキャンセルできませんでした",
     whatChanged: "変更内容",
     confirmUnpublish: "非公開を確認",
     builderBodyEditsNeedSaferPath:
@@ -1322,6 +1449,9 @@ const databaseMessagesByLocale = {
       "保留中のローカル Builder 変更はまだありません。",
     needsAttention: "対応が必要",
     failedYouCanRetry: "失敗しました — 再試行できます",
+    reconciliationRequired: "照合が必要です — 再試行しないでください",
+    builderPushAlreadyRunning:
+      "Builder へのプッシュはすでに実行中です。2 回目の書き込みは送信されませんでした。",
     needsAFreshReview: "再確認が必要",
     working: "処理中…",
     checksOnly: "チェックのみ",
@@ -1455,6 +1585,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "기존 항목에 세부 정보 추가",
     addedFieldsFromSource: "이 소스에서 필드 {{count}}개를 추가했습니다.",
     addedOneFieldFromSource: "이 소스에서 필드 1개를 추가했습니다.",
+    addRequiredFields: "필수 필드 추가",
+    publishingFieldsAdded: "게시 필드가 추가됨",
+    requiredBuilderFieldsReady:
+      "필수 Builder 필드 {{count}}개를 이제 Content에서 편집할 수 있습니다.",
+    requiredPublishingFields: "필수 게시 필드",
+    requiredPublishingFieldsDescription:
+      "이 컬렉션을 게시하기 전에 Builder에 필요한 메타데이터를 추가하세요: {{fields}}.",
     addingDetails: "세부 정보 추가 중",
     addingDetailsMatchedOn:
       "{{field}} 기준으로 일치한 세부 정보를 추가 중입니다.",
@@ -1506,6 +1643,16 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "소스에서 필드 바인딩",
     reviewBuilderUpdate: "Builder 업데이트 검토",
     closeBuilderUpdateReview: "Builder 업데이트 검토 닫기",
+    cancelPreparedUpdate: "준비된 업데이트 취소",
+    cancelPreparedUpdateQuestion: "이 준비된 업데이트를 취소할까요?",
+    cancelPreparedUpdateDescription:
+      "전송 전에 로컬 실행을 중지하고 감사 기록은 유지합니다. Builder에는 아무것도 전송되지 않습니다.",
+    keepPreparedUpdate: "준비된 업데이트 유지",
+    cancellingPreparedUpdate: "취소 중…",
+    preparedUpdateCancelled: "준비된 Builder 업데이트가 취소되었습니다",
+    preparedUpdateAlreadyCancelled:
+      "준비된 Builder 업데이트가 이미 취소되었습니다",
+    cancelPreparedUpdateFailed: "준비된 Builder 업데이트를 취소하지 못했습니다",
     whatChanged: "변경 내용",
     confirmUnpublish: "게시 취소 확인",
     builderBodyEditsNeedSaferPath:
@@ -1519,6 +1666,9 @@ const databaseMessagesByLocale = {
       "아직 대기 중인 로컬 Builder 변경 사항이 없습니다.",
     needsAttention: "주의 필요",
     failedYouCanRetry: "실패함 — 다시 시도할 수 있습니다",
+    reconciliationRequired: "조정 필요 — 다시 시도하지 마세요",
+    builderPushAlreadyRunning:
+      "Builder 푸시가 이미 실행 중입니다. 두 번째 쓰기는 전송되지 않았습니다.",
     needsAFreshReview: "새로운 검토 필요",
     working: "처리 중…",
     checksOnly: "검사만",
@@ -1652,6 +1802,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "Adicionar detalhes aos itens existentes",
     addedFieldsFromSource: "{{count}} campos adicionados desta fonte.",
     addedOneFieldFromSource: "1 campo adicionado desta fonte.",
+    addRequiredFields: "Adicionar campos obrigatórios",
+    publishingFieldsAdded: "Campos de publicação adicionados",
+    requiredBuilderFieldsReady:
+      "{{count}} campos obrigatórios do Builder já podem ser editados no Content.",
+    requiredPublishingFields: "Campos de publicação obrigatórios",
+    requiredPublishingFieldsDescription:
+      "Adicione os metadados exigidos pelo Builder antes de publicar esta coleção: {{fields}}.",
     addingDetails: "Adicionando detalhes",
     addingDetailsMatchedOn:
       "Adicionando detalhes correspondentes em {{field}}.",
@@ -1705,6 +1862,17 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "Vincular um campo de uma fonte",
     reviewBuilderUpdate: "Revisar atualização do Builder",
     closeBuilderUpdateReview: "Fechar revisão de atualização do Builder",
+    cancelPreparedUpdate: "Cancelar atualização preparada",
+    cancelPreparedUpdateQuestion: "Cancelar esta atualização preparada?",
+    cancelPreparedUpdateDescription:
+      "Isso interrompe a execução local antes do envio e mantém o histórico de auditoria. Nada é enviado ao Builder.",
+    keepPreparedUpdate: "Manter atualização preparada",
+    cancellingPreparedUpdate: "Cancelando…",
+    preparedUpdateCancelled: "Atualização preparada do Builder cancelada",
+    preparedUpdateAlreadyCancelled:
+      "A atualização preparada do Builder já estava cancelada",
+    cancelPreparedUpdateFailed:
+      "A atualização preparada do Builder não foi cancelada",
     whatChanged: "O que mudou",
     confirmUnpublish: "Confirmar cancelamento de publicação",
     builderBodyEditsNeedSaferPath:
@@ -1718,6 +1886,9 @@ const databaseMessagesByLocale = {
       "Ainda não há alterações locais do Builder pendentes.",
     needsAttention: "Precisa de atenção",
     failedYouCanRetry: "Falhou — você pode tentar novamente",
+    reconciliationRequired: "Reconciliação necessária — não tente novamente",
+    builderPushAlreadyRunning:
+      "O envio para o Builder já está em andamento. Nenhuma segunda gravação foi enviada.",
     needsAFreshReview: "Precisa de uma nova revisão",
     working: "Processando…",
     checksOnly: "Apenas verificações",
@@ -1851,6 +2022,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "मौजूदा आइटम में विवरण जोड़ें",
     addedFieldsFromSource: "इस स्रोत से {{count}} फ़ील्ड जोड़े गए।",
     addedOneFieldFromSource: "इस स्रोत से 1 फ़ील्ड जोड़ा गया।",
+    addRequiredFields: "ज़रूरी फ़ील्ड जोड़ें",
+    publishingFieldsAdded: "प्रकाशन फ़ील्ड जोड़े गए",
+    requiredBuilderFieldsReady:
+      "{{count}} ज़रूरी Builder फ़ील्ड अब Content में संपादन के लिए तैयार हैं।",
+    requiredPublishingFields: "ज़रूरी प्रकाशन फ़ील्ड",
+    requiredPublishingFieldsDescription:
+      "इस संग्रह को प्रकाशित करने से पहले Builder के लिए ज़रूरी मेटाडेटा जोड़ें: {{fields}}।",
     addingDetails: "विवरण जोड़े जा रहे हैं",
     addingDetailsMatchedOn: "{{field}} पर मिले विवरण जोड़े जा रहे हैं।",
     addingItems: "आइटम जोड़े जा रहे हैं",
@@ -1900,6 +2078,16 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "किसी स्रोत से एक फ़ील्ड बाँधें",
     reviewBuilderUpdate: "Builder अपडेट की समीक्षा करें",
     closeBuilderUpdateReview: "Builder अपडेट समीक्षा बंद करें",
+    cancelPreparedUpdate: "तैयार अपडेट रद्द करें",
+    cancelPreparedUpdateQuestion: "इस तैयार अपडेट को रद्द करें?",
+    cancelPreparedUpdateDescription:
+      "यह भेजने से पहले स्थानीय निष्पादन रोकता है और ऑडिट इतिहास सुरक्षित रखता है। Builder को कुछ नहीं भेजा जाता।",
+    keepPreparedUpdate: "तैयार अपडेट रखें",
+    cancellingPreparedUpdate: "रद्द किया जा रहा है…",
+    preparedUpdateCancelled: "तैयार Builder अपडेट रद्द किया गया",
+    preparedUpdateAlreadyCancelled:
+      "तैयार Builder अपडेट पहले ही रद्द किया जा चुका था",
+    cancelPreparedUpdateFailed: "तैयार Builder अपडेट रद्द नहीं हुआ",
     whatChanged: "क्या बदला",
     confirmUnpublish: "अप्रकाशित करने की पुष्टि करें",
     builderBodyEditsNeedSaferPath:
@@ -1912,6 +2100,9 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "अभी तक कोई लंबित स्थानीय Builder परिवर्तन नहीं।",
     needsAttention: "ध्यान देने की आवश्यकता है",
     failedYouCanRetry: "विफल — आप पुनः प्रयास कर सकते हैं",
+    reconciliationRequired: "मिलान आवश्यक है — पुनः प्रयास न करें",
+    builderPushAlreadyRunning:
+      "Builder पुश पहले से चल रहा है। दूसरा लेखन नहीं भेजा गया।",
     needsAFreshReview: "एक नई समीक्षा की आवश्यकता है",
     working: "कार्य हो रहा है…",
     checksOnly: "केवल जाँच",
@@ -2041,6 +2232,13 @@ const databaseMessagesByLocale = {
     addDetailsToExistingItems: "إضافة تفاصيل إلى العناصر الحالية",
     addedFieldsFromSource: "تمت إضافة {{count}} حقول من هذا المصدر.",
     addedOneFieldFromSource: "تمت إضافة حقل واحد من هذا المصدر.",
+    addRequiredFields: "إضافة الحقول المطلوبة",
+    publishingFieldsAdded: "تمت إضافة حقول النشر",
+    requiredBuilderFieldsReady:
+      "أصبحت {{count}} من حقول Builder المطلوبة جاهزة للتحرير في Content.",
+    requiredPublishingFields: "حقول النشر المطلوبة",
+    requiredPublishingFieldsDescription:
+      "أضف البيانات الوصفية التي يتطلبها Builder قبل نشر هذه المجموعة: {{fields}}.",
     addingDetails: "إضافة تفاصيل",
     addingDetailsMatchedOn: "إضافة تفاصيل متطابقة على {{field}}.",
     addingItems: "إضافة عناصر",
@@ -2090,6 +2288,15 @@ const databaseMessagesByLocale = {
     bindAFieldFromASource: "ربط حقل من مصدر",
     reviewBuilderUpdate: "مراجعة تحديث Builder",
     closeBuilderUpdateReview: "إغلاق مراجعة تحديث Builder",
+    cancelPreparedUpdate: "إلغاء التحديث المُعَد",
+    cancelPreparedUpdateQuestion: "هل تريد إلغاء هذا التحديث المُعَد؟",
+    cancelPreparedUpdateDescription:
+      "يؤدي هذا إلى إيقاف التنفيذ المحلي قبل الإرسال مع الاحتفاظ بسجل التدقيق. لن يُرسل شيء إلى Builder.",
+    keepPreparedUpdate: "الاحتفاظ بالتحديث المُعَد",
+    cancellingPreparedUpdate: "جارٍ الإلغاء…",
+    preparedUpdateCancelled: "تم إلغاء تحديث Builder المُعَد",
+    preparedUpdateAlreadyCancelled: "كان تحديث Builder المُعَد ملغى بالفعل",
+    cancelPreparedUpdateFailed: "لم يتم إلغاء تحديث Builder المُعَد",
     whatChanged: "ما الذي تغيّر",
     confirmUnpublish: "تأكيد إلغاء النشر",
     builderBodyEditsNeedSaferPath:
@@ -2101,6 +2308,9 @@ const databaseMessagesByLocale = {
     noPendingLocalBuilderChanges: "لا توجد تغييرات Builder محلية معلّقة بعد.",
     needsAttention: "يتطلب الانتباه",
     failedYouCanRetry: "فشل — يمكنك إعادة المحاولة",
+    reconciliationRequired: "المطابقة مطلوبة — لا تعد المحاولة",
+    builderPushAlreadyRunning:
+      "دفع Builder قيد التشغيل بالفعل. لم يتم إرسال كتابة ثانية.",
     needsAFreshReview: "يتطلب مراجعة جديدة",
     working: "جارٍ العمل…",
     checksOnly: "عمليات التحقق فقط",
@@ -2271,6 +2481,11 @@ const editorPropertiesMessages = {
   pasteFileOrMediaLink: "Paste file or media link",
   personOrEmail: "Person or email",
   propertyMenuFor: "Property menu for {{name}}",
+  description: "Description",
+  addPageDescription: "Add a description of this page…",
+  addDatabaseDescription: "Add a description of this database…",
+  addPropertyDescription: "Describe what belongs in this property…",
+  addOptionDescription: "When should this option be used?",
   propertyName: "Property name",
   readOnly: "Read-only",
   remove: "Remove",
@@ -2514,6 +2729,8 @@ const editorSlashMessages = {
   audio: "Audio",
   audioDescription: "Upload or embed audio",
   basicBlocks: "Basic blocks",
+  blockEquation: "Block equation",
+  blockEquationDescription: "Display a LaTeX equation on its own line",
   blocks: "Blocks",
   bulletedList: "Bulleted list",
   bulletedListDescription: "Unordered list",
@@ -2524,6 +2741,7 @@ const editorSlashMessages = {
   collapsibleBlockDescription: "Collapsible block",
   database: "Database",
   databaseDescription: "Inline database in this page",
+  cancelEquation: "Cancel",
   divider: "Divider",
   dividerDescription: "Horizontal rule",
   generate: "Generate",
@@ -2532,8 +2750,13 @@ const editorSlashMessages = {
   heading2Description: "Medium heading",
   heading3Description: "Small heading",
   heading4Description: "Subheading",
+  heading5Description: "Smaller heading",
+  heading6Description: "Smallest heading",
   image: "Image",
   imageDescription: "Upload or embed image",
+  inlineEquation: "Inline equation",
+  inlineEquationDescription: "Add a LaTeX equation within text",
+  insertEquation: "Insert",
   localComponents: "Local components",
   media: "Media",
   numberedList: "Numbered list",
@@ -2541,6 +2764,14 @@ const editorSlashMessages = {
   page: "Page",
   pageDescription: "Create a child page",
   pages: "Pages",
+  equationInputLabel: "LaTeX equation",
+  equationInsertFailed: "Could not insert the equation.",
+  equationNeedsRepair: "Fix the LaTeX to see a preview.",
+  equationPlaceholder: String.raw`Type LaTeX, for example \frac{a}{b}`,
+  equationPreview: "Preview",
+  equationPreviewEmpty: "Your equation will appear here.",
+  equationSubmitHint:
+    "Preview updates as you type. Press Cmd/Ctrl+Enter to insert.",
   quote: "Quote",
   quoteDescription: "Block quote",
   table: "Table",
@@ -2718,6 +2949,8 @@ const enUS = {
     heading2: "Heading 2",
     heading3: "Heading 3",
     heading4: "Heading 4",
+    heading5: "Heading 5",
+    heading6: "Heading 6",
     link: "Link",
     comment: "Comment",
     pasteLink: "Paste link...",
@@ -4201,6 +4434,8 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription: "在任何内容发送到 Builder 之前加载完整的内容差异。",
+    loadingCompleteBuilderDiff: "正在加载完整的 Builder 差异…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     saveForEveryone: "为所有人保存",
@@ -4315,6 +4550,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Carga la diferencia completa del contenido antes de enviar nada a Builder.",
+    loadingCompleteBuilderDiff: "Cargando la diferencia completa de Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4428,6 +4666,10 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Charge la comparaison complète du contenu avant tout envoi à Builder.",
+    loadingCompleteBuilderDiff:
+      "Chargement de la comparaison complète de Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4541,6 +4783,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Lädt den vollständigen Inhaltsvergleich, bevor etwas an Builder gesendet wird.",
+    loadingCompleteBuilderDiff: "Vollständiger Builder-Vergleich wird geladen…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4654,6 +4899,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "Carrega a comparação completa do conteúdo antes de enviar algo ao Builder.",
+    loadingCompleteBuilderDiff: "Carregando a comparação completa do Builder…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4767,6 +5015,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "Renombrar vista",
     reviewBeforeTheyReachBuilder: "Revisar antes de que lleguen a Builder.",
     reviewDiff: "Revisar diferencia",
+    reviewDiffDescription:
+      "يحمّل الفرق الكامل للمحتوى قبل إرسال أي شيء إلى Builder.",
+    loadingCompleteBuilderDiff: "جارٍ تحميل فرق Builder الكامل…",
     sampleMatches: "Coincidencias de muestra",
     showAll: "Mostrar todo",
     sortAscending: "Orden ascendente",
@@ -4875,6 +5126,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription:
+      "Builder に送信する前に、コンテンツの完全な差分を読み込みます。",
+    loadingCompleteBuilderDiff: "Builder の完全な差分を読み込んでいます…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     sortAscending: "升序排序",
@@ -4983,6 +5237,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "重命名视图",
     reviewBeforeTheyReachBuilder: "在发送到 Builder 前审核。",
     reviewDiff: "审核差异",
+    reviewDiffDescription:
+      "Builder로 전송하기 전에 전체 콘텐츠 차이를 불러옵니다.",
+    loadingCompleteBuilderDiff: "전체 Builder 차이를 불러오는 중…",
     sampleMatches: "示例匹配",
     showAll: "显示全部",
     sortAscending: "升序排序",
@@ -5095,6 +5352,9 @@ const databaseExactEnglishMessagesByLocale = {
     renameView: "दृश्य का नाम बदलें",
     reviewBeforeTheyReachBuilder: "Builder तक पहुंचने से पहले समीक्षा करें।",
     reviewDiff: "अंतर की समीक्षा करें",
+    reviewDiffDescription:
+      "Builder तक कुछ भी भेजने से पहले सामग्री का पूरा अंतर लोड करता है।",
+    loadingCompleteBuilderDiff: "Builder का पूरा अंतर लोड हो रहा है…",
     sampleMatches: "नमूना मिलान",
     showAll: "सभी दिखाएं",
     sortAscending: "आरोही क्रम में सॉर्ट करें",
@@ -5298,6 +5558,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "粘贴文件或媒体链接",
       personOrEmail: "个人或电子邮件",
       propertyMenuFor: "{{name}} 的属性菜单",
+      description: "说明",
+      addPageDescription: "添加此页面的说明…",
+      addDatabaseDescription: "添加此数据库的说明…",
+      addPropertyDescription: "描述此属性中应包含的内容…",
+      addOptionDescription: "何时应使用此选项？",
       propertyName: "物业名称",
       readOnly: "只读",
       remove: "删除",
@@ -5347,6 +5612,8 @@ const editorMessagesByLocale = {
       heading2Description: "中标题",
       heading3Description: "小标题",
       heading4Description: "副标题",
+      heading5Description: "较小标题",
+      heading6Description: "最小标题",
       image: "图片",
       imageDescription: "上传或嵌入图像",
       localComponents: "本地组件",
@@ -5629,6 +5896,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Pegar archivo o enlace multimedia",
       personOrEmail: "Persona o correo electrónico",
       propertyMenuFor: "Menú de propiedades para {{name}}",
+      description: "Descripción",
+      addPageDescription: "Añade una descripción de esta página…",
+      addDatabaseDescription: "Añade una descripción de esta base de datos…",
+      addPropertyDescription: "Describe qué corresponde a esta propiedad…",
+      addOptionDescription: "¿Cuándo debe usarse esta opción?",
       propertyName: "Nombre de la propiedad",
       readOnly: "Sólo lectura",
       remove: "Quitar",
@@ -5678,6 +5950,8 @@ const editorMessagesByLocale = {
       heading2Description: "título medio",
       heading3Description: "título pequeño",
       heading4Description: "Subtítulo",
+      heading5Description: "Encabezado más pequeño",
+      heading6Description: "Encabezado mínimo",
       image: "Imagen",
       imageDescription: "Subir o insertar imagen",
       localComponents: "Componentes locales",
@@ -5971,6 +6245,12 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Coller un fichier ou un lien multimédia",
       personOrEmail: "Personne ou email",
       propertyMenuFor: "Menu Propriétés pour {{name}}",
+      description: "Description",
+      addPageDescription: "Ajoutez une description de cette page…",
+      addDatabaseDescription:
+        "Ajoutez une description de cette base de données…",
+      addPropertyDescription: "Décrivez ce qui appartient à cette propriété…",
+      addOptionDescription: "Quand cette option doit-elle être utilisée ?",
       propertyName: "Nom de la propriété",
       readOnly: "Lecture seule",
       remove: "Supprimer",
@@ -6020,6 +6300,8 @@ const editorMessagesByLocale = {
       heading2Description: "Titre moyen",
       heading3Description: "Petit titre",
       heading4Description: "Sous-titre",
+      heading5Description: "Titre plus petit",
+      heading6Description: "Titre le plus petit",
       image: "Images",
       imageDescription: "Télécharger ou intégrer une image",
       localComponents: "Composants locaux",
@@ -6313,6 +6595,12 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Datei- oder Medienlink einfügen",
       personOrEmail: "Person oder E-Mail",
       propertyMenuFor: "Eigenschaftenmenü für {{name}}",
+      description: "Beschreibung",
+      addPageDescription: "Beschreibung dieser Seite hinzufügen…",
+      addDatabaseDescription: "Beschreibung dieser Datenbank hinzufügen…",
+      addPropertyDescription:
+        "Beschreiben Sie, was in diese Eigenschaft gehört…",
+      addOptionDescription: "Wann sollte diese Option verwendet werden?",
       propertyName: "Eigenschaftsname",
       readOnly: "Schreibgeschützt",
       remove: "Entfernen",
@@ -6362,6 +6650,8 @@ const editorMessagesByLocale = {
       heading2Description: "Mittlere Überschrift",
       heading3Description: "Kleine Überschrift",
       heading4Description: "Unterüberschrift",
+      heading5Description: "Kleinere Überschrift",
+      heading6Description: "Kleinste Überschrift",
       image: "Bild",
       imageDescription: "Bild hochladen oder einbetten",
       localComponents: "Lokale Komponenten",
@@ -6655,6 +6945,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "ファイルまたはメディアのリンクを貼り付けます",
       personOrEmail: "個人または電子メール",
       propertyMenuFor: "{{name}}のプロパティメニュー",
+      description: "説明",
+      addPageDescription: "このページの説明を追加…",
+      addDatabaseDescription: "このデータベースの説明を追加…",
+      addPropertyDescription: "このプロパティに入る内容を説明…",
+      addOptionDescription: "このオプションはいつ使いますか？",
       propertyName: "プロパティ名",
       readOnly: "読み取り専用",
       remove: "削除",
@@ -6704,6 +6999,8 @@ const editorMessagesByLocale = {
       heading2Description: "中見出し",
       heading3Description: "小見出し",
       heading4Description: "小見出し",
+      heading5Description: "より小さい見出し",
+      heading6Description: "最小の見出し",
       image: "画像",
       imageDescription: "画像をアップロードまたは埋め込む",
       localComponents: "ローカルコンポーネント",
@@ -6990,6 +7287,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "파일 또는 미디어 링크 붙여넣기",
       personOrEmail: "개인 또는 이메일",
       propertyMenuFor: "{{name}}의 속성 메뉴",
+      description: "설명",
+      addPageDescription: "이 페이지에 대한 설명 추가…",
+      addDatabaseDescription: "이 데이터베이스에 대한 설명 추가…",
+      addPropertyDescription: "이 속성에 들어갈 내용을 설명…",
+      addOptionDescription: "이 옵션은 언제 사용해야 하나요?",
       propertyName: "속성 이름",
       readOnly: "읽기 전용",
       remove: "제거",
@@ -7039,6 +7341,8 @@ const editorMessagesByLocale = {
       heading2Description: "중간 제목",
       heading3Description: "작은 제목",
       heading4Description: "소제목",
+      heading5Description: "더 작은 제목",
+      heading6Description: "가장 작은 제목",
       image: "이미지",
       imageDescription: "이미지 업로드 또는 삽입",
       localComponents: "로컬 구성요소",
@@ -7328,6 +7632,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "Colar arquivo ou link de mídia",
       personOrEmail: "Pessoa ou e-mail",
       propertyMenuFor: "Menu de propriedades para {{name}}",
+      description: "Descrição",
+      addPageDescription: "Adicione uma descrição desta página…",
+      addDatabaseDescription: "Adicione uma descrição deste banco de dados…",
+      addPropertyDescription: "Descreva o que pertence a esta propriedade…",
+      addOptionDescription: "Quando esta opção deve ser usada?",
       propertyName: "Nome da propriedade",
       readOnly: "Somente leitura",
       remove: "Remover",
@@ -7377,6 +7686,8 @@ const editorMessagesByLocale = {
       heading2Description: "Título médio",
       heading3Description: "Título pequeno",
       heading4Description: "Subtítulo",
+      heading5Description: "Título menor",
+      heading6Description: "Título mínimo",
       image: "Imagem",
       imageDescription: "Carregar ou incorporar imagem",
       localComponents: "Componentes locais",
@@ -7665,6 +7976,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "फ़ाइल या मीडिया लिंक चिपकाएँ",
       personOrEmail: "व्यक्ति या ईमेल",
       propertyMenuFor: "{{name}} के लिए संपत्ति मेनू",
+      description: "विवरण",
+      addPageDescription: "इस पेज का विवरण जोड़ें…",
+      addDatabaseDescription: "इस डेटाबेस का विवरण जोड़ें…",
+      addPropertyDescription: "बताएं कि इस प्रॉपर्टी में क्या होना चाहिए…",
+      addOptionDescription: "इस विकल्प का उपयोग कब होना चाहिए?",
       propertyName: "संपत्ति का नाम",
       readOnly: "केवल पढ़ने योग्य",
       remove: "हटाओ",
@@ -7714,6 +8030,8 @@ const editorMessagesByLocale = {
       heading2Description: "मध्यम शीर्षक",
       heading3Description: "छोटा शीर्षक",
       heading4Description: "उपशीर्षक",
+      heading5Description: "और छोटा शीर्षक",
+      heading6Description: "सबसे छोटा शीर्षक",
       image: "छवि",
       imageDescription: "छवि अपलोड या एम्बेड करें",
       localComponents: "स्थानीय घटक",
@@ -7996,6 +8314,11 @@ const editorMessagesByLocale = {
       pasteFileOrMediaLink: "الصق الملف أو رابط الوسائط",
       personOrEmail: "الشخص أو البريد الإلكتروني",
       propertyMenuFor: "قائمة الخصائص لـ {{name}}",
+      description: "الوصف",
+      addPageDescription: "أضف وصفًا لهذه الصفحة…",
+      addDatabaseDescription: "أضف وصفًا لقاعدة البيانات هذه…",
+      addPropertyDescription: "صف ما الذي ينتمي إلى هذه الخاصية…",
+      addOptionDescription: "متى يجب استخدام هذا الخيار؟",
       propertyName: "اسم العقار",
       readOnly: "للقراءة فقط",
       remove: "إزالة",
@@ -8045,6 +8368,8 @@ const editorMessagesByLocale = {
       heading2Description: "عنوان متوسط",
       heading3Description: "عنوان صغير",
       heading4Description: "عنوان فرعي",
+      heading5Description: "عنوان أصغر",
+      heading6Description: "أصغر عنوان",
       image: "صورة",
       imageDescription: "تحميل أو تضمين الصورة",
       localComponents: "المكونات المحلية",
@@ -8399,6 +8724,11 @@ export const messagesByLocale = {
       builderBodySyncing: "内容仍在从 Builder 同步",
       builderBodySyncingDescription:
         "同步 Builder 正文完成前会暂停编辑，避免覆盖现有文章内容。",
+      builderDraftConflictTitle: "编辑期间收到了新的 Builder 内容",
+      builderDraftConflictDescription:
+        "你的本地草稿已保留。保留草稿可在本地替换新同步的正文，或重新加载 Builder 正文。",
+      keepLocalDraft: "保留本地草稿",
+      reloadBuilderBody: "重新加载 Builder 正文",
       builderReviewShowingRows:
         "此次审查显示 {{total}} 个 Builder 行中的 {{shown}} 个。",
       builderReviewShowMore: "显示更多",
@@ -8502,6 +8832,8 @@ export const messagesByLocale = {
       heading2: "标题 2",
       heading3: "标题 3",
       heading4: "标题 4",
+      heading5: "标题 5",
+      heading6: "标题 6",
       link: "链接",
       comment: "评论",
       pasteLink: "粘贴链接...",
@@ -8566,6 +8898,12 @@ export const messagesByLocale = {
         "El contenido aún se está sincronizando desde Builder",
       builderBodySyncingDescription:
         "La edición está en pausa hasta que el cuerpo de Builder termine de sincronizarse, para no sobrescribir el contenido existente del artículo.",
+      builderDraftConflictTitle:
+        "El contenido de Builder llegó mientras editabas",
+      builderDraftConflictDescription:
+        "Tu borrador local se conserva. Consérvalo para reemplazar localmente el contenido recién sincronizado o vuelve a cargar el contenido de Builder.",
+      keepLocalDraft: "Conservar borrador local",
+      reloadBuilderBody: "Volver a cargar contenido de Builder",
       builderReviewShowingRows:
         "Mostrando {{shown}} de {{total}} filas de Builder para esta revisión.",
       builderReviewShowMore: "Mostrar más",
@@ -8680,6 +9018,8 @@ export const messagesByLocale = {
       heading2: "Encabezado 2",
       heading3: "Encabezado 3",
       heading4: "Encabezado 4",
+      heading5: "Encabezado 5",
+      heading6: "Encabezado 6",
       link: "Enlace",
       comment: "Comentario",
       pasteLink: "Pegar enlace...",
@@ -8746,6 +9086,12 @@ export const messagesByLocale = {
         "Le contenu est encore en cours de synchronisation depuis Builder",
       builderBodySyncingDescription:
         "La modification est suspendue jusqu'à la fin de la synchronisation du corps Builder, afin de ne pas écraser le contenu existant de l'article.",
+      builderDraftConflictTitle:
+        "Le contenu Builder est arrivé pendant votre modification",
+      builderDraftConflictDescription:
+        "Votre brouillon local est conservé. Gardez-le pour remplacer localement le contenu récemment synchronisé, ou rechargez le contenu Builder.",
+      keepLocalDraft: "Garder le brouillon local",
+      reloadBuilderBody: "Recharger le contenu Builder",
       builderReviewShowingRows:
         "Affichage de {{shown}} lignes Builder sur {{total}} pour cette revue.",
       builderReviewShowMore: "Afficher plus",
@@ -8860,6 +9206,8 @@ export const messagesByLocale = {
       heading2: "Titre 2",
       heading3: "Titre 3",
       heading4: "Titre 4",
+      heading5: "Titre 5",
+      heading6: "Titre 6",
       link: "Lien",
       comment: "Commentaire",
       pasteLink: "Coller le lien...",
@@ -8924,6 +9272,12 @@ export const messagesByLocale = {
       builderBodySyncing: "Inhalte werden noch von Builder synchronisiert",
       builderBodySyncingDescription:
         "Die Bearbeitung ist pausiert, bis der Builder-Textkörper fertig synchronisiert ist, damit der bestehende Artikelinhalt nicht überschrieben wird.",
+      builderDraftConflictTitle:
+        "Während der Bearbeitung ist neuer Builder-Inhalt eingetroffen",
+      builderDraftConflictDescription:
+        "Ihr lokaler Entwurf bleibt erhalten. Behalten Sie ihn, um den neu synchronisierten Inhalt lokal zu ersetzen, oder laden Sie den Builder-Inhalt neu.",
+      keepLocalDraft: "Lokalen Entwurf behalten",
+      reloadBuilderBody: "Builder-Inhalt neu laden",
       builderReviewShowingRows:
         "Zeige {{shown}} von {{total}} Builder-Zeilen für diese Überprüfung.",
       builderReviewShowMore: "Mehr anzeigen",
@@ -9038,6 +9392,8 @@ export const messagesByLocale = {
       heading2: "Überschrift 2",
       heading3: "Überschrift 3",
       heading4: "Überschrift 4",
+      heading5: "Überschrift 5",
+      heading6: "Überschrift 6",
       link: "Link",
       comment: "Kommentar",
       pasteLink: "Link einfügen...",
@@ -9103,6 +9459,12 @@ export const messagesByLocale = {
       builderBodySyncing: "コンテンツはまだ Builder から同期中です",
       builderBodySyncingDescription:
         "既存の記事内容を上書きしないよう、Builder 本文の同期が完了するまで編集は一時停止されます。",
+      builderDraftConflictTitle:
+        "編集中に新しい Builder コンテンツが届きました",
+      builderDraftConflictDescription:
+        "ローカル下書きは保持されています。新しく同期された本文をローカルで置き換えるか、Builder 本文を再読み込みしてください。",
+      keepLocalDraft: "ローカル下書きを保持",
+      reloadBuilderBody: "Builder 本文を再読み込み",
       builderReviewShowingRows:
         "このレビューでは {{total}} 件中 {{shown}} 件の Builder 行を表示しています。",
       builderReviewShowMore: "さらに表示",
@@ -9216,6 +9578,8 @@ export const messagesByLocale = {
       heading2: "見出し 2",
       heading3: "見出し 3",
       heading4: "見出し 4",
+      heading5: "見出し 5",
+      heading6: "見出し 6",
       link: "リンク",
       comment: "コメント",
       pasteLink: "リンクを貼り付け...",
@@ -9279,6 +9643,11 @@ export const messagesByLocale = {
       builderBodySyncing: "콘텐츠가 아직 Builder에서 동기화되는 중입니다",
       builderBodySyncingDescription:
         "기존 문서 내용을 덮어쓰지 않도록 Builder 본문 동기화가 완료될 때까지 편집이 일시 중지됩니다.",
+      builderDraftConflictTitle: "편집 중 새 Builder 콘텐츠가 도착했습니다",
+      builderDraftConflictDescription:
+        "로컬 초안이 보존되었습니다. 새로 동기화된 본문을 로컬에서 대체하려면 초안을 유지하고, 아니면 Builder 본문을 다시 불러오세요.",
+      keepLocalDraft: "로컬 초안 유지",
+      reloadBuilderBody: "Builder 본문 다시 불러오기",
       builderReviewShowingRows:
         "이 검토에서 Builder 행 {{total}}개 중 {{shown}}개를 표시하고 있습니다.",
       builderReviewShowMore: "더 보기",
@@ -9385,6 +9754,8 @@ export const messagesByLocale = {
       heading2: "제목 2",
       heading3: "제목 3",
       heading4: "제목 4",
+      heading5: "제목 5",
+      heading6: "제목 6",
       link: "링크",
       comment: "댓글",
       pasteLink: "링크 붙여넣기...",
@@ -9448,6 +9819,12 @@ export const messagesByLocale = {
       builderBodySyncing: "O conteúdo ainda está sincronizando do Builder",
       builderBodySyncingDescription:
         "A edição fica pausada até o corpo do Builder terminar de sincronizar, para não sobrescrever o conteúdo existente do artigo.",
+      builderDraftConflictTitle:
+        "O conteúdo do Builder chegou enquanto você editava",
+      builderDraftConflictDescription:
+        "Seu rascunho local foi preservado. Mantenha-o para substituir localmente o conteúdo recém-sincronizado ou recarregue o conteúdo do Builder.",
+      keepLocalDraft: "Manter rascunho local",
+      reloadBuilderBody: "Recarregar conteúdo do Builder",
       builderReviewShowingRows:
         "Mostrando {{shown}} de {{total}} linhas do Builder para esta revisão.",
       builderReviewShowMore: "Mostrar mais",
@@ -9563,6 +9940,8 @@ export const messagesByLocale = {
       heading2: "Título 2",
       heading3: "Título 3",
       heading4: "Título 4",
+      heading5: "Título 5",
+      heading6: "Título 6",
       link: "Link",
       comment: "Comentário",
       pasteLink: "Cole o link...",
@@ -9625,6 +10004,11 @@ export const messagesByLocale = {
       builderBodySyncing: "सामग्री अभी भी Builder से सिंक हो रही है",
       builderBodySyncingDescription:
         "Builder का मुख्य भाग सिंक पूरा होने तक संपादन रोका गया है, ताकि मौजूदा लेख सामग्री अधिलेखित न हो।",
+      builderDraftConflictTitle: "आपके संपादन के दौरान नया Builder कंटेंट आया",
+      builderDraftConflictDescription:
+        "आपका स्थानीय ड्राफ्ट सुरक्षित है। नए सिंक किए गए मुख्य भाग को स्थानीय रूप से बदलने के लिए इसे रखें, या Builder का मुख्य भाग फिर से लोड करें।",
+      keepLocalDraft: "स्थानीय ड्राफ्ट रखें",
+      reloadBuilderBody: "Builder का मुख्य भाग फिर से लोड करें",
       builderReviewShowingRows:
         "इस समीक्षा के लिए {{total}} में से {{shown}} Builder पंक्तियाँ दिखाई जा रही हैं।",
       builderReviewShowMore: "और दिखाएँ",
@@ -9730,6 +10114,8 @@ export const messagesByLocale = {
       heading2: "शीर्षक 2",
       heading3: "शीर्षक 3",
       heading4: "शीर्षक 4",
+      heading5: "शीर्षक 5",
+      heading6: "शीर्षक 6",
       link: "लिंक",
       comment: "टिप्पणी",
       pasteLink: "लिंक चिपकाएं...",
@@ -9791,6 +10177,11 @@ export const messagesByLocale = {
       builderBodySyncing: "لا يزال المحتوى قيد المزامنة من Builder",
       builderBodySyncingDescription:
         "يتم إيقاف التحرير مؤقتًا حتى تكتمل مزامنة نص Builder، حتى لا يتم استبدال محتوى المقالة الحالي.",
+      builderDraftConflictTitle: "وصل محتوى Builder جديد أثناء التحرير",
+      builderDraftConflictDescription:
+        "تم الاحتفاظ بالمسودة المحلية. احتفظ بها لاستبدال النص المتزامن حديثًا محليًا، أو أعد تحميل نص Builder.",
+      keepLocalDraft: "الاحتفاظ بالمسودة المحلية",
+      reloadBuilderBody: "إعادة تحميل نص Builder",
       builderReviewShowingRows:
         "يتم عرض {{shown}} من {{total}} صفوف Builder لهذه المراجعة.",
       builderReviewShowMore: "عرض المزيد",
@@ -9899,6 +10290,8 @@ export const messagesByLocale = {
       heading2: "عنوان 2",
       heading3: "عنوان 3",
       heading4: "عنوان 4",
+      heading5: "عنوان 5",
+      heading6: "عنوان 6",
       link: "رابط",
       comment: "تعليق",
       pasteLink: "الصق الرابط...",
@@ -9954,6 +10347,21 @@ const contentExactEnglishTranslations = {
   "zh-CN": {
     editor: {
       failedToCreatePage: "创建页面失败",
+      slash: {
+        blockEquation: "块级公式",
+        blockEquationDescription: "在单独一行显示 LaTeX 公式",
+        cancelEquation: "取消",
+        inlineEquation: "行内公式",
+        inlineEquationDescription: "在文本中添加 LaTeX 公式",
+        insertEquation: "插入",
+        equationInputLabel: "LaTeX 公式",
+        equationInsertFailed: "无法插入公式。",
+        equationNeedsRepair: "请修正 LaTeX 以查看预览。",
+        equationPlaceholder: String.raw`输入 LaTeX，例如 \frac{a}{b}`,
+        equationPreview: "预览",
+        equationPreviewEmpty: "公式将在此处显示。",
+        equationSubmitHint: "输入时会实时更新预览。按 Cmd/Ctrl+Enter 插入。",
+      },
       toolbar: {
         copiedPageLink: "已复制页面链接",
         copyPageLink: "复制页面链接",
@@ -9967,6 +10375,23 @@ const contentExactEnglishTranslations = {
   "es-ES": {
     editor: {
       failedToCreatePage: "No se pudo crear la página",
+      slash: {
+        blockEquation: "Ecuación en bloque",
+        blockEquationDescription:
+          "Muestra una ecuación LaTeX en su propia línea",
+        cancelEquation: "Cancelar",
+        inlineEquation: "Ecuación en línea",
+        inlineEquationDescription: "Añade una ecuación LaTeX dentro del texto",
+        insertEquation: "Insertar",
+        equationInputLabel: "Ecuación LaTeX",
+        equationInsertFailed: "No se pudo insertar la ecuación.",
+        equationNeedsRepair: "Corrige el LaTeX para ver la vista previa.",
+        equationPlaceholder: String.raw`Escribe LaTeX, por ejemplo \frac{a}{b}`,
+        equationPreview: "Vista previa",
+        equationPreviewEmpty: "Tu ecuación aparecerá aquí.",
+        equationSubmitHint:
+          "La vista previa se actualiza mientras escribes. Pulsa Cmd/Ctrl+Enter para insertar.",
+      },
       toolbar: {
         copiedPageLink: "Enlace de página copiado",
         copyPageLink: "Copiar enlace de página",
@@ -9981,6 +10406,23 @@ const contentExactEnglishTranslations = {
   "fr-FR": {
     editor: {
       failedToCreatePage: "Impossible de créer la page",
+      slash: {
+        blockEquation: "Équation en bloc",
+        blockEquationDescription:
+          "Afficher une équation LaTeX sur sa propre ligne",
+        cancelEquation: "Annuler",
+        inlineEquation: "Équation en ligne",
+        inlineEquationDescription: "Ajouter une équation LaTeX dans le texte",
+        insertEquation: "Insérer",
+        equationInputLabel: "Équation LaTeX",
+        equationInsertFailed: "Impossible d’insérer l’équation.",
+        equationNeedsRepair: "Corrigez le LaTeX pour afficher un aperçu.",
+        equationPlaceholder: String.raw`Saisissez du LaTeX, par exemple \frac{a}{b}`,
+        equationPreview: "Aperçu",
+        equationPreviewEmpty: "Votre équation apparaîtra ici.",
+        equationSubmitHint:
+          "L’aperçu se met à jour pendant la saisie. Appuyez sur Cmd/Ctrl+Entrée pour insérer.",
+      },
       toolbar: {
         copiedPageLink: "Lien de la page copié",
         copyPageLink: "Copier le lien de la page",
@@ -9995,6 +10437,24 @@ const contentExactEnglishTranslations = {
   "de-DE": {
     editor: {
       failedToCreatePage: "Seite konnte nicht erstellt werden",
+      slash: {
+        blockEquation: "Blockgleichung",
+        blockEquationDescription:
+          "Eine LaTeX-Gleichung in einer eigenen Zeile anzeigen",
+        cancelEquation: "Abbrechen",
+        inlineEquation: "Inline-Gleichung",
+        inlineEquationDescription: "Eine LaTeX-Gleichung in Text einfügen",
+        insertEquation: "Einfügen",
+        equationInputLabel: "LaTeX-Gleichung",
+        equationInsertFailed: "Die Gleichung konnte nicht eingefügt werden.",
+        equationNeedsRepair:
+          "Korrigieren Sie das LaTeX, um eine Vorschau zu sehen.",
+        equationPlaceholder: String.raw`LaTeX eingeben, zum Beispiel \frac{a}{b}`,
+        equationPreview: "Vorschau",
+        equationPreviewEmpty: "Ihre Gleichung wird hier angezeigt.",
+        equationSubmitHint:
+          "Die Vorschau wird während der Eingabe aktualisiert. Mit Cmd/Ctrl+Enter einfügen.",
+      },
       toolbar: {
         copiedPageLink: "Seitenlink kopiert",
         copyPageLink: "Seitenlink kopieren",
@@ -10009,6 +10469,23 @@ const contentExactEnglishTranslations = {
   "ja-JP": {
     editor: {
       failedToCreatePage: "ページを作成できませんでした",
+      slash: {
+        blockEquation: "ブロック数式",
+        blockEquationDescription: "LaTeX 数式を独立した行に表示します",
+        cancelEquation: "キャンセル",
+        inlineEquation: "インライン数式",
+        inlineEquationDescription: "テキスト内に LaTeX 数式を追加します",
+        insertEquation: "挿入",
+        equationInputLabel: "LaTeX 数式",
+        equationInsertFailed: "数式を挿入できませんでした。",
+        equationNeedsRepair:
+          "プレビューを表示するには LaTeX を修正してください。",
+        equationPlaceholder: String.raw`LaTeX を入力（例：\frac{a}{b}）`,
+        equationPreview: "プレビュー",
+        equationPreviewEmpty: "ここに数式が表示されます。",
+        equationSubmitHint:
+          "入力中にプレビューが更新されます。Cmd/Ctrl+Enter で挿入します。",
+      },
       toolbar: {
         copiedPageLink: "ページリンクをコピーしました",
         copyPageLink: "ページリンクをコピー",
@@ -10023,6 +10500,22 @@ const contentExactEnglishTranslations = {
   "ko-KR": {
     editor: {
       failedToCreatePage: "페이지를 만들지 못했습니다",
+      slash: {
+        blockEquation: "블록 수식",
+        blockEquationDescription: "LaTeX 수식을 별도 줄에 표시합니다",
+        cancelEquation: "취소",
+        inlineEquation: "인라인 수식",
+        inlineEquationDescription: "텍스트 안에 LaTeX 수식을 추가합니다",
+        insertEquation: "삽입",
+        equationInputLabel: "LaTeX 수식",
+        equationInsertFailed: "수식을 삽입하지 못했습니다.",
+        equationNeedsRepair: "미리 보려면 LaTeX를 수정하세요.",
+        equationPlaceholder: String.raw`LaTeX를 입력하세요. 예: \frac{a}{b}`,
+        equationPreview: "미리보기",
+        equationPreviewEmpty: "여기에 수식이 표시됩니다.",
+        equationSubmitHint:
+          "입력하는 동안 미리보기가 업데이트됩니다. Cmd/Ctrl+Enter로 삽입하세요.",
+      },
       toolbar: {
         copiedPageLink: "페이지 링크를 복사했습니다",
         copyPageLink: "페이지 링크 복사",
@@ -10037,6 +10530,23 @@ const contentExactEnglishTranslations = {
   "pt-BR": {
     editor: {
       failedToCreatePage: "Não foi possível criar a página",
+      slash: {
+        blockEquation: "Equação em bloco",
+        blockEquationDescription:
+          "Exiba uma equação LaTeX em uma linha própria",
+        cancelEquation: "Cancelar",
+        inlineEquation: "Equação em linha",
+        inlineEquationDescription: "Adicione uma equação LaTeX dentro do texto",
+        insertEquation: "Inserir",
+        equationInputLabel: "Equação LaTeX",
+        equationInsertFailed: "Não foi possível inserir a equação.",
+        equationNeedsRepair: "Corrija o LaTeX para ver uma prévia.",
+        equationPlaceholder: String.raw`Digite LaTeX, por exemplo \frac{a}{b}`,
+        equationPreview: "Prévia",
+        equationPreviewEmpty: "Sua equação aparecerá aqui.",
+        equationSubmitHint:
+          "A prévia é atualizada enquanto você digita. Pressione Cmd/Ctrl+Enter para inserir.",
+      },
       toolbar: {
         copiedPageLink: "Link da página copiado",
         copyPageLink: "Copiar link da página",
@@ -10051,6 +10561,22 @@ const contentExactEnglishTranslations = {
   "hi-IN": {
     editor: {
       failedToCreatePage: "पेज नहीं बनाया जा सका",
+      slash: {
+        blockEquation: "ब्लॉक समीकरण",
+        blockEquationDescription: "LaTeX समीकरण को अलग पंक्ति में दिखाएँ",
+        cancelEquation: "रद्द करें",
+        inlineEquation: "इनलाइन समीकरण",
+        inlineEquationDescription: "टेक्स्ट के भीतर LaTeX समीकरण जोड़ें",
+        insertEquation: "सम्मिलित करें",
+        equationInputLabel: "LaTeX समीकरण",
+        equationInsertFailed: "समीकरण सम्मिलित नहीं किया जा सका।",
+        equationNeedsRepair: "पूर्वावलोकन देखने के लिए LaTeX ठीक करें।",
+        equationPlaceholder: String.raw`LaTeX लिखें, जैसे \frac{a}{b}`,
+        equationPreview: "पूर्वावलोकन",
+        equationPreviewEmpty: "आपका समीकरण यहाँ दिखाई देगा।",
+        equationSubmitHint:
+          "लिखते समय पूर्वावलोकन अपडेट होता है। सम्मिलित करने के लिए Cmd/Ctrl+Enter दबाएँ।",
+      },
       toolbar: {
         copiedPageLink: "पेज लिंक कॉपी किया गया",
         copyPageLink: "पेज लिंक कॉपी करें",
@@ -10064,6 +10590,22 @@ const contentExactEnglishTranslations = {
   "ar-SA": {
     editor: {
       failedToCreatePage: "تعذر إنشاء الصفحة",
+      slash: {
+        blockEquation: "معادلة مستقلة",
+        blockEquationDescription: "اعرض معادلة LaTeX في سطر مستقل",
+        cancelEquation: "إلغاء",
+        inlineEquation: "معادلة ضمن السطر",
+        inlineEquationDescription: "أضف معادلة LaTeX داخل النص",
+        insertEquation: "إدراج",
+        equationInputLabel: "معادلة LaTeX",
+        equationInsertFailed: "تعذر إدراج المعادلة.",
+        equationNeedsRepair: "صحح LaTeX لعرض المعاينة.",
+        equationPlaceholder: String.raw`اكتب LaTeX، مثل \frac{a}{b}`,
+        equationPreview: "معاينة",
+        equationPreviewEmpty: "ستظهر معادلتك هنا.",
+        equationSubmitHint:
+          "تتحدث المعاينة أثناء الكتابة. اضغط Cmd/Ctrl+Enter للإدراج.",
+      },
       toolbar: {
         copiedPageLink: "تم نسخ رابط الصفحة",
         copyPageLink: "نسخ رابط الصفحة",

@@ -12,7 +12,6 @@ import {
 import {
   buildFrameworkCore,
   buildFrameworkCoreCompact,
-  FIRST_SESSION_PERSONALIZATION,
 } from "./prompts/index.js";
 
 describe("shouldBlockInProductCodeEditingSurface", () => {
@@ -130,8 +129,11 @@ describe("prompt token-budget regressions", () => {
     expect(compact.length).toBeLessThan(full.length * 0.75);
   });
 
-  it("first-session personalization block stays under 3 KB", () => {
-    expect(FIRST_SESSION_PERSONALIZATION.length).toBeLessThan(3 * 1024);
+  it("does not include first-session personalization onboarding", () => {
+    for (const prompt of [full, compact]) {
+      expect(prompt).not.toContain("First-Session Personalization");
+      expect(prompt).not.toContain("application_state.personalization");
+    }
   });
 });
 

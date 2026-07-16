@@ -55,6 +55,7 @@
     "h3": "catalog:",
     "highlight.js": "^11.11.1",
     "isbot": "^5",
+    "katex": "0.17.0",
     "lowlight": "^3.3.0",
     "prosemirror-markdown": "^1.13.4",
     "remark-mdx": "^3.1.1",

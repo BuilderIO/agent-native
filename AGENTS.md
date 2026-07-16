@@ -21,6 +21,11 @@ read the relevant skill before changing that area.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
+- Write few code comments. Only comment a constraint the code cannot show, such
+  as a non-obvious trap a future change would otherwise reintroduce. Never
+  comment what the next line does, why a change is correct, or where it came
+  from. Keep a comment that earns its place to a line or two; prefer clearer
+  names and smaller functions over prose.
 - When changing docs under `packages/core/docs/content`, update the matching
   localized docs under `packages/core/docs/content/locales/*` when the source
   meaning changes. If translations cannot be updated in the same change, call

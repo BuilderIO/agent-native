@@ -9,6 +9,7 @@ import type {
   IntegrationStatus,
   OutgoingMessage,
   PlatformAdapter,
+  PlatformDeliveryReceipt,
 } from "../types.js";
 
 const DISCORD_MAX_CONTENT_LENGTH = 2_000;
@@ -209,7 +210,7 @@ export function discordAdapter(): PlatformAdapter {
     async sendResponse(
       message: OutgoingMessage,
       context: IncomingMessage,
-    ): Promise<void> {
+    ): Promise<void | PlatformDeliveryReceipt> {
       const applicationId = readString(context.platformContext.applicationId);
       const interactionToken = readString(
         context.responseContext?.interactionToken,
@@ -236,6 +237,7 @@ export function discordAdapter(): PlatformAdapter {
           chunk,
         );
       }
+      return { status: "delivered" };
     },
 
     formatAgentResponse(text: string): OutgoingMessage {

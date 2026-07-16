@@ -417,4 +417,62 @@ describe("view-screen", () => {
       agentQueueCount: 0,
     });
   });
+
+  it("reports the Templates view and selected built-in template", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "templates",
+        templateId: "preset-social-square",
+      })
+      .mockResolvedValueOnce(null);
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.navigation).toEqual({
+      view: "templates",
+      templateId: "preset-social-square",
+    });
+    expect(result.template).toMatchObject({
+      id: "preset-social-square",
+      isBuiltIn: true,
+      source: "built-in",
+      width: 1080,
+      height: 1080,
+    });
+  });
+
+  it("reports an accessible linked design system for a selected user template", async () => {
+    mocks.readAppStateForCurrentTab
+      .mockResolvedValueOnce({
+        view: "list",
+        templateId: "saved-template",
+      })
+      .mockResolvedValueOnce(null);
+    mocks.resolveAccess.mockImplementation(async (type: string) => {
+      if (type === "design-template") {
+        return {
+          role: "owner",
+          resource: {
+            title: "Saved template",
+            category: "social",
+            designSystemId: "system-1",
+            visibility: "private",
+          },
+        };
+      }
+      if (type === "design-system") {
+        return { role: "viewer", resource: { id: "system-1" } };
+      }
+      return null;
+    });
+
+    const result = JSON.parse(await action.run({}));
+
+    expect(result.template).toMatchObject({
+      id: "saved-template",
+      isBuiltIn: false,
+      source: "user",
+      designSystemId: "system-1",
+    });
+  });
 });

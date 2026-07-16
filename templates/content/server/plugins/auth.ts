@@ -19,6 +19,7 @@ export default createAuthPlugin({
     "/_agent-native/builder/callback",
     "/_agent-native/builder/connect",
     "/_agent-native/builder/status",
+    "/_agent-native/connection-status/builder",
     "/_agent-native/env-status",
   ],
 });

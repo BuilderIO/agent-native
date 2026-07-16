@@ -6,9 +6,14 @@ const mockStartBuilderDesignSystemIndex = vi.hoisted(() => vi.fn());
 const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
+const mockPdfParseOptions = vi.hoisted(() => vi.fn());
 
 vi.mock("pdf-parse", () => ({
   PDFParse: class {
+    constructor(options: unknown) {
+      mockPdfParseOptions(options);
+    }
+
     async getText() {
       return mockPdfText();
     }
@@ -56,6 +61,7 @@ import action from "./import-file";
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockPdfParseOptions.mockReset();
   mockReadUserUploadedFile.mockImplementation(async (filePath: string) => ({
     data: Buffer.from("%PDF-1.7\n"),
     filename: filePath,
@@ -99,6 +105,9 @@ describe("import-file PDF source extraction", () => {
     expect(result.pages[0].text).toBe(fullText);
     expect(result.pages[0].textPreview).toBe(fullText.slice(0, 500));
     expect(result.truncated).toBe(false);
+    expect(mockPdfParseOptions).toHaveBeenCalledWith({
+      data: expect.any(Uint8Array),
+    });
   });
 
   it("caps large PDF extraction output by default", async () => {

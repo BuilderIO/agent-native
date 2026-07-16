@@ -1,5 +1,87 @@
 # @agent-native/core
 
+## 0.102.2
+
+### Patch Changes
+
+- 76a9cca: Improve MCP connection status and make provider connection errors actionable.
+- 76a9cca: Keep queued chat follow-ups draining after fast turns and route cross-origin Assets pickers through a top-level sign-in-safe handoff.
+- 76a9cca: Recover the Agent panel when a stale lazy-loaded chat chunk fails to load.
+- 76a9cca: Keep the Builder source-change handoff card visible outside the collapsed chat work summary.
+
+## 0.102.1
+
+### Patch Changes
+
+- ab33ae7: Make the Agent Files tab taller and viewport-responsive, and let file previews fill the panel height with natural scrolling.
+
+## 0.102.0
+
+### Minor Changes
+
+- 6498492: Add the Tasks template app — a task-list-first agent-native workspace with inbox triage, custom fields, and full action parity for UI and agent.
+
+## 0.101.14
+
+### Patch Changes
+
+- 866d8f0: Bundle the Chat template in the CLI package and download GitHub fallbacks directly from codeload for faster, more reliable scaffolding.
+- 866d8f0: Polish the chat sidebar header by hiding mode tabs and moving full-view navigation into the icon row.
+
+## 0.101.13
+
+### Patch Changes
+
+- e503433: Keep CLI repository downloads asynchronous and challenge bare loopback MCP URLs for OAuth clients.
+- e503433: Keep completed chat work disclosures collapsed and stable when submitting a later message.
+- e503433: Remove the automatic first-session personalization questions from agent chat so new requests are handled directly.
+
+## 0.101.12
+
+### Patch Changes
+
+- 2ff004e: Fix workspace-file resolution and run-code paging/routing edge cases. `contentFromWorkspaceFile` now resolves the same file the run-code `workspaceRead`/`workspaceWrite` bridge sees (bridge scope first, then Resources), and fails closed on a bridge read error instead of silently falling back to a possibly-different same-path Resources body. `workspaceRead` returns null instead of a silently truncated prefix when a later page fails, and the run-code bridge now returns a distinct "not registered" (404) error for unknown tools instead of a misleading read-only access error.
+
+## 0.101.11
+
+### Patch Changes
+
+- fd0ddb8: Wait for agent-card and A2A routes to finish initializing on cold starts, preserve human approval gates across A2A tasks, and carry exact one-time chat authorization through authenticated agent delegation.
+
+## 0.101.10
+
+### Patch Changes
+
+- 3453dd3: Allow review hosts to attach a composer target, anchor, metadata, and visible context while independently controlling agent dispatch, and keep comment-only composers human-routed.
+
+## 0.101.9
+
+### Patch Changes
+
+- bc29c82: Retry visual recap publishing once with a focused source-repair turn when the hosted Plan parser rejects malformed MDX.
+- Updated dependencies [bc29c82]
+  - @agent-native/recap-cli@0.4.1
+
+## 0.101.8
+
+### Patch Changes
+
+- b023dad: Keep Builder account connection available when an app does not configure the separate Builder branch-creation capability, and describe preview relay setup failures before authorization accurately.
+- b023dad: Show Builder connection setup in Settings and use a content-blocker-safe status route.
+- b023dad: Relay Builder authorization securely from an approved callback deployment into an exact allowlisted, immutable preview origin, with deploy-specific Netlify permalinks, a 32+ character shared HMAC secret, and bounded relay request bodies.
+
+## 0.101.7
+
+### Patch Changes
+
+- 70caa6f: Preserve participant-visible integration replies and verified artifact identities so threaded corrections can reliably target resources after renames.
+
+## 0.101.6
+
+### Patch Changes
+
+- dd47e0a: Clarify how to add a UI later while preserving a headless app's shared action and data contract.
+
 ## 0.101.5
 
 ### Patch Changes

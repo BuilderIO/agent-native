@@ -1,0 +1,10 @@
+[build]
+ignore = "node ./scripts/netlify-ignore-build.mjs tasks"
+command = "export DATABASE_URL=${NETLIFY_DATABASE_URL:-$DATABASE_URL} && pnpm install && NITRO_PRESET=netlify pnpm --filter tasks build"
+publish = "templates/tasks/dist"
+functions = "templates/tasks/.netlify/functions-internal"
+
+[build.environment]
+GA_MEASUREMENT_ID = "G-ESF7FYXGN9"
+NITRO_PRESET = "netlify"
+NPM_CONFIG_PRODUCTION = "false"

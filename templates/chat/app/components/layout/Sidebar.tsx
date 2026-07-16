@@ -9,10 +9,8 @@ import {
 import { ExtensionsSidebarSection } from "@agent-native/core/client/extensions";
 import { OrgSwitcher } from "@agent-native/core/client/org";
 import {
-  IconActivity,
   IconArchive,
   IconBrain,
-  IconDatabase,
   IconDots,
   IconEdit,
   IconLayoutSidebarLeftCollapse,
@@ -47,18 +45,6 @@ const navItems = [
     labelKey: "navigation.chat",
     href: "/",
     view: "chat",
-  },
-  {
-    icon: IconActivity,
-    labelKey: "navigation.observability",
-    href: "/observability",
-    view: "observability",
-  },
-  {
-    icon: IconDatabase,
-    labelKey: "navigation.database",
-    href: "/database",
-    view: "database",
   },
   {
     icon: IconBrain,
