@@ -187,10 +187,122 @@ describe("product experiment lifecycle", () => {
       appOrigin: "https://mail.example.com",
       state: "ready",
       flags: [
-        { key: "beta", rules: { percentage: 25, rolloutEpoch: "epoch-1" } },
+        {
+          key: "beta",
+          rules: {
+            mode: "rules",
+            emails: [],
+            orgIds: [],
+            percentage: 25,
+            rolloutEpoch: "epoch-1",
+          },
+        },
       ],
     });
     await reconcileProductExperiment(admin, running.id);
+    expect(order).toEqual(["db-write"]);
+    expect(setTargetMock).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    {
+      name: "global-on mode",
+      rules: {
+        mode: "on",
+        emails: [],
+        orgIds: [],
+        percentage: 50,
+        rolloutEpoch: "epoch-1",
+      },
+    },
+    {
+      name: "an exact-email override",
+      rules: {
+        mode: "rules",
+        emails: ["someone@example.com"],
+        orgIds: [],
+        percentage: 50,
+        rolloutEpoch: "epoch-1",
+      },
+    },
+    {
+      name: "an exact-organization override",
+      rules: {
+        mode: "rules",
+        emails: [],
+        orgIds: ["org-1"],
+        percentage: 50,
+        rolloutEpoch: "epoch-1",
+      },
+    },
+    {
+      name: "missing email targets",
+      rules: {
+        mode: "rules",
+        orgIds: [],
+        percentage: 50,
+        rolloutEpoch: "epoch-1",
+      },
+    },
+    {
+      name: "missing organization targets",
+      rules: {
+        mode: "rules",
+        emails: [],
+        percentage: 50,
+        rolloutEpoch: "epoch-1",
+      },
+    },
+    {
+      name: "a changed rollout epoch",
+      rules: {
+        mode: "rules",
+        emails: [],
+        orgIds: [],
+        percentage: 50,
+        rolloutEpoch: "epoch-2",
+      },
+    },
+  ])("interrupts reconciliation after $name drifts", async ({ rules }) => {
+    const order: string[] = [];
+    installDb([[running], [{ ...running, status: "interrupted" }]], order);
+    targetMock.mockResolvedValue({
+      appId: "mail",
+      appOrigin: "https://mail.example.com",
+      state: "ready",
+      flags: [{ key: "beta", rules }],
+    });
+
+    await reconcileProductExperiment(admin, running.id);
+
+    expect(order).toEqual(["db-write"]);
+    expect(setTargetMock).not.toHaveBeenCalled();
+  });
+
+  it("keeps a running experiment healthy for its exact owned rule shape", async () => {
+    const order: string[] = [];
+    installDb([[running], [running]], order);
+    targetMock.mockResolvedValue({
+      appId: "mail",
+      appOrigin: "https://mail.example.com",
+      state: "ready",
+      flags: [
+        {
+          key: "beta",
+          rules: {
+            mode: "rules",
+            emails: [],
+            orgIds: [],
+            percentage: 50,
+            rolloutEpoch: "epoch-1",
+          },
+        },
+      ],
+    });
+
+    await expect(
+      reconcileProductExperiment(admin, running.id),
+    ).resolves.toMatchObject(running);
     expect(order).toEqual(["db-write"]);
     expect(setTargetMock).not.toHaveBeenCalled();
   });

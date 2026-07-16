@@ -44,13 +44,20 @@ vi.mock("../permissions.js", () => ({
 const defaultFeatureFlagRulesMock = vi.fn();
 const getFeatureFlagRulesMock = vi.fn();
 const normalizeFeatureFlagRulesMock = vi.fn((value) => value);
-const putFeatureFlagRulesMock = vi.fn();
+const mutateFeatureFlagRulesMock = vi.fn(
+  async (
+    key: string,
+    scope: unknown,
+    updater: (current: Record<string, unknown>) => Record<string, unknown>,
+  ) => updater(await getFeatureFlagRulesMock(key, scope)),
+);
 vi.mock("../store.js", () => ({
   defaultFeatureFlagRules: () => defaultFeatureFlagRulesMock(),
   getFeatureFlagRules: (...args: any[]) => getFeatureFlagRulesMock(...args),
+  mutateFeatureFlagRules: (...args: any[]) =>
+    mutateFeatureFlagRulesMock(...args),
   normalizeFeatureFlagRules: (...args: any[]) =>
     normalizeFeatureFlagRulesMock(...args),
-  putFeatureFlagRules: (...args: any[]) => putFeatureFlagRulesMock(...args),
 }));
 
 const listAction = (await import("./list-feature-flags.js")).default;
@@ -134,17 +141,17 @@ describe("feature flag action contracts", () => {
         summary: expect.any(Function),
       }),
     );
-    expect(putFeatureFlagRulesMock).toHaveBeenCalledWith(
+    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledWith(
       "new-editor",
       { email: "admin@example.com", orgId: "org-1" },
-      expect.objectContaining({ mode: "off", updatedBy: "admin@example.com" }),
+      expect.any(Function),
     );
     expect(result).toEqual({
       contractVersion: 1,
       status: "ready",
       key: "new-editor",
       rules: expect.objectContaining({
-        updatedAt: 123,
+        updatedAt: expect.any(Number),
         updatedBy: "admin@example.com",
       }),
       scope: { orgId: "org-1" },
@@ -169,6 +176,29 @@ describe("feature flag action contracts", () => {
 
     expect(normalizeFeatureFlagRulesMock).toHaveBeenCalledWith(
       expect.objectContaining({ mode: "on", emails: ["admin@example.com"] }),
+    );
+  });
+
+  it("derives replace-rules and its rollout epoch inside the atomic mutation", async () => {
+    const randomUUID = vi
+      .spyOn(crypto, "randomUUID")
+      .mockReturnValue("11111111-1111-4111-8111-111111111111");
+    try {
+      await setAction.run(
+        {
+          operation: "replace-rules",
+          key: "new-editor",
+          rules: { mode: "rules", percentage: 50 },
+        },
+        { caller: "tool", userEmail: "admin@example.com", orgId: "org-1" },
+      );
+    } finally {
+      randomUUID.mockRestore();
+    }
+
+    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
+    expect(normalizeFeatureFlagRulesMock).toHaveBeenCalledWith(
+      expect.objectContaining({ mode: "rules", percentage: 50 }),
     );
   });
 });

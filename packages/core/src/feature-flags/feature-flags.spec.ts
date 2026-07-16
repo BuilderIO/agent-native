@@ -13,10 +13,32 @@ const getOrgSettingMock = vi.fn(
 vi.mock("../settings/store.js", () => ({
   getSetting: (...args: any[]) => getSettingMock(...args),
   putSetting: vi.fn(),
+  mutateSetting: async (
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Promise<Record<string, unknown>>,
+  ) => {
+    const next = await updater(globalSettings.get(key) ?? null);
+    globalSettings.set(key, next);
+    return next;
+  },
 }));
 vi.mock("../settings/org-settings.js", () => ({
   getOrgSetting: (...args: any[]) => getOrgSettingMock(...args),
   putOrgSetting: vi.fn(),
+  mutateOrgSetting: async (
+    orgId: string,
+    key: string,
+    updater: (
+      current: Record<string, unknown> | null,
+    ) => Promise<Record<string, unknown>>,
+  ) => {
+    const mapKey = `${orgId}:${key}`;
+    const next = await updater(orgSettings.get(mapKey) ?? null);
+    orgSettings.set(mapKey, next);
+    return next;
+  },
 }));
 
 const registry = await import("./registry.js");
@@ -112,5 +134,28 @@ describe("feature flag evaluator", () => {
     await expect(
       store.evaluateFeatureFlag("new-editor", { orgId: "org-1" }),
     ).resolves.toBe(false);
+  });
+
+  it("starts an atomic org mutation from the global fallback", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag:new-editor", {
+      mode: "rules",
+      emails: ["first@example.com"],
+    });
+
+    const result = await store.mutateFeatureFlagRules(
+      "new-editor",
+      { orgId: "org-1" },
+      (current) =>
+        store.normalizeFeatureFlagRules({
+          ...current,
+          emails: [...current.emails, "second@example.com"],
+        }),
+    );
+
+    expect(result.emails).toEqual(["first@example.com", "second@example.com"]);
+    expect(orgSettings.get("org-1:feature-flag:new-editor")).toMatchObject({
+      emails: ["first@example.com", "second@example.com"],
+    });
   });
 });

@@ -1,5 +1,5 @@
-import { getOrgSetting, putOrgSetting } from "../settings/org-settings.js";
-import { getSetting, putSetting } from "../settings/store.js";
+import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
+import { getSetting, mutateSetting } from "../settings/store.js";
 import {
   getFeatureFlagDefinition,
   type FeatureFlagDefinition,
@@ -102,19 +102,33 @@ export async function getFeatureFlagRules(
   return normalizeFeatureFlagRules(stored);
 }
 
-export async function putFeatureFlagRules(
+/**
+ * Atomically derive one flag's scoped rules. An org's first override starts
+ * from the global fallback, then becomes independently CAS-protected.
+ */
+export async function mutateFeatureFlagRules(
   key: string,
   scope: Pick<FeatureFlagScope, "orgId">,
-  rules: FeatureFlagRules,
-): Promise<void> {
+  updater: (
+    current: FeatureFlagRules,
+  ) => FeatureFlagRules | Promise<FeatureFlagRules>,
+): Promise<FeatureFlagRules> {
   if (!getFeatureFlagDefinition(key)) {
     throw new Error(`Unknown feature flag: ${key}`);
   }
-  if (scope.orgId?.trim()) {
-    await putOrgSetting(scope.orgId, settingKey(key), { ...rules });
-    return;
-  }
-  await putSetting(settingKey(key), { ...rules });
+  const mutate = async (stored: Record<string, unknown> | null) => {
+    const fallback =
+      stored == null && scope.orgId?.trim()
+        ? await getSetting(settingKey(key))
+        : null;
+    return {
+      ...(await updater(normalizeFeatureFlagRules(stored ?? fallback))),
+    };
+  };
+  const persisted = scope.orgId?.trim()
+    ? await mutateOrgSetting(scope.orgId, settingKey(key), mutate)
+    : await mutateSetting(settingKey(key), mutate);
+  return normalizeFeatureFlagRules(persisted);
 }
 
 function rolloutBucket(input: string): number {

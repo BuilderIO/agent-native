@@ -5,9 +5,8 @@ import { requireFeatureFlagManager } from "../permissions.js";
 import { getFeatureFlagDefinition } from "../registry.js";
 import {
   defaultFeatureFlagRules,
-  getFeatureFlagRules,
+  mutateFeatureFlagRules,
   normalizeFeatureFlagRules,
-  putFeatureFlagRules,
 } from "../store.js";
 
 const rulesSchema = z.object({
@@ -59,33 +58,32 @@ export default defineAction({
       throw new Error(`Unknown feature flag: ${args.key}`);
     }
 
-    let rules;
-    if (args.operation === "off") {
-      rules = defaultFeatureFlagRules();
-    } else if (args.operation === "replace-rules") {
-      rules = normalizeFeatureFlagRules(args.rules);
-    } else {
-      const current = await getFeatureFlagRules(args.key, manager);
-      rules = normalizeFeatureFlagRules({
-        ...current,
-        // A globally-on flag already includes this user. Do not accidentally
-        // narrow it to a one-email rollout while recording the operator edit.
-        mode: current.mode === "on" ? "on" : "rules",
-        emails: [...current.emails, manager.email],
-      });
-    }
-    // Percentage cohorts are re-salted when their size changes, unless an
-    // experiment supplies its explicitly recorded epoch.
-    if (args.operation === "replace-rules") {
-      const current = await getFeatureFlagRules(args.key, manager);
-      if (current.percentage !== rules.percentage && !rules.rolloutEpoch) {
-        rules = { ...rules, rolloutEpoch: crypto.randomUUID() };
-      }
-    }
-    rules = { ...rules, updatedAt: Date.now(), updatedBy: manager.email };
-
-    await putFeatureFlagRules(args.key, manager, rules);
-    const persistedRules = await getFeatureFlagRules(args.key, manager);
+    const persistedRules = await mutateFeatureFlagRules(
+      args.key,
+      manager,
+      (current) => {
+        let rules;
+        if (args.operation === "off") {
+          rules = defaultFeatureFlagRules();
+        } else if (args.operation === "replace-rules") {
+          rules = normalizeFeatureFlagRules(args.rules);
+          // Percentage cohorts are re-salted when their size changes, unless
+          // an experiment supplies its explicitly recorded epoch.
+          if (current.percentage !== rules.percentage && !rules.rolloutEpoch) {
+            rules = { ...rules, rolloutEpoch: crypto.randomUUID() };
+          }
+        } else {
+          rules = normalizeFeatureFlagRules({
+            ...current,
+            // A globally-on flag already includes this user. Do not
+            // accidentally narrow it to a one-email rollout.
+            mode: current.mode === "on" ? "on" : "rules",
+            emails: [...current.emails, manager.email],
+          });
+        }
+        return { ...rules, updatedAt: Date.now(), updatedBy: manager.email };
+      },
+    );
     return {
       contractVersion: 1 as const,
       status: "ready" as const,

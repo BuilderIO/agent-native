@@ -348,6 +348,13 @@ export async function reconcileProductExperiment(
     }
     const rules = flag.rules as Record<string, unknown> | undefined;
     if (
+      typeof current.rolloutEpoch !== "string" ||
+      !current.rolloutEpoch.trim() ||
+      rules?.mode !== "rules" ||
+      !Array.isArray(rules.emails) ||
+      rules.emails.length !== 0 ||
+      !Array.isArray(rules.orgIds) ||
+      rules.orgIds.length !== 0 ||
       rules?.percentage !== current.treatmentPercentage ||
       rules?.rolloutEpoch !== current.rolloutEpoch
     ) {
