@@ -1,9 +1,9 @@
 import { readAppState } from "@agent-native/core/application-state";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 
 import {
   getGenerationCreativeContext as getGenerationCreativeContextLocal,
   recordGenerationCreativeContext as recordGenerationCreativeContextLocal,
-  type GenerationContextReadScope,
 } from "../store/generation.js";
 import {
   getContextPack,
@@ -14,6 +14,12 @@ import type {
   CreativeContextElementProvenance,
   CreativeContextReuseLabel,
 } from "../types.js";
+import {
+  assertGenerationArtifactAccess,
+  createGenerationArtifactAccessCapability,
+  type GenerationArtifactAccessTarget,
+  type GenerationArtifactIdentity,
+} from "./generation-artifact-access.js";
 import {
   callIsolatedCreativeContextA2A,
   hasIsolatedCreativeContextA2A,
@@ -28,6 +34,29 @@ import {
 
 export type CreativeGenerationRole = "slides" | "design" | "assets" | "content";
 export type CreativeContextModeOverride = "off";
+
+function defaultArtifactAccessTarget(
+  identity: GenerationArtifactIdentity,
+): GenerationArtifactAccessTarget | undefined {
+  if (identity.appId === "slides" && identity.artifactType === "deck") {
+    return { resourceType: "deck", resourceId: identity.artifactId };
+  }
+  if (identity.appId === "design" && identity.artifactType === "design") {
+    return { resourceType: "design", resourceId: identity.artifactId };
+  }
+  if (identity.appId === "content" && identity.artifactType === "document") {
+    return { resourceType: "document", resourceId: identity.artifactId };
+  }
+  return undefined;
+}
+
+function collaborativeArtifactTarget(
+  identity: GenerationArtifactIdentity,
+  explicit?: GenerationArtifactAccessTarget,
+): GenerationArtifactAccessTarget | undefined {
+  if (!getRequestOrgId()) return undefined;
+  return explicit ?? defaultArtifactAccessTarget(identity);
+}
 
 export function mergeCreativeContextReuseLabels(
   previous: readonly CreativeContextReuseLabel[],
@@ -380,16 +409,40 @@ export async function validateGenerationCreativeContextLocal(
 
 export async function recordGenerationCreativeContext(
   input: IsolatedRecordPayload,
-  options: { db?: any } = {},
+  options: { db?: any; artifactAccess?: GenerationArtifactAccessTarget } = {},
 ) {
+  const artifactAccessTarget = collaborativeArtifactTarget(
+    input,
+    options.artifactAccess,
+  );
   if (
     input.contextMode !== "off" &&
     !options.db &&
     hasIsolatedCreativeContextA2A()
   ) {
-    return callIsolatedCreativeContextA2A("record", input);
+    const artifactAccessCapability = artifactAccessTarget
+      ? await createGenerationArtifactAccessCapability(
+          input,
+          artifactAccessTarget,
+          "record",
+        )
+      : undefined;
+    return callIsolatedCreativeContextA2A("record", {
+      ...input,
+      artifactAccessCapability,
+    });
   }
-  return recordGenerationCreativeContextLocal(input, options);
+  const artifactAccess = artifactAccessTarget
+    ? await assertGenerationArtifactAccess(
+        input,
+        artifactAccessTarget,
+        "editor",
+      )
+    : undefined;
+  return recordGenerationCreativeContextLocal(input, {
+    db: options.db,
+    artifactAccess,
+  });
 }
 
 export async function getGenerationCreativeContext(
@@ -399,10 +452,14 @@ export async function getGenerationCreativeContext(
     artifactId: string;
   },
   options: {
-    accessScope?: GenerationContextReadScope;
+    artifactAccess?: GenerationArtifactAccessTarget;
     db?: any;
   } = {},
 ) {
+  const artifactAccessTarget = collaborativeArtifactTarget(
+    input,
+    options.artifactAccess,
+  );
   if (!options.db && hasIsolatedCreativeContextA2A()) {
     const state = (await readAppState("creative-context").catch(
       () => null,
@@ -410,13 +467,27 @@ export async function getGenerationCreativeContext(
       contextMode?: "auto" | "off";
     } | null;
     if (state?.contextMode !== "off") {
+      const artifactAccessCapability = artifactAccessTarget
+        ? await createGenerationArtifactAccessCapability(
+            input,
+            artifactAccessTarget,
+            "read",
+          )
+        : undefined;
       return callIsolatedCreativeContextA2A("read", {
         identity: input,
-        accessScope: options.accessScope ?? "owner",
+        artifactAccessCapability,
       });
     }
   }
+  const artifactAccess = artifactAccessTarget
+    ? await assertGenerationArtifactAccess(
+        input,
+        artifactAccessTarget,
+        "viewer",
+      )
+    : undefined;
   return getGenerationCreativeContextLocal(input, {
-    accessScope: options.accessScope,
+    artifactAccess,
   });
 }

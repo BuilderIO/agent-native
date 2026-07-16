@@ -248,6 +248,18 @@ describe("get-context-item public-agent boundary", () => {
           },
         },
       },
+      edges: [
+        {
+          id: "edge-child-1",
+          fromItemId: "item-1",
+          fromItemVersionId: "version-1",
+          toItemId: "item-child-1",
+          toItemVersionId: "version-child-1",
+          toExternalId: "figma-file:child-1",
+          relation: "contains-native-child",
+          metadata: {},
+        },
+      ],
     });
 
     const result = (await action.run({
@@ -259,6 +271,18 @@ describe("get-context-item public-agent boundary", () => {
       dataRole: "untrusted-reference",
       format: "design-html",
       content: html,
+      retrieval: {
+        mode: "manifest-parts",
+        root: { itemId: "item-1", itemVersionId: "version-1" },
+        cloneAction: "clone-creative-context-design",
+        parts: [
+          {
+            externalId: "figma-file:child-1",
+            itemId: "item-child-1",
+            itemVersionId: "version-child-1",
+          },
+        ],
+      },
     });
     expect(mocks.getCreativeContextItemByExternalId).not.toHaveBeenCalled();
   });
@@ -305,11 +329,99 @@ describe("get-context-item public-agent boundary", () => {
           },
         },
       },
+      edges: [
+        {
+          id: "edge-child-1",
+          fromItemId: "item-1",
+          fromItemVersionId: "version-1",
+          toItemId: "item-child-1",
+          toItemVersionId: "version-child-1",
+          toExternalId: "figma-file:child-1",
+          relation: "contains-native-child",
+          metadata: {},
+        },
+      ],
     });
 
     const result = (await action.run({ itemId: "item-1" })) as any;
 
-    expect(result.version.nativeCode).toBeNull();
+    expect(result.version.nativeCode).toEqual({
+      dataRole: "untrusted-reference",
+      format: "design-html",
+      content: null,
+      oversized: true,
+      byteLength: Buffer.byteLength(html, "utf8"),
+      maxInlineBytes: 128 * 1024,
+      retrieval: {
+        mode: "manifest-parts",
+        root: { itemId: "item-1", itemVersionId: "version-1" },
+        cloneAction: "clone-creative-context-design",
+        parts: [
+          {
+            externalId: "figma-file:child-1",
+            itemId: "item-child-1",
+            itemVersionId: "version-child-1",
+          },
+        ],
+      },
+      instruction: expect.stringContaining("exact clone action"),
+    });
     expect(mocks.getCreativeContextItemByExternalId).not.toHaveBeenCalled();
+  });
+
+  it("returns an explicit exact-clone contract instead of oversized flat HTML", async () => {
+    const context = await mocks.getCreativeContextItem();
+    const html = `<div class="fmd-slide google-slides-native" data-source-slide-id="slide-1" style="position:relative;width:960px;height:540px"><p>${"x".repeat(128 * 1024)}</p></div>`;
+    mocks.getCreativeContextItem.mockResolvedValue({
+      ...context,
+      item: {
+        ...context.item,
+        mimeType: "text/html",
+        provenance: {
+          compiler: "@agent-native/creative-context:google-slides-native",
+        },
+      },
+      version: {
+        ...context.version,
+        mimeType: "text/html",
+        content: html,
+        metadata: {
+          nativeArtifact: {
+            schemaVersion: 1,
+            app: "slides",
+            format: "slides-html",
+            rootExternalId: "deck-1:slide-1",
+            fidelityReport: {
+              exact: { count: 1 },
+              approximated: { count: 0, reasons: [] },
+              imageFallback: { count: 0, reasons: [] },
+            },
+          },
+        },
+      },
+      edges: [],
+    });
+
+    const result = (await action.run({
+      itemId: "item-1",
+      itemVersionId: "version-1",
+    })) as any;
+
+    expect(result.version.nativeCode).toMatchObject({
+      dataRole: "untrusted-reference",
+      format: "slides-html",
+      content: null,
+      oversized: true,
+      byteLength: Buffer.byteLength(html, "utf8"),
+      maxInlineBytes: 128 * 1024,
+      retrieval: {
+        mode: "exact-clone-only",
+        root: { itemId: "item-1", itemVersionId: "version-1" },
+        cloneAction: "clone-context-slide",
+        parts: [],
+      },
+      instruction: expect.stringContaining("never concatenate"),
+    });
+    expect(result.version.nativeCode.content).toBeNull();
   });
 });

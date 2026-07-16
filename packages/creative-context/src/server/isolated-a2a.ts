@@ -58,6 +58,12 @@ const generationRecordInputSchema = generationIdentitySchema
     elementProvenance: z.array(elementProvenanceSchema).max(500).optional(),
   })
   .strict();
+const artifactAccessCapabilitySchema = z.string().min(1).max(8_192);
+const generationRecordPayloadSchema = generationRecordInputSchema
+  .extend({
+    artifactAccessCapability: artifactAccessCapabilitySchema.optional(),
+  })
+  .strict();
 const generationRecordSchema = generationIdentitySchema
   .extend({
     id: boundedId,
@@ -106,7 +112,7 @@ const validatePayloadSchema = z
 const readPayloadSchema = z
   .object({
     identity: generationIdentitySchema,
-    accessScope: z.enum(["owner", "artifact-access-asserted"]).default("owner"),
+    artifactAccessCapability: artifactAccessCapabilitySchema.optional(),
   })
   .strict();
 
@@ -142,7 +148,7 @@ export const creativeContextA2ARequestSchema = z.discriminatedUnion(
         protocol: z.literal(PROTOCOL),
         requestId: z.uuid(),
         operation: z.literal("record"),
-        payload: generationRecordInputSchema,
+        payload: generationRecordPayloadSchema,
       })
       .strict(),
   ],
@@ -403,4 +409,5 @@ export type IsolatedRecordPayload = {
   contextPackId: string | null;
   reuseLabels: CreativeContextReuseLabel[];
   elementProvenance?: CreativeContextElementProvenance[];
+  artifactAccessCapability?: string;
 };

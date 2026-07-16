@@ -10,10 +10,16 @@ const mocks = vi.hoisted(() => ({
   getLocal: vi.fn(),
   hasA2A: vi.fn(),
   callA2A: vi.fn(),
+  getRequestOrgId: vi.fn(),
+  createArtifactCapability: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
   readAppState: mocks.readAppState,
+}));
+
+vi.mock("@agent-native/core/server/request-context", () => ({
+  getRequestOrgId: mocks.getRequestOrgId,
 }));
 
 vi.mock("../store/index.js", () => ({
@@ -43,6 +49,11 @@ vi.mock("./isolated-a2a.js", () => ({
   })),
 }));
 
+vi.mock("./generation-artifact-access.js", () => ({
+  assertGenerationArtifactAccess: vi.fn(),
+  createGenerationArtifactAccessCapability: mocks.createArtifactCapability,
+}));
+
 import {
   getGenerationCreativeContext,
   recordGenerationCreativeContext,
@@ -62,6 +73,10 @@ describe("generation context isolated A2A routing", () => {
     vi.clearAllMocks();
     mocks.readAppState.mockResolvedValue({ contextMode: "auto" });
     mocks.hasA2A.mockReturnValue(true);
+    mocks.getRequestOrgId.mockReturnValue("org-1");
+    mocks.createArtifactCapability.mockImplementation(
+      async (_identity, _target, operation) => `cap-${operation}`,
+    );
     mocks.callA2A.mockResolvedValue(emptyRemoteContext);
   });
 
@@ -104,12 +119,15 @@ describe("generation context isolated A2A routing", () => {
         artifactType: "deck",
         artifactId: "deck-1",
       },
-      accessScope: "owner",
+      artifactAccessCapability: "cap-read",
     });
     expect(mocks.callA2A).toHaveBeenNthCalledWith(
       4,
       "record",
-      expect.objectContaining({ artifactId: "deck-1" }),
+      expect.objectContaining({
+        artifactId: "deck-1",
+        artifactAccessCapability: "cap-record",
+      }),
     );
     expect(mocks.recordLocal).not.toHaveBeenCalled();
     expect(mocks.getLocal).not.toHaveBeenCalled();

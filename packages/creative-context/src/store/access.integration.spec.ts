@@ -266,36 +266,10 @@ describe("creative context access and revocation", () => {
     });
   });
 
-  it("shares generation history only after an app asserts same-org artifact access", async () => {
+  it("requires a host access proof before sharing generation history", async () => {
     const { exec, runWithRequestContext, store } = await setup();
-    await exec.execute({
-      sql: `INSERT INTO creative_context_generation_records
-        (id, app_id, artifact_type, artifact_id, context_mode,
-         context_pack_id, element_provenance, created_at, owner_email, org_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        "record-org-1",
-        "slides",
-        "deck",
-        "shared-deck",
-        "auto",
-        null,
-        '[{"elementId":"slide-1","influence":"generated"}]',
-        "2026-07-16T00:00:00.000Z",
-        "alice@example.test",
-        "org-1",
-        "record-other-org",
-        "slides",
-        "deck",
-        "shared-deck",
-        "auto",
-        null,
-        '[{"elementId":"secret","influence":"generated"}]',
-        "2026-07-16T01:00:00.000Z",
-        "mallory@example.test",
-        "org-2",
-      ],
-    });
+    const { assertGenerationArtifactAccess } =
+      await import("../server/generation-artifact-access.js");
     const asBob = <T>(fn: () => Promise<T>) =>
       runWithRequestContext(
         { userEmail: "bob@example.test", orgId: "org-1" },
@@ -306,18 +280,122 @@ describe("creative context access and revocation", () => {
       artifactType: "deck",
       artifactId: "shared-deck",
     };
+    const aliceProof = await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        assertGenerationArtifactAccess(
+          artifact,
+          {
+            resourceType: "creative-context-source",
+            resourceId: "source-1",
+          },
+          "editor",
+        ),
+    );
+    await runWithRequestContext(
+      { userEmail: "alice@example.test", orgId: "org-1" },
+      () =>
+        store.recordGenerationCreativeContext(
+          {
+            ...artifact,
+            contextMode: "auto",
+            contextPackId: null,
+            reuseLabels: [],
+            elementProvenance: [
+              { elementId: "slide-1", influence: "generated" },
+            ],
+          },
+          { artifactAccess: aliceProof },
+        ),
+    );
 
     await expect(
       asBob(() => store.getGenerationCreativeContext(artifact)),
     ).resolves.toBeNull();
     await expect(
       asBob(() =>
+        assertGenerationArtifactAccess(
+          artifact,
+          {
+            resourceType: "creative-context-source",
+            resourceId: "source-1",
+          },
+          "viewer",
+        ),
+      ),
+    ).rejects.toThrow(/no access/i);
+    await expect(
+      asBob(() =>
         store.getGenerationCreativeContext(artifact, {
-          accessScope: "artifact-access-asserted",
+          artifactAccess: {
+            identityKey: JSON.stringify([
+              artifact.appId,
+              artifact.artifactType,
+              artifact.artifactId,
+            ]),
+            minRole: "viewer",
+          } as never,
+        }),
+      ),
+    ).rejects.toThrow(/verified by the host application/i);
+
+    await asBob(() =>
+      store.recordGenerationCreativeContext({
+        ...artifact,
+        contextMode: "auto",
+        contextPackId: null,
+        reuseLabels: [],
+        elementProvenance: [{ elementId: "poison", influence: "generated" }],
+      }),
+    );
+    const poison = await exec.execute(
+      "SELECT org_id FROM creative_context_generation_records WHERE owner_email = 'bob@example.test'",
+    );
+    expect(poison.rows[0]?.org_id).toBeNull();
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        () =>
+          store.getGenerationCreativeContext(artifact, {
+            artifactAccess: aliceProof,
+          }),
+      ),
+    ).resolves.toMatchObject({
+      artifactId: "shared-deck",
+      elementProvenance: [{ elementId: "slide-1" }],
+    });
+
+    await exec.execute({
+      sql: `INSERT INTO creative_context_source_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "source-share-bob",
+        "source-1",
+        "user",
+        "bob@example.test",
+        "viewer",
+        "alice@example.test",
+        "2026-07-16T00:00:00.000Z",
+      ],
+    });
+    const bobProof = await asBob(() =>
+      assertGenerationArtifactAccess(
+        artifact,
+        {
+          resourceType: "creative-context-source",
+          resourceId: "source-1",
+        },
+        "viewer",
+      ),
+    );
+    await expect(
+      asBob(() =>
+        store.getGenerationCreativeContext(artifact, {
+          artifactAccess: bobProof,
         }),
       ),
     ).resolves.toMatchObject({
-      id: "record-org-1",
       artifactId: "shared-deck",
       elementProvenance: [{ elementId: "slide-1" }],
     });
@@ -325,10 +403,10 @@ describe("creative context access and revocation", () => {
       asBob(() =>
         store.getGenerationCreativeContext(
           { ...artifact, artifactId: "arbitrary-unasserted-id" },
-          { accessScope: "owner" },
+          { artifactAccess: bobProof },
         ),
       ),
-    ).resolves.toBeNull();
+    ).rejects.toThrow(/verified by the host application/i);
   });
 
   it("reloads a concurrently inserted item instead of failing its idempotent ingest", async () => {
@@ -998,6 +1076,36 @@ describe("creative context access and revocation", () => {
       args: ["daily-maintenance:source-1:2026-07-16"],
     });
     expect(rows.rows).toHaveLength(1);
+  });
+
+  it("deduplicates jobs inside one tenant without colliding across scopes", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const create = (userEmail: string, orgId: string | undefined) =>
+      runWithRequestContext({ userEmail, orgId }, () =>
+        store.createJob({
+          kind: "metadata-refresh",
+          dedupeKey: "same-logical-operation",
+        }),
+      );
+
+    const aliceOrgOne = await create("alice@example.test", "org-1");
+    const aliceOrgOneAgain = await create("alice@example.test", "org-1");
+    const bobOrgOne = await create("bob@example.test", "org-1");
+    const aliceOrgTwo = await create("alice@example.test", "org-2");
+    const alicePersonal = await create("alice@example.test", undefined);
+
+    expect(aliceOrgOneAgain.id).toBe(aliceOrgOne.id);
+    expect(
+      new Set([aliceOrgOne.id, bobOrgOne.id, aliceOrgTwo.id, alicePersonal.id]),
+    ).toHaveLength(4);
+    const rows = await exec.execute(
+      `SELECT dedupe_key, dedupe_scope, scoped_dedupe_key
+       FROM creative_context_jobs
+       WHERE scoped_dedupe_key = 'same-logical-operation'`,
+    );
+    expect(rows.rows).toHaveLength(4);
+    expect(new Set(rows.rows.map((row) => row.dedupe_scope))).toHaveLength(4);
+    expect(rows.rows.every((row) => row.dedupe_key === null)).toBe(true);
   });
 
   it("immediately tombstones sources when workspace connection access is removed", async () => {

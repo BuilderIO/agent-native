@@ -438,14 +438,11 @@ export default defineAction({
         const previous =
           contextMode === "off"
             ? null
-            : await getGenerationCreativeContext(
-                {
-                  appId: "slides",
-                  artifactType: "deck",
-                  artifactId: deckId,
-                },
-                { accessScope: "artifact-access-asserted" },
-              );
+            : await getGenerationCreativeContext({
+                appId: "slides",
+                artifactType: "deck",
+                artifactId: deckId,
+              });
         const nextElementProvenance = validated.reuseLabels.map((label) => ({
           elementId: label.elementId!,
           influence: label.influence ?? ("reference-conditioned" as const),

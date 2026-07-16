@@ -1,7 +1,6 @@
 import { defineAction, embedApp } from "@agent-native/core";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
-import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import {
   nativeCreativeArtifactFromMetadata,
@@ -222,16 +221,11 @@ export default defineAction({
       deck.slides = slides;
       deck.updatedAt = now;
       deck.creativeContext = { contextMode, contextPackId, reuseLabels };
-      const previousGeneration = await getGenerationCreativeContext(
-        {
-          appId: "slides",
-          artifactType: "deck",
-          artifactId: deckId,
-        },
-        getRequestOrgId()
-          ? { accessScope: "artifact-access-asserted" }
-          : undefined,
-      );
+      const previousGeneration = await getGenerationCreativeContext({
+        appId: "slides",
+        artifactType: "deck",
+        artifactId: deckId,
+      });
       const elementProvenance = replaceCreativeContextElementProvenance(
         previousGeneration?.elementProvenance ?? [],
         evidenceLabels.map((entry) => ({

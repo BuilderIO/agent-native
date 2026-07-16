@@ -256,7 +256,12 @@ export default defineAction({
               artifactType: "generation-session",
               artifactId: session.id,
             },
-            { accessScope: "artifact-access-asserted" },
+            {
+              artifactAccess: {
+                resourceType: "asset-library",
+                resourceId: args.libraryId,
+              },
+            },
           )
         : null;
     const pickerCreativeContext =
@@ -275,7 +280,12 @@ export default defineAction({
               artifactType: "asset",
               artifactId: lineageAsset.id,
             },
-            { accessScope: "artifact-access-asserted" },
+            {
+              artifactAccess: {
+                resourceType: "asset-library",
+                resourceId: args.libraryId,
+              },
+            },
           )
         : null;
     if (
@@ -813,13 +823,21 @@ export default defineAction({
       metadata: stringifyJson(baseMetadata),
       createdAt: now,
     });
-    await recordGenerationCreativeContext({
-      appId: "assets",
-      artifactType: "generation-run",
-      artifactId: runId,
-      ...creativeContextProvenance,
-      elementProvenance: elementProvenanceFor(runId),
-    });
+    await recordGenerationCreativeContext(
+      {
+        appId: "assets",
+        artifactType: "generation-run",
+        artifactId: runId,
+        ...creativeContextProvenance,
+        elementProvenance: elementProvenanceFor(runId),
+      },
+      {
+        artifactAccess: {
+          resourceType: "asset-library",
+          resourceId: args.libraryId,
+        },
+      },
+    );
 
     await upsertVariantSlot({
       runId,
@@ -979,13 +997,21 @@ export default defineAction({
             category,
           }),
       );
-      await recordGenerationCreativeContext({
-        appId: "assets",
-        artifactType: "asset",
-        artifactId: asset.id,
-        ...creativeContextProvenance,
-        elementProvenance: elementProvenanceFor(asset.id),
-      });
+      await recordGenerationCreativeContext(
+        {
+          appId: "assets",
+          artifactType: "asset",
+          artifactId: asset.id,
+          ...creativeContextProvenance,
+          elementProvenance: elementProvenanceFor(asset.id),
+        },
+        {
+          artifactAccess: {
+            resourceType: "asset-library",
+            resourceId: args.libraryId,
+          },
+        },
+      );
       if (session) {
         const itemCreatedAt = nowIso();
         await db.insert(schema.assetGenerationSessionItems).values({

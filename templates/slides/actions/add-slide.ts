@@ -265,14 +265,11 @@ export default defineAction({
       const previousGeneration =
         contextMode === "off"
           ? null
-          : await getGenerationCreativeContext(
-              {
-                appId: "slides",
-                artifactType: "deck",
-                artifactId: deckId,
-              },
-              { accessScope: "artifact-access-asserted" },
-            );
+          : await getGenerationCreativeContext({
+              appId: "slides",
+              artifactType: "deck",
+              artifactId: deckId,
+            });
       if (
         recordedPackId &&
         previousGeneration?.contextPackId &&

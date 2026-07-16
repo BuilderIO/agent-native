@@ -3,6 +3,7 @@ import { z } from "zod";
 
 import { dispatchCreativeContextImportJob } from "../jobs/index.js";
 import { getCreativeContext } from "../server/context.js";
+import { serializePublicJob } from "../server/public-serialization.js";
 import { createJob } from "../store/index.js";
 import { getContextSource } from "../store/index.js";
 
@@ -32,6 +33,6 @@ export default defineAction({
       orgId: job.orgId,
       appId: getCreativeContext().connectorContext.appId,
     });
-    return { job };
+    return { job: serializePublicJob(job) };
   },
 });

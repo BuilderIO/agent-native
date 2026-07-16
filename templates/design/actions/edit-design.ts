@@ -356,14 +356,11 @@ export default defineAction({
       const previous =
         contextModeOverride === "off"
           ? null
-          : await getGenerationCreativeContext(
-              {
-                appId: "design",
-                artifactType: "design",
-                artifactId: designId,
-              },
-              { accessScope: "artifact-access-asserted" },
-            );
+          : await getGenerationCreativeContext({
+              appId: "design",
+              artifactType: "design",
+              artifactId: designId,
+            });
       if (
         contextPackId !== undefined &&
         previous?.contextPackId &&

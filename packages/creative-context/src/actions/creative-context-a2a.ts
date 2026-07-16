@@ -2,6 +2,7 @@ import { defineAction } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server";
 import { z } from "zod";
 
+import { verifyGenerationArtifactAccessCapability } from "../server/generation-artifact-access.js";
 import {
   createCreativeContextA2AResponseToken,
   decodeCreativeContextA2ARequest,
@@ -44,15 +45,32 @@ export default defineAction({
       case "read": {
         const { getGenerationCreativeContext } =
           await import("../store/generation.js");
+        const artifactAccess = request.payload.artifactAccessCapability
+          ? await verifyGenerationArtifactAccessCapability(
+              request.payload.artifactAccessCapability,
+              request.payload.identity,
+              "read",
+            )
+          : undefined;
         result = await getGenerationCreativeContext(request.payload.identity, {
-          accessScope: request.payload.accessScope,
+          artifactAccess,
         });
         break;
       }
       case "record": {
         const { recordGenerationCreativeContext } =
           await import("../store/generation.js");
-        result = await recordGenerationCreativeContext(request.payload);
+        const { artifactAccessCapability, ...record } = request.payload;
+        const artifactAccess = artifactAccessCapability
+          ? await verifyGenerationArtifactAccessCapability(
+              artifactAccessCapability,
+              record,
+              "record",
+            )
+          : undefined;
+        result = await recordGenerationCreativeContext(record, {
+          artifactAccess,
+        });
         break;
       }
     }

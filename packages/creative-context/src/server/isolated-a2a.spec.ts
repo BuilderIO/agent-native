@@ -141,7 +141,6 @@ describe("isolated Creative Context A2A", () => {
             artifactType: "deck",
             artifactId: "deck-1",
           },
-          accessScope: "owner",
         },
         {
           callAgent: vi.fn(async () => {
@@ -152,6 +151,27 @@ describe("isolated Creative Context A2A", () => {
     ).rejects.toThrow(
       /Isolated Creative Context A2A request failed: timed out after 30000ms/,
     );
+  });
+
+  it("rejects the retired caller-selectable collaborative read scope", () => {
+    const requestToken = Buffer.from(
+      JSON.stringify({
+        protocol: "creative-context-a2a-v1",
+        requestId: "87f466ae-32f4-4d0f-9de7-96f955e69f7b",
+        operation: "read",
+        payload: {
+          identity: {
+            appId: "slides",
+            artifactType: "deck",
+            artifactId: "guessed-deck",
+          },
+          accessScope: "artifact-access-asserted",
+        },
+      }),
+      "utf8",
+    ).toString("base64url");
+
+    expect(() => decodeCreativeContextA2ARequest(requestToken)).toThrow();
   });
 
   it("fails closed when the isolated URL has no signing secret", async () => {

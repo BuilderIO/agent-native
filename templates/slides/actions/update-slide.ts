@@ -262,14 +262,11 @@ export default defineAction({
         const previous =
           contextMode === "off"
             ? null
-            : await getGenerationCreativeContext(
-                {
-                  appId: "slides",
-                  artifactType: "deck",
-                  artifactId: deckId,
-                },
-                { accessScope: "artifact-access-asserted" },
-              );
+            : await getGenerationCreativeContext({
+                appId: "slides",
+                artifactType: "deck",
+                artifactId: deckId,
+              });
         const editedElementProvenance = slideReuseLabels.map((label) => ({
           elementId: slideId,
           influence: label.influence ?? ("reference-conditioned" as const),

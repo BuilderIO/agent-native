@@ -399,12 +399,17 @@ export default defineAction({
       editorView: "overview",
       path: `/design/${encodeURIComponent(designId)}?view=overview`,
     });
-    await recordGenerationCreativeContext({
-      appId: "design",
-      artifactType: "generation-session",
-      artifactId: session.id,
-      ...creativeContextProvenance,
-    });
+    await recordGenerationCreativeContext(
+      {
+        appId: "design",
+        artifactType: "generation-session",
+        artifactId: session.id,
+        ...creativeContextProvenance,
+      },
+      {
+        artifactAccess: { resourceType: "design", resourceId: designId },
+      },
+    );
 
     const targets = frames.map((frame, index) => {
       const requested = screens[index]!;

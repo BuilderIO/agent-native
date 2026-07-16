@@ -2,6 +2,10 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { and, desc, eq } from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
+import {
+  assertGenerationArtifactAccessProof,
+  type GenerationArtifactAccessProof,
+} from "../server/generation-artifact-access.js";
 import type {
   CreativeContextGenerationRecord,
   CreativeContextElementProvenance,
@@ -14,8 +18,6 @@ import {
   requireActor,
   stringifyJson,
 } from "./helpers.js";
-
-export type GenerationContextReadScope = "owner" | "artifact-access-asserted";
 
 export function assertGenerationCreativeContextInvariants(input: {
   contextMode: "off" | "auto" | "pinned";
@@ -79,6 +81,7 @@ export async function recordGenerationCreativeContext(
   },
   options: {
     db?: any;
+    artifactAccess?: GenerationArtifactAccessProof;
   } = {},
 ): Promise<CreativeContextGenerationRecord> {
   const elementProvenance =
@@ -134,6 +137,13 @@ export async function recordGenerationCreativeContext(
   const { getDb, schema } = getCreativeContext();
   const db = options.db ?? getDb();
   const actor = requireActor();
+  if (options.artifactAccess) {
+    assertGenerationArtifactAccessProof(
+      input,
+      options.artifactAccess,
+      "editor",
+    );
+  }
   const row = {
     id: newId("ccgr"),
     appId: input.appId,
@@ -144,7 +154,7 @@ export async function recordGenerationCreativeContext(
     elementProvenance: stringifyJson(elementProvenance),
     createdAt: nowIso(),
     ownerEmail: actor.ownerEmail,
-    orgId: actor.orgId,
+    orgId: options.artifactAccess ? actor.orgId : null,
   };
   await db.insert(schema.generationRecords).values(row);
   await getCreativeContext().projections?.generation?.record({
@@ -167,21 +177,26 @@ export async function getGenerationCreativeContext(
     artifactId: string;
   },
   options: {
-    accessScope?: GenerationContextReadScope;
+    artifactAccess?: GenerationArtifactAccessProof;
   } = {},
 ): Promise<CreativeContextGenerationRecord | null> {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
-  const accessScope = options.accessScope ?? "owner";
-  if (accessScope === "artifact-access-asserted" && !actor.orgId) {
+  if (options.artifactAccess && !actor.orgId) {
     throw new Error(
       "Collaborative generation context reads require an organization",
     );
   }
-  const actorScope =
-    accessScope === "artifact-access-asserted"
-      ? eq(schema.generationRecords.orgId, actor.orgId!)
-      : eq(schema.generationRecords.ownerEmail, actor.ownerEmail);
+  if (options.artifactAccess) {
+    assertGenerationArtifactAccessProof(
+      input,
+      options.artifactAccess,
+      "viewer",
+    );
+  }
+  const actorScope = options.artifactAccess
+    ? eq(schema.generationRecords.orgId, actor.orgId!)
+    : eq(schema.generationRecords.ownerEmail, actor.ownerEmail);
   const rows = await getDb()
     .select()
     .from(schema.generationRecords)

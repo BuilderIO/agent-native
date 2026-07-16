@@ -333,14 +333,11 @@ async function finalizeGenerationForSavedFiles(
     const previous =
       creativeContext.contextMode === "off"
         ? null
-        : await getGenerationCreativeContext(
-            {
-              appId: "design",
-              artifactType: "design",
-              artifactId: designId,
-            },
-            { accessScope: "artifact-access-asserted" },
-          );
+        : await getGenerationCreativeContext({
+            appId: "design",
+            artifactType: "design",
+            artifactId: designId,
+          });
     const elementProvenance =
       previous?.contextMode === creativeContext.contextMode &&
       previous.contextPackId === creativeContext.contextPackId

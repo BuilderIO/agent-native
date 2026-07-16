@@ -134,6 +134,8 @@ export async function proposeCreativeContextSuggestion(input: {
     return mapSuggestion(existing[0]);
   }
   const timestamp = nowIso();
+  const payload = { ...(input.payload ?? {}) };
+  if (input.kind === "layout-template") delete payload.projectionItemId;
   const row = {
     id: newId("ccsg"),
     kind: input.kind,
@@ -142,7 +144,7 @@ export async function proposeCreativeContextSuggestion(input: {
     itemId: input.itemId,
     itemVersionId: detail.version.id,
     reason: input.reason ?? null,
-    payload: stringifyJson(input.payload),
+    payload: stringifyJson(payload),
     createdAt: timestamp,
     updatedAt: timestamp,
     ownerEmail: actor.ownerEmail,
@@ -195,6 +197,19 @@ export async function decideCanonicalLogoSuggestion(input: {
 
 const PROMOTED_LAYOUT_SOURCE = "Promoted layout templates";
 
+export async function resolveLayoutProjectionItemId(
+  suggestionId: string,
+  candidateId: unknown,
+): Promise<string | null> {
+  if (typeof candidateId !== "string" || !candidateId) return null;
+  const detail = await getCreativeContextItem(candidateId);
+  if (!detail || detail.item.kind !== "layout_template") return null;
+  const provenance = detail.item.provenance as Record<string, unknown>;
+  return provenance.promotedFromSuggestionId === suggestionId
+    ? detail.item.id
+    : null;
+}
+
 async function loadCompiledLayoutSource(itemId: string, itemVersionId: string) {
   const detail = await getCreativeContextItem(itemId, itemVersionId);
   if (!detail) throw new Error("Layout source version is no longer accessible");
@@ -236,10 +251,10 @@ export async function applyLayoutTemplateSuggestion(input: {
       "Layout-template projection is not configured for this app; keep the proposal pending",
     );
   }
-  let projectionItemId =
-    typeof payload.projectionItemId === "string"
-      ? payload.projectionItemId
-      : null;
+  let projectionItemId = await resolveLayoutProjectionItemId(
+    row.id,
+    payload.projectionItemId,
+  );
   const source =
     input.operation === "promote"
       ? await loadCompiledLayoutSource(row.itemId, row.itemVersionId)
@@ -308,11 +323,17 @@ export async function applyLayoutTemplateSuggestion(input: {
     });
   } else {
     const { getDb, schema } = getCreativeContext();
+    const actor = requireActor();
     if (projectionItemId) {
       await getDb()
         .update(schema.contextItems)
         .set({ status: "deprecated", updatedAt: nowIso() })
-        .where(eq(schema.contextItems.id, projectionItemId));
+        .where(
+          and(
+            eq(schema.contextItems.id, projectionItemId),
+            eq(schema.contextItems.ownerEmail, actor.ownerEmail),
+          ),
+        );
     }
     await adapter.demote({ suggestionId: row.id, projectionItemId });
   }

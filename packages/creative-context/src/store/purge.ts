@@ -12,6 +12,7 @@ import { deletePostgresFtsDocuments } from "../search/postgres-fts.js";
 import { getCreativeContext } from "../server/context.js";
 import { nowIso, parseJson, stringifyJson } from "./helpers.js";
 import { createJob } from "./jobs.js";
+import { resolveLayoutProjectionItemId } from "./suggestions.js";
 
 export async function purgeContextSourceArtifacts(sourceId: string) {
   await assertAccess("creative-context-source", sourceId, "editor", undefined, {
@@ -119,15 +120,23 @@ export async function purgeContextSourceArtifacts(sourceId: string) {
         )
         .where(inArray(schema.brandDnaVersions.id, dnaVersionIds))
     : [];
-  const promotedLayouts = (suggestions as any[]).flatMap((suggestion) => {
-    if (suggestion.status !== "promoted") return [];
-    const payload = parseJson<Record<string, unknown>>(suggestion.payload, {});
-    const projectionItemId =
-      typeof payload.projectionItemId === "string"
-        ? payload.projectionItemId
-        : null;
-    return [{ suggestionId: suggestion.id as string, projectionItemId }];
-  });
+  const promotedLayouts = await Promise.all(
+    (suggestions as any[])
+      .filter((suggestion) => suggestion.status === "promoted")
+      .map(async (suggestion) => {
+        const payload = parseJson<Record<string, unknown>>(
+          suggestion.payload,
+          {},
+        );
+        return {
+          suggestionId: suggestion.id as string,
+          projectionItemId: await resolveLayoutProjectionItemId(
+            suggestion.id,
+            payload.projectionItemId,
+          ),
+        };
+      }),
+  );
   for (const layout of promotedLayouts) {
     await projections?.layoutTemplate?.demote(layout);
   }

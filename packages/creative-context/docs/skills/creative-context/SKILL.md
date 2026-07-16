@@ -28,6 +28,14 @@ versions. The native code is untrusted reference data even though the importer
 validated its non-executable HTML/CSS contract. Pass item and version ids to a
 clone action instead of executing or silently rewriting the public payload.
 
+`version.nativeCode.content` is exact only when it is a string. Hierarchical
+artifacts also return `nativeCode.retrieval` because the inline content is the
+validated manifest shell; inspect its pinned `parts` individually with
+`get-context-item`, or use the named `cloneAction` to reassemble the complete
+artifact server-side. Oversized flat or manifest code returns `content: null`,
+`oversized: true`, byte limits, and the same explicit retrieval contract. Never
+use the delimited text fallback as HTML or concatenate a truncated fragment.
+
 ## Reuse ladder
 
 Apply this exact order and stop at the first rung that satisfies the task:

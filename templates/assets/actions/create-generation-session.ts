@@ -164,29 +164,37 @@ export default defineAction({
       });
       sortOrder += 10;
     }
-    await recordGenerationCreativeContext({
-      appId: "assets",
-      artifactType: "generation-session",
-      artifactId: session.id,
-      ...creativeContextProvenance,
-      elementProvenance: reuseLabels.length
-        ? reuseLabels.map((label) => ({
-            elementId: session.id,
-            influence: label.influence ?? ("reference-conditioned" as const),
-            ...(label.itemId ? { itemId: label.itemId } : {}),
-            ...(label.itemVersionId
-              ? { itemVersionId: label.itemVersionId }
-              : {}),
-            label: label.label,
-          }))
-        : [
-            {
+    await recordGenerationCreativeContext(
+      {
+        appId: "assets",
+        artifactType: "generation-session",
+        artifactId: session.id,
+        ...creativeContextProvenance,
+        elementProvenance: reuseLabels.length
+          ? reuseLabels.map((label) => ({
               elementId: session.id,
-              influence: "generated",
-              label: "Asset generation session",
-            },
-          ],
-    });
+              influence: label.influence ?? ("reference-conditioned" as const),
+              ...(label.itemId ? { itemId: label.itemId } : {}),
+              ...(label.itemVersionId
+                ? { itemVersionId: label.itemVersionId }
+                : {}),
+              label: label.label,
+            }))
+          : [
+              {
+                elementId: session.id,
+                influence: "generated",
+                label: "Asset generation session",
+              },
+            ],
+      },
+      {
+        artifactAccess: {
+          resourceType: "asset-library",
+          resourceId: args.libraryId,
+        },
+      },
+    );
     return {
       ...serializeGenerationSession(session),
       ...creativeContextProvenance,

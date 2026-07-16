@@ -194,16 +194,17 @@ async function verifyServedMediaUrl(
         const servedBytes = servedMediaSizeBytes(response);
         if (servedBytes === null) {
           lastFailure = "Stored media byte count could not be verified";
-          break;
-        }
-        if (servedBytes !== expectedBytes) {
+        } else if (servedBytes !== expectedBytes) {
           lastFailure = `Stored media byte count mismatch (${servedBytes} of ${expectedBytes} bytes)`;
-          break;
+        } else if (await responseHasReadableMediaBytes(response)) {
+          return;
+        } else {
+          lastFailure = "media URL did not serve readable bytes";
         }
-        if (await responseHasReadableMediaBytes(response)) return;
+      } else {
+        lastFailure = `media URL returned HTTP ${response.status}`;
+        if (response.status < 500) break;
       }
-      lastFailure = `media URL returned HTTP ${response.status}`;
-      if (response.status < 500) break;
     } catch (err) {
       lastFailure = err instanceof Error ? err.message : String(err);
     } finally {

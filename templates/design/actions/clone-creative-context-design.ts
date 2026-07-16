@@ -122,21 +122,26 @@ export default defineAction({
       elementId: `native-artifact:${index + 1}`,
       influence: "reused" as const,
     }));
-    await recordGenerationCreativeContext({
-      appId: "design",
-      artifactType: "design-file",
-      artifactId: savedFile.id,
-      contextMode: "pinned",
-      contextPackId: pack.id,
-      reuseLabels,
-      elementProvenance: reuseLabels.map((entry) => ({
-        elementId: entry.elementId,
-        influence: entry.influence,
-        itemId: entry.itemId,
-        itemVersionId: entry.itemVersionId,
-        label: entry.label,
-      })),
-    });
+    await recordGenerationCreativeContext(
+      {
+        appId: "design",
+        artifactType: "design-file",
+        artifactId: savedFile.id,
+        contextMode: "pinned",
+        contextPackId: pack.id,
+        reuseLabels,
+        elementProvenance: reuseLabels.map((entry) => ({
+          elementId: entry.elementId,
+          influence: entry.influence,
+          itemId: entry.itemId,
+          itemVersionId: entry.itemVersionId,
+          label: entry.label,
+        })),
+      },
+      {
+        artifactAccess: { resourceType: "design", resourceId: designId },
+      },
+    );
     return {
       ...saved,
       contextPackId: pack.id,

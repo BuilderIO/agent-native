@@ -67,16 +67,11 @@ async function documentMutationCreativeContext(input: {
   const previous =
     input.skipPreviousRead || input.contextModeOverride === "off"
       ? null
-      : await getGenerationCreativeContext(
-          {
-            appId: "content",
-            artifactType: "document",
-            artifactId: input.documentId,
-          },
-          input.artifactAccessAsserted
-            ? { accessScope: "artifact-access-asserted" }
-            : undefined,
-        );
+      : await getGenerationCreativeContext({
+          appId: "content",
+          artifactType: "document",
+          artifactId: input.documentId,
+        });
   if (
     !previous &&
     !input.contextPackId &&

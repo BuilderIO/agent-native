@@ -149,14 +149,11 @@ export default defineAction({
     const previousGeneration =
       args.contextModeOverride === "off"
         ? null
-        : await getGenerationCreativeContext(
-            {
-              appId: "content",
-              artifactType: "document",
-              artifactId: id,
-            },
-            { accessScope: "artifact-access-asserted" },
-          );
+        : await getGenerationCreativeContext({
+            appId: "content",
+            artifactType: "document",
+            artifactId: id,
+          });
     let creativeContext:
       | {
           contextMode: "off" | "auto" | "pinned";

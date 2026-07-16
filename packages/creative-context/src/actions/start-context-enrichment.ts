@@ -1,6 +1,7 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
+import { serializePublicJob } from "../server/public-serialization.js";
 import { createJob } from "../store/index.js";
 
 const schema = z.object({
@@ -24,8 +25,8 @@ export default defineAction({
   schema,
   needsApproval: true,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
-  run: async (args) => ({
-    job: await createJob({
+  run: async (args) => {
+    const job = await createJob({
       sourceId: args.sourceId,
       kind:
         args.operation === "enrich-media"
@@ -45,6 +46,7 @@ export default defineAction({
         eagerLimit: args.eagerLimit,
         remainingMode: "pending-on-demand",
       },
-    }),
-  }),
+    });
+    return { job: serializePublicJob(job) };
+  },
 });

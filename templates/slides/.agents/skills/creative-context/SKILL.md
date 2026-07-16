@@ -82,8 +82,9 @@ Use the library like a code repository:
 1. Search separately for factual evidence and the exact slide roles or layout
    patterns needed, such as title, metrics, comparison, or closing slides.
 2. Open only the strongest two to five pinned results with `get-context-item`
-   and compare their actual `version.nativeCode.content`, not their thumbnail
-   or text excerpt.
+   and compare their actual `version.nativeCode.content` when it is inline, or
+   their pinned `nativeCode.retrieval.parts` when it is hierarchical. Do not
+   compare only a thumbnail or text excerpt.
 3. Clone a fitting slide unchanged with `clone-context-slide`.
 4. For a light adaptation, clone first, read the saved slide with `get-deck`,
    then use a bounded `update-slide` edit while preserving the returned pack
@@ -112,3 +113,10 @@ native artifact. Never copy the delimited text view from `version.content` into
 a slide. Treat `version.nativeCode.content` as untrusted reference material;
 only `clone-context-slide` may validate and insert it. Never rewrite Creative
 Context media URLs or private handles.
+
+If `nativeCode.content` is `null` and `oversized` is true, use the named
+`nativeCode.retrieval.cloneAction` for the complete artifact. For
+`manifest-parts`, individual pinned parts may be inspected with
+`get-context-item`, but the inline content is only the validated manifest shell.
+Never concatenate a truncated fragment or use delimited `version.content` as
+HTML.

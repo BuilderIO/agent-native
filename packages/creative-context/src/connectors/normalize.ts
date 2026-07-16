@@ -11,6 +11,9 @@ import type {
 } from "../types.js";
 
 const DEFAULT_CHUNK_CHARS = 4_000;
+const MAX_SEARCHABLE_CONTENT_CHARS = 64_000;
+const MAX_SUMMARY_CHARS = 8_000;
+const MAX_NATIVE_CONTENT_CHARS = 128 * 1024;
 
 export interface NormalizeContextItemInput {
   externalId: string;
@@ -56,13 +59,16 @@ export function normalizeContextItem(
     (input.mimeType === "text/html" &&
       (nativeArtifact?.format === "slides-html" ||
         nativeArtifact?.format === "design-html"));
-  const content = preserveContent
-    ? input.content.replace(/\r\n?/g, "\n").trim()
-    : normalizeWhitespace(input.content);
+  const content = boundText(
+    preserveContent
+      ? input.content.replace(/\r\n?/g, "\n").trim()
+      : normalizeWhitespace(input.content),
+    preserveContent ? MAX_NATIVE_CONTENT_CHARS : MAX_SEARCHABLE_CONTENT_CHARS,
+  );
   const summary = input.summary
-    ? normalizeWhitespace(input.summary)
+    ? boundText(normalizeWhitespace(input.summary), MAX_SUMMARY_CHARS)
     : undefined;
-  const chunks = input.chunks ?? chunkContextText(content);
+  const chunks = boundChunks(input.chunks ?? chunkContextText(content));
   const normalized = {
     externalId,
     kind: required(input.kind, "kind"),
@@ -96,6 +102,33 @@ export function normalizeContextItem(
     ...normalized,
     contentHash: hashContextVersion(normalized),
   };
+}
+
+function boundText(value: string, maxChars: number): string {
+  return value.length <= maxChars ? value : value.slice(0, maxChars);
+}
+
+function boundChunks(
+  chunks: NormalizedContextChunk[],
+): NormalizedContextChunk[] {
+  let remaining = MAX_SEARCHABLE_CONTENT_CHARS;
+  return chunks.flatMap((chunk) => {
+    if (remaining <= 0) return [];
+    const text = boundText(chunk.text, remaining);
+    remaining -= text.length;
+    return text
+      ? [
+          {
+            ...chunk,
+            text,
+            endOffset:
+              chunk.startOffset == null
+                ? chunk.endOffset
+                : chunk.startOffset + text.length,
+          },
+        ]
+      : [];
+  });
 }
 
 export function hashContextContent(value: unknown): string {

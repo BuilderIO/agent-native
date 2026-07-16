@@ -5,7 +5,10 @@ import {
   reassembleNativeCreativeArtifact,
   validateCompiledNativeHtml,
 } from "../native-artifact-reassembly.js";
-import { nativeCreativeArtifactFromMetadata } from "../native-artifact.js";
+import {
+  nativeCreativeArtifactFromMetadata,
+  type NativeCreativeArtifact,
+} from "../native-artifact.js";
 import {
   sanitizePublicString,
   serializePublicContextDetail,
@@ -44,16 +47,7 @@ export default defineAction({
       context.version.metadata,
     );
     const nativeCode = nativeArtifact
-      ? nativeArtifact.manifest
-        ? boundedStoredNativeCode(context.version.content, nativeArtifact)
-        : ((
-            await reassembleNativeCreativeArtifact({
-              root: context,
-              app: nativeArtifact.app,
-              format: nativeArtifact.format,
-              resolveChild: getCreativeContextItemByExternalId,
-            }).catch(() => null)
-          )?.html ?? null)
+      ? await publicNativeCode(context, nativeArtifact)
       : null;
     return {
       ...publicContext,
@@ -77,14 +71,7 @@ export default defineAction({
         content: delimitUntrustedReference(
           sanitizePublicString(context.version.content),
         ),
-        nativeCode:
-          nativeArtifact && nativeCode
-            ? {
-                dataRole: UNTRUSTED_REFERENCE_ROLE,
-                format: nativeArtifact.format,
-                content: nativeCode,
-              }
-            : null,
+        nativeCode: nativeArtifact && nativeCode ? nativeCode : null,
         summary: context.version.summary
           ? delimitUntrustedReference(
               sanitizePublicString(context.version.summary),
@@ -132,17 +119,74 @@ export default defineAction({
   },
 });
 
-function boundedStoredNativeCode(
-  content: string,
-  artifact: Parameters<typeof validateCompiledNativeHtml>[1],
-): string | null {
-  if (Buffer.byteLength(content, "utf8") > MAX_STORED_NATIVE_CODE_BYTES) {
-    return null;
-  }
+async function publicNativeCode(
+  context: NonNullable<Awaited<ReturnType<typeof getCreativeContextItem>>>,
+  artifact: NativeCreativeArtifact,
+) {
   try {
+    const content = artifact.manifest
+      ? context.version.content
+      : (
+          await reassembleNativeCreativeArtifact({
+            root: context,
+            app: artifact.app,
+            format: artifact.format,
+            resolveChild: getCreativeContextItemByExternalId,
+          })
+        ).html;
     validateCompiledNativeHtml(content, artifact);
-    return content;
+    const byteLength = Buffer.byteLength(content, "utf8");
+    if (byteLength <= MAX_STORED_NATIVE_CODE_BYTES) {
+      return {
+        dataRole: UNTRUSTED_REFERENCE_ROLE,
+        format: artifact.format,
+        content,
+        ...(artifact.manifest
+          ? { retrieval: nativeCodeRetrieval(context, artifact) }
+          : {}),
+      };
+    }
+    return {
+      dataRole: UNTRUSTED_REFERENCE_ROLE,
+      format: artifact.format,
+      content: null,
+      oversized: true,
+      byteLength,
+      maxInlineBytes: MAX_STORED_NATIVE_CODE_BYTES,
+      retrieval: nativeCodeRetrieval(context, artifact),
+      instruction:
+        "Use the exact clone action for the complete artifact. For a manifest artifact, inspect individually pinned parts with get-context-item; never concatenate a truncated HTML fragment.",
+    };
   } catch {
     return null;
   }
+}
+
+function nativeCodeRetrieval(
+  context: NonNullable<Awaited<ReturnType<typeof getCreativeContextItem>>>,
+  artifact: NativeCreativeArtifact,
+) {
+  return {
+    mode: artifact.manifest ? "manifest-parts" : "exact-clone-only",
+    root: {
+      itemId: context.item.id,
+      itemVersionId: context.version.id,
+    },
+    cloneAction:
+      artifact.app === "slides"
+        ? "clone-context-slide"
+        : "clone-creative-context-design",
+    parts: (artifact.manifest?.children ?? []).map((child) => {
+      const edge = context.edges.find(
+        (candidate) =>
+          candidate.relation === "contains-native-child" &&
+          candidate.toExternalId === child.externalId,
+      );
+      return {
+        externalId: sanitizePublicString(child.externalId),
+        itemId: edge?.toItemId ?? null,
+        itemVersionId: edge?.toItemVersionId ?? null,
+      };
+    }),
+  };
 }
