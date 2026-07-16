@@ -41,10 +41,14 @@ describe("Content skill correction semantics", () => {
       /A title captured when the row\s+was created is a historical title/,
     );
     expect(skill).toMatch(
-      /read the canonical row from Content immediately before\s+building the update/,
+      /must call\s+`pull-document` first to flush any open collaborative editor state/,
+    );
+    expect(skill).toMatch(/fail closed\s+if that flush\/read cannot complete/);
+    expect(skill).toMatch(
+      /read the canonical database row from\s+Content immediately before building the update/,
     );
     expect(skill).toMatch(
-      /Content is authoritative for every field the correction\s+does not explicitly change/,
+      /freshly read\s+values as authoritative for every field the correction does not explicitly\s+change/,
     );
     expect(skill).toContain("Build corrections as sparse patches");
     expect(skill).toMatch(
@@ -63,10 +67,9 @@ describe("Content skill correction semantics", () => {
       /Clear a field only when the user explicitly asks to\s+remove, unset, or clear it/,
     );
     expect(skill).toMatch(
-      /requested fields changed, and omitted fields retained their pre-mutation live\s+values/,
+      /requested fields\s+changed and the mutation did not include omitted fields/,
     );
-    expect(skill).toMatch(
-      /report the conflict rather\s+than silently overwriting them/,
-    );
+    expect(skill).toMatch(/Post-write\s+verification is not compare-and-swap/);
+    expect(skill).toMatch(/do not claim the write was conflict-safe/);
   });
 });

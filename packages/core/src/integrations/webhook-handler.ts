@@ -211,7 +211,12 @@ function collectToolResultSummaries(
   return completedRun.events
     .map((runEvent) => runEvent.event)
     .filter((event): event is ToolDoneEvent => event.type === "tool_done")
-    .map((event) => ({ tool: event.tool, result: event.result }));
+    .map((event) => ({
+      tool: event.tool,
+      result: event.result,
+      isError: event.isError,
+      completedSideEffect: event.completedSideEffect,
+    }));
 }
 
 function collectCompletedMutationToolResultSummaries(

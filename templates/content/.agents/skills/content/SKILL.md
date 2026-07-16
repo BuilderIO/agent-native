@@ -125,9 +125,12 @@ For a correction to an existing artifact, treat Slack history as identity and
 intent context, not as the current record state. A title captured when the row
 was created is a historical title: it may help locate the stable document ID,
 but it is not authoritative after the row has been renamed in Content. Once the
-stable ID is known, read the canonical row from Content immediately before
-building the update. Content is authoritative for every field the correction
-does not explicitly change.
+stable ID is known, an external Slack or A2A correction must call
+`pull-document` first to flush any open collaborative editor state; fail closed
+if that flush/read cannot complete. Then read the canonical database row from
+Content immediately before building the update. Treat those freshly read
+values as authoritative for every field the correction does not explicitly
+change.
 
 Build corrections as sparse patches:
 
@@ -142,10 +145,12 @@ Build corrections as sparse patches:
 - Never reconstruct a full-row update from the original Slack request. Derive
   the patch from the correction message and the freshly read canonical row,
   while preserving the stable document ID.
-- After the mutation, read the row again and verify both sides of the contract:
-  requested fields changed, and omitted fields retained their pre-mutation live
-  values. If concurrent edits make that impossible, report the conflict rather
-  than silently overwriting them.
+- After the mutation, read the row again and verify that the requested fields
+  changed and the mutation did not include omitted fields. Post-write
+  verification is not compare-and-swap: it can reveal an unexpected result but
+  cannot prevent a concurrent edit between the read and a blind metadata or
+  property write. Report an action-provided conflict when one exists; otherwise
+  keep the patch minimal and do not claim the write was conflict-safe.
 
 Apply people fields from verified identity and intent, not from convenient
 guesswork:

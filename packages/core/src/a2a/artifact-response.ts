@@ -548,6 +548,8 @@ function collectArtifacts(results: A2AToolResultSummary[]): {
   const forms = new Map<string, CreatedFormArtifact>();
 
   for (const toolResult of results) {
+    if (toolResult.isError === true || toolResult.completedSideEffect === false)
+      continue;
     if (toolResult.tool === "call-agent") {
       for (const artifact of parseDownstreamArtifactBlock(toolResult.result)) {
         if (artifact.kind === "deck") {
