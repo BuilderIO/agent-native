@@ -25,6 +25,8 @@ describe("document media handles", () => {
   it("accepts supported media types and sanitizes filenames", () => {
     expect(isSupportedDocumentMediaType("image/png")).toBe(true);
     expect(isSupportedDocumentMediaType("text/html")).toBe(false);
+    expect(isSupportedDocumentMediaType("image/svg+xml")).toBe(false);
+    expect(isSupportedDocumentMediaType("image/custom+xml")).toBe(false);
     expect(safeDocumentMediaFilename("../secret\\name.png")).toBe(
       ".._secret_name.png",
     );

@@ -4,9 +4,15 @@ export const DOCUMENT_MEDIA_MAX_BYTES = 25 * 1024 * 1024;
 export const DOCUMENT_MEDIA_PATH = "/api/document-media";
 
 const MEDIA_TYPE_PREFIXES = ["image/", "video/", "audio/"];
+const ACTIVE_CONTENT_MEDIA_TYPES = new Set(["image/svg+xml"]);
 
 export function isSupportedDocumentMediaType(mimeType: string): boolean {
-  return MEDIA_TYPE_PREFIXES.some((prefix) => mimeType.startsWith(prefix));
+  const normalized = mimeType.trim().toLowerCase();
+  return (
+    !ACTIVE_CONTENT_MEDIA_TYPES.has(normalized) &&
+    !normalized.endsWith("+xml") &&
+    MEDIA_TYPE_PREFIXES.some((prefix) => normalized.startsWith(prefix))
+  );
 }
 
 export function safeDocumentMediaFilename(value: string | undefined): string {

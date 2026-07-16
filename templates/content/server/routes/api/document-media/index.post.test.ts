@@ -7,6 +7,7 @@ const putPrivateBlob = vi.hoisted(() => vi.fn());
 const deletePrivateBlob = vi.hoisted(() => vi.fn());
 const readMultipartFormData = vi.hoisted(() => vi.fn());
 const insert = vi.hoisted(() => vi.fn());
+const setResponseHeader = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/private-blob", () => ({
   putPrivateBlob: (...args: unknown[]) => putPrivateBlob(...args),
@@ -26,6 +27,7 @@ vi.mock("h3", () => ({
     Object.assign(new Error(), value),
   defineEventHandler: (handler: unknown) => handler,
   readMultipartFormData: (...args: unknown[]) => readMultipartFormData(...args),
+  setResponseHeader: (...args: unknown[]) => setResponseHeader(...args),
 }));
 vi.mock("../../../db/index.js", () => ({
   getDb: () => ({ insert }),
@@ -69,6 +71,11 @@ describe("POST /api/document-media", () => {
       statusCode: 401,
     });
     expect(putPrivateBlob).not.toHaveBeenCalled();
+    expect(setResponseHeader).toHaveBeenCalledWith(
+      expect.anything(),
+      "Cache-Control",
+      "no-store",
+    );
 
     getSession.mockResolvedValue({
       email: "editor@example.com",
@@ -100,6 +107,10 @@ describe("POST /api/document-media", () => {
 
   it("rejects unsupported or oversized inputs and returns 503 when storage is missing", async () => {
     readMultipartFormData.mockResolvedValue(mediaParts("text/html"));
+    await expect(handler({} as never)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    readMultipartFormData.mockResolvedValue(mediaParts("image/svg+xml"));
     await expect(handler({} as never)).rejects.toMatchObject({
       statusCode: 400,
     });

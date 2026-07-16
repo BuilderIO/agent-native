@@ -8,7 +8,12 @@ import {
 } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
-import { createError, defineEventHandler, readMultipartFormData } from "h3";
+import {
+  createError,
+  defineEventHandler,
+  readMultipartFormData,
+  setResponseHeader,
+} from "h3";
 
 import { getDb, schema } from "../../../db/index.js";
 import {
@@ -20,6 +25,9 @@ import {
 } from "../../../lib/document-media.js";
 
 export default defineEventHandler(async (event) => {
+  setResponseHeader(event, "Cache-Control", "no-store");
+  setResponseHeader(event, "Referrer-Policy", "no-referrer");
+  setResponseHeader(event, "X-Content-Type-Options", "nosniff");
   const session = await getSession(event).catch(() => null);
   if (!session?.email) throw createError({ statusCode: 401 });
   const parts = await readMultipartFormData(event);
