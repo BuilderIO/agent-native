@@ -6,6 +6,7 @@ const assertAccess = vi.hoisted(() => vi.fn());
 const putPrivateBlob = vi.hoisted(() => vi.fn());
 const deletePrivateBlob = vi.hoisted(() => vi.fn());
 const readMultipartFormData = vi.hoisted(() => vi.fn());
+const getHeader = vi.hoisted(() => vi.fn());
 const insert = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
 const setResponseStatus = vi.hoisted(() => vi.fn());
@@ -25,6 +26,7 @@ vi.mock("@agent-native/core/sharing", () => ({
 vi.mock("drizzle-orm", () => ({ and: vi.fn(), eq: vi.fn() }));
 vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
+  getHeader: (...args: unknown[]) => getHeader(...args),
   readMultipartFormData: (...args: unknown[]) => readMultipartFormData(...args),
   setResponseHeader: (...args: unknown[]) => setResponseHeader(...args),
   setResponseStatus: (...args: unknown[]) => setResponseStatus(...args),
@@ -57,6 +59,9 @@ describe("POST /api/document-media", () => {
       orgId: "org-1",
     });
     readMultipartFormData.mockResolvedValue(mediaParts());
+    getHeader.mockImplementation((_event, name) =>
+      name === "sec-fetch-site" ? "same-origin" : undefined,
+    );
     assertAccess.mockResolvedValue({
       resource: { ownerEmail: "owner@example.com", orgId: "org-1" },
     });
@@ -67,8 +72,10 @@ describe("POST /api/document-media", () => {
 
   it("requires authentication and editor access before private storage", async () => {
     getSession.mockResolvedValue(null);
-    await expect(handler({} as never)).resolves.toEqual({
+    await expect(handler({} as never)).resolves.toMatchObject({
       error: "Unauthorized",
+      code: "MEDIA_AUTH_REQUIRED",
+      requestId: expect.any(String),
     });
     expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 401);
     expect(putPrivateBlob).not.toHaveBeenCalled();
@@ -82,12 +89,48 @@ describe("POST /api/document-media", () => {
       email: "editor@example.com",
       orgId: "org-1",
     });
-    assertAccess.mockRejectedValue(new Error("forbidden"));
-    await expect(handler({} as never)).resolves.toEqual({
-      error: "Media upload unavailable",
+    const accessErrorSpy = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    assertAccess.mockRejectedValue(
+      Object.assign(new Error("forbidden"), { statusCode: 403 }),
+    );
+    await expect(handler({} as never)).resolves.toMatchObject({
+      error: "Forbidden",
+      code: "MEDIA_ACCESS_DENIED",
+      requestId: expect.any(String),
     });
-    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 500);
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 403);
     expect(putPrivateBlob).not.toHaveBeenCalled();
+    expect(accessErrorSpy).toHaveBeenCalledWith(
+      "[content:document-media] upload failed",
+      expect.objectContaining({ stage: "access", errorClass: "rejected" }),
+    );
+    accessErrorSpy.mockRestore();
+  });
+
+  it("requires the first-party CSRF marker before reading the session or multipart body", async () => {
+    getHeader.mockReturnValue(undefined);
+
+    await expect(handler({} as never)).resolves.toMatchObject({
+      error: "Forbidden",
+      code: "MEDIA_CSRF_REQUIRED",
+      requestId: expect.any(String),
+    });
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 403);
+    expect(getSession).not.toHaveBeenCalled();
+    expect(readMultipartFormData).not.toHaveBeenCalled();
+    expect(putPrivateBlob).not.toHaveBeenCalled();
+  });
+
+  it("accepts the explicit first-party CSRF marker when browser metadata is unavailable", async () => {
+    getHeader.mockImplementation((_event, name) =>
+      name === "x-agent-native-csrf" ? "1" : undefined,
+    );
+
+    await expect(handler({} as never)).resolves.toEqual({
+      url: expect.stringMatching(/^\/content\/api\/document-media\//),
+    });
   });
 
   it("accepts only capped media, stores an opaque handle, and returns only Content URL", async () => {
@@ -111,24 +154,55 @@ describe("POST /api/document-media", () => {
 
   it("rejects unsupported or oversized inputs and returns 503 when storage is missing", async () => {
     readMultipartFormData.mockResolvedValue(mediaParts("text/html"));
-    await expect(handler({} as never)).resolves.toEqual({
+    await expect(handler({} as never)).resolves.toMatchObject({
       error: "Invalid media upload",
+      code: "MEDIA_INVALID_UPLOAD",
     });
     readMultipartFormData.mockResolvedValue(mediaParts("image/svg+xml"));
-    await expect(handler({} as never)).resolves.toEqual({
+    await expect(handler({} as never)).resolves.toMatchObject({
       error: "Invalid media upload",
+      code: "MEDIA_INVALID_UPLOAD",
     });
     readMultipartFormData.mockResolvedValue(
       mediaParts("image/png", Buffer.alloc(25 * 1024 * 1024 + 1)),
     );
-    await expect(handler({} as never)).resolves.toEqual({
+    await expect(handler({} as never)).resolves.toMatchObject({
       error: "Invalid media upload",
+      code: "MEDIA_INVALID_UPLOAD",
     });
     readMultipartFormData.mockResolvedValue(mediaParts());
     putPrivateBlob.mockResolvedValue(null);
-    await expect(handler({} as never)).resolves.toEqual({
+    await expect(handler({} as never)).resolves.toMatchObject({
       error: "Media upload unavailable",
+      code: "MEDIA_STORAGE_UNAVAILABLE",
     });
+  });
+
+  it("maps provider rejection to a content-free 503 diagnostic instead of an authorization 403", async () => {
+    const providerError = Object.assign(new Error("provider detail"), {
+      statusCode: 403,
+    });
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    putPrivateBlob.mockRejectedValue(providerError);
+
+    await expect(handler({} as never)).resolves.toMatchObject({
+      error: "Media upload unavailable",
+      code: "MEDIA_STORAGE_UNAVAILABLE",
+      requestId: expect.any(String),
+    });
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 503);
+    expect(errorSpy).toHaveBeenCalledWith(
+      "[content:document-media] upload failed",
+      expect.objectContaining({
+        requestId: expect.any(String),
+        stage: "provider",
+        errorClass: "rejected",
+      }),
+    );
+    expect(JSON.stringify(errorSpy.mock.calls)).not.toContain(
+      "provider detail",
+    );
+    errorSpy.mockRestore();
   });
 
   it("compensates provider storage if the media row cannot be written", async () => {
@@ -136,8 +210,9 @@ describe("POST /api/document-media", () => {
       values: vi.fn().mockRejectedValue(new Error("SQL failed")),
     });
 
-    await expect(handler({} as never)).resolves.toEqual({
+    await expect(handler({} as never)).resolves.toMatchObject({
       error: "Media upload unavailable",
+      code: "MEDIA_UPLOAD_FAILED",
     });
     expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 500);
     expect(deletePrivateBlob).toHaveBeenCalledWith(opaqueHandle);
