@@ -8,6 +8,7 @@ const deletePrivateBlob = vi.hoisted(() => vi.fn());
 const readMultipartFormData = vi.hoisted(() => vi.fn());
 const insert = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
+const setResponseStatus = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/private-blob", () => ({
   putPrivateBlob: (...args: unknown[]) => putPrivateBlob(...args),
@@ -23,11 +24,10 @@ vi.mock("@agent-native/core/sharing", () => ({
 }));
 vi.mock("drizzle-orm", () => ({ and: vi.fn(), eq: vi.fn() }));
 vi.mock("h3", () => ({
-  createError: (value: Record<string, unknown>) =>
-    Object.assign(new Error(), value),
   defineEventHandler: (handler: unknown) => handler,
   readMultipartFormData: (...args: unknown[]) => readMultipartFormData(...args),
   setResponseHeader: (...args: unknown[]) => setResponseHeader(...args),
+  setResponseStatus: (...args: unknown[]) => setResponseStatus(...args),
 }));
 vi.mock("../../../db/index.js", () => ({
   getDb: () => ({ insert }),
@@ -67,9 +67,10 @@ describe("POST /api/document-media", () => {
 
   it("requires authentication and editor access before private storage", async () => {
     getSession.mockResolvedValue(null);
-    await expect(handler({} as never)).rejects.toMatchObject({
-      statusCode: 401,
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Unauthorized",
     });
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 401);
     expect(putPrivateBlob).not.toHaveBeenCalled();
     expect(setResponseHeader).toHaveBeenCalledWith(
       expect.anything(),
@@ -82,7 +83,10 @@ describe("POST /api/document-media", () => {
       orgId: "org-1",
     });
     assertAccess.mockRejectedValue(new Error("forbidden"));
-    await expect(handler({} as never)).rejects.toThrow("forbidden");
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Media upload unavailable",
+    });
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 500);
     expect(putPrivateBlob).not.toHaveBeenCalled();
   });
 
@@ -107,23 +111,23 @@ describe("POST /api/document-media", () => {
 
   it("rejects unsupported or oversized inputs and returns 503 when storage is missing", async () => {
     readMultipartFormData.mockResolvedValue(mediaParts("text/html"));
-    await expect(handler({} as never)).rejects.toMatchObject({
-      statusCode: 400,
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Invalid media upload",
     });
     readMultipartFormData.mockResolvedValue(mediaParts("image/svg+xml"));
-    await expect(handler({} as never)).rejects.toMatchObject({
-      statusCode: 400,
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Invalid media upload",
     });
     readMultipartFormData.mockResolvedValue(
       mediaParts("image/png", Buffer.alloc(25 * 1024 * 1024 + 1)),
     );
-    await expect(handler({} as never)).rejects.toMatchObject({
-      statusCode: 400,
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Invalid media upload",
     });
     readMultipartFormData.mockResolvedValue(mediaParts());
     putPrivateBlob.mockResolvedValue(null);
-    await expect(handler({} as never)).rejects.toMatchObject({
-      statusCode: 503,
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Media upload unavailable",
     });
   });
 
@@ -132,7 +136,10 @@ describe("POST /api/document-media", () => {
       values: vi.fn().mockRejectedValue(new Error("SQL failed")),
     });
 
-    await expect(handler({} as never)).rejects.toThrow("SQL failed");
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Media upload unavailable",
+    });
+    expect(setResponseStatus).toHaveBeenCalledWith(expect.anything(), 500);
     expect(deletePrivateBlob).toHaveBeenCalledWith(opaqueHandle);
   });
 });
