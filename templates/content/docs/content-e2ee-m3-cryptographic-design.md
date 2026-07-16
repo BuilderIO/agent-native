@@ -116,12 +116,27 @@ Rejected designs include raw JSON signing, JOSE/JWT/JWE algorithm headers, serve
 
 ## Implementation gate
 
-M3 is a **conditional GO**. Before runtime crypto merges:
+M3 is an **unconditional independent-review GO** for beginning the opaque hosted
+plane and authenticated runtime implementation. The gate closed after:
 
 1. Generate and commit fixed known-key/known-byte vectors for every envelope type using the frozen field tables, domain tags, caps, and lifetimes.
 2. Independently review the first-device, add/remove-device, rotation, recovery, broker replacement, grant/revocation, disclosure, and deletion state-machine transcripts.
 3. Prove native and WASM canonical/vector parity in CI.
 4. Commit the malicious-relay harness skeleton and nested hosted-write fuzz guard.
-5. Review recovery UX and confirm operationally that support cannot inject endpoints, keys, or grants.
+5. Freezing recovery as endpoint/recovery-mediated authority with no support or
+   hosted-server path that can inject endpoints, keys, or grants.
+
+The final review required five adversarial ceremony passes. It verified
+signed/head-bound lifecycle events, immediate role-aware signer removal,
+endpoint/broker separation, collision-resistant candidate enrollment, and
+complete pre-recovery endpoint-set pruning. It returned `UNCONDITIONAL GO` with
+no new executable contract blocker. The Core E2EE corpus passes 96 tests across
+10 files, including 14 fixed envelopes and native/WASM parity.
+
+This closes design uncertainty; it does not pretend the runtime already exists.
+Authenticated signature verification, durable hash-chained transcript replay,
+real out-of-band SAS comparison, secure endpoint key storage, and operational
+post-compromise broker replacement remain hard implementation requirements for
+the broker/desktop milestone.
 
 The design is approved only while it retains broker-direct disclosure, no server keys, endpoint-mediated enrollment, fixed suite/versioning, fresh random revision keys, epoch rewrap/destruction, short signed grants, and detection-based rollback defense.
