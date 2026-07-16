@@ -430,7 +430,16 @@ async function compilePageElement(
     state.pageHeight,
     parentTransform,
   );
-  const baseStyle = elementCss(element, zOrder, state.canvasScale);
+  const absorbAxisAlignedScale =
+    !record(element.elementGroup) &&
+    !record(element.line) &&
+    shouldAbsorbAxisAlignedScale(element);
+  const baseStyle = elementCss(
+    element,
+    zOrder,
+    state.canvasScale,
+    absorbAxisAlignedScale,
+  );
   if (record(element.wordArt)) {
     return compileFallback(
       element,
@@ -647,6 +656,9 @@ function shapeMarkup(
 }
 
 function textScaleCompensationCss(element: JsonObject): string {
+  if (shouldAbsorbAxisAlignedScale(element)) {
+    return css({ width: "100%", height: "100%" });
+  }
   const [a, b, c, d] = elementTransform(element);
   const scaleX = Math.hypot(a, b) || 1;
   const determinant = a * d - b * c;
@@ -934,21 +946,29 @@ function elementCss(
   element: JsonObject,
   zOrder: number,
   scale: number,
+  absorbAxisAlignedScale = false,
 ): string {
   const size = record(element.size);
   const transform = elementTransform(element);
   const [a, b, c, d, e, f] = transform;
+  const widthScale = absorbAxisAlignedScale ? a : 1;
+  const heightScale = absorbAxisAlignedScale ? d : 1;
   return css({
     position: "absolute",
     left: "0",
     top: "0",
-    width: `${round(dimensionToPx(record(size?.width)) * scale)}px`,
-    height: `${round(dimensionToPx(record(size?.height)) * scale)}px`,
-    transform: `matrix(${round(a)},${round(b)},${round(c)},${round(d)},${round(e * scale)},${round(f * scale)})`,
+    width: `${round(dimensionToPx(record(size?.width)) * scale * widthScale)}px`,
+    height: `${round(dimensionToPx(record(size?.height)) * scale * heightScale)}px`,
+    transform: `matrix(${round(absorbAxisAlignedScale ? 1 : a)},${round(b)},${round(c)},${round(absorbAxisAlignedScale ? 1 : d)},${round(e * scale)},${round(f * scale)})`,
     "transform-origin": "0 0",
     "z-index": String(zOrder),
     "box-sizing": "border-box",
   });
+}
+
+function shouldAbsorbAxisAlignedScale(element: JsonObject): boolean {
+  const [a, b, c, d] = elementTransform(element);
+  return a > 0 && d > 0 && Math.abs(b) < 0.000_001 && Math.abs(c) < 0.000_001;
 }
 
 function elementBounds(

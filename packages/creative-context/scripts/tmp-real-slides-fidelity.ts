@@ -124,7 +124,7 @@ try {
       const stem = sourceNames[key]!.replace("-source.png", "");
       const htmlName = `${stem}-compiled.html`;
       const pngName = `${stem}-compiled.png`;
-      const html = `<!doctype html><html><head><meta charset="utf-8"><style>${poppinsCss}html,body{margin:0;width:1600px;height:900px;overflow:hidden;background:#111}.stage{width:1600px;height:900px;overflow:hidden}.stage>.fmd-slide{transform:scale(1.666666667);transform-origin:0 0}</style></head><body><div class="stage">${slide.html}</div></body></html>`;
+      const html = `<!doctype html><html><head><meta charset="utf-8"><style>${poppinsCss}html,body{margin:0;width:1600px;height:900px;overflow:hidden;background:#111;font-family:'Poppins',sans-serif}.stage{width:1600px;height:900px;overflow:hidden}.stage>.fmd-slide{transform:scale(1.666666667);transform-origin:0 0}</style></head><body><div class="stage">${slide.html}</div></body></html>`;
       writeFileSync(path.join(outputDir, htmlName), html);
       const page = await browser.newPage({
         viewport: { width: 1600, height: 900 },
