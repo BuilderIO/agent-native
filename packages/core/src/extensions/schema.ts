@@ -29,6 +29,8 @@ export const extensions = table("tools", {
   updatedAt: text("updated_at").notNull().default(now()),
   hiddenAt: text("hidden_at"),
   hiddenBy: text("hidden_by"),
+  capabilityManifestVersion: integer("capability_manifest_version"),
+  capabilityManifest: text("capability_manifest"),
   ...ownableColumns(),
 });
 
@@ -68,6 +70,8 @@ export const EXTENSIONS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tools (
   updated_at TEXT NOT NULL DEFAULT (datetime('now')),
   hidden_at TEXT,
   hidden_by TEXT,
+  capability_manifest_version INTEGER,
+  capability_manifest TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -83,6 +87,8 @@ export const EXTENSIONS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tools (
   updated_at TEXT NOT NULL DEFAULT now(),
   hidden_at TEXT,
   hidden_by TEXT,
+  capability_manifest_version INTEGER,
+  capability_manifest TEXT,
   owner_email TEXT NOT NULL DEFAULT 'local@localhost',
   org_id TEXT,
   visibility TEXT NOT NULL DEFAULT 'private'
@@ -168,6 +174,8 @@ export const EXTENSIONS_UPDATED_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_up
 // columns — see ensureExtensionsTables() for the idempotent ADD COLUMN run.
 export const EXTENSIONS_HIDDEN_AT_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_at TEXT`;
 export const EXTENSIONS_HIDDEN_BY_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS hidden_by TEXT`;
+export const EXTENSIONS_CAPABILITY_MANIFEST_VERSION_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS capability_manifest_version INTEGER`;
+export const EXTENSIONS_CAPABILITY_MANIFEST_COLUMN_SQL = `ALTER TABLE tools ADD COLUMN IF NOT EXISTS capability_manifest TEXT`;
 export const EXTENSIONS_HIDDEN_AT_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tools_hidden_at_idx ON tools (hidden_at)`;
 export const EXTENSION_SHARES_RESOURCE_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_shares_resource_idx ON tool_shares (resource_id)`;
 
@@ -247,14 +255,18 @@ export const extensionConsents = table("tool_consents", {
   viewerEmail: text("viewer_email").notNull(),
   extensionId: text("tool_id").notNull(),
   contentHash: text("content_hash").notNull(),
+  grantsJson: text("grants_json").notNull().default("{}"),
   grantedAt: text("granted_at").notNull().default(now()),
+  revokedAt: text("revoked_at"),
 });
 
 export const EXTENSION_CONSENTS_CREATE_SQL = `CREATE TABLE IF NOT EXISTS tool_consents (
   viewer_email TEXT NOT NULL,
   tool_id TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  grants_json TEXT NOT NULL DEFAULT '{}',
   granted_at TEXT NOT NULL DEFAULT (datetime('now')),
+  revoked_at TEXT,
   PRIMARY KEY (viewer_email, tool_id, content_hash)
 )`;
 
@@ -262,8 +274,12 @@ export const EXTENSION_CONSENTS_CREATE_SQL_PG = `CREATE TABLE IF NOT EXISTS tool
   viewer_email TEXT NOT NULL,
   tool_id TEXT NOT NULL,
   content_hash TEXT NOT NULL,
+  grants_json TEXT NOT NULL DEFAULT '{}',
   granted_at TEXT NOT NULL DEFAULT now(),
+  revoked_at TEXT,
   PRIMARY KEY (viewer_email, tool_id, content_hash)
 )`;
 
 export const EXTENSION_CONSENTS_VIEWER_INDEX_SQL = `CREATE INDEX IF NOT EXISTS tool_consents_viewer_idx ON tool_consents (viewer_email, tool_id)`;
+export const EXTENSION_CONSENTS_GRANTS_JSON_COLUMN_SQL = `ALTER TABLE tool_consents ADD COLUMN IF NOT EXISTS grants_json TEXT NOT NULL DEFAULT '{}'`;
+export const EXTENSION_CONSENTS_REVOKED_AT_COLUMN_SQL = `ALTER TABLE tool_consents ADD COLUMN IF NOT EXISTS revoked_at TEXT`;

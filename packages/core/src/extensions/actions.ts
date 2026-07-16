@@ -14,6 +14,11 @@ import {
   readWorkspaceFile,
   type WorkspaceFilesScope,
 } from "../workspace-files/store.js";
+import {
+  acceptExtensionCapabilities,
+  getExtensionCapabilityStatus,
+  revokeExtensionCapabilities,
+} from "./capabilities.js";
 import type {
   ExtensionContentEdit,
   ExtensionLegacyPatch,
@@ -64,6 +69,65 @@ const GET_EXTENSION_HISTORY_MAX_RESULT_CHARS = 2_000_000;
 
 export function createExtensionActionEntries(): Record<string, ActionEntry> {
   return {
+    "get-extension-capabilities": {
+      tool: {
+        description:
+          "Read an extension's declared capability manifest and the current viewer's exact-hash consent status before deciding whether to accept or revoke it.",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      run: async (args) =>
+        getExtensionCapabilityStatus(String(args?.id ?? "").trim()),
+      readOnly: true,
+      toolCallable: false,
+    },
+
+    "accept-extension-capabilities": {
+      tool: {
+        description:
+          "Accept a reviewed subset of an extension's current capability manifest. Human approval is mandatory and the grant becomes invalid if the manifest hash changes.",
+        parameters: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            manifestHash: { type: "string" },
+            grants: { type: "object" },
+          },
+          required: ["id", "manifestHash", "grants"],
+        },
+      },
+      run: async (args) => ({
+        ok: true,
+        binding: await acceptExtensionCapabilities(
+          String(args?.id ?? "").trim(),
+          String(args?.manifestHash ?? "").trim(),
+          args?.grants,
+        ),
+      }),
+      needsApproval: true,
+      toolCallable: false,
+    },
+
+    "revoke-extension-capabilities": {
+      tool: {
+        description:
+          "Immediately revoke the current viewer's accepted capabilities for an extension, returning it to legacy read-only/no-egress behavior.",
+        parameters: {
+          type: "object",
+          properties: { id: { type: "string" } },
+          required: ["id"],
+        },
+      },
+      run: async (args) => {
+        await revokeExtensionCapabilities(String(args?.id ?? "").trim());
+        return { ok: true, revoked: true };
+      },
+      toolCallable: false,
+    },
+
     "list-extensions": {
       tool: {
         description:
@@ -524,6 +588,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               type: "string",
               description: "Optional icon name or short label.",
             },
+            capabilityManifest: {
+              type: "object",
+              description:
+                "Version 1 least-privilege capability manifest. Declare exact appActions, exact appFetch paths/methods, database query/exec, extensionData read/write, and exact HTTPS externalFetch origins/methods. Declaring capabilities does not grant them; each viewer must explicitly accept the exact manifest hash.",
+            },
           },
           required: ["name"],
         },
@@ -541,6 +610,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (!content) return "Error: content is required.";
         const description = String(args?.description ?? "").trim();
         const icon = args?.icon ? String(args.icon) : undefined;
+        const capabilityManifest = args?.capabilityManifest;
 
         // Idempotency: if an identical extension was created in the last 5
         // minutes (e.g. a connection drop caused the agent to retry this tool
@@ -554,6 +624,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           content,
           description,
           icon,
+          capabilityManifest,
         });
         if (existing) {
           const existingPath = extensionPath(existing.id, existing.name);
@@ -583,6 +654,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           description,
           content,
           icon,
+          capabilityManifest,
         });
         const path = extensionPath(extension.id, extension.name);
 
@@ -673,6 +745,11 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
               description: "Optional sharing visibility.",
               enum: ["private", "org", "public"],
             },
+            capabilityManifest: {
+              type: "object",
+              description:
+                "Replace the version 1 capability manifest. Any change produces a new hash and invalidates every prior viewer grant until explicitly accepted again.",
+            },
           },
           required: ["id"],
         },
@@ -726,7 +803,7 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           });
         }
 
-        const meta: Record<string, string> = {};
+        const meta: Record<string, unknown> = {};
         if (args?.name !== undefined) meta.name = String(args.name).trim();
         if (args?.description !== undefined) {
           meta.description = String(args.description).trim();
@@ -734,6 +811,9 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
         if (args?.icon !== undefined) meta.icon = String(args.icon);
         if (args?.visibility !== undefined) {
           meta.visibility = String(args.visibility);
+        }
+        if (args?.capabilityManifest !== undefined) {
+          meta.capabilityManifest = args.capabilityManifest;
         }
         if (Object.keys(meta).length > 0) {
           result = await updateExtension(id, meta as any);

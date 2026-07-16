@@ -55,6 +55,7 @@ import {
   runDatabaseSchemaHealthCheck,
   type DatabaseSchemaHealthResult,
 } from "../db/runtime-diagnostics.js";
+import { authorizeExtensionCapability } from "../extensions/capabilities.js";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import {
   uploadFile,
@@ -4025,6 +4026,24 @@ export function createCoreRoutesPlugin(
               event.context.params = { ...event.context.params, id };
             }
             const method = getMethod(event);
+            if (getHeader(event, "x-agent-native-extension-bridge") === "1") {
+              const extensionId = getHeader(
+                event,
+                "x-agent-native-extension-id",
+              )?.trim();
+              const suffix = id ? `/${encodeURIComponent(id)}` : "";
+              const decision = extensionId
+                ? await authorizeExtensionCapability(extensionId, {
+                    helper: "appFetch",
+                    path: `${P}/application-state/compose${suffix}`,
+                    method,
+                  })
+                : null;
+              if (!decision?.allowed) {
+                setResponseStatus(event, 403);
+                return { error: "Application-state access is not granted" };
+              }
+            }
             if (!id) {
               if (method === "GET") return listComposeDrafts(event);
               if (method === "DELETE") return deleteAllComposeDrafts(event);
@@ -4052,6 +4071,23 @@ export function createCoreRoutesPlugin(
               event.context.params = { ...event.context.params, key };
             }
             const method = getMethod(event);
+            if (getHeader(event, "x-agent-native-extension-bridge") === "1") {
+              const extensionId = getHeader(
+                event,
+                "x-agent-native-extension-id",
+              )?.trim();
+              const decision = extensionId
+                ? await authorizeExtensionCapability(extensionId, {
+                    helper: "appFetch",
+                    path: `${P}/application-state/${encodeURIComponent(key)}`,
+                    method,
+                  })
+                : null;
+              if (!decision?.allowed) {
+                setResponseStatus(event, 403);
+                return { error: "Application-state access is not granted" };
+              }
+            }
             if (method === "GET") return getState(event);
             if (method === "PUT") return putState(event);
             if (method === "DELETE") return deleteState(event);

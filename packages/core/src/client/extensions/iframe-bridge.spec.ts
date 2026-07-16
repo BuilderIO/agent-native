@@ -107,6 +107,12 @@ describe("checkBridgePolicy (audit H4)", () => {
   const owner = { role: "owner" as const, isAuthor: true };
   const editor = { role: "editor" as const, isAuthor: false };
   const viewer = { role: "viewer" as const, isAuthor: false };
+  const ungranted = {
+    manifestVersion: 1,
+    manifestHash: "manifest-hash",
+    consented: false,
+    grants: null,
+  };
 
   it("authors and owners pass every helper", () => {
     expect(
@@ -118,6 +124,63 @@ describe("checkBridgePolicy (audit H4)", () => {
     expect(
       checkBridgePolicy("/_agent-native/extensions/proxy", "POST", owner).ok,
     ).toBe(true);
+  });
+
+  it("does not let owner/editor role bypass an unaccepted capability manifest", () => {
+    expect(
+      checkBridgePolicy("/_agent-native/extensions/sql/query", "POST", {
+        ...owner,
+        capabilities: ungranted,
+      }).ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy("/_agent-native/extensions/proxy", "POST", {
+        ...editor,
+        capabilities: ungranted,
+      }).ok,
+    ).toBe(false);
+  });
+
+  it("preflights accepted exact action, appFetch, and data grants", () => {
+    const capabilities = {
+      ...ungranted,
+      consented: true,
+      grants: {
+        version: 1 as const,
+        appActions: ["list-notes"],
+        appFetch: [
+          {
+            path: "/_agent-native/application-state/navigation",
+            methods: ["GET" as const],
+          },
+        ],
+        extensionData: "read" as const,
+      },
+    };
+    expect(
+      checkBridgePolicy("/_agent-native/actions/list-notes", "GET", {
+        ...editor,
+        capabilities,
+      }).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/actions/save-note", "POST", {
+        ...editor,
+        capabilities,
+      }).ok,
+    ).toBe(false);
+    expect(
+      checkBridgePolicy("/_agent-native/application-state/navigation", "GET", {
+        ...editor,
+        capabilities,
+      }).ok,
+    ).toBe(true);
+    expect(
+      checkBridgePolicy("/_agent-native/application-state/navigation", "PUT", {
+        ...editor,
+        capabilities,
+      }).ok,
+    ).toBe(false);
   });
 
   it("editors keep mutating bridge surfaces", () => {

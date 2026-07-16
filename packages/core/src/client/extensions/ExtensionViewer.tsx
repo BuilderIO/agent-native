@@ -783,6 +783,10 @@ export function ExtensionViewer({ extensionId }: ExtensionViewerProps) {
             binding && typeof binding.permissions === "object"
               ? binding.permissions
               : undefined,
+          capabilities:
+            binding && typeof binding.capabilities === "object"
+              ? binding.capabilities
+              : undefined,
         };
         return;
       }

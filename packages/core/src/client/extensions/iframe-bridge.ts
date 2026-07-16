@@ -139,7 +139,9 @@ function isAllowedHeader(name: string): boolean {
 // "viewer" should not be able to (e.g.) chain `appAction('share-resource')`
 // or run `dbExec` writes against their own data through someone else's extension.
 //
-// Role table (lowest tier first):
+// Legacy role table (lowest tier first). Database extensions with a server
+// capability binding are evaluated against the exact accepted manifest first;
+// this table remains as compatibility behavior for old shells and local files:
 //
 //   role     | appFetch        | extensionFetch       | extensionData       | dbQuery | dbExec | appAction
 //   ---------|-----------------|-----------------|----------------|---------|--------|----------
@@ -179,6 +181,7 @@ export interface BridgePolicyContext {
     sql?: boolean;
     externalFetch?: boolean;
   };
+  capabilities?: ExtensionCapabilityBinding;
 }
 
 export interface BridgePolicyResult {
@@ -203,6 +206,9 @@ export function checkBridgePolicy(
   if (ctx.source === "local-files") {
     return checkLocalFileBridgePolicy(path, method, ctx);
   }
+
+  const capabilityPolicy = checkDatabaseCapabilityPolicy(path, method, ctx);
+  if (capabilityPolicy) return capabilityPolicy;
 
   // Authors and the highest non-owner roles get the unrestricted bridge.
   if (ctx.isAuthor || ctx.role === "owner" || ctx.role === "admin") {
@@ -287,6 +293,77 @@ export function checkBridgePolicy(
     ok: false,
     error: deniedMessage("appFetch", ctx.role),
   };
+}
+
+function checkDatabaseCapabilityPolicy(
+  path: string,
+  method: string,
+  ctx: BridgePolicyContext,
+): BridgePolicyResult | null {
+  const binding = ctx.capabilities;
+  if (!binding) return null;
+
+  if (path === "/_agent-native/extensions/sql/query") {
+    return capabilityResult(
+      extensionCapabilityAllows(binding, ctx.role, { helper: "dbQuery" }),
+      "dbQuery",
+      ctx.role,
+    );
+  }
+  if (path === "/_agent-native/extensions/sql/exec") {
+    return capabilityResult(
+      extensionCapabilityAllows(binding, ctx.role, { helper: "dbExec" }),
+      "dbExec",
+      ctx.role,
+    );
+  }
+  if (path === "/_agent-native/extensions/proxy") {
+    // The upstream URL lives in the request body and is validated against the
+    // exact origin/method grant on the server. This preflight only prevents an
+    // obviously ungranted proxy call from leaving the parent.
+    const allowed =
+      binding.consented && !!binding.grants?.externalFetch?.length;
+    return capabilityResult(allowed, "extensionFetch", ctx.role);
+  }
+  if (path.startsWith("/_agent-native/actions/")) {
+    const action = actionNameFromPath(path);
+    if (!binding.consented) return { ok: true }; // server permits legacy read-only actions only
+    return capabilityResult(
+      !!action && !!binding.grants?.appActions?.includes(action),
+      "appAction",
+      ctx.role,
+    );
+  }
+  if (path.startsWith("/_agent-native/extensions/data/")) {
+    return capabilityResult(
+      extensionCapabilityAllows(binding, ctx.role, {
+        helper: "extensionData",
+        method,
+      }),
+      "extensionData",
+      ctx.role,
+    );
+  }
+  if (path.startsWith("/_agent-native/application-state/")) {
+    return capabilityResult(
+      extensionCapabilityAllows(binding, ctx.role, {
+        helper: "appFetch",
+        path,
+        method,
+      }),
+      "appFetch",
+      ctx.role,
+    );
+  }
+  return null;
+}
+
+function capabilityResult(
+  ok: boolean,
+  helper: string,
+  role: ExtensionBridgeRole,
+): BridgePolicyResult {
+  return ok ? { ok: true } : { ok: false, error: deniedMessage(helper, role) };
 }
 
 function deniedMessage(helper: string, role: ExtensionBridgeRole): string {
@@ -375,3 +452,7 @@ function isInlineUiOutputApplicationStatePath(
     return false;
   }
 }
+import {
+  extensionCapabilityAllows,
+  type ExtensionCapabilityBinding,
+} from "../../extensions/capability-policy.js";

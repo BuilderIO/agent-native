@@ -13,6 +13,7 @@ import * as jose from "jose";
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { authorizeExtensionCapability } from "../extensions/capabilities.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -455,6 +456,29 @@ export function mountActionRoutes(
             requestOrigin: getRequestURL(event).origin,
           },
           async () => {
+            if (getHeader(event, "x-agent-native-extension-bridge") === "1") {
+              const extensionId = getHeader(
+                event,
+                "x-agent-native-extension-id",
+              )?.trim();
+              const isReadOnly =
+                typeof entry.readOnly === "boolean"
+                  ? entry.readOnly
+                  : method === "GET";
+              const decision = extensionId
+                ? await authorizeExtensionCapability(extensionId, {
+                    helper: "appAction",
+                    action: name,
+                    readOnly: isReadOnly,
+                  })
+                : null;
+              if (!decision?.allowed) {
+                setResponseStatus(event, 403);
+                return {
+                  error: `Action '${name}' is not granted to this extension.`,
+                };
+              }
+            }
             // Reject oversize bodies from Content-Length before parsing, so a
             // public no-auth POST can't force parse work on a huge request.
             if (typeof entry.maxBodyBytes === "number" && method !== "GET") {

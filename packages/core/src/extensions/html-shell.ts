@@ -1,3 +1,4 @@
+import type { ExtensionCapabilityBinding } from "./capability-policy.js";
 import { buildSessionReplayIframeBootstrap } from "./session-replay-iframe.js";
 
 const EXTENSION_IFRAME_CSP_BASE =
@@ -61,15 +62,12 @@ export interface ExtensionRenderBinding {
   isAuthor: boolean;
   /**
    * Resolved role for the viewer ("owner" | "admin" | "editor" | "viewer").
-   *
-   * TODO(security, audit H4): the host-side bridge does not yet gate any
-   * helper based on this value — every viewer gets the same powers as the
-   * author. The role is plumbed through so a follow-up PR can constrain
-   * `appAction` / `dbExec` / `extensionFetch` for non-author viewers (and
-   * eventually require an explicit consent step before running a shared
-   * extension, audit C1). For now this is metadata only.
+   * The parent preflights this role together with `capabilities`; server routes
+   * independently enforce the same grant and retain the viewer write ceiling.
    */
   role: "owner" | "admin" | "editor" | "viewer";
+  /** Server-resolved, exact-manifest grant for this viewer. */
+  capabilities?: ExtensionCapabilityBinding;
   /** Where the extension definition came from. Database extensions are the default. */
   source?: "database" | "local-files";
   /**
@@ -529,18 +527,17 @@ export function buildExtensionHtml(
       );
     } catch (_) {}
     // SECURITY: when the viewer is not the author of this extension, emit a
-    // clear console warning. The bridge currently runs every helper with the
-    // viewer's session — a malicious shared extension can call any action,
-    // read any owned table row in scope, and resolve any user-scope secret.
-    // A full consent step is tracked as TODO C1 in audit 05-tools-sandbox.md.
+    // clear console warning. Bridge calls use the viewer's session, but only
+    // the exact current-manifest capabilities that viewer accepted are usable;
+    // legacy or revoked extensions stay read-only and have no external egress.
     if (_extensionBinding && !_extensionBinding.isAuthor) {
       try {
         console.warn(
           '[agent-native] Shared extension — running with viewer\\'s session. ' +
             'Author: ' + (_extensionBinding.authorEmail || '<unknown>') + '. ' +
-            'Bridge calls (appAction, dbExec, extensionFetch) execute under ' +
-            'your account; they are gated by your permissions, not the ' +
-            'author\\'s. Do not run untrusted shared extensions.',
+            'Bridge calls execute under your account and are limited to the ' +
+            'current capability grant you accepted. Do not approve capabilities ' +
+            'for an extension you do not trust.',
         );
       } catch (_) {}
     }

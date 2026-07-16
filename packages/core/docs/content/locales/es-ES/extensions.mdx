@@ -458,6 +458,10 @@ Extensiones ejecutadas en un iframe de espacio aislado:
 - **Protección de red privada**: las extensiones no pueden acceder a direcciones internas.
 - **Se requiere autenticación**: las extensiones solo se ejecutan para usuarios que han iniciado sesión y las llamadas `dbQuery` tienen un alcance automático.
 
+- **Capacidades vinculadas a la versión** — Una extensión declara acciones, rutas y métodos HTTP, acceso SQL y orígenes HTTPS externos exactos. Cada persona acepta explícitamente un subconjunto; cualquier cambio del manifiesto invalida la concesión anterior.
+- **Modo heredado cerrado por defecto** — Sin un manifiesto actual aceptado, la extensión solo puede llamar acciones de lectura y leer el estado de la aplicación y sus propios datos. SQL, escrituras y salida externa permanecen desactivados.
+- **Aplicación en el servidor** — Las rutas de acciones, SQL, estado, datos y proxy comprueban la concesión de forma independiente. La revocación se aplica en la siguiente solicitud.
+
 ## Algunas cosas que debes saber sobre los nombres {#naming-back-compat}
 
 Si estás husmeando en el SQL o en la fuente, verás una combinación de nombres de "extensión" y "herramienta". Decodificador rápido:

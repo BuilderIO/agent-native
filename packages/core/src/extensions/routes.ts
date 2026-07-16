@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import {
   defineEventHandler,
   getMethod,
+  getHeader,
   setResponseStatus,
   setResponseHeader,
   type H3Event,
@@ -24,6 +25,14 @@ import {
 } from "../server/request-context.js";
 import { ForbiddenError, resolveAccess } from "../sharing/access.js";
 import { ROLE_RANK, type ShareRole } from "../sharing/schema.js";
+import {
+  acceptExtensionCapabilities,
+  authorizeExtensionCapability,
+  getExtensionCapabilityBinding,
+  getExtensionCapabilityStatus,
+  revokeExtensionCapabilities,
+} from "./capabilities.js";
+import type { ExtensionCapabilityRequest } from "./capability-policy.js";
 import { buildExtensionHtml, EXTENSION_IFRAME_CSP } from "./html-shell.js";
 import {
   getLocalExtension,
@@ -109,6 +118,31 @@ export function createExtensionsHandler() {
 
 const MAX_EXTENSION_DATA_BYTES = 1024 * 1024;
 
+async function authorizeBridgeEvent(
+  event: H3Event,
+  request: ExtensionCapabilityRequest,
+  expectedExtensionId?: string,
+): Promise<unknown | null> {
+  if (getHeader(event, "x-agent-native-extension-bridge") !== "1") return null;
+  const extensionId = getHeader(event, "x-agent-native-extension-id")?.trim();
+  if (!extensionId) {
+    setResponseStatus(event, 403);
+    return { error: "Extension capability binding is required" };
+  }
+  if (expectedExtensionId && extensionId !== expectedExtensionId) {
+    setResponseStatus(event, 403);
+    return {
+      error: "Extension capability binding does not match the resource",
+    };
+  }
+  const decision = await authorizeExtensionCapability(extensionId, request);
+  if (!decision?.allowed) {
+    setResponseStatus(event, 403);
+    return { error: `Extension capability '${request.helper}' is not granted` };
+  }
+  return null;
+}
+
 function normalizeExtensionUserEmail(email: string): string {
   return email.trim().toLowerCase();
 }
@@ -126,6 +160,10 @@ async function dispatch(
     parts[0] === "sql" &&
     parts[1] === "query"
   ) {
+    const authorization = await authorizeBridgeEvent(event, {
+      helper: "dbQuery",
+    });
+    if (authorization) return authorization;
     return handleSqlQuery(event);
   }
 
@@ -136,21 +174,52 @@ async function dispatch(
     parts[0] === "sql" &&
     parts[1] === "exec"
   ) {
+    const authorization = await authorizeBridgeEvent(event, {
+      helper: "dbExec",
+    });
+    if (authorization) return authorization;
     return handleSqlExec(event);
   }
 
   // GET /data/:extensionId/:collection — list items in a collection
   if (method === "GET" && parts.length === 3 && parts[0] === "data") {
+    const authorization = await authorizeBridgeEvent(
+      event,
+      {
+        helper: "extensionData",
+        method,
+      },
+      parts[1],
+    );
+    if (authorization) return authorization;
     return handleExtensionDataList(event, parts[1], parts[2], userEmail);
   }
 
   // POST /data/:extensionId/:collection — create/upsert an item
   if (method === "POST" && parts.length === 3 && parts[0] === "data") {
+    const authorization = await authorizeBridgeEvent(
+      event,
+      {
+        helper: "extensionData",
+        method,
+      },
+      parts[1],
+    );
+    if (authorization) return authorization;
     return handleExtensionDataUpsert(event, parts[1], parts[2], userEmail);
   }
 
   // DELETE /data/:extensionId/:collection/:itemId — delete an item
   if (method === "DELETE" && parts.length === 4 && parts[0] === "data") {
+    const authorization = await authorizeBridgeEvent(
+      event,
+      {
+        helper: "extensionData",
+        method,
+      },
+      parts[1],
+    );
+    if (authorization) return authorization;
     return handleExtensionDataDelete(
       event,
       parts[1],
@@ -234,6 +303,10 @@ async function dispatch(
     // viewer is NOT the author. The role is plumbed through to gate
     // dangerous bridge helpers in iframe-bridge.ts (audit H4).
     const isAuthor = extension.ownerEmail === userEmail;
+    const capabilities = await getExtensionCapabilityBinding(
+      parts[0],
+      userEmail,
+    );
 
     const html = buildExtensionHtml(
       extension.content,
@@ -245,6 +318,7 @@ async function dispatch(
         viewerEmail: userEmail,
         isAuthor,
         role: access.role,
+        capabilities,
       },
     );
     // Security headers per render. `frame-ancestors` in the CSP must be set as
@@ -368,6 +442,60 @@ async function dispatch(
     return { ok: true, globallyHidden: false };
   }
 
+  // GET /:id/capabilities — current manifest plus this viewer's exact-hash grant.
+  if (method === "GET" && parts.length === 2 && parts[1] === "capabilities") {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
+    try {
+      return await getExtensionCapabilityStatus(parts[0]);
+    } catch {
+      setResponseStatus(event, 404);
+      return { error: "Extension not found" };
+    }
+  }
+
+  // POST /:id/capabilities/accept — explicit per-viewer grant, version-bound
+  // to the normalized manifest hash supplied by the preceding GET.
+  if (
+    method === "POST" &&
+    parts.length === 3 &&
+    parts[1] === "capabilities" &&
+    parts[2] === "accept"
+  ) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
+    const body = await readBody(event);
+    if (typeof body.manifestHash !== "string") {
+      setResponseStatus(event, 400);
+      return { error: "manifestHash is required" };
+    }
+    try {
+      return {
+        ok: true,
+        binding: await acceptExtensionCapabilities(
+          parts[0],
+          body.manifestHash,
+          body.grants,
+        ),
+      };
+    } catch (err: any) {
+      setResponseStatus(event, 400);
+      return { error: err?.message ?? "Capabilities could not be accepted" };
+    }
+  }
+
+  // DELETE /:id/capabilities — immediate per-viewer revocation.
+  if (
+    method === "DELETE" &&
+    parts.length === 2 &&
+    parts[1] === "capabilities"
+  ) {
+    const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
+    if (localResponse) return localResponse;
+    await revokeExtensionCapabilities(parts[0]);
+    return { ok: true, revoked: true };
+  }
+
   // PUT /:id
   if (method === "PUT" && parts.length === 1) {
     const localResponse = await localExtensionSqlOnlyResponse(event, parts[0]);
@@ -383,6 +511,7 @@ async function dispatch(
       body.description !== undefined ||
       body.icon !== undefined ||
       body.visibility !== undefined;
+    const hasCapabilityUpdate = body.capabilityManifest !== undefined;
 
     let result = null;
     if (hasContentUpdate) {
@@ -393,10 +522,10 @@ async function dispatch(
         format: body.format === true || body.format === "true",
       });
     }
-    if (hasMetaUpdate) {
+    if (hasMetaUpdate || hasCapabilityUpdate) {
       result = await updateExtension(parts[0], body);
     }
-    if (!hasContentUpdate && !hasMetaUpdate) {
+    if (!hasContentUpdate && !hasMetaUpdate && !hasCapabilityUpdate) {
       result = await getExtension(parts[0]);
     }
     if (!result) {
@@ -692,6 +821,12 @@ async function handleProxy(
         "Unsupported HTTP method. Allowed methods: GET, POST, PUT, PATCH, DELETE, HEAD.",
     };
   }
+  const authorization = await authorizeBridgeEvent(event, {
+    helper: "extensionFetch",
+    url: rawUrl,
+    method,
+  });
+  if (authorization) return authorization;
   const rawHeaders: Record<string, string> = body.headers || {};
   const rawBody = body.body;
 

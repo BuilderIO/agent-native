@@ -458,6 +458,10 @@ Erweiterungen werden in einem Sandbox-Iframe ausgeführt:
 - **Privater Netzwerkschutz** – Erweiterungen können interne Adressen nicht erreichen.
 - **Authentifizierung erforderlich** – Erweiterungen werden nur für angemeldete Benutzer ausgeführt und `dbQuery`-Aufrufe werden automatisch eingeschränkt.
 
+- **Versionsgebundene Berechtigungen** — Eine Extension deklariert exakte Actions, Framework-Pfade und HTTP-Methoden, SQL-Zugriff sowie externe HTTPS-Ursprünge. Jede Person akzeptiert ausdrücklich eine Teilmenge; jede Manifeständerung macht die alte Freigabe ungültig.
+- **Sicherer Legacy-Modus** — Ohne akzeptiertes aktuelles Manifest darf eine Extension nur schreibgeschützte Actions sowie Application State und eigene Extension-Daten lesen. SQL, Schreibzugriffe und externe Verbindungen bleiben deaktiviert.
+- **Serverseitige Durchsetzung** — Action-, SQL-, Application-State-, Daten- und Proxy-Routen prüfen die Freigabe unabhängig. Ein Widerruf gilt ab der nächsten Anfrage.
+
 ## Ein paar Dinge, die Sie über die Benennung wissen sollten {#naming-back-compat}
 
 Wenn Sie im SQL oder in der Quelle herumstöbern, werden Sie eine Mischung aus „Erweiterungs“- und „Tool“-Namen sehen. Schnelldecoder:

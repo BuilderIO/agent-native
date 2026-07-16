@@ -650,6 +650,16 @@ Extensions run in a sandboxed iframe:
 - **Private-network protection** — extensions can't reach internal addresses.
 - **Auth required** — extensions only run for logged-in users, and `dbQuery`
   calls are auto-scoped.
+- **Version-bound capabilities** — an extension must declare exact actions,
+  framework paths and methods, SQL access, extension-data writes, and outbound
+  HTTPS origins and methods. Each viewer explicitly accepts a subset of that
+  manifest. Changing the manifest invalidates the old grant.
+- **Fail-closed legacy behavior** — extensions without an accepted current
+  manifest can call only read-only actions, read application state, and read
+  their own extension data. SQL, writes, and external egress stay off.
+- **Server enforcement** — iframe checks improve feedback, but action, SQL,
+  application-state, extension-data, and proxy routes independently enforce the
+  accepted grant. Revocation takes effect on the next request.
 
 ## A few things to know about naming {#naming-back-compat}
 

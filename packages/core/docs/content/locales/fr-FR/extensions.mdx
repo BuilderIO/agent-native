@@ -458,6 +458,10 @@ Les extensions s'exécutent dans une iframe en bac à sable :
 - **Protection des réseaux privés** : les extensions ne peuvent pas atteindre les adresses internes.
 - **Authentification requise** : les extensions ne s'exécutent que pour les utilisateurs connectés et les appels `dbQuery` sont automatiquement étendus.
 
+- **Capacités liées à la version** — Une extension déclare des actions, chemins et méthodes HTTP, accès SQL et origines HTTPS externes exacts. Chaque personne accepte explicitement un sous-ensemble ; toute modification du manifeste invalide l’autorisation précédente.
+- **Mode historique fermé par défaut** — Sans manifeste courant accepté, l’extension peut seulement appeler des actions en lecture et lire l’état de l’application et ses propres données. SQL, écritures et sorties externes restent désactivés.
+- **Contrôle côté serveur** — Les routes d’actions, SQL, état, données et proxy vérifient l’autorisation indépendamment. La révocation prend effet dès la requête suivante.
+
 ## Quelques choses à savoir sur la dénomination {#naming-back-compat}
 
 Si vous parcourez le SQL ou la source, vous verrez un mélange de noms d'"extension" et d'"outil". Décodeur rapide :

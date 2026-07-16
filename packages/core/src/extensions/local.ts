@@ -324,6 +324,8 @@ async function readLocalExtensionFolder(options: {
     updatedAt,
     hiddenAt: null,
     hiddenBy: null,
+    capabilityManifestVersion: null,
+    capabilityManifest: null,
     ownerEmail: "local-files",
     orgId: null,
     visibility: "private",

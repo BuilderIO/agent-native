@@ -53,6 +53,16 @@ describe("extensions/store", () => {
       ),
     ).toBe(true);
     expect(
+      statements.some((sql) =>
+        /ALTER\s+TABLE\s+tools\s+ADD\s+COLUMN\s+capability_manifest/i.test(sql),
+      ),
+    ).toBe(true);
+    expect(
+      statements.some((sql) =>
+        /ALTER\s+TABLE\s+tool_consents\s+ADD\s+COLUMN\s+grants_json/i.test(sql),
+      ),
+    ).toBe(true);
+    expect(
       statements.some((sql) => /RENAME\s+TO\s+tool_data_old/i.test(sql)),
     ).toBe(false);
     expect(

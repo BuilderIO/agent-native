@@ -22,6 +22,7 @@ import {
   ForbiddenError,
 } from "../sharing/access.js";
 import { registerShareableResource } from "../sharing/registry.js";
+import { normalizeExtensionCapabilityManifest } from "./capability-policy.js";
 import {
   EXTENSION_CHANGE_MARKER_KEY,
   extensionChangeMarkerSession,
@@ -53,6 +54,8 @@ import {
   EXTENSIONS_UPDATED_INDEX_SQL,
   EXTENSIONS_HIDDEN_AT_COLUMN_SQL,
   EXTENSIONS_HIDDEN_BY_COLUMN_SQL,
+  EXTENSIONS_CAPABILITY_MANIFEST_VERSION_COLUMN_SQL,
+  EXTENSIONS_CAPABILITY_MANIFEST_COLUMN_SQL,
   EXTENSIONS_HIDDEN_AT_INDEX_SQL,
   EXTENSION_SHARES_RESOURCE_INDEX_SQL,
   EXTENSION_HIDES_CREATE_SQL,
@@ -66,6 +69,8 @@ import {
   EXTENSION_CONSENTS_CREATE_SQL,
   EXTENSION_CONSENTS_CREATE_SQL_PG,
   EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
+  EXTENSION_CONSENTS_GRANTS_JSON_COLUMN_SQL,
+  EXTENSION_CONSENTS_REVOKED_AT_COLUMN_SQL,
 } from "./schema.js";
 
 const getDb = createGetDb({
@@ -74,6 +79,17 @@ const getDb = createGetDb({
   extensionHides,
   extensionHistory,
 });
+
+function serializeExtensionCapabilityManifest(value: unknown): {
+  version: number | null;
+  json: string | null;
+} {
+  const manifest = normalizeExtensionCapabilityManifest(value);
+  return {
+    version: manifest?.version ?? null,
+    json: manifest ? JSON.stringify(manifest) : null,
+  };
+}
 
 let _initPromise: Promise<void> | undefined;
 
@@ -103,6 +119,7 @@ export async function ensureExtensionsTables(): Promise<void> {
           EXTENSIONS_UPDATED_INDEX_SQL,
         );
         await ensureExtensionsGlobalHideColumns(client, pg); // ADD COLUMN — guarded inside
+        await ensureExtensionCapabilityColumns(client, pg);
         await ensureIndexExists(
           "tools_hidden_at_idx",
           EXTENSIONS_HIDDEN_AT_INDEX_SQL,
@@ -139,6 +156,7 @@ export async function ensureExtensionsTables(): Promise<void> {
           "tool_consents",
           EXTENSION_CONSENTS_CREATE_SQL_PG,
         );
+        await ensureExtensionConsentCapabilityColumns(client, pg);
         await ensureIndexExists(
           "tool_consents_viewer_idx",
           EXTENSION_CONSENTS_VIEWER_INDEX_SQL,
@@ -176,6 +194,7 @@ export async function ensureExtensionsTables(): Promise<void> {
       await retryOnDdlRace(() => client.execute(EXTENSIONS_ORG_INDEX_SQL));
       await retryOnDdlRace(() => client.execute(EXTENSIONS_UPDATED_INDEX_SQL));
       await ensureExtensionsGlobalHideColumns(client, pg);
+      await ensureExtensionCapabilityColumns(client, pg);
       await retryOnDdlRace(() =>
         client.execute(EXTENSIONS_HIDDEN_AT_INDEX_SQL),
       );
@@ -214,6 +233,7 @@ export async function ensureExtensionsTables(): Promise<void> {
           pg ? EXTENSION_CONSENTS_CREATE_SQL_PG : EXTENSION_CONSENTS_CREATE_SQL,
         ),
       );
+      await ensureExtensionConsentCapabilityColumns(client, pg);
       await retryOnDdlRace(() =>
         client.execute(EXTENSION_CONSENTS_VIEWER_INDEX_SQL),
       );
@@ -345,6 +365,77 @@ async function ensureExtensionsGlobalHideColumns(
   await addCol(EXTENSIONS_HIDDEN_BY_COLUMN_SQL, "hidden_by", "TEXT");
 }
 
+async function ensureExtensionCapabilityColumns(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  await ensureAdditiveColumn(
+    client,
+    pg,
+    "tools",
+    "capability_manifest_version",
+    "INTEGER",
+    EXTENSIONS_CAPABILITY_MANIFEST_VERSION_COLUMN_SQL,
+  );
+  await ensureAdditiveColumn(
+    client,
+    pg,
+    "tools",
+    "capability_manifest",
+    "TEXT",
+    EXTENSIONS_CAPABILITY_MANIFEST_COLUMN_SQL,
+  );
+}
+
+async function ensureExtensionConsentCapabilityColumns(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+): Promise<void> {
+  await ensureAdditiveColumn(
+    client,
+    pg,
+    "tool_consents",
+    "grants_json",
+    "TEXT NOT NULL DEFAULT '{}'",
+    EXTENSION_CONSENTS_GRANTS_JSON_COLUMN_SQL,
+  );
+  await ensureAdditiveColumn(
+    client,
+    pg,
+    "tool_consents",
+    "revoked_at",
+    "TEXT",
+    EXTENSION_CONSENTS_REVOKED_AT_COLUMN_SQL,
+  );
+}
+
+async function ensureAdditiveColumn(
+  client: ReturnType<typeof getDbExec>,
+  pg: boolean,
+  tableName: string,
+  columnName: string,
+  sqliteDefinition: string,
+  postgresSql: string,
+): Promise<void> {
+  if (pg) {
+    await ensureColumnExists(tableName, columnName, postgresSql);
+    return;
+  }
+  try {
+    await client.execute(
+      `ALTER TABLE ${tableName} ADD COLUMN ${columnName} ${sqliteDefinition}`,
+    );
+  } catch (err: any) {
+    if (
+      !String(err?.message ?? err)
+        .toLowerCase()
+        .includes("duplicate")
+    ) {
+      throw err;
+    }
+  }
+}
+
 export function registerExtensionsShareable() {
   registerShareableResource({
     type: "extension",
@@ -374,6 +465,8 @@ export interface ExtensionRow {
   updatedAt: string;
   hiddenAt: string | null;
   hiddenBy: string | null;
+  capabilityManifestVersion: number | null;
+  capabilityManifest: string | null;
   ownerEmail: string;
   orgId: string | null;
   visibility: "private" | "org" | "public";
@@ -1024,6 +1117,7 @@ export interface CreateExtensionData {
   description?: string;
   content?: string;
   icon?: string;
+  capabilityManifest?: unknown;
 }
 
 export async function createExtension(
@@ -1036,6 +1130,9 @@ export async function createExtension(
   const orgId = getRequestOrgId();
   const id = randomUUID();
   const now = new Date().toISOString();
+  const capabilityManifest = serializeExtensionCapabilityManifest(
+    data.capabilityManifest,
+  );
   const row: ExtensionRow = {
     id,
     name: data.name,
@@ -1046,6 +1143,8 @@ export async function createExtension(
     updatedAt: now,
     hiddenAt: null,
     hiddenBy: null,
+    capabilityManifestVersion: capabilityManifest.version,
+    capabilityManifest: capabilityManifest.json,
     ownerEmail: userEmail,
     orgId: orgId ?? null,
     visibility: "private",
@@ -1076,6 +1175,7 @@ export async function findRecentDuplicateExtension(data: {
   content: string;
   description?: string;
   icon?: string;
+  capabilityManifest?: unknown;
 }): Promise<ExtensionRow | null> {
   await ensureExtensionsTables();
   const db = getDb();
@@ -1084,6 +1184,9 @@ export async function findRecentDuplicateExtension(data: {
   const orgId = getRequestOrgId() ?? null;
   const description = data.description ?? "";
   const icon = data.icon ?? null;
+  const capabilityManifest = serializeExtensionCapabilityManifest(
+    data.capabilityManifest,
+  );
   const fiveMinutesAgo = new Date(Date.now() - 5 * 60 * 1000).toISOString();
   const rows = await db
     .select()
@@ -1096,6 +1199,9 @@ export async function findRecentDuplicateExtension(data: {
         eq(extensions.content, data.content),
         eq(extensions.description, description),
         icon === null ? isNull(extensions.icon) : eq(extensions.icon, icon),
+        capabilityManifest.json === null
+          ? isNull(extensions.capabilityManifest)
+          : eq(extensions.capabilityManifest, capabilityManifest.json),
         gte(extensions.createdAt, fiveMinutesAgo),
         isNull(extensions.hiddenAt),
       ),
@@ -1114,6 +1220,7 @@ export interface UpdateExtensionData {
    * generic share UI compiles, not because it's allowed at runtime.
    */
   visibility?: "private" | "org" | "public";
+  capabilityManifest?: unknown;
 }
 
 export async function updateExtension(
@@ -1140,6 +1247,13 @@ export async function updateExtension(
   if (data.description !== undefined) updates.description = data.description;
   if (data.icon !== undefined) updates.icon = data.icon;
   if (data.visibility !== undefined) updates.visibility = data.visibility;
+  if (data.capabilityManifest !== undefined) {
+    const capabilityManifest = serializeExtensionCapabilityManifest(
+      data.capabilityManifest,
+    );
+    updates.capabilityManifestVersion = capabilityManifest.version;
+    updates.capabilityManifest = capabilityManifest.json;
+  }
   const existingRows = await db
     .select()
     .from(extensions)

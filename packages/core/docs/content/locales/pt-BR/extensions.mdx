@@ -456,6 +456,9 @@ As extensões são executadas em um iframe em sandbox:
 - **Segredos bloqueados por domínio** — cada chave está vinculada a uma lista de permissões URL; o proxy recusa solicitações para outros hosts.
 - **Proteção de rede privada** — as extensões não podem alcançar endereços internos.
 - **Autenticação necessária** — as extensões são executadas apenas para usuários logados, e as chamadas `dbQuery` têm escopo automático.
+- **Capacidades vinculadas à versão** — a extensão declara actions, caminhos e métodos do framework, acesso SQL, gravações de dados e origens HTTPS de saída exatas. Cada pessoa aceita explicitamente um subconjunto; qualquer alteração do manifesto invalida a concessão anterior.
+- **Comportamento legado fechado por padrão** — sem um manifesto atual aceito, a extensão só pode chamar actions somente leitura, ler o estado do aplicativo e ler seus próprios dados. SQL, gravações e saída externa ficam desativados.
+- **Aplicação no servidor** — as rotas de actions, SQL, estado do aplicativo, dados e proxy verificam a concessão de forma independente. A revogação vale já na próxima solicitação.
 
 ## Algumas coisas que você deve saber sobre nomenclatura {#naming-back-compat}
 
