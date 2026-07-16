@@ -58,9 +58,11 @@ describe("POST /api/document-media", () => {
       orgId: "org-1",
     });
     readMultipartFormData.mockResolvedValue(mediaParts());
-    getHeader.mockImplementation((_event, name) =>
-      name === "sec-fetch-site" ? "same-origin" : undefined,
-    );
+    getHeader.mockImplementation((_event, name) => {
+      if (name === "sec-fetch-site") return "same-origin";
+      if (name === "x-agent-native-document-id") return "doc-1";
+      return undefined;
+    });
     assertAccess.mockResolvedValue({
       resource: { ownerEmail: "owner@example.com", orgId: "org-1" },
     });
@@ -132,13 +134,29 @@ describe("POST /api/document-media", () => {
   });
 
   it("accepts the explicit first-party CSRF marker when browser metadata is unavailable", async () => {
-    getHeader.mockImplementation((_event, name) =>
-      name === "x-agent-native-csrf" ? "1" : undefined,
-    );
+    getHeader.mockImplementation((_event, name) => {
+      if (name === "x-agent-native-csrf") return "1";
+      if (name === "x-agent-native-document-id") return "doc-1";
+      return undefined;
+    });
 
     await expect(handler({} as never)).resolves.toEqual({
       url: expect.stringMatching(/^\/content\/api\/document-media\//),
     });
+  });
+
+  it("authorizes the document header before parsing multipart bytes", async () => {
+    assertAccess.mockRejectedValue(
+      Object.assign(new Error("forbidden"), { statusCode: 403 }),
+    );
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(handler({} as never)).resolves.toMatchObject({
+      code: "MEDIA_ACCESS_DENIED",
+    });
+
+    expect(readMultipartFormData).not.toHaveBeenCalled();
+    errorSpy.mockRestore();
   });
 
   it("accepts only capped media, stores an opaque handle, and returns only Content URL", async () => {

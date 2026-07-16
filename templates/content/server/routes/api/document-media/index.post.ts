@@ -124,17 +124,12 @@ export default defineEventHandler(async (event) => {
   }
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return mediaError(event, 401, requestId);
-  const parts = await readMultipartFormData(event);
-  const file = parts?.find((part) => part.name === "file" && part.data);
-  const documentId = parts
-    ?.find((part) => part.name === "documentId")
-    ?.data.toString();
-  if (!file || !documentId) return mediaError(event, 400, requestId);
-  const mimeType = (file.type ?? "").toLowerCase();
-  if (
-    !isSupportedDocumentMediaType(mimeType) ||
-    file.data.byteLength > DOCUMENT_MEDIA_MAX_BYTES
-  ) {
+  // Authenticate and authorize before parsing the multipart body. Besides
+  // avoiding an unnecessary large-body read for rejected callers, a dedicated
+  // first-party header prevents proxy multipart rewriting from changing which
+  // document the bytes are bound to.
+  const documentId = getHeader(event, "x-agent-native-document-id")?.trim();
+  if (!documentId || documentId.length > 256) {
     return mediaError(event, 400, requestId);
   }
 
@@ -150,6 +145,17 @@ export default defineEventHandler(async (event) => {
       identifierLength: documentId.length,
     });
     return mediaError(event, 403, requestId);
+  }
+
+  const parts = await readMultipartFormData(event);
+  const file = parts?.find((part) => part.name === "file" && part.data);
+  if (!file) return mediaError(event, 400, requestId);
+  const mimeType = (file.type ?? "").toLowerCase();
+  if (
+    !isSupportedDocumentMediaType(mimeType) ||
+    file.data.byteLength > DOCUMENT_MEDIA_MAX_BYTES
+  ) {
+    return mediaError(event, 400, requestId);
   }
 
   let handle: Awaited<ReturnType<typeof putPrivateBlob>>;

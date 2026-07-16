@@ -36,12 +36,16 @@ describe("image uploads", () => {
       expect.stringContaining("/api/document-media"),
       expect.objectContaining({
         method: "POST",
+        headers: {
+          "X-Agent-Native-CSRF": "1",
+          "X-Agent-Native-Document-Id": "document-1",
+        },
         body: expect.any(FormData),
       }),
     );
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     const uploadedFile = body.get("file") as File;
-    expect(body.get("documentId")).toBe("document-1");
+    expect(body.get("documentId")).toBeNull();
     expect(uploadedFile.name).toBe("diagram.png");
     expect(uploadedFile.type).toBe("image/png");
   });
@@ -131,7 +135,10 @@ describe("image uploads", () => {
 
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     const uploadedFile = body.get("file") as File;
-    expect(body.get("documentId")).toBe("document-1");
+    expect(body.get("documentId")).toBeNull();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Document-Id": "document-1",
+    });
     expect(uploadedFile.name).toBe("demo.mp4");
     expect(uploadedFile.type).toBe("video/mp4");
   });
@@ -168,7 +175,10 @@ describe("image uploads", () => {
 
     const body = fetchMock.mock.calls[0]?.[1]?.body as FormData;
     const uploadedFile = body.get("file") as File;
-    expect(body.get("documentId")).toBe("document-1");
+    expect(body.get("documentId")).toBeNull();
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Document-Id": "document-1",
+    });
     expect(uploadedFile.name).toBe("demo.mp3");
     expect(uploadedFile.type).toBe("audio/mpeg");
   });

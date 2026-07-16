@@ -120,11 +120,14 @@ async function uploadMediaFile(
 
   const form = new FormData();
   form.append("file", file, file.name || kind);
-  form.append("documentId", documentId);
   form.append("kind", kind);
 
   const response = await fetch(agentNativePath("/api/document-media"), {
     method: "POST",
+    headers: {
+      "X-Agent-Native-CSRF": "1",
+      "X-Agent-Native-Document-Id": documentId,
+    },
     body: form,
   });
 
