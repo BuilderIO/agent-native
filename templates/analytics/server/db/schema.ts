@@ -14,6 +14,7 @@ import {
 // feature so parallel work never collides on this shared file.
 export * from "./schema-monitoring.js";
 export * from "./schema-errors.js";
+export * from "./schema-product-experiments.js";
 
 /**
  * Dashboards table — covers both Explorer and SQL dashboards. The

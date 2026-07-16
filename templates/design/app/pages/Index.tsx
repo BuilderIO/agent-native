@@ -1,7 +1,7 @@
 import {
   useActionQuery,
   useActionMutation,
-  useFeatureFlag,
+  useFeatureFlagExposure,
   useT,
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
@@ -83,7 +83,6 @@ interface Design {
 
 export default function Index() {
   const t = useT();
-  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
@@ -93,6 +92,10 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const fullAppBuildingEnabled = useFeatureFlagExposure(
+    FULL_APP_BUILDING.key,
+    showNewPrompt,
+  );
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined

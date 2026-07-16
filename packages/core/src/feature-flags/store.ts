@@ -13,12 +13,16 @@ export interface FeatureFlagRules {
   emails: string[];
   orgIds: string[];
   percentage: number;
+  /** Salt for a percentage assignment. Absent values preserve v1 buckets. */
+  rolloutEpoch?: string;
   updatedAt: number | null;
   updatedBy: string | null;
 }
 
 export interface FeatureFlagScope {
   userEmail?: string;
+  /** Canonical authenticated identity. V1 callers use normalized email. */
+  userKey?: string;
   orgId?: string | null;
 }
 
@@ -69,6 +73,10 @@ export function normalizeFeatureFlagRules(value: unknown): FeatureFlagRules {
     emails: stringList(raw.emails).map((email) => email.toLowerCase()),
     orgIds: stringList(raw.orgIds),
     percentage,
+    rolloutEpoch:
+      typeof raw.rolloutEpoch === "string" && raw.rolloutEpoch.trim()
+        ? raw.rolloutEpoch.trim()
+        : undefined,
     updatedAt:
       typeof raw.updatedAt === "number" && Number.isSafeInteger(raw.updatedAt)
         ? raw.updatedAt
@@ -119,18 +127,64 @@ function rolloutBucket(input: string): number {
   return (hash >>> 0) % 100;
 }
 
+export type FeatureFlagDecisionReason =
+  | "off"
+  | "global"
+  | "email"
+  | "org"
+  | "percentage-control"
+  | "percentage-treatment";
+
+export interface FeatureFlagDecision {
+  value: boolean;
+  reason: FeatureFlagDecisionReason;
+  bucket?: number;
+  rolloutEpoch?: string;
+  rolloutPercentage?: number;
+  userKey?: string;
+}
+
+export function evaluateFeatureFlagDecisionRules(
+  key: string,
+  rules: FeatureFlagRules,
+  scope: FeatureFlagScope,
+): FeatureFlagDecision {
+  if (rules.mode === "off") return { value: false, reason: "off" };
+  if (rules.mode === "on") return { value: true, reason: "global" };
+  const email = scope.userEmail?.trim().toLowerCase();
+  if (email && rules.emails.includes(email))
+    return { value: true, reason: "email" };
+  if (scope.orgId && rules.orgIds.includes(scope.orgId))
+    return { value: true, reason: "org" };
+  const userKey = scope.userKey?.trim() || email;
+  if (!userKey || rules.percentage <= 0)
+    return {
+      value: false,
+      reason: "percentage-control",
+      rolloutEpoch: rules.rolloutEpoch,
+      rolloutPercentage: rules.percentage,
+      userKey,
+    };
+  const bucket = rolloutBucket(
+    `${key}:${rules.rolloutEpoch ? `${rules.rolloutEpoch}:` : ""}${userKey}`,
+  );
+  const value = bucket < rules.percentage;
+  return {
+    value,
+    reason: value ? "percentage-treatment" : "percentage-control",
+    bucket,
+    rolloutEpoch: rules.rolloutEpoch,
+    rolloutPercentage: rules.percentage,
+    userKey,
+  };
+}
+
 export function evaluateFeatureFlagRules(
   key: string,
   rules: FeatureFlagRules,
   scope: FeatureFlagScope,
 ): boolean {
-  if (rules.mode === "off") return false;
-  if (rules.mode === "on") return true;
-  const email = scope.userEmail?.trim().toLowerCase();
-  if (email && rules.emails.includes(email)) return true;
-  if (scope.orgId && rules.orgIds.includes(scope.orgId)) return true;
-  if (!email || rules.percentage <= 0) return false;
-  return rolloutBucket(`${key}:${email}`) < rules.percentage;
+  return evaluateFeatureFlagDecisionRules(key, rules, scope).value;
 }
 
 export async function evaluateFeatureFlag(
@@ -147,6 +201,22 @@ export async function evaluateFeatureFlag(
   } catch {
     // A feature flag must never become an availability dependency.
     return false;
+  }
+}
+
+export async function evaluateFeatureFlagDecision(
+  key: string,
+  scope: FeatureFlagScope = {},
+): Promise<FeatureFlagDecision> {
+  if (!getFeatureFlagDefinition(key)) return { value: false, reason: "off" };
+  try {
+    return evaluateFeatureFlagDecisionRules(
+      key,
+      await getFeatureFlagRules(key, scope),
+      scope,
+    );
+  } catch {
+    return { value: false, reason: "off" };
   }
 }
 

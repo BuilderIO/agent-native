@@ -77,7 +77,7 @@ result and fails closed while loading or for unknown flags.
 ```tsx
 import { useFeatureFlag } from "@agent-native/core/client";
 
-const enabled = useFeatureFlag(FULL_APP_BUILDING.key);
+const enabled = useFeatureFlagExposure(FULL_APP_BUILDING.key);
 return enabled ? <FullAppOption /> : null;
 ```
 
@@ -95,10 +95,13 @@ Core mounts these actions in every app:
 | `list-feature-flags` | Return registered definitions and rollout metadata to an authorized flag operator. |
 | `set-feature-flag` | Atomically turn a flag off, enable it for the current operator, or replace its targeting rules. |
 
-The Feature flags Settings tab calls the same actions. It appears only when the
-app has registered flags and the server says the caller may manage them.
-Management is permission-checked and audited on the server. Do not read or write
-flag settings through generic settings routes, raw SQL, or extension tools.
+Centralized operator UIs call the same app-local actions through narrowly scoped
+A2A delegation. Privileged tokens require an exact target audience, org, scope,
+operator role, and audit correlation id. Both list and mutation responses are
+versioned; callers must reject legacy or mismatched persisted rules instead of
+assuming a successful HTTP status means the rollout changed. Management is
+permission-checked and audited on the server. Do not read or write flag settings
+through generic settings routes, raw SQL, or extension tools.
 
 ## Rollout semantics
 
@@ -111,6 +114,10 @@ An explicit global off wins over every target. Global on enables every caller.
 Otherwise an exact user or organization match enables the caller, followed by
 the stable percentage bucket. A percentage rollout must use Core's evaluator;
 do not invent another hash in app code.
+
+Evaluation is side-effect free. Record an exposure only after the user actually
+encounters the gated behavior with `exposeFeatureFlag()` or
+`useFeatureFlagExposure()`; never emit one merely because a guard was checked.
 
 ## Lifecycle
 

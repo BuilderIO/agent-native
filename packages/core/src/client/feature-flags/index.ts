@@ -1,5 +1,6 @@
 export {
   FeatureFlagsPanel,
+  FeatureFlagsEditor,
   useFeatureFlagsSettings,
 } from "./FeatureFlagsPanel.js";
 export {
@@ -8,7 +9,12 @@ export {
   hasManageableFeatureFlags,
   type EvaluatedFeatureFlags,
 } from "./helpers.js";
-export { useFeatureFlag, useFeatureFlags } from "./use-feature-flag.js";
+export {
+  useFeatureFlag,
+  useFeatureFlagExposure,
+  useFeatureFlags,
+} from "./use-feature-flag.js";
+export { trackFeatureFlagExposure } from "./exposure.js";
 export type {
   FeatureFlagActor,
   FeatureFlagMetadata,

@@ -13,7 +13,6 @@ export default defineAction({
   toolCallable: false,
   run: async (_args, ctx) => {
     const definitions = listFeatureFlags();
-    if (definitions.length === 0) return { flags: [], canManage: false };
     let manager;
     try {
       manager = await requireFeatureFlagManager(ctx ?? {});
@@ -23,16 +22,36 @@ export default defineAction({
         "statusCode" in error &&
         (error as { statusCode?: number }).statusCode === 403
       ) {
-        return { flags: [], canManage: false };
+        return {
+          contractVersion: 1,
+          status: "forbidden" as const,
+          reason: "forbidden" as const,
+          flags: [],
+          canManage: false,
+        };
       }
       throw error;
     }
+    if (definitions.length === 0)
+      return {
+        contractVersion: 1,
+        status: "no-definitions" as const,
+        reason: "no-definitions" as const,
+        flags: [],
+        canManage: true,
+      };
     const flags = await Promise.all(
       definitions.map(async (definition) => ({
         ...definition,
         rules: await getFeatureFlagRules(definition.key, manager),
       })),
     );
-    return { flags, canManage: true };
+    return {
+      contractVersion: 1,
+      status: "ready" as const,
+      reason: "ready" as const,
+      flags,
+      canManage: true,
+    };
   },
 });

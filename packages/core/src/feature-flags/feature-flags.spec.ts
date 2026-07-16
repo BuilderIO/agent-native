@@ -46,6 +46,27 @@ describe("feature flag registry", () => {
 });
 
 describe("feature flag evaluator", () => {
+  it("returns percentage decision metadata and salts epoch buckets", async () => {
+    const rules = store.normalizeFeatureFlagRules({
+      mode: "rules",
+      percentage: 50,
+      rolloutEpoch: "experiment-1",
+    });
+    const decision = store.evaluateFeatureFlagDecisionRules(
+      "new-editor",
+      rules,
+      { userEmail: "alice@example.com" },
+    );
+    expect(decision).toMatchObject({
+      rolloutEpoch: "experiment-1",
+      rolloutPercentage: 50,
+      userKey: "alice@example.com",
+    });
+    expect(["percentage-control", "percentage-treatment"]).toContain(
+      decision.reason,
+    );
+    expect(decision.bucket).toBeTypeOf("number");
+  });
   it("fails closed, honors exact email/org targets, and is deterministic", () => {
     const off = store.defaultFeatureFlagRules();
     expect(

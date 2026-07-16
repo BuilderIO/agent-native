@@ -515,7 +515,7 @@ const messages = {
     overview: "نظرة عامة",
     conversations: "Conversations",
     evals: "التقييمات",
-    experiments: "التجارب",
+    experiments: "تجارب الوكيل",
     feedback: "ملاحظات",
     variants: "Variants",
     created: "Created",

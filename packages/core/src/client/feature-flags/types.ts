@@ -17,6 +17,7 @@ export interface FeatureFlagRules {
   emails: string[];
   orgIds: string[];
   percentage: number;
+  rolloutEpoch?: string;
   updatedAt?: number | null;
   updatedBy?: FeatureFlagActor | string | null;
 }
@@ -24,6 +25,9 @@ export interface FeatureFlagRules {
 export interface ListFeatureFlagsResult {
   flags: FeatureFlagMetadata[];
   canManage?: boolean;
+  contractVersion?: 1;
+  status?: "ready" | "no-definitions" | "forbidden";
+  reason?: "ready" | "no-definitions" | "forbidden";
 }
 
 export interface SetFeatureFlagInput {

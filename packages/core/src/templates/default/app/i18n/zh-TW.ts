@@ -467,7 +467,7 @@ const messages = {
     overview: "概覽",
     conversations: "Conversations",
     evals: "埃瓦爾斯",
-    experiments: "實驗",
+    experiments: "代理實驗",
     feedback: "意見回饋",
     variants: "Variants",
     created: "Created",

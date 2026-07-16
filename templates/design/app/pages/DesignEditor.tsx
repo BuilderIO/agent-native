@@ -27,7 +27,7 @@ import {
   RemoteSelectionRings,
   RecentEditHighlights,
   useRecentEdits,
-  useFeatureFlag,
+  useFeatureFlagExposure,
   useT,
   useChangeVersion,
   setAgentChatContextItem,
@@ -1969,7 +1969,6 @@ export default function DesignEditorRoute() {
 
 function DesignEditor() {
   const t = useT();
-  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const { id } = useParams<{ id: string }>();
   const { session, isLoading: sessionLoading } = useSession();
   const isSignedIn = Boolean(session?.email);
@@ -8952,6 +8951,10 @@ function DesignEditor() {
   const fusionApp = useMemo(
     () => readFusionApp(designDataJson),
     [designDataJson],
+  );
+  const fullAppBuildingEnabled = useFeatureFlagExposure(
+    FULL_APP_BUILDING.key,
+    Boolean(id && fusionApp),
   );
 
   // Builder-hosted preview URL for fusion-source designs. Prefers the flat

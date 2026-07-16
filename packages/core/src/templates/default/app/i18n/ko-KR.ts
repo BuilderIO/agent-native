@@ -482,7 +482,7 @@ const messages = {
     overview: "개요",
     conversations: "Conversations",
     evals: "평가",
-    experiments: "실험",
+    experiments: "에이전트 실험",
     feedback: "피드백",
     variants: "Variants",
     created: "Created",

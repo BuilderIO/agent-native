@@ -654,7 +654,7 @@ run: async (args, ctx) => {
 };
 ```
 
-Verwende `useFeatureFlag(FULL_APP_BUILDING.key)` aus `@agent-native/core/client`, um die Client-Oberfläche ein- oder auszublenden. Core stellt `get-feature-flags`, `list-feature-flags` und `set-feature-flag` bereit; der gemeinsame Einstellungs-Tab für Feature-Flags verwendet dieselben Actions für Rollouts an einzelne Nutzer, Organisationen, Prozentsätze und alle Nutzer. Die Verwaltung wird auf Berechtigungen geprüft und protokolliert. Leite Schreibvorgänge für Flags niemals über allgemeine Einstellungs-Endpunkte oder unverarbeitetes SQL und lege Authentifizierung, Autorisierung, Auditierung, Secrets oder das SSR-Cache-Verhalten niemals hinter ein Laufzeit-Flag. Lies den Skill `feature-flags` für Hinweise zu Rollout und Entfernung.
+Verwende `useFeatureFlag(FULL_APP_BUILDING.key)` aus `@agent-native/core/client`, um die Client-Oberfläche ein- oder auszublenden. Core stellt `get-feature-flags`, `list-feature-flags` und `set-feature-flag` bereit. Die Verwaltung wird geprüft und auditiert; Fleet-Oberflächen rufen dieselben app-lokalen Actions über eng begrenzte A2A-Delegierung auf. Die Auswertung ist nebenwirkungsfrei: Wenn Nutzer eine geschützte Oberfläche tatsächlich sehen, verwende serverseitig `exposeFeatureFlag()` oder in der gemounteten Client-Oberfläche `useFeatureFlagExposure()`, um eine explizite Experiment-Exposure zu senden. Leite Flag-Schreibvorgänge niemals über allgemeine Einstellungs-Endpunkte oder unverarbeitetes SQL und lege Authentifizierung, Autorisierung, Auditierung, Secrets oder SSR-Cache-Verhalten niemals hinter ein Laufzeit-Flag.
 
 ## Legacy CLI-Stil actions {#legacy-cli-actions}
 

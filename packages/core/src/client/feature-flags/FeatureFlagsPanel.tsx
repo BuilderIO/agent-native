@@ -17,6 +17,7 @@ import {
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
 import { useActionMutation, useActionQuery } from "../use-action.js";
+import { normalizeFeatureFlagRules } from "./helpers.js";
 import type {
   FeatureFlagMetadata,
   FeatureFlagRules,
@@ -142,20 +143,24 @@ function TargetingDialog({
   flag,
   open,
   onOpenChange,
+  onMutate,
+  isPending,
 }: {
   flag: FeatureFlagMetadata;
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onMutate: (input: SetFeatureFlagInput) => void;
+  isPending?: boolean;
 }) {
   const t = useT();
   const [mode, setMode] = useState(flag.rules.mode);
   const [emails, setEmails] = useState(() => listText(flag.rules.emails));
   const [orgIds, setOrgIds] = useState(() => listText(flag.rules.orgIds));
   const [percentage, setPercentage] = useState(String(flag.rules.percentage));
-  const setFlag = useSetFeatureFlag(() => onOpenChange(false));
 
   const save = () => {
-    setFlag.mutate({
+    const nextPercentage = Math.max(0, Math.min(100, Number(percentage) || 0));
+    onMutate({
       key: flag.key,
       operation: "replace-rules",
       rules: {
@@ -163,7 +168,14 @@ function TargetingDialog({
         mode,
         emails: parseList(emails),
         orgIds: parseList(orgIds),
-        percentage: Math.max(0, Math.min(100, Number(percentage) || 0)),
+        percentage: nextPercentage,
+        // Keep a running experiment's cohort stable for metadata-only edits.
+        // A percentage change deliberately omits the old epoch so the server
+        // rotates it and does not mix two allocations in one cohort.
+        rolloutEpoch:
+          nextPercentage === flag.rules.percentage
+            ? flag.rules.rolloutEpoch
+            : undefined,
       },
     });
   };
@@ -237,12 +249,10 @@ function TargetingDialog({
           <button
             type="button"
             className="inline-flex items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
-            disabled={setFlag.isPending}
+            disabled={isPending}
             onClick={save}
           >
-            {setFlag.isPending ? (
-              <IconLoader2 className="size-4 animate-spin" />
-            ) : null}
+            {isPending ? <IconLoader2 className="size-4 animate-spin" /> : null}
             {t("featureFlags.saveRules")}
           </button>
         </DialogFooter>
@@ -251,10 +261,19 @@ function TargetingDialog({
   );
 }
 
-function FeatureFlagRow({ flag }: { flag: FeatureFlagMetadata }) {
+function FeatureFlagRow({
+  flag,
+  onMutate,
+  isPending,
+  isDisabled,
+}: {
+  flag: FeatureFlagMetadata;
+  onMutate: (input: SetFeatureFlagInput) => void;
+  isPending?: boolean;
+  isDisabled?: boolean;
+}) {
   const t = useT();
   const [targetingOpen, setTargetingOpen] = useState(false);
-  const setFlag = useSetFeatureFlag();
   const actor = formatActor(flag.rules.updatedBy);
   const when = formatWhen(flag.rules.updatedAt);
   const metadata = [actor, when].filter(Boolean).join(" · ");
@@ -299,9 +318,9 @@ function FeatureFlagRow({ flag }: { flag: FeatureFlagMetadata }) {
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/40 disabled:opacity-50"
-          disabled={setFlag.isPending}
+          disabled={isPending || isDisabled}
           onClick={() =>
-            setFlag.mutate({
+            onMutate({
               key: flag.key,
               operation: "enable-for-current-user",
             })
@@ -313,8 +332,8 @@ function FeatureFlagRow({ flag }: { flag: FeatureFlagMetadata }) {
         <button
           type="button"
           className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
-          disabled={setFlag.isPending}
-          onClick={() => setFlag.mutate({ key: flag.key, operation: "off" })}
+          disabled={isPending || isDisabled}
+          onClick={() => onMutate({ key: flag.key, operation: "off" })}
         >
           <IconBolt className="size-3.5" />
           {t("featureFlags.immediateOff")}
@@ -322,6 +341,7 @@ function FeatureFlagRow({ flag }: { flag: FeatureFlagMetadata }) {
         <button
           type="button"
           className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+          disabled={isPending || isDisabled}
           onClick={() => setTargetingOpen(true)}
           aria-label={t("featureFlags.advancedFor", {
             name: flag.displayName ?? flag.key,
@@ -332,16 +352,41 @@ function FeatureFlagRow({ flag }: { flag: FeatureFlagMetadata }) {
         </button>
       </div>
       {targetingOpen ? (
-        <TargetingDialog flag={flag} open onOpenChange={setTargetingOpen} />
+        <TargetingDialog
+          flag={flag}
+          open
+          onOpenChange={setTargetingOpen}
+          onMutate={onMutate}
+          isPending={isPending}
+        />
       ) : null}
     </article>
   );
 }
 
-export function FeatureFlagsPanel({ flags }: { flags: FeatureFlagMetadata[] }) {
+export function FeatureFlagsEditor({
+  flags,
+  onMutate,
+  isPending,
+  error,
+  disabledKeys = [],
+}: {
+  flags: FeatureFlagMetadata[];
+  onMutate: (input: SetFeatureFlagInput) => void;
+  isPending?: boolean;
+  error?: Error | null;
+  /** Flags owned by a running experiment and therefore not editable here. */
+  disabledKeys?: string[];
+}) {
   const t = useT();
   const sortedFlags = useMemo(
-    () => [...flags].sort((left, right) => left.key.localeCompare(right.key)),
+    () =>
+      flags
+        .map((flag) => ({
+          ...flag,
+          rules: normalizeFeatureFlagRules(flag.rules),
+        }))
+        .sort((left, right) => left.key.localeCompare(right.key)),
     [flags],
   );
 
@@ -364,7 +409,13 @@ export function FeatureFlagsPanel({ flags }: { flags: FeatureFlagMetadata[] }) {
       {sortedFlags.length ? (
         <div>
           {sortedFlags.map((flag) => (
-            <FeatureFlagRow key={flag.key} flag={flag} />
+            <FeatureFlagRow
+              key={flag.key}
+              flag={flag}
+              onMutate={onMutate}
+              isPending={isPending}
+              isDisabled={disabledKeys.includes(flag.key)}
+            />
           ))}
         </div>
       ) : (
@@ -372,6 +423,22 @@ export function FeatureFlagsPanel({ flags }: { flags: FeatureFlagMetadata[] }) {
           {t("featureFlags.noFlags")}
         </p>
       )}
+      {error ? (
+        <p className="pt-3 text-sm text-destructive">{error.message}</p>
+      ) : null}
     </section>
+  );
+}
+
+/** Backward-compatible action-bound wrapper; fleet UIs should use FeatureFlagsEditor. */
+export function FeatureFlagsPanel({ flags }: { flags: FeatureFlagMetadata[] }) {
+  const setFlag = useSetFeatureFlag();
+  return (
+    <FeatureFlagsEditor
+      flags={flags}
+      onMutate={setFlag.mutate}
+      isPending={setFlag.isPending}
+      error={setFlag.error}
+    />
   );
 }

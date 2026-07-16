@@ -508,7 +508,7 @@ const messages = {
     overview: "Visión general",
     conversations: "Conversations",
     evals: "evaluaciones",
-    experiments: "experimentos",
+    experiments: "Experimentos del agente",
     feedback: "Comentarios",
     variants: "Variants",
     created: "Created",

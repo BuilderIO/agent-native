@@ -654,7 +654,7 @@ run: async (args, ctx) => {
 };
 ```
 
-Usa `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar o mostrar la superficie del cliente. Core proporciona `get-feature-flags`, `list-feature-flags` y `set-feature-flag`; la pestaña compartida de configuración de indicadores de funciones usa esas mismas actions para despliegues por usuario exacto, organización, porcentaje y globales. La administración comprueba los permisos y queda auditada. Nunca canalices escrituras de indicadores mediante endpoints genéricos de configuración o SQL sin procesar, ni coloques la autenticación, autorización, auditoría, secretos o el comportamiento de caché SSR detrás de un indicador en tiempo de ejecución. Lee la skill `feature-flags` para obtener orientación sobre el despliegue y la retirada.
+Usa `useFeatureFlag(FULL_APP_BUILDING.key)` de `@agent-native/core/client` para ocultar o mostrar la superficie del cliente. Core proporciona `get-feature-flags`, `list-feature-flags` y `set-feature-flag`. La administración comprueba permisos y queda auditada; las interfaces de flota llaman las mismas actions locales de la app mediante delegación A2A restringida. La evaluación no tiene efectos secundarios: cuando el usuario realmente encuentra la experiencia protegida, usa `exposeFeatureFlag()` en el servidor o `useFeatureFlagExposure()` en la superficie cliente montada para emitir una exposición explícita del experimento. Nunca canalices escrituras de indicadores mediante endpoints genéricos de configuración o SQL sin procesar, ni coloques autenticación, autorización, auditoría, secretos o caché SSR detrás de un indicador de tiempo de ejecución.
 
 ## actions estilo CLI heredado {#legacy-cli-actions}
 

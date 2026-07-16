@@ -652,7 +652,7 @@ run: async (args, ctx) => {
 };
 ```
 
-使用 `@agent-native/core/client` 中的 `useFeatureFlag(FULL_APP_BUILDING.key)` 隐藏或显示客户端界面。Core 提供 `get-feature-flags`、`list-feature-flags` 和 `set-feature-flag`；共享的功能标志设置选项卡使用相同的 actions，支持按特定用户、组织、百分比和全局逐步发布。管理操作会检查权限并记录审计日志。切勿通过通用设置 endpoint 或原始 SQL 写入标志，也不要将身份验证、授权、审计、secret 或 SSR 缓存行为置于 runtime flag 之后。有关发布和移除的指导，请阅读 `feature-flags` skill。
+使用 `@agent-native/core/client` 中的 `useFeatureFlag(FULL_APP_BUILDING.key)` 隐藏或显示客户端界面。Core 提供 `get-feature-flags`、`list-feature-flags` 和 `set-feature-flag`。管理会检查权限并审计；fleet UI 通过严格限定的 A2A 委托调用相同的应用本地 actions。评估没有副作用：当用户实际遇到受保护的体验时，在服务器使用 `exposeFeatureFlag()`，或在已挂载的客户端界面使用 `useFeatureFlagExposure()`，以发送显式实验 exposure。切勿通过通用设置 endpoint 或原始 SQL 写入标志，也不要将身份验证、授权、审计、secret 或 SSR 缓存置于 runtime flag 之后。
 
 ## 旧版 CLI 样式 actions {#legacy-cli-actions}
 

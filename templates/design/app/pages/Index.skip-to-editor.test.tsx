@@ -23,7 +23,7 @@ const mocks = vi.hoisted(() => ({
 }));
 
 vi.mock("@agent-native/core/client", () => ({
-  useFeatureFlag: () => false,
+  useFeatureFlagExposure: () => false,
   useActionQuery: (name: string) =>
     name === "list-designs"
       ? { data: { count: 0, designs: [] }, isLoading: false }

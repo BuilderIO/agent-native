@@ -503,7 +503,7 @@ const messages = {
     overview: "Visão geral",
     conversations: "Conversations",
     evals: "Avaliações",
-    experiments: "Experimentos",
+    experiments: "Experimentos de agente",
     feedback: "Comentários",
     variants: "Variants",
     created: "Created",

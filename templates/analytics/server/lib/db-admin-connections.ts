@@ -34,7 +34,7 @@ export interface DbAdminConnection {
   databaseAuthTokenLast4: string | null;
 }
 
-export interface DbAdminAdminContext {
+export interface AnalyticsAdminContext {
   userEmail: string;
   orgId: string;
   role: "owner" | "admin";
@@ -80,30 +80,38 @@ async function resolveOrgRole(
   }
 }
 
-export async function requireDbAdminContextFromRequest(input?: {
+export async function requireAnalyticsAdminContext(input?: {
   userEmail?: string;
   orgId?: string | null;
 }): Promise<DbAdminAdminContext> {
   const userEmail = input?.userEmail ?? getRequestUserEmail();
   const orgId = input?.orgId ?? getRequestOrgId() ?? null;
   if (!userEmail) {
-    throw new DbAdminConnectionError(401, "Sign in to manage app databases.");
+    throw new DbAdminConnectionError(
+      401,
+      "Sign in to use Analytics admin tools.",
+    );
   }
   if (!orgId) {
     throw new DbAdminConnectionError(
       403,
-      "An active organization is required to manage app databases.",
+      "An active organization is required to use Analytics admin tools.",
     );
   }
   const role = await resolveOrgRole(userEmail, orgId);
   if (!isAdminRole(role)) {
     throw new DbAdminConnectionError(
       403,
-      "Only organization owners and admins can access connected app databases.",
+      "Only organization owners and admins can use Analytics admin tools.",
     );
   }
   return { userEmail, orgId, role };
 }
+
+/** @deprecated Use requireAnalyticsAdminContext for Analytics admin surfaces. */
+export const requireDbAdminContextFromRequest = requireAnalyticsAdminContext;
+
+export type DbAdminAdminContext = AnalyticsAdminContext;
 
 export async function requireDbAdminContextFromEvent(
   event: H3Event,

@@ -691,10 +691,13 @@ export {
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
   FeatureFlagsPanel,
+  FeatureFlagsEditor,
+  trackFeatureFlagExposure,
   evaluatedFeatureFlagValues,
   featureFlagValue,
   hasManageableFeatureFlags,
   useFeatureFlag,
+  useFeatureFlagExposure,
   useFeatureFlags,
   useFeatureFlagsSettings,
   type FeatureFlagActor,

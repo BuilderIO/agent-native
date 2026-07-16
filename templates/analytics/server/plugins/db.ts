@@ -1264,6 +1264,68 @@ const runAnalyticsMigrations = runMigrations(
       name: "error-events-user-key-filter-idx",
       sql: `CREATE INDEX IF NOT EXISTS error_events_user_key_filter_idx ON error_events (user_key, owner_email, org_id, issue_id)`,
     },
+    {
+      version: 121,
+      name: "product-experiments-table",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS product_experiments (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, hypothesis TEXT NOT NULL DEFAULT '',
+          app_id TEXT NOT NULL, app_origin TEXT NOT NULL, flag_key TEXT NOT NULL,
+          primary_event_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+          treatment_percentage INTEGER NOT NULL DEFAULT 50, rollout_epoch TEXT,
+          started_at TEXT, ended_at TEXT, interruption_reason TEXT, reconciled_at TEXT,
+          created_by TEXT NOT NULL, updated_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text), updated_at TEXT NOT NULL DEFAULT (now()::text),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost', org_id TEXT NOT NULL
+        )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS product_experiments (
+          id TEXT PRIMARY KEY, name TEXT NOT NULL, hypothesis TEXT NOT NULL DEFAULT '',
+          app_id TEXT NOT NULL, app_origin TEXT NOT NULL, flag_key TEXT NOT NULL,
+          primary_event_name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'draft',
+          treatment_percentage INTEGER NOT NULL DEFAULT 50, rollout_epoch TEXT,
+          started_at TEXT, ended_at TEXT, interruption_reason TEXT, reconciled_at TEXT,
+          created_by TEXT NOT NULL, updated_by TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now')), updated_at TEXT NOT NULL DEFAULT (datetime('now')),
+          owner_email TEXT NOT NULL DEFAULT 'local@localhost', org_id TEXT NOT NULL
+        )`,
+      },
+    },
+    {
+      version: 122,
+      name: "product-experiments-scope-updated-idx",
+      sql: `CREATE INDEX IF NOT EXISTS product_experiments_scope_updated_idx ON product_experiments (org_id, updated_at)`,
+    },
+    {
+      version: 123,
+      name: "product-experiments-app-flag-status-idx",
+      sql: `CREATE INDEX IF NOT EXISTS product_experiments_app_flag_status_idx ON product_experiments (org_id, app_id, flag_key, status)`,
+    },
+    {
+      version: 124,
+      name: "product-experiments-result-window-idx",
+      sql: `CREATE INDEX IF NOT EXISTS product_experiments_result_window_idx ON product_experiments (org_id, app_id, started_at, ended_at)`,
+    },
+    {
+      version: 125,
+      name: "feature-flag-mutation-locks",
+      sql: {
+        postgres: `CREATE TABLE IF NOT EXISTS feature_flag_mutation_locks (
+          lock_key TEXT PRIMARY KEY, lock_token TEXT NOT NULL,
+          operation_id TEXT NOT NULL, org_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (now()::text)
+        )`,
+        sqlite: `CREATE TABLE IF NOT EXISTS feature_flag_mutation_locks (
+          lock_key TEXT PRIMARY KEY, lock_token TEXT NOT NULL,
+          operation_id TEXT NOT NULL, org_id TEXT NOT NULL,
+          created_at TEXT NOT NULL DEFAULT (datetime('now'))
+        )`,
+      },
+    },
+    {
+      version: 126,
+      name: "feature-flag-mutation-locks-created-idx",
+      sql: `CREATE INDEX IF NOT EXISTS feature_flag_mutation_locks_created_idx ON feature_flag_mutation_locks (created_at)`,
+    },
   ],
   { table: "analytics_migrations" },
 );

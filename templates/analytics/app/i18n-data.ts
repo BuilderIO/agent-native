@@ -458,6 +458,62 @@ const enUS = {
     deleteConnectionTitle: "Delete database connection?",
     deleteConnectionDescription:
       "This removes {{name}} from Analytics and deletes its stored connection secrets. The target app database is not modified.",
+    featureFlags: "Feature flags",
+    featureFlagsDescription:
+      "Review registered app flags and make deliberate, reversible rollout changes.",
+    flagsUnavailable: "Feature flags are unavailable",
+    flagsUnreachable:
+      "The workspace directory could not be reached. Retry when its connection is available.",
+    flagsEmpty: "No workspace apps reported flags",
+    flagsEmptyDetail:
+      "Registered flags will appear here when connected apps are ready.",
+    flagsNotReady:
+      "This app is {{status}}. Its flag state is not assumed to be off.",
+    noFlagDefinitions: "This ready app has no registered flag definitions.",
+    noFlagDescription: "No description supplied.",
+    selected: "Selected",
+    openExperiment: "Open active experiment",
+    productExperiments: "Product experiments",
+    productExperimentsDescription:
+      "Create and supervise product experiments backed by a ready feature flag.",
+    createExperiment: "Create experiment",
+    createExperimentDescription:
+      "Choose a ready app and its registered flag before starting exposure.",
+    experimentsUnavailable: "Experiments are unavailable",
+    experimentsEmpty: "No product experiments yet",
+    experimentsEmptyDetail:
+      "Create one when you have a clear hypothesis and conversion event.",
+    selectExperiment:
+      "Select an experiment to inspect its lifecycle and results.",
+    openFlag: "Open feature flag",
+    resultsWarning: "Result quality needs attention",
+    noHypothesis: "No hypothesis recorded.",
+    start: "Start",
+    pause: "Pause",
+    complete: "Complete",
+    emergencyOff: "Emergency off",
+    emergencyOffTitle: "Turn this experiment off immediately?",
+    changeExperimentTitle: "Change experiment lifecycle?",
+    changeExperimentDescription:
+      "This changes live experiment behavior. Review the current rollout before confirming.",
+    confirm: "Confirm",
+    name: "Name",
+    hypothesis: "Hypothesis",
+    appId: "App ID",
+    flagKey: "Feature flag",
+    primaryEventName: "Primary conversion event",
+    treatmentPercentage: "Treatment percentage",
+    enableForMe: "Enable for me",
+    turnOff: "Turn off",
+    selectApp: "Select a ready app",
+    selectFlag: "Select a registered flag",
+    loading: "Loading…",
+    exposed: "Exposed",
+    conversions: "Conversions",
+    conversionRate: "Conversion rate",
+    lift: "Lift",
+    controlSample: "Control sample",
+    treatmentSample: "Treatment sample",
   },
   providerCorpusNotifier: {
     completed: "Provider corpus job completed",
@@ -10800,6 +10856,538 @@ for (const [locale, overrides] of Object.entries(
   }
 }
 
+const translatedExperimentAdminTranslations = {
+  "zh-CN": {
+    agents: {
+      featureFlags: "功能开关",
+      featureFlagsDescription: "查看已注册应用开关，并进行可逆的发布调整。",
+      flagsUnavailable: "功能开关不可用",
+      flagsUnreachable: "无法连接工作区目录。连接恢复后重试。",
+      flagsEmpty: "没有应用报告功能开关",
+      flagsEmptyDetail: "连接的应用准备就绪后，已注册开关会显示在这里。",
+      flagsNotReady: "此应用状态为 {{status}}，不会将其开关状态假定为关闭。",
+      noFlagDefinitions: "此应用没有注册功能开关定义。",
+      noFlagDescription: "未提供说明。",
+      selected: "已选择",
+      openExperiment: "打开进行中的实验",
+      productExperiments: "产品实验",
+      productExperimentsDescription: "创建并监督由就绪功能开关支持的产品实验。",
+      createExperiment: "创建实验",
+      createExperimentDescription: "开始曝光前请选择就绪应用及其注册开关。",
+      experimentsUnavailable: "实验不可用",
+      experimentsEmpty: "还没有产品实验",
+      experimentsEmptyDetail: "有清晰假设和转化事件时创建实验。",
+      selectExperiment: "选择实验以检查其生命周期和结果。",
+      openFlag: "打开功能开关",
+      resultsWarning: "结果质量需要关注",
+      noHypothesis: "未记录假设。",
+      start: "开始",
+      pause: "暂停",
+      complete: "完成",
+      emergencyOff: "紧急关闭",
+      emergencyOffTitle: "立即关闭此实验？",
+      changeExperimentTitle: "更改实验生命周期？",
+      changeExperimentDescription:
+        "这会更改实时实验行为。确认前请检查当前发布范围。",
+      confirm: "确认",
+      name: "名称",
+      hypothesis: "假设",
+      appId: "应用 ID",
+      flagKey: "功能开关",
+      primaryEventName: "主要转化事件",
+      treatmentPercentage: "实验组百分比",
+      enableForMe: "仅为我启用",
+      turnOff: "关闭",
+      selectApp: "选择就绪应用",
+      selectFlag: "选择注册开关",
+      loading: "正在加载…",
+      exposed: "已曝光",
+      conversions: "转化",
+      conversionRate: "转化率",
+      lift: "提升",
+      controlSample: "对照组样本",
+      treatmentSample: "实验组样本",
+    },
+  },
+  "es-ES": {
+    agents: {
+      featureFlags: "Indicadores de funciones",
+      featureFlagsDescription:
+        "Revisa los indicadores de las aplicaciones registradas y aplica cambios de lanzamiento reversibles.",
+      flagsUnavailable: "Los indicadores de funciones no están disponibles",
+      flagsUnreachable:
+        "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
+      flagsEmpty: "Ninguna aplicación informó indicadores",
+      flagsEmptyDetail:
+        "Los indicadores registrados aparecerán aquí cuando las aplicaciones conectadas estén listas.",
+      flagsNotReady:
+        "Esta aplicación está {{status}}; su estado no se supone desactivado.",
+      noFlagDefinitions:
+        "Esta aplicación lista no tiene definiciones de indicadores.",
+      noFlagDescription: "No se proporcionó descripción.",
+      selected: "Seleccionado",
+      openExperiment: "Abrir experimento activo",
+      productExperiments: "Experimentos de producto",
+      productExperimentsDescription:
+        "Crea y supervisa experimentos de producto respaldados por un indicador listo.",
+      createExperiment: "Crear experimento",
+      createExperimentDescription:
+        "Elige una aplicación lista y su indicador registrado antes de iniciar la exposición.",
+      experimentsUnavailable: "Los experimentos no están disponibles",
+      experimentsEmpty: "Aún no hay experimentos de producto",
+      experimentsEmptyDetail:
+        "Crea uno cuando tengas una hipótesis y un evento de conversión claros.",
+      selectExperiment:
+        "Selecciona un experimento para revisar su ciclo y resultados.",
+      openFlag: "Abrir indicador",
+      resultsWarning: "La calidad del resultado requiere atención",
+      noHypothesis: "No se registró hipótesis.",
+      start: "Iniciar",
+      pause: "Pausar",
+      complete: "Completar",
+      emergencyOff: "Apagado de emergencia",
+      emergencyOffTitle: "¿Desactivar este experimento inmediatamente?",
+      changeExperimentTitle: "¿Cambiar el ciclo del experimento?",
+      changeExperimentDescription:
+        "Esto cambia el comportamiento del experimento activo. Revisa el lanzamiento antes de confirmar.",
+      confirm: "Confirmar",
+      name: "Nombre",
+      hypothesis: "Hipótesis",
+      appId: "ID de aplicación",
+      flagKey: "Indicador de función",
+      primaryEventName: "Evento de conversión principal",
+      treatmentPercentage: "Porcentaje de tratamiento",
+      enableForMe: "Activar para mí",
+      turnOff: "Desactivar",
+      selectApp: "Selecciona una aplicación lista",
+      selectFlag: "Selecciona un indicador registrado",
+      loading: "Cargando…",
+      exposed: "Expuestos",
+      conversions: "Conversiones",
+      conversionRate: "Tasa de conversión",
+      lift: "Mejora",
+      controlSample: "Muestra de control",
+      treatmentSample: "Muestra de tratamiento",
+    },
+  },
+  "fr-FR": {
+    agents: {
+      featureFlags: "Indicateurs de fonctionnalités",
+      featureFlagsDescription:
+        "Examinez les indicateurs d'applications enregistrées et appliquez des changements de déploiement réversibles.",
+      flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
+      flagsUnreachable:
+        "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
+      flagsEmpty: "Aucune application n'a signalé d'indicateur",
+      flagsEmptyDetail:
+        "Les indicateurs enregistrés apparaîtront ici lorsque les applications connectées seront prêtes.",
+      flagsNotReady:
+        "Cette application est {{status}} ; son état n'est pas supposé désactivé.",
+      noFlagDefinitions:
+        "Cette application prête n'a aucune définition d'indicateur.",
+      noFlagDescription: "Aucune description fournie.",
+      selected: "Sélectionné",
+      openExperiment: "Ouvrir l'expérience active",
+      productExperiments: "Expériences produit",
+      productExperimentsDescription:
+        "Créez et supervisez des expériences produit soutenues par un indicateur prêt.",
+      createExperiment: "Créer une expérience",
+      createExperimentDescription:
+        "Choisissez une application prête et son indicateur enregistré avant de lancer l'exposition.",
+      experimentsUnavailable: "Les expériences sont indisponibles",
+      experimentsEmpty: "Aucune expérience produit pour l'instant",
+      experimentsEmptyDetail:
+        "Créez-en une avec une hypothèse et un événement de conversion clairs.",
+      selectExperiment:
+        "Sélectionnez une expérience pour examiner son cycle et ses résultats.",
+      openFlag: "Ouvrir l'indicateur",
+      resultsWarning: "La qualité des résultats nécessite une attention",
+      noHypothesis: "Aucune hypothèse enregistrée.",
+      start: "Démarrer",
+      pause: "Suspendre",
+      complete: "Terminer",
+      emergencyOff: "Arrêt d'urgence",
+      emergencyOffTitle: "Arrêter cette expérience immédiatement ?",
+      changeExperimentTitle: "Modifier le cycle de l'expérience ?",
+      changeExperimentDescription:
+        "Cela change le comportement actif. Vérifiez le déploiement avant de confirmer.",
+      confirm: "Confirmer",
+      name: "Nom",
+      hypothesis: "Hypothèse",
+      appId: "ID d'application",
+      flagKey: "Indicateur de fonctionnalité",
+      primaryEventName: "Événement de conversion principal",
+      treatmentPercentage: "Pourcentage de traitement",
+      enableForMe: "Activer pour moi",
+      turnOff: "Désactiver",
+      selectApp: "Sélectionnez une application prête",
+      selectFlag: "Sélectionnez un indicateur enregistré",
+      loading: "Chargement…",
+      exposed: "Exposés",
+      conversions: "Conversions",
+      conversionRate: "Taux de conversion",
+      lift: "Gain",
+      controlSample: "Échantillon témoin",
+      treatmentSample: "Échantillon de traitement",
+    },
+  },
+  "de-DE": {
+    agents: {
+      featureFlags: "Funktionsschalter",
+      featureFlagsDescription:
+        "Prüfe registrierte App-Schalter und nimm bewusste, rückgängig machbare Rollout-Änderungen vor.",
+      flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
+      flagsUnreachable:
+        "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
+      flagsEmpty: "Keine Arbeitsbereichs-App meldet Funktionsschalter",
+      flagsEmptyDetail:
+        "Registrierte Schalter erscheinen hier, sobald verbundene Apps bereit sind.",
+      flagsNotReady:
+        "Diese App ist {{status}}; ihr Schalterzustand wird nicht als aus angenommen.",
+      noFlagDefinitions:
+        "Diese bereite App hat keine registrierten Schalterdefinitionen.",
+      noFlagDescription: "Keine Beschreibung vorhanden.",
+      selected: "Ausgewählt",
+      openExperiment: "Aktives Experiment öffnen",
+      productExperiments: "Produktexperimente",
+      productExperimentsDescription:
+        "Erstelle und überwache Produktexperimente mit einem bereiten Funktionsschalter.",
+      createExperiment: "Experiment erstellen",
+      createExperimentDescription:
+        "Wähle vor der Ausspielung eine bereite App und ihren registrierten Schalter.",
+      experimentsUnavailable: "Experimente sind nicht verfügbar",
+      experimentsEmpty: "Noch keine Produktexperimente",
+      experimentsEmptyDetail:
+        "Erstelle eines mit einer klaren Hypothese und einem Conversion-Ereignis.",
+      selectExperiment:
+        "Wähle ein Experiment, um Lebenszyklus und Ergebnisse zu prüfen.",
+      openFlag: "Funktionsschalter öffnen",
+      resultsWarning: "Die Ergebnisqualität braucht Aufmerksamkeit",
+      noHypothesis: "Keine Hypothese erfasst.",
+      start: "Starten",
+      pause: "Pausieren",
+      complete: "Abschließen",
+      emergencyOff: "Notfall-Aus",
+      emergencyOffTitle: "Dieses Experiment sofort ausschalten?",
+      changeExperimentTitle: "Experimentlebenszyklus ändern?",
+      changeExperimentDescription:
+        "Dies ändert das laufende Experiment. Prüfe den Rollout vor der Bestätigung.",
+      confirm: "Bestätigen",
+      name: "Name",
+      hypothesis: "Hypothese",
+      appId: "App-ID",
+      flagKey: "Funktionsschalter",
+      primaryEventName: "Primäres Conversion-Ereignis",
+      treatmentPercentage: "Behandlungsanteil",
+      enableForMe: "Für mich aktivieren",
+      turnOff: "Ausschalten",
+      selectApp: "Bereite App wählen",
+      selectFlag: "Registrierten Schalter wählen",
+      loading: "Wird geladen…",
+      exposed: "Erreicht",
+      conversions: "Conversions",
+      conversionRate: "Conversion-Rate",
+      lift: "Steigerung",
+      controlSample: "Kontrollstichprobe",
+      treatmentSample: "Behandlungsstichprobe",
+    },
+  },
+  "pt-BR": {
+    agents: {
+      featureFlags: "Sinalizadores de recursos",
+      featureFlagsDescription:
+        "Revise sinalizadores de apps registrados e faça mudanças de lançamento reversíveis.",
+      flagsUnavailable: "Sinalizadores de recursos indisponíveis",
+      flagsUnreachable:
+        "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
+      flagsEmpty: "Nenhum app informou sinalizadores",
+      flagsEmptyDetail:
+        "Sinalizadores registrados aparecerão aqui quando os apps conectados estiverem prontos.",
+      flagsNotReady:
+        "Este app está {{status}}; seu estado não é considerado desligado.",
+      noFlagDefinitions:
+        "Este app pronto não tem definições de sinalizador registradas.",
+      noFlagDescription: "Nenhuma descrição fornecida.",
+      selected: "Selecionado",
+      openExperiment: "Abrir experimento ativo",
+      productExperiments: "Experimentos de produto",
+      productExperimentsDescription:
+        "Crie e supervisione experimentos de produto apoiados por um sinalizador pronto.",
+      createExperiment: "Criar experimento",
+      createExperimentDescription:
+        "Escolha um app pronto e seu sinalizador registrado antes de iniciar a exposição.",
+      experimentsUnavailable: "Experimentos indisponíveis",
+      experimentsEmpty: "Ainda não há experimentos de produto",
+      experimentsEmptyDetail:
+        "Crie um quando houver uma hipótese e evento de conversão claros.",
+      selectExperiment:
+        "Selecione um experimento para analisar o ciclo e os resultados.",
+      openFlag: "Abrir sinalizador",
+      resultsWarning: "A qualidade do resultado requer atenção",
+      noHypothesis: "Nenhuma hipótese registrada.",
+      start: "Iniciar",
+      pause: "Pausar",
+      complete: "Concluir",
+      emergencyOff: "Desligamento de emergência",
+      emergencyOffTitle: "Desligar este experimento imediatamente?",
+      changeExperimentTitle: "Alterar o ciclo do experimento?",
+      changeExperimentDescription:
+        "Isto altera o experimento ativo. Revise o lançamento antes de confirmar.",
+      confirm: "Confirmar",
+      name: "Nome",
+      hypothesis: "Hipótese",
+      appId: "ID do app",
+      flagKey: "Sinalizador de recurso",
+      primaryEventName: "Evento de conversão principal",
+      treatmentPercentage: "Percentual de tratamento",
+      enableForMe: "Ativar para mim",
+      turnOff: "Desativar",
+      selectApp: "Selecione um app pronto",
+      selectFlag: "Seleione um sinalizador registrado",
+      loading: "Carregando…",
+      exposed: "Expostos",
+      conversions: "Conversões",
+      conversionRate: "Taxa de conversão",
+      lift: "Elevação",
+      controlSample: "Amostra de controle",
+      treatmentSample: "Amostra de tratamento",
+    },
+  },
+  "ja-JP": {
+    agents: {
+      featureFlags: "機能フラグ",
+      featureFlagsDescription:
+        "登録済みアプリのフラグを確認し、元に戻せるロールアウト変更を行います。",
+      flagsUnavailable: "機能フラグを利用できません",
+      flagsUnreachable:
+        "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
+      flagsEmpty: "フラグを報告したワークスペースアプリはありません",
+      flagsEmptyDetail:
+        "接続済みアプリの準備ができると、登録済みフラグがここに表示されます。",
+      flagsNotReady:
+        "このアプリは {{status}} です。フラグ状態をオフとは見なしません。",
+      noFlagDefinitions:
+        "この準備済みアプリには登録済みフラグ定義がありません。",
+      noFlagDescription: "説明はありません。",
+      selected: "選択済み",
+      openExperiment: "実行中の実験を開く",
+      productExperiments: "プロダクト実験",
+      productExperimentsDescription:
+        "準備済み機能フラグを使ってプロダクト実験を作成、監督します。",
+      createExperiment: "実験を作成",
+      createExperimentDescription:
+        "公開を始める前に、準備済みアプリと登録済みフラグを選択します。",
+      experimentsUnavailable: "実験を利用できません",
+      experimentsEmpty: "プロダクト実験はまだありません",
+      experimentsEmptyDetail:
+        "明確な仮説とコンバージョンイベントがあるときに作成します。",
+      selectExperiment: "実験を選択してライフサイクルと結果を確認します。",
+      openFlag: "機能フラグを開く",
+      resultsWarning: "結果の品質に注意が必要です",
+      noHypothesis: "仮説は記録されていません。",
+      start: "開始",
+      pause: "一時停止",
+      complete: "完了",
+      emergencyOff: "緊急オフ",
+      emergencyOffTitle: "この実験を直ちにオフにしますか？",
+      changeExperimentTitle: "実験のライフサイクルを変更しますか？",
+      changeExperimentDescription:
+        "実行中の実験動作が変わります。確認前にロールアウトを見直してください。",
+      confirm: "確認",
+      name: "名前",
+      hypothesis: "仮説",
+      appId: "アプリ ID",
+      flagKey: "機能フラグ",
+      primaryEventName: "主要コンバージョンイベント",
+      treatmentPercentage: "処置割合",
+      enableForMe: "自分用に有効化",
+      turnOff: "オフにする",
+      selectApp: "準備済みアプリを選択",
+      selectFlag: "登録済みフラグを選択",
+      loading: "読み込み中…",
+      exposed: "公開数",
+      conversions: "コンバージョン",
+      conversionRate: "コンバージョン率",
+      lift: "リフト",
+      controlSample: "対照サンプル",
+      treatmentSample: "処置サンプル",
+    },
+  },
+  "ko-KR": {
+    agents: {
+      featureFlags: "기능 플래그",
+      featureFlagsDescription:
+        "등록된 앱 플래그를 검토하고 되돌릴 수 있는 출시 변경을 적용합니다.",
+      flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
+      flagsUnreachable:
+        "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
+      flagsEmpty: "플래그를 보고한 작업 공간 앱이 없습니다",
+      flagsEmptyDetail:
+        "연결된 앱이 준비되면 등록된 플래그가 여기에 표시됩니다.",
+      flagsNotReady:
+        "이 앱은 {{status}} 상태이며 플래그가 꺼진 것으로 가정하지 않습니다.",
+      noFlagDefinitions: "준비된 이 앱에는 등록된 플래그 정의가 없습니다.",
+      noFlagDescription: "설명이 제공되지 않았습니다.",
+      selected: "선택됨",
+      openExperiment: "활성 실험 열기",
+      productExperiments: "제품 실험",
+      productExperimentsDescription:
+        "준비된 기능 플래그로 제품 실험을 만들고 감독합니다.",
+      createExperiment: "실험 만들기",
+      createExperimentDescription:
+        "노출을 시작하기 전에 준비된 앱과 등록된 플래그를 선택하세요.",
+      experimentsUnavailable: "실험을 사용할 수 없습니다",
+      experimentsEmpty: "아직 제품 실험이 없습니다",
+      experimentsEmptyDetail: "명확한 가설과 전환 이벤트가 있을 때 만드세요.",
+      selectExperiment: "실험을 선택하여 수명 주기와 결과를 확인하세요.",
+      openFlag: "기능 플래그 열기",
+      resultsWarning: "결과 품질에 주의가 필요합니다",
+      noHypothesis: "가설이 기록되지 않았습니다.",
+      start: "시작",
+      pause: "일시 중지",
+      complete: "완료",
+      emergencyOff: "긴급 끄기",
+      emergencyOffTitle: "이 실험을 즉시 끌까요?",
+      changeExperimentTitle: "실험 수명 주기를 변경할까요?",
+      changeExperimentDescription:
+        "실행 중인 실험 동작이 변경됩니다. 확인하기 전에 출시를 검토하세요.",
+      confirm: "확인",
+      name: "이름",
+      hypothesis: "가설",
+      appId: "앱 ID",
+      flagKey: "기능 플래그",
+      primaryEventName: "주요 전환 이벤트",
+      treatmentPercentage: "처리 비율",
+      enableForMe: "나에게 활성화",
+      turnOff: "끄기",
+      selectApp: "준비된 앱 선택",
+      selectFlag: "등록된 플래그 선택",
+      loading: "불러오는 중…",
+      exposed: "노출",
+      conversions: "전환",
+      conversionRate: "전환율",
+      lift: "상승",
+      controlSample: "대조군 표본",
+      treatmentSample: "처리군 표본",
+    },
+  },
+  "hi-IN": {
+    agents: {
+      featureFlags: "फ़ीचर फ़्लैग",
+      featureFlagsDescription:
+        "पंजीकृत ऐप फ़्लैग देखें और वापस किए जा सकने वाले रोलआउट बदलाव करें।",
+      flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
+      flagsUnreachable:
+        "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
+      flagsEmpty: "किसी वर्कस्पेस ऐप ने फ़्लैग की सूचना नहीं दी",
+      flagsEmptyDetail: "कनेक्टेड ऐप तैयार होने पर पंजीकृत फ़्लैग यहाँ दिखाई देंगे।",
+      flagsNotReady: "यह ऐप {{status}} है; इसकी फ़्लैग स्थिति को बंद नहीं माना जाता।",
+      noFlagDefinitions: "इस तैयार ऐप में पंजीकृत फ़्लैग परिभाषाएँ नहीं हैं।",
+      noFlagDescription: "कोई विवरण नहीं दिया गया।",
+      selected: "चयनित",
+      openExperiment: "सक्रिय प्रयोग खोलें",
+      productExperiments: "उत्पाद प्रयोग",
+      productExperimentsDescription:
+        "तैयार फ़ीचर फ़्लैग के आधार पर उत्पाद प्रयोग बनाएँ और देखरेख करें।",
+      createExperiment: "प्रयोग बनाएँ",
+      createExperimentDescription:
+        "एक्सपोज़र शुरू करने से पहले तैयार ऐप और उसका पंजीकृत फ़्लैग चुनें।",
+      experimentsUnavailable: "प्रयोग उपलब्ध नहीं हैं",
+      experimentsEmpty: "अभी कोई उत्पाद प्रयोग नहीं है",
+      experimentsEmptyDetail: "स्पष्ट परिकल्पना और कन्वर्ज़न इवेंट होने पर बनाएँ।",
+      selectExperiment: "जीवनचक्र और परिणाम देखने के लिए एक प्रयोग चुनें।",
+      openFlag: "फ़ीचर फ़्लैग खोलें",
+      resultsWarning: "परिणाम की गुणवत्ता पर ध्यान चाहिए",
+      noHypothesis: "कोई परिकल्पना दर्ज नहीं है।",
+      start: "शुरू करें",
+      pause: "रोकें",
+      complete: "पूर्ण करें",
+      emergencyOff: "आपातकालीन बंद",
+      emergencyOffTitle: "क्या इस प्रयोग को तुरंत बंद करें?",
+      changeExperimentTitle: "प्रयोग जीवनचक्र बदलें?",
+      changeExperimentDescription:
+        "यह चल रहे प्रयोग का व्यवहार बदलता है। पुष्टि से पहले रोलआउट जाँचें।",
+      confirm: "पुष्टि करें",
+      name: "नाम",
+      hypothesis: "परिकल्पना",
+      appId: "ऐप ID",
+      flagKey: "फ़ीचर फ़्लैग",
+      primaryEventName: "मुख्य कन्वर्ज़न इवेंट",
+      treatmentPercentage: "ट्रीटमेंट प्रतिशत",
+      enableForMe: "मेरे लिए सक्षम करें",
+      turnOff: "बंद करें",
+      selectApp: "तैयार ऐप चुनें",
+      selectFlag: "पंजीकृत फ़्लैग चुनें",
+      loading: "लोड हो रहा है…",
+      exposed: "एक्सपोज़्ड",
+      conversions: "कन्वर्ज़न",
+      conversionRate: "कन्वर्ज़न दर",
+      lift: "वृद्धि",
+      controlSample: "कंट्रोल नमूना",
+      treatmentSample: "ट्रीटमेंट नमूना",
+    },
+  },
+  "ar-SA": {
+    agents: {
+      featureFlags: "علامات الميزات",
+      featureFlagsDescription:
+        "راجع علامات التطبيقات المسجلة ونفّذ تغييرات طرح قابلة للعكس.",
+      flagsUnavailable: "علامات الميزات غير متاحة",
+      flagsUnreachable:
+        "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
+      flagsEmpty: "لم يبلغ أي تطبيق في مساحة العمل عن علامات",
+      flagsEmptyDetail:
+        "ستظهر العلامات المسجلة هنا عندما تصبح التطبيقات المتصلة جاهزة.",
+      flagsNotReady:
+        "حالة هذا التطبيق هي {{status}}؛ ولا يُفترض أن علاماته متوقفة.",
+      noFlagDefinitions: "لا يحتوي هذا التطبيق الجاهز على تعريفات علامات مسجلة.",
+      noFlagDescription: "لم يُقدَّم وصف.",
+      selected: "محدد",
+      openExperiment: "فتح التجربة النشطة",
+      productExperiments: "تجارب المنتج",
+      productExperimentsDescription:
+        "أنشئ وأشرف على تجارب المنتج المدعومة بعلامة ميزة جاهزة.",
+      createExperiment: "إنشاء تجربة",
+      createExperimentDescription:
+        "اختر تطبيقاً جاهزاً وعلامته المسجلة قبل بدء التعرض.",
+      experimentsUnavailable: "التجارب غير متاحة",
+      experimentsEmpty: "لا توجد تجارب منتج بعد",
+      experimentsEmptyDetail:
+        "أنشئ واحدة عندما يكون لديك فرضية وحدث تحويل واضحان.",
+      selectExperiment: "اختر تجربة لفحص دورتها ونتائجها.",
+      openFlag: "فتح علامة الميزة",
+      resultsWarning: "جودة النتيجة تحتاج إلى انتباه",
+      noHypothesis: "لا توجد فرضية مسجلة.",
+      start: "بدء",
+      pause: "إيقاف مؤقت",
+      complete: "إكمال",
+      emergencyOff: "إيقاف طارئ",
+      emergencyOffTitle: "إيقاف هذه التجربة فوراً؟",
+      changeExperimentTitle: "تغيير دورة التجربة؟",
+      changeExperimentDescription:
+        "يغير هذا سلوك التجربة المباشرة. راجع الطرح قبل التأكيد.",
+      confirm: "تأكيد",
+      name: "الاسم",
+      hypothesis: "الفرضية",
+      appId: "معرّف التطبيق",
+      flagKey: "علامة ميزة",
+      primaryEventName: "حدث التحويل الأساسي",
+      treatmentPercentage: "نسبة المعالجة",
+      enableForMe: "تفعيل لي",
+      turnOff: "إيقاف",
+      selectApp: "اختر تطبيقاً جاهزاً",
+      selectFlag: "اختر علامة مسجلة",
+      loading: "جارٍ التحميل…",
+      exposed: "تم التعرض",
+      conversions: "التحويلات",
+      conversionRate: "معدل التحويل",
+      lift: "التحسن",
+      controlSample: "عينة الضبط",
+      treatmentSample: "عينة المعالجة",
+    },
+  },
+} satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
 const translatedDashboardAdminTranslations = {
   "zh-CN": {
     navigation: {
@@ -11159,6 +11747,18 @@ const translatedDashboardAdminTranslations = {
     },
   },
 } satisfies Partial<Record<LocaleCode, AnalyticsPartialMessages>>;
+
+for (const [locale, overrides] of Object.entries(
+  translatedExperimentAdminTranslations,
+) as Array<[LocaleCode, AnalyticsPartialMessages]>) {
+  const messages = messagesByLocale[locale];
+  if (!messages) continue;
+  for (const [section, sectionOverrides] of Object.entries(overrides) as Array<
+    [Section, Partial<Messages[Section]>]
+  >) {
+    Object.assign(messages[section], sectionOverrides);
+  }
+}
 
 for (const [locale, overrides] of Object.entries(
   translatedDashboardAdminTranslations,

@@ -100,6 +100,24 @@ describe("navigate action", () => {
     });
   });
 
+  it("opens a selected feature flag in the permanent admin view", async () => {
+    await navigateAction.run({ featureFlagKey: "new-editor" } as never);
+    expect(writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "agents",
+      agentsView: "flags",
+      featureFlagKey: "new-editor",
+    });
+  });
+
+  it("opens a selected product experiment in the permanent admin view", async () => {
+    await navigateAction.run({ productExperimentId: "exp-1" } as never);
+    expect(writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "agents",
+      agentsView: "experiments",
+      productExperimentId: "exp-1",
+    });
+  });
+
   it("opens the create-status-page form", async () => {
     await navigateAction.run({ statusPageId: "new" } as never);
     expect(writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {

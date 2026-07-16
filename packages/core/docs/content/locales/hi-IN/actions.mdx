@@ -650,7 +650,7 @@ run: async (args, ctx) => {
 };
 ```
 
-क्लाइंट सतह को छिपाने या दिखाने के लिए `@agent-native/core/client` से `useFeatureFlag(FULL_APP_BUILDING.key)` का उपयोग करें। Core `get-feature-flags`, `list-feature-flags`, और `set-feature-flag` उपलब्ध कराता है; साझा फीचर फ़्लैग Settings टैब सटीक उपयोगकर्ता, संगठन, प्रतिशत और वैश्विक rollout के लिए उन्हीं actions का उपयोग करता है। प्रबंधन में अनुमतियों की जाँच होती है और उसका audit किया जाता है। फ़्लैग writes को कभी भी सामान्य settings endpoints या raw SQL के माध्यम से route न करें, और authentication, authorization, audit, secrets या SSR cache behavior को कभी runtime flag के पीछे न रखें। rollout और retirement मार्गदर्शन के लिए `feature-flags` skill पढ़ें।
+क्लाइंट सतह को छिपाने या दिखाने के लिए `@agent-native/core/client` से `useFeatureFlag(FULL_APP_BUILDING.key)` का उपयोग करें। Core `get-feature-flags`, `list-feature-flags`, और `set-feature-flag` उपलब्ध कराता है। प्रबंधन में अनुमतियों की जाँच और audit होता है; fleet UI सख्ती से सीमित A2A delegation के जरिए वही app-local actions कॉल करता है। मूल्यांकन के कोई side effect नहीं हैं: जब उपयोगकर्ता वास्तव में सुरक्षित अनुभव तक पहुँचता है, स्पष्ट experiment exposure भेजने के लिए server पर `exposeFeatureFlag()` या mounted client surface में `useFeatureFlagExposure()` का उपयोग करें। फ़्लैग writes को सामान्य settings endpoints या raw SQL से route न करें, और authentication, authorization, audit, secrets या SSR cache को runtime flag के पीछे न रखें।
 
 ## विरासत CLI-शैली actions {#legacy-cli-actions}
 

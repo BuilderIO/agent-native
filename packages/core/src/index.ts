@@ -147,6 +147,8 @@ export {
   defineFeatureFlag,
   defineFeatureFlags,
   evaluateFeatureFlag,
+  evaluateFeatureFlagDecision,
+  exposeFeatureFlag,
   getFeatureFlagDefinition,
   getFeatureFlagRules,
   isFeatureFlagEnabled,
@@ -156,6 +158,8 @@ export {
   type FeatureFlagMode,
   type FeatureFlagRules,
   type FeatureFlagScope,
+  type FeatureFlagDecision,
+  type FeatureFlagDecisionReason,
 } from "./feature-flags/index.js";
 
 // Server

@@ -485,7 +485,7 @@ const messages = {
     overview: "ओवरव्यू",
     conversations: "Conversations",
     evals: "एवल्स",
-    experiments: "प्रयोग",
+    experiments: "एजेंट प्रयोग",
     feedback: "फ़ीडबैक",
     variants: "Variants",
     created: "Created",

@@ -1,4 +1,8 @@
+import { useEffect } from "react";
+
+import type { FeatureFlagDecision } from "../../feature-flags/store.js";
 import { useActionQuery } from "../use-action.js";
+import { trackFeatureFlagExposure } from "./exposure.js";
 import {
   evaluatedFeatureFlagValues,
   featureFlagValue,
@@ -23,4 +27,17 @@ export function useFeatureFlags(): Record<string, boolean> {
     "get-feature-flags" as never,
   );
   return evaluatedFeatureFlagValues(query.data);
+}
+
+/** Tracks an exposure only after the consuming surface mounts. */
+export function useFeatureFlagExposure(key: string, enabled = true): boolean {
+  const query = useActionQuery<FeatureFlagDecision>(
+    "get-feature-flag-decision" as never,
+    { key } as never,
+  );
+  const value = query.data?.value ?? false;
+  useEffect(() => {
+    if (enabled && query.data) trackFeatureFlagExposure(key, query.data);
+  }, [enabled, key, query.data, value]);
+  return value;
 }

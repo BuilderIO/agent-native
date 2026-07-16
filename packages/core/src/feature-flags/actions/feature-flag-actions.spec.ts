@@ -93,10 +93,31 @@ describe("feature flag action contracts", () => {
     );
 
     await expect(listAction.run({}, { caller: "frontend" })).resolves.toEqual({
+      contractVersion: 1,
+      status: "forbidden",
+      reason: "forbidden",
       flags: [],
       canManage: false,
     });
     expect(getFeatureFlagRulesMock).not.toHaveBeenCalled();
+  });
+
+  it("reports no definitions only after authorizing the manager", async () => {
+    listFeatureFlagsMock.mockReturnValue([]);
+
+    await expect(
+      listAction.run(
+        {},
+        { caller: "a2a", userEmail: "admin@example.com", orgId: "org-1" },
+      ),
+    ).resolves.toEqual({
+      contractVersion: 1,
+      status: "no-definitions",
+      reason: "no-definitions",
+      flags: [],
+      canManage: true,
+    });
+    expect(requireFeatureFlagManagerMock).toHaveBeenCalledOnce();
   });
 
   it("keeps administrative mutation out of extensions and returns persisted rules", async () => {
@@ -119,6 +140,8 @@ describe("feature flag action contracts", () => {
       expect.objectContaining({ mode: "off", updatedBy: "admin@example.com" }),
     );
     expect(result).toEqual({
+      contractVersion: 1,
+      status: "ready",
       key: "new-editor",
       rules: expect.objectContaining({
         updatedAt: 123,

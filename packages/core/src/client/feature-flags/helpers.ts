@@ -1,4 +1,4 @@
-import type { ListFeatureFlagsResult } from "./types.js";
+import type { FeatureFlagRules, ListFeatureFlagsResult } from "./types.js";
 
 export type EvaluatedFeatureFlags =
   | Record<string, boolean>
@@ -40,4 +40,39 @@ export function hasManageableFeatureFlags(
   result: ListFeatureFlagsResult | undefined,
 ): result is ListFeatureFlagsResult & { canManage: true } {
   return Boolean(result?.canManage && result.flags.length);
+}
+
+/**
+ * Keep the shared editor safe while a remote app is upgrading or returning an
+ * optimistic/transient rule envelope. The fleet contract still validates the
+ * authoritative response; this only prevents absent collection fields from
+ * crashing the operator UI between refreshes.
+ */
+export function normalizeFeatureFlagRules(
+  rules: Partial<FeatureFlagRules> | null | undefined,
+): FeatureFlagRules {
+  const mode =
+    rules?.mode === "off" || rules?.mode === "on" || rules?.mode === "rules"
+      ? rules.mode
+      : "rules";
+  const percentage = Number.isFinite(rules?.percentage)
+    ? Math.max(0, Math.min(100, Number(rules?.percentage)))
+    : 0;
+
+  return {
+    ...rules,
+    version: 1,
+    mode,
+    emails: Array.isArray(rules?.emails)
+      ? rules.emails.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [],
+    orgIds: Array.isArray(rules?.orgIds)
+      ? rules.orgIds.filter(
+          (value): value is string => typeof value === "string",
+        )
+      : [],
+    percentage,
+  };
 }
