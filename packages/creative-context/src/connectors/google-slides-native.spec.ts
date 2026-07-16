@@ -693,7 +693,7 @@ describe("Google Slides native compiler", () => {
     expect(slide!.html).toContain("overflow:visible");
     expect(slide!.html).toContain("padding-left:48px");
     expect(slide!.html).toContain(
-      '<span class="gslide-bullet" style="display:inline-block;margin-left:-33.6px;width:33.6px;font-size:20px;color:#ffffff">●&nbsp;</span>',
+      '<span class="gslide-bullet" style="display:inline-block;margin:0 0 0 -33.6px;width:33.6px;font-size:20px;color:#ffffff">●&nbsp;</span>',
     );
     expect(slide!.html).not.toContain("background-color:#000000");
     expect(slide!.html).not.toContain("\u000b");

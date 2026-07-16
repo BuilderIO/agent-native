@@ -659,11 +659,10 @@ async function readAuthenticatedSessionEmail(
   throw lastError;
 }
 
-async function gotoAndWaitForHeading(
+async function gotoAndWaitForAgentPage(
   page: Page,
   running: RunningDev,
   path: string,
-  headingName: string,
   browserErrors: string[],
   httpErrors: string[],
 ): Promise<void> {
@@ -681,7 +680,7 @@ async function gotoAndWaitForHeading(
         timeoutMs: 30_000,
       });
       await page
-        .getByRole("heading", { name: headingName })
+        .getByRole("navigation", { name: "Agent sections" })
         .waitFor({ state: "visible", timeout: 8_000 });
       return;
     } catch (err) {
@@ -704,7 +703,7 @@ async function gotoAndWaitForHeading(
   const message =
     lastError instanceof Error ? lastError.message : String(lastError);
   throw new Error(
-    `${path} did not show ${headingName} heading before timeout: ${message}\n` +
+    `${path} did not show Agent sections navigation before timeout: ${message}\n` +
       `Body preview: ${lastBody.slice(0, 400)}`,
   );
 }
@@ -772,11 +771,10 @@ async function runBrowserSmoke(
   httpErrors.length = 0;
 
   log("assertion pass: /agent after warmup");
-  await gotoAndWaitForHeading(
+  await gotoAndWaitForAgentPage(
     page,
     running,
     "/agent",
-    "Agent workspace",
     browserErrors,
     httpErrors,
   );

@@ -1217,7 +1217,7 @@ function bulletLayoutCss(style: JsonObject): string {
   );
   return css({
     display: "inline-block",
-    "margin-left": `-${round(hangingWidth)}px`,
+    margin: `0 0 0 -${round(hangingWidth)}px`,
     width: `${round(hangingWidth)}px`,
   });
 }
