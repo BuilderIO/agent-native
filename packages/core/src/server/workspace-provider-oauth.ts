@@ -297,6 +297,8 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   }
   if (input.provider.id === "google_drive") {
     url.searchParams.set("access_type", "offline");
+    // The shared Google project may already hold sensitive grants for other
+    // apps; combining them can trigger an unverified-app warning here.
     url.searchParams.set("include_granted_scopes", "false");
     url.searchParams.set("prompt", "consent");
   }
