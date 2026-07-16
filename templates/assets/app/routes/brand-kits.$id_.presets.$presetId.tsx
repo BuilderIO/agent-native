@@ -642,7 +642,7 @@ export default function GenerationPresetEditorRoute() {
     );
   }, [referenceAssetSearch, skeletonBackgroundAssets]);
   const settingsHref = libraryId
-    ? `/library/${encodeURIComponent(libraryId)}?tab=settings`
+    ? `/brand-kits/${encodeURIComponent(libraryId)}/settings`
     : "/library";
 
   function updateForm(patch: Partial<PresetFormState>) {
