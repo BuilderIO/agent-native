@@ -81,17 +81,10 @@ function hydratedEditorChromeBridgeScript(
 function hydratedEditorChromeBridgeScriptWithLiveReflow(
   screenId = "bridge-guard",
 ): string {
-  return editorChromeBridgeScript
-    .replace("__READ_ONLY__", "false")
-    .replace("__TEXT_EDITING_ENABLED__", "false")
-    .replace("__EDITOR_CHROME_SCALE_X__", "1")
-    .replace("__EDITOR_CHROME_SCALE_Y__", "1")
-    .replace("__DESIGN_CANVAS_SCREEN_ID__", JSON.stringify(screenId))
-    .replace("__DESIGN_CANVAS_BOARD_SURFACE__", "false")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_X__", "0")
-    .replace("__DESIGN_CANVAS_CONTENT_OFFSET_Y__", "0")
-    .replace("__RUNTIME_LAYER_SNAPSHOT_ENABLED__", "false")
-    .replace("__LIVE_REFLOW_ENABLED__", "true");
+  return hydratedEditorChromeBridgeScript(false, screenId).replace(
+    "__LIVE_REFLOW_ENABLED__",
+    "true",
+  );
 }
 
 function hydratedBoardEditorChromeBridgeScriptWithOffset(
@@ -1155,6 +1148,154 @@ it(
       expect(result.rectTop).toBeGreaterThan(255);
       expect(result.rectTop).toBeLessThan(285);
       expect(result.inlineTransform).toBe("");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge (live reflow) honors Ctrl pressed only at release (free-place)",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; background: white; }
+      #row { display: flex; flex-direction: row; gap: 12px; padding: 20px; align-items: flex-start; }
+      #row > div { width: 100px; height: 60px; color: white; }
+    </style>
+  </head>
+  <body>
+    <div id="row" data-agent-native-node-id="row">
+      <div id="a" data-agent-native-node-id="a" style="background:#ef4444;">A</div>
+      <div id="b" data-agent-native-node-id="b" style="background:#22c55e;">B</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithLiveReflow(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(70, 50);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+
+      // Drag WITHOUT a modifier, then press Ctrl only just before releasing
+      // (no pointer move after) — the drop must still free-place as absolute.
+      await page.mouse.move(70, 50);
+      await page.mouse.down();
+      await page.mouse.move(400, 300, { steps: 10 });
+      await page.keyboard.down("Control");
+      await page.mouse.up();
+      await page.keyboard.up("Control");
+      await page.waitForTimeout(40);
+
+      const position = await page.evaluate(
+        () => window.getComputedStyle(document.querySelector("#a")!).position,
+      );
+      expect(position).toBe("absolute");
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await browser.close();
+    }
+  },
+);
+
+it(
+  "editor chrome bridge (live reflow) clears drag transforms on pointercancel without committing",
+  { timeout: 30_000 },
+  async () => {
+    const browser = await chromium.launch({ headless: true });
+    const pageErrors: string[] = [];
+
+    try {
+      const page = await browser.newPage({
+        viewport: { width: 900, height: 700 },
+      });
+      page.on("pageerror", (err) => pageErrors.push(err.message));
+
+      await page.setContent(`<!doctype html>
+<html>
+  <head>
+    <style>
+      html, body { margin: 0; width: 100%; height: 100%; background: white; }
+      #row { display: flex; flex-direction: row; gap: 12px; padding: 20px; align-items: flex-start; }
+      #row > div { width: 100px; height: 60px; color: white; }
+    </style>
+  </head>
+  <body>
+    <div id="row" data-agent-native-node-id="row">
+      <div id="a" data-agent-native-node-id="a" style="background:#ef4444;">A</div>
+      <div id="b" data-agent-native-node-id="b" style="background:#22c55e;">B</div>
+      <div id="c" data-agent-native-node-id="c" style="background:#3b82f6;">C</div>
+    </div>
+  </body>
+</html>`);
+      await page.addScriptTag({
+        content: hydratedEditorChromeBridgeScriptWithLiveReflow(),
+      });
+      await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+
+      await page.mouse.click(70, 50);
+      await page.waitForFunction(() => {
+        const overlay = document.querySelector<HTMLElement>(
+          '[data-agent-native-edit-overlay="selection"]',
+        );
+        return overlay && window.getComputedStyle(overlay).display === "block";
+      });
+      await page.evaluate(() => {
+        (window as any).__bridgeMessages = [];
+        window.addEventListener("message", (event: MessageEvent) => {
+          (window as any).__bridgeMessages.push(event.data);
+        });
+      });
+
+      await page.mouse.move(70, 50);
+      await page.mouse.down();
+      await page.mouse.move(250, 50, { steps: 10 });
+      await page.waitForFunction(() =>
+        (document.getElementById("a")?.style.transform ?? "").includes(
+          "translate",
+        ),
+      );
+      // A cancelled gesture must restore everything and commit nothing.
+      await page.evaluate(() =>
+        document.dispatchEvent(new PointerEvent("pointercancel")),
+      );
+      await page.waitForTimeout(30);
+
+      const after = await page.evaluate(() => ({
+        transforms: ["a", "b", "c"].map(
+          (id) => document.getElementById(id)!.style.transform,
+        ),
+        order: Array.from(
+          document.querySelectorAll<HTMLElement>("#row > div"),
+        ).map((el) => el.id),
+        messageTypes: ((window as any).__bridgeMessages ?? []).map(
+          (m: { type?: string }) => m.type,
+        ),
+      }));
+
+      expect(after.transforms.every((t) => t === "")).toBe(true);
+      expect(after.order).toEqual(["a", "b", "c"]);
+      expect(after.messageTypes).not.toContain("visual-structure-change");
       expect(pageErrors).toEqual([]);
     } finally {
       await browser.close();

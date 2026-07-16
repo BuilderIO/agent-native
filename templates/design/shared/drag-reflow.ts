@@ -46,70 +46,55 @@ export interface DragTargetKey {
  * iframe-local client coordinates — see canvas-math note about the host
  * scaling the whole iframe uniformly).
  */
+export interface CandidatePoint {
+  x: number;
+  y: number;
+}
+
 export interface DragTargetCandidate {
   /** The resolved target, or null when the pointer is over no valid target. */
   key: DragTargetKey | null;
-  /**
-   * The pointer coordinate along the container's flow (main) axis. Used to
-   * measure how far past an insertion boundary the pointer has travelled.
-   */
-  pointerMain: number;
-  /**
-   * The insertion boundary coordinate along the flow axis (e.g. the shared
-   * edge between the two siblings the item would drop between). `null` when
-   * the candidate has no meaningful boundary (an empty-container "inside"
-   * drop), in which case index changes fall back to the dwell timer only.
-   */
-  boundaryMain: number | null;
-  /**
-   * How far the pointer has penetrated the candidate container from its
-   * nearest entering edge, in px (>= 0 inside). Only consulted when switching
-   * to a *different* container. Pass `Infinity` for a same-container change.
-   */
+  /** Pointer position this tick, in a consistent space, for the movement
+   *  deadband (distance from where the current target was committed). */
+  pointer: CandidatePoint;
+  /** How far the pointer has penetrated a *different* container from its
+   *  entering edge, px. Pass Infinity for a same-container change. */
   containerPenetrationPx: number;
-  /**
-   * True when the candidate container is an ancestor of the currently
-   * committed container — i.e. the pointer is *leaving* toward a parent.
-   * Leaving reverses instantly (Figma behavior), bypassing dwell/penetration.
-   */
+  /** True when the candidate container is an ancestor of the committed one
+   *  (leaving toward a parent) — reverses instantly. */
   isLeave: boolean;
 }
 
 export interface HysteresisState {
   key: DragTargetKey;
-  /** Timestamp (ms) at which this target was committed. */
   committedAt: number;
+  committedPointer: CandidatePoint;
+  /** The differing candidate currently being timed out, and since when. */
+  pendingKey: DragTargetKey | null;
+  pendingAt: number;
 }
 
 export interface HysteresisOptions {
-  /**
-   * Pointer must cross the insertion boundary by at least this many px before
-   * an index change within the same container is accepted. Default 8.
-   */
-  indexBoundaryPx?: number;
-  /** …or the candidate index must be stable for this long (ms). Default 60. */
-  indexDwellMs?: number;
-  /**
-   * Pointer must penetrate a *different* container by at least this many px
-   * before the container change is accepted. Default 10.
-   */
+  /** Pointer must move at least this far from the last commit before a
+   *  same-container slot change is accepted. Default 8. */
+  movePx?: number;
+  /** …or the new candidate must persist this long (ms). Default 60. */
+  dwellMs?: number;
+  /** Pointer must penetrate a different container this far, px. Default 10. */
   containerPenetrationPx?: number;
-  /** …or the new container must be hovered for this long (ms). Default 80. */
+  /** …or the new container must persist this long (ms). Default 80. */
   containerDwellMs?: number;
 }
 
 export interface HysteresisResult {
-  /** The stabilized target to actually use this tick (may equal previous). */
   key: DragTargetKey | null;
-  /** True when the stabilized target changed vs the previous committed one. */
   changed: boolean;
-  /** The state to carry into the next tick. */
   state: HysteresisState | null;
 }
 
 const DEFAULT_HYSTERESIS: Required<HysteresisOptions> = {
-  indexBoundaryPx: 8,
-  indexDwellMs: 60,
+  movePx: 8,
+  dwellMs: 60,
   containerPenetrationPx: 10,
   containerDwellMs: 80,
 };
@@ -119,23 +104,32 @@ function keysEqual(a: DragTargetKey | null, b: DragTargetKey | null): boolean {
   return a.containerKey === b.containerKey && a.index === b.index;
 }
 
+function commitTarget(
+  key: DragTargetKey,
+  pointer: CandidatePoint,
+  now: number,
+): HysteresisResult {
+  return {
+    key,
+    changed: true,
+    state: {
+      key,
+      committedAt: now,
+      committedPointer: pointer,
+      pendingKey: null,
+      pendingAt: 0,
+    },
+  };
+}
+
 /**
- * Stabilize a raw drop-target candidate against the previously committed
- * target so the insertion preview only transitions when the pointer clearly
- * moves to a new slot/container.
- *
- * Rules (mirrors the plan's Phase 0.1):
- *  - No previous target → accept immediately (the guide should appear at once).
- *  - Candidate is null → clear immediately (leaving all targets is instant).
- *  - Same container + same index → hold.
- *  - Same container, different index → switch only once the pointer is
- *    `indexBoundaryPx` past the boundary, OR the index has been stable for
- *    `indexDwellMs`.
- *  - Different container → if it is a *leave* (ancestor), switch instantly;
- *    otherwise switch only once penetration ≥ `containerPenetrationPx`, OR the
- *    container has been hovered for `containerDwellMs`.
- *
- * Pure: pass `now` (ms) explicitly so it is deterministic in tests.
+ * Stabilize a raw drop-target candidate against the committed one so the
+ * preview only transitions when the pointer deliberately moves to a new
+ * slot/container. A change is accepted when the pointer has moved `movePx`
+ * from the last commit (deliberate move) OR the *new* candidate has persisted
+ * `dwellMs` — dwell is timed from when the candidate first appeared, not from
+ * the committed target's age. Cross-container leaves reverse instantly; other
+ * container entries need penetration or dwell. Pure: `now` is passed in.
  */
 export function resolveTargetHysteresis(
   prev: HysteresisState | null,
@@ -145,58 +139,49 @@ export function resolveTargetHysteresis(
 ): HysteresisResult {
   const opts = { ...DEFAULT_HYSTERESIS, ...options };
 
-  // Leaving every target — instant.
   if (candidate.key === null) {
-    return {
-      key: null,
-      changed: prev !== null,
-      state: null,
-    };
+    return { key: null, changed: prev !== null, state: null };
   }
-
-  // First acquisition — instant, so the preview shows up without lag.
   if (prev === null) {
+    return commitTarget(candidate.key, candidate.pointer, now);
+  }
+  if (keysEqual(candidate.key, prev.key)) {
     return {
-      key: candidate.key,
-      changed: true,
-      state: { key: candidate.key, committedAt: now },
+      key: prev.key,
+      changed: false,
+      state: { ...prev, pendingKey: null, pendingAt: 0 },
     };
   }
 
-  // Unchanged target — hold, preserving the original commit time so dwell is
-  // measured from when we first committed, not refreshed every tick.
-  if (keysEqual(candidate.key, prev.key)) {
-    return { key: prev.key, changed: false, state: prev };
-  }
-
+  const pendingContinues = keysEqual(candidate.key, prev.pendingKey);
+  const pendingKey = candidate.key;
+  const pendingAt = pendingContinues ? prev.pendingAt : now;
+  const dwelledFor = now - pendingAt;
   const sameContainer = candidate.key.containerKey === prev.key.containerKey;
-  const elapsed = now - prev.committedAt;
 
   let accept: boolean;
   if (sameContainer) {
-    const crossedBoundary =
-      candidate.boundaryMain !== null &&
-      Math.abs(candidate.pointerMain - candidate.boundaryMain) >=
-        opts.indexBoundaryPx;
-    accept = crossedBoundary || elapsed >= opts.indexDwellMs;
+    const movedPx = Math.hypot(
+      candidate.pointer.x - prev.committedPointer.x,
+      candidate.pointer.y - prev.committedPointer.y,
+    );
+    accept = movedPx >= opts.movePx || dwelledFor >= opts.dwellMs;
   } else if (candidate.isLeave) {
-    // Exiting to an ancestor reverses instantly.
     accept = true;
   } else {
-    const penetrated =
-      candidate.containerPenetrationPx >= opts.containerPenetrationPx;
-    accept = penetrated || elapsed >= opts.containerDwellMs;
+    accept =
+      candidate.containerPenetrationPx >= opts.containerPenetrationPx ||
+      dwelledFor >= opts.containerDwellMs;
   }
 
   if (accept) {
-    return {
-      key: candidate.key,
-      changed: true,
-      state: { key: candidate.key, committedAt: now },
-    };
+    return commitTarget(candidate.key, candidate.pointer, now);
   }
-  // Reject the change this tick — keep showing the committed target.
-  return { key: prev.key, changed: false, state: prev };
+  return {
+    key: prev.key,
+    changed: false,
+    state: { ...prev, pendingKey, pendingAt },
+  };
 }
 
 // ---------------------------------------------------------------------------

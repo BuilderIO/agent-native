@@ -8267,15 +8267,8 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         x: reorderPointerStart.clientX - reorderRect.left,
         y: reorderPointerStart.clientY - reorderRect.top,
       };
-      // Phase 1.1 — lift & follow (gated by liveReflowEnabled). While dragging
-      // a flow element, translate it (and any group members) to follow the
-      // cursor with a subtle lift, so it moves WITH your hand instead of
-      // sitting frozen under a lonely insertion line. Pure `transform` — no
-      // layout, no reflow — so it never disturbs the slot it will land in, is
-      // trivially reverted, and (being cleared before any pointer-up commit
-      // math) never corrupts a getBoundingClientRect read. Live sibling reflow
-      // (the gap opening around the cursor) is a later phase; this alone turns
-      // the "dead" reorder drag into a live one.
+      // Transform-only follow: must be cleared before any pointer-up commit
+      // reads getBoundingClientRect, or the drag delta corrupts the result.
       var reorderLiftedMembers: {
         el: HTMLElement;
         prevTransform: string;
@@ -8329,18 +8322,15 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         });
         reorderLiftedMembers = [];
       }
-      // ── Phase 0.1 hysteresis + Phase 1.2 live sibling reflow ──────────────
-      // Stabilize the resolved drop target so the preview + gap don't strobe on
-      // a boundary, then (for a SAME-container, simple packed flex row/column
-      // only) translate the siblings aside so the OPEN GAP is the preview of
-      // exactly where the item lands. Non-packed / wrap / grid / space-between /
-      // flex-grow / cross-container all fall back to the indicator-only line
-      // (option 1: never animate a preview that wouldn't match the real drop).
-      // Mirrors the tested reference in shared/drag-reflow.ts
-      // (resolveTargetHysteresis / isSimplePackedContainer / computeReorderOffsets).
+      // Live sibling reflow, restricted to same-container simple-packed flex so
+      // a constant per-sibling shift always matches the real drop; ported from
+      // shared/drag-reflow.ts.
       var reorderCommittedTarget: any = null;
       var reorderCommittedSlot: number | null = null;
       var reorderCommittedAt = 0;
+      var reorderCommittedPointer = { x: 0, y: 0 };
+      var reorderPendingSlot: number | null = null;
+      var reorderPendingAt = 0;
       var reflowSiblings: {
         el: HTMLElement;
         prevTransform: string;
@@ -8362,20 +8352,10 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         return out;
       }
       function reorderSlotForTarget(target, real: Element[]) {
-        if (target.placement === "inside") {
-          return { slot: real.length, boundary: null as number | null };
-        }
+        if (target.placement === "inside") return { slot: real.length };
         var ai = real.indexOf(target.anchor);
         if (ai < 0) return null;
-        var rect = target.anchor.getBoundingClientRect();
-        var axis = reorderMainAxis(target);
-        if (target.placement === "before") {
-          return { slot: ai, boundary: axis === "x" ? rect.left : rect.top };
-        }
-        return {
-          slot: ai + 1,
-          boundary: axis === "x" ? rect.right : rect.bottom,
-        };
+        return { slot: target.placement === "before" ? ai : ai + 1 };
       }
       function containerIsSimplePacked(container: Element): boolean {
         if (packedCacheContainer === container) return packedCacheResult;
@@ -8421,7 +8401,22 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         reflowSiblings = [];
         reflowKey = null;
       }
+      // Auto-layout children reorder into a slot on plain drag — they have no
+      // free x/y without leaving the layout, which would collapse it. Ctrl
+      // "ignore auto layout" is the explicit free-place escape.
+      function resolveReorderOrFreeTarget(cx, cy, ctrlKey) {
+        return flowMoveTargetForPoint(
+          reorderEl,
+          cx,
+          cy,
+          groupOthers,
+          keepCurrentFlowParent,
+          ctrlKey,
+        );
+      }
       // Figma's "don't nest into a smaller container" guard (⌘/Ctrl overrides).
+      // Instead of nesting into a too-small container, fall back to placing
+      // beside it in its parent so the drop is never silently discarded.
       function applyReorderSizeGuard(target, ev) {
         if (!liveReflowEnabled || !target || target.placement !== "inside") {
           return target;
@@ -8431,22 +8426,46 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         if (!container || container === reorderEl) return target;
         var crect = container.getBoundingClientRect();
         var drect = (reorderEl as HTMLElement).getBoundingClientRect();
-        if (crect.width < drect.width || crect.height < drect.height) {
-          return null;
+        if (crect.width >= drect.width && crect.height >= drect.height) {
+          return target;
         }
-        return target;
+        var parent = container.parentElement;
+        if (!parent) return null;
+        var pcs = window.getComputedStyle(parent);
+        var pAxis =
+          pcs.flexDirection === "column" ||
+          pcs.flexDirection === "column-reverse"
+            ? "y"
+            : "x";
+        var center =
+          pAxis === "x"
+            ? crect.left + crect.width / 2
+            : crect.top + crect.height / 2;
+        var ptr =
+          pAxis === "x" ? (ev ? ev.clientX : center) : ev ? ev.clientY : center;
+        return {
+          anchor: container,
+          placement: ptr < center ? "before" : "after",
+          axis: pAxis,
+          dropMode: "flow-insert",
+        };
       }
-      // Stabilize a freshly-resolved target against the committed one. Only
-      // same-container flow-insert targets are damped; anything else passes
-      // through and resets the committed state.
+      // Stabilize a freshly-resolved target against the committed one so the
+      // preview only moves on a deliberate ≥8px pointer move from the last
+      // commit or after the NEW candidate persists ≥60ms. Mirrors
+      // shared/drag-reflow.ts resolveTargetHysteresis; same-container only.
       function stabilizeReorderTarget(rawTarget, cx, cy, now) {
+        var reset = function () {
+          reorderCommittedTarget = null;
+          reorderCommittedSlot = null;
+          reorderPendingSlot = null;
+        };
         if (
           !liveReflowEnabled ||
           !rawTarget ||
           rawTarget.dropMode !== "flow-insert"
         ) {
-          reorderCommittedTarget = null;
-          reorderCommittedSlot = null;
+          reset();
           return rawTarget;
         }
         var container = dropContainerForTarget(rawTarget);
@@ -8454,43 +8473,49 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
           !container ||
           (reorderEl as HTMLElement).parentElement !== container
         ) {
-          reorderCommittedTarget = null;
-          reorderCommittedSlot = null;
+          reset();
           return rawTarget;
         }
-        var real = reorderRealChildren(container);
-        var slotInfo = reorderSlotForTarget(rawTarget, real);
+        var slotInfo = reorderSlotForTarget(
+          rawTarget,
+          reorderRealChildren(container),
+        );
         if (!slotInfo) {
-          reorderCommittedTarget = null;
-          reorderCommittedSlot = null;
+          reset();
           return rawTarget;
         }
-        var axis = reorderMainAxis(rawTarget);
-        var pointerMain = axis === "x" ? cx : cy;
-        if (
-          reorderCommittedSlot === null ||
-          slotInfo.slot === reorderCommittedSlot
-        ) {
-          reorderCommittedSlot = slotInfo.slot;
+        var slot = slotInfo.slot;
+        var commit = function () {
+          reorderCommittedSlot = slot;
           reorderCommittedTarget = rawTarget;
-          if (reorderCommittedAt === 0) reorderCommittedAt = now;
-          return rawTarget;
-        }
-        var crossed =
-          slotInfo.boundary !== null &&
-          Math.abs(pointerMain - slotInfo.boundary) >= 8;
-        var dwelled = now - reorderCommittedAt >= 60;
-        if (crossed || dwelled) {
-          reorderCommittedSlot = slotInfo.slot;
-          reorderCommittedTarget = rawTarget;
+          reorderCommittedPointer = { x: cx, y: cy };
           reorderCommittedAt = now;
+          reorderPendingSlot = null;
+          return rawTarget;
+        };
+        if (reorderCommittedSlot === null) return commit();
+        if (slot === reorderCommittedSlot) {
+          reorderCommittedTarget = rawTarget;
+          reorderPendingSlot = null;
           return rawTarget;
         }
+        if (reorderPendingSlot !== slot) {
+          reorderPendingSlot = slot;
+          reorderPendingAt = now;
+        }
+        var movedPx = Math.hypot(
+          cx - reorderCommittedPointer.x,
+          cy - reorderCommittedPointer.y,
+        );
+        if (movedPx >= 8 || now - reorderPendingAt >= 60) return commit();
         return reorderCommittedTarget || rawTarget;
       }
       function applyReorderReflow(target, cx, cy): void {
         if (!liveReflowEnabled) return;
-        if (!target || target.dropMode !== "flow-insert") {
+        // Group members are each lifted and follow the cursor; also reflowing
+        // them would double-transform and strand a residual on teardown, so
+        // group drags stay indicator-only.
+        if (isGroupDrag || !target || target.dropMode !== "flow-insert") {
           clearReorderReflow();
           return;
         }
@@ -8591,12 +8616,9 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
           // stabilized (hysteresis) and previewed with live sibling reflow when
           // liveReflowEnabled. stabilizeReorderTarget / applyReorderReflow are
           // no-ops (pass-through) when the flag is off.
-          var rawTarget = flowMoveTargetForPoint(
-            reorderEl,
+          var rawTarget = resolveReorderOrFreeTarget(
             cx,
             cy,
-            groupOthers,
-            keepCurrentFlowParent,
             Boolean(ev.ctrlKey),
           );
           rawTarget = applyReorderSizeGuard(rawTarget, ev);
@@ -8615,14 +8637,13 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       function cleanupReorderDrag() {
         document.removeEventListener(events.move, onReorderMove, true);
         document.removeEventListener(events.up, onReorderUp, true);
+        document.removeEventListener("pointercancel", onReorderEscape, true);
         document.removeEventListener("keydown", onReorderKeyDown, true);
         document.removeEventListener("keyup", onReorderKeyUp, true);
         clearActiveDragCancel(onReorderEscape);
-        // Restore the dragged element(s) AND any reflowed siblings to their
-        // untransformed state on every teardown path. onReorderUp calls this
-        // BEFORE resolving the drop target and reordering, so the commit reads
-        // un-transformed rects and — being one synchronous task — everything
-        // paints once, already in its final slot (no back-to-origin flicker).
+        // onReorderUp calls this before resolving/reordering, so the commit
+        // reads un-transformed rects and — one synchronous task — paints once
+        // in the final slot with no back-to-origin flicker.
         clearReorderLift();
         clearReorderReflow();
       }
@@ -8704,19 +8725,21 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
         // already clears cross-screen state on re-entry so checking the
         // momentary excursion flag here would wrongly drop the element nowhere.
         if (outsideOnDrop) return;
-        // With live reflow on, commit the SAME stabilized target the guide/gap
-        // showed during the move (so it drops exactly where it previewed);
-        // otherwise resolve fresh from the release point (legacy behavior).
-        if (!liveReflowEnabled) {
-          currentTarget = flowMoveTargetForPoint(
-            reorderEl,
-            cx,
-            cy,
-            groupOthers,
-            keepCurrentFlowParent,
-            Boolean(ev?.ctrlKey),
-          );
-        }
+        // Resolve from the RELEASE point + release-time modifiers so a Ctrl or
+        // Space held only at release still takes effect; live reflow then runs
+        // one final stabilize tick so the drop still lands on the previewed
+        // slot rather than jumping.
+        var finalRaw = resolveReorderOrFreeTarget(cx, cy, Boolean(ev?.ctrlKey));
+        currentTarget = liveReflowEnabled
+          ? stabilizeReorderTarget(
+              applyReorderSizeGuard(finalRaw, ev),
+              cx,
+              cy,
+              ev && typeof ev.timeStamp === "number"
+                ? ev.timeStamp
+                : reorderCommittedAt,
+            )
+          : finalRaw;
         if (!currentTarget) {
           // No valid drop target — clean up the clone if one was inserted so
           // no ghost element is left in the DOM.
@@ -8809,6 +8832,7 @@ declare var __LIVE_REFLOW_ENABLED__: boolean;
       }
       document.addEventListener(events.move, onReorderMove, true);
       document.addEventListener(events.up, onReorderUp, true);
+      document.addEventListener("pointercancel", onReorderEscape, true);
       document.addEventListener("keydown", onReorderKeyDown, true);
       document.addEventListener("keyup", onReorderKeyUp, true);
       setActiveDragCancel(onReorderEscape);

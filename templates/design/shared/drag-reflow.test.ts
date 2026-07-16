@@ -21,20 +21,30 @@ function candidate(
   over: Partial<DragTargetCandidate> & Pick<DragTargetCandidate, "key">,
 ): DragTargetCandidate {
   return {
-    pointerMain: 0,
-    boundaryMain: null,
+    pointer: { x: 0, y: 0 },
     containerPenetrationPx: Infinity,
     isLeave: false,
     ...over,
   };
 }
 
+function committed(
+  key: { containerKey: string; index: number },
+  at: number,
+  pointer = { x: 0, y: 0 },
+): HysteresisState {
+  return {
+    key,
+    committedAt: at,
+    committedPointer: pointer,
+    pendingKey: null,
+    pendingAt: 0,
+  };
+}
+
 describe("resolveTargetHysteresis", () => {
   it("clears instantly when the candidate is null", () => {
-    const prev: HysteresisState = {
-      key: { containerKey: "A", index: 0 },
-      committedAt: 0,
-    };
+    const prev = committed({ containerKey: "A", index: 0 }, 0);
     const res = resolveTargetHysteresis(prev, candidate({ key: null }), 5);
     expect(res.key).toBeNull();
     expect(res.changed).toBe(true);
@@ -50,58 +60,65 @@ describe("resolveTargetHysteresis", () => {
   it("accepts the first target immediately (no lag before the guide appears)", () => {
     const res = resolveTargetHysteresis(
       null,
-      candidate({ key: { containerKey: "A", index: 2 } }),
+      candidate({
+        key: { containerKey: "A", index: 2 },
+        pointer: { x: 10, y: 5 },
+      }),
       100,
     );
     expect(res.key).toEqual({ containerKey: "A", index: 2 });
     expect(res.changed).toBe(true);
-    expect(res.state).toEqual({
-      key: { containerKey: "A", index: 2 },
-      committedAt: 100,
-    });
+    expect(res.state?.committedPointer).toEqual({ x: 10, y: 5 });
   });
 
-  it("holds an unchanged target and preserves the original commit time", () => {
+  it("holds an unchanged target and clears any pending candidate", () => {
     const prev: HysteresisState = {
-      key: { containerKey: "A", index: 1 },
-      committedAt: 40,
+      ...committed({ containerKey: "A", index: 1 }, 40, { x: 50, y: 0 }),
+      pendingKey: { containerKey: "A", index: 2 },
+      pendingAt: 30,
     };
     const res = resolveTargetHysteresis(
       prev,
-      candidate({ key: { containerKey: "A", index: 1 } }),
+      candidate({
+        key: { containerKey: "A", index: 1 },
+        pointer: { x: 52, y: 0 },
+      }),
       999,
     );
     expect(res.changed).toBe(false);
-    expect(res.state).toBe(prev); // committedAt not refreshed
+    expect(res.state?.pendingKey).toBeNull();
+    expect(res.state?.committedPointer).toEqual({ x: 50, y: 0 });
   });
 
   describe("index change within the same container", () => {
-    const prev: HysteresisState = {
-      key: { containerKey: "A", index: 0 },
-      committedAt: 0,
-    };
-
-    it("rejects while the pointer is within the boundary deadband and dwell not met", () => {
+    it("rejects a small jitter that has not moved far or dwelled", () => {
+      const prev = committed({ containerKey: "A", index: 0 }, 0, {
+        x: 100,
+        y: 0,
+      });
       const res = resolveTargetHysteresis(
         prev,
         candidate({
           key: { containerKey: "A", index: 1 },
-          boundaryMain: 100,
-          pointerMain: 105,
+          pointer: { x: 103, y: 0 },
         }),
-        10, // elapsed 10ms < 60ms
+        10,
       );
       expect(res.changed).toBe(false);
       expect(res.key).toEqual({ containerKey: "A", index: 0 });
+      expect(res.state?.pendingKey).toEqual({ containerKey: "A", index: 1 });
     });
 
-    it("accepts once the pointer crosses the boundary by >= 8px", () => {
+    it("accepts once the pointer moves >= 8px from the last commit", () => {
+      const prev = committed({ containerKey: "A", index: 0 }, 0, {
+        x: 100,
+        y: 0,
+      });
       const res = resolveTargetHysteresis(
         prev,
         candidate({
           key: { containerKey: "A", index: 1 },
-          boundaryMain: 100,
-          pointerMain: 92,
+          pointer: { x: 112, y: 0 },
         }),
         10,
       );
@@ -109,44 +126,59 @@ describe("resolveTargetHysteresis", () => {
       expect(res.key).toEqual({ containerKey: "A", index: 1 });
     });
 
-    it("accepts on dwell even when still inside the deadband", () => {
-      const res = resolveTargetHysteresis(
+    it("dwell times the NEW candidate, not the committed slot's age", () => {
+      const prev = committed({ containerKey: "A", index: 0 }, 0, {
+        x: 100,
+        y: 0,
+      });
+      const first = resolveTargetHysteresis(
         prev,
         candidate({
           key: { containerKey: "A", index: 1 },
-          boundaryMain: 100,
-          pointerMain: 101,
+          pointer: { x: 101, y: 0 },
         }),
-        60, // elapsed 60ms >= 60ms
+        1000,
       );
-      expect(res.changed).toBe(true);
+      expect(first.changed).toBe(false);
+      const second = resolveTargetHysteresis(
+        first.state,
+        candidate({
+          key: { containerKey: "A", index: 1 },
+          pointer: { x: 101, y: 0 },
+        }),
+        1060,
+      );
+      expect(second.changed).toBe(true);
     });
 
-    it("falls back to dwell-only when there is no boundary (empty-container inside)", () => {
-      const early = resolveTargetHysteresis(
+    it("resets the dwell timer when the candidate slot changes", () => {
+      const prev = committed({ containerKey: "A", index: 0 }, 0, {
+        x: 100,
+        y: 0,
+      });
+      const t1 = resolveTargetHysteresis(
         prev,
         candidate({
           key: { containerKey: "A", index: 1 },
-          boundaryMain: null,
-          pointerMain: 5000,
+          pointer: { x: 101, y: 0 },
         }),
-        30,
+        1000,
       );
-      expect(early.changed).toBe(false);
-      const late = resolveTargetHysteresis(
-        prev,
-        candidate({ key: { containerKey: "A", index: 1 }, boundaryMain: null }),
-        60,
+      const t2 = resolveTargetHysteresis(
+        t1.state,
+        candidate({
+          key: { containerKey: "A", index: 2 },
+          pointer: { x: 102, y: 0 },
+        }),
+        1050,
       );
-      expect(late.changed).toBe(true);
+      expect(t2.changed).toBe(false);
+      expect(t2.state?.pendingAt).toBe(1050);
     });
   });
 
   describe("container change", () => {
-    const prev: HysteresisState = {
-      key: { containerKey: "A", index: 3 },
-      committedAt: 0,
-    };
+    const prev = committed({ containerKey: "A", index: 3 }, 0);
 
     it("reverses instantly when leaving to an ancestor", () => {
       const res = resolveTargetHysteresis(
@@ -189,32 +221,39 @@ describe("resolveTargetHysteresis", () => {
     });
 
     it("accepts a shallow entry on dwell", () => {
-      const res = resolveTargetHysteresis(
+      const t1 = resolveTargetHysteresis(
         prev,
+        candidate({
+          key: { containerKey: "B", index: 0 },
+          containerPenetrationPx: 5,
+        }),
+        0,
+      );
+      const t2 = resolveTargetHysteresis(
+        t1.state,
         candidate({
           key: { containerKey: "B", index: 0 },
           containerPenetrationPx: 5,
         }),
         80,
       );
-      expect(res.changed).toBe(true);
+      expect(t2.changed).toBe(true);
     });
   });
 
   it("honors custom thresholds", () => {
-    const prev: HysteresisState = {
-      key: { containerKey: "A", index: 0 },
-      committedAt: 0,
-    };
+    const prev = committed({ containerKey: "A", index: 0 }, 0, {
+      x: 100,
+      y: 0,
+    });
     const res = resolveTargetHysteresis(
       prev,
       candidate({
         key: { containerKey: "A", index: 1 },
-        boundaryMain: 100,
-        pointerMain: 97,
+        pointer: { x: 103, y: 0 },
       }),
       5,
-      { indexBoundaryPx: 2 }, // |97-100|=3 >= 2
+      { movePx: 2 },
     );
     expect(res.changed).toBe(true);
   });

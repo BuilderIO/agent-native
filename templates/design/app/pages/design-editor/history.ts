@@ -270,7 +270,10 @@ export function mergeLocalContentHistoryFallback(
     last &&
     last.fileId === change.fileId &&
     last.after === change.before &&
-    !last.isCheckpoint
+    // An incoming checkpoint must stay its own undo boundary, or one Cmd+Z
+    // reverts an agent edit together with the preceding user edit.
+    !last.isCheckpoint &&
+    !change.isCheckpoint
   ) {
     return [...stack.slice(0, -1), { ...last, after: change.after }];
   }
