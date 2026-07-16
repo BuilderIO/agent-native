@@ -154,6 +154,19 @@ function mapEdge(row: any): ContextEdge {
   };
 }
 
+function mediaEnrichmentSourceContentHash(
+  metadata: Record<string, unknown>,
+  fallback: string,
+): string {
+  const derivation = metadata.__creativeContextDerivation;
+  if (!derivation || typeof derivation !== "object") return fallback;
+  const record = derivation as Record<string, unknown>;
+  return record.kind === "media-enrichment" &&
+    typeof record.sourceContentHash === "string"
+    ? record.sourceContentHash
+    : fallback;
+}
+
 export function assertImmutableContextVersion(operation: string): never {
   throw new Error(
     `Creative context item versions are immutable; ${operation} must create a new version`,
@@ -233,12 +246,23 @@ async function ingestItemsAttempt(
         .select({
           id: schema.contextItemVersions.id,
           versionNumber: schema.contextItemVersions.versionNumber,
+          contentHash: schema.contextItemVersions.contentHash,
+          metadata: schema.contextItemVersions.metadata,
         })
         .from(schema.contextItemVersions)
         .where(inArray(schema.contextItemVersions.id, currentVersionIds))
     : [];
   const versionNumberById = new Map<string, number>(
     currentVersionRows.map((row: any) => [row.id, row.versionNumber as number]),
+  );
+  const sourceContentHashByVersionId = new Map<string, string>(
+    currentVersionRows.map((row: any) => {
+      const metadata = parseJson<Record<string, unknown>>(row.metadata, {});
+      return [
+        row.id,
+        mediaEnrichmentSourceContentHash(metadata, row.contentHash),
+      ];
+    }),
   );
 
   const newItems: any[] = [];
@@ -259,7 +283,12 @@ async function ingestItemsAttempt(
 
   for (const input of batch.items) {
     const existing = existingByExternalId.get(input.externalId) as any;
-    if (existing?.currentContentHash === input.contentHash) {
+    if (
+      existing &&
+      (existing.currentContentHash === input.contentHash ||
+        sourceContentHashByVersionId.get(existing.currentVersionId) ===
+          input.contentHash)
+    ) {
       batchVersionTargets.set(input.externalId, {
         itemId: existing.id,
         itemVersionId: existing.currentVersionId,
@@ -1379,6 +1408,185 @@ export async function getCreativeContextItem(
     chunks: chunkRows.map(mapChunk),
     media: mediaRows.map(mapMedia),
     edges: edgeRows.map(mapEdge),
+  };
+}
+
+export async function appendMediaEnrichmentVersion(input: {
+  mediaId: string;
+  palette: string[];
+  contentHash: string;
+  caption: string | null;
+  captionStatus: "pending" | "complete" | "failed" | "not-needed";
+  ocrText: string | null;
+}): Promise<{
+  itemId: string;
+  itemVersionId: string;
+  mediaId: string;
+  appended: boolean;
+}> {
+  const { getDb, schema } = getCreativeContext();
+  const rows = await getDb()
+    .select({ itemId: schema.contextMedia.itemId })
+    .from(schema.contextMedia)
+    .where(eq(schema.contextMedia.id, input.mediaId))
+    .limit(1);
+  const itemId = rows[0]?.itemId;
+  if (!itemId) throw new Error("Creative context media was not found");
+  const detail = await getCreativeContextItem(itemId);
+  if (!detail) throw new Error("Creative context media is not accessible");
+  const target = detail.media.find(
+    (media) =>
+      media.id === input.mediaId ||
+      media.metadata.__creativeContextEnrichmentSourceMediaId ===
+        input.mediaId ||
+      media.metadata.__creativeContextPreviousMediaId === input.mediaId,
+  );
+  if (!target) {
+    throw new Error(
+      "Creative context media enrichment can only append from the current item version",
+    );
+  }
+  if (
+    target.caption === input.caption &&
+    target.captionStatus === input.captionStatus &&
+    target.ocrText === input.ocrText &&
+    target.contentHash === input.contentHash &&
+    stringifyJson(target.palette) === stringifyJson(input.palette)
+  ) {
+    return {
+      itemId,
+      itemVersionId: detail.version.id,
+      mediaId: target.id,
+      appended: false,
+    };
+  }
+
+  const sourceContentHash = mediaEnrichmentSourceContentHash(
+    detail.version.metadata,
+    detail.version.contentHash,
+  );
+  const media = detail.media.map((entry) => {
+    const enriched = entry.id === target.id;
+    return {
+      kind: entry.kind,
+      ...(entry.mimeType ? { mimeType: entry.mimeType } : {}),
+      accessMode: entry.accessMode,
+      ...(entry.url ? { url: entry.url } : {}),
+      ...(entry.storageKey ? { storageKey: entry.storageKey } : {}),
+      ...(entry.provenanceUrl ? { provenanceUrl: entry.provenanceUrl } : {}),
+      ...(entry.altText ? { altText: entry.altText } : {}),
+      ...(enriched
+        ? { caption: input.caption ?? undefined }
+        : { caption: entry.caption ?? undefined }),
+      captionStatus: enriched ? input.captionStatus : entry.captionStatus,
+      ...(enriched
+        ? { ocrText: input.ocrText ?? undefined }
+        : { ocrText: entry.ocrText ?? undefined }),
+      palette: enriched ? input.palette : entry.palette,
+      ...(enriched
+        ? { contentHash: input.contentHash }
+        : { contentHash: entry.contentHash ?? undefined }),
+      ...(entry.width === null ? {} : { width: entry.width }),
+      ...(entry.height === null ? {} : { height: entry.height }),
+      ...(entry.durationMs === null ? {} : { durationMs: entry.durationMs }),
+      metadata: {
+        ...entry.metadata,
+        __creativeContextEnrichmentSourceMediaId:
+          entry.metadata.__creativeContextEnrichmentSourceMediaId ?? entry.id,
+        __creativeContextPreviousMediaId: entry.id,
+        ...(enriched ? { enrichmentDerived: true } : {}),
+      },
+    };
+  });
+  const canonicalMedia = media.map((entry) => {
+    const {
+      __creativeContextEnrichmentSourceMediaId: _sourceMediaId,
+      __creativeContextPreviousMediaId: _previousMediaId,
+      ...metadata
+    } = entry.metadata;
+    return { ...entry, metadata };
+  });
+  const derivedContentHash = await sha256(
+    stringifyJson({
+      sourceContentHash,
+      media: canonicalMedia,
+    }),
+  );
+  await ingestItems({
+    sourceId: detail.item.sourceId,
+    items: [
+      {
+        externalId: detail.item.externalId,
+        kind: detail.item.kind,
+        title: detail.item.title,
+        canonicalUrl: detail.item.canonicalUrl ?? undefined,
+        mimeType: detail.item.mimeType ?? undefined,
+        content: detail.version.content,
+        summary: detail.version.summary ?? undefined,
+        contentHash: derivedContentHash,
+        sourceModifiedAt: detail.version.sourceModifiedAt ?? undefined,
+        sourceVersion: detail.version.sourceVersion ?? undefined,
+        rawSnapshotBlobRef: detail.version.rawSnapshotBlobRef ?? undefined,
+        parseStatus: detail.version.parseStatus,
+        parseError: detail.version.parseError ?? undefined,
+        upstreamAccess: detail.item.upstreamAccess,
+        curationStatus: detail.item.curationStatus,
+        curationRank: detail.item.curationRank,
+        starred: detail.item.starred,
+        inventoryState: detail.item.inventoryState,
+        indexState: detail.item.indexState,
+        tags: detail.item.tags,
+        colors: detail.item.colors,
+        sortOrder: detail.item.sortOrder,
+        parentItemId: detail.item.parentItemId ?? undefined,
+        provenance: detail.item.provenance,
+        thumbnailBlobRef: detail.item.thumbnailBlobRef ?? undefined,
+        metadata: {
+          ...detail.version.metadata,
+          __creativeContextDerivation: {
+            kind: "media-enrichment",
+            sourceContentHash,
+            derivedFromVersionId: detail.version.id,
+          },
+        },
+        chunks: detail.chunks.map((chunk) => ({
+          ordinal: chunk.ordinal,
+          kind: chunk.kind,
+          text: chunk.text,
+          startOffset: chunk.startOffset ?? undefined,
+          endOffset: chunk.endOffset ?? undefined,
+          tokenCount: chunk.tokenCount ?? undefined,
+          metadata: chunk.metadata,
+        })),
+        media,
+        edges: detail.edges
+          .filter(
+            (edge) =>
+              edge.relation !== "revision-of" ||
+              edge.metadata.automatic !== true,
+          )
+          .map((edge) => ({
+            relation: edge.relation,
+            toItemId: edge.toItemId ?? undefined,
+            toItemVersionId: edge.toItemVersionId ?? undefined,
+            toExternalId: edge.toExternalId ?? undefined,
+            metadata: edge.metadata,
+          })),
+      },
+    ],
+  });
+  const appended = await getCreativeContextItem(itemId);
+  const enrichedMedia = appended?.media.find(
+    (entry) => entry.metadata.__creativeContextPreviousMediaId === target.id,
+  );
+  if (!appended || !enrichedMedia) {
+    throw new Error("Failed to append creative context media enrichment");
+  }
+  return {
+    itemId,
+    itemVersionId: appended.version.id,
+    mediaId: enrichedMedia.id,
+    appended: appended.version.id !== detail.version.id,
   };
 }
 

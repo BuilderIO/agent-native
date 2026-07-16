@@ -595,6 +595,134 @@ describe("creative context access and revocation", () => {
     ).rejects.toThrow(/verified by the host application/i);
   });
 
+  it("appends media enrichment while preserving version-pinned pack evidence", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    await exec.execute({
+      sql: `INSERT INTO creative_context_media
+        (id, item_id, item_version_id, kind, mime_type, access_mode,
+         storage_key, caption_status, palette, metadata, created_at,
+         owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "media-before-enrichment",
+        "allowed",
+        "allowed-v2",
+        "image",
+        "image/png",
+        "private",
+        "private-blob:fixture",
+        "pending",
+        "[]",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const pack = await asAlice(() =>
+      store.createContextPack({
+        name: "Pinned before enrichment",
+        members: [
+          {
+            itemId: "allowed",
+            itemVersionId: "allowed-v2",
+            reason: "Exact pre-enrichment evidence",
+          },
+        ],
+      }),
+    );
+
+    const enriched = await asAlice(() =>
+      store.appendMediaEnrichmentVersion({
+        mediaId: "media-before-enrichment",
+        palette: ["#663399", "#ffffff"],
+        contentHash: "enriched-image-hash",
+        caption: "Builder dashboard on a purple background",
+        captionStatus: "complete",
+        ocrText: "Ship faster",
+      }),
+    );
+
+    expect(enriched.appended).toBe(true);
+    expect(enriched.itemVersionId).not.toBe("allowed-v2");
+    expect(enriched.mediaId).not.toBe("media-before-enrichment");
+    const pinned = await asAlice(() =>
+      store.getCreativeContextItem("allowed", "allowed-v2"),
+    );
+    expect(pinned?.media).toEqual([
+      expect.objectContaining({
+        id: "media-before-enrichment",
+        caption: null,
+        captionStatus: "pending",
+        palette: [],
+      }),
+    ]);
+    const current = await asAlice(() =>
+      store.getCreativeContextItem("allowed"),
+    );
+    expect(current?.version.id).toBe(enriched.itemVersionId);
+    expect(current?.media).toEqual([
+      expect.objectContaining({
+        id: enriched.mediaId,
+        caption: "Builder dashboard on a purple background",
+        captionStatus: "complete",
+        ocrText: "Ship faster",
+        palette: ["#663399", "#ffffff"],
+      }),
+    ]);
+    const pinnedPack = await asAlice(() => store.getContextPack(pack.id));
+    expect(pinnedPack?.members).toEqual([
+      expect.objectContaining({
+        itemId: "allowed",
+        itemVersionId: "allowed-v2",
+      }),
+    ]);
+
+    const resync = await asAlice(() =>
+      store.ingestItems({
+        sourceId: "source-1",
+        items: [
+          {
+            externalId: "allowed",
+            kind: "slide",
+            title: "allowed title",
+            content: "allowed canonical version 2",
+            contentHash: "allowed-hash-v2",
+            upstreamAccess: "available",
+          },
+        ],
+      }),
+    );
+    expect(resync.unchanged).toBe(1);
+    const afterResync = await asAlice(() =>
+      store.getCreativeContextItem("allowed"),
+    );
+    expect(afterResync?.version.id).toBe(enriched.itemVersionId);
+    expect(afterResync?.media[0]?.captionStatus).toBe("complete");
+
+    const retried = await asAlice(() =>
+      store.appendMediaEnrichmentVersion({
+        mediaId: "media-before-enrichment",
+        palette: ["#663399", "#ffffff"],
+        contentHash: "enriched-image-hash",
+        caption: "Builder dashboard on a purple background",
+        captionStatus: "complete",
+        ocrText: "Ship faster",
+      }),
+    );
+    expect(retried).toEqual({
+      itemId: "allowed",
+      itemVersionId: enriched.itemVersionId,
+      mediaId: enriched.mediaId,
+      appended: false,
+    });
+  });
+
   it("reloads a concurrently inserted item instead of failing its idempotent ingest", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     const ingest = () =>

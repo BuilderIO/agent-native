@@ -8,6 +8,7 @@ import { eq } from "drizzle-orm";
 
 import { availableEmbeddingFamilies } from "../embeddings/providers.js";
 import {
+  appendMediaEnrichmentVersion,
   getActiveEmbeddingSet,
   getCreativeContextItem,
   recordEmbeddingMetadata,
@@ -59,7 +60,7 @@ export async function enrichCreativeContextMedia(input: {
       "Creative context media enrichment supports PNG, JPEG, WebP, or GIF images.",
     );
   }
-  const { getDb, schema, vectorAdapter, enrichment } = getCreativeContext();
+  const { vectorAdapter, enrichment } = getCreativeContext();
   const fingerprint = fingerprintMedia(loaded.data, loaded.mimeType);
   const palette = await extractDominantColors(
     loaded.data,
@@ -81,20 +82,21 @@ export async function enrichCreativeContextMedia(input: {
       mediaId: input.mediaId,
     }) ?? Promise.resolve(null),
   ]);
-  await getDb()
-    .update(schema.contextMedia)
-    .set({
-      palette: JSON.stringify(palette),
-      contentHash: fingerprint.sha256,
-      caption: caption ?? loaded.media?.caption ?? null,
-      captionStatus: enrichment?.captionImage
-        ? caption
-          ? "complete"
-          : "failed"
-        : "pending",
-      ocrText: ocrText ?? loaded.media?.ocrText ?? null,
-    })
-    .where(eq(schema.contextMedia.id, input.mediaId));
+  const nextCaption = caption ?? loaded.media?.caption ?? null;
+  const nextCaptionStatus = enrichment?.captionImage
+    ? caption
+      ? ("complete" as const)
+      : ("failed" as const)
+    : ("pending" as const);
+  const nextOcrText = ocrText ?? loaded.media?.ocrText ?? null;
+  const snapshot = await appendMediaEnrichmentVersion({
+    mediaId: input.mediaId,
+    palette,
+    contentHash: fingerprint.sha256,
+    caption: nextCaption,
+    captionStatus: nextCaptionStatus,
+    ocrText: nextOcrText,
+  });
 
   const families = await availableEmbeddingFamilies();
   const set = await getActiveEmbeddingSet();
@@ -134,24 +136,25 @@ export async function enrichCreativeContextMedia(input: {
       });
       await recordEmbeddingMetadata({
         embeddingSetId: set.id,
-        itemId: loaded.itemId,
-        itemVersionId: loaded.itemVersionId,
+        itemId: snapshot.itemId,
+        itemVersionId: snapshot.itemVersionId,
         targetType: "media",
-        targetId: input.mediaId,
+        targetId: snapshot.mediaId,
         vectorKey: stored.vectorKey,
         dimensions: vector.length,
         checksum: fingerprint.sha256,
       });
     }
   }
-  await projectCreativeContextMedia(input.mediaId);
+  await projectCreativeContextMedia(snapshot.mediaId);
   return {
-    mediaId: input.mediaId,
-    itemId: loaded.itemId,
-    itemVersionId: loaded.itemVersionId,
+    mediaId: snapshot.mediaId,
+    itemId: snapshot.itemId,
+    itemVersionId: snapshot.itemVersionId,
+    versionAppended: snapshot.appended,
     palette,
-    caption: caption ?? null,
-    ocrText: ocrText ?? null,
+    caption: nextCaption,
+    ocrText: nextOcrText,
     contentHash: fingerprint.sha256,
     embeddingId,
     embeddingFamily: family?.id ?? null,
