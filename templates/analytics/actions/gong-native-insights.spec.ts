@@ -37,6 +37,25 @@ describe("gong-native-insights", () => {
     });
   });
 
+  it("requires approval before an explicitly authorized paid request", () => {
+    expect(typeof action.needsApproval).toBe("function");
+    if (typeof action.needsApproval !== "function") return;
+
+    expect(
+      action.needsApproval({
+        operation: "ask_account",
+        allowCreditRequest: true,
+      }),
+    ).toBe(true);
+    expect(
+      action.needsApproval({
+        operation: "ask_account",
+        allowCreditRequest: false,
+      }),
+    ).toBe(false);
+    expect(action.needsApproval({ allowCreditRequest: true })).toBe(false);
+  });
+
   it("lists native schemas without consuming a semantic request", async () => {
     await expect(action.run({ arguments: {} })).resolves.toMatchObject({
       connected: true,

@@ -1789,7 +1789,7 @@ export async function executeProviderApiRequest(
             extra.bodyCursor.value,
           )
         : substituteUnknown(args.body, placeholders);
-      const pageBody = prepareBody(bodyWithCursor, { ...headers });
+      const pageBody = prepareBody(bodyWithCursor, headers);
       const requestKey = createProviderRequestDedupeKey({
         method,
         url: pageUrl.href,
@@ -2746,7 +2746,7 @@ async function executeCustomProviderApiRequest(
             extra.bodyCursor.value,
           )
         : args.body;
-      const pageBody = prepareBody(bodyWithCursor, { ...headers });
+      const pageBody = prepareBody(bodyWithCursor, headers);
       const requestKey = createProviderRequestDedupeKey({
         method,
         url: pageUrl.href,

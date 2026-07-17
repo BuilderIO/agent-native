@@ -62,6 +62,8 @@ export default defineAction({
   }),
   readOnly: true,
   parallelSafe: true,
+  needsApproval: ({ operation, allowCreditRequest }) =>
+    Boolean(operation && allowCreditRequest),
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
   http: false,
   run: async ({ operation, allowCreditRequest, arguments: args }) => {

@@ -65,7 +65,7 @@ type PageviewTrackingState = {
 };
 
 type AgentChatTrackingState = {
-  seen: Set<string>;
+  seen: Map<string, number>;
 };
 
 /**
@@ -180,6 +180,8 @@ const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
 const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.agentChatTracking",
 );
+const AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS = 10 * 60 * 1_000;
+const MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS = 1_000;
 
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
 const LLM_CONNECTION_CACHE_TTL_MS = 5 * 60 * 1000;
@@ -1057,7 +1059,7 @@ function getAgentChatTrackingState(): AgentChatTrackingState {
     [AGENT_CHAT_TRACKING_STATE_KEY]?: AgentChatTrackingState;
   };
   if (!g[AGENT_CHAT_TRACKING_STATE_KEY]) {
-    g[AGENT_CHAT_TRACKING_STATE_KEY] = { seen: new Set() };
+    g[AGENT_CHAT_TRACKING_STATE_KEY] = { seen: new Map() };
   }
   return g[AGENT_CHAT_TRACKING_STATE_KEY];
 }
@@ -1072,8 +1074,9 @@ export type AgentChatLifecycleEvent = {
 
 /**
  * Record a content-free, browser-session-linked chat lifecycle marker and add
- * the same marker to session replay when replay is configured. The global
- * de-dupe survives React Strict Mode remounts and repeated active-run events.
+ * the same marker to session replay when replay is configured. The bounded
+ * global de-dupe survives React Strict Mode remounts without retaining keys
+ * forever.
  */
 export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
   if (typeof window === "undefined") return;
@@ -1086,8 +1089,19 @@ export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
     input.tabId ?? "",
   ].join(":");
   const state = getAgentChatTrackingState();
+  const now = Date.now();
+  for (const [key, seenAt] of state.seen) {
+    if (now - seenAt >= AGENT_CHAT_LIFECYCLE_DEDUPE_TTL_MS) {
+      state.seen.delete(key);
+    }
+  }
   if (state.seen.has(dedupeKey)) return;
-  state.seen.add(dedupeKey);
+  state.seen.set(dedupeKey, now);
+  while (state.seen.size > MAX_AGENT_CHAT_LIFECYCLE_DEDUPE_KEYS) {
+    const oldestKey = state.seen.keys().next().value;
+    if (oldestKey === undefined) break;
+    state.seen.delete(oldestKey);
+  }
 
   void (async () => {
     const replayResult =
