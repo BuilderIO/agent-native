@@ -91,6 +91,7 @@ export const nativeDashboardCreativeContextAdapter: NativeResourceCaptureAdapter
           name: "Analytics",
           kind: "native-app",
           externalRef: dashboard.id,
+          access: { visibility: dashboard.visibility, canManage: dashboard.canManage === true },
         },
         items: [
           {

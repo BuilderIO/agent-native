@@ -991,6 +991,26 @@ async function accessibleContextVersionIds(contextId: string): Promise<string[]>
   );
 }
 
+async function accessibleContextMembershipMetadata(contextId: string): Promise<
+  Map<string, { rank: "canonical" | "exemplar" | "normal"; purpose: string | null }>
+> {
+  await assertAccess("creative-context", contextId, "viewer", undefined, {
+    skipResourceBody: true,
+  });
+  const { getDb, schema } = getCreativeContext();
+  const rows = await getDb()
+    .select({ itemVersionId: schema.creativeContextMemberships.publishedItemVersionId, rank: schema.creativeContextMemberships.rank, purpose: schema.creativeContextMemberships.purpose })
+    .from(schema.creativeContextMemberships)
+    .where(and(eq(schema.creativeContextMemberships.contextId, contextId), eq(schema.creativeContextMemberships.status, "active")));
+  return new Map(
+    (rows as any[]).flatMap((row) =>
+      typeof row.itemVersionId === "string"
+        ? [[row.itemVersionId, { rank: row.rank, purpose: row.purpose ?? null }] as const]
+        : [],
+    ),
+  );
+}
+
 export interface AccessibleSearchDocument extends ContextSearchResult {
   body: string;
   summary: string | null;
@@ -1019,6 +1039,9 @@ export async function listAccessibleSearchDocuments(
     : null;
   const contextVersionIds: string[] | null = input.contextId
     ? await accessibleContextVersionIds(input.contextId)
+    : null;
+  const contextMemberships = input.contextId
+    ? await accessibleContextMembershipMetadata(input.contextId)
     : null;
   if ((packVersionIds && !packVersionIds.length) || (contextVersionIds && !contextVersionIds.length)) return [];
   const filters: any[] = [
@@ -1138,7 +1161,7 @@ export async function listAccessibleSearchDocuments(
       tags: row.tags,
       colors: row.colors,
       updatedAt: row.updatedAt,
-      curationRank: row.curationRank,
+      curationRank: contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank,
       starred: Boolean(row.starred),
       indexState: row.indexState,
       inventoryOnly: row.parseStatus === "pending",
@@ -1212,6 +1235,9 @@ export async function listAccessibleLexicalCandidates(
     : null;
   const contextVersionIds: string[] | null = input.contextId
     ? await accessibleContextVersionIds(input.contextId)
+    : null;
+  const contextMemberships = input.contextId
+    ? await accessibleContextMembershipMetadata(input.contextId)
     : null;
   if ((packVersionIds && !packVersionIds.length) || (contextVersionIds && !contextVersionIds.length)) return { results: [] };
   const matchMode = input.matchMode ?? "allTerms";
@@ -1358,9 +1384,9 @@ export async function listAccessibleLexicalCandidates(
           ) +
           (row.starred
             ? 2
-            : row.curationRank === "canonical"
+            : (contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank) === "canonical"
               ? 1.5
-              : row.curationRank === "exemplar"
+              : (contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank) === "exemplar"
                 ? 1
                 : 0),
         canonicalUrl: row.canonicalUrl ?? null,

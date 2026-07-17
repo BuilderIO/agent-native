@@ -144,6 +144,59 @@ function ResourcePreview({
   );
 }
 
+export async function submitCreativeContextResources({
+  contextId,
+  resources,
+  rank,
+  purpose,
+  note,
+  confirmBroaderPublication,
+  mutateAsync,
+}: {
+  contextId: string;
+  resources: readonly CreativeContextResourceDescriptor[];
+  rank: CreativeContextMembershipRank;
+  purpose?: string;
+  note?: string;
+  confirmBroaderPublication?: true;
+  mutateAsync: (input: {
+    operation: "submit";
+    contextId: string;
+    nativeResource: {
+      appId: string;
+      resourceType: string;
+      resourceId: string;
+      expectedUpdatedAt?: string;
+    };
+    rank: CreativeContextMembershipRank;
+    purpose?: string;
+    note?: string;
+    confirmBroaderPublication?: true;
+  }) => Promise<unknown>;
+}) {
+  const results = await Promise.allSettled(
+    resources.map((resource) =>
+      mutateAsync({
+        contextId,
+        nativeResource: {
+          appId: resource.appId,
+          resourceType: resource.resourceType,
+          resourceId: resource.resourceId,
+          expectedUpdatedAt: resource.updatedAt,
+        },
+        rank,
+        purpose,
+        note,
+        confirmBroaderPublication,
+      }),
+    ),
+  );
+  return {
+    submitted: results.filter((result) => result.status === "fulfilled").length,
+    failed: results.filter((result) => result.status === "rejected").length,
+  };
+}
+
 function MembershipRow({
   membership,
   canManage,
@@ -250,6 +303,7 @@ function ContextSelect({
 
 export function CreativeContextShareTab({
   resource,
+  resources,
   canManage = false,
   className,
 }: CreativeContextShareTabProps) {
@@ -257,21 +311,29 @@ export function CreativeContextShareTab({
   const manageContext = useManageCreativeContext();
   const manageMembership = useManageContextMembership();
   const contexts = parseCreativeContexts(contextsQuery.data);
+  const selectedResources = normalizeCreativeContextResources(resource, resources);
+  const primaryResource = selectedResources[0];
   const [contextId, setContextId] = useState("");
   const membershipsQuery = useContextMemberships(
     contextId ? { contextId } : null,
   );
   const memberships = parseContextMembershipsForResource(
     membershipsQuery.data,
-    resource,
+    primaryResource ?? { appId: "", resourceType: "", resourceId: "" },
   );
   const [rank, setRank] = useState<CreativeContextMembershipRank>("normal");
   const [purpose, setPurpose] = useState("");
   const [note, setNote] = useState("");
   const [newContextName, setNewContextName] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [submitSummary, setSubmitSummary] = useState<string | null>(null);
+  const [confirmedBroaderPublication, setConfirmedBroaderPublication] =
+    useState(false);
   const busy = manageContext.isPending || manageMembership.isPending;
   const selectedContext = contexts.find((context) => context.id === contextId);
+  const needsBroaderPublicationConfirmation = selectedResources.some((item) =>
+    requiresBroaderPublication(item, selectedContext),
+  );
 
   useEffect(() => {
     if (!contextId && contexts[0]?.id) setContextId(contexts[0].id);
@@ -282,24 +344,34 @@ export function CreativeContextShareTab({
   }
 
   async function submit() {
-    if (!contextId) return;
+    if (
+      !contextId ||
+      !selectedResources.length ||
+      (needsBroaderPublicationConfirmation && !confirmedBroaderPublication)
+    )
+      return;
     setError(null);
     try {
-      await manageMembership.mutateAsync({
+      const result = await submitCreativeContextResources({
         operation: "submit",
         contextId,
-        nativeResource: {
-          appId: resource.appId,
-          resourceType: resource.resourceType,
-          resourceId: resource.resourceId,
-          expectedUpdatedAt: resource.updatedAt,
-        },
+        resources: selectedResources,
         rank,
         purpose: purpose.trim() || undefined,
         note: note.trim() || undefined,
+        confirmBroaderPublication: needsBroaderPublicationConfirmation
+          ? true
+          : undefined,
+        mutateAsync: manageMembership.mutateAsync,
       });
       setPurpose("");
       setNote("");
+      setConfirmedBroaderPublication(false);
+      setSubmitSummary(
+        result.failed
+          ? `${result.submitted} submitted; ${result.failed} could not be submitted.`
+          : `${result.submitted} ${result.submitted === 1 ? "resource" : "resources"} submitted.`,
+      );
       await refresh();
     } catch {
       setError("Could not submit this resource to the selected context.");
@@ -345,11 +417,17 @@ export function CreativeContextShareTab({
   return (
     <section className={className} aria-label="Creative context">
       <div className="flex items-start gap-3 border-b border-border/70 pb-4">
-        <ResourcePreview resource={resource} />
+        {primaryResource ? <ResourcePreview resource={primaryResource} /> : null}
         <div className="min-w-0">
-          <p className="truncate text-sm font-medium">{resource.title}</p>
+          <p className="truncate text-sm font-medium">
+            {selectedResources.length === 1
+              ? primaryResource?.title
+              : `${selectedResources.length} selected resources`}
+          </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
-            {resource.resourceType}
+            {selectedResources.length === 1
+              ? primaryResource?.resourceType
+              : "Each resource is submitted separately"}
           </p>
         </div>
       </div>
@@ -375,7 +453,7 @@ export function CreativeContextShareTab({
               No contexts are available yet.
             </p>
           )}
-          {contextId ? (
+          {contextId && selectedResources.length === 1 ? (
             <div className="space-y-2">
               {memberships.map((membership) => (
                 <MembershipRow
@@ -388,14 +466,16 @@ export function CreativeContextShareTab({
               ))}
               {!memberships.length && !membershipsQuery.isLoading ? (
                 <p className="text-sm text-muted-foreground">
-                  No published or pending resources in this context.
+                  This resource has not been submitted to this context.
                 </p>
               ) : null}
             </div>
           ) : null}
-          {contextId ? (
+          {contextId && selectedResources.length ? (
             <div className="rounded-md border border-dashed border-border p-3">
-              <p className="text-sm font-medium">Add this resource</p>
+              <p className="text-sm font-medium">
+                Add {selectedResources.length === 1 ? "this resource" : `${selectedResources.length} resources`}
+              </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <Select
                   value={rank}
@@ -425,11 +505,25 @@ export function CreativeContextShareTab({
                 placeholder="Note for reviewers"
                 rows={2}
               />
+              {needsBroaderPublicationConfirmation ? (
+                <label className="mt-3 flex items-start gap-2 text-xs text-muted-foreground">
+                  <Checkbox
+                    checked={confirmedBroaderPublication}
+                    onCheckedChange={(checked) =>
+                      setConfirmedBroaderPublication(checked === true)
+                    }
+                  />
+                  <span>
+                    This context is shared more broadly than this resource.
+                    Publishing creates a governed copy available to the context's audience.
+                  </span>
+                </label>
+              ) : null}
               <Button
                 type="button"
                 className="mt-3"
                 size="sm"
-                disabled={busy}
+                disabled={busy || needsBroaderPublicationConfirmation && !confirmedBroaderPublication}
                 onClick={() => void submit()}
               >
                 <IconLink /> Submit
@@ -455,6 +549,9 @@ export function CreativeContextShareTab({
             </div>
           ) : null}
           {error ? <p className="text-xs text-destructive">{error}</p> : null}
+          {submitSummary ? (
+            <p className="text-xs text-muted-foreground">{submitSummary}</p>
+          ) : null}
         </TabsContent>
         <TabsContent
           value="policy"
@@ -478,6 +575,7 @@ export function CreativeContextShareTab({
 
 export function CreativeContextShareSheet({
   resource,
+  resources,
   open,
   onOpenChange,
   canManage,
@@ -496,6 +594,7 @@ export function CreativeContextShareSheet({
         </SheetHeader>
         <CreativeContextShareTab
           resource={resource}
+          resources={resources}
           canManage={canManage}
           className="mt-5"
         />

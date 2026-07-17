@@ -63,7 +63,7 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
       const sourceModifiedAt = design.updatedAt ?? undefined;
       return {
         artifactKey: `design:design:${design.id}`,
-        source: { name: "Design", kind: "native-app", externalRef: design.id },
+        source: { name: "Design", kind: "native-app", externalRef: design.id, access: { visibility: design.visibility ?? "private", canManage: access.role === "owner" || access.role === "admin" } },
         items: [
           {
             externalId: `native:design:design:${design.id}`,

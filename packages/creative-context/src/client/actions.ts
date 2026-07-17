@@ -134,6 +134,7 @@ export type ManageContextMembershipParams =
       rank?: CreativeContextMembershipRank;
       purpose?: string;
       note?: string;
+      confirmBroaderPublication?: true;
     }
   | {
       operation: "approve" | "request-changes" | "withdraw" | "remove";

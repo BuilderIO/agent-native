@@ -65,6 +65,7 @@ export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter 
           name: "Content",
           kind: "native-app",
           externalRef: document.id,
+          access: { visibility: document.visibility ?? "private", canManage: refreshed.role === "owner" || refreshed.role === "admin" },
         },
         items: [
           {

@@ -485,7 +485,7 @@ export async function createCreativeContext(input: {
         .values({
           id: sourceId,
           name,
-          kind: "manual",
+          kind: "native-app",
           config: stringifyJson({ governedContextId: id, purpose }),
           upstreamAccess: "available",
           status: "active",
@@ -931,6 +931,7 @@ async function resolveSubmissionItem(input: {
         ...(captured.privateMetadata ?? {}),
         nativeResource: input.nativeResource,
       },
+      sourceAccess: captured.source.access ?? null,
     };
   }
   if (!input.itemId) throw new Error("itemId or nativeResource is required");
@@ -940,11 +941,28 @@ async function resolveSubmissionItem(input: {
   );
   if (!detail)
     throw new Error("Context item version not found or not accessible");
+  const sourceAccess = await resolveAccess(
+    "creative-context-source",
+    detail.item.sourceId,
+  );
   return {
     artifactKey: `${detail.item.sourceId}:${detail.item.externalId}`,
     items: [normalizedFromDetail(detail)],
     privateMetadata: {},
+    sourceAccess: sourceAccess
+      ? {
+          visibility: sourceAccess.resource.visibility as
+            | "private"
+            | "org"
+            | "public",
+          canManage: sourceAccess.role !== "viewer",
+        }
+      : null,
   };
+}
+
+function visibilityRank(visibility: "private" | "org" | "public") {
+  return visibility === "public" ? 2 : visibility === "org" ? 1 : 0;
 }
 
 async function approveSubmission(
@@ -1053,11 +1071,23 @@ export async function manageContextMembership(input: {
   const context = access.resource as any;
   const actor = requireActor();
   if (input.operation === "submit") {
-    if (context.visibility !== "private" && !input.confirmBroaderPublication)
-      throw new Error(
-        "Confirm broader publication before submitting an artifact to a shared Creative Context",
-      );
     const captured = await resolveSubmissionItem(input);
+    if (
+      !captured.sourceAccess ||
+      visibilityRank(context.visibility) >
+        visibilityRank(captured.sourceAccess.visibility)
+    ) {
+      if (!captured.sourceAccess?.canManage) {
+        throw new Error(
+          "Only a source manager may publish this artifact into a broader Creative Context",
+        );
+      }
+      if (!input.confirmBroaderPublication) {
+        throw new Error(
+          "Confirm broader publication before submitting an artifact into a broader Creative Context",
+        );
+      }
+    }
     const root = captured.items[0];
     if (!root) throw new Error("Submission did not include a root artifact");
     const timestamp = nowIso();
