@@ -1328,6 +1328,15 @@ export function installDesktopVoiceDictation(
       session = null;
       // See startNative's catch: must clear alongside session.
       setHandsFreeActive(false);
+      // Unlike the other start* paths, the bar isn't shown until AFTER
+      // audio_transcription_start resolves (see the comment above — it's
+      // opened early so the mic is warm before the user sees anything).
+      // That means a failure here (e.g. speech-engine-busy-meeting, when
+      // the active recording's own whisper transcription already owns the
+      // engine) previously had nowhere to display: the window never
+      // existed, so setFlowState("error") emitted into the void and the
+      // user saw nothing at all. Show it now so the error still lands.
+      await invoke("show_flow_bar").catch(() => {});
       setFlowState("error");
       window.setTimeout(() => {
         if (disposed || session) return;
