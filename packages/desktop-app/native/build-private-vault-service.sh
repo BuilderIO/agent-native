@@ -7,6 +7,8 @@ SOURCES=(
   "$SOURCE_ROOT/main.m"
   "$SOURCE_ROOT/Protocol.m"
   "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c"
+  "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
+  "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"
@@ -85,9 +87,11 @@ compile_slice() {
     -mmacosx-version-min=13.0 \
     -arch "$architecture" \
     -I"$SOURCE_ROOT/crypto" \
+    -I"$SOURCE_ROOT/storage" \
     -I"$sodium_root/include" \
     -framework Foundation \
     -framework Security \
+    -framework LocalAuthentication \
     "${SOURCES[@]}" \
     "$sodium_root/lib/libsodium.a" \
     -o "$output"
@@ -123,6 +127,43 @@ case "${PRIVATE_VAULT_BUILD_CRYPTO_TESTS:-}" in
   ;;
   *)
     echo "Invalid Private Vault crypto-test build mode" >&2
+    exit 1
+    ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_FENCE_TESTS:-}" in
+  "") ;;
+  1)
+  FENCE_TEST_OUTPUT="$OUTPUT_ROOT/.fence-tests"
+  rm -rf "$FENCE_TEST_OUTPUT"
+  mkdir -p "$FENCE_TEST_OUTPUT"
+  compile_fence_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$FENCE_TEST_OUTPUT/private-vault-fence-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" \
+      -mmacosx-version-min=13.0 \
+      -arch "$architecture" \
+      -I"$SOURCE_ROOT/crypto" \
+      -I"$SOURCE_ROOT/storage" \
+      -I"$sodium_root/include" \
+      -framework Foundation \
+      -framework Security \
+      -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFenceTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_fence_test_slice arm64 "$ARM64_SODIUM"
+  compile_fence_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *)
+    echo "Invalid Private Vault fence-test build mode" >&2
     exit 1
     ;;
 esac
