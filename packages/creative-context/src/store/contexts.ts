@@ -781,7 +781,8 @@ export async function updateCreativeContext(
 
 export async function archiveCreativeContext(contextId: string) {
   const access = await assertContextRole(contextId, "admin");
-  if (access.resource.kind === "default")
+  const context = access.resource as { kind?: string };
+  if (context.kind === "default")
     throw new Error("The Default Creative Context cannot be archived");
   const { getDb, schema } = getCreativeContext();
   await getDb()
