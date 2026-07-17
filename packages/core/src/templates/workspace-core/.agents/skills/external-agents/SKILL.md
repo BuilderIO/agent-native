@@ -116,8 +116,8 @@ have been implemented and configured.
 
 Extensions can consume both classes of connection through the same host-side
 action bridge. Use `agentNative.mcp.listTools()` / `callTool()` for connected
-remote MCP servers, and `agentNative.providerApi.catalog()` /
-`docs()` / `request()` for template-owned provider API actions. The bridge
+remote MCP servers, and `agentNative.providerApi.catalog()` / `docs()` to
+discover template-owned provider API actions. The bridge
 preserves the current user's or organization's access scope and never exposes
 MCP URLs, OAuth tokens, refresh tokens, or client secrets to the iframe. Local
 file extensions must declare the corresponding action names in
