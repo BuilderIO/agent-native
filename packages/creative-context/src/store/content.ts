@@ -1,4 +1,3 @@
-import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
 import {
   buildSearchSnippet,
   escapeLikeTerm,
@@ -6,6 +5,7 @@ import {
   scoreSearchText,
   type SearchMatchMode,
 } from "@agent-native/core/search-utils";
+import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import {
   and,
@@ -972,13 +972,17 @@ async function accessiblePackVersionIds(packId: string): Promise<string[]> {
   return members.map((member: any) => member.itemVersionId);
 }
 
-async function accessibleContextVersionIds(contextId: string): Promise<string[]> {
+async function accessibleContextVersionIds(
+  contextId: string,
+): Promise<string[]> {
   await assertAccess("creative-context", contextId, "viewer", undefined, {
     skipResourceBody: true,
   });
   const { getDb, schema } = getCreativeContext();
   const rows = await getDb()
-    .select({ itemVersionId: schema.creativeContextMemberships.publishedItemVersionId })
+    .select({
+      itemVersionId: schema.creativeContextMemberships.publishedItemVersionId,
+    })
     .from(schema.creativeContextMemberships)
     .where(
       and(
@@ -991,21 +995,40 @@ async function accessibleContextVersionIds(contextId: string): Promise<string[]>
   );
 }
 
-async function accessibleContextMembershipMetadata(contextId: string): Promise<
-  Map<string, { rank: "canonical" | "exemplar" | "normal"; purpose: string | null }>
+async function accessibleContextMembershipMetadata(
+  contextId: string,
+): Promise<
+  Map<
+    string,
+    { rank: "canonical" | "exemplar" | "normal"; purpose: string | null }
+  >
 > {
   await assertAccess("creative-context", contextId, "viewer", undefined, {
     skipResourceBody: true,
   });
   const { getDb, schema } = getCreativeContext();
   const rows = await getDb()
-    .select({ itemVersionId: schema.creativeContextMemberships.publishedItemVersionId, rank: schema.creativeContextMemberships.rank, purpose: schema.creativeContextMemberships.purpose })
+    .select({
+      itemVersionId: schema.creativeContextMemberships.publishedItemVersionId,
+      rank: schema.creativeContextMemberships.rank,
+      purpose: schema.creativeContextMemberships.purpose,
+    })
     .from(schema.creativeContextMemberships)
-    .where(and(eq(schema.creativeContextMemberships.contextId, contextId), eq(schema.creativeContextMemberships.status, "active")));
+    .where(
+      and(
+        eq(schema.creativeContextMemberships.contextId, contextId),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    );
   return new Map(
     (rows as any[]).flatMap((row) =>
       typeof row.itemVersionId === "string"
-        ? [[row.itemVersionId, { rank: row.rank, purpose: row.purpose ?? null }] as const]
+        ? [
+            [
+              row.itemVersionId,
+              { rank: row.rank, purpose: row.purpose ?? null },
+            ] as const,
+          ]
         : [],
     ),
   );
@@ -1043,7 +1066,11 @@ export async function listAccessibleSearchDocuments(
   const contextMemberships = input.contextId
     ? await accessibleContextMembershipMetadata(input.contextId)
     : null;
-  if ((packVersionIds && !packVersionIds.length) || (contextVersionIds && !contextVersionIds.length)) return [];
+  if (
+    (packVersionIds && !packVersionIds.length) ||
+    (contextVersionIds && !contextVersionIds.length)
+  )
+    return [];
   const filters: any[] = [
     ...(input.contextId
       ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
@@ -1161,7 +1188,8 @@ export async function listAccessibleSearchDocuments(
       tags: row.tags,
       colors: row.colors,
       updatedAt: row.updatedAt,
-      curationRank: contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank,
+      curationRank:
+        contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank,
       starred: Boolean(row.starred),
       indexState: row.indexState,
       inventoryOnly: row.parseStatus === "pending",
@@ -1239,7 +1267,11 @@ export async function listAccessibleLexicalCandidates(
   const contextMemberships = input.contextId
     ? await accessibleContextMembershipMetadata(input.contextId)
     : null;
-  if ((packVersionIds && !packVersionIds.length) || (contextVersionIds && !contextVersionIds.length)) return { results: [] };
+  if (
+    (packVersionIds && !packVersionIds.length) ||
+    (contextVersionIds && !contextVersionIds.length)
+  )
+    return { results: [] };
   const matchMode = input.matchMode ?? "allTerms";
   const terms = normalizeSearchTerms(input.query);
   if (!terms.length && matchMode !== "regex") return { results: [] };
@@ -1384,9 +1416,11 @@ export async function listAccessibleLexicalCandidates(
           ) +
           (row.starred
             ? 2
-            : (contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank) === "canonical"
+            : (contextMemberships?.get(row.itemVersionId)?.rank ??
+                  row.curationRank) === "canonical"
               ? 1.5
-              : (contextMemberships?.get(row.itemVersionId)?.rank ?? row.curationRank) === "exemplar"
+              : (contextMemberships?.get(row.itemVersionId)?.rank ??
+                    row.curationRank) === "exemplar"
                 ? 1
                 : 0),
         canonicalUrl: row.canonicalUrl ?? null,
@@ -1424,13 +1458,19 @@ export async function getCreativeContextItem(
     .leftJoin(
       schema.creativeContextMemberships,
       and(
-        eq(schema.creativeContextMemberships.publishedItemId, schema.contextItems.id),
+        eq(
+          schema.creativeContextMemberships.publishedItemId,
+          schema.contextItems.id,
+        ),
         eq(schema.creativeContextMemberships.status, "active"),
       ),
     )
     .leftJoin(
       schema.creativeContexts,
-      eq(schema.creativeContexts.id, schema.creativeContextMemberships.contextId),
+      eq(
+        schema.creativeContexts.id,
+        schema.creativeContextMemberships.contextId,
+      ),
     )
     .leftJoin(
       schema.contextPackMembers,

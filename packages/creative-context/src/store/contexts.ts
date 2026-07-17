@@ -265,17 +265,15 @@ async function writeSnapshot(input: {
         .set(itemValues)
         .where(eq(schema.contextItems.id, itemId));
     else
-      await tx
-        .insert(schema.contextItems)
-        .values({
-          id: itemId,
-          sourceId: input.sourceId,
-          externalId: input.artifactKey,
-          ...itemValues,
-          createdAt: timestamp,
-          ownerEmail: input.ownerEmail,
-          orgId: input.orgId,
-        });
+      await tx.insert(schema.contextItems).values({
+        id: itemId,
+        sourceId: input.sourceId,
+        externalId: input.artifactKey,
+        ...itemValues,
+        createdAt: timestamp,
+        ownerEmail: input.ownerEmail,
+        orgId: input.orgId,
+      });
     await tx.insert(schema.contextItemVersions).values({
       id: itemVersionId,
       itemId,
@@ -298,72 +296,66 @@ async function writeSnapshot(input: {
     const chunks = input.item.chunks?.length
       ? input.item.chunks
       : [{ ordinal: 0, kind: "text", text: input.item.content }];
-    await tx
-      .insert(schema.contextChunks)
-      .values(
-        chunks.map((chunk) => ({
-          id: newId("ccc"),
+    await tx.insert(schema.contextChunks).values(
+      chunks.map((chunk) => ({
+        id: newId("ccc"),
+        itemId,
+        itemVersionId,
+        ordinal: chunk.ordinal,
+        kind: chunk.kind ?? "text",
+        text: chunk.text,
+        startOffset: chunk.startOffset ?? null,
+        endOffset: chunk.endOffset ?? null,
+        tokenCount: chunk.tokenCount ?? null,
+        metadata: stringifyJson(chunk.metadata),
+        createdAt: timestamp,
+        ownerEmail: input.ownerEmail,
+        orgId: input.orgId,
+      })),
+    );
+    if (input.item.media?.length)
+      await tx.insert(schema.contextMedia).values(
+        input.item.media.map((media) => ({
+          id: newId("ccm"),
           itemId,
           itemVersionId,
-          ordinal: chunk.ordinal,
-          kind: chunk.kind ?? "text",
-          text: chunk.text,
-          startOffset: chunk.startOffset ?? null,
-          endOffset: chunk.endOffset ?? null,
-          tokenCount: chunk.tokenCount ?? null,
-          metadata: stringifyJson(chunk.metadata),
+          kind: media.kind,
+          mimeType: media.mimeType ?? null,
+          accessMode: media.accessMode ?? "public",
+          url: media.accessMode === "public" ? (media.url ?? null) : null,
+          storageKey: media.storageKey ?? null,
+          provenanceUrl: media.provenanceUrl ?? media.url ?? null,
+          altText: media.altText ?? null,
+          caption: media.caption ?? null,
+          captionStatus: media.captionStatus ?? "pending",
+          ocrText: media.ocrText ?? null,
+          palette: stringifyJson(media.palette ?? []),
+          contentHash: media.contentHash ?? null,
+          width: media.width ?? null,
+          height: media.height ?? null,
+          durationMs: media.durationMs ?? null,
+          metadata: stringifyJson(media.metadata),
           createdAt: timestamp,
           ownerEmail: input.ownerEmail,
           orgId: input.orgId,
         })),
       );
-    if (input.item.media?.length)
-      await tx
-        .insert(schema.contextMedia)
-        .values(
-          input.item.media.map((media) => ({
-            id: newId("ccm"),
-            itemId,
-            itemVersionId,
-            kind: media.kind,
-            mimeType: media.mimeType ?? null,
-            accessMode: media.accessMode ?? "public",
-            url: media.accessMode === "public" ? (media.url ?? null) : null,
-            storageKey: media.storageKey ?? null,
-            provenanceUrl: media.provenanceUrl ?? media.url ?? null,
-            altText: media.altText ?? null,
-            caption: media.caption ?? null,
-            captionStatus: media.captionStatus ?? "pending",
-            ocrText: media.ocrText ?? null,
-            palette: stringifyJson(media.palette ?? []),
-            contentHash: media.contentHash ?? null,
-            width: media.width ?? null,
-            height: media.height ?? null,
-            durationMs: media.durationMs ?? null,
-            metadata: stringifyJson(media.metadata),
-            createdAt: timestamp,
-            ownerEmail: input.ownerEmail,
-            orgId: input.orgId,
-          })),
-        );
     if (input.item.edges?.length)
-      await tx
-        .insert(schema.contextEdges)
-        .values(
-          input.item.edges.map((edge) => ({
-            id: newId("cce"),
-            fromItemId: itemId,
-            fromItemVersionId: itemVersionId,
-            toItemId: edge.toItemId ?? null,
-            toItemVersionId: edge.toItemVersionId ?? null,
-            toExternalId: edge.toExternalId ?? null,
-            relation: edge.relation,
-            metadata: stringifyJson(edge.metadata),
-            createdAt: timestamp,
-            ownerEmail: input.ownerEmail,
-            orgId: input.orgId,
-          })),
-        );
+      await tx.insert(schema.contextEdges).values(
+        input.item.edges.map((edge) => ({
+          id: newId("cce"),
+          fromItemId: itemId,
+          fromItemVersionId: itemVersionId,
+          toItemId: edge.toItemId ?? null,
+          toItemVersionId: edge.toItemVersionId ?? null,
+          toExternalId: edge.toExternalId ?? null,
+          relation: edge.relation,
+          metadata: stringifyJson(edge.metadata),
+          createdAt: timestamp,
+          ownerEmail: input.ownerEmail,
+          orgId: input.orgId,
+        })),
+      );
     await tx
       .update(schema.contextSources)
       .set({ updatedAt: timestamp })
@@ -495,42 +487,38 @@ export async function createCreativeContext(input: {
       [stagingSourceId, `${input.name} staging`, "staging"],
       [publishedSourceId, `${input.name} published`, "published"],
     ] as const)
-      await tx
-        .insert(schema.contextSources)
-        .values({
-          id: sourceId,
-          name,
-          kind: "native-app",
-          config: stringifyJson({ governedContextId: id, purpose }),
-          upstreamAccess: "available",
-          status: "active",
-          healthStatus: "healthy",
-          itemCount: 0,
-          restrictedItemCount: 0,
-          createdAt: timestamp,
-          updatedAt: timestamp,
-          ownerEmail: actor.ownerEmail,
-          orgId: actor.orgId,
-          visibility: "private",
-        });
-    await tx
-      .insert(schema.creativeContexts)
-      .values({
-        id,
-        name: input.name,
-        description: input.description ?? null,
-        kind: input.kind,
-        brandProfileId: input.brandProfileId ?? null,
-        stagingSourceId,
-        publishedSourceId,
-        approvalPolicy: input.approvalPolicy ?? "open",
-        archivedAt: null,
+      await tx.insert(schema.contextSources).values({
+        id: sourceId,
+        name,
+        kind: "native-app",
+        config: stringifyJson({ governedContextId: id, purpose }),
+        upstreamAccess: "available",
+        status: "active",
+        healthStatus: "healthy",
+        itemCount: 0,
+        restrictedItemCount: 0,
         createdAt: timestamp,
         updatedAt: timestamp,
         ownerEmail: actor.ownerEmail,
         orgId: actor.orgId,
-        visibility: actor.orgId ? "org" : "private",
+        visibility: "private",
       });
+    await tx.insert(schema.creativeContexts).values({
+      id,
+      name: input.name,
+      description: input.description ?? null,
+      kind: input.kind,
+      brandProfileId: input.brandProfileId ?? null,
+      stagingSourceId,
+      publishedSourceId,
+      approvalPolicy: input.approvalPolicy ?? "open",
+      archivedAt: null,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      ownerEmail: actor.ownerEmail,
+      orgId: actor.orgId,
+      visibility: actor.orgId ? "org" : "private",
+    });
     await appendAudit(tx, id, "create", {
       kind: input.kind,
       approvalPolicy: input.approvalPolicy ?? "open",
@@ -552,12 +540,7 @@ export async function ensureDefaultCreativeContext(): Promise<CreativeContextSum
   const existing = await getDb()
     .select()
     .from(schema.creativeContexts)
-    .where(
-      and(
-        eq(schema.creativeContexts.kind, "default"),
-        defaultOwnerScope,
-      ),
-    )
+    .where(and(eq(schema.creativeContexts.kind, "default"), defaultOwnerScope))
     .limit(1);
   if (existing[0]) return getCreativeContextById(existing[0].id);
   if (actor.orgId && !(await currentRequestUserIsOrgAdmin(actor.orgId)))
@@ -609,28 +592,26 @@ export async function ensureDefaultCreativeContext(): Promise<CreativeContextSum
   const timestamp = nowIso();
   if (corpus.length)
     await getDb().transaction(async (tx: any) => {
-      await tx
-        .insert(schema.creativeContextMemberships)
-        .values(
-          (corpus as any[]).map((item) => ({
-            id: newId("ccmbr"),
-            contextId: created.id,
-            artifactKey: `${item.sourceId}:${item.externalId}`,
-            publishedItemId: item.itemId,
-            publishedItemVersionId: item.itemVersionId,
-            pendingSubmissionId: null,
-            rank:
-              item.rank === "canonical" || item.rank === "exemplar"
-                ? item.rank
-                : "normal",
-            purpose: "Backfilled accessible corpus",
-            status: "active",
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            ownerEmail: actor.ownerEmail,
-            orgId: actor.orgId,
-          })),
-        );
+      await tx.insert(schema.creativeContextMemberships).values(
+        (corpus as any[]).map((item) => ({
+          id: newId("ccmbr"),
+          contextId: created.id,
+          artifactKey: `${item.sourceId}:${item.externalId}`,
+          publishedItemId: item.itemId,
+          publishedItemVersionId: item.itemVersionId,
+          pendingSubmissionId: null,
+          rank:
+            item.rank === "canonical" || item.rank === "exemplar"
+              ? item.rank
+              : "normal",
+          purpose: "Backfilled accessible corpus",
+          status: "active",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          ownerEmail: actor.ownerEmail,
+          orgId: actor.orgId,
+        })),
+      );
       await appendAudit(tx, created.id, "backfill-default", {
         members: corpus.length,
         brandProfileId: profileRows[0]?.id ?? null,
@@ -678,7 +659,12 @@ export async function getCreativeContextAppBinding(
         scope,
         ...(actor.orgId
           ? []
-          : [eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail)]),
+          : [
+              eq(
+                schema.creativeContextAppBindings.ownerEmail,
+                actor.ownerEmail,
+              ),
+            ]),
       ),
     )
     .orderBy(asc(schema.creativeContextAppBindings.updatedAt))
@@ -729,7 +715,10 @@ export async function listCreativeContexts(input: {
   const accessById = new Map(
     (
       await Promise.all(
-        page.map(async (row) => [row.id, await resolveAccess("creative-context", row.id)] as const),
+        page.map(
+          async (row) =>
+            [row.id, await resolveAccess("creative-context", row.id)] as const,
+        ),
       )
     ).flatMap(([id, access]) => (access ? [[id, access]] : [])),
   );
@@ -795,17 +784,15 @@ export async function setCreativeContextAppDefault(
           eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail),
         ),
       );
-    await tx
-      .insert(schema.creativeContextAppBindings)
-      .values({
-        id: newId("ccab"),
-        appId,
-        contextId,
-        createdAt: timestamp,
-        updatedAt: timestamp,
-        ownerEmail: actor.ownerEmail,
-        orgId: actor.orgId,
-      });
+    await tx.insert(schema.creativeContextAppBindings).values({
+      id: newId("ccab"),
+      appId,
+      contextId,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      ownerEmail: actor.ownerEmail,
+      orgId: actor.orgId,
+    });
     await appendAudit(tx, contextId, "set-app-default", { appId });
   });
   return getCreativeContextById(contextId);
@@ -1045,20 +1032,18 @@ async function approveSubmission(
         updatedAt: timestamp,
       })
       .where(eq(schema.creativeContextMemberships.id, membership.id));
-    await tx
-      .insert(schema.creativeContextPublishedSnapshots)
-      .values({
-        id: newId("ccps"),
-        contextId: context.id,
-        sourceId: context.publishedSourceId,
-        membershipId: membership.id,
-        itemId: published.itemId,
-        itemVersionId: published.itemVersionId,
-        submissionId: submission.id,
-        createdAt: timestamp,
-        ownerEmail: context.ownerEmail,
-        orgId: context.orgId ?? null,
-      });
+    await tx.insert(schema.creativeContextPublishedSnapshots).values({
+      id: newId("ccps"),
+      contextId: context.id,
+      sourceId: context.publishedSourceId,
+      membershipId: membership.id,
+      itemId: published.itemId,
+      itemVersionId: published.itemVersionId,
+      submissionId: submission.id,
+      createdAt: timestamp,
+      ownerEmail: context.ownerEmail,
+      orgId: context.orgId ?? null,
+    });
     await appendAudit(tx, context.id, "approve-submission", {
       submissionId: submission.id,
       membershipId: membership.id,
@@ -1165,23 +1150,21 @@ export async function manageContextMembership(input: {
             ),
           );
       if (!membership)
-        await tx
-          .insert(schema.creativeContextMemberships)
-          .values({
-            id: membershipId,
-            contextId: input.contextId,
-            artifactKey: captured.artifactKey,
-            publishedItemId: null,
-            publishedItemVersionId: null,
-            pendingSubmissionId: submissionId,
-            rank: input.rank ?? "normal",
-            purpose: input.purpose ?? null,
-            status: "active",
-            createdAt: timestamp,
-            updatedAt: timestamp,
-            ownerEmail: context.ownerEmail,
-            orgId: context.orgId ?? null,
-          });
+        await tx.insert(schema.creativeContextMemberships).values({
+          id: membershipId,
+          contextId: input.contextId,
+          artifactKey: captured.artifactKey,
+          publishedItemId: null,
+          publishedItemVersionId: null,
+          pendingSubmissionId: submissionId,
+          rank: input.rank ?? "normal",
+          purpose: input.purpose ?? null,
+          status: "active",
+          createdAt: timestamp,
+          updatedAt: timestamp,
+          ownerEmail: context.ownerEmail,
+          orgId: context.orgId ?? null,
+        });
       else
         await tx
           .update(schema.creativeContextMemberships)
@@ -1193,31 +1176,29 @@ export async function manageContextMembership(input: {
             updatedAt: timestamp,
           })
           .where(eq(schema.creativeContextMemberships.id, membershipId));
-      await tx
-        .insert(schema.creativeContextSubmissions)
-        .values({
-          id: submissionId,
-          contextId: input.contextId,
-          membershipId,
-          artifactKey: captured.artifactKey,
-          stagingItemId: staged.itemId,
-          stagingItemVersionId: staged.itemVersionId,
-          publishedItemId: null,
-          publishedItemVersionId: null,
-          note: input.note ?? null,
-          privateMetadata: stringifyJson({
-            ...captured.privateMetadata,
-            stagedChildren,
-          }),
-          status: "pending",
-          submittedBy: actor.ownerEmail,
-          reviewedBy: null,
-          reviewNote: null,
-          createdAt: timestamp,
-          reviewedAt: null,
-          ownerEmail: context.ownerEmail,
-          orgId: context.orgId ?? null,
-        });
+      await tx.insert(schema.creativeContextSubmissions).values({
+        id: submissionId,
+        contextId: input.contextId,
+        membershipId,
+        artifactKey: captured.artifactKey,
+        stagingItemId: staged.itemId,
+        stagingItemVersionId: staged.itemVersionId,
+        publishedItemId: null,
+        publishedItemVersionId: null,
+        note: input.note ?? null,
+        privateMetadata: stringifyJson({
+          ...captured.privateMetadata,
+          stagedChildren,
+        }),
+        status: "pending",
+        submittedBy: actor.ownerEmail,
+        reviewedBy: null,
+        reviewNote: null,
+        createdAt: timestamp,
+        reviewedAt: null,
+        ownerEmail: context.ownerEmail,
+        orgId: context.orgId ?? null,
+      });
       await appendAudit(tx, input.contextId, "submit", {
         membershipId,
         submissionId,

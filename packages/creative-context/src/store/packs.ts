@@ -76,13 +76,19 @@ async function resolveMembers(members: ContextPackMemberInput[]): Promise<
     .leftJoin(
       schema.creativeContextMemberships,
       and(
-        eq(schema.creativeContextMemberships.publishedItemId, schema.contextItems.id),
+        eq(
+          schema.creativeContextMemberships.publishedItemId,
+          schema.contextItems.id,
+        ),
         eq(schema.creativeContextMemberships.status, "active"),
       ),
     )
     .leftJoin(
       schema.creativeContexts,
-      eq(schema.creativeContexts.id, schema.creativeContextMemberships.contextId),
+      eq(
+        schema.creativeContexts.id,
+        schema.creativeContextMemberships.contextId,
+      ),
     )
     .where(
       and(

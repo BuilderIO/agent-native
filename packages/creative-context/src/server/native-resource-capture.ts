@@ -11,9 +11,7 @@ export interface NativeCreativeResourceRef {
 export interface NativeResourceCaptureAdapter {
   appId: string;
   resourceType: string;
-  capture(
-    reference: NativeCreativeResourceRef,
-  ): Promise<{
+  capture(reference: NativeCreativeResourceRef): Promise<{
     artifactKey: string;
     source: {
       name: string;
