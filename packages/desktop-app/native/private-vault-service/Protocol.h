@@ -4,9 +4,10 @@
 #include <xpc/xpc.h>
 
 #define PV_PROTOCOL_VERSION 1
-#define PV_MAXIMUM_REQUEST_FIELDS 3
+#define PV_MAXIMUM_REQUEST_FIELDS 4
 #define PV_MAXIMUM_OPERATION_BYTES 16
 #define PV_MAXIMUM_REQUEST_ID_BYTES 64
+#define PV_VAULT_ID_BYTES 32
 
 typedef enum {
     PVRequestValid = 0,
@@ -18,6 +19,7 @@ typedef enum {
 typedef struct {
     const char *operation;
     const char *requestID;
+    const char *vaultID;
 } PVRequest;
 
 PVRequestResult PVParseRequest(xpc_object_t message, PVRequest *request);

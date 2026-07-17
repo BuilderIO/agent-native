@@ -259,6 +259,13 @@ static NSData *AncHash(NSData *payload) {
   return result;
 }
 
+NSData *AncPrivateVaultControlLogSignedEntryDomainHash(NSData *signedEntry) {
+  if (![signedEntry isKindOfClass:NSData.class] || signedEntry.length == 0 ||
+      signedEntry.length > kControlMaximumBytes)
+    return nil;
+  return AncHash(signedEntry);
+}
+
 static BOOL AncCeremonyKind(NSString *kind, BOOL membership) {
   NSArray *allowed = membership
       ? @[@"first_device", @"add_device", @"add_broker", @"remove_device",

@@ -15,15 +15,23 @@ for architecture in arm64 x86_64; do
     "$DIRECTORY/private-vault-rotation-record-tests-$architecture" "$FIXTURE"
     pnpm --dir "$ROOT/.." --filter @agent-native/core exec tsx \
       scripts/materialize-native-rotation-preparation-vectors.ts \
-      --ephemeral-material-stdout | \
+      --ephemeral-material-stdout --fixture "$FIXTURE" | \
       "$DIRECTORY/private-vault-rotation-spool-tests-$architecture" "$FIXTURE"
     "$DIRECTORY/private-vault-rotation-store-tests-$architecture"
+    pnpm --dir "$ROOT/.." --filter @agent-native/core exec tsx \
+      scripts/materialize-native-rotation-preparation-vectors.ts \
+      --ephemeral-material-stdout --fixture "$FIXTURE" | \
+      "$DIRECTORY/private-vault-rotation-coordinator-tests-$architecture"
   else
     arch -x86_64 "$DIRECTORY/private-vault-rotation-record-tests-$architecture" "$FIXTURE"
     pnpm --dir "$ROOT/.." --filter @agent-native/core exec tsx \
       scripts/materialize-native-rotation-preparation-vectors.ts \
-      --ephemeral-material-stdout | \
+      --ephemeral-material-stdout --fixture "$FIXTURE" | \
       arch -x86_64 "$DIRECTORY/private-vault-rotation-spool-tests-$architecture" "$FIXTURE"
     arch -x86_64 "$DIRECTORY/private-vault-rotation-store-tests-$architecture"
+    pnpm --dir "$ROOT/.." --filter @agent-native/core exec tsx \
+      scripts/materialize-native-rotation-preparation-vectors.ts \
+      --ephemeral-material-stdout --fixture "$FIXTURE" | \
+      arch -x86_64 "$DIRECTORY/private-vault-rotation-coordinator-tests-$architecture"
   fi
 done

@@ -1,4 +1,5 @@
 #import "PrivateVaultRecoveryWrap.h"
+#import "PrivateVaultRecoveryWrapInternal.h"
 
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
@@ -722,6 +723,253 @@ AncPrivateVaultRecoveryWrap *AncPrivateVaultRecoveryWrapVerifyRotation(
   }
   return AncPrivateVaultRecoveryWrapVerify(
       encoded, vault, HexData(issuer[@"signingPublicKey"], 32), status);
+}
+
+static NSString *AncRecoveryWrapHex(NSData *value) {
+  if (![value isKindOfClass:NSData.class])
+    return nil;
+  const uint8_t *bytes = value.bytes;
+  NSMutableString *hex = [NSMutableString stringWithCapacity:value.length * 2];
+  for (NSUInteger index = 0; index < value.length; index++)
+    [hex appendFormat:@"%02x", bytes[index]];
+  return hex;
+}
+
+static NSDictionary *AncRecoveryWrapMemberProjection(
+    AncPrivateVaultControlLogMember *member) {
+  if (member == nil)
+    return nil;
+  NSString *signing = AncRecoveryWrapHex(member.signingPublicKey);
+  NSString *agreement = AncRecoveryWrapHex(member.keyAgreementPublicKey);
+  if (signing == nil || agreement == nil)
+    return nil;
+  return @{
+    @"endpointId" : member.endpointId ?: @"",
+    @"role" : member.role ?: @"",
+    @"unattended" : @(member.unattended),
+    @"signingPublicKey" : signing,
+    @"keyAgreementPublicKey" : agreement,
+    @"enrollmentRef" : member.enrollmentRef ?: @"",
+  };
+}
+
+static NSArray *AncRecoveryWrapMembersProjection(NSArray *members) {
+  NSMutableArray *result = [NSMutableArray arrayWithCapacity:members.count];
+  for (AncPrivateVaultControlLogMember *member in members) {
+    NSDictionary *projection = AncRecoveryWrapMemberProjection(member);
+    if (projection == nil)
+      return nil;
+    [result addObject:projection];
+  }
+  return [result copy];
+}
+
+static NSDictionary *AncRecoveryWrapStateProjection(
+    AncPrivateVaultControlLogState *state) {
+  NSArray *members = AncRecoveryWrapMembersProjection(state.activeMembers);
+  NSString *head = AncRecoveryWrapHex(state.headHash);
+  NSString *membership = AncRecoveryWrapHex(state.membershipHash);
+  NSString *recoverySigning =
+      AncRecoveryWrapHex(state.recoverySigningPublicKey);
+  NSString *recoveryAgreement =
+      AncRecoveryWrapHex(state.recoveryKeyAgreementPublicKey);
+  NSString *recoveryWrap = AncRecoveryWrapHex(state.recoveryWrapHash);
+  if (state == nil || members == nil || head == nil || membership == nil ||
+      recoverySigning == nil || recoveryAgreement == nil ||
+      recoveryWrap == nil)
+    return nil;
+  return @{
+    @"vaultId" : state.vaultId ?: @"",
+    @"sequence" : @(state.sequence),
+    @"headHash" : head,
+    @"membershipHash" : membership,
+    @"signedAt" : state.signedAt ?: @"",
+    @"activeMembers" : members,
+    @"removedEndpointIds" : state.removedEndpointIds ?: @[],
+    @"epoch" : @(state.epoch),
+    @"recoveryGeneration" : @(state.recoveryGeneration),
+    @"recoveryId" : state.recoveryId ?: @"",
+    @"recoverySigningPublicKey" : recoverySigning,
+    @"recoveryKeyAgreementPublicKey" : recoveryAgreement,
+    @"recoveryWrapHash" : recoveryWrap,
+    @"freshnessMode" : state.freshnessMode ?: @"",
+  };
+}
+
+static NSDictionary *AncRecoveryWrapCommitProjection(
+    AncPrivateVaultControlLogMembershipCommit *commit) {
+  NSArray *members = AncRecoveryWrapMembersProjection(commit.activeMembers);
+  NSString *previous = commit.previousMembershipHash == nil
+                           ? nil
+                           : AncRecoveryWrapHex(commit.previousMembershipHash);
+  NSString *snapshot = commit.recoverySnapshotHash == nil
+                           ? nil
+                           : AncRecoveryWrapHex(commit.recoverySnapshotHash);
+  NSString *authorization =
+      commit.recoveryAuthorizationHash == nil
+          ? nil
+          : AncRecoveryWrapHex(commit.recoveryAuthorizationHash);
+  NSString *recoverySigning =
+      AncRecoveryWrapHex(commit.recoverySigningPublicKey);
+  NSString *recoveryAgreement =
+      AncRecoveryWrapHex(commit.recoveryKeyAgreementPublicKey);
+  NSString *recoveryWrap = AncRecoveryWrapHex(commit.recoveryWrapHash);
+  if (commit == nil || members == nil || recoverySigning == nil ||
+      recoveryAgreement == nil || recoveryWrap == nil ||
+      (commit.previousMembershipHash != nil && previous == nil) ||
+      (commit.recoverySnapshotHash != nil && snapshot == nil) ||
+      (commit.recoveryAuthorizationHash != nil && authorization == nil))
+    return nil;
+  return @{
+    @"suite" : @"anc/v1",
+    @"type" : @"membership_commit",
+    @"vaultId" : commit.vaultId ?: @"",
+    @"ceremonyId" : commit.ceremonyId ?: @"",
+    @"ceremonyKind" : commit.ceremonyKind ?: @"",
+    @"epoch" : @(commit.epoch),
+    @"previousMembershipHash" : previous ?: NSNull.null,
+    @"activeMembers" : members,
+    @"removedEndpointIds" : commit.removedEndpointIds ?: @[],
+    @"rotationCompleted" : @(commit.rotationCompleted),
+    @"outstandingJobsResolved" : @(commit.outstandingJobsResolved),
+    @"recoverySnapshotHash" : snapshot ?: NSNull.null,
+    @"recoveryAuthorizationHash" : authorization ?: NSNull.null,
+    @"recoveryGeneration" : @(commit.recoveryGeneration),
+    @"recoveryId" : commit.recoveryId ?: @"",
+    @"recoverySigningPublicKey" : recoverySigning,
+    @"recoveryKeyAgreementPublicKey" : recoveryAgreement,
+    @"recoveryWrapHash" : recoveryWrap,
+  };
+}
+
+static NSDictionary *AncRecoveryWrapEntryProjection(
+    AncPrivateVaultControlLogSignedEntry *entry, NSDictionary *innerCommit) {
+  NSString *previous = AncRecoveryWrapHex(entry.previousHash);
+  NSString *signature = AncRecoveryWrapHex(entry.signature);
+  if (entry == nil || innerCommit == nil || previous == nil ||
+      signature == nil)
+    return nil;
+  return @{
+    @"suite" : @"anc/v1",
+    @"type" : @"log-entry",
+    @"vaultId" : entry.vaultId ?: @"",
+    @"createdAt" : entry.createdAt ?: @"",
+    @"envelopeId" : entry.envelopeId ?: @"",
+    @"sequence" : @(entry.sequence),
+    @"previousHash" : previous,
+    @"innerEnvelope" : innerCommit,
+    @"signerEndpointId" : entry.signerEndpointId ?: @"",
+    @"signature" : signature,
+  };
+}
+
+@interface AncPrivateVaultRecoveryWrapRotationVerifier ()
+@property(nonatomic) NSData *encodedWrap;
+@property(nonatomic) uint64_t trustedNowMilliseconds;
+@property(nonatomic, readwrite, getter=isVerified) BOOL verified;
+@property(nonatomic, readwrite, nullable) NSData *verifiedWrapHash;
+@property(nonatomic, readwrite, nullable) NSString *verifiedCeremonyId;
+@end
+
+@implementation AncPrivateVaultRecoveryWrapRotationVerifier
+
+- (instancetype)initWithEncodedWrap:(NSData *)encodedWrap
+            trustedNowMilliseconds:(uint64_t)trustedNowMilliseconds {
+  self = [super init];
+  if (self == nil)
+    return nil;
+  if (![encodedWrap isKindOfClass:NSData.class] || encodedWrap.length == 0 ||
+      encodedWrap.length > kMaximumEnvelopeBytes ||
+      trustedNowMilliseconds == 0)
+    return nil;
+  _encodedWrap = encodedWrap;
+  _trustedNowMilliseconds = trustedNowMilliseconds;
+  return self;
+}
+
+- (BOOL)verifyRecoveryWrapRotationCommit:
+            (AncPrivateVaultControlLogMembershipCommit *)commit
+                                    signedEntry:
+                                        (AncPrivateVaultControlLogSignedEntry *)
+                                            entry
+                                   currentState:
+                                       (AncPrivateVaultControlLogState *)state
+                               signedEntryBytes:(NSData *)signedEntryBytes
+                             innerEnvelopeBytes:(NSData *)innerEnvelopeBytes {
+  (void)signedEntryBytes;
+  (void)innerEnvelopeBytes;
+  self.verified = NO;
+  self.verifiedWrapHash = nil;
+  self.verifiedCeremonyId = nil;
+  NSDictionary *stateProjection = AncRecoveryWrapStateProjection(state);
+  NSDictionary *commitProjection = AncRecoveryWrapCommitProjection(commit);
+  NSDictionary *entryProjection =
+      AncRecoveryWrapEntryProjection(entry, commitProjection);
+  if (stateProjection == nil || commitProjection == nil ||
+      entryProjection == nil)
+    return NO;
+  BOOL entryTimeOkay = NO;
+  int64_t entryMilliseconds =
+      TimestampMilliseconds(entryProjection[@"createdAt"], &entryTimeOkay);
+  if (!entryTimeOkay || entryMilliseconds < 0 ||
+      (uint64_t)entryMilliseconds > self.trustedNowMilliseconds)
+    return NO;
+  AncPrivateVaultRecoveryWrapStatus status;
+  AncPrivateVaultRecoveryWrap *verified = AncPrivateVaultRecoveryWrapVerifyRotation(
+      self.encodedWrap, stateProjection, commitProjection, entryProjection,
+      &status);
+  NSData *vault = HexData(state.vaultId, 16);
+  NSData *hash =
+      verified == nil || vault == nil
+          ? nil
+          : AncPrivateVaultRecoveryWrapHash(self.encodedWrap, vault, &status);
+  if (verified == nil || hash.length != 32 ||
+      ![hash isEqualToData:commit.recoveryWrapHash])
+    return NO;
+  self.verifiedWrapHash = [hash copy];
+  self.verifiedCeremonyId = AncRecoveryWrapHex(verified.ceremonyId);
+  if (self.verifiedCeremonyId.length != 32) {
+    self.verifiedWrapHash = nil;
+    self.verifiedCeremonyId = nil;
+    return NO;
+  }
+  self.verified = YES;
+  return YES;
+}
+
+@end
+
+BOOL AncPrivateVaultRecoveryWrapVerifyCommittedSuccessor(
+    NSData *encodedWrap, AncPrivateVaultControlLogState *successorState,
+    uint64_t nowMilliseconds, NSData **wrapHash, NSString **ceremonyId) {
+  if (wrapHash != NULL)
+    *wrapHash = nil;
+  if (ceremonyId != NULL)
+    *ceremonyId = nil;
+  if (nowMilliseconds == 0 || successorState == nil)
+    return NO;
+  NSDictionary *state = AncRecoveryWrapStateProjection(successorState);
+  if (state == nil)
+    return NO;
+  AncPrivateVaultRecoveryWrapStatus status;
+  AncPrivateVaultRecoveryWrap *verified = AncPrivateVaultRecoveryWrapVerifyCurrent(
+      encodedWrap, state, nowMilliseconds / 1000, &status);
+  NSData *vault = HexData(successorState.vaultId, 16);
+  NSData *hash =
+      verified == nil || vault == nil
+          ? nil
+          : AncPrivateVaultRecoveryWrapHash(encodedWrap, vault, &status);
+  if (verified == nil || hash.length != 32 ||
+      ![hash isEqualToData:successorState.recoveryWrapHash])
+    return NO;
+  NSString *verifiedCeremony = AncRecoveryWrapHex(verified.ceremonyId);
+  if (verifiedCeremony.length != 32)
+    return NO;
+  if (wrapHash != NULL)
+    *wrapHash = [hash copy];
+  if (ceremonyId != NULL)
+    *ceremonyId = verifiedCeremony;
+  return YES;
 }
 
 AncPrivateVaultRecoveryWrapStatus AncPrivateVaultRecoveryWrapUnseal(

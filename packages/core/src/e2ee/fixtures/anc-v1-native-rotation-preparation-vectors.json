@@ -7,7 +7,7 @@
   "sourceAnchors": [
     {
       "path": "packages/core/scripts/materialize-native-rotation-preparation-vectors.ts",
-      "sha256": "cb5b3fc8d87e865ef49d454243a80e04df9ca8b84279e4f4f5210f4db29693fc"
+      "sha256": "d43c40603f0112acdced90de7baab01e30cf1247962bce033e1961257fcc85b1"
     },
     {
       "path": "packages/core/src/e2ee/native-rotation-preparation-vectors.ts",

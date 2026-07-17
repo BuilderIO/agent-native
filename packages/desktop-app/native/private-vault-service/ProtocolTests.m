@@ -36,6 +36,34 @@ int main(void) {
     assert(PVParseRequest(lock, &parsed) == PVRequestValid);
     xpc_release(lock);
 
+    xpc_object_t resume = PVMakeRequest(1, "resume_rotation", "request-rotate");
+    xpc_dictionary_set_string(resume, "vaultId",
+                              "00112233445566778899aabbccddeeff");
+    assert(PVParseRequest(resume, &parsed) == PVRequestValid);
+    assert(strcmp(parsed.operation, "resume_rotation") == 0);
+    assert(strcmp(parsed.vaultID, "00112233445566778899aabbccddeeff") ==
+           0);
+    xpc_release(resume);
+
+    xpc_object_t missingVault =
+        PVMakeRequest(1, "resume_rotation", "request-missing-vault");
+    assert(PVParseRequest(missingVault, &parsed) == PVRequestInvalid);
+    xpc_release(missingVault);
+
+    xpc_object_t invalidVault =
+        PVMakeRequest(1, "resume_rotation", "request-invalid-vault");
+    xpc_dictionary_set_string(invalidVault, "vaultId",
+                              "00112233445566778899AABBCCDDEEFF");
+    assert(PVParseRequest(invalidVault, &parsed) == PVRequestInvalid);
+    xpc_release(invalidVault);
+
+    xpc_object_t healthWithVault =
+        PVMakeRequest(1, "health", "request-extra-vault");
+    xpc_dictionary_set_string(healthWithVault, "vaultId",
+                              "00112233445566778899aabbccddeeff");
+    assert(PVParseRequest(healthWithVault, &parsed) == PVRequestInvalid);
+    xpc_release(healthWithVault);
+
     xpc_object_t wrongVersion = PVMakeRequest(2, "health", "request_3");
     assert(PVParseRequest(wrongVersion, &parsed) ==
            PVRequestUnsupportedVersion);

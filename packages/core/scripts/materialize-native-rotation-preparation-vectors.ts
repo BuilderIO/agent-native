@@ -131,9 +131,63 @@ export async function buildEphemeralRotationPreparationStream() {
   }
 }
 
-async function emitEphemeralStream() {
+async function assertEphemeralMaterialMatchesFixture(
+  fixturePath: string,
+  material: Awaited<
+    ReturnType<typeof buildAncV1NativeRotationPreparationEphemeralMaterial>
+  >,
+) {
+  const fixture = JSON.parse(await readFile(fixturePath, "utf8")) as {
+    schema?: unknown;
+    externalCheckpoint?: Record<string, unknown>;
+    brokerCheckpoint?: Record<string, unknown>;
+    syntheticDerivation?: { commitments?: Record<string, unknown> };
+    wireCommitments?: {
+      alternateSubstitutionOuterFrame?: Record<string, unknown>;
+    };
+  };
+  const checkpoint = fixture.externalCheckpoint;
+  const brokerCheckpoint = fixture.brokerCheckpoint;
+  const expected = fixture.syntheticDerivation?.commitments;
+  const alternate = fixture.wireCommitments?.alternateSubstitutionOuterFrame;
+  const actual = {
+    pendingEpochKey: Buffer.from(
+      await sodium.crypto_generichash(32, material.files.pendingEpochKey, null),
+    ).toString("hex"),
+    signedEntry: Buffer.from(
+      await sodium.crypto_generichash(32, material.files.signedEntry, null),
+    ).toString("hex"),
+    recoveryWrap: Buffer.from(
+      await sodium.crypto_generichash(32, material.files.recoveryWrap, null),
+    ).toString("hex"),
+    spoolNonce: Buffer.from(
+      await sodium.crypto_generichash(32, material.files.spoolNonce, null),
+    ).toString("hex"),
+  };
+  const alternateCommitment = Buffer.from(
+    await sodium.crypto_generichash(32, material.files.alternateOuter, null),
+  ).toString("hex");
+  if (
+    fixture.schema !== "anc/v1-native-rotation-preparation-vectors@2" ||
+    checkpoint?.vaultIdHex !== material.bindings.vaultIdHex ||
+    checkpoint?.ceremonyIdHex !== material.bindings.ceremonyIdHex ||
+    checkpoint?.endpointIdHex !== material.identities.endpoint.endpointIdHex ||
+    brokerCheckpoint?.endpointIdHex !==
+      material.identities.broker.endpointIdHex ||
+    alternate?.vaultIdHex !== material.bindings.alternateVaultIdHex ||
+    alternate?.ceremonyIdHex !== material.bindings.alternateCeremonyIdHex ||
+    alternate?.bytes !== material.files.alternateOuter.length ||
+    alternate?.outerFrameCommitmentHex !== alternateCommitment ||
+    Object.entries(actual).some(([name, value]) => expected?.[name] !== value)
+  )
+    throw new Error("Ephemeral material does not match the checked fixture");
+}
+
+async function emitEphemeralStream(fixturePath?: string) {
   const { stream, material } = await buildEphemeralRotationPreparationStream();
   try {
+    if (fixturePath)
+      await assertEphemeralMaterialMatchesFixture(fixturePath, material);
     await writeStdout(stream);
   } finally {
     stream.fill(0);
@@ -165,9 +219,14 @@ async function materializeFixture(protocolBaseCommit: string) {
 
 async function main() {
   if (process.argv[2] === "--ephemeral-material-stdout") {
-    if (process.argv.length !== 3)
-      throw new Error("stdout mode accepts no path");
-    await emitEphemeralStream();
+    const fixturePath =
+      process.argv[3] === "--fixture" ? process.argv[4] : undefined;
+    if (
+      (process.argv.length !== 3 && process.argv.length !== 5) ||
+      (process.argv.length === 5 && !fixturePath)
+    )
+      throw new Error("stdout mode accepts only --fixture <path>");
+    await emitEphemeralStream(fixturePath);
     return;
   }
   if (process.argv.length !== 3 || !process.argv[2])

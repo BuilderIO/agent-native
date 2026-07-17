@@ -10,10 +10,10 @@ const SERVICE_VERSION = 1 as const;
 const SERVICE_SUITE = "anc/v1" as const;
 const PACKAGED_ADDON_NAME = "private-vault-xpc-client.node";
 
-type NativeOperation = "health" | "lock";
+type NativeOperation = "health" | "lock" | "resume_rotation";
 
 interface NativeAddon {
-  request(operation: NativeOperation): Promise<unknown>;
+  request(operation: NativeOperation, vaultId?: string): Promise<unknown>;
 }
 
 type NativeAddonLoader = () => Promise<NativeAddon>;
@@ -21,6 +21,19 @@ type NativeAddonLoader = () => Promise<NativeAddon>;
 export interface PrivateVaultNativeServiceClient {
   health(): Promise<NativeHealthResult>;
   lock(): Promise<NativeLockResult>;
+  resumeRotation(vaultId: string): Promise<NativeResumeRotationResult>;
+}
+
+export interface NativeResumeRotationResult {
+  readonly version: typeof SERVICE_VERSION;
+  readonly suite: typeof SERVICE_SUITE;
+  readonly operation: "resume_rotation";
+  readonly state: "consumed";
+  readonly vaultId: string;
+  readonly custodyGeneration: number;
+  readonly activeEpoch: number;
+  readonly sequence: number;
+  readonly headHash: string;
 }
 
 export class PrivateVaultNativeServiceClientError extends Error {
@@ -102,6 +115,63 @@ function parseLock(value: unknown): NativeLockResult {
   });
 }
 
+function isLowerHex(value: unknown, length: number): value is string {
+  return (
+    typeof value === "string" &&
+    value.length === length &&
+    /^[0-9a-f]+$/.test(value)
+  );
+}
+
+function isSafeInteger(value: unknown, positive: boolean): value is number {
+  return (
+    typeof value === "number" &&
+    Number.isSafeInteger(value) &&
+    (positive ? value > 0 : value >= 0)
+  );
+}
+
+function parseResumeRotation(
+  value: unknown,
+  expectedVaultId: string,
+): NativeResumeRotationResult {
+  if (
+    !isRecord(value) ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "vaultId",
+      "custodyGeneration",
+      "activeEpoch",
+      "sequence",
+      "headHash",
+    ]) ||
+    value.version !== SERVICE_VERSION ||
+    value.operation !== "resume_rotation" ||
+    value.state !== "consumed" ||
+    value.vaultId !== expectedVaultId ||
+    !isLowerHex(value.vaultId, 32) ||
+    !isLowerHex(value.headHash, 64) ||
+    !isSafeInteger(value.custodyGeneration, true) ||
+    !isSafeInteger(value.activeEpoch, true) ||
+    !isSafeInteger(value.sequence, false)
+  ) {
+    throw new PrivateVaultNativeServiceClientError();
+  }
+  return Object.freeze({
+    version: SERVICE_VERSION,
+    suite: SERVICE_SUITE,
+    operation: "resume_rotation",
+    state: "consumed",
+    vaultId: value.vaultId,
+    custodyGeneration: value.custodyGeneration,
+    activeEpoch: value.activeEpoch,
+    sequence: value.sequence,
+    headHash: value.headHash,
+  });
+}
+
 function validateAddon(value: unknown): NativeAddon {
   if (
     !isRecord(value) ||
@@ -180,6 +250,22 @@ class NativeServiceClient implements PrivateVaultNativeServiceClient {
       () => this.#clearLockFlight(flight),
     );
     return flight;
+  }
+
+  resumeRotation(vaultId: string): Promise<NativeResumeRotationResult> {
+    if (!isLowerHex(vaultId, 32))
+      return Promise.reject(new PrivateVaultNativeServiceClientError());
+    return this.#enqueue(async () => {
+      try {
+        const addon = await this.#addon;
+        return parseResumeRotation(
+          await addon.request("resume_rotation", vaultId),
+          vaultId,
+        );
+      } catch {
+        throw new PrivateVaultNativeServiceClientError();
+      }
+    });
   }
 
   #enqueue<Result>(operation: () => Promise<Result>): Promise<Result> {

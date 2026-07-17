@@ -65,6 +65,66 @@ describe("Private Vault native service client", () => {
     });
   });
 
+  it("binds rotation resume to one exact vault and proof tuple", async () => {
+    const vaultId = "00112233445566778899aabbccddeeff";
+    const request = vi.fn(async () => ({
+      version: 1,
+      operation: "resume_rotation",
+      state: "consumed",
+      vaultId,
+      custodyGeneration: 3,
+      activeEpoch: 5,
+      sequence: 20,
+      headHash: "ab".repeat(32),
+    }));
+    const client = createPrivateVaultNativeServiceClientForTest(async () => ({
+      request,
+    }));
+    await expect(client.resumeRotation(vaultId)).resolves.toEqual({
+      version: 1,
+      suite: "anc/v1",
+      operation: "resume_rotation",
+      state: "consumed",
+      vaultId,
+      custodyGeneration: 3,
+      activeEpoch: 5,
+      sequence: 20,
+      headHash: "ab".repeat(32),
+    });
+    expect(request).toHaveBeenCalledWith("resume_rotation", vaultId);
+    await expect(client.resumeRotation(vaultId.toUpperCase())).rejects.toEqual(
+      new PrivateVaultNativeServiceClientError(),
+    );
+    expect(request).toHaveBeenCalledTimes(1);
+
+    for (const mutation of [
+      { headHash: "AB".repeat(32) },
+      { vaultId: "ff".repeat(16) },
+      { custodyGeneration: 0 },
+      { activeEpoch: Number.MAX_SAFE_INTEGER + 1 },
+      { extra: true },
+    ]) {
+      const malformed = createPrivateVaultNativeServiceClientForTest(
+        async () => ({
+          request: vi.fn(async () => ({
+            version: 1,
+            operation: "resume_rotation",
+            state: "consumed",
+            vaultId,
+            custodyGeneration: 3,
+            activeEpoch: 5,
+            sequence: 20,
+            headHash: "ab".repeat(32),
+            ...mutation,
+          })),
+        }),
+      );
+      await expect(malformed.resumeRotation(vaultId)).rejects.toEqual(
+        new PrivateVaultNativeServiceClientError(),
+      );
+    }
+  });
+
   it("fails closed for unavailable, malformed, oversized, or unknown replies", async () => {
     const hostileValues = [
       null,
@@ -113,18 +173,20 @@ describe("Private Vault native service client", () => {
     const healthGate = new Promise<void>((resolve) => {
       releaseHealth = resolve;
     });
-    const request = vi.fn(async (operation: "health" | "lock") => {
-      if (operation === "health") {
-        await healthGate;
-        return {
-          version: 1,
-          operation: "health",
-          state: "locked",
-          available: true,
-        };
-      }
-      return { version: 1, operation: "lock", state: "locked" };
-    });
+    const request = vi.fn(
+      async (operation: "health" | "lock" | "resume_rotation") => {
+        if (operation === "health") {
+          await healthGate;
+          return {
+            version: 1,
+            operation: "health",
+            state: "locked",
+            available: true,
+          };
+        }
+        return { version: 1, operation: "lock", state: "locked" };
+      },
+    );
     const client = createPrivateVaultNativeServiceClientForTest(async () => ({
       request,
     }));
@@ -230,7 +292,7 @@ describe("Private Vault native service client", () => {
 
     const require = createRequire(import.meta.url);
     const addon = require(addonPath) as {
-      request(operation: string): Promise<unknown>;
+      request(operation: string, vaultId?: string): Promise<unknown>;
     };
     expect(Object.keys(addon)).toEqual(["request"]);
     await expect(addon.request("health")).rejects.toThrow(
@@ -242,5 +304,14 @@ describe("Private Vault native service client", () => {
     expect(() => addon.request("x".repeat(17))).toThrow(
       "Private Vault native service request failed",
     );
+    expect(() => addon.request("resume_rotation")).toThrow(
+      "Private Vault native service request failed",
+    );
+    expect(() =>
+      addon.request("resume_rotation", "00112233445566778899AABBCCDDEEFF"),
+    ).toThrow("Private Vault native service request failed");
+    await expect(
+      addon.request("resume_rotation", "00112233445566778899aabbccddeeff"),
+    ).rejects.toThrow("Private Vault native service request failed");
   });
 });

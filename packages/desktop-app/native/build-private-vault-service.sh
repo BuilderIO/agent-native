@@ -21,6 +21,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
+  "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"
@@ -471,7 +472,7 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror
       -DANC_PRIVATE_VAULT_TESTING=1
       -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture"
-      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/storage"
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" -I"$SOURCE_ROOT/storage"
       -I"$sodium_root/include"
       -framework Foundation -framework Security -framework LocalAuthentication
     )
@@ -490,20 +491,51 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       -o "$ROTATION_TEST_OUTPUT/private-vault-rotation-spool-tests-$architecture"
     xcrun clang "${common[@]}" \
       "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m" \
       "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStoreTests.m" \
       "$sodium_root/lib/libsodium.a" \
       -o "$ROTATION_TEST_OUTPUT/private-vault-rotation-store-tests-$architecture"
+    xcrun clang "${common[@]}" \
+      -I"$SOURCE_ROOT/control" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
+      "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinatorTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$ROTATION_TEST_OUTPUT/private-vault-rotation-coordinator-tests-$architecture"
     lipo "$ROTATION_TEST_OUTPUT/private-vault-rotation-record-tests-$architecture" \
       -verify_arch "$architecture"
     lipo "$ROTATION_TEST_OUTPUT/private-vault-rotation-spool-tests-$architecture" \
       -verify_arch "$architecture"
     lipo "$ROTATION_TEST_OUTPUT/private-vault-rotation-store-tests-$architecture" \
+      -verify_arch "$architecture"
+    lipo "$ROTATION_TEST_OUTPUT/private-vault-rotation-coordinator-tests-$architecture" \
       -verify_arch "$architecture"
   }
   compile_rotation_test_slice arm64 "$ARM64_SODIUM"

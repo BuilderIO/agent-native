@@ -17,5 +17,9 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultControlLogReplayResultCopyEvidence(
     AncPrivateVaultControlLogState *_Nullable *_Nullable priorState,
     AncPrivateVaultControlLogState *_Nullable *_Nonnull currentState,
     NSData *_Nullable *_Nonnull entryHash, BOOL *idempotent);
+/* Exact anc/v1 log-entry domain hash. The payload must already be the complete
+ * canonical signed entry; this helper intentionally performs no parsing. */
+FOUNDATION_EXPORT NSData *_Nullable
+AncPrivateVaultControlLogSignedEntryDomainHash(NSData *signedEntry);
 
 NS_ASSUME_NONNULL_END

@@ -16,7 +16,7 @@
   "anchor apple generic and identifier \"" PV_SERVICE_IDENTIFIER               \
   "\" and certificate leaf[subject.OU] = \"" PV_SERVICE_TEAM_IDENTIFIER "\""
 #define PV_PROTOCOL_VERSION 1
-#define PV_MAXIMUM_REPLY_FIELDS 5
+#define PV_MAXIMUM_REPLY_FIELDS 9
 #define PV_MAXIMUM_REPLY_STRING_BYTES 64
 #define PV_REQUEST_TIMEOUT_NANOSECONDS (2LL * NSEC_PER_SEC)
 
@@ -24,7 +24,7 @@ namespace {
 
 PVRequestGate gRequestGate;
 
-enum class PVOperation { Health, Lock };
+enum class PVOperation { Health, Lock, ResumeRotation };
 enum class PVFailure {
   None,
   UnsupportedOperation,
@@ -38,6 +38,11 @@ struct PVParsedReply {
   PVFailure failure = PVFailure::Connection;
   bool available = false;
   char state[16] = {0};
+  char vaultID[33] = {0};
+  char headHash[65] = {0};
+  uint64_t custodyGeneration = 0;
+  uint64_t activeEpoch = 0;
+  uint64_t sequence = 0;
 };
 
 class PVReplyState {
@@ -84,6 +89,11 @@ struct PVAsyncRequest {
   PVFailure failure = PVFailure::Connection;
   bool available = false;
   char state[16] = {0};
+  char vaultID[33] = {0};
+  char headHash[65] = {0};
+  uint64_t custodyGeneration = 0;
+  uint64_t activeEpoch = 0;
+  uint64_t sequence = 0;
 };
 
 bool PVStringIsBounded(const char *value, size_t maximumBytes) {
@@ -91,6 +101,17 @@ bool PVStringIsBounded(const char *value, size_t maximumBytes) {
     return false;
   const size_t length = strnlen(value, maximumBytes + 1);
   return length > 0 && length <= maximumBytes;
+}
+
+bool PVIsLowerHex(const char *value, size_t exactBytes) {
+  if (value == nullptr || strnlen(value, exactBytes + 1) != exactBytes)
+    return false;
+  for (size_t index = 0; index < exactBytes; index++) {
+    const char byte = value[index];
+    if (!((byte >= '0' && byte <= '9') || (byte >= 'a' && byte <= 'f')))
+      return false;
+  }
+  return true;
 }
 
 bool PVHasExactKeys(xpc_object_t dictionary, const char *const *keys,
@@ -135,7 +156,7 @@ bool PVRequestIDMatches(xpc_object_t reply, const char *requestID) {
 }
 
 PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
-                           const char *requestID) {
+                           const char *requestID, const char *expectedVaultID) {
   PVParsedReply parsed;
   if (reply == nullptr || xpc_get_type(reply) == XPC_TYPE_ERROR)
     return parsed;
@@ -170,9 +191,17 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
   const char *const healthKeys[] = {"version", "ok", "requestId", "state",
                                     "available"};
   const char *const lockKeys[] = {"version", "ok", "requestId", "state"};
-  const bool validKeys = operation == PVOperation::Health
-                             ? PVHasExactKeys(reply, healthKeys, 5)
-                             : PVHasExactKeys(reply, lockKeys, 4);
+  const char *const rotationKeys[] = {
+      "version",           "ok",       "requestId",
+      "state",             "vaultId",  "custodyGeneration",
+      "activeEpoch",       "sequence", "headHash",
+  };
+  const bool validKeys =
+      operation == PVOperation::Health
+          ? PVHasExactKeys(reply, healthKeys, 5)
+      : operation == PVOperation::Lock
+          ? PVHasExactKeys(reply, lockKeys, 4)
+          : PVHasExactKeys(reply, rotationKeys, 9);
   xpc_object_t stateValue = xpc_dictionary_get_value(reply, "state");
   if (!validKeys || !PVRequestIDMatches(reply, requestID) ||
       stateValue == nullptr || xpc_get_type(stateValue) != XPC_TYPE_STRING) {
@@ -201,9 +230,43 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
-  } else if (strcmp(state, "locked") != 0) {
-    parsed.failure = PVFailure::MalformedReply;
-    return parsed;
+  } else if (operation == PVOperation::Lock) {
+    if (strcmp(state, "locked") != 0) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+  } else {
+    xpc_object_t vault = xpc_dictionary_get_value(reply, "vaultId");
+    xpc_object_t custody =
+        xpc_dictionary_get_value(reply, "custodyGeneration");
+    xpc_object_t epoch = xpc_dictionary_get_value(reply, "activeEpoch");
+    xpc_object_t sequence = xpc_dictionary_get_value(reply, "sequence");
+    xpc_object_t head = xpc_dictionary_get_value(reply, "headHash");
+    const char *vaultID = vault == nullptr ||
+                                  xpc_get_type(vault) != XPC_TYPE_STRING
+                              ? nullptr
+                              : xpc_dictionary_get_string(reply, "vaultId");
+    const char *headHash =
+        head == nullptr || xpc_get_type(head) != XPC_TYPE_STRING
+            ? nullptr
+            : xpc_dictionary_get_string(reply, "headHash");
+    if (strcmp(state, "consumed") != 0 || expectedVaultID == nullptr ||
+        !PVIsLowerHex(vaultID, 32) || strcmp(vaultID, expectedVaultID) != 0 ||
+        !PVIsLowerHex(headHash, 64) || custody == nullptr ||
+        xpc_get_type(custody) != XPC_TYPE_UINT64 || epoch == nullptr ||
+        xpc_get_type(epoch) != XPC_TYPE_UINT64 || sequence == nullptr ||
+        xpc_get_type(sequence) != XPC_TYPE_UINT64 ||
+        xpc_dictionary_get_uint64(reply, "custodyGeneration") == 0 ||
+        xpc_dictionary_get_uint64(reply, "activeEpoch") == 0) {
+      parsed.failure = PVFailure::MalformedReply;
+      return parsed;
+    }
+    memcpy(parsed.vaultID, vaultID, 33);
+    memcpy(parsed.headHash, headHash, 65);
+    parsed.custodyGeneration =
+        xpc_dictionary_get_uint64(reply, "custodyGeneration");
+    parsed.activeEpoch = xpc_dictionary_get_uint64(reply, "activeEpoch");
+    parsed.sequence = xpc_dictionary_get_uint64(reply, "sequence");
   }
 
   memcpy(parsed.state, state, strlen(state) + 1);
@@ -214,8 +277,11 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
 void PVExecute(napi_env env, void *data) {
   (void)env;
   auto *request = static_cast<PVAsyncRequest *>(data);
-  const char *operation =
-      request->operation == PVOperation::Health ? "health" : "lock";
+  const char *operation = request->operation == PVOperation::Health
+                              ? "health"
+                          : request->operation == PVOperation::Lock
+                              ? "lock"
+                              : "resume_rotation";
 
   uuid_t requestUUID;
   char requestID[37] = {0};
@@ -255,6 +321,8 @@ void PVExecute(napi_env env, void *data) {
   xpc_dictionary_set_int64(message, "version", PV_PROTOCOL_VERSION);
   xpc_dictionary_set_string(message, "operation", operation);
   xpc_dictionary_set_string(message, "requestId", requestID);
+  if (request->operation == PVOperation::ResumeRotation)
+    xpc_dictionary_set_string(message, "vaultId", request->vaultID);
   xpc_connection_send_message_with_reply(connection, message, queue,
                                          ^(xpc_object_t reply) {
                                            state->complete(reply);
@@ -269,12 +337,20 @@ void PVExecute(napi_env env, void *data) {
   } else {
     xpc_object_t reply = state->copyReply();
     const PVParsedReply parsed =
-        PVParseReply(reply, request->operation, requestID);
+        PVParseReply(reply, request->operation, requestID,
+                     request->operation == PVOperation::ResumeRotation
+                         ? request->vaultID
+                         : nullptr);
     if (reply != nullptr)
       xpc_release(reply);
     request->failure = parsed.failure;
     request->available = parsed.available;
     memcpy(request->state, parsed.state, sizeof(request->state));
+    memcpy(request->vaultID, parsed.vaultID, sizeof(request->vaultID));
+    memcpy(request->headHash, parsed.headHash, sizeof(request->headHash));
+    request->custodyGeneration = parsed.custodyGeneration;
+    request->activeEpoch = parsed.activeEpoch;
+    request->sequence = parsed.sequence;
   }
 
   xpc_connection_cancel(connection);
@@ -295,6 +371,15 @@ void PVSetString(napi_env env, napi_value object, const char *key,
   }
 }
 
+void PVSetSafeInteger(napi_env env, napi_value object, const char *key,
+                      uint64_t value) {
+  napi_value property;
+  if (value <= UINT64_C(9007199254740991) &&
+      napi_create_double(env, static_cast<double>(value), &property) ==
+          napi_ok)
+    napi_set_named_property(env, object, key, property);
+}
+
 void PVComplete(napi_env env, napi_status status, void *data) {
   auto *request = static_cast<PVAsyncRequest *>(data);
   gRequestGate.release();
@@ -312,12 +397,23 @@ void PVComplete(napi_env env, napi_status status, void *data) {
     napi_create_int32(env, PV_PROTOCOL_VERSION, &version);
     napi_set_named_property(env, result, "version", version);
     PVSetString(env, result, "operation",
-                request->operation == PVOperation::Health ? "health" : "lock");
+                request->operation == PVOperation::Health
+                    ? "health"
+                : request->operation == PVOperation::Lock
+                    ? "lock"
+                    : "resume_rotation");
     PVSetString(env, result, "state", request->state);
     if (request->operation == PVOperation::Health) {
       napi_value available;
       napi_get_boolean(env, request->available, &available);
       napi_set_named_property(env, result, "available", available);
+    } else if (request->operation == PVOperation::ResumeRotation) {
+      PVSetString(env, result, "vaultId", request->vaultID);
+      PVSetString(env, result, "headHash", request->headHash);
+      PVSetSafeInteger(env, result, "custodyGeneration",
+                       request->custodyGeneration);
+      PVSetSafeInteger(env, result, "activeEpoch", request->activeEpoch);
+      PVSetSafeInteger(env, result, "sequence", request->sequence);
     }
     napi_resolve_deferred(env, request->deferred, result);
   }
@@ -326,13 +422,13 @@ void PVComplete(napi_env env, napi_status status, void *data) {
 }
 
 napi_value PVRequest(napi_env env, napi_callback_info info) {
-  size_t argc = 1;
-  napi_value argv[1];
+  size_t argc = 3;
+  napi_value argv[3];
   napi_value promise;
   auto *request = new PVAsyncRequest();
 
   if (napi_get_cb_info(env, info, &argc, argv, nullptr, nullptr) != napi_ok ||
-      argc != 1) {
+      argc < 1 || argc > 2) {
     delete request;
     napi_throw_type_error(env, nullptr,
                           "Private Vault native service request failed");
@@ -364,11 +460,33 @@ napi_value PVRequest(napi_env env, napi_callback_info info) {
     request->operation = PVOperation::Health;
   } else if (strcmp(operation, "lock") == 0) {
     request->operation = PVOperation::Lock;
+  } else if (strcmp(operation, "resume_rotation") == 0) {
+    request->operation = PVOperation::ResumeRotation;
   } else {
     delete request;
     napi_throw_type_error(env, nullptr,
                           "Private Vault native service request failed");
     return nullptr;
+  }
+  if ((request->operation == PVOperation::ResumeRotation) != (argc == 2)) {
+    delete request;
+    napi_throw_type_error(env, nullptr,
+                          "Private Vault native service request failed");
+    return nullptr;
+  }
+  if (request->operation == PVOperation::ResumeRotation) {
+    size_t vaultLength = 0;
+    if (napi_typeof(env, argv[1], &argumentType) != napi_ok ||
+        argumentType != napi_string ||
+        napi_get_value_string_utf8(env, argv[1], request->vaultID,
+                                   sizeof(request->vaultID),
+                                   &vaultLength) != napi_ok ||
+        vaultLength != 32 || !PVIsLowerHex(request->vaultID, 32)) {
+      delete request;
+      napi_throw_type_error(env, nullptr,
+                            "Private Vault native service request failed");
+      return nullptr;
+    }
   }
 
   // Acquire before a work item enters libuv. A hostile caller can therefore

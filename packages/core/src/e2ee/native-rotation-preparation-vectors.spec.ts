@@ -53,6 +53,7 @@ import {
 
 const PROTOCOL_BASE_COMMIT = "8234f8525136d818c9615556dc266f6e9873e061";
 const ROOT = fileURLToPath(new URL("../../../../", import.meta.url));
+const FIXTURE_PATH = `${ROOT}packages/core/src/e2ee/fixtures/anc-v1-native-rotation-preparation-vectors.json`;
 const FIXTURE = new URL(
   "./fixtures/anc-v1-native-rotation-preparation-vectors.json",
   import.meta.url,
@@ -1470,6 +1471,8 @@ describe("anc/v1 native rotation-preparation vectors", () => {
           "tsx",
           "scripts/materialize-native-rotation-preparation-vectors.ts",
           "--ephemeral-material-stdout",
+          "--fixture",
+          FIXTURE_PATH,
         ],
         {
           cwd: ROOT,
