@@ -312,6 +312,15 @@ describe("document editor layout", () => {
     expect(documentEditorDefaultIconKind({ database: undefined })).toBeNull();
   });
 
+  it("tells the toolbar when the current document is a database page", () => {
+    const documentEditorSource = readFileSync(
+      new URL("./DocumentEditor.tsx", import.meta.url),
+      { encoding: "utf8" },
+    );
+
+    expect(documentEditorSource).toContain("isDatabasePage={isDatabasePage}");
+  });
+
   it("labels database row pages with their parent database", () => {
     expect(
       databaseMembershipDatabaseTitle({

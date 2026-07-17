@@ -42,6 +42,7 @@ let setProperty: typeof import("./set-document-property.js").default;
 let getRuntimeControls: typeof import("./get-content-hook-runtime-controls.js").default;
 let manageRuntimeControl: typeof import("./manage-content-hook-runtime-control.js").default;
 let managePreference: typeof import("./manage-content-notification-preference.js").default;
+let getPreference: typeof import("./get-content-notification-preference.js").default;
 let manageExecution: typeof import("./manage-content-database-hook-execution.js").default;
 let listExecutions: typeof import("./list-content-database-hook-executions.js").default;
 let managePolicy: typeof import("./manage-content-database-policy.js").default;
@@ -76,6 +77,8 @@ beforeAll(async () => {
   managePreference = (
     await import("./manage-content-notification-preference.js")
   ).default;
+  getPreference = (await import("./get-content-notification-preference.js"))
+    .default;
   manageExecution = (
     await import("./manage-content-database-hook-execution.js")
   ).default;
@@ -918,6 +921,36 @@ describe("Content deterministic database hooks", () => {
       },
       enabled: true,
     });
+    await expect(
+      runWithRequestContext({ userEmail: "reviewer@example.com" }, () =>
+        getPreference.run(
+          {
+            scope: "item",
+            databaseId: ids.databaseId,
+            documentId: ids.itemDocumentId,
+          },
+          actionContext,
+        ),
+      ),
+    ).resolves.toMatchObject({
+      target: {
+        scope: "item",
+        databaseId: ids.databaseId,
+        documentId: ids.itemDocumentId,
+      },
+      preference: { enabled: true, source: "item" },
+    });
+    await expect(
+      getPreference.run(
+        {
+          scope: "item",
+          databaseId: ids.databaseId,
+          documentId: ids.itemDocumentId,
+          subscriptionId: subscription.id,
+        },
+        actionContext,
+      ),
+    ).rejects.toThrow("Unexpected identifiers for item scope.");
     await expect(
       resolveContentNotificationPreference({
         ownerEmail: "reviewer@example.com",

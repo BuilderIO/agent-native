@@ -607,8 +607,34 @@ export function useContentNotificationPreference(
 ) {
   return useActionQuery<GetContentNotificationPreferenceResponse>(
     "get-content-notification-preference",
-    target ? { target } : undefined,
+    target ?? undefined,
     { enabled: !!target, retry: false },
+  );
+}
+
+export function contentNotificationPreferenceQueryKey(
+  target: ContentNotificationPreferenceTarget,
+) {
+  return ["action", "get-content-notification-preference", target] as const;
+}
+
+export function writeContentNotificationPreferenceResponseToCache(
+  queryClient: QueryClient,
+  response: ManageContentNotificationPreferenceResponse,
+) {
+  if (!response.preference) return;
+  queryClient.setQueryData<GetContentNotificationPreferenceResponse>(
+    contentNotificationPreferenceQueryKey(response.target),
+    {
+      target: response.target,
+      documentId:
+        response.target.scope === "item" ? response.target.documentId : null,
+      preference: {
+        enabled: response.preference.enabled,
+        source: response.target.scope,
+        preferenceId: response.preference.id,
+      },
+    },
   );
 }
 
@@ -621,27 +647,7 @@ export function useManageContentNotificationPreference(
     ManageContentNotificationPreferenceRequest
   >("manage-content-notification-preference", {
     onSuccess: (response) => {
-      if (response.preference) {
-        queryClient.setQueryData<GetContentNotificationPreferenceResponse>(
-          [
-            "action",
-            "get-content-notification-preference",
-            { target: response.target },
-          ],
-          {
-            target: response.target,
-            documentId:
-              response.target.scope === "item"
-                ? response.target.documentId
-                : null,
-            preference: {
-              enabled: response.preference.enabled,
-              source: response.target.scope,
-              preferenceId: response.preference.id,
-            },
-          },
-        );
-      }
+      writeContentNotificationPreferenceResponseToCache(queryClient, response);
       void queryClient.invalidateQueries({
         queryKey: ["action", "get-content-notification-preference"],
       });

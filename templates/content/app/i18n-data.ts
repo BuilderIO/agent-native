@@ -2819,6 +2819,13 @@ const editorToolbarMessages = {
   morePageActions: "More page actions",
   noPagesFound: "No pages found",
   notifications: "Notifications",
+  muteNotificationsForPage: "Mute notifications for this page",
+  receiveNotificationsForPage: "Receive notifications for this page",
+  databasePageNotificationScope:
+    "Applies to this database page. Rows have their own notification settings.",
+  notificationsMutedForPage: "Notifications muted for this page",
+  notificationsEnabledForPage: "Notifications enabled for this page",
+  notificationPreferenceUpdateFailed: "Couldn’t update notification preference",
   notionSync: "Notion sync",
   notionPageUrlOrId: "Notion page URL or page ID",
   open: "Open",

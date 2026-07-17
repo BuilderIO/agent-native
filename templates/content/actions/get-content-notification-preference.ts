@@ -9,27 +9,50 @@ export default defineAction({
   description:
     "Resolve the current user's effective personal notification preference for a Content database, rule, or item.",
   schema: z.object({
-    target: z.discriminatedUnion("scope", [
-      z.object({ scope: z.literal("global") }),
-      z.object({
-        scope: z.literal("database"),
-        databaseId: z.string().min(1),
-      }),
-      z.object({
-        scope: z.literal("rule"),
-        databaseId: z.string().min(1),
-        subscriptionId: z.string().min(1),
-      }),
-      z.object({
-        scope: z.literal("item"),
-        databaseId: z.string().min(1),
-        documentId: z.string().min(1),
-      }),
-    ]),
+    scope: z.enum(["global", "database", "rule", "item"]),
+    databaseId: z.string().min(1).optional(),
+    subscriptionId: z.string().min(1).optional(),
+    documentId: z.string().min(1).optional(),
   }),
   http: { method: "GET" },
-  run: async ({ target }, ctx) => {
+  run: async (args, ctx) => {
     if (!ctx?.userEmail) throw new Error("Not authenticated.");
+    if (
+      (args.scope === "global" &&
+        (args.databaseId || args.subscriptionId || args.documentId)) ||
+      (args.scope === "database" && (args.subscriptionId || args.documentId)) ||
+      (args.scope === "rule" && args.documentId) ||
+      (args.scope === "item" && args.subscriptionId)
+    ) {
+      throw new Error(`Unexpected identifiers for ${args.scope} scope.`);
+    }
+    const target = (() => {
+      if (args.scope === "global") return { scope: "global" as const };
+      if (!args.databaseId) {
+        throw new Error(`A database ID is required for ${args.scope} scope.`);
+      }
+      if (args.scope === "database") {
+        return { scope: "database" as const, databaseId: args.databaseId };
+      }
+      if (args.scope === "rule") {
+        if (!args.subscriptionId) {
+          throw new Error("A subscription ID is required for rule scope.");
+        }
+        return {
+          scope: "rule" as const,
+          databaseId: args.databaseId,
+          subscriptionId: args.subscriptionId,
+        };
+      }
+      if (!args.documentId) {
+        throw new Error("A document ID is required for item scope.");
+      }
+      return {
+        scope: "item" as const,
+        databaseId: args.databaseId,
+        documentId: args.documentId,
+      };
+    })();
     await assertContentNotificationPreferenceTarget(target);
     const databaseId = "databaseId" in target ? target.databaseId : undefined;
     const documentId = "documentId" in target ? target.documentId : undefined;
@@ -39,16 +62,17 @@ export default defineAction({
         : databaseId
           ? contentDefaultPersonSubscriptionId(databaseId)
           : undefined;
+    const preference = await resolveContentNotificationPreference({
+      ownerEmail: ctx.userEmail,
+      orgId: ctx.orgId,
+      databaseId,
+      subscriptionId: resolvedSubscriptionId,
+      documentId: documentId ?? "",
+    });
     return {
       target,
       documentId: documentId ?? null,
-      preference: await resolveContentNotificationPreference({
-        ownerEmail: ctx.userEmail,
-        orgId: ctx.orgId,
-        databaseId,
-        subscriptionId: resolvedSubscriptionId,
-        documentId: documentId ?? "",
-      }),
+      preference,
     };
   },
 });

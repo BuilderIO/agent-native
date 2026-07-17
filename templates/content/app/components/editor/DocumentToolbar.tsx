@@ -266,14 +266,17 @@ interface DocumentToolbarProps {
   hideFromSearch?: boolean;
   source?: DocumentSourceInfo;
   notificationDatabaseId?: string;
+  isDatabasePage?: boolean;
 }
 
-function ItemNotificationToggle({
+function ItemNotificationMenuItem({
   databaseId,
   documentId,
+  isDatabasePage,
 }: {
   databaseId: string;
   documentId: string;
+  isDatabasePage: boolean;
 }) {
   const t = useT();
   const preference = useContentNotificationPreference({
@@ -283,41 +286,60 @@ function ItemNotificationToggle({
   });
   const managePreference = useManageContentNotificationPreference(databaseId);
   const enabled = preference.data?.preference.enabled ?? true;
+  const descriptionId = `page-notification-scope-${documentId}`;
+
+  const handleToggle = useCallback(async () => {
+    try {
+      await managePreference.mutateAsync({
+        action: "set",
+        target: { scope: "item", databaseId, documentId },
+        enabled: !enabled,
+      });
+      toast.success(
+        t(
+          enabled
+            ? "editor.toolbar.notificationsMutedForPage"
+            : "editor.toolbar.notificationsEnabledForPage",
+        ),
+      );
+    } catch (error) {
+      toast.error(t("editor.toolbar.notificationPreferenceUpdateFailed"), {
+        description:
+          error instanceof Error ? error.message : t("empty.genericError"),
+      });
+    }
+  }, [databaseId, documentId, enabled, managePreference, t]);
 
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          aria-label={t(
+    <DropdownMenuItem
+      className="items-start py-2"
+      disabled={preference.isLoading || managePreference.isPending}
+      aria-describedby={isDatabasePage ? descriptionId : undefined}
+      onSelect={() => void handleToggle()}
+    >
+      {enabled ? (
+        <IconBellOff className="me-2 mt-0.5 h-4 w-4 shrink-0" />
+      ) : (
+        <IconBell className="me-2 mt-0.5 h-4 w-4 shrink-0" />
+      )}
+      <span className="min-w-0">
+        <span className="block">
+          {t(
             enabled
-              ? "database.unsubscribeFromItem"
-              : "database.subscribeToItem",
+              ? "editor.toolbar.muteNotificationsForPage"
+              : "editor.toolbar.receiveNotificationsForPage",
           )}
-          disabled={preference.isLoading || managePreference.isPending}
-          onClick={() =>
-            managePreference.mutate({
-              action: "set",
-              target: { scope: "item", databaseId, documentId },
-              enabled: !enabled,
-            })
-          }
-        >
-          {enabled ? (
-            <IconBell className="size-4" />
-          ) : (
-            <IconBellOff className="size-4" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent>
-        {t(
-          enabled ? "database.unsubscribeFromItem" : "database.subscribeToItem",
-        )}
-      </TooltipContent>
-    </Tooltip>
+        </span>
+        {isDatabasePage ? (
+          <span
+            id={descriptionId}
+            className="mt-0.5 block text-xs leading-snug text-muted-foreground"
+          >
+            {t("editor.toolbar.databasePageNotificationScope")}
+          </span>
+        ) : null}
+      </span>
+    </DropdownMenuItem>
   );
 }
 
@@ -335,6 +357,7 @@ export function DocumentToolbar({
   hideFromSearch = false,
   source,
   notificationDatabaseId,
+  isDatabasePage = false,
 }: DocumentToolbarProps) {
   const t = useT();
   const navigate = useNavigate();
@@ -816,6 +839,18 @@ export function DocumentToolbar({
               </TooltipContent>
             </Tooltip>
             <DropdownMenuContent align="end" className="w-60">
+              {notificationDatabaseId ? (
+                <>
+                  <DropdownMenuGroup>
+                    <ItemNotificationMenuItem
+                      databaseId={notificationDatabaseId}
+                      documentId={documentId}
+                      isDatabasePage={isDatabasePage}
+                    />
+                  </DropdownMenuGroup>
+                  <DropdownMenuSeparator />
+                </>
+              ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
                   <DropdownMenuLabel className="text-xs text-muted-foreground">
@@ -1247,12 +1282,6 @@ export function DocumentToolbar({
               </DropdownMenuGroup>
             </DropdownMenuContent>
           </DropdownMenu>
-          {notificationDatabaseId ? (
-            <ItemNotificationToggle
-              databaseId={notificationDatabaseId}
-              documentId={documentId}
-            />
-          ) : null}
           <NotificationsBell browserNotifications />
           <AgentToggleButton />
         </div>

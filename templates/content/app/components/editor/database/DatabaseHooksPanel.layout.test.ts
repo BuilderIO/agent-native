@@ -40,6 +40,21 @@ describe("Content database hooks product surface", () => {
     expect(toolbarSource).toContain("<NotificationsBell");
     expect(headerSource).toContain("browserNotifications");
     expect(toolbarSource).toContain("browserNotifications");
+    expect(toolbarSource.match(/<NotificationsBell/g)).toHaveLength(1);
+    expect(toolbarSource).toContain("<ItemNotificationMenuItem");
+    expect(toolbarSource).not.toContain("<ItemNotificationToggle");
+    expect(toolbarSource.indexOf("<ItemNotificationMenuItem")).toBeLessThan(
+      toolbarSource.indexOf('t("editor.toolbar.versionHistory")'),
+    );
+    expect(toolbarSource).toContain(
+      '"editor.toolbar.muteNotificationsForPage"',
+    );
+    expect(toolbarSource).toContain(
+      '"editor.toolbar.receiveNotificationsForPage"',
+    );
+    expect(toolbarSource).toContain(
+      '"editor.toolbar.databasePageNotificationScope"',
+    );
     expect(databaseViewSource).toContain('scope: "item"');
     expect(databaseViewSource).toContain('"unsubscribeFromItem"');
     expect(databaseViewSource).toContain('"subscribeToItem"');

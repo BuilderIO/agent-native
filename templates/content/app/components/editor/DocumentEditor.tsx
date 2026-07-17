@@ -1317,6 +1317,7 @@ function DocumentEditorBody({ documentId, document }: DocumentEditorBodyProps) {
             hideFromSearch={document.hideFromSearch}
             source={document.source}
             notificationDatabaseId={document.databaseMembership?.databaseId}
+            isDatabasePage={isDatabasePage}
           />
 
           {!isLocalFileDocument ? (
