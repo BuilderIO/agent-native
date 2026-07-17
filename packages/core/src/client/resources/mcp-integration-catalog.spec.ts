@@ -136,7 +136,7 @@ describe("MCP integration catalog", () => {
     ).toMatchObject({
       url: "https://mcp.zapier.com/api/v1/connect",
       authMode: "headers",
-      availability: "provider-setup",
+      availability: "ready",
     });
     expect(
       DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "paypal"),
