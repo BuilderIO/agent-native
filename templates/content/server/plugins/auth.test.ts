@@ -18,4 +18,9 @@ describe("Content auth public surface", () => {
   it("lets the document-media handler perform its own uniform access check", () => {
     expect(authPluginSource).toContain('"/api/document-media"');
   });
+
+  it("exempts only the self-authenticating retention worker from user sessions", () => {
+    expect(authPluginSource).toContain('"/api/private-vault/retention/run"');
+    expect(authPluginSource).not.toMatch(/["']\/api\/private-vault\/?["']/);
+  });
 });

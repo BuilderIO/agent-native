@@ -17,6 +17,10 @@ export default createAuthPlugin({
     // decision. Keeping the outer guard out of this path lets it return the
     // same no-store 404 for unknown and inaccessible handles.
     "/api/document-media",
+    // The retention worker is operator-authenticated with its deployment-level
+    // bearer verifier. It must be reachable by the platform scheduler without
+    // granting the rest of the Private Vault API a public session bypass.
+    "/api/private-vault/retention/run",
     "/p",
     "/_agent-native/actions/get-public-document",
     "/_agent-native/agent-chat",
