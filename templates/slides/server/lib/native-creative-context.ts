@@ -39,8 +39,8 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
     const slides = Array.isArray(parsed.slides) ? parsed.slides : [];
     return {
       artifactKey: `slides:deck:${deck.id}`,
-      source: { name: "Slides", kind: "manual", externalRef: deck.id },
-      item: {
+      source: { name: "Slides", kind: "native-app", externalRef: deck.id },
+      items: [{
         externalId: `native:slides:deck:${deck.id}`,
         kind: "slides-deck",
         title: deck.title || "Untitled deck",
@@ -52,7 +52,7 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
         sourceModifiedAt: deck.updatedAt,
         sourceVersion: version.id ?? contentHash,
         metadata: { preview: { type: "slides", slideCount: slides.length }, children: slides.map((slide, index) => ({ id: slide.id ?? String(index), title: slide.title ?? `Slide ${index + 1}`, text: text(slide.content ?? "").slice(0, 240) })) },
-      },
+      }],
       privateMetadata: { clone: { handle, contentHash, sourceVersion: version.id ?? contentHash, updatedAt: deck.updatedAt } },
     };
   },
