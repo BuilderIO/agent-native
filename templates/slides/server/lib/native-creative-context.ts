@@ -70,7 +70,15 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
     const slides = Array.isArray(parsed.slides) ? parsed.slides : [];
     return {
       artifactKey: `slides:deck:${deck.id}`,
-      source: { name: "Slides", kind: "native-app", externalRef: deck.id, access: { visibility: deck.visibility ?? "private", canManage: access.role === "owner" || access.role === "admin" } },
+      source: {
+        name: "Slides",
+        kind: "native-app",
+        externalRef: deck.id,
+        access: {
+          visibility: deck.visibility ?? "private",
+          canManage: access.role === "owner" || access.role === "admin",
+        },
+      },
       items: [
         {
           externalId: `native:slides:deck:${deck.id}`,

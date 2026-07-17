@@ -727,7 +727,6 @@ export function DocumentToolbar({
                             updatedAt: documentUpdatedAt ?? undefined,
                             preview: { kind: "document", label: "Document" },
                           }}
-                          canManage={canEdit}
                         />
                       ),
                     },

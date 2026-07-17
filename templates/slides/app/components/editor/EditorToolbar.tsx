@@ -971,7 +971,6 @@ graph TD
                       updatedAt: deck.updatedAt,
                       preview: { kind: "document", label: "Deck" },
                     }}
-                    canManage={canEdit}
                   />
                 ),
               },

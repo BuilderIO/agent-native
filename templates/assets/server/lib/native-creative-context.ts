@@ -3,7 +3,10 @@ import { createHash } from "node:crypto";
 import { putPrivateBlob } from "@agent-native/core/private-blob";
 import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
 
-import { getAssetOrThrow, requireLibraryAccess } from "../../actions/_helpers.js";
+import {
+  getAssetOrThrow,
+  requireLibraryAccess,
+} from "../../actions/_helpers.js";
 import { getObject } from "./storage.js";
 
 export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
@@ -47,7 +50,16 @@ export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
       .join("\n");
     return {
       artifactKey: `assets:asset:${asset.id}`,
-      source: { name: "Assets", kind: "native-app", externalRef: asset.id, access: { visibility: library.visibility ?? "private", canManage: libraryAccess.role === "owner" || libraryAccess.role === "admin" } },
+      source: {
+        name: "Assets",
+        kind: "native-app",
+        externalRef: asset.id,
+        access: {
+          visibility: library.visibility ?? "private",
+          canManage:
+            libraryAccess.role === "owner" || libraryAccess.role === "admin",
+        },
+      },
       items: [
         {
           externalId: `native:assets:asset:${asset.id}`,

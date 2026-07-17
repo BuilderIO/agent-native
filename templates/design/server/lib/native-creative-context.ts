@@ -34,15 +34,13 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
       });
       const contentHash = createHash("sha256").update(payload).digest("hex");
       const versionId = nanoid();
-      await getDb()
-        .insert(schema.designVersions)
-        .values({
-          id: versionId,
-          designId: design.id,
-          label: "Creative Context submission",
-          snapshot: payload,
-          createdAt: new Date().toISOString(),
-        });
+      await getDb().insert(schema.designVersions).values({
+        id: versionId,
+        designId: design.id,
+        label: "Creative Context submission",
+        snapshot: payload,
+        createdAt: new Date().toISOString(),
+      });
       const handle = await putPrivateBlob({
         data: Buffer.from(payload),
         filename: `${design.id}.design.json`,
@@ -63,7 +61,15 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
       const sourceModifiedAt = design.updatedAt ?? undefined;
       return {
         artifactKey: `design:design:${design.id}`,
-        source: { name: "Design", kind: "native-app", externalRef: design.id, access: { visibility: design.visibility ?? "private", canManage: access.role === "owner" || access.role === "admin" } },
+        source: {
+          name: "Design",
+          kind: "native-app",
+          externalRef: design.id,
+          access: {
+            visibility: design.visibility ?? "private",
+            canManage: access.role === "owner" || access.role === "admin",
+          },
+        },
         items: [
           {
             externalId: `native:design:design:${design.id}`,

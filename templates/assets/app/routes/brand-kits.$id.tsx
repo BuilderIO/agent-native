@@ -2638,17 +2638,14 @@ function AssetSwimlaneBoard({
       <CreativeContextShareSheet
         open={bulkContextOpen}
         onOpenChange={setBulkContextOpen}
-        canManage
-        resource={{
+        resources={selectedAssets.map((asset) => ({
           appId: "assets",
-          resourceType: "asset-selection",
-          resourceId: selectedAssets
-            .map((asset) => asset.id)
-            .sort()
-            .join(","),
-          title: `${selectedCount} selected assets`,
-          preview: { kind: "document", label: "Asset selection" },
-        }}
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: assetDisplayTitle(asset),
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document" as const, label: "Asset" },
+        }))}
       />
 
       {viewMode === "cards" ? (
@@ -3355,7 +3352,6 @@ function AssetActionsMenu({
       <CreativeContextShareSheet
         open={contextOpen}
         onOpenChange={setContextOpen}
-        canManage
         resource={{
           appId: "assets",
           resourceType: "asset",
@@ -3614,7 +3610,6 @@ function AssetLaneTile({
       <CreativeContextShareSheet
         open={contextOpen}
         onOpenChange={setContextOpen}
-        canManage
         resource={{
           appId: "assets",
           resourceType: "asset",

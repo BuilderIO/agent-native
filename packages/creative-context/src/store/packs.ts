@@ -3,7 +3,7 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, gt, inArray, isNull, ne } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
 import type {
@@ -73,12 +73,28 @@ async function resolveMembers(members: ContextPackMemberInput[]): Promise<
       schema.contextSources,
       eq(schema.contextSources.id, schema.contextItems.sourceId),
     )
+    .leftJoin(
+      schema.creativeContextMemberships,
+      and(
+        eq(schema.creativeContextMemberships.publishedItemId, schema.contextItems.id),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    )
+    .leftJoin(
+      schema.creativeContexts,
+      eq(schema.creativeContexts.id, schema.creativeContextMemberships.contextId),
+    )
     .where(
       and(
         inArray(schema.contextItems.id, itemIds),
-        accessFilter(schema.contextSources, schema.contextSourceShares),
-        ne(schema.contextSources.upstreamAccess, "restricted"),
-        ne(schema.contextSources.status, "archived"),
+        or(
+          and(
+            accessFilter(schema.contextSources, schema.contextSourceShares),
+            ne(schema.contextSources.upstreamAccess, "restricted"),
+            ne(schema.contextSources.status, "archived"),
+          ),
+          accessFilter(schema.creativeContexts, schema.creativeContextShares),
+        ),
         eq(schema.contextItems.curationStatus, "included"),
         ne(schema.contextItems.curationRank, "ignored"),
         eq(schema.contextItems.status, "active"),

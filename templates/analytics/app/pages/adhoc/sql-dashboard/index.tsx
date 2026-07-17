@@ -1440,7 +1440,6 @@ export default function SqlDashboardPage() {
                         updatedAt: dashboardUpdatedAt ?? undefined,
                         preview: { kind: "document", label: "SQL dashboard" },
                       }}
-                      canManage={canManage}
                     />
                   ),
                 },

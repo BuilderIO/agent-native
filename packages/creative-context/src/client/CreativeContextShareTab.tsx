@@ -90,8 +90,8 @@ export function requiresBroaderPublication(
 ) {
   return Boolean(
     context &&
-      VISIBILITY_RANK[context.visibility] >
-        VISIBILITY_RANK[resource.visibility ?? "private"],
+    VISIBILITY_RANK[context.visibility] >
+      VISIBILITY_RANK[resource.visibility ?? "private"],
   );
 }
 
@@ -177,6 +177,7 @@ export async function submitCreativeContextResources({
   const results = await Promise.allSettled(
     resources.map((resource) =>
       mutateAsync({
+        operation: "submit",
         contextId,
         nativeResource: {
           appId: resource.appId,
@@ -311,7 +312,10 @@ export function CreativeContextShareTab({
   const manageContext = useManageCreativeContext();
   const manageMembership = useManageContextMembership();
   const contexts = parseCreativeContexts(contextsQuery.data);
-  const selectedResources = normalizeCreativeContextResources(resource, resources);
+  const selectedResources = normalizeCreativeContextResources(
+    resource,
+    resources,
+  );
   const primaryResource = selectedResources[0];
   const [contextId, setContextId] = useState("");
   const membershipsQuery = useContextMemberships(
@@ -353,7 +357,6 @@ export function CreativeContextShareTab({
     setError(null);
     try {
       const result = await submitCreativeContextResources({
-        operation: "submit",
         contextId,
         resources: selectedResources,
         rank,
@@ -417,7 +420,9 @@ export function CreativeContextShareTab({
   return (
     <section className={className} aria-label="Creative context">
       <div className="flex items-start gap-3 border-b border-border/70 pb-4">
-        {primaryResource ? <ResourcePreview resource={primaryResource} /> : null}
+        {primaryResource ? (
+          <ResourcePreview resource={primaryResource} />
+        ) : null}
         <div className="min-w-0">
           <p className="truncate text-sm font-medium">
             {selectedResources.length === 1
@@ -474,7 +479,10 @@ export function CreativeContextShareTab({
           {contextId && selectedResources.length ? (
             <div className="rounded-md border border-dashed border-border p-3">
               <p className="text-sm font-medium">
-                Add {selectedResources.length === 1 ? "this resource" : `${selectedResources.length} resources`}
+                Add{" "}
+                {selectedResources.length === 1
+                  ? "this resource"
+                  : `${selectedResources.length} resources`}
               </p>
               <div className="mt-2 grid gap-2 sm:grid-cols-2">
                 <Select
@@ -515,7 +523,8 @@ export function CreativeContextShareTab({
                   />
                   <span>
                     This context is shared more broadly than this resource.
-                    Publishing creates a governed copy available to the context's audience.
+                    Publishing creates a governed copy available to the
+                    context's audience.
                   </span>
                 </label>
               ) : null}
@@ -523,7 +532,11 @@ export function CreativeContextShareTab({
                 type="button"
                 className="mt-3"
                 size="sm"
-                disabled={busy || needsBroaderPublicationConfirmation && !confirmedBroaderPublication}
+                disabled={
+                  busy ||
+                  (needsBroaderPublicationConfirmation &&
+                    !confirmedBroaderPublication)
+                }
                 onClick={() => void submit()}
               >
                 <IconLink /> Submit

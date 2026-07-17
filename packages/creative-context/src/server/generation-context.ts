@@ -299,6 +299,9 @@ export async function resolveGenerationCreativeContextLocal(
     fused.set(key, { ...result, score: Math.max(result.score + 0.15, existing?.score ?? Number.NEGATIVE_INFINITY), reasons: [...(existing?.reasons ?? []), "specialty context boost"] });
   }
   const results = [...fused.values()].sort((a, b) => b.score - a.score).slice(0, searchInput.limit);
+  if (!results.length) {
+    return { contextMode: "auto" as const, contextPackId: null, reuseLabels: [], results: [] };
+  }
   const pack = await createContextPack({
     name: `${input.role}: ${input.query.slice(0, 100)}`,
     description: "Immutable governed-context generation snapshot.",

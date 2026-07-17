@@ -389,7 +389,7 @@ async function readSnapshot(
     .limit(1);
   if (!item || !version)
     throw new Error("Staged context snapshot was not found");
-  const [chunks, media] = await Promise.all([
+  const [chunks, media, edges] = await Promise.all([
     getDb()
       .select()
       .from(schema.contextChunks)
@@ -398,6 +398,10 @@ async function readSnapshot(
       .select()
       .from(schema.contextMedia)
       .where(eq(schema.contextMedia.itemVersionId, itemVersionId)),
+    getDb()
+      .select()
+      .from(schema.contextEdges)
+      .where(eq(schema.contextEdges.fromItemVersionId, itemVersionId)),
   ]);
   return {
     externalId: item.externalId,
@@ -446,6 +450,13 @@ async function readSnapshot(
       width: row.width ?? undefined,
       height: row.height ?? undefined,
       durationMs: row.durationMs ?? undefined,
+      metadata: parseJson(row.metadata, {}),
+    })),
+    edges: edges.map((row: any) => ({
+      relation: row.relation,
+      ...(row.toItemId ? { toItemId: row.toItemId } : {}),
+      ...(row.toItemVersionId ? { toItemVersionId: row.toItemVersionId } : {}),
+      ...(row.toExternalId ? { toExternalId: row.toExternalId } : {}),
       metadata: parseJson(row.metadata, {}),
     })),
   };
@@ -1122,13 +1133,13 @@ export async function manageContextMembership(input: {
       captured.items.slice(1).map(async (item) => {
         const snapshot = await writeSnapshot({
           sourceId: context.stagingSourceId,
-          artifactKey: `${captured.artifactKey}:${item.externalId}`,
+          artifactKey: item.externalId,
           item,
           ownerEmail: context.ownerEmail,
           orgId: context.orgId ?? null,
         });
         return {
-          artifactKey: `${captured.artifactKey}:${item.externalId}`,
+          artifactKey: item.externalId,
           ...snapshot,
         };
       }),

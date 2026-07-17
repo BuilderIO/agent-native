@@ -5,6 +5,10 @@ const mocks = vi.hoisted(() => ({
   getContextPack: vi.fn(),
   getCreativeContextItem: vi.fn(),
   listAccessibleSearchDocuments: vi.fn(),
+  listCreativeContexts: vi.fn(),
+  getCreativeContextById: vi.fn(),
+  getCreativeContextAppBinding: vi.fn(),
+  createContextPack: vi.fn(),
   performCreativeContextSearch: vi.fn(),
   recordLocal: vi.fn(),
   getLocal: vi.fn(),
@@ -26,6 +30,10 @@ vi.mock("../store/index.js", () => ({
   getContextPack: mocks.getContextPack,
   getCreativeContextItem: mocks.getCreativeContextItem,
   listAccessibleSearchDocuments: mocks.listAccessibleSearchDocuments,
+  listCreativeContexts: mocks.listCreativeContexts,
+  getCreativeContextById: mocks.getCreativeContextById,
+  getCreativeContextAppBinding: mocks.getCreativeContextAppBinding,
+  createContextPack: mocks.createContextPack,
 }));
 
 vi.mock("../store/generation.js", () => ({
@@ -78,6 +86,9 @@ describe("generation context isolated A2A routing", () => {
       async (_identity, _target, operation) => `cap-${operation}`,
     );
     mocks.callA2A.mockResolvedValue(emptyRemoteContext);
+    mocks.listCreativeContexts.mockResolvedValue({ contexts: [] });
+    mocks.getCreativeContextById.mockResolvedValue(null);
+    mocks.getCreativeContextAppBinding.mockResolvedValue(null);
   });
 
   it("routes bounded resolve, validate, read, and record operations remotely", async () => {
