@@ -1071,7 +1071,8 @@ export async function readPendingCreativeContextMedia(input: {
   const submission = submissions[0];
   if (!submission) return null;
   const access = await resolveAccess("creative-context", submission.contextId);
-  const canReview = access?.role === "owner" || access?.role === "admin";
+  if (!access) return null;
+  const canReview = access.role === "owner" || access.role === "admin";
   if (!canReview && submission.submittedBy !== actor.ownerEmail) return null;
 
   if (media) {
