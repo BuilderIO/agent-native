@@ -463,6 +463,7 @@ export async function performCreativeContextSearch(
         filters: {
           sourceIds: input.sourceIds,
           packId: input.packId,
+          contextId: input.contextId,
           kinds: input.kinds,
           tags: input.tags,
           colors: input.colors,

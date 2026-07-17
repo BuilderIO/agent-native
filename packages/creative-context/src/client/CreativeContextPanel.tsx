@@ -1796,8 +1796,14 @@ export function CreativeContextPanel({
     try {
       const result = await searchContext.mutateAsync({
         query: searchText,
-        sourceIds: sources.map((source) => source.id),
+        sourceIds:
+          selectedLibraryContextId || contextState.state.pinnedPackId
+            ? undefined
+            : sources.map((source) => source.id),
         packId: contextState.state.pinnedPackId ?? undefined,
+        contextId: contextState.state.pinnedPackId
+          ? undefined
+          : (selectedLibraryContextId ?? undefined),
         limit: 20,
         snapshot: true,
       });

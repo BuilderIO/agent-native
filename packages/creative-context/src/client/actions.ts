@@ -556,6 +556,7 @@ export interface SearchCreativeContextParams {
   query: string;
   sourceIds?: string[];
   packId?: string;
+  contextId?: string;
   kinds?: string[];
   limit?: number;
   cursor?: string;
