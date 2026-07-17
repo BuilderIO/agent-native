@@ -109,17 +109,12 @@ export async function readCreativeContextMedia(input: {
       });
   if (!detail && !pending)
     throw new Error("Creative context media is not accessible");
-  const media = detail
-    ? input.mediaId
+  const media =
+    detail && input.mediaId
       ? (detail.media.find((entry) => entry.id === input.mediaId) ?? null)
-      : null
-    : pending?.mediaId
-      ? { id: pending.mediaId, mimeType: pending.mimeType }
       : null;
   const storageKey = detail
-    ? media && "storageKey" in media
-      ? media.storageKey
-      : detail.item.thumbnailBlobRef
+    ? (media?.storageKey ?? detail.item.thumbnailBlobRef)
     : pending?.storageKey;
   const handle = parsePrivateBlobHandle(storageKey);
   if (!handle) throw new Error("Creative context media has no private blob");
@@ -135,7 +130,7 @@ export async function readCreativeContextMedia(input: {
       "application/octet-stream",
     itemId: detail?.item.id ?? pending!.itemId,
     itemVersionId: detail?.version.id ?? pending!.itemVersionId,
-    mediaId: media?.id ?? null,
+    mediaId: media?.id ?? pending?.mediaId ?? null,
     media,
   };
 }

@@ -565,10 +565,6 @@ describe("creative context access and revocation", () => {
         "2026-07-16T00:00:00.000Z",
       ],
     });
-    await exec.execute({
-      sql: "UPDATE creative_context_items SET thumbnail_blob_ref = ? WHERE id = ?",
-      args: ["creative-context-blob:v1:pending-preview-opaque", "allowed"],
-    });
     const bobProof = await asBob(() =>
       assertGenerationArtifactAccess(
         artifact,
@@ -1534,6 +1530,10 @@ describe("creative context access and revocation", () => {
         ],
       });
     }
+    await exec.execute({
+      sql: "UPDATE creative_context_items SET thumbnail_blob_ref = ? WHERE id = ?",
+      args: ["creative-context-blob:v1:pending-preview-opaque", "allowed"],
+    });
 
     await expect(
       asCarol(() =>
