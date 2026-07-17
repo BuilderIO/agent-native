@@ -157,4 +157,64 @@ describe("generation context isolated A2A routing", () => {
     expect(mocks.performCreativeContextSearch).toHaveBeenCalled();
     expect(mocks.callA2A).not.toHaveBeenCalled();
   });
+
+  it("fuses Default with the selected specialty and snapshots the provenance", async () => {
+    mocks.hasA2A.mockReturnValue(false);
+    mocks.readAppState.mockResolvedValue({
+      contextMode: "auto",
+      selectedContextId: "specialty-1",
+    });
+    mocks.listCreativeContexts.mockResolvedValue({
+      contexts: [{ id: "default-1", kind: "default" }],
+    });
+    mocks.getCreativeContextById.mockResolvedValue({
+      id: "specialty-1",
+      kind: "specialty",
+    });
+    mocks.performCreativeContextSearch
+      .mockResolvedValueOnce({
+        results: [
+          {
+            itemId: "base-item",
+            itemVersionId: "base-v1",
+            kind: "slide",
+            title: "Default evidence",
+            score: 0.5,
+            reasons: ["default"],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        results: [
+          {
+            itemId: "specialty-item",
+            itemVersionId: "specialty-v1",
+            kind: "slide",
+            title: "Specialty evidence",
+            score: 0.5,
+            reasons: ["specialty"],
+          },
+        ],
+      });
+    mocks.createContextPack.mockResolvedValue({ id: "snapshot-1" });
+
+    await expect(
+      resolveGenerationCreativeContext({ role: "slides", query: "launch" }),
+    ).resolves.toMatchObject({ contextPackId: "snapshot-1" });
+    expect(mocks.performCreativeContextSearch).toHaveBeenNthCalledWith(
+      1,
+      expect.objectContaining({ contextId: "default-1", snapshot: false }),
+    );
+    expect(mocks.performCreativeContextSearch).toHaveBeenNthCalledWith(
+      2,
+      expect.objectContaining({ contextId: "specialty-1", snapshot: false }),
+    );
+    expect(mocks.createContextPack).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseContextId: "default-1",
+        specialtyContextId: "specialty-1",
+        selectionReason: "explicit specialty selection",
+      }),
+    );
+  });
 });
