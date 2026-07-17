@@ -97,6 +97,21 @@ export interface CreativeContextSummary {
   };
 }
 
+export interface CreativeContextPreviewItem {
+  id: string;
+  itemVersionId: string;
+  title: string;
+  kind: string;
+  status: string;
+  preview: CreativeContextSafePreview | null;
+  media: Array<{
+    id: string;
+    kind: string;
+    mimeType: string | null;
+    url: string;
+  }>;
+}
+
 export interface CreativeContextMembership {
   id: string;
   contextId: string;
@@ -107,25 +122,13 @@ export interface CreativeContextMembership {
   purpose: string | null;
   status: "active" | "removed";
   updatedAt?: string | null;
-  publishedItem?: {
-    id: string;
-    itemVersionId: string;
-    title: string;
-    kind: string;
-    status: string;
-    preview: CreativeContextSafePreview | null;
-    media: Array<{
-      id: string;
-      kind: string;
-      mimeType: string | null;
-      url: string;
-    }>;
-  } | null;
+  publishedItem?: CreativeContextPreviewItem | null;
   pendingSubmission?: {
     id: string;
     status: string;
     note: string | null;
     submittedBy: string;
+    proposedItem: CreativeContextPreviewItem | null;
   } | null;
 }
 
@@ -397,6 +400,48 @@ export function parseCreativeContexts(
     : [];
 }
 
+function parseContextPreviewItem(
+  value: unknown,
+): CreativeContextPreviewItem | null {
+  const item = record(value);
+  if (
+    !item ||
+    typeof item.id !== "string" ||
+    typeof item.itemVersionId !== "string" ||
+    typeof item.title !== "string" ||
+    typeof item.kind !== "string"
+  )
+    return null;
+  const media = Array.isArray(item.media)
+    ? item.media.flatMap((value) => {
+        const medium = record(value);
+        return medium &&
+          typeof medium.id === "string" &&
+          typeof medium.kind === "string" &&
+          typeof medium.url === "string"
+          ? [
+              {
+                id: medium.id,
+                kind: medium.kind,
+                mimeType:
+                  typeof medium.mimeType === "string" ? medium.mimeType : null,
+                url: medium.url,
+              },
+            ]
+          : [];
+      })
+    : [];
+  return {
+    id: item.id,
+    itemVersionId: item.itemVersionId,
+    title: item.title,
+    kind: item.kind,
+    status: typeof item.status === "string" ? item.status : "active",
+    preview: parseCreativeContextSafePreview(item.preview),
+    media,
+  };
+}
+
 export function parseContextMemberships(
   value: unknown,
 ): CreativeContextMembership[] {
@@ -450,54 +495,11 @@ export function parseContextMemberships(
                   typeof submission.submittedBy === "string"
                     ? submission.submittedBy
                     : "",
+                proposedItem: parseContextPreviewItem(submission.proposedItem),
               }
             : null;
         })(),
-        publishedItem: (() => {
-          const published = record(item.publishedItem);
-          if (
-            !published ||
-            typeof published.id !== "string" ||
-            typeof published.itemVersionId !== "string" ||
-            typeof published.title !== "string" ||
-            typeof published.kind !== "string"
-          ) {
-            return null;
-          }
-          const media = Array.isArray(published.media)
-            ? published.media.flatMap((value) => {
-                const medium = record(value);
-                return medium &&
-                  typeof medium.id === "string" &&
-                  typeof medium.kind === "string" &&
-                  typeof medium.url === "string"
-                  ? [
-                      {
-                        id: medium.id,
-                        kind: medium.kind,
-                        mimeType:
-                          typeof medium.mimeType === "string"
-                            ? medium.mimeType
-                            : null,
-                        url: medium.url,
-                      },
-                    ]
-                  : [];
-              })
-            : [];
-          return {
-            id: published.id,
-            itemVersionId: published.itemVersionId,
-            title: published.title,
-            kind: published.kind,
-            status:
-              typeof published.status === "string"
-                ? published.status
-                : "active",
-            preview: parseCreativeContextSafePreview(published.preview),
-            media,
-          };
-        })(),
+        publishedItem: parseContextPreviewItem(item.publishedItem),
       },
     ];
   });

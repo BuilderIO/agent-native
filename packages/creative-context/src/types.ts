@@ -561,6 +561,7 @@ export interface CreativeContextSubmissionSummary {
   reviewNote: string | null;
   createdAt: string;
   reviewedAt: string | null;
+  proposedItem?: CreativeContextMembershipPreview | null;
 }
 
 export interface ContextPackDetail extends ContextPackSummary {
