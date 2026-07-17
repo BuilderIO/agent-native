@@ -210,11 +210,22 @@ async function includeNativeArtifactDependencies(
         toItemVersionId: schema.contextEdges.toItemVersionId,
         toExternalId: schema.contextEdges.toExternalId,
         childSourceId: schema.contextItems.sourceId,
+        childVersionId: schema.contextItemVersions.id,
       })
       .from(schema.contextEdges)
       .leftJoin(
         schema.contextItems,
         eq(schema.contextItems.id, schema.contextEdges.toItemId),
+      )
+      .leftJoin(
+        schema.contextItemVersions,
+        and(
+          eq(
+            schema.contextItemVersions.id,
+            schema.contextEdges.toItemVersionId,
+          ),
+          eq(schema.contextItemVersions.itemId, schema.contextEdges.toItemId),
+        ),
       )
       .where(
         and(
@@ -233,8 +244,14 @@ async function includeNativeArtifactDependencies(
       toItemVersionId: string | null;
       toExternalId: string | null;
       childSourceId: string | null;
+      childVersionId: string | null;
     }>) {
-      if (!edge.toItemId || !edge.toItemVersionId || !edge.childSourceId) {
+      if (
+        !edge.toItemId ||
+        !edge.toItemVersionId ||
+        !edge.childSourceId ||
+        !edge.childVersionId
+      ) {
         throw new Error(
           `Native artifact child ${edge.toExternalId ?? "(unknown)"} has no immutable version reference`,
         );
