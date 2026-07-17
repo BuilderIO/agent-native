@@ -30,6 +30,7 @@
   "dependencies": {
     "@agent-native/code-agents-ui": "workspace:*",
     "@agent-native/core": "workspace:*",
+    "@agent-native/private-vault-broker": "workspace:*",
     "@agent-native/shared-app-config": "workspace:*",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@sentry/electron": "^7.14.0",

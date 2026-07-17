@@ -603,6 +603,9 @@ importers:
       '@agent-native/core':
         specifier: workspace:*
         version: link:../core
+      '@agent-native/private-vault-broker':
+        specifier: workspace:*
+        version: link:../private-vault-broker
       '@agent-native/shared-app-config':
         specifier: workspace:*
         version: link:../shared-app-config
