@@ -114,7 +114,10 @@ export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
           },
           media: [
             {
-              kind: previewIsThumbnail ? "image" : asset.mediaType,
+              kind:
+                previewIsThumbnail || asset.mediaType !== "video"
+                  ? "image"
+                  : "video",
               mimeType: previewMimeType,
               accessMode: "private",
               storageKey: serializePrivateBlobHandle(previewHandle),

@@ -795,7 +795,9 @@ export async function setCreativeContextAppDefault(
   contextId: string,
   appId: string,
 ) {
-  await assertContextRole(contextId, "viewer");
+  const access = await assertContextRole(contextId, "admin");
+  if (access.resource.orgId)
+    await assertCurrentRequestUserIsOrgAdmin(access.resource.orgId);
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
   const timestamp = nowIso();
@@ -805,7 +807,15 @@ export async function setCreativeContextAppDefault(
       .where(
         and(
           eq(schema.creativeContextAppBindings.appId, appId),
-          eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail),
+          actor.orgId
+            ? eq(schema.creativeContextAppBindings.orgId, actor.orgId)
+            : and(
+                isNull(schema.creativeContextAppBindings.orgId),
+                eq(
+                  schema.creativeContextAppBindings.ownerEmail,
+                  actor.ownerEmail,
+                ),
+              ),
         ),
       );
     await tx.insert(schema.creativeContextAppBindings).values({

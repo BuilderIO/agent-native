@@ -1654,6 +1654,24 @@ describe("creative context access and revocation", () => {
     expect(rows.rows).toHaveLength(1);
   });
 
+  it("keeps Default non-archivable and does not broaden private corpus during org backfill", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const context = await asAlice(() => store.ensureDefaultCreativeContext());
+    expect(context).toMatchObject({ kind: "default", visibility: "org" });
+    await expect(
+      asAlice(() => store.archiveCreativeContext(context!.id)),
+    ).rejects.toThrow(/Default Creative Context cannot be archived/);
+    const memberships = await asAlice(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(memberships.memberships).toEqual([]);
+  });
+
   it("applies each Creative Context's rank to the same item at retrieval time", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     const asAlice = <T>(fn: () => Promise<T>) =>
