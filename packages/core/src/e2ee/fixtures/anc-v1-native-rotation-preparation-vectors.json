@@ -1,13 +1,17 @@
 {
-  "schema": "anc/v1-native-rotation-preparation-vectors@1",
+  "schema": "anc/v1-native-rotation-preparation-vectors@2",
   "suite": "anc/v1",
   "encoding": "hex",
   "generator": "buildAncV1NativeRotationPreparationVectors",
   "protocolBaseCommit": "8234f8525136d818c9615556dc266f6e9873e061",
   "sourceAnchors": [
     {
+      "path": "packages/core/scripts/materialize-native-rotation-preparation-vectors.ts",
+      "sha256": "cb5b3fc8d87e865ef49d454243a80e04df9ca8b84279e4f4f5210f4db29693fc"
+    },
+    {
       "path": "packages/core/src/e2ee/native-rotation-preparation-vectors.ts",
-      "sha256": "3e5ac4104a62950eb1a6b8c154d27d326c45133a9233e625838624e17731384a"
+      "sha256": "4a9df0a0a4015de14284414e86e4f6080b361d7eb9ac150ba84c8485c4dec801"
     },
     {
       "path": "packages/core/src/e2ee/control-log.ts",
@@ -68,8 +72,17 @@
       "digestDomainEscaped": "agent-native/private-vault/rotation-preparation-spool-frame/anc-v1\\0"
     }
   },
+  "materialStreamLayout": {
+    "magicHex": "414e56524d533032",
+    "version": 2,
+    "headerBytes": 152,
+    "checksumBytes": 32,
+    "alternateOuterMaxBytes": 1114424,
+    "maxBytes": 2228776,
+    "checksumDomainEscaped": "agent-native/private-vault/rotation-preparation-material-stream/anc-v1\\0"
+  },
   "syntheticDerivation": {
-    "warning": "Synthetic labels and BLAKE2b-256 commitments only. Pending keys and secret-bearing records are materialized only in test memory and zeroized.",
+    "warning": "Synthetic labels and BLAKE2b-256 commitments only. Secret-bearing material is derived only at test runtime, zeroized after use, and never committed or packaged; native parity may bridge it through the guarded ephemeral materializer.",
     "algorithm": "blake2b-256",
     "domainEscaped": "agent-native/private-vault/rotation-preparation/test-derivation/anc-v1\\0",
     "labels": {
@@ -77,6 +90,7 @@
       "signedEntry": "signed-control-log-entry",
       "recoveryWrap": "recovery-wrap-artifact",
       "spoolNonce": "encrypted-spool-nonce",
+      "alternateSpoolNonce": "alternate-encrypted-spool-nonce",
       "issuerSigningSeed": "issuer-signing-seed",
       "issuerAgreementSeed": "issuer-agreement-seed",
       "recoveryAgreementSeed": "recovery-agreement-seed",
@@ -87,7 +101,8 @@
       "pendingEpochKey": "6c73fc08df1308e38ea72030cc019ce25723fd61fdbbb0eff2b037ae84e9cc33",
       "signedEntry": "55909851934c2d834f3f1c7db1c879d9cc6490ea0c6946acdc84c8201213d417",
       "recoveryWrap": "0735c582341b6c0f31cb9454fe9dd294683a7153c8ef8edd59a9b29569169170",
-      "spoolNonce": "1708469fe33ce03251416b7196154328c472450dd4096a137af89238dd6af946"
+      "spoolNonce": "1708469fe33ce03251416b7196154328c472450dd4096a137af89238dd6af946",
+      "alternateSpoolNonce": "46b9fd48b8141246a40544082020909d8204f52715f9fe42fbb106f9d05dc97c"
     }
   },
   "externalCheckpoint": {
@@ -130,90 +145,173 @@
     "transcriptHex": "fdfc90a5481d6855bbb4a26615271947f597e9ec0baa51c74afde297fb255205",
     "recoveryAgreementPublicKeyHex": "845822d96782700f53ced782415a141313df47e4b2a5bd85cb701316bc7a534d"
   },
+  "wireCommitments": {
+    "commitmentAlgorithm": "blake2b-256",
+    "innerSpool": {
+      "bytes": 1482,
+      "commitmentHex": "736cd94bd245ff8afeaacd040d5cbd23cfb2795e24d6c7e2effa180761ff77f9",
+      "checksumHex": "0bb5f13f0e5cbb191682e055c7a8374459937d69a80307ba5b89bafb689dac94",
+      "signedEntryBytes": 910,
+      "recoveryWrapBytes": 416
+    },
+    "primaryOuterFrame": {
+      "name": "shared_primary",
+      "holderRoles": [1, 2],
+      "bytes": 1638,
+      "outerFrameCommitmentHex": "cbb055f2b49e781cba100d6490e20e1f8e0c19110849bbbf5374076862f28d41",
+      "aadCommitmentHex": "942b0aef8dccd2b26ff0e585c33e7609a1aef6201aedce24cc69a8ae80394760",
+      "kdfInputCommitmentHex": "28e58c591d8ec657737bc01e7d3114057bbd600f127b3e85abed16a52a43d65d",
+      "derivedKeyCommitmentHex": "1381096fe0b99ea990d66368d65740836c949c32b4970e66f23186da29e1cad3",
+      "ciphertextCommitmentHex": "c851e97c3aaf3e5c161e7bfb6bc4f8a74e765220131e7644593e402af9c7f7c7",
+      "checksumHex": "df02d90c8476ade67c13edc5ff72c5b48a7381e66f014f3e617afe5230820f2f",
+      "frameDigestHex": "a4d9c2e6cfd7d8c52c207fd8ac5544346731bcf341b8ffb3cc623696c6b996f7"
+    },
+    "alternateSubstitutionOuterFrame": {
+      "name": "alternate_substitution",
+      "vaultIdHex": "81818181818181818181818181818181",
+      "ceremonyIdHex": "83838383838383838383838383838383",
+      "bytes": 1638,
+      "outerFrameCommitmentHex": "fa91dcbc3187ba4a336fa34b37e7b37627b535ba825945336573469c1cc99150",
+      "aadCommitmentHex": "991c43578ff7675d797cc76cfeb5f338dd8ed68feaa794a0ed15a5061f647753",
+      "kdfInputCommitmentHex": "8e6a69ecc203981e99efe29b75425ac302094e0a41d728e756b1b613c11feef6",
+      "derivedKeyCommitmentHex": "29eaebffa8d066cdeac7ce824e81b7dc2f374d6f309488447c6afabf5b1d87b9",
+      "ciphertextCommitmentHex": "1eed2320101455cbe080280d95a6daf87228af7e6bf1c0ac805d0df07243c8fa",
+      "checksumHex": "87a7b675307b139c76e662b846b8f4abbd05d7c3ce39e5f33c230ec1338ed87b",
+      "frameDigestHex": "8c413fa3cce0d493ae70788ab68df1e16e747df750b2b9d92b62a9c8cbab2790"
+    }
+  },
   "positiveCases": [
     {
       "name": "endpoint_prepared",
       "role": 1,
       "unattended": 0,
       "phase": 1,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "f7f74d31649175c1cacf664e355665e6896ea72d80b1f420eb4db7378f06560c",
+      "recordChecksumHex": "c6cdf6a50fc2a245afed0d873a6efe90de4ae59ad75ac698bf107d9a62b36a35",
+      "encryptedOuterFrame": null
     },
     {
       "name": "endpoint_rewrapped",
       "role": 1,
       "unattended": 0,
       "phase": 2,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "d5f3754707121ef1f0a701889c6011e13d9d099a6a5ceb580689bc0e9717b153",
+      "recordChecksumHex": "f824c555dffe796fe2674736f1708098aee392c826cd4b94e25907b363b45ee2",
+      "encryptedOuterFrame": null
     },
     {
       "name": "endpoint_acknowledged",
       "role": 1,
       "unattended": 0,
       "phase": 3,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "40c93c4c71c1c40fc1f1dce90d8ae92ff462ec10c0c46206b823d0b75b716e02",
+      "recordChecksumHex": "8a07c1deb1674014c07859d54ba2604140b908f3f3afe6f708aeae11197b6674",
+      "encryptedOuterFrame": null
     },
     {
       "name": "endpoint_awaiting_control_commit",
       "role": 1,
       "unattended": 0,
       "phase": 4,
-      "flags": 3
+      "flags": 3,
+      "recordBytes": 512,
+      "recordCommitmentHex": "decf586c619a1179591a79047c37f5565ba0cee381132f96c5d6ef60aa2050ae",
+      "recordChecksumHex": "319ecaaca85ab9c95d218e25dcfe3828d844f656fe057b3bca4e2aaf066e1336",
+      "encryptedOuterFrame": "shared_primary"
     },
     {
       "name": "broker_prepared",
       "role": 2,
       "unattended": 1,
       "phase": 1,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "1ad63cca0b003b857cb0c840a54895a10d9869c85ea3222e2c0266131de42944",
+      "recordChecksumHex": "cc804dbed4ebdc82cce083fe87b74d37f4341896a1bafea1477b721211d6050e",
+      "encryptedOuterFrame": null
     },
     {
       "name": "broker_rewrapped",
       "role": 2,
       "unattended": 1,
       "phase": 2,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "c698f82db7ebdf34adeba8f40a55e98df435c386ba8baae61194ae4c02e8336e",
+      "recordChecksumHex": "1aceaebb9c3c51b1e01b8131e35fabe93c77cd1570cc9983869b7cda5b655a5f",
+      "encryptedOuterFrame": null
     },
     {
       "name": "broker_acknowledged",
       "role": 2,
       "unattended": 1,
       "phase": 3,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "8c0a3dcc4adbfbb62ead0d87f6b58cf5643980eedd5b8ea6400c5e6a6d259823",
+      "recordChecksumHex": "49b1012729a3eabe626646cbf1fd9c56062f37a1e2daab9f2452037042140258",
+      "encryptedOuterFrame": null
     },
     {
       "name": "broker_awaiting_control_commit",
       "role": 2,
       "unattended": 1,
       "phase": 4,
-      "flags": 3
+      "flags": 3,
+      "recordBytes": 512,
+      "recordCommitmentHex": "ea34d2e6413e6a8cb7cb1925d745ba3c8ca92b5b1bb18462c89d7f7459f065e2",
+      "recordChecksumHex": "6ab1deb0aeb23bdc0a7bc66b53b1dba49d66a2d4d1d959a633d6d0eb110b7575",
+      "encryptedOuterFrame": "shared_primary"
     },
     {
       "name": "endpoint_consumed",
       "role": 1,
       "unattended": 0,
       "phase": 5,
-      "flags": 3
+      "flags": 3,
+      "recordBytes": 512,
+      "recordCommitmentHex": "3c3a86c6fd5413f146627ae0c459ee842fe3746c8af1a075c38366d9f4fa516b",
+      "recordChecksumHex": "675d44df50599d529998390b268d944063d81b4a842744c5d2d55c340a3b6bae",
+      "encryptedOuterFrame": "shared_primary"
     },
     {
       "name": "broker_consumed",
       "role": 2,
       "unattended": 1,
       "phase": 5,
-      "flags": 3
+      "flags": 3,
+      "recordBytes": 512,
+      "recordCommitmentHex": "5c70ff675e4e1133d44e4c25bfe756cd38d58ae673bc106387a321e24c245173",
+      "recordChecksumHex": "ec54c746a6489ab402c112d76c472d9366bf5746840f968dd7016bd401c40766",
+      "encryptedOuterFrame": "shared_primary"
     },
     {
       "name": "endpoint_cleaned",
       "role": 1,
       "unattended": 0,
       "phase": 6,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "79c088759263abe9ead9d9356d8eeec39836d11fa8aafe57dc0180627701183a",
+      "recordChecksumHex": "1d781b28ab333213fca641aa8e31785b301b7bea97a4cb6dbd10baf0093e089d",
+      "encryptedOuterFrame": null
     },
     {
       "name": "broker_cleaned",
       "role": 2,
       "unattended": 1,
       "phase": 6,
-      "flags": 0
+      "flags": 0,
+      "recordBytes": 512,
+      "recordCommitmentHex": "b9ecb49cc7b7821fa204b40efac8a5199561421546b3928279b282a0114a092f",
+      "recordChecksumHex": "f01f6f93f969231e8203e802fe65796e38e6dfcb257876ae35cdb383b345d0c0",
+      "encryptedOuterFrame": null
     }
   ],
   "categoryVocabulary": [
@@ -275,6 +373,17 @@
       "mutation": {
         "op": "flip",
         "offset": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -285,6 +394,18 @@
         "op": "set_u16",
         "offset": 4,
         "value": 2
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u16",
+          "offset": 4,
+          "value": 2
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -295,6 +416,18 @@
         "op": "set_u16",
         "offset": 6,
         "value": 511
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u16",
+          "offset": 6,
+          "value": 511
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -305,6 +438,18 @@
         "op": "set_u8",
         "offset": 8,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 8,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -315,6 +460,18 @@
         "op": "set_u8",
         "offset": 8,
         "value": 7
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 8,
+          "value": 7
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -325,6 +482,18 @@
         "op": "set_u8",
         "offset": 9,
         "value": 4
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 9,
+          "value": 4
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -335,6 +504,18 @@
         "op": "set_u8",
         "offset": 9,
         "value": 2
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 9,
+          "value": 2
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -345,6 +526,18 @@
         "op": "set_u8",
         "offset": 9,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 9,
+          "value": 1
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -355,6 +548,18 @@
         "op": "set_u8",
         "offset": 10,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 10,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -365,6 +570,18 @@
         "op": "set_u8",
         "offset": 10,
         "value": 3
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 10,
+          "value": 3
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -375,6 +592,18 @@
         "op": "set_u8",
         "offset": 11,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 11,
+          "value": 1
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -385,6 +614,18 @@
         "op": "set_u8",
         "offset": 12,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 12,
+          "value": 1
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -395,6 +636,18 @@
         "op": "set_u8",
         "offset": 479,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 479,
+          "value": 1
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -405,6 +658,18 @@
         "op": "set_u64",
         "offset": 16,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 16,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -415,6 +680,18 @@
         "op": "set_u64",
         "offset": 72,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 72,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -425,6 +702,18 @@
         "op": "set_u64",
         "offset": 112,
         "value": 9007199254740992
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 112,
+          "value": 9007199254740992
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -435,6 +724,18 @@
         "op": "set_u64",
         "offset": 184,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 184,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -445,6 +746,18 @@
         "op": "set_u64",
         "offset": 192,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 192,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -455,6 +768,18 @@
         "op": "set_u64",
         "offset": 280,
         "value": 9
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 280,
+          "value": 9
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -465,6 +790,18 @@
         "op": "zero",
         "offset": 288,
         "length": 32
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "zero",
+          "offset": 288,
+          "length": 32
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -474,6 +811,17 @@
       "mutation": {
         "op": "flip",
         "offset": 288
+      },
+      "execution": {
+        "baselineRecord": "endpoint_consumed",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 288
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -484,6 +832,18 @@
         "op": "set_u64",
         "offset": 280,
         "value": 5
+      },
+      "execution": {
+        "baselineRecord": "endpoint_cleaned",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 280,
+          "value": 5
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -493,6 +853,17 @@
       "mutation": {
         "op": "flip",
         "offset": 288
+      },
+      "execution": {
+        "baselineRecord": "endpoint_cleaned",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 288
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -503,6 +874,18 @@
         "op": "set_u64",
         "offset": 320,
         "value": 20
+      },
+      "execution": {
+        "baselineRecord": "endpoint_cleaned",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 320,
+          "value": 20
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -513,6 +896,18 @@
         "op": "set_u64",
         "offset": 392,
         "value": 97
+      },
+      "execution": {
+        "baselineRecord": "endpoint_cleaned",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 392,
+          "value": 97
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -523,6 +918,22 @@
         "op": "set_u64",
         "offset": 16,
         "value": 7
+      },
+      "execution": {
+        "baselineRecord": "endpoint_prepared",
+        "baselineSpool": "shared_primary_outer",
+        "transition": {
+          "from": "endpoint_cleaned",
+          "to": "endpoint_prepared",
+          "expectedStatus": "reject"
+        },
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 16,
+          "value": 7
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -533,6 +944,18 @@
         "op": "set_u64",
         "offset": 320,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_prepared",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 320,
+          "value": 1
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -543,6 +966,18 @@
         "op": "set_u64",
         "offset": 392,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_prepared",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 392,
+          "value": 1
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -553,6 +988,18 @@
         "op": "set_u64",
         "offset": 320,
         "value": 9
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 320,
+          "value": 9
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -562,6 +1009,17 @@
       "mutation": {
         "op": "flip",
         "offset": 328
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 328
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -572,6 +1030,18 @@
         "op": "zero",
         "offset": 360,
         "length": 32
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "zero",
+          "offset": 360,
+          "length": 32
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -582,6 +1052,18 @@
         "op": "set_u64",
         "offset": 392,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 392,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -592,6 +1074,18 @@
         "op": "set_u64",
         "offset": 392,
         "value": 65537
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 392,
+          "value": 65537
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -602,6 +1096,18 @@
         "op": "set_u64",
         "offset": 400,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 400,
+          "value": 0
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -612,6 +1118,18 @@
         "op": "set_u64",
         "offset": 400,
         "value": 1048577
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 400,
+          "value": 1048577
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -622,6 +1140,18 @@
         "op": "zero",
         "offset": 408,
         "length": 32
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "zero",
+          "offset": 408,
+          "length": 32
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -631,6 +1161,17 @@
       "mutation": {
         "op": "flip",
         "offset": 480
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 480
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -640,6 +1181,17 @@
       "mutation": {
         "op": "truncate",
         "bytes": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "truncate",
+          "bytes": 1
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -649,6 +1201,17 @@
       "mutation": {
         "op": "append",
         "hex": "00"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "append",
+          "hex": "00"
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -658,6 +1221,17 @@
       "mutation": {
         "op": "substitute",
         "target": "record"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 24
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -667,6 +1241,17 @@
       "mutation": {
         "op": "flip",
         "offset": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 0
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -677,6 +1262,18 @@
         "op": "set_u16",
         "offset": 8,
         "value": 2
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u16",
+          "offset": 8,
+          "value": 2
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -687,6 +1284,18 @@
         "op": "set_u8",
         "offset": 10,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 10,
+          "value": 1
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -697,6 +1306,18 @@
         "op": "set_u8",
         "offset": 11,
         "value": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 11,
+          "value": 1
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -707,6 +1328,18 @@
         "op": "set_u64",
         "offset": 12,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 12,
+          "value": 0
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -717,6 +1350,18 @@
         "op": "set_u64",
         "offset": 12,
         "value": 65537
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 12,
+          "value": 65537
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -727,6 +1372,18 @@
         "op": "set_u64",
         "offset": 20,
         "value": 0
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 20,
+          "value": 0
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -737,6 +1394,18 @@
         "op": "set_u64",
         "offset": 20,
         "value": 1048577
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 20,
+          "value": 1048577
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -746,6 +1415,17 @@
       "mutation": {
         "op": "flip",
         "offset": 28
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 28
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -755,6 +1435,17 @@
       "mutation": {
         "op": "flip",
         "offset": 44
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 44
+        },
+        "integrityRepair": "inner_spool_checksum"
       }
     },
     {
@@ -764,6 +1455,17 @@
       "mutation": {
         "op": "flip",
         "offset": 60
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 60
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -773,6 +1475,17 @@
       "mutation": {
         "op": "flip",
         "offset": 92
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 92
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -782,6 +1495,17 @@
       "mutation": {
         "op": "flip",
         "offset": 124
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 124
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -791,6 +1515,17 @@
       "mutation": {
         "op": "flip",
         "offset": -1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": -1
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -800,6 +1535,17 @@
       "mutation": {
         "op": "truncate",
         "bytes": 1
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "truncate",
+          "bytes": 1
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -809,6 +1555,17 @@
       "mutation": {
         "op": "append",
         "hex": "00"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "inner",
+        "transition": null,
+        "applyTo": "inner_spool",
+        "effectiveMutation": {
+          "op": "append",
+          "hex": "00"
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -818,6 +1575,17 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "alternate_substitution_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "substitute",
+          "target": "spool"
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -827,6 +1595,17 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 108
+        },
+        "integrityRepair": "outer_spool_checksum"
       }
     },
     {
@@ -836,6 +1615,17 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": -1
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -845,6 +1635,17 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 0
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -854,6 +1655,18 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "set_u16",
+          "offset": 8,
+          "value": 2
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -863,6 +1676,18 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 10,
+          "value": 1
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -872,6 +1697,18 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "set_u8",
+          "offset": 11,
+          "value": 1
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -881,6 +1718,18 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 12,
+          "value": 1638
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -890,6 +1739,18 @@
       "mutation": {
         "op": "substitute",
         "target": "spool"
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "encrypted_outer_spool",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 12,
+          "value": 9007199254740992
+        },
+        "integrityRepair": "none"
       }
     },
     {
@@ -900,6 +1761,18 @@
         "op": "set_u64",
         "offset": 392,
         "value": 98
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 392,
+          "value": 98
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -910,6 +1783,18 @@
         "op": "set_u64",
         "offset": 400,
         "value": 194
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "set_u64",
+          "offset": 400,
+          "value": 194
+        },
+        "integrityRepair": "record_checksum"
       }
     },
     {
@@ -919,6 +1804,17 @@
       "mutation": {
         "op": "flip",
         "offset": 408
+      },
+      "execution": {
+        "baselineRecord": "endpoint_awaiting_control_commit",
+        "baselineSpool": "shared_primary_outer",
+        "transition": null,
+        "applyTo": "record",
+        "effectiveMutation": {
+          "op": "flip",
+          "offset": 408
+        },
+        "integrityRepair": "record_checksum"
       }
     }
   ],

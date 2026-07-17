@@ -160,6 +160,31 @@ plane and authenticated runtime implementation. The gate closed after:
 5. Freezing recovery as endpoint/recovery-mediated authority with no support or
    hosted-server path that can inject endpoints, keys, or grants.
 
+The test-only native rotation-preparation corpus freezes exact wire parity with
+BLAKE2b-256 commitments rather than publishing secret-bearing bytes. Its v2
+schema commits all 12 endpoint/broker phase records, the shared primary outer
+spool frame and a valid alternate substitution frame, their checksums, AAD, KDF input and derived-key commitments, ciphertext,
+and frame digests. Each negative case also carries its baseline, mutation
+surface, effective byte mutation, and checksum-repair instruction so native
+runners can reproduce all spool and binding failures independently. Raw pending
+keys, 512-byte records, inner spools, signed entries, and recovery wraps remain
+absent from committed fixtures and source; test-runtime copies are zeroized.
+
+Native parity runners pipe
+`pnpm --filter @agent-native/core exec tsx scripts/materialize-native-rotation-preparation-vectors.ts --ephemeral-material-stdout`
+directly into the native harness. Stdout contains only the `ANVRMS02` binary
+stream: a fixed 152-byte little-endian header with version, flags, five bounded
+payload lengths, primary vault, ceremony, endpoint, and broker IDs, and alternate
+vault and ceremony IDs; the pending key, nonce, signed entry, recovery wrap, and
+fully valid alternate outer frame; then a domain-separated BLAKE2b-256
+checksum. Parsers reject bad magic, version, flags, header or payload lengths,
+truncation, trailing bytes, and checksum mismatch. Producers and consumers
+zero buffers after use; raw stream bytes may never touch disk, fixtures, source,
+logs, reports, the source corpus, or packages.
+The fifth payload is bounded by the encrypted spool contract at exactly
+`1,114,424` bytes: 108 header bytes, the `1,114,268`-byte maximum inner spool,
+the 16-byte AEAD tag, and the 32-byte outer checksum.
+
 The final review required five adversarial ceremony passes. It verified
 signed/head-bound lifecycle events, immediate role-aware signer removal,
 endpoint/broker separation, collision-resistant candidate enrollment, and

@@ -20,10 +20,11 @@ import {
 } from "./recovery-ceremony-codecs.js";
 
 export const ANC_V1_NATIVE_ROTATION_PREPARATION_CORPUS_SCHEMA =
-  "anc/v1-native-rotation-preparation-vectors@1" as const;
+  "anc/v1-native-rotation-preparation-vectors@2" as const;
 export const ANC_V1_NATIVE_ROTATION_PREPARATION_GENERATOR =
   "buildAncV1NativeRotationPreparationVectors" as const;
 export const ANC_V1_NATIVE_ROTATION_PREPARATION_SOURCE_PATHS = [
+  "packages/core/scripts/materialize-native-rotation-preparation-vectors.ts",
   "packages/core/src/e2ee/native-rotation-preparation-vectors.ts",
   "packages/core/src/e2ee/control-log.ts",
   "packages/core/src/e2ee/recovery-ceremony-codecs.ts",
@@ -105,6 +106,14 @@ type Mutation =
   | { op: "append"; hex: string }
   | { op: "substitute"; target: "record" | "spool" };
 
+type PositiveShape = {
+  name: string;
+  role: 1 | 2;
+  unattended: 0 | 1;
+  phase: 1 | 2 | 3 | 4 | 5 | 6;
+  flags: 0 | 3;
+};
+
 export interface AncV1NativeRotationPreparationNegativeCase {
   name: string;
   target: "record" | "spool" | "binding";
@@ -155,10 +164,20 @@ const SPOOL_LAYOUT = {
       "agent-native/private-vault/rotation-preparation-spool-frame/anc-v1\\0",
   },
 } as const;
+const MATERIAL_STREAM_LAYOUT = {
+  magicHex: "414e56524d533032",
+  version: 2,
+  headerBytes: 152,
+  checksumBytes: 32,
+  alternateOuterMaxBytes: 1_114_424,
+  maxBytes: 2_228_776,
+  checksumDomainEscaped:
+    "agent-native/private-vault/rotation-preparation-material-stream/anc-v1\\0",
+} as const;
 
 const DERIVATION = {
   warning:
-    "Synthetic labels and BLAKE2b-256 commitments only. Pending keys and secret-bearing records are materialized only in test memory and zeroized.",
+    "Synthetic labels and BLAKE2b-256 commitments only. Secret-bearing material is derived only at test runtime, zeroized after use, and never committed or packaged; native parity may bridge it through the guarded ephemeral materializer.",
   algorithm: "blake2b-256",
   domainEscaped:
     "agent-native/private-vault/rotation-preparation/test-derivation/anc-v1\\0",
@@ -167,6 +186,7 @@ const DERIVATION = {
     signedEntry: "signed-control-log-entry",
     recoveryWrap: "recovery-wrap-artifact",
     spoolNonce: "encrypted-spool-nonce",
+    alternateSpoolNonce: "alternate-encrypted-spool-nonce",
     issuerSigningSeed: "issuer-signing-seed",
     issuerAgreementSeed: "issuer-agreement-seed",
     recoveryAgreementSeed: "recovery-agreement-seed",
@@ -185,6 +205,11 @@ const ID = {
   removedEndpoint: new Uint8Array(16).fill(0x47),
   broker: new Uint8Array(16).fill(0x49),
   brokerEnrollment: new Uint8Array(16).fill(0x4a),
+} as const;
+const ALTERNATE_ID = {
+  ...ID,
+  vault: new Uint8Array(16).fill(0x81),
+  ceremony: new Uint8Array(16).fill(0x83),
 } as const;
 const BASE = {
   custodyGeneration: 11,
@@ -238,8 +263,178 @@ async function commitment(bytes: Uint8Array) {
   return sodium.crypto_generichash(32, bytes, null);
 }
 
-async function canonicalArtifacts() {
-  const pendingKey = await derive(DERIVATION.labels.pendingEpochKey, 32);
+async function domainHash(escapedDomain: string, bytes: Uint8Array) {
+  const message = concat(domain(escapedDomain), bytes);
+  const digest = await commitment(message);
+  message.fill(0);
+  return digest;
+}
+
+const setU16 = (view: DataView, offset: number, value: number) =>
+  view.setUint16(offset, value, true);
+const setU64 = (view: DataView, offset: number, value: number) =>
+  view.setBigUint64(offset, BigInt(value), true);
+
+async function encodeSpool(
+  artifacts: Awaited<ReturnType<typeof canonicalArtifacts>>,
+) {
+  const signedHash = await commitment(artifacts.signedEntry);
+  const wrapHash = await commitment(artifacts.recoveryWrap);
+  const bytes = new Uint8Array(
+    SPOOL_LAYOUT.headerBytes +
+      artifacts.signedEntry.length +
+      artifacts.recoveryWrap.length +
+      SPOOL_LAYOUT.checksumBytes,
+  );
+  const view = new DataView(bytes.buffer);
+  bytes.set(text("ANVROT01"), 0);
+  setU16(view, 8, SPOOL_LAYOUT.version);
+  setU64(view, 12, artifacts.signedEntry.length);
+  setU64(view, 20, artifacts.recoveryWrap.length);
+  bytes.set(artifacts.bindings.vault, 28);
+  bytes.set(artifacts.bindings.ceremony, 44);
+  bytes.set(signedHash, 60);
+  bytes.set(wrapHash, 92);
+  bytes.set(artifacts.signedEntry, SPOOL_LAYOUT.headerBytes);
+  bytes.set(
+    artifacts.recoveryWrap,
+    SPOOL_LAYOUT.headerBytes + artifacts.signedEntry.length,
+  );
+  bytes.set(
+    await domainHash(
+      SPOOL_LAYOUT.checksumDomainEscaped,
+      bytes.subarray(0, -SPOOL_LAYOUT.checksumBytes),
+    ),
+    bytes.length - SPOOL_LAYOUT.checksumBytes,
+  );
+  signedHash.fill(0);
+  wrapHash.fill(0);
+  return bytes;
+}
+
+async function encodeEncryptedSpool(
+  artifacts: Awaited<ReturnType<typeof canonicalArtifacts>>,
+  inner: Uint8Array,
+) {
+  await sodium.ready;
+  const header = new Uint8Array(SPOOL_LAYOUT.encryptedAtRest.headerBytes);
+  const view = new DataView(header.buffer);
+  header.set(text("ANVROTE1"), 0);
+  setU16(view, 8, SPOOL_LAYOUT.version);
+  setU64(view, 12, inner.length);
+  header.set(artifacts.bindings.vault, 20);
+  header.set(artifacts.bindings.ceremony, 36);
+  header.set(artifacts.spoolNonce, 52);
+  header.set(await commitment(inner), 76);
+  const kdfInput = concat(
+    artifacts.pendingKey,
+    artifacts.bindings.vault,
+    artifacts.bindings.ceremony,
+  );
+  const key = await domainHash(
+    SPOOL_LAYOUT.encryptedAtRest.kdfDomainEscaped,
+    kdfInput,
+  );
+  const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
+    inner,
+    header,
+    null,
+    artifacts.spoolNonce,
+    key,
+  );
+  const withoutChecksum = concat(header, ciphertext);
+  const bytes = concat(
+    withoutChecksum,
+    await domainHash(
+      SPOOL_LAYOUT.encryptedAtRest.checksumDomainEscaped,
+      withoutChecksum,
+    ),
+  );
+  const commitments = {
+    bytes: bytes.length,
+    outerFrameCommitmentHex: ancV1BytesToHex(await commitment(bytes)),
+    aadCommitmentHex: ancV1BytesToHex(await commitment(header)),
+    kdfInputCommitmentHex: ancV1BytesToHex(await commitment(kdfInput)),
+    derivedKeyCommitmentHex: ancV1BytesToHex(await commitment(key)),
+    ciphertextCommitmentHex: ancV1BytesToHex(await commitment(ciphertext)),
+    checksumHex: ancV1BytesToHex(bytes.subarray(-32)),
+    frameDigestHex: ancV1BytesToHex(
+      await domainHash(SPOOL_LAYOUT.encryptedAtRest.digestDomainEscaped, bytes),
+    ),
+  };
+  header.fill(0);
+  kdfInput.fill(0);
+  key.fill(0);
+  ciphertext.fill(0);
+  withoutChecksum.fill(0);
+  return { bytes, commitments };
+}
+
+async function encodeRecord(
+  shape: PositiveShape,
+  artifacts: Awaited<ReturnType<typeof canonicalArtifacts>>,
+  innerSpool: Uint8Array,
+  encryptedSpool: Uint8Array,
+) {
+  const checkpoint = shape.role === 1 ? artifacts.endpoint : artifacts.broker;
+  const bytes = new Uint8Array(RECORD_LAYOUT.bytes);
+  const view = new DataView(bytes.buffer);
+  bytes.set(text("ANVR"), 0);
+  setU16(view, 4, RECORD_LAYOUT.version);
+  setU16(view, 6, RECORD_LAYOUT.bytes);
+  bytes[8] = shape.phase;
+  bytes[9] = shape.flags;
+  bytes[10] = shape.role;
+  bytes[11] = shape.unattended;
+  setU64(view, 16, 7);
+  bytes.set(ID.vault, 24);
+  bytes.set(checkpoint.endpointId, 40);
+  bytes.set(ID.ceremony, 56);
+  setU64(view, 72, BASE.custodyGeneration);
+  bytes.set(new Uint8Array(32).fill(0x99), 80);
+  setU64(view, 112, BASE.sequence);
+  bytes.set(BASE.head, 120);
+  bytes.set(BASE.membership, 152);
+  setU64(view, 184, BASE.epoch);
+  setU64(view, 192, BASE.recoveryGeneration);
+  bytes.set(checkpoint.signingPublicKey, 200);
+  bytes.set(checkpoint.agreementPublicKey, 232);
+  bytes.set(checkpoint.enrollmentRef, 264);
+  if (shape.phase < 6) setU64(view, 280, BASE.epoch + 1);
+  if (shape.phase < 5) bytes.set(artifacts.pendingKey, 288);
+  if (shape.phase === 4 || shape.phase === 5) {
+    const spoolView = new DataView(
+      innerSpool.buffer,
+      innerSpool.byteOffset,
+      innerSpool.byteLength,
+    );
+    setU64(view, 320, BASE.sequence + 1);
+    bytes.set(BASE.head, 328);
+    bytes.set(artifacts.transcript, 360);
+    setU64(view, 392, Number(spoolView.getBigUint64(12, true)));
+    setU64(view, 400, Number(spoolView.getBigUint64(20, true)));
+    bytes.set(
+      await domainHash(
+        SPOOL_LAYOUT.encryptedAtRest.digestDomainEscaped,
+        encryptedSpool,
+      ),
+      408,
+    );
+  }
+  bytes.set(
+    await domainHash(
+      RECORD_LAYOUT.checksumDomainEscaped,
+      bytes.subarray(0, RECORD_LAYOUT.checksumOffset),
+    ),
+    RECORD_LAYOUT.checksumOffset,
+  );
+  return bytes;
+}
+
+async function canonicalArtifacts(ids = ID, suppliedPendingKey?: Uint8Array) {
+  const pendingKey =
+    suppliedPendingKey?.slice() ??
+    (await derive(DERIVATION.labels.pendingEpochKey, 32));
   const signingSeed = await derive(DERIVATION.labels.issuerSigningSeed, 32);
   const agreementSeed = await derive(DERIVATION.labels.issuerAgreementSeed, 32);
   const recoverySeed = await derive(
@@ -262,16 +457,16 @@ async function canonicalArtifacts() {
   const recoveryWrap = await createAncV1RecoveryWrap(
     {
       suite: "anc/v1",
-      vaultId: ID.vault,
+      vaultId: ids.vault,
       type: "recovery-wrap",
       createdAt: 1_721_296_801,
-      envelopeId: ID.envelope,
-      ceremonyId: ID.ceremony,
+      envelopeId: ids.envelope,
+      ceremonyId: ids.ceremony,
       recoveryGeneration: BASE.recoveryGeneration,
-      recoveryId: ID.recovery,
+      recoveryId: ids.recovery,
       recoveryKeyAgreementPublicKey: recovery.publicKey,
       epoch: BASE.epoch + 1,
-      issuerEndpointId: ID.endpoint,
+      issuerEndpointId: ids.endpoint,
       activationControlSequence: BASE.sequence + 1,
       activationPreviousHead: BASE.head,
       activationPreviousMembershipHash: BASE.membership,
@@ -286,42 +481,42 @@ async function canonicalArtifacts() {
   const recoveryWrapBytes = encodeAncV1RecoveryWrap(recoveryWrap);
   const recoveryWrapHash = await hashAncV1RecoveryWrap(
     recoveryWrapBytes,
-    ID.vault,
+    ids.vault,
   );
   const issuer: ControlLogMember = {
-    endpointId: ancV1BytesToHex(ID.endpoint),
+    endpointId: ancV1BytesToHex(ids.endpoint),
     role: "endpoint",
     unattended: false,
     signingPublicKey: ancV1BytesToHex(signing.publicKey),
     keyAgreementPublicKey: ancV1BytesToHex(agreement.publicKey),
-    enrollmentRef: ancV1BytesToHex(ID.enrollment),
+    enrollmentRef: ancV1BytesToHex(ids.enrollment),
   };
   const broker: ControlLogMember = {
-    endpointId: ancV1BytesToHex(ID.broker),
+    endpointId: ancV1BytesToHex(ids.broker),
     role: "broker",
     unattended: true,
     signingPublicKey: ancV1BytesToHex(brokerSigning.publicKey),
     keyAgreementPublicKey: ancV1BytesToHex(brokerAgreement.publicKey),
-    enrollmentRef: ancV1BytesToHex(ID.brokerEnrollment),
+    enrollmentRef: ancV1BytesToHex(ids.brokerEnrollment),
   };
   const commit: ControlMembershipCommit = {
     suite: "anc/v1",
     type: "membership_commit",
-    vaultId: ancV1BytesToHex(ID.vault),
-    ceremonyId: ancV1BytesToHex(ID.ceremony),
+    vaultId: ancV1BytesToHex(ids.vault),
+    ceremonyId: ancV1BytesToHex(ids.ceremony),
     ceremonyKind: "remove_device",
     epoch: BASE.epoch + 1,
     previousMembershipHash: ancV1BytesToHex(BASE.membership),
     activeMembers: [issuer, broker].sort((left, right) =>
       left.endpointId.localeCompare(right.endpointId),
     ),
-    removedEndpointIds: [ancV1BytesToHex(ID.removedEndpoint)],
+    removedEndpointIds: [ancV1BytesToHex(ids.removedEndpoint)],
     rotationCompleted: true,
     outstandingJobsResolved: false,
     recoverySnapshotHash: null,
     recoveryAuthorizationHash: null,
     recoveryGeneration: BASE.recoveryGeneration,
-    recoveryId: ancV1BytesToHex(ID.recovery),
+    recoveryId: ancV1BytesToHex(ids.recovery),
     recoverySigningPublicKey: ancV1BytesToHex(BASE.recoverySigningPublicKey),
     recoveryKeyAgreementPublicKey: ancV1BytesToHex(recovery.publicKey),
     recoveryWrapHash: ancV1BytesToHex(recoveryWrapHash),
@@ -329,7 +524,7 @@ async function canonicalArtifacts() {
   const entry = await createSignedControlLogEntry({
     vaultId: commit.vaultId,
     createdAt: "2024-07-18T10:00:02.000Z",
-    envelopeId: ancV1BytesToHex(ID.envelope),
+    envelopeId: ancV1BytesToHex(ids.envelope),
     sequence: BASE.sequence + 1,
     previousHash: ancV1BytesToHex(BASE.head),
     innerEnvelope: commit,
@@ -341,6 +536,7 @@ async function canonicalArtifacts() {
     "log-entry",
     encodeControlLogInnerEnvelope(commit),
   );
+  const spoolNonce = await derive(DERIVATION.labels.spoolNonce, 24);
   for (const secret of [
     signingSeed,
     agreementSeed,
@@ -358,12 +554,29 @@ async function canonicalArtifacts() {
     pendingKey,
     signedEntry,
     recoveryWrap: recoveryWrapBytes,
+    spoolNonce,
     transcript,
     signingPublicKey: signing.publicKey,
     agreementPublicKey: agreement.publicKey,
     recoveryAgreementPublicKey: recovery.publicKey,
     brokerSigningPublicKey: brokerSigning.publicKey,
     brokerAgreementPublicKey: brokerAgreement.publicKey,
+    endpoint: {
+      endpointId: ids.endpoint,
+      signingPublicKey: signing.publicKey,
+      agreementPublicKey: agreement.publicKey,
+      enrollmentRef: ids.enrollment,
+    },
+    broker: {
+      endpointId: ids.broker,
+      signingPublicKey: brokerSigning.publicKey,
+      agreementPublicKey: brokerAgreement.publicKey,
+      enrollmentRef: ids.brokerEnrollment,
+    },
+    bindings: {
+      vault: ids.vault,
+      ceremony: ids.ceremony,
+    },
   };
 }
 
@@ -378,6 +591,52 @@ function provenanceValid(value: AncV1NativeRotationPreparationProvenance) {
         /^[0-9a-f]{64}$/.test(value.sources[index]!.sha256),
     )
   );
+}
+
+export async function buildAncV1NativeRotationPreparationEphemeralMaterial() {
+  const artifacts = await canonicalArtifacts();
+  const alternate = await canonicalArtifacts(
+    ALTERNATE_ID,
+    artifacts.pendingKey,
+  );
+  alternate.spoolNonce.fill(0);
+  alternate.spoolNonce.set(
+    await derive(DERIVATION.labels.alternateSpoolNonce, 24),
+  );
+  const alternateInner = await encodeSpool(alternate);
+  const alternateOuter = await encodeEncryptedSpool(alternate, alternateInner);
+  alternateInner.fill(0);
+  alternate.pendingKey.fill(0);
+  alternate.spoolNonce.fill(0);
+  alternate.signedEntry.fill(0);
+  alternate.recoveryWrap.fill(0);
+  return {
+    bindings: {
+      vaultIdHex: ancV1BytesToHex(ID.vault),
+      ceremonyIdHex: ancV1BytesToHex(ID.ceremony),
+      alternateVaultIdHex: ancV1BytesToHex(ALTERNATE_ID.vault),
+      alternateCeremonyIdHex: ancV1BytesToHex(ALTERNATE_ID.ceremony),
+    },
+    identities: {
+      endpoint: {
+        role: 1 as const,
+        unattended: 0 as const,
+        endpointIdHex: ancV1BytesToHex(ID.endpoint),
+      },
+      broker: {
+        role: 2 as const,
+        unattended: 1 as const,
+        endpointIdHex: ancV1BytesToHex(ID.broker),
+      },
+    },
+    files: {
+      pendingEpochKey: artifacts.pendingKey,
+      spoolNonce: artifacts.spoolNonce,
+      signedEntry: artifacts.signedEntry,
+      recoveryWrap: artifacts.recoveryWrap,
+      alternateOuter: alternateOuter.bytes,
+    },
+  };
 }
 
 const negativeCases: readonly AncV1NativeRotationPreparationNegativeCase[] = [
@@ -795,18 +1054,115 @@ const negativeCases: readonly AncV1NativeRotationPreparationNegativeCase[] = [
   },
 ] as const;
 
+function mutationExecution(
+  testCase: AncV1NativeRotationPreparationNegativeCase,
+  encryptedOuterBytes: number,
+) {
+  const baselineRecord = testCase.name.startsWith("record_phase1")
+    ? "endpoint_prepared"
+    : testCase.category === "record.transition.generation"
+      ? "endpoint_prepared"
+      : testCase.name.startsWith("record_phase5")
+        ? "endpoint_consumed"
+        : testCase.name.startsWith("record_phase6")
+          ? "endpoint_cleaned"
+          : "endpoint_awaiting_control_commit";
+  const applyTo = testCase.category.startsWith("spool.encryption")
+    ? "encrypted_outer_spool"
+    : testCase.target === "spool"
+      ? "inner_spool"
+      : testCase.mutation.op === "substitute" &&
+          testCase.mutation.target === "spool"
+        ? "encrypted_outer_spool"
+        : "record";
+  const effectiveMutation: Mutation = testCase.category.startsWith(
+    "spool.encryption",
+  )
+    ? testCase.category === "spool.encryption.aead"
+      ? { op: "flip", offset: 108 }
+      : testCase.category === "spool.encryption.checksum"
+        ? { op: "flip", offset: -1 }
+        : testCase.category === "spool.encryption.magic"
+          ? { op: "flip", offset: 0 }
+          : testCase.category === "spool.encryption.version"
+            ? { op: "set_u16", offset: 8, value: 2 }
+            : testCase.category === "spool.encryption.flags"
+              ? { op: "set_u8", offset: 10, value: 1 }
+              : testCase.category === "spool.encryption.reserved"
+                ? { op: "set_u8", offset: 11, value: 1 }
+                : testCase.category === "spool.encryption.length"
+                  ? {
+                      op: "set_u64",
+                      offset: 12,
+                      value: encryptedOuterBytes,
+                    }
+                  : {
+                      op: "set_u64",
+                      offset: 12,
+                      value: Number.MAX_SAFE_INTEGER + 1,
+                    }
+    : testCase.category === "spool.binding.substitution"
+      ? testCase.mutation
+      : testCase.mutation.op === "substitute"
+        ? testCase.mutation.target === "record"
+          ? { op: "flip", offset: 24 }
+          : { op: "flip", offset: 28 }
+        : testCase.mutation;
+  const integrityRepair =
+    testCase.category === "spool.encryption.aead"
+      ? "outer_spool_checksum"
+      : applyTo === "record" &&
+          !testCase.category.startsWith("record.crypto") &&
+          !testCase.category.startsWith("record.wire.truncation") &&
+          !testCase.category.startsWith("record.wire.extra")
+        ? "record_checksum"
+        : applyTo === "inner_spool" &&
+            !testCase.category.startsWith("spool.crypto") &&
+            !testCase.category.startsWith("spool.wire.truncation") &&
+            !testCase.category.startsWith("spool.wire.extra") &&
+            !testCase.category.startsWith("spool.binding.signed_hash") &&
+            !testCase.category.startsWith("spool.binding.recovery_wrap_hash") &&
+            !testCase.category.startsWith("spool.binding.substitution")
+          ? "inner_spool_checksum"
+          : "none";
+  return {
+    baselineRecord,
+    baselineSpool:
+      testCase.category === "spool.binding.substitution"
+        ? "alternate_substitution_outer"
+        : applyTo === "inner_spool"
+          ? "inner"
+          : "shared_primary_outer",
+    transition:
+      testCase.category === "record.transition.generation"
+        ? {
+            from: "endpoint_cleaned" as const,
+            to: "endpoint_prepared" as const,
+            expectedStatus: "reject" as const,
+          }
+        : null,
+    applyTo,
+    effectiveMutation,
+    integrityRepair,
+  } as const;
+}
+
 export async function buildAncV1NativeRotationPreparationVectors(
   provenance: AncV1NativeRotationPreparationProvenance,
 ) {
   if (!provenanceValid(provenance))
     throw new Error("Invalid fixture provenance");
   const artifacts = await canonicalArtifacts();
-  const spoolNonce = await derive(DERIVATION.labels.spoolNonce, 24);
+  const alternateSpoolNonce = await derive(
+    DERIVATION.labels.alternateSpoolNonce,
+    24,
+  );
   const commitments = {
     pendingEpochKey: ancV1BytesToHex(await commitment(artifacts.pendingKey)),
     signedEntry: ancV1BytesToHex(await commitment(artifacts.signedEntry)),
     recoveryWrap: ancV1BytesToHex(await commitment(artifacts.recoveryWrap)),
-    spoolNonce: ancV1BytesToHex(await commitment(spoolNonce)),
+    spoolNonce: ancV1BytesToHex(await commitment(artifacts.spoolNonce)),
+    alternateSpoolNonce: ancV1BytesToHex(await commitment(alternateSpoolNonce)),
   };
   const externalCheckpoint = {
     vaultIdHex: ancV1BytesToHex(ID.vault),
@@ -848,11 +1204,103 @@ export async function buildAncV1NativeRotationPreparationVectors(
         to === from + 1 || (from === 5 && to === 0) ? "accept" : "reject",
     })),
   ).flat();
-  artifacts.pendingKey.fill(0);
-  artifacts.signedEntry.fill(0);
-  artifacts.recoveryWrap.fill(0);
-  spoolNonce.fill(0);
-  return {
+  const positiveShapes: readonly PositiveShape[] = [
+    { name: "endpoint_prepared", role: 1, unattended: 0, phase: 1, flags: 0 },
+    { name: "endpoint_rewrapped", role: 1, unattended: 0, phase: 2, flags: 0 },
+    {
+      name: "endpoint_acknowledged",
+      role: 1,
+      unattended: 0,
+      phase: 3,
+      flags: 0,
+    },
+    {
+      name: "endpoint_awaiting_control_commit",
+      role: 1,
+      unattended: 0,
+      phase: 4,
+      flags: 3,
+    },
+    { name: "broker_prepared", role: 2, unattended: 1, phase: 1, flags: 0 },
+    { name: "broker_rewrapped", role: 2, unattended: 1, phase: 2, flags: 0 },
+    {
+      name: "broker_acknowledged",
+      role: 2,
+      unattended: 1,
+      phase: 3,
+      flags: 0,
+    },
+    {
+      name: "broker_awaiting_control_commit",
+      role: 2,
+      unattended: 1,
+      phase: 4,
+      flags: 3,
+    },
+    { name: "endpoint_consumed", role: 1, unattended: 0, phase: 5, flags: 3 },
+    { name: "broker_consumed", role: 2, unattended: 1, phase: 5, flags: 3 },
+    { name: "endpoint_cleaned", role: 1, unattended: 0, phase: 6, flags: 0 },
+    { name: "broker_cleaned", role: 2, unattended: 1, phase: 6, flags: 0 },
+  ];
+  const innerSpool = await encodeSpool(artifacts);
+  const primaryOuter = await encodeEncryptedSpool(artifacts, innerSpool);
+  const alternateMaterial = await canonicalArtifacts(
+    ALTERNATE_ID,
+    artifacts.pendingKey,
+  );
+  alternateMaterial.spoolNonce.fill(0);
+  alternateMaterial.spoolNonce.set(alternateSpoolNonce);
+  const alternateInnerSpool = await encodeSpool(alternateMaterial);
+  const alternateOuter = await encodeEncryptedSpool(
+    alternateMaterial,
+    alternateInnerSpool,
+  );
+  const positiveCases = await Promise.all(
+    positiveShapes.map(async (shape) => {
+      const bytes = await encodeRecord(
+        shape,
+        artifacts,
+        innerSpool,
+        primaryOuter.bytes,
+      );
+      const result = {
+        ...shape,
+        recordBytes: bytes.length,
+        recordCommitmentHex: ancV1BytesToHex(await commitment(bytes)),
+        recordChecksumHex: ancV1BytesToHex(
+          bytes.subarray(RECORD_LAYOUT.checksumOffset),
+        ),
+        encryptedOuterFrame:
+          shape.phase === 4 || shape.phase === 5
+            ? ("shared_primary" as const)
+            : null,
+      };
+      bytes.fill(0);
+      return result;
+    }),
+  );
+  const wireCommitments = {
+    commitmentAlgorithm: "blake2b-256" as const,
+    innerSpool: {
+      bytes: innerSpool.length,
+      commitmentHex: ancV1BytesToHex(await commitment(innerSpool)),
+      checksumHex: ancV1BytesToHex(innerSpool.subarray(-32)),
+      signedEntryBytes: artifacts.signedEntry.length,
+      recoveryWrapBytes: artifacts.recoveryWrap.length,
+    },
+    primaryOuterFrame: {
+      name: "shared_primary" as const,
+      holderRoles: [1, 2] as const,
+      ...primaryOuter.commitments,
+    },
+    alternateSubstitutionOuterFrame: {
+      name: "alternate_substitution" as const,
+      vaultIdHex: ancV1BytesToHex(ALTERNATE_ID.vault),
+      ceremonyIdHex: ancV1BytesToHex(ALTERNATE_ID.ceremony),
+      ...alternateOuter.commitments,
+    },
+  };
+  const result = {
     schema: ANC_V1_NATIVE_ROTATION_PREPARATION_CORPUS_SCHEMA,
     suite: "anc/v1" as const,
     encoding: "hex" as const,
@@ -861,55 +1309,30 @@ export async function buildAncV1NativeRotationPreparationVectors(
     sourceAnchors: provenance.sources,
     recordLayout: RECORD_LAYOUT,
     spoolLayout: SPOOL_LAYOUT,
+    materialStreamLayout: MATERIAL_STREAM_LAYOUT,
     syntheticDerivation: { ...DERIVATION, commitments },
     externalCheckpoint,
     brokerCheckpoint,
-    positiveCases: [
-      { name: "endpoint_prepared", role: 1, unattended: 0, phase: 1, flags: 0 },
-      {
-        name: "endpoint_rewrapped",
-        role: 1,
-        unattended: 0,
-        phase: 2,
-        flags: 0,
-      },
-      {
-        name: "endpoint_acknowledged",
-        role: 1,
-        unattended: 0,
-        phase: 3,
-        flags: 0,
-      },
-      {
-        name: "endpoint_awaiting_control_commit",
-        role: 1,
-        unattended: 0,
-        phase: 4,
-        flags: 3,
-      },
-      { name: "broker_prepared", role: 2, unattended: 1, phase: 1, flags: 0 },
-      { name: "broker_rewrapped", role: 2, unattended: 1, phase: 2, flags: 0 },
-      {
-        name: "broker_acknowledged",
-        role: 2,
-        unattended: 1,
-        phase: 3,
-        flags: 0,
-      },
-      {
-        name: "broker_awaiting_control_commit",
-        role: 2,
-        unattended: 1,
-        phase: 4,
-        flags: 3,
-      },
-      { name: "endpoint_consumed", role: 1, unattended: 0, phase: 5, flags: 3 },
-      { name: "broker_consumed", role: 2, unattended: 1, phase: 5, flags: 3 },
-      { name: "endpoint_cleaned", role: 1, unattended: 0, phase: 6, flags: 0 },
-      { name: "broker_cleaned", role: 2, unattended: 1, phase: 6, flags: 0 },
-    ] as const,
+    wireCommitments,
+    positiveCases,
     categoryVocabulary: ANC_V1_NATIVE_ROTATION_PREPARATION_CATEGORIES,
-    negativeCases,
+    negativeCases: negativeCases.map((testCase) => ({
+      ...testCase,
+      execution: mutationExecution(testCase, primaryOuter.bytes.length),
+    })),
     transitionCases,
   };
+  innerSpool.fill(0);
+  primaryOuter.bytes.fill(0);
+  alternateOuter.bytes.fill(0);
+  alternateInnerSpool.fill(0);
+  alternateMaterial.pendingKey.fill(0);
+  alternateMaterial.signedEntry.fill(0);
+  alternateMaterial.recoveryWrap.fill(0);
+  alternateMaterial.spoolNonce.fill(0);
+  artifacts.pendingKey.fill(0);
+  artifacts.signedEntry.fill(0);
+  artifacts.recoveryWrap.fill(0);
+  artifacts.spoolNonce.fill(0);
+  return result;
 }

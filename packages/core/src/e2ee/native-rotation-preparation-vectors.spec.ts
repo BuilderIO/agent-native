@@ -1,3 +1,4 @@
+import { execFileSync, spawn } from "node:child_process";
 import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
@@ -6,6 +7,15 @@ import sodium from "libsodium-wrappers-sumo";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 
+import {
+  ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_CHECKSUM_DOMAIN,
+  ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_ALTERNATE_OUTER_MAX_BYTES,
+  ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_HEADER_BYTES,
+  ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_MAGIC,
+  ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_MAX_BYTES,
+  ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_VERSION,
+  buildEphemeralRotationPreparationStream,
+} from "../../scripts/materialize-native-rotation-preparation-vectors.js";
 import { ancV1BytesToHex, ancV1HexToBytes } from "./canonical.js";
 import {
   type ControlLogMember,
@@ -91,6 +101,18 @@ const mutation = z.discriminatedUnion("op", [
     })
     .strict(),
 ]);
+const frameCommitmentSchema = z
+  .object({
+    bytes: z.number().int().positive(),
+    outerFrameCommitmentHex: hex32,
+    aadCommitmentHex: hex32,
+    kdfInputCommitmentHex: hex32,
+    derivedKeyCommitmentHex: hex32,
+    ciphertextCommitmentHex: hex32,
+    checksumHex: hex32,
+    frameDigestHex: hex32,
+  })
+  .strict();
 const corpusSchema = z
   .object({
     schema: z.literal(ANC_V1_NATIVE_ROTATION_PREPARATION_CORPUS_SCHEMA),
@@ -164,6 +186,19 @@ const corpusSchema = z
           .strict(),
       })
       .strict(),
+    materialStreamLayout: z
+      .object({
+        magicHex: z.literal("414e56524d533032"),
+        version: z.literal(2),
+        headerBytes: z.literal(152),
+        checksumBytes: z.literal(32),
+        alternateOuterMaxBytes: z.literal(1_114_424),
+        maxBytes: z.literal(2_228_776),
+        checksumDomainEscaped: z.literal(
+          "agent-native/private-vault/rotation-preparation-material-stream/anc-v1\\0",
+        ),
+      })
+      .strict(),
     syntheticDerivation: z
       .object({
         warning: z.string().includes("zeroized"),
@@ -177,6 +212,7 @@ const corpusSchema = z
             signedEntry: z.literal("signed-control-log-entry"),
             recoveryWrap: z.literal("recovery-wrap-artifact"),
             spoolNonce: z.literal("encrypted-spool-nonce"),
+            alternateSpoolNonce: z.literal("alternate-encrypted-spool-nonce"),
             issuerSigningSeed: z.literal("issuer-signing-seed"),
             issuerAgreementSeed: z.literal("issuer-agreement-seed"),
             recoveryAgreementSeed: z.literal("recovery-agreement-seed"),
@@ -190,6 +226,7 @@ const corpusSchema = z
             signedEntry: hex32,
             recoveryWrap: hex32,
             spoolNonce: hex32,
+            alternateSpoolNonce: hex32,
           })
           .strict(),
       })
@@ -238,6 +275,29 @@ const corpusSchema = z
         recoveryAgreementPublicKeyHex: hex32,
       })
       .strict(),
+    wireCommitments: z
+      .object({
+        commitmentAlgorithm: z.literal("blake2b-256"),
+        innerSpool: z
+          .object({
+            bytes: z.number().int().positive(),
+            commitmentHex: hex32,
+            checksumHex: hex32,
+            signedEntryBytes: z.number().int().positive().max(65_536),
+            recoveryWrapBytes: z.number().int().positive().max(1_048_576),
+          })
+          .strict(),
+        primaryOuterFrame: frameCommitmentSchema.extend({
+          name: z.literal("shared_primary"),
+          holderRoles: z.tuple([z.literal(1), z.literal(2)]),
+        }),
+        alternateSubstitutionOuterFrame: frameCommitmentSchema.extend({
+          name: z.literal("alternate_substitution"),
+          vaultIdHex: z.string().regex(/^[0-9a-f]{32}$/),
+          ceremonyIdHex: z.string().regex(/^[0-9a-f]{32}$/),
+        }),
+      })
+      .strict(),
     positiveCases: z
       .array(
         z
@@ -254,6 +314,10 @@ const corpusSchema = z
               z.literal(6),
             ]),
             flags: z.union([z.literal(0), z.literal(3)]),
+            recordBytes: z.literal(512),
+            recordCommitmentHex: hex32,
+            recordChecksumHex: hex32,
+            encryptedOuterFrame: z.literal("shared_primary").nullable(),
           })
           .strict(),
       )
@@ -274,10 +338,45 @@ const corpusSchema = z
             target: z.enum(["record", "spool", "binding"]),
             category,
             mutation,
+            execution: z
+              .object({
+                baselineRecord: z.enum([
+                  "endpoint_prepared",
+                  "endpoint_awaiting_control_commit",
+                  "endpoint_consumed",
+                  "endpoint_cleaned",
+                ]),
+                baselineSpool: z.enum([
+                  "inner",
+                  "shared_primary_outer",
+                  "alternate_substitution_outer",
+                ]),
+                transition: z
+                  .object({
+                    from: z.literal("endpoint_cleaned"),
+                    to: z.literal("endpoint_prepared"),
+                    expectedStatus: z.literal("reject"),
+                  })
+                  .strict()
+                  .nullable(),
+                applyTo: z.enum([
+                  "record",
+                  "inner_spool",
+                  "encrypted_outer_spool",
+                ]),
+                effectiveMutation: mutation,
+                integrityRepair: z.enum([
+                  "none",
+                  "record_checksum",
+                  "inner_spool_checksum",
+                  "outer_spool_checksum",
+                ]),
+              })
+              .strict(),
           })
           .strict(),
       )
-      .min(50),
+      .length(68),
     transitionCases: z
       .array(
         z
@@ -511,6 +610,7 @@ async function materials(role: 1 | 2 = 1) {
 }
 
 async function encryptedSpool(material: Awaited<ReturnType<typeof materials>>) {
+  const bindingIds = "bindingIds" in material ? material.bindingIds : ids;
   const inner = await spool(material);
   const header = new Uint8Array(108);
   const view = new DataView(header.buffer);
@@ -519,13 +619,13 @@ async function encryptedSpool(material: Awaited<ReturnType<typeof materials>>) {
   header[10] = 0;
   header[11] = 0;
   u64(view, 12, inner.length);
-  header.set(ids.vault, 20);
-  header.set(ids.ceremony, 36);
+  header.set(bindingIds.vault, 20);
+  header.set(bindingIds.ceremony, 36);
   header.set(material.spoolNonce, 52);
   header.set(await hash(new Uint8Array(), inner), 76);
   const key = await hash(
     SPOOL_KDF_DOMAIN,
-    concat(material.pendingKey, ids.vault, ids.ceremony),
+    concat(material.pendingKey, bindingIds.vault, bindingIds.ceremony),
   );
   const ciphertext = sodium.crypto_aead_xchacha20poly1305_ietf_encrypt(
     inner,
@@ -544,10 +644,47 @@ async function encryptedSpool(material: Awaited<ReturnType<typeof materials>>) {
   return output;
 }
 
+async function encryptedSpoolCommitments(
+  outer: Uint8Array,
+  material: Awaited<ReturnType<typeof materials>>,
+) {
+  const bindingIds = "bindingIds" in material ? material.bindingIds : ids;
+  const kdfInput = concat(
+    material.pendingKey,
+    bindingIds.vault,
+    bindingIds.ceremony,
+  );
+  const key = await hash(SPOOL_KDF_DOMAIN, kdfInput);
+  const result = {
+    bytes: outer.length,
+    outerFrameCommitmentHex: ancV1BytesToHex(
+      await hash(new Uint8Array(), outer),
+    ),
+    aadCommitmentHex: ancV1BytesToHex(
+      await hash(new Uint8Array(), outer.slice(0, 108)),
+    ),
+    kdfInputCommitmentHex: ancV1BytesToHex(
+      await hash(new Uint8Array(), kdfInput),
+    ),
+    derivedKeyCommitmentHex: ancV1BytesToHex(await hash(new Uint8Array(), key)),
+    ciphertextCommitmentHex: ancV1BytesToHex(
+      await hash(new Uint8Array(), outer.slice(108, -32)),
+    ),
+    checksumHex: ancV1BytesToHex(outer.slice(-32)),
+    frameDigestHex: ancV1BytesToHex(
+      await hash(SPOOL_FRAME_DIGEST_DOMAIN, outer),
+    ),
+  };
+  kdfInput.fill(0);
+  key.fill(0);
+  return result;
+}
+
 async function decryptSpool(
   outer: Uint8Array,
   material: Awaited<ReturnType<typeof materials>>,
 ) {
+  const bindingIds = "bindingIds" in material ? material.bindingIds : ids;
   if (outer.length < 156)
     return { ok: false as const, category: "spool.encryption.length" as const };
   if (!equal(outer.slice(0, 8), ENCRYPTED_SPOOL_MAGIC))
@@ -586,7 +723,7 @@ async function decryptSpool(
     };
   const key = await hash(
     SPOOL_KDF_DOMAIN,
-    concat(material.pendingKey, ids.vault, ids.ceremony),
+    concat(material.pendingKey, bindingIds.vault, bindingIds.ceremony),
   );
   try {
     const inner = sodium.crypto_aead_xchacha20poly1305_ietf_decrypt(
@@ -755,6 +892,10 @@ async function spoolStatus(
   bytes: Uint8Array,
   material: Awaited<ReturnType<typeof materials>>,
 ): Promise<Status> {
+  const bindingIds = "bindingIds" in material ? material.bindingIds : ids;
+  const primaryBinding =
+    equal(bindingIds.vault, ids.vault) &&
+    equal(bindingIds.ceremony, ids.ceremony);
   if (bytes.length < 156) return reject("spool.wire.truncation");
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (!equal(bytes.slice(0, 8), SPOOL_MAGIC)) return reject("spool.wire.magic");
@@ -773,9 +914,9 @@ async function spoolStatus(
   const exactLength = 124 + signedLength + wrapLength + 32;
   if (bytes.length < exactLength) return reject("spool.wire.truncation");
   if (bytes.length > exactLength) return reject("spool.wire.extra_bytes");
-  if (!equal(bytes.slice(28, 44), ids.vault))
+  if (!equal(bytes.slice(28, 44), bindingIds.vault))
     return reject("spool.binding.vault");
-  if (!equal(bytes.slice(44, 60), ids.ceremony))
+  if (!equal(bytes.slice(44, 60), bindingIds.ceremony))
     return reject("spool.binding.ceremony");
   const signed = bytes.slice(124, 124 + signedLength);
   const wrap = bytes.slice(124 + signedLength, exactLength - 32);
@@ -803,10 +944,10 @@ async function spoolStatus(
     if (
       entry.sequence !== base.sequence + 1 ||
       entry.previousHash !== ancV1BytesToHex(base.head) ||
-      entry.vaultId !== ancV1BytesToHex(ids.vault) ||
+      entry.vaultId !== ancV1BytesToHex(bindingIds.vault) ||
       entry.signerEndpointId !== ancV1BytesToHex(ids.endpoint) ||
       commit.type !== "membership_commit" ||
-      commit.ceremonyId !== ancV1BytesToHex(ids.ceremony) ||
+      commit.ceremonyId !== ancV1BytesToHex(bindingIds.ceremony) ||
       commit.epoch !== base.epoch + 1 ||
       !commit.activeMembers.some(
         (member) =>
@@ -814,22 +955,23 @@ async function spoolStatus(
           member.role === (material.role === 1 ? "endpoint" : "broker") &&
           member.unattended === (material.role === 2),
       ) ||
-      !equal(
-        await ancV1Hash("log-entry", encodeControlLogInnerEnvelope(commit)),
-        material.transcript,
-      )
+      (primaryBinding &&
+        !equal(
+          await ancV1Hash("log-entry", encodeControlLogInnerEnvelope(commit)),
+          material.transcript,
+        ))
     )
       return reject("spool.binding.substitution");
     const decodedWrap = decodeAncV1RecoveryWrap(wrap, {
-      expectedVaultId: ids.vault,
+      expectedVaultId: bindingIds.vault,
     });
     await verifyAncV1RecoveryWrap(wrap, {
-      expectedVaultId: ids.vault,
+      expectedVaultId: bindingIds.vault,
       issuerSigningPublicKey: material.issuerSigningPublicKey,
     });
     if (
       !equal(encodeAncV1RecoveryWrap(decodedWrap), wrap) ||
-      !equal(decodedWrap.ceremonyId, ids.ceremony) ||
+      !equal(decodedWrap.ceremonyId, bindingIds.ceremony) ||
       decodedWrap.epoch !== base.epoch + 1 ||
       decodedWrap.recoveryGeneration !== base.recoveryGeneration ||
       !equal(decodedWrap.issuerEndpointId, ids.endpoint) ||
@@ -847,7 +989,7 @@ async function spoolStatus(
       enrollmentRef: "4d".repeat(16),
     };
     const current: ControlLogState = {
-      vaultId: ancV1BytesToHex(ids.vault),
+      vaultId: ancV1BytesToHex(bindingIds.vault),
       sequence: base.sequence,
       headHash: ancV1BytesToHex(base.head),
       membershipHash: ancV1BytesToHex(base.membership),
@@ -892,6 +1034,7 @@ async function bindingStatus(
   recordBytes: Uint8Array,
   spoolBytes: Uint8Array,
   material: Awaited<ReturnType<typeof materials>>,
+  alternateMaterial?: Awaited<ReturnType<typeof materials>>,
 ): Promise<Status> {
   const recordView = new DataView(
     recordBytes.buffer,
@@ -901,7 +1044,17 @@ async function bindingStatus(
   if (recordBytes[10] !== material.role)
     return reject("record.binding.substitution");
   const decrypted = await decryptSpool(spoolBytes, material);
-  if (!decrypted.ok) return reject(decrypted.category);
+  if (!decrypted.ok) {
+    if (alternateMaterial) {
+      const alternate = await decryptSpool(spoolBytes, alternateMaterial);
+      if (alternate.ok) {
+        const status = await spoolStatus(alternate.inner, alternateMaterial);
+        alternate.inner.fill(0);
+        if (status.ok) return reject("spool.binding.substitution");
+      }
+    }
+    return reject(decrypted.category);
+  }
   const inner = decrypted.inner;
   const innerStatus = await spoolStatus(inner, material);
   if (!innerStatus.ok) return innerStatus;
@@ -1215,8 +1368,7 @@ async function transitionAllowed(input: {
   return false;
 }
 
-async function mutateBytes(input: Uint8Array, testCase: Negative) {
-  const mutation = testCase.mutation;
+async function mutateBytes(input: Uint8Array, mutation: Negative["mutation"]) {
   let output = input.slice();
   if (mutation.op === "truncate") output = output.slice(0, -mutation.bytes);
   else if (mutation.op === "append")
@@ -1253,7 +1405,169 @@ async function corpus() {
   return corpusSchema.parse(JSON.parse(await readFile(FIXTURE, "utf8")));
 }
 
+async function parseMaterialStream(input: Uint8Array) {
+  if (input.length < 184) throw new Error("truncation");
+  if (
+    new TextDecoder().decode(input.slice(0, 8)) !==
+    ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_MAGIC
+  )
+    throw new Error("magic");
+  const view = new DataView(input.buffer, input.byteOffset, input.byteLength);
+  if (
+    view.getUint16(8, true) !==
+    ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_VERSION
+  )
+    throw new Error("version");
+  if (view.getUint16(10, true) !== 0) throw new Error("flags");
+  if (
+    view.getUint32(12, true) !==
+    ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_HEADER_BYTES
+  )
+    throw new Error("header length");
+  const lengths = Array.from({ length: 5 }, (_, index) =>
+    Number(view.getBigUint64(16 + index * 8, true)),
+  );
+  if (lengths.some((length) => !Number.isSafeInteger(length) || length <= 0))
+    throw new Error("length");
+  if (
+    lengths[0] !== 32 ||
+    lengths[1] !== 24 ||
+    lengths[2]! > 65_536 ||
+    lengths[3]! > 1_048_576 ||
+    lengths[4]! >
+      ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_ALTERNATE_OUTER_MAX_BYTES
+  )
+    throw new Error("length");
+  const expected = 152 + lengths.reduce((sum, length) => sum + length, 0) + 32;
+  if (input.length !== expected)
+    throw new Error(input.length < expected ? "truncation" : "extra");
+  const checksumDomain = new TextEncoder().encode(
+    ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_CHECKSUM_DOMAIN.replace(
+      "\\0",
+      "\0",
+    ),
+  );
+  if (!equal(await hash(checksumDomain, input.slice(0, -32)), input.slice(-32)))
+    throw new Error("checksum");
+  let offset = 152;
+  const values = lengths.map((length) => {
+    const value = input.slice(offset, offset + length);
+    offset += length;
+    return value;
+  });
+  return { lengths, values };
+}
+
 describe("anc/v1 native rotation-preparation vectors", () => {
+  it("emits a strict stdout-only canonical material stream", async () => {
+    const stream = new Uint8Array(
+      execFileSync(
+        "pnpm",
+        [
+          "--filter",
+          "@agent-native/core",
+          "exec",
+          "tsx",
+          "scripts/materialize-native-rotation-preparation-vectors.ts",
+          "--ephemeral-material-stdout",
+        ],
+        {
+          cwd: ROOT,
+          maxBuffer: ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_MAX_BYTES,
+        },
+      ),
+    );
+    const parsed = await parseMaterialStream(stream);
+    expect(parsed.lengths.slice(0, 2)).toEqual([32, 24]);
+    const fixture = await corpus();
+    for (const [index, expected] of [
+      fixture.syntheticDerivation.commitments.pendingEpochKey,
+      fixture.syntheticDerivation.commitments.spoolNonce,
+      fixture.syntheticDerivation.commitments.signedEntry,
+      fixture.syntheticDerivation.commitments.recoveryWrap,
+    ].entries())
+      expect(
+        ancV1BytesToHex(await hash(new Uint8Array(), parsed.values[index]!)),
+      ).toBe(expected);
+    for (const [name, mutate, expected] of [
+      [
+        "magic",
+        (bytes: Uint8Array) => {
+          bytes[0] ^= 1;
+          return bytes;
+        },
+        "magic",
+      ],
+      [
+        "length",
+        (bytes: Uint8Array) => {
+          new DataView(bytes.buffer).setBigUint64(16, 33n, true);
+          return bytes;
+        },
+        "length",
+      ],
+      [
+        "alternate_outer_bound",
+        (bytes: Uint8Array) => {
+          new DataView(bytes.buffer).setBigUint64(
+            48,
+            BigInt(
+              ANC_V1_NATIVE_ROTATION_PREPARATION_STREAM_ALTERNATE_OUTER_MAX_BYTES +
+                1,
+            ),
+            true,
+          );
+          return bytes;
+        },
+        "length",
+      ],
+      [
+        "checksum",
+        (bytes: Uint8Array) => {
+          bytes[bytes.length - 1] ^= 1;
+          return bytes;
+        },
+        "checksum",
+      ],
+      [
+        "truncation",
+        (bytes: Uint8Array) => bytes.subarray(0, -1),
+        "truncation",
+      ],
+      [
+        "extra",
+        (bytes: Uint8Array) => concat(bytes, Uint8Array.of(0)),
+        "extra",
+      ],
+    ] as const) {
+      const changed = stream.slice();
+      const result = mutate(changed);
+      await expect(parseMaterialStream(result)).rejects.toThrow(expected);
+    }
+    for (const value of parsed.values) value.fill(0);
+    stream.fill(0);
+    const brokenPipeExit = await new Promise<number | null>(
+      (resolve, reject) => {
+        const child = spawn(
+          `${ROOT}node_modules/.bin/tsx`,
+          [
+            `${ROOT}packages/core/scripts/materialize-native-rotation-preparation-vectors.ts`,
+            "--ephemeral-material-stdout",
+          ],
+          {
+            cwd: ROOT,
+            env: { ...process.env, ANC_ROTATION_STREAM_TEST_DELAY: "1" },
+            stdio: ["ignore", "pipe", "pipe"],
+          },
+        );
+        child.once("error", reject);
+        child.stdout.destroy();
+        child.once("close", (code) => resolve(code));
+      },
+    );
+    expect(brokenPipeExit).not.toBe(0);
+  });
+
   it("is strict, source-anchored, generated, and contains commitments only", async () => {
     const fixture = await corpus();
     expect(fixture).toEqual(
@@ -1266,6 +1580,37 @@ describe("anc/v1 native rotation-preparation vectors", () => {
     expect(serialized).not.toContain("recordHex");
     expect(serialized).not.toContain("pendingKeyHex");
     expect(serialized).not.toContain("spoolHex");
+    expect(serialized).not.toContain("signedEntryHex");
+    expect(serialized).not.toContain("recoveryWrapHex");
+    const endpointMaterial = await materials();
+    const brokerMaterial = await materials(2);
+    const innerSpool = await spool(endpointMaterial);
+    const endpointOuter = await encryptedSpool(endpointMaterial);
+    const brokerOuter = await encryptedSpool(brokerMaterial);
+    for (const bytes of [
+      endpointMaterial.pendingKey,
+      endpointMaterial.signedEntry,
+      endpointMaterial.recoveryWrap,
+      endpointMaterial.spoolNonce,
+      innerSpool,
+      endpointOuter,
+      brokerOuter,
+    ])
+      expect(serialized).not.toContain(ancV1BytesToHex(bytes));
+    for (const shape of fixture.positiveCases) {
+      const material = shape.role === 1 ? endpointMaterial : brokerMaterial;
+      const bytes = await record(shape, material);
+      expect(serialized, shape.name).not.toContain(ancV1BytesToHex(bytes));
+      bytes.fill(0);
+    }
+    for (const value of [
+      ...Object.values(endpointMaterial),
+      ...Object.values(brokerMaterial),
+      innerSpool,
+      endpointOuter,
+      brokerOuter,
+    ])
+      if (value instanceof Uint8Array) value.fill(0);
   });
 
   it("accepts every endpoint and broker phase without an official active key", async () => {
@@ -1280,6 +1625,15 @@ describe("anc/v1 native rotation-preparation vectors", () => {
       const shapeMaterial = shape.role === 1 ? material : brokerMaterial;
       const bytes = await record(shape, shapeMaterial);
       expect(await recordStatus(bytes), shape.name).toEqual({ ok: true });
+      expect(shape.recordCommitmentHex, shape.name).toBe(
+        ancV1BytesToHex(await hash(new Uint8Array(), bytes)),
+      );
+      expect(shape.recordChecksumHex, shape.name).toBe(
+        ancV1BytesToHex(bytes.slice(480)),
+      );
+      expect(shape.encryptedOuterFrame, shape.name).toBe(
+        shape.phase === 4 || shape.phase === 5 ? "shared_primary" : null,
+      );
       expect(zero(bytes.slice(288, 320)), shape.name).toBe(shape.phase >= 5);
       if (shape.phase < 5)
         expect(bytes.slice(288, 320)).toEqual(shapeMaterial.pendingKey);
@@ -1291,6 +1645,41 @@ describe("anc/v1 native rotation-preparation vectors", () => {
     const innerSpool = await spool(material);
     expect(await spoolStatus(innerSpool, material)).toEqual({ ok: true });
     const artifactSpool = await encryptedSpool(material);
+    expect(fixture.wireCommitments.innerSpool).toEqual({
+      bytes: innerSpool.length,
+      commitmentHex: ancV1BytesToHex(await hash(new Uint8Array(), innerSpool)),
+      checksumHex: ancV1BytesToHex(innerSpool.slice(-32)),
+      signedEntryBytes: material.signedEntry.length,
+      recoveryWrapBytes: material.recoveryWrap.length,
+    });
+    const brokerOuterForCommitment = await encryptedSpool(brokerMaterial);
+    expect(brokerOuterForCommitment).toEqual(artifactSpool);
+    const ephemeral = await buildEphemeralRotationPreparationStream();
+    const parsedEphemeral = await parseMaterialStream(ephemeral.stream);
+    const alternateMaterial = {
+      ...material,
+      bindingIds: {
+        ...ids,
+        vault: ancV1HexToBytes(
+          fixture.wireCommitments.alternateSubstitutionOuterFrame.vaultIdHex,
+        ),
+        ceremony: ancV1HexToBytes(
+          fixture.wireCommitments.alternateSubstitutionOuterFrame.ceremonyIdHex,
+        ),
+      },
+    };
+    const alternateOuter = parsedEphemeral.values[4]!;
+    expect(fixture.wireCommitments.primaryOuterFrame).toEqual({
+      name: "shared_primary",
+      holderRoles: [1, 2],
+      ...(await encryptedSpoolCommitments(artifactSpool, material)),
+    });
+    expect(fixture.wireCommitments.alternateSubstitutionOuterFrame).toEqual({
+      name: "alternate_substitution",
+      vaultIdHex: ancV1BytesToHex(alternateMaterial.bindingIds.vault),
+      ceremonyIdHex: ancV1BytesToHex(alternateMaterial.bindingIds.ceremony),
+      ...(await encryptedSpoolCommitments(alternateOuter, alternateMaterial)),
+    });
     expect((await decryptSpool(artifactSpool, material)).ok).toBe(true);
     const awaitingShape = fixture.positiveCases.find(
       ({ name }) => name === "endpoint_awaiting_control_commit",
@@ -1313,6 +1702,10 @@ describe("anc/v1 native rotation-preparation vectors", () => {
     artifactSpool.fill(0);
     innerSpool.fill(0);
     brokerSpool.fill(0);
+    brokerOuterForCommitment.fill(0);
+    alternateOuter.fill(0);
+    ephemeral.stream.fill(0);
+    for (const bytes of Object.values(ephemeral.material.files)) bytes.fill(0);
     brokerAwaiting.fill(0);
     material.pendingKey.fill(0);
     material.signedEntry.fill(0);
@@ -1592,52 +1985,79 @@ describe("anc/v1 native rotation-preparation vectors", () => {
     );
     const innerSpool = await spool(material);
     const artifactSpool = await encryptedSpool(material);
+    const ephemeral = await buildEphemeralRotationPreparationStream();
+    const parsedEphemeral = await parseMaterialStream(ephemeral.stream);
+    const alternateMaterial = {
+      ...material,
+      bindingIds: {
+        ...ids,
+        vault: ancV1HexToBytes(
+          fixture.wireCommitments.alternateSubstitutionOuterFrame.vaultIdHex,
+        ),
+        ceremony: ancV1HexToBytes(
+          fixture.wireCommitments.alternateSubstitutionOuterFrame.ceremonyIdHex,
+        ),
+      },
+    };
+    const alternateSpool = parsedEphemeral.values[4]!;
+    expect(ancV1BytesToHex(await hash(new Uint8Array(), alternateSpool))).toBe(
+      fixture.wireCommitments.alternateSubstitutionOuterFrame
+        .outerFrameCommitmentHex,
+    );
+    expect(
+      (await encryptedSpoolCommitments(alternateSpool, alternateMaterial))
+        .derivedKeyCommitmentHex,
+    ).toBe(
+      fixture.wireCommitments.alternateSubstitutionOuterFrame
+        .derivedKeyCommitmentHex,
+    );
+    const alternateDecrypted = await decryptSpool(
+      alternateSpool,
+      alternateMaterial,
+    );
+    expect(alternateDecrypted.ok).toBe(true);
+    if (alternateDecrypted.ok)
+      expect(
+        await spoolStatus(alternateDecrypted.inner, alternateMaterial),
+      ).toEqual({ ok: true });
+    expect(
+      await bindingStatus(phase4, alternateSpool, material, alternateMaterial),
+    ).toEqual({ ok: false, category: "spool.binding.substitution" });
     for (const testCase of fixture.negativeCases) {
-      const usePhase1 = testCase.name.startsWith("record_phase1");
-      const usePhase5 = testCase.name.startsWith("record_phase5");
-      const usePhase6 = testCase.name.startsWith("record_phase6");
-      const usePreparedTransition =
-        testCase.category === "record.transition.generation";
-      let changedRecord = (
-        usePhase1 || usePreparedTransition
-          ? phase1
-          : usePhase5
-            ? phase5
-            : usePhase6
-              ? phase6
-              : phase4
-      ).slice();
+      let changedRecord =
+        testCase.execution.baselineRecord === "endpoint_prepared"
+          ? phase1.slice()
+          : testCase.execution.baselineRecord === "endpoint_consumed"
+            ? phase5.slice()
+            : testCase.execution.baselineRecord === "endpoint_cleaned"
+              ? phase6.slice()
+              : phase4.slice();
       let changedSpool =
-        testCase.target === "spool"
+        testCase.execution.baselineSpool === "inner"
           ? innerSpool.slice()
-          : artifactSpool.slice();
-      if (
-        testCase.mutation.op === "substitute" &&
-        !testCase.category.startsWith("spool.encryption")
-      ) {
-        if (testCase.mutation.target === "record") changedRecord[24] ^= 1;
-        else changedSpool[28] ^= 1;
-      } else if (testCase.target === "spool")
-        changedSpool = await mutateBytes(changedSpool, testCase);
-      else changedRecord = await mutateBytes(changedRecord, testCase);
+          : testCase.execution.baselineSpool === "alternate_substitution_outer"
+            ? alternateSpool.slice()
+            : artifactSpool.slice();
+      if (testCase.execution.applyTo === "record")
+        changedRecord = await mutateBytes(
+          changedRecord,
+          testCase.execution.effectiveMutation,
+        );
+      else
+        changedSpool = await mutateBytes(
+          changedSpool,
+          testCase.execution.effectiveMutation,
+        );
 
-      if (
-        testCase.target !== "spool" &&
-        !testCase.category.startsWith("record.crypto") &&
-        !testCase.category.startsWith("record.wire.truncation") &&
-        !testCase.category.startsWith("record.wire.extra")
-      )
+      if (testCase.execution.integrityRepair === "record_checksum")
         await checksumRecord(changedRecord);
-      if (
-        testCase.target === "spool" &&
-        !testCase.category.startsWith("spool.crypto") &&
-        !testCase.category.startsWith("spool.wire.truncation") &&
-        !testCase.category.startsWith("spool.wire.extra") &&
-        !testCase.category.startsWith("spool.binding.signed_hash") &&
-        !testCase.category.startsWith("spool.binding.recovery_wrap_hash") &&
-        !testCase.category.startsWith("spool.binding.substitution")
-      )
+      if (testCase.execution.integrityRepair === "inner_spool_checksum")
         await checksumSpool(changedSpool);
+      if (testCase.execution.integrityRepair === "outer_spool_checksum")
+        changedSpool.set(
+          await hash(SPOOL_OUTER_CHECKSUM_DOMAIN, changedSpool.slice(0, -32)),
+          changedSpool.length - 32,
+        );
 
       let status: Status;
       if (testCase.target === "record")
@@ -1646,50 +2066,34 @@ describe("anc/v1 native rotation-preparation vectors", () => {
         status = await spoolStatus(changedSpool, material);
       else {
         if (testCase.category === "record.transition.generation") {
-          // CLEANED -> PREPARED is the only reuse edge and must advance the
-          // preparation generation under CAS; the mutation pins same-generation rejection.
-          status =
-            u64(new DataView(changedRecord.buffer), 16) <=
-            u64(new DataView(phase6.buffer), 16)
-              ? reject("record.transition.generation")
-              : { ok: true };
-          expect(status, testCase.name).toEqual({
-            ok: false,
-            category: testCase.category,
+          expect(testCase.execution.transition).toEqual({
+            from: "endpoint_cleaned",
+            to: "endpoint_prepared",
+            expectedStatus: "reject",
           });
+          expect(
+            await transitionAllowed({
+              from: phase6,
+              to: changedRecord,
+              actualOfficialReread: {} as OfficialRereadTuple,
+              officialCasResult: {} as OfficialRereadTuple,
+              encryptedSpool: artifactSpool,
+              artifactMaterial: material,
+              hostedAckDurable: true,
+              spoolPresent: false,
+              spoolDeletedAndDirectoryFsynced: true,
+              nextAuthoritativeBase: fixture.externalCheckpoint,
+              nextRecoveryAgreementPublicKeyHex:
+                fixture.externalCheckpoint.recoveryAgreementPublicKeyHex,
+              priorPendingKey: material.pendingKey,
+            }),
+          ).toBe(false);
           changedRecord.fill(0);
           changedSpool.fill(0);
           continue;
         }
         const recordWire = await recordStatus(changedRecord);
         if (testCase.category.startsWith("spool.encryption")) {
-          if (testCase.category === "spool.encryption.aead") {
-            changedSpool[108] ^= 1;
-            changedSpool.set(
-              await hash(
-                SPOOL_OUTER_CHECKSUM_DOMAIN,
-                changedSpool.slice(0, -32),
-              ),
-              changedSpool.length - 32,
-            );
-          } else if (testCase.category === "spool.encryption.checksum")
-            changedSpool[changedSpool.length - 1] ^= 1;
-          else if (testCase.category === "spool.encryption.magic")
-            changedSpool[0] ^= 1;
-          else if (testCase.category === "spool.encryption.version")
-            u16(new DataView(changedSpool.buffer), 8, 2);
-          else if (testCase.category === "spool.encryption.flags")
-            changedSpool[10] = 1;
-          else if (testCase.category === "spool.encryption.reserved")
-            changedSpool[11] = 1;
-          else if (testCase.category === "spool.encryption.length")
-            u64(new DataView(changedSpool.buffer), 12, changedSpool.length);
-          else if (testCase.category === "spool.encryption.bounds")
-            u64(
-              new DataView(changedSpool.buffer),
-              12,
-              Number.MAX_SAFE_INTEGER + 1,
-            );
           const outerStatus = await decryptSpool(changedSpool, material);
           status = outerStatus.ok ? { ok: true } : reject(outerStatus.category);
           expect(status, testCase.name).toEqual({
@@ -1702,13 +2106,17 @@ describe("anc/v1 native rotation-preparation vectors", () => {
         }
         const spoolWire = await decryptSpool(changedSpool, material);
         status = !recordWire.ok
-          ? testCase.mutation.op === "substitute"
-            ? reject(testCase.category)
-            : recordWire
+          ? recordWire
           : !spoolWire.ok
-            ? testCase.mutation.op === "substitute"
-              ? reject(testCase.category)
-              : reject(spoolWire.category)
+            ? await bindingStatus(
+                changedRecord,
+                changedSpool,
+                material,
+                testCase.execution.baselineSpool ===
+                  "alternate_substitution_outer"
+                  ? alternateMaterial
+                  : undefined,
+              )
             : await bindingStatus(changedRecord, changedSpool, material);
         if (spoolWire.ok) spoolWire.inner.fill(0);
       }
@@ -1724,6 +2132,9 @@ describe("anc/v1 native rotation-preparation vectors", () => {
     phase5.fill(0);
     phase6.fill(0);
     artifactSpool.fill(0);
+    alternateSpool.fill(0);
+    ephemeral.stream.fill(0);
+    for (const bytes of Object.values(ephemeral.material.files)) bytes.fill(0);
     innerSpool.fill(0);
     material.pendingKey.fill(0);
     material.signedEntry.fill(0);
