@@ -27,6 +27,14 @@
     "./crypto": {
       "types": "./dist/crypto/index.d.ts",
       "default": "./dist/crypto/index.js"
+    },
+    "./transport": {
+      "types": "./dist/transport.d.ts",
+      "default": "./dist/transport.js"
+    },
+    "./wire": {
+      "types": "./dist/wire/index.d.ts",
+      "default": "./dist/wire/index.js"
     }
   },
   "publishConfig": {
