@@ -2462,6 +2462,82 @@ describe("creative context access and revocation", () => {
     });
   });
 
+  it("legal purge follows provenance into staged and context-owned copies", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const context = await asAlice(() =>
+      store.createCreativeContext({
+        name: "Purge provenance",
+        kind: "specialty",
+        approvalPolicy: "open",
+      }),
+    );
+    const submitted = await asAlice(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: "allowed",
+        confirmBroaderPublication: true,
+      }),
+    );
+    const membership = (
+      await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      )
+    ).memberships[0]!;
+    await asAlice(() =>
+      store.createContextPack({
+        name: "Published snapshot receipt",
+        members: [
+          {
+            itemId: membership.publishedItemId!,
+            itemVersionId: membership.publishedItemVersionId!,
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      asAlice(() => store.purgeContextSourceArtifacts("source-1")),
+    ).resolves.toMatchObject({ sourceId: "source-1" });
+
+    const membershipRows = await exec.execute({
+      sql: `SELECT status, published_item_id, published_item_version_id,
+        pending_submission_id FROM creative_context_memberships WHERE id = ?`,
+      args: [submitted.membershipId],
+    });
+    expect(membershipRows.rows[0]).toMatchObject({
+      status: "removed",
+      published_item_id: null,
+      published_item_version_id: null,
+      pending_submission_id: null,
+    });
+    for (const table of [
+      "creative_context_submissions",
+      "creative_context_published_snapshots",
+    ]) {
+      const rows = await exec.execute({
+        sql: `SELECT id FROM ${table} WHERE context_id = ?`,
+        args: [context!.id],
+      });
+      expect(rows.rows).toEqual([]);
+    }
+    const copiedItems = await exec.execute({
+      sql: `SELECT id FROM creative_context_items
+        WHERE id = ? OR source_id IN (
+          SELECT staging_source_id FROM creative_contexts WHERE id = ?
+          UNION
+          SELECT published_source_id FROM creative_contexts WHERE id = ?
+        )`,
+      args: [membership.publishedItemId, context!.id, context!.id],
+    });
+    expect(copiedItems.rows).toEqual([]);
+  });
+
   it("allows explicit deprecated search without making removed items retrievable", async () => {
     const { exec, runWithRequestContext, store } = await setup();
     await exec.execute(
