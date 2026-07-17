@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.106.1
+
+### Patch Changes
+
+- 0d8118e: Allow review comment composers to render a custom agent action in the standard action row, choose the Enter-key submit target, and atomically compare-and-set application state for race-safe UI workflows.
+
 ## 0.106.0
 
 ### Minor Changes
