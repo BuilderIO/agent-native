@@ -3,6 +3,7 @@ import * as jose from "jose";
 import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import type {
   A2AApprovedAction,
+  A2ASourceContext,
   A2AReadOnlyActionResult,
   AgentCard,
   JsonRpcRequest,
@@ -620,6 +621,8 @@ export async function callAgent(
     requestOrigin?: string;
     /** Exact downstream actions explicitly authorized in the caller's chat. */
     approvedActions?: A2AApprovedAction[];
+    /** Structured provenance trusted only after receiver-side A2A auth. */
+    sourceContext?: A2ASourceContext;
     /**
      * Use async/poll instead of a single blocking POST. Recommended for
      * cross-app calls that may exceed a synchronous serverless request budget.
@@ -657,6 +660,7 @@ export async function callAgent(
   if (opts?.userEmail) metadata.userEmail = opts.userEmail;
   if (opts?.orgDomain) metadata.orgDomain = opts.orgDomain;
   if (opts?.requestOrigin) metadata.requestOrigin = opts.requestOrigin;
+  if (opts?.sourceContext) metadata.sourceContext = opts.sourceContext;
 
   // Default to async + poll. The receiving A2A server's `_process-task` route
   // runs the handler in a fresh function execution (cross-platform queue

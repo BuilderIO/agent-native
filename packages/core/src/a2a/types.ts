@@ -132,6 +132,12 @@ export interface A2AApprovedAction {
   input: unknown;
 }
 
+/** Structured provenance accepted only from an authenticated A2A caller. */
+export interface A2ASourceContext {
+  platform: "slack";
+  sourceUrl: string;
+}
+
 // --- Framework config ---
 
 export interface A2AHandlerContext {
@@ -143,6 +149,8 @@ export interface A2AHandlerContext {
   event?: unknown;
   /** Exact one-time action grants from a JWT-authenticated caller. */
   approvedActions?: A2AApprovedAction[];
+  /** Receiver-validated provenance from a JWT-authenticated caller. */
+  sourceContext?: A2ASourceContext;
   writeArtifact: (name: string, content: string, mimeType?: string) => string;
 }
 

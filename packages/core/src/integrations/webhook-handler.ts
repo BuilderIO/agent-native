@@ -1,9 +1,9 @@
 import type { H3Event } from "h3";
 
 import {
-  appendA2AArtifactLinks,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  guardA2AArtifactResponse,
   type A2AArtifactIdentity,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
@@ -1029,7 +1029,7 @@ async function processIncomingMessage(
             }
           }
 
-          const suppressPlatformReply =
+          let suppressPlatformReply =
             queuedA2AContinuation &&
             isQueuedA2AContinuationDeferral(responseText);
 
@@ -1088,11 +1088,15 @@ async function processIncomingMessage(
           // platforms with rich blocks (Slack) can render a button instead
           // of inlining a `<url|text>` link that auto-unfurls into a giant
           // preview card.
-          if (!suppressPlatformReply) {
-            responseText = appendA2AArtifactLinks(responseText, toolResults, {
-              baseUrl: appBaseUrl || undefined,
-            });
-          }
+          const guardedResponse = guardA2AArtifactResponse(
+            responseText,
+            toolResults,
+            { baseUrl: appBaseUrl || undefined },
+          );
+          responseText = guardedResponse.text;
+          suppressPlatformReply ||=
+            queuedA2AContinuation &&
+            guardedResponse.rejectedUnverifiedArtifactReferences;
           const threadDeepLinkUrl =
             appBaseUrl && threadId
               ? `${appBaseUrl}/chat/${encodeURIComponent(threadId)}`

@@ -1539,6 +1539,66 @@ describe("handleJsonRpc", () => {
     expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
   });
 
+  it("preserves verified Slack source context across an async processor hop", async () => {
+    const contextConfig: A2AConfig = {
+      ...customHandler,
+      handler: async (_message, context) => ({
+        message: {
+          role: "agent",
+          parts: [
+            {
+              type: "text",
+              text: JSON.stringify(context.sourceContext ?? null),
+            },
+          ],
+        },
+      }),
+    };
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+    const sourceContext = {
+      platform: "slack",
+      sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          async: true,
+          metadata: { sourceContext },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture" }],
+          },
+        },
+      },
+      event,
+      contextConfig,
+    );
+
+    const { processA2ATaskFromQueue } = await import("./handlers.js");
+    await processA2ATaskFromQueue(result.result.id, contextConfig);
+    const followup = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 2,
+        method: "tasks/get",
+        params: { id: result.result.id },
+      },
+      event,
+      contextConfig,
+    );
+
+    expect(JSON.parse(followup.result.status.message.parts[0].text)).toEqual(
+      sourceContext,
+    );
+    expect(followup.result.metadata?.sourceContext).toBeUndefined();
+    expect(followup.result.metadata?.__a2a_processor).toBeUndefined();
+  });
+
   it("drops action grants when the A2A caller has no verified user identity", async () => {
     const contextConfig: A2AConfig = {
       ...customHandler,
@@ -1869,6 +1929,97 @@ describe("default handler (no custom handler)", () => {
     expect(task.artifacts[0].name).toBe("files-changed");
     expect(task.artifacts[0].parts[0].data.files).toEqual(["events.json"]);
   });
+
+  it("provides verified Slack source metadata as hidden agent context", async () => {
+    const { agentChat } = await import("../shared/agent-chat.js");
+    const event = mockEvent();
+    event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+
+    await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 1,
+        method: "message/send",
+        params: {
+          metadata: {
+            sourceContext: {
+              platform: "slack",
+              sourceUrl:
+                "https://example-workspace.slack.com/archives/C123/p123456",
+            },
+          },
+          message: {
+            role: "user",
+            parts: [{ type: "text", text: "capture this" }],
+          },
+        },
+      },
+      event,
+      defaultConfig,
+    );
+
+    expect(agentChat.call).toHaveBeenCalledWith("capture this", {
+      context: expect.stringContaining(
+        '"sourceUrl":"https://example-workspace.slack.com/archives/C123/p123456"',
+      ),
+    });
+  });
+
+  it.each([
+    {
+      label: "an unsigned caller",
+      verified: false,
+      sourceContext: {
+        platform: "slack",
+        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+      },
+    },
+    {
+      label: "a forged non-Slack URL",
+      verified: true,
+      sourceContext: {
+        platform: "slack",
+        sourceUrl: "https://attacker.example.test/archives/C123/p123456",
+      },
+    },
+    {
+      label: "a non-Slack platform",
+      verified: true,
+      sourceContext: {
+        platform: "email",
+        sourceUrl: "https://example-workspace.slack.com/archives/C123/p123456",
+      },
+    },
+  ])(
+    "rejects source context from $label",
+    async ({ verified, sourceContext }) => {
+      const { agentChat } = await import("../shared/agent-chat.js");
+      vi.mocked(agentChat.call).mockClear();
+      const event = mockEvent();
+      if (verified) {
+        event.context = { __a2aVerifiedEmail: "alice+qa@agent-native.test" };
+      }
+
+      await handleJsonRpc(
+        {
+          jsonrpc: "2.0",
+          id: 1,
+          method: "message/send",
+          params: {
+            metadata: { sourceContext },
+            message: {
+              role: "user",
+              parts: [{ type: "text", text: "capture this" }],
+            },
+          },
+        },
+        event,
+        defaultConfig,
+      );
+
+      expect(agentChat.call).toHaveBeenCalledWith("capture this");
+    },
+  );
 
   it("handles empty text message gracefully", async () => {
     const event = mockEvent();

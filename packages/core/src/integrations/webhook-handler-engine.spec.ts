@@ -1595,6 +1595,57 @@ describe("integration webhook handler engine resolution", () => {
     expect(sendResponse).not.toHaveBeenCalled();
   });
 
+  it("suppresses an unverified artifact rejection while a queued continuation owns the final reply", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const { A2A_CONTINUATION_QUEUED_MARKER } =
+      await import("./a2a-continuation-marker.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const onEvent = vi.fn(async () => undefined);
+    const complete = vi.fn(async () => undefined);
+    const adapter = {
+      ...createAdapter(sendResponse),
+      startRunProgress: async () => ({
+        ref: { kind: "slack-stream", streamTs: "1719000000.000004" },
+        onEvent,
+        complete,
+      }),
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({ type: "agent_call", agent: "Content", status: "start" });
+      send({
+        type: "tool_done",
+        tool: "call-agent",
+        result: `${A2A_CONTINUATION_QUEUED_MARKER}\nThe Content agent is still working.`,
+      });
+      send({
+        type: "text",
+        text: "Created it: https://content.agent-native.com/page/provisional",
+      });
+    });
+
+    await processIntegrationTask(
+      pendingTask({ id: "task-continuation-unverified-artifact" }),
+      {
+        adapter,
+        systemPrompt: "system",
+        actions: {},
+        model: "claude-sonnet-4-6",
+        apiKey: "",
+        ownerEmail: "dispatch+qa@integration.local",
+      },
+    );
+
+    expect(sendResponse).not.toHaveBeenCalled();
+    expect(complete).not.toHaveBeenCalled();
+    expect(onEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "agent_call_progress",
+        agent: "Content",
+        state: "working",
+      }),
+    );
+  });
+
   it("does not falsely fail a queued resumable stream when parent bookkeeping throws", async () => {
     const { processIntegrationTask } = await import("./webhook-handler.js");
     const { A2A_CONTINUATION_QUEUED_MARKER } =

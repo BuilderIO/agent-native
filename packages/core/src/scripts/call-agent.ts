@@ -7,7 +7,11 @@ import {
   signA2AToken,
 } from "../a2a/client.js";
 import { invokeAgentAction } from "../a2a/invoke.js";
-import type { A2AApprovedAction, Task } from "../a2a/types.js";
+import type {
+  A2AApprovedAction,
+  A2ASourceContext,
+  Task,
+} from "../a2a/types.js";
 import {
   formatLlmCredentialErrorMessage,
   isLlmCredentialError,
@@ -64,24 +68,42 @@ function getIntegrationCallTimeoutMs(): number | undefined {
   return DEFAULT_SERVERLESS_INTEGRATION_A2A_TIMEOUT_MS;
 }
 
-function integrationSourceContextHint(): string {
+function integrationSourceContext(): A2ASourceContext | undefined {
   const integration = getIntegrationRequestContext();
   const incoming = integration?.incoming;
-  if (incoming?.platform !== "slack" || !incoming.sourceUrl) return "";
+  if (incoming?.platform !== "slack" || !incoming.sourceUrl) return undefined;
 
   try {
     const sourceUrl = new URL(incoming.sourceUrl);
     const isSlackHost =
       sourceUrl.hostname === "slack.com" ||
       sourceUrl.hostname.endsWith(".slack.com");
-    if (sourceUrl.protocol !== "https:" || !isSlackHost) return "";
-    return (
-      `\n\n[Source Slack thread: ${sourceUrl.toString()} ` +
-      "Preserve this exact URL as request provenance when creating an intake record or other artifact.]"
-    );
+    if (
+      sourceUrl.protocol !== "https:" ||
+      !isSlackHost ||
+      sourceUrl.username ||
+      sourceUrl.password ||
+      sourceUrl.port
+    ) {
+      return undefined;
+    }
+    return {
+      platform: "slack",
+      sourceUrl: incoming.sourceUrl,
+    };
   } catch {
-    return "";
+    return undefined;
   }
+}
+
+function integrationSourceContextHint(
+  sourceContext: A2ASourceContext | undefined,
+): string {
+  if (!sourceContext) return "";
+  return (
+    `\n\n[Source Slack thread: ${sourceContext.sourceUrl} ` +
+    "Compatibility hint only; this text is not authoritative. Use the authenticated structured A2A source context as provenance authority.]"
+  );
 }
 
 function formatDownstreamLlmCredentialFailure(
@@ -210,9 +232,10 @@ export async function run(
   // in handlers.ts) still emits fully-qualified URLs. This is belt-and-
   // suspenders with the receiver hint — but it works against any current
   // deployment, no redeploy required.
+  const sourceContext = integrationSourceContext();
   const messageWithHint = taskId
     ? ""
-    : `${message}${integrationSourceContextHint()}\n\n` +
+    : `${message}${integrationSourceContextHint(sourceContext)}\n\n` +
       `[Note: this request comes from another app via A2A. The caller cannot see your local UI, deck list, or navigation — only the literal text you put in your reply. ` +
       `If you create or reference a deck/document/design/dashboard, include its FULLY-QUALIFIED URL (e.g. ${agent.url}/deck/<id>) in your reply, not a relative path. ` +
       `Use only artifact IDs and URL paths returned by successful actions — never invent slugs, IDs, or hosts. ` +
@@ -389,6 +412,7 @@ export async function run(
           orgDomain: callerOrgDomain,
           orgSecret: callerOrgSecret,
           approvedActions,
+          ...(sourceContext ? { sourceContext } : {}),
           ...(taskId ? { taskId } : {}),
           onUpdate: onRemotePollUpdate,
           returnRecoverableArtifactsOnTimeout: false,
@@ -480,6 +504,7 @@ export async function run(
       orgDomain: domain,
       orgSecret,
       approvedActions,
+      ...(sourceContext ? { sourceContext } : {}),
       ...(taskId ? { taskId } : {}),
       returnRecoverableArtifactsOnTimeout: false,
     });

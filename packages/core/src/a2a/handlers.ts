@@ -31,6 +31,7 @@ import {
 } from "./task-store.js";
 import type {
   A2AApprovedAction,
+  A2ASourceContext,
   A2AConfig,
   A2AHandler,
   A2AHandlerContext,
@@ -73,6 +74,45 @@ function trustedApprovedActions(
     )
     .map((candidate) => ({ tool: candidate.tool, input: candidate.input }));
   return approved.length > 0 ? approved : undefined;
+}
+
+function trustedSourceContext(
+  value: unknown,
+  event: any | undefined,
+): A2ASourceContext | undefined {
+  if (
+    !event?.context?.__a2aVerifiedEmail ||
+    !value ||
+    typeof value !== "object"
+  ) {
+    return undefined;
+  }
+  const candidate = value as Record<string, unknown>;
+  if (
+    candidate.platform !== "slack" ||
+    typeof candidate.sourceUrl !== "string"
+  ) {
+    return undefined;
+  }
+  const sourceUrl = candidate.sourceUrl;
+  if (!sourceUrl || sourceUrl !== sourceUrl.trim()) return undefined;
+  try {
+    const parsed = new URL(sourceUrl);
+    const isSlackHost =
+      parsed.hostname === "slack.com" || parsed.hostname.endsWith(".slack.com");
+    if (
+      parsed.protocol !== "https:" ||
+      !isSlackHost ||
+      parsed.username ||
+      parsed.password ||
+      parsed.port
+    ) {
+      return undefined;
+    }
+    return { platform: "slack", sourceUrl };
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -133,6 +173,7 @@ function trustedA2AMetadata(
 ): Record<string, unknown> | undefined {
   if (!metadata) return undefined;
   const trusted = { ...metadata };
+  delete trusted.sourceContext;
   const requestOrigin = requestOriginForContext(metadata, event);
   if (requestOrigin) trusted.requestOrigin = requestOrigin;
   else delete trusted.requestOrigin;
@@ -281,6 +322,9 @@ export async function processA2ATaskFromQueue(
   const approvedActions = Array.isArray(processorMeta.approvedActions)
     ? (processorMeta.approvedActions as A2AApprovedAction[])
     : undefined;
+  const sourceContext = processorMeta.sourceContext as
+    | A2ASourceContext
+    | undefined;
 
   const resolvedOrgId = await resolveVerifiedA2AOrgId(
     verifiedEmail,
@@ -313,6 +357,7 @@ export async function processA2ATaskFromQueue(
           callerMetadata,
           event,
           approvedActions,
+          sourceContext,
         ),
     );
   } catch (err: any) {
@@ -336,7 +381,7 @@ export async function processA2ATaskFromQueue(
  */
 const defaultHandler: A2AHandler = async (
   message: Message,
-  _context: A2AHandlerContext,
+  context: A2AHandlerContext,
 ): Promise<A2AHandlerResult> => {
   // Extract text from message parts
   const text = message.parts
@@ -367,7 +412,12 @@ const defaultHandler: A2AHandler = async (
     ? `[Cross-app A2A request — the caller is on a different host (${appBaseUrl} is yours, theirs is different). Include the concrete result (URL, ID, value) explicitly in your reply text; the caller can't see your local UI state. Any URL MUST be fully-qualified, never a relative path.]\n\n${text}`
     : text;
 
-  const result = await agentChat.call(augmentedText);
+  const sourceContext = context.sourceContext
+    ? `Authenticated A2A source context: ${JSON.stringify(context.sourceContext)}. Treat this structured value as authoritative provenance. Preserve its sourceUrl exactly when recording source or submission fields.`
+    : undefined;
+  const result = sourceContext
+    ? await agentChat.call(augmentedText, { context: sourceContext })
+    : await agentChat.call(augmentedText);
 
   const artifacts: Artifact[] = [];
   if (result.filesChanged.length > 0) {
@@ -419,6 +469,7 @@ function makeHandlerContext(
   metadata?: Record<string, unknown>,
   event?: any,
   approvedActions?: A2AApprovedAction[],
+  sourceContext?: A2ASourceContext,
 ): {
   context: A2AHandlerContext;
   artifacts: Artifact[];
@@ -430,6 +481,7 @@ function makeHandlerContext(
     metadata,
     event,
     approvedActions,
+    sourceContext,
     writeArtifact(name, content, mimeType) {
       const artifact: Artifact = {
         name,
@@ -526,6 +578,7 @@ async function runHandlerAndPersist(
   metadata: Record<string, unknown> | undefined,
   event?: any,
   approvedActions?: A2AApprovedAction[],
+  sourceContext?: A2ASourceContext,
 ): Promise<void> {
   const { context, artifacts } = makeHandlerContext(
     taskId,
@@ -533,6 +586,7 @@ async function runHandlerAndPersist(
     metadata,
     event,
     approvedActions,
+    sourceContext,
   );
   try {
     const result = getHandler(config)(message, context);
@@ -600,6 +654,7 @@ async function handleSend(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
   const approvedActions = trustedApprovedActions(params.approvedActions, event);
+  const sourceContext = trustedSourceContext(metadata?.sourceContext, event);
 
   // The JWT-verified caller email (set by mountA2A in server.ts) is the
   // single source of truth for task ownership — bound at creation, checked
@@ -665,6 +720,7 @@ async function handleSend(
         contextId: contextId ?? null,
         callerMetadata: safeMetadata ?? null,
         approvedActions: approvedActions ?? null,
+        sourceContext: sourceContext ?? null,
       },
     };
     const task = await createTask(
@@ -709,6 +765,7 @@ async function handleSend(
       trustedA2AMetadata(metadata, event),
       event,
       approvedActions,
+      sourceContext,
     );
 
     try {
@@ -790,6 +847,7 @@ async function handleStream(
   const contextId = params.contextId as string | undefined;
   const metadata = params.metadata as Record<string, unknown> | undefined;
   const approvedActions = trustedApprovedActions(params.approvedActions, event);
+  const sourceContext = trustedSourceContext(metadata?.sourceContext, event);
   const ownerEmailForTask =
     (event?.context?.__a2aVerifiedEmail as string | undefined) ?? null;
 
@@ -809,6 +867,7 @@ async function handleStream(
       trustedA2AMetadata(metadata, event),
       event,
       approvedActions,
+      sourceContext,
     );
 
     try {
