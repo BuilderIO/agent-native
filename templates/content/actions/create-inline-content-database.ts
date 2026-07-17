@@ -34,7 +34,7 @@ export default defineAction({
     const ownerBlockId = createInlineDatabaseBlockId();
     let databaseId: string | null = null;
     let databaseDocumentId: string | null = null;
-    const resolvedSpace = await resolveContentDatabaseSpace(
+    const spaceId = await resolveContentDatabaseSpace(
       { parentId: hostDocumentId },
       db,
     );
@@ -46,7 +46,7 @@ export default defineAction({
           title: databaseTitleForPage(title),
           description,
         },
-        { db: tx, resolvedSpace },
+        { db: tx, spaceId },
       );
 
       const [updated] = await tx
