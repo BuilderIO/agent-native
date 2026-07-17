@@ -301,14 +301,21 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
         membership_id TEXT NOT NULL, item_id TEXT NOT NULL, item_version_id TEXT NOT NULL,
         submission_id TEXT NOT NULL, created_at TEXT NOT NULL, owner_email TEXT NOT NULL, org_id TEXT
       );
+      ALTER TABLE creative_context_packs ADD COLUMN base_context_id TEXT;
+      ALTER TABLE creative_context_packs ADD COLUMN specialty_context_id TEXT;
+      ALTER TABLE creative_context_packs ADD COLUMN selection_reason TEXT;
       CREATE UNIQUE INDEX IF NOT EXISTS creative_context_membership_artifact_uidx
         ON creative_context_memberships (context_id, artifact_key);
       CREATE INDEX IF NOT EXISTS creative_context_memberships_context_status_idx
         ON creative_context_memberships (context_id, status, updated_at);
       CREATE INDEX IF NOT EXISTS creative_context_submissions_context_status_idx
         ON creative_context_submissions (context_id, status, created_at);
-      CREATE UNIQUE INDEX IF NOT EXISTS creative_context_app_binding_uidx
-        ON creative_context_app_bindings (app_id, context_id, owner_email, org_id);
+      CREATE INDEX IF NOT EXISTS creative_context_app_bindings_lookup_idx
+        ON creative_context_app_bindings (app_id, owner_email, org_id, updated_at);
+      CREATE INDEX IF NOT EXISTS creative_context_memberships_published_item_idx
+        ON creative_context_memberships (published_item_id, published_item_version_id);
+      CREATE INDEX IF NOT EXISTS creative_context_published_snapshots_source_item_idx
+        ON creative_context_published_snapshots (source_id, item_id, item_version_id);
       CREATE INDEX IF NOT EXISTS creative_context_shares_lookup_idx
         ON creative_context_shares (resource_id, principal_type, principal_id);
     `,

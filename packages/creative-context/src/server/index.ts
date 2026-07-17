@@ -140,6 +140,7 @@ export * from "./retrieval.js";
 export * from "./untrusted-reference.js";
 export * from "./media.js";
 export * from "./native-resource-capture.js";
+export { resolveNativeContextCloneReference } from "../store/contexts.js";
 export {
   CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE,
   CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,

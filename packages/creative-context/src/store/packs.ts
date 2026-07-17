@@ -136,6 +136,9 @@ export async function createContextPack(input: {
   derivedFromPackId?: string;
   brandDnaVersionId?: string | null;
   contextMode?: string;
+  baseContextId?: string | null;
+  specialtyContextId?: string | null;
+  selectionReason?: string | null;
   request?: Record<string, unknown>;
   members: ContextPackMemberInput[];
   pinned?: boolean;
@@ -165,6 +168,9 @@ export async function createContextPack(input: {
       derivedFromPackId: input.derivedFromPackId ?? null,
       brandDnaVersionId,
       contextMode: input.contextMode ?? "manual",
+      baseContextId: input.baseContextId ?? null,
+      specialtyContextId: input.specialtyContextId ?? null,
+      selectionReason: input.selectionReason ?? null,
       request: stringifyJson(input.request),
       archivedAt: null,
       ownerEmail: actor.ownerEmail,
@@ -241,6 +247,9 @@ export async function deriveContextPack(input: {
         ? base.brandDnaVersionId
         : input.brandDnaVersionId,
     contextMode: base.contextMode,
+    baseContextId: base.baseContextId,
+    specialtyContextId: base.specialtyContextId,
+    selectionReason: base.selectionReason,
     request: base.request,
     members: Array.from(members.values()),
     pinned: input.pinned,
@@ -375,6 +384,9 @@ export async function listContextPacks(input: {
       derivedFromPackId: row.derivedFromPackId ?? null,
       brandDnaVersionId: row.brandDnaVersionId ?? null,
       contextMode: row.contextMode,
+      baseContextId: row.baseContextId ?? null,
+      specialtyContextId: row.specialtyContextId ?? null,
+      selectionReason: row.selectionReason ?? null,
       request: parseJson(row.request, {}),
       memberCount: memberCount.get(row.id) ?? 0,
       pinned: pinned.has(row.id),
@@ -455,6 +467,9 @@ export async function getContextPack(
     derivedFromPackId: row.derivedFromPackId ?? null,
     brandDnaVersionId: row.brandDnaVersionId ?? null,
     contextMode: row.contextMode,
+    baseContextId: row.baseContextId ?? null,
+    specialtyContextId: row.specialtyContextId ?? null,
+    selectionReason: row.selectionReason ?? null,
     request: parseJson(row.request, {}),
     memberCount: members.length,
     pinned: Boolean(pinRows[0]),

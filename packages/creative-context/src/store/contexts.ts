@@ -15,7 +15,7 @@ import type {
   NormalizedContextItem,
 } from "../types.js";
 import { getCreativeContextItem } from "./content.js";
-import { newId, nowIso, parseJson, requireActor, sha256, stringifyJson } from "./helpers.js";
+import { newId, nowIso, parseJson, requireActor, stringifyJson } from "./helpers.js";
 
 type Rank = "canonical" | "exemplar" | "normal";
 
@@ -204,7 +204,7 @@ export async function archiveCreativeContext(contextId: string) { await assertCo
 export async function setCreativeContextAppDefault(contextId: string, appId: string) {
   const access = await assertContextRole(contextId, "admin"); if (access.resource.orgId) await assertCurrentRequestUserIsOrgAdmin(access.resource.orgId);
   const { getDb, schema } = getCreativeContext(); const actor = requireActor(); const timestamp = nowIso();
-  await getDb().transaction(async (tx: any) => { await tx.update(schema.creativeContextAppBindings).set({ isDefault: 0, updatedAt: timestamp }).where(and(eq(schema.creativeContextAppBindings.appId, appId), eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail))); const existing = await tx.select({ id: schema.creativeContextAppBindings.id }).from(schema.creativeContextAppBindings).where(and(eq(schema.creativeContextAppBindings.appId, appId), eq(schema.creativeContextAppBindings.contextId, contextId), eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail))).limit(1); if (existing[0]) await tx.update(schema.creativeContextAppBindings).set({ isDefault: 1, updatedAt: timestamp }).where(eq(schema.creativeContextAppBindings.id, existing[0].id)); else await tx.insert(schema.creativeContextAppBindings).values({ id: newId("ccab"), appId, contextId, isDefault: 1, createdAt: timestamp, updatedAt: timestamp, ownerEmail: actor.ownerEmail, orgId: actor.orgId }); await appendAudit(tx, contextId, "set-app-default", { appId }); });
+  await getDb().transaction(async (tx: any) => { await tx.delete(schema.creativeContextAppBindings).where(and(eq(schema.creativeContextAppBindings.appId, appId), eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail))); await tx.insert(schema.creativeContextAppBindings).values({ id: newId("ccab"), appId, contextId, createdAt: timestamp, updatedAt: timestamp, ownerEmail: actor.ownerEmail, orgId: actor.orgId }); await appendAudit(tx, contextId, "set-app-default", { appId }); });
   return getCreativeContextById(contextId);
 }
 

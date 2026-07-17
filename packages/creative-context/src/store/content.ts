@@ -934,6 +934,7 @@ export interface AccessibleLexicalCandidatesInput {
   query: string;
   sourceIds?: string[];
   packId?: string;
+  contextId?: string;
   kinds?: string[];
   tags?: string[];
   colors?: string[];
@@ -971,6 +972,25 @@ async function accessiblePackVersionIds(packId: string): Promise<string[]> {
   return members.map((member: any) => member.itemVersionId);
 }
 
+async function accessibleContextVersionIds(contextId: string): Promise<string[]> {
+  await assertAccess("creative-context", contextId, "viewer", undefined, {
+    skipResourceBody: true,
+  });
+  const { getDb, schema } = getCreativeContext();
+  const rows = await getDb()
+    .select({ itemVersionId: schema.creativeContextMemberships.publishedItemVersionId })
+    .from(schema.creativeContextMemberships)
+    .where(
+      and(
+        eq(schema.creativeContextMemberships.contextId, contextId),
+        eq(schema.creativeContextMemberships.status, "active"),
+      ),
+    );
+  return rows.flatMap((row: any) =>
+    typeof row.itemVersionId === "string" ? [row.itemVersionId] : [],
+  );
+}
+
 export interface AccessibleSearchDocument extends ContextSearchResult {
   body: string;
   summary: string | null;
@@ -997,11 +1017,18 @@ export async function listAccessibleSearchDocuments(
   const packVersionIds: string[] | null = input.packId
     ? await accessiblePackVersionIds(input.packId)
     : null;
-  if (packVersionIds && !packVersionIds.length) return [];
+  const contextVersionIds: string[] | null = input.contextId
+    ? await accessibleContextVersionIds(input.contextId)
+    : null;
+  if ((packVersionIds && !packVersionIds.length) || (contextVersionIds && !contextVersionIds.length)) return [];
   const filters: any[] = [
-    accessFilter(schema.contextSources, schema.contextSourceShares),
-    ne(schema.contextSources.upstreamAccess, "restricted"),
-    ne(schema.contextSources.status, "archived"),
+    ...(input.contextId
+      ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
+      : [
+          accessFilter(schema.contextSources, schema.contextSourceShares),
+          ne(schema.contextSources.upstreamAccess, "restricted"),
+          ne(schema.contextSources.status, "archived"),
+        ]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
       : [
@@ -1183,7 +1210,10 @@ export async function listAccessibleLexicalCandidates(
   const packVersionIds: string[] | null = input.packId
     ? await accessiblePackVersionIds(input.packId)
     : null;
-  if (packVersionIds && !packVersionIds.length) return { results: [] };
+  const contextVersionIds: string[] | null = input.contextId
+    ? await accessibleContextVersionIds(input.contextId)
+    : null;
+  if ((packVersionIds && !packVersionIds.length) || (contextVersionIds && !contextVersionIds.length)) return { results: [] };
   const matchMode = input.matchMode ?? "allTerms";
   const terms = normalizeSearchTerms(input.query);
   if (!terms.length && matchMode !== "regex") return { results: [] };
@@ -1201,9 +1231,13 @@ export async function listAccessibleLexicalCandidates(
     );
   });
   const filters: any[] = [
-    accessFilter(schema.contextSources, schema.contextSourceShares),
-    ne(schema.contextSources.upstreamAccess, "restricted"),
-    ne(schema.contextSources.status, "archived"),
+    ...(input.contextId
+      ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
+      : [
+          accessFilter(schema.contextSources, schema.contextSourceShares),
+          ne(schema.contextSources.upstreamAccess, "restricted"),
+          ne(schema.contextSources.status, "archived"),
+        ]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
       : [
