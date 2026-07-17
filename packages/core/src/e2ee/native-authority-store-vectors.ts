@@ -7,6 +7,7 @@ import {
   decodeAncV1Canonical,
   encodeAncV1Canonical,
 } from "./canonical.js";
+import { protocolTimestampSchema } from "./contracts.js";
 import type { ControlLogMember } from "./control-log.js";
 import { E2EE_SUITE_ID } from "./suite.js";
 
@@ -17,6 +18,7 @@ export const ANC_V1_NATIVE_AUTHORITY_STORE_GENERATOR =
 export const ANC_V1_NATIVE_AUTHORITY_STORE_SOURCE_PATHS = [
   "packages/core/src/e2ee/native-authority-store-vectors.ts",
   "packages/core/src/e2ee/canonical.ts",
+  "packages/core/src/e2ee/contracts.ts",
   "packages/core/src/e2ee/suite.ts",
 ] as const;
 
@@ -663,6 +665,14 @@ export async function buildAncV1NativeAuthorityStoreVectors(
   const snapshots: readonly [string, AuthoritySnapshotFixture][] = [
     ["genesis", snapshotBase],
     [
+      "signed_at_offset_0530",
+      { ...snapshotBase, signedAt: "2024-07-16T13:41:51+05:30" },
+    ],
+    [
+      "signed_at_z_without_fraction",
+      { ...snapshotBase, signedAt: "2024-07-16T08:11:51Z" },
+    ],
+    [
       "descendant",
       {
         ...snapshotBase,
@@ -744,6 +754,13 @@ export async function buildAncV1NativeAuthorityStoreVectors(
   const snapshotCases: AncV1NativeAuthorityStoreCorpus["snapshotCases"][number][] =
     [];
   for (const [name, snapshot] of snapshots) {
+    if (
+      !Number.isSafeInteger(snapshot.verifiedAtMs) ||
+      snapshot.verifiedAtMs < 1 ||
+      !protocolTimestampSchema.safeParse(snapshot.signedAt).success ||
+      Date.parse(snapshot.signedAt) > snapshot.verifiedAtMs + 30_000
+    )
+      throw new Error(`${name} has invalid snapshot timestamp semantics`);
     const bytes = encodeSnapshot(snapshot);
     snapshotCases.push({
       name,
@@ -789,6 +806,39 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "wrong_type",
     ],
     [
+      "invalid_vault_id_too_short",
+      mutateSnapshot((map) => map.set(2, "short")),
+      "invalid_id",
+    ],
+    [
+      "invalid_member_id_unicode",
+      mutateSnapshot((map) => {
+        const tuple = memberTuple(owner) as AncV1CanonicalValue[];
+        tuple[0] = "endpoint:☃owner";
+        map.set(514, [tuple]);
+      }),
+      "invalid_id",
+    ],
+    [
+      "invalid_enrollment_ref_whitespace",
+      mutateSnapshot((map) => {
+        const tuple = memberTuple(owner) as AncV1CanonicalValue[];
+        tuple[5] = "enrollment invalid";
+        map.set(514, [tuple]);
+      }),
+      "invalid_id",
+    ],
+    [
+      "invalid_removed_id_slash",
+      mutateSnapshot((map) => map.set(515, ["removed/invalid"])),
+      "invalid_id",
+    ],
+    [
+      "invalid_recovery_id_leading_punctuation",
+      mutateSnapshot((map) => map.set(518, ":recovery-invalid")),
+      "invalid_id",
+    ],
+    [
       "members_out_of_order",
       mutateSnapshot((map) =>
         map.set(514, [memberTuple(device), memberTuple(owner)]),
@@ -796,9 +846,42 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "member_order",
     ],
     [
+      "endpoint_member_unattended_true",
+      mutateSnapshot((map) => {
+        const tuple = memberTuple(owner) as AncV1CanonicalValue[];
+        tuple[2] = true;
+        map.set(514, [tuple]);
+      }),
+      "member_unattended_role",
+    ],
+    [
+      "broker_member_unattended_false",
+      mutateSnapshot((map) => {
+        const tuple = memberTuple(brokerMember) as AncV1CanonicalValue[];
+        tuple[2] = false;
+        map.set(514, [tuple]);
+      }),
+      "member_unattended_role",
+    ],
+    [
+      "multiple_active_brokers",
+      mutateSnapshot((map) =>
+        map.set(514, [
+          memberTuple(brokerMember),
+          memberTuple(identity("endpoint:04-broker-second", "broker", 0x34)),
+        ]),
+      ),
+      "multiple_active_brokers",
+    ],
+    [
       "duplicate_removed_ids",
       mutateSnapshot((map) => map.set(515, ["removed:0001", "removed:0001"])),
       "removed_duplicates",
+    ],
+    [
+      "active_member_also_removed",
+      mutateSnapshot((map) => map.set(515, [owner.endpointId])),
+      "removed_active_overlap",
     ],
     [
       "tombstones_4097_rejected",
@@ -819,6 +902,21 @@ export async function buildAncV1NativeAuthorityStoreVectors(
       "key_length",
     ],
     [
+      "verified_at_zero",
+      mutateSnapshot((map) => map.set(505, 0)),
+      "verified_at_range",
+    ],
+    [
+      "signed_at_missing_offset",
+      mutateSnapshot((map) => map.set(513, "2024-07-16T08:11:51")),
+      "invalid_timestamp",
+    ],
+    [
+      "signed_at_impossible_date",
+      mutateSnapshot((map) => map.set(513, "2024-02-30T08:11:51Z")),
+      "invalid_timestamp",
+    ],
+    [
       "future_signed_at",
       mutateSnapshot((map) => map.set(513, "2024-07-16T08:12:22.000Z")),
       "future_timestamp",
@@ -833,6 +931,86 @@ export async function buildAncV1NativeAuthorityStoreVectors(
     ],
     ["oversized_snapshot", new Uint8Array(1024 * 1024 + 1), "size"],
   ];
+  const classifyMemberSemantics = (bytes: Uint8Array) => {
+    const decoded = decodeAncV1Canonical(bytes);
+    if (!(decoded instanceof Map)) return null;
+    const members = decoded.get(514);
+    const removed = decoded.get(515);
+    if (!Array.isArray(members) || !Array.isArray(removed)) return null;
+    const opaqueId = (value: unknown) =>
+      typeof value === "string" &&
+      value.length >= 8 &&
+      value.length <= 160 &&
+      /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
+    if (!opaqueId(decoded.get(2)) || !opaqueId(decoded.get(518)))
+      return "invalid_id";
+    const activeIds: string[] = [];
+    let brokerCount = 0;
+    for (const member of members) {
+      if (
+        !Array.isArray(member) ||
+        typeof member[0] !== "string" ||
+        (member[1] !== "endpoint" && member[1] !== "broker") ||
+        typeof member[2] !== "boolean"
+      )
+        return null;
+      if (!opaqueId(member[0]) || !opaqueId(member[5])) return "invalid_id";
+      activeIds.push(member[0]);
+      if (member[2] !== (member[1] === "broker"))
+        return "member_unattended_role";
+      if (member[1] === "broker") brokerCount += 1;
+    }
+    if (brokerCount > 1) return "multiple_active_brokers";
+    if (removed.some((removedId) => !opaqueId(removedId))) return "invalid_id";
+    if (
+      removed.some(
+        (removedId) =>
+          typeof removedId === "string" && activeIds.includes(removedId),
+      )
+    )
+      return "removed_active_overlap";
+    return null;
+  };
+  for (const [name, bytes, expected] of rejectedSnapshots.filter(
+    ([, , error]) =>
+      [
+        "member_unattended_role",
+        "multiple_active_brokers",
+        "removed_active_overlap",
+        "invalid_id",
+      ].includes(error),
+  )) {
+    const actual = classifyMemberSemantics(bytes);
+    if (actual !== expected)
+      throw new Error(
+        `${name} semantic category mismatch: expected ${expected}, got ${String(actual)}`,
+      );
+  }
+  const classifyTimestampSemantics = (bytes: Uint8Array) => {
+    const decoded = decodeAncV1Canonical(bytes);
+    if (!(decoded instanceof Map)) return null;
+    const verifiedAt = decoded.get(505);
+    const signedAt = decoded.get(513);
+    if (!Number.isSafeInteger(verifiedAt) || (verifiedAt as number) < 1)
+      return "verified_at_range";
+    if (!protocolTimestampSchema.safeParse(signedAt).success)
+      return "invalid_timestamp";
+    if (Date.parse(signedAt as string) > (verifiedAt as number) + 30_000)
+      return "future_timestamp";
+    return null;
+  };
+  for (const [name, bytes, expected] of rejectedSnapshots.filter(
+    ([, , error]) =>
+      ["verified_at_range", "invalid_timestamp", "future_timestamp"].includes(
+        error,
+      ),
+  )) {
+    const actual = classifyTimestampSemantics(bytes);
+    if (actual !== expected)
+      throw new Error(
+        `${name} timestamp category mismatch: expected ${expected}, got ${String(actual)}`,
+      );
+  }
   for (const [name, bytes, error] of rejectedSnapshots) {
     snapshotCases.push({
       name,

@@ -29,6 +29,7 @@ const FIXTURE = new URL(
 );
 const hex = z.string().regex(/^(?:[0-9a-f]{2})+$/);
 const hex32 = z.string().regex(/^[0-9a-f]{64}$/);
+const protocolTimestamp = z.string().datetime({ offset: true });
 const sourceSchema = z
   .object({
     path: z.enum(ANC_V1_NATIVE_AUTHORITY_STORE_SOURCE_PATHS),
@@ -346,6 +347,11 @@ async function custodyStatus(record: Uint8Array) {
 function snapshotStatus(
   bytes: Uint8Array,
 ): { ok: true; error: null } | { ok: false; error: string } {
+  const opaqueId = (value: unknown) =>
+    typeof value === "string" &&
+    value.length >= 8 &&
+    value.length <= 160 &&
+    /^[A-Za-z0-9][A-Za-z0-9._:-]*$/.test(value);
   if (bytes.length > 1024 * 1024) return { ok: false, error: "size" };
   if (bytes.length > 32 && bytes.slice(0, 33).every((byte) => byte === 0x81))
     return { ok: false, error: "depth" };
@@ -377,15 +383,19 @@ function snapshotStatus(
     if (
       decoded.get(1) !== "anc/v1" ||
       typeof decoded.get(2) !== "string" ||
-      (decoded.get(2) as string).length === 0 ||
       decoded.get(3) !== "authority-snapshot" ||
       decoded.get(500) !== 1
     )
       return { ok: false, error: "wrong_type" };
+    if (!opaqueId(decoded.get(2))) return { ok: false, error: "invalid_id" };
+    const verifiedAt = decoded.get(505);
+    if (!Number.isSafeInteger(verifiedAt))
+      return { ok: false, error: "wrong_type" };
+    if ((verifiedAt as number) < 1)
+      return { ok: false, error: "verified_at_range" };
     for (const [key, minimum] of [
       [501, 1],
       [502, 0],
-      [505, 1],
       [510, 0],
       [516, 1],
       [517, 1],
@@ -423,6 +433,7 @@ function snapshotStatus(
       return { ok: false, error: "wrong_type" };
     if (removed.length > 4096) return { ok: false, error: "removed_limit" };
     const memberIds: string[] = [];
+    let brokerCount = 0;
     for (const member of members) {
       if (
         !Array.isArray(member) ||
@@ -430,7 +441,6 @@ function snapshotStatus(
         typeof member[0] !== "string" ||
         (member[1] !== "endpoint" && member[1] !== "broker") ||
         typeof member[2] !== "boolean" ||
-        member[2] !== (member[1] === "broker") ||
         !(member[3] instanceof Uint8Array) ||
         member[3].length !== 32 ||
         !(member[4] instanceof Uint8Array) ||
@@ -438,25 +448,33 @@ function snapshotStatus(
         typeof member[5] !== "string"
       )
         return { ok: false, error: "wrong_type" };
+      if (!opaqueId(member[0]) || !opaqueId(member[5]))
+        return { ok: false, error: "invalid_id" };
+      if (member[2] !== (member[1] === "broker"))
+        return { ok: false, error: "member_unattended_role" };
+      if (member[1] === "broker") brokerCount += 1;
       memberIds.push(member[0]);
     }
+    if (brokerCount > 1) return { ok: false, error: "multiple_active_brokers" };
     if (memberIds.some((id, index) => index > 0 && memberIds[index - 1]! >= id))
       return { ok: false, error: "member_order" };
     if (removed.some((id) => typeof id !== "string"))
       return { ok: false, error: "wrong_type" };
+    if (removed.some((id) => !opaqueId(id)))
+      return { ok: false, error: "invalid_id" };
     for (let index = 1; index < removed.length; index += 1) {
       if ((removed[index - 1] as string) === removed[index])
         return { ok: false, error: "removed_duplicates" };
       if ((removed[index - 1] as string) > (removed[index] as string))
         return { ok: false, error: "wrong_type" };
     }
+    if (removed.some((id) => memberIds.includes(id as string)))
+      return { ok: false, error: "removed_active_overlap" };
     const signedAt = decoded.get(513);
-    const verified = decoded.get(505);
-    if (
-      typeof signedAt !== "string" ||
-      !Number.isFinite(Date.parse(signedAt)) ||
-      Date.parse(signedAt) > verified + 30_000
-    )
+    if (typeof signedAt !== "string") return { ok: false, error: "wrong_type" };
+    if (!protocolTimestamp.safeParse(signedAt).success)
+      return { ok: false, error: "invalid_timestamp" };
+    if (Date.parse(signedAt) > (verifiedAt as number) + 30_000)
       return { ok: false, error: "future_timestamp" };
     if (
       typeof decoded.get(518) !== "string" ||
@@ -464,6 +482,7 @@ function snapshotStatus(
         decoded.get(522) !== "eventual_fork_detection")
     )
       return { ok: false, error: "wrong_type" };
+    if (!opaqueId(decoded.get(518))) return { ok: false, error: "invalid_id" };
     const target = decoded.get(501) as number;
     const previousGeneration = decoded.get(502) as number;
     const sequence = decoded.get(510) as number;
@@ -618,6 +637,23 @@ describe("anc/v1 native AuthorityStore vectors", () => {
         expect(ancV1BytesToHex(await hash(bytes))).toBe(
           testCase.canonicalBlake2b256Hex,
         );
+        const decoded = decodeAncV1Canonical(bytes);
+        expect(decoded).toBeInstanceOf(Map);
+        if (decoded instanceof Map && testCase.snapshot) {
+          expect(decoded.get(513), testCase.name).toBe(
+            testCase.snapshot.signedAt,
+          );
+          expect(protocolTimestamp.safeParse(decoded.get(513)).success).toBe(
+            true,
+          );
+          expect(Date.parse(decoded.get(513) as string), testCase.name).toBe(
+            Date.parse(testCase.snapshot.signedAt),
+          );
+          expect(
+            Date.parse(decoded.get(513) as string),
+            testCase.name,
+          ).toBeLessThanOrEqual(testCase.snapshot.verifiedAtMs + 30_000);
+        }
       }
     }
   });
