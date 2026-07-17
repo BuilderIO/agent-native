@@ -1628,6 +1628,7 @@ export function createIntegrationsPlugin(
         let deliveryRetryRecovery:
           | { payload: string; errorMessage: string }
           | undefined;
+        let confirmedDeliveryRetryPayload: string | undefined;
         try {
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
@@ -1697,9 +1698,11 @@ export function createIntegrationsPlugin(
                       deliveryReceipt: receipt,
                       deliveredAt: new Date().toISOString(),
                     };
+                confirmedDeliveryRetryPayload =
+                  JSON.stringify(deliveredPayload);
                 if (!taskPayload.deliveryReceipt) {
                   deliveryRetryRecovery = {
-                    payload: JSON.stringify(deliveredPayload),
+                    payload: confirmedDeliveryRetryPayload,
                     errorMessage:
                       "Provider delivery was confirmed but its receipt checkpoint failed",
                   };
@@ -1802,6 +1805,15 @@ export function createIntegrationsPlugin(
                 `Could not safely checkpoint the delivery receipt: ${transitionMessage}`,
               );
             }
+          } else if (confirmedDeliveryRetryPayload) {
+            await markTaskDeliveryRetryable(
+              taskId,
+              confirmedDeliveryRetryPayload,
+              `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
+            );
+            console.error("[integrations] process-task failure:", err);
+            setResponseStatus(event, 202);
+            return { ok: true, taskId, retrying: "response-delivery" };
           } else if (deliveryRetryTransitionStarted) {
             await failTaskDeliveryTransition(
               taskId,
