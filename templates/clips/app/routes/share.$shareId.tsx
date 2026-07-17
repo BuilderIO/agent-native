@@ -11,6 +11,7 @@ import {
 import {
   IconAlertTriangle,
   IconArrowLeft,
+  IconDeviceDesktop,
   IconDownload,
   IconDots,
   IconExternalLink,
@@ -1220,6 +1221,12 @@ function PublicAgentEmptyState({
           className="w-full gap-2"
           align="center"
           onClick={() => onCtaClick("download")}
+          downloadedChildren={
+            <>
+              <IconDeviceDesktop className="h-4 w-4" />
+              {t("captureInstall.openDesktopApp")}
+            </>
+          }
         >
           <IconDownload className="h-4 w-4" />
           {downloadLabel}

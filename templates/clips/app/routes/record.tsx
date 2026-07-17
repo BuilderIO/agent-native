@@ -670,6 +670,7 @@ function DesktopRecorderCallout() {
       <CaptureInstallButton
         size="sm"
         className="mt-4 w-full bg-primary text-primary-foreground hover:bg-primary/90"
+        downloadedChildren={t("captureInstall.openDesktopApp")}
       >
         {t("recordRoute.downloadDesktopApp")}
       </CaptureInstallButton>

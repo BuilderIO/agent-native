@@ -1121,6 +1121,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     desktopTitle: "Desktop app (Localizado)",
     desktopDescription:
       "Most seamless for global shortcuts, menu-bar recording, meetings, and repeat captures. (Localizado)",
+    openDesktopApp: "Open desktop app (Localizado)",
   },
   editableTitle: {
     untitled: "Untitled Clip (Localizado)",

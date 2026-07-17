@@ -7,7 +7,7 @@ import {
   IconDeviceDesktop,
   IconExternalLink,
 } from "@tabler/icons-react";
-import { type ReactNode } from "react";
+import { type ReactNode, useSyncExternalStore } from "react";
 
 import { Button, type ButtonProps } from "@/components/ui/button";
 import {
@@ -16,10 +16,23 @@ import {
   PopoverTrigger,
 } from "@/components/ui/popover";
 import {
+  attemptOpenDesktopApp,
   clipsChromeExtensionEnabled,
   clipsChromeExtensionUrl,
+  hasDownloadedDesktopApp,
+  subscribeDownloaded,
 } from "@/lib/capture-install-options";
 import { cn } from "@/lib/utils";
+
+// SSR snapshot is always false; same-tab markDesktopAppDownloaded() notifies
+// subscribers so mounted CTAs flip to "Open" without a reload.
+function useHasDownloadedDesktopApp(): boolean {
+  return useSyncExternalStore(
+    subscribeDownloaded,
+    hasDownloadedDesktopApp,
+    () => false,
+  );
+}
 
 type PopoverPlacement = {
   align?: "start" | "center" | "end";
@@ -29,11 +42,15 @@ type PopoverPlacement = {
 type CaptureInstallButtonProps = Omit<ButtonProps, "asChild"> &
   PopoverPlacement & {
     children: ReactNode;
+    /** Label shown once the desktop app has been downloaded. */
+    downloadedChildren?: ReactNode;
     desktopHref?: string;
   };
 
 type CaptureInstallInlineLinkProps = PopoverPlacement & {
   children: ReactNode;
+  /** Label shown once the desktop app has been downloaded. */
+  downloadedChildren?: ReactNode;
   className?: string;
   desktopHref?: string;
 };
@@ -110,16 +127,37 @@ function InstallOptionsContent({ desktopHref = "/download" }) {
 
 export function CaptureInstallButton({
   children,
+  downloadedChildren,
   className,
   desktopHref = "/download",
   align = "end",
   side = "bottom",
   ...buttonProps
 }: CaptureInstallButtonProps) {
+  const downloaded = useHasDownloadedDesktopApp();
+  const label = downloaded ? (downloadedChildren ?? children) : children;
+
+  if (downloaded) {
+    const { onClick, ...restButtonProps } = buttonProps;
+    return (
+      <Button
+        className={className}
+        {...restButtonProps}
+        onClick={(event) => {
+          onClick?.(event);
+          if (event.defaultPrevented) return;
+          attemptOpenDesktopApp(desktopHref);
+        }}
+      >
+        {label}
+      </Button>
+    );
+  }
+
   if (!clipsChromeExtensionEnabled) {
     return (
       <Button asChild className={className} {...buttonProps}>
-        <a href={appPath(desktopHref)}>{children}</a>
+        <a href={appPath(desktopHref)}>{label}</a>
       </Button>
     );
   }
@@ -128,7 +166,7 @@ export function CaptureInstallButton({
     <Popover>
       <PopoverTrigger asChild>
         <Button className={className} {...buttonProps}>
-          {children}
+          {label}
           <IconChevronDown className="h-3.5 w-3.5" />
         </Button>
       </PopoverTrigger>
@@ -141,15 +179,32 @@ export function CaptureInstallButton({
 
 export function CaptureInstallInlineLink({
   children,
+  downloadedChildren,
   className,
   desktopHref = "/download",
   align = "start",
   side = "bottom",
 }: CaptureInstallInlineLinkProps) {
+  const downloaded = useHasDownloadedDesktopApp();
+
+  const label = downloaded ? (downloadedChildren ?? children) : children;
+
+  if (downloaded) {
+    return (
+      <button
+        type="button"
+        onClick={() => attemptOpenDesktopApp(desktopHref)}
+        className={cn("cursor-pointer", className)}
+      >
+        {label}
+      </button>
+    );
+  }
+
   if (!clipsChromeExtensionEnabled) {
     return (
       <a href={appPath(desktopHref)} className={className}>
-        {children}
+        {label}
       </a>
     );
   }
@@ -158,7 +213,7 @@ export function CaptureInstallInlineLink({
     <Popover>
       <PopoverTrigger asChild>
         <button type="button" className={cn("cursor-pointer", className)}>
-          {children}
+          {label}
         </button>
       </PopoverTrigger>
       <PopoverContent align={align} side={side} className="w-80 p-3">
