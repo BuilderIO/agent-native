@@ -22,6 +22,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m"
+  "$SOURCE_ROOT/storage/PrivateVaultStateRoot.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"

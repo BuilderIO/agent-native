@@ -65,6 +65,15 @@ describe("Private Vault XPC service contract", () => {
     ).toContain("protocol tests passed");
   });
 
+  it("bootstraps the vault root without following ancestor or child symlinks", () => {
+    expect(source).toContain("AncPrivateVaultPrepareStateRoot");
+    expect(
+      execFileSync(join(serviceRoot, "run-state-root-tests.sh"), {
+        encoding: "utf8",
+      }),
+    ).toContain("state root tests passed");
+  });
+
   it("declares a macOS 13 XPC bundle and a helper-only keychain group", () => {
     const plist = join(serviceRoot, "Info.plist");
     const entitlements = join(

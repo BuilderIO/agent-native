@@ -4,9 +4,6 @@
 
 #include <stdlib.h>
 #include <string.h>
-#include <sys/stat.h>
-#include <unistd.h>
-
 #include "PrivateVaultServiceIdentity.h"
 #include "Protocol.h"
 #include "PrivateVaultCrypto.h"
@@ -17,6 +14,7 @@
 #import "PrivateVaultRotationCoordinator.h"
 #import "PrivateVaultRotationPreparationSpool.h"
 #import "PrivateVaultRotationPreparationStore.h"
+#import "PrivateVaultStateRoot.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
@@ -29,25 +27,8 @@ static NSURL *PVStateRootURL(void) {
     if (roots.firstObject.length == 0) {
         return nil;
     }
-    NSString *path = [[roots.firstObject
-        stringByAppendingPathComponent:@"AgentNative"]
-        stringByAppendingPathComponent:@"PrivateVault"];
-    NSError *error = nil;
-    if (![[NSFileManager defaultManager]
-            createDirectoryAtPath:path
-      withIntermediateDirectories:YES
-                       attributes:@{NSFilePosixPermissions : @0700}
-                            error:&error] ||
-        error != nil || chmod(path.fileSystemRepresentation, 0700) != 0) {
-        return nil;
-    }
-    struct stat state;
-    if (lstat(path.fileSystemRepresentation, &state) != 0 ||
-        !S_ISDIR(state.st_mode) || S_ISLNK(state.st_mode) ||
-        state.st_uid != getuid() || (state.st_mode & 0777) != 0700) {
-        return nil;
-    }
-    return [NSURL fileURLWithPath:path isDirectory:YES];
+    return AncPrivateVaultPrepareStateRoot(
+        [NSURL fileURLWithPath:roots.firstObject isDirectory:YES]);
 }
 
 static bool PVDecodeVaultID(const char *hex, uint8_t output[16]) {
