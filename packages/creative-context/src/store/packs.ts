@@ -3,7 +3,17 @@ import {
   assertAccess,
   resolveAccess,
 } from "@agent-native/core/sharing";
-import { and, asc, eq, gt, inArray, isNull, ne, or } from "drizzle-orm";
+import {
+  and,
+  asc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  ne,
+  or,
+} from "drizzle-orm";
 
 import { getCreativeContext } from "../server/context.js";
 import type {
@@ -394,12 +404,33 @@ export async function listContextPacks(input: {
             schema.contextSources,
             eq(schema.contextSources.id, schema.contextItems.sourceId),
           )
+          .leftJoin(
+            schema.creativeContextPublishedSnapshots,
+            and(
+              eq(
+                schema.creativeContextPublishedSnapshots.itemId,
+                schema.contextPackMembers.itemId,
+              ),
+              eq(
+                schema.creativeContextPublishedSnapshots.itemVersionId,
+                schema.contextPackMembers.itemVersionId,
+              ),
+            ),
+          )
           .where(
             and(
               inArray(schema.contextPackMembers.packId, ids),
-              accessFilter(schema.contextSources, schema.contextSourceShares),
-              ne(schema.contextSources.upstreamAccess, "restricted"),
-              ne(schema.contextSources.status, "archived"),
+              or(
+                and(
+                  accessFilter(
+                    schema.contextSources,
+                    schema.contextSourceShares,
+                  ),
+                  ne(schema.contextSources.upstreamAccess, "restricted"),
+                  ne(schema.contextSources.status, "archived"),
+                ),
+                isNotNull(schema.creativeContextPublishedSnapshots.id),
+              ),
               eq(schema.contextItems.curationStatus, "included"),
               ne(schema.contextItems.curationRank, "ignored"),
               eq(schema.contextItems.status, "active"),
@@ -473,12 +504,33 @@ export async function getContextPack(
         schema.contextSources,
         eq(schema.contextSources.id, schema.contextItems.sourceId),
       )
+      .leftJoin(
+        schema.creativeContextPublishedSnapshots,
+        and(
+          eq(
+            schema.creativeContextPublishedSnapshots.itemId,
+            schema.contextPackMembers.itemId,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.itemVersionId,
+            schema.contextPackMembers.itemVersionId,
+          ),
+        ),
+      )
       .where(
         and(
           eq(schema.contextPackMembers.packId, packId),
-          accessFilter(schema.contextSources, schema.contextSourceShares),
-          ne(schema.contextSources.upstreamAccess, "restricted"),
-          ne(schema.contextSources.status, "archived"),
+          or(
+            and(
+              accessFilter(
+                schema.contextSources,
+                schema.contextSourceShares,
+              ),
+              ne(schema.contextSources.upstreamAccess, "restricted"),
+              ne(schema.contextSources.status, "archived"),
+            ),
+            isNotNull(schema.creativeContextPublishedSnapshots.id),
+          ),
           eq(schema.contextItems.curationStatus, "included"),
           ne(schema.contextItems.curationRank, "ignored"),
           eq(schema.contextItems.status, "active"),

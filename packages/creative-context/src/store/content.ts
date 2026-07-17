@@ -16,6 +16,7 @@ import {
   gt,
   gte,
   inArray,
+  isNotNull,
   lte,
   ne,
   or,
@@ -1071,14 +1072,17 @@ export async function listAccessibleSearchDocuments(
     (contextVersionIds && !contextVersionIds.length)
   )
     return [];
+  const sourceAccess = and(
+    accessFilter(schema.contextSources, schema.contextSourceShares),
+    ne(schema.contextSources.upstreamAccess, "restricted"),
+    ne(schema.contextSources.status, "archived"),
+  );
   const filters: any[] = [
     ...(input.contextId
       ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
-      : [
-          accessFilter(schema.contextSources, schema.contextSourceShares),
-          ne(schema.contextSources.upstreamAccess, "restricted"),
-          ne(schema.contextSources.status, "archived"),
-        ]),
+      : input.packId
+        ? [or(sourceAccess, isNotNull(schema.creativeContextPublishedSnapshots.id))]
+        : [sourceAccess]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
       : [
@@ -1148,6 +1152,19 @@ export async function listAccessibleSearchDocuments(
       .innerJoin(
         schema.contextItemVersions,
         eq(schema.contextItemVersions.id, schema.contextChunks.itemVersionId),
+      )
+      .leftJoin(
+        schema.creativeContextPublishedSnapshots,
+        and(
+          eq(
+            schema.creativeContextPublishedSnapshots.itemId,
+            schema.contextItems.id,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.itemVersionId,
+            schema.contextChunks.itemVersionId,
+          ),
+        ),
       )
       .where(
         and(
@@ -1288,14 +1305,17 @@ export async function listAccessibleLexicalCandidates(
       sql`lower(${schema.contextChunks.text}) like ${pattern} escape '\\'`,
     );
   });
+  const sourceAccess = and(
+    accessFilter(schema.contextSources, schema.contextSourceShares),
+    ne(schema.contextSources.upstreamAccess, "restricted"),
+    ne(schema.contextSources.status, "archived"),
+  );
   const filters: any[] = [
     ...(input.contextId
       ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
-      : [
-          accessFilter(schema.contextSources, schema.contextSourceShares),
-          ne(schema.contextSources.upstreamAccess, "restricted"),
-          ne(schema.contextSources.status, "archived"),
-        ]),
+      : input.packId
+        ? [or(sourceAccess, isNotNull(schema.creativeContextPublishedSnapshots.id))]
+        : [sourceAccess]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
       : [
@@ -1373,6 +1393,19 @@ export async function listAccessibleLexicalCandidates(
         schema.contextItemVersions,
         eq(schema.contextItemVersions.id, schema.contextChunks.itemVersionId),
       )
+      .leftJoin(
+        schema.creativeContextPublishedSnapshots,
+        and(
+          eq(
+            schema.creativeContextPublishedSnapshots.itemId,
+            schema.contextItems.id,
+          ),
+          eq(
+            schema.creativeContextPublishedSnapshots.itemVersionId,
+            schema.contextChunks.itemVersionId,
+          ),
+        ),
+      )
       .where(
         and(
           ...filters,
@@ -1448,6 +1481,7 @@ export async function getCreativeContextItem(
   itemVersionId?: string,
 ): Promise<ContextDetail | null> {
   const { getDb, schema } = getCreativeContext();
+  const requestedVersionId = itemVersionId ?? schema.contextItems.currentVersionId;
   const itemRows = await getDb()
     .select({ item: schema.contextItems })
     .from(schema.contextItems)
@@ -1462,6 +1496,10 @@ export async function getCreativeContextItem(
           schema.creativeContextMemberships.publishedItemId,
           schema.contextItems.id,
         ),
+        eq(
+          schema.creativeContextMemberships.publishedItemVersionId,
+          requestedVersionId,
+        ),
         eq(schema.creativeContextMemberships.status, "active"),
       ),
     )
@@ -1474,11 +1512,27 @@ export async function getCreativeContextItem(
     )
     .leftJoin(
       schema.contextPackMembers,
-      eq(schema.contextPackMembers.itemId, schema.contextItems.id),
+      and(
+        eq(schema.contextPackMembers.itemId, schema.contextItems.id),
+        eq(schema.contextPackMembers.itemVersionId, requestedVersionId),
+      ),
     )
     .leftJoin(
       schema.contextPacks,
       eq(schema.contextPacks.id, schema.contextPackMembers.packId),
+    )
+    .leftJoin(
+      schema.creativeContextPublishedSnapshots,
+      and(
+        eq(
+          schema.creativeContextPublishedSnapshots.itemId,
+          schema.contextItems.id,
+        ),
+        eq(
+          schema.creativeContextPublishedSnapshots.itemVersionId,
+          requestedVersionId,
+        ),
+      ),
     )
     .where(
       and(
@@ -1489,7 +1543,10 @@ export async function getCreativeContextItem(
             ne(schema.contextSources.upstreamAccess, "restricted"),
             ne(schema.contextSources.status, "archived"),
           ),
-          accessFilter(schema.contextPacks, schema.contextPackShares),
+          and(
+            isNotNull(schema.creativeContextPublishedSnapshots.id),
+            accessFilter(schema.contextPacks, schema.contextPackShares),
+          ),
           accessFilter(schema.creativeContexts, schema.creativeContextShares),
         ),
         eq(schema.contextItems.curationStatus, "included"),

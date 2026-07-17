@@ -1063,6 +1063,32 @@ async function approveSubmission(
         updatedAt: timestamp,
       })
       .where(eq(schema.creativeContextMemberships.id, membership.id));
+    for (const child of publishedChildren) {
+      const existingChild = await tx
+        .select({ id: schema.creativeContextMemberships.id })
+        .from(schema.creativeContextMemberships)
+        .where(
+          and(
+            eq(schema.creativeContextMemberships.contextId, context.id),
+            eq(schema.creativeContextMemberships.artifactKey, child.artifactKey),
+          ),
+        )
+        .limit(1);
+      const values = {
+        publishedItemId: child.itemId, publishedItemVersionId: child.itemVersionId,
+        pendingSubmissionId: null, status: "active" as const, updatedAt: timestamp,
+      };
+      if (existingChild[0]) {
+        await tx.update(schema.creativeContextMemberships).set(values)
+          .where(eq(schema.creativeContextMemberships.id, existingChild[0].id));
+      } else {
+        await tx.insert(schema.creativeContextMemberships).values({
+          id: newId("ccmbr"), contextId: context.id, artifactKey: child.artifactKey,
+          ...values, rank: "normal", purpose: "Native artifact child", createdAt: timestamp,
+          ownerEmail: context.ownerEmail, orgId: context.orgId ?? null,
+        });
+      }
+    }
     await tx.insert(schema.creativeContextPublishedSnapshots).values([
       {
         id: newId("ccps"), contextId: context.id, sourceId: context.publishedSourceId,
