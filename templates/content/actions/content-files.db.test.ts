@@ -109,6 +109,72 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
+  it("removes system databases and workspace references from Personal Files", async () => {
+    const personalSpaceId = personalContentSpaceId(OWNER);
+    const personalFiles = await getFilesDatabase(personalSpaceId);
+    const [workspacesDatabase] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, personalSpaceId),
+          eq(schema.contentDatabases.systemRole, "workspaces"),
+        ),
+      );
+    const [workspaceReference] = await getDb()
+      .select()
+      .from(schema.contentSpaceCatalogItems)
+      .where(
+        eq(
+          schema.contentSpaceCatalogItems.catalogDatabaseId,
+          workspacesDatabase.id,
+        ),
+      );
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.contentDatabaseItems)
+      .values([
+        {
+          id: "legacy-workspaces-files-item",
+          ownerEmail: OWNER,
+          orgId: null,
+          databaseId: personalFiles.id,
+          documentId: workspacesDatabase.documentId,
+          position: 0,
+          createdAt: now,
+          updatedAt: now,
+        },
+        {
+          id: "legacy-workspace-reference-files-item",
+          ownerEmail: OWNER,
+          orgId: null,
+          databaseId: personalFiles.id,
+          documentId: workspaceReference.documentId,
+          position: 1,
+          createdAt: now,
+          updatedAt: now,
+        },
+      ]);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      reconcileContentFilesMemberships(getDb(), OWNER),
+    );
+
+    const staleItems = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(
+        and(
+          eq(schema.contentDatabaseItems.databaseId, personalFiles.id),
+          inArray(schema.contentDatabaseItems.documentId, [
+            workspacesDatabase.documentId,
+            workspaceReference.documentId,
+          ]),
+        ),
+      );
+    expect(staleItems).toHaveLength(0);
+  });
+
   it("lets an ordinary member backfill legacy organization pages without changing their content or ownership", async () => {
     const viewerOrgId = "files-viewer-org";
     await getDbExec().execute({

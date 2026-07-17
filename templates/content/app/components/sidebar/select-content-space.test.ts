@@ -292,7 +292,7 @@ describe("contentSpaceForCatalogItem", () => {
     ).toBe(builder);
   });
 
-  it("maps workspace references surfaced in the personal Files database", () => {
+  it("does not treat workspace catalog references as Files rows", () => {
     const personal = space({
       id: "personal",
       kind: "personal",
@@ -312,7 +312,7 @@ describe("contentSpaceForCatalogItem", () => {
         documentId: "builder-reference",
         spaces: [personal, builder],
       }),
-    ).toBe(builder);
+    ).toBeNull();
   });
 
   it("does not treat workspace references in another space's Files database as selectors", () => {

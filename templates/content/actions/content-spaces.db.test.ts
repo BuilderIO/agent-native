@@ -125,6 +125,11 @@ describe("Content space provisioning", () => {
         ),
       );
     expect(filesSelfItems).toHaveLength(0);
+    const filesItems = await getDb()
+      .select()
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, files.id));
+    expect(filesItems).toHaveLength(0);
     await runWithRequestContext({ userEmail: OWNER }, async () => {
       await expect(listContentSpacesAction.run({})).resolves.toMatchObject({
         spaces: expect.arrayContaining([
