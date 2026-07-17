@@ -103,6 +103,25 @@ describe("integration pending task store", () => {
     await expect(claimPendingTask("task-failed")).resolves.toBeNull();
   });
 
+  it("dispatches same-millisecond thread tasks by stable id order", async () => {
+    executeMock.mockResolvedValue({ rows: [{ id: "task-a" }] });
+    const { getNextPendingTaskIdForThread } = await loadStore();
+
+    await expect(
+      getNextPendingTaskIdForThread("slack", "thread-1"),
+    ).resolves.toBe("task-a");
+
+    const select = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("SELECT id FROM integration_pending_tasks"),
+      );
+    expect(select?.sql).toContain("ORDER BY created_at ASC, id ASC");
+    expect(select?.args).toEqual(["slack", "thread-1"]);
+  });
+
   it("returns null when a SQLite claim loses the conditional update race", async () => {
     const { claimPendingTask } = await loadStore();
     executeMock.mockImplementation(async (query: string | { sql: string }) => {

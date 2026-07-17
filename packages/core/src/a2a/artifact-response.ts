@@ -1402,7 +1402,7 @@ export function appendA2AArtifactLinks(
       ? withPersistedArtifactMarker(
           value,
           toolResults,
-          options.persistedArtifactSecret,
+          options.persistedArtifactSecret ?? process.env.A2A_SECRET,
         )
       : value;
   const {

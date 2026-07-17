@@ -338,7 +338,7 @@ export async function getNextPendingTaskIdForThread(
   const { rows } = await getDbExec().execute({
     sql: `SELECT id FROM integration_pending_tasks
       WHERE platform = ? AND external_thread_id = ? AND status = 'pending'
-      ORDER BY created_at ASC LIMIT 1`,
+      ORDER BY created_at ASC, id ASC LIMIT 1`,
     args: [platform, externalThreadId],
   });
   return rows[0]?.id ? String(rows[0].id) : null;
