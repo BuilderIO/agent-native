@@ -3,4 +3,4 @@ type: improved
 date: 2026-07-17
 ---
 
-Workspaces now expand above their own Files list, without duplicate workspace rows or organization controls.
+Workspaces now stay independently expanded as compact sidebar headers above their pages, without duplicate labels or organization controls.

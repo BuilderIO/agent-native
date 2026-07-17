@@ -186,8 +186,13 @@ describe("document sidebar layout", () => {
     expect(sidebar).toContain("<WorkspaceFilesSection");
     expect(sidebar).toContain("selected={selected}");
     expect(sidebar).toContain("onOpenItem={(item: ContentDatabaseItem) =>");
-    expect(sidebar).toContain('t("sidebar.workspaces")');
-    expect(sidebar).toContain('t("sidebar.files")');
+    expect(sidebar).not.toContain('t("sidebar.workspaces")');
+    expect(sidebar).not.toContain(
+      '<div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">',
+    );
+    expect(sidebar).toContain(
+      "text-[10px] font-semibold uppercase tracking-wider",
+    );
     expect(sidebar).not.toContain("<OrgSwitcher />");
   });
 

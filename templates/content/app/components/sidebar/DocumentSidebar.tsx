@@ -242,10 +242,7 @@ function WorkspaceFilesSection({
   const failed = filesDatabase.isError || filesPersonalView.isError;
 
   return (
-    <div className="ms-3 border-s border-border/70 ps-1">
-      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {t("sidebar.files")}
-      </div>
+    <div className="ms-3 border-s border-border/70 pb-1 ps-1">
       {failed ? (
         <QueryErrorState
           compact
@@ -1199,11 +1196,8 @@ export function DocumentSidebar({
 
   const renderWorkspaceNavigation = () => (
     <div className="mb-2 px-2">
-      <div className="px-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {t("sidebar.workspaces")}
-      </div>
       {contentSpaceState === "ready" && selectedSpace ? (
-        <div className="grid gap-0.5">
+        <div className="grid gap-1">
           {contentSpaces.map((space) => {
             const selected = selectedSpace.id === space.id;
             const expanded = expandedWorkspaceIds.includes(space.id);
@@ -1211,17 +1205,17 @@ export function DocumentSidebar({
               <div key={space.id} className="min-w-0">
                 <div
                   className={cn(
-                    "flex h-8 w-full min-w-0 items-center rounded-md text-sm",
+                    "flex h-7 w-full min-w-0 items-center rounded-md text-[10px] font-semibold uppercase tracking-wider",
                     selected
-                      ? "bg-accent text-accent-foreground"
-                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                      ? "text-foreground"
+                      : "text-muted-foreground hover:bg-accent/40 hover:text-foreground",
                   )}
                 >
                   <button
                     type="button"
                     aria-expanded={expanded}
                     aria-label={`${expanded ? t("sidebar.collapse") : t("sidebar.expand")} ${space.name}`}
-                    className="flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
+                    className="flex size-7 shrink-0 items-center justify-center rounded-md hover:bg-background/60"
                     onClick={() =>
                       setExpandedWorkspaceIds((current) =>
                         toggleExpandedWorkspaceIds(current, space.id),
@@ -1236,7 +1230,7 @@ export function DocumentSidebar({
                   </button>
                   <button
                     type="button"
-                    className="h-8 min-w-0 flex-1 truncate pe-2 text-start"
+                    className="h-7 min-w-0 flex-1 truncate pe-2 text-start"
                     onClick={() => void handleSelectContentSpace(space)}
                     disabled={switchOrg.isPending}
                   >
