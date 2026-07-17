@@ -44,6 +44,7 @@ import {
   IconAlertTriangle,
   IconArrowUpRight,
   IconBooks,
+  IconChartBar,
   IconCheck,
   IconDots,
   IconFileImport,
@@ -51,6 +52,7 @@ import {
   IconLayout,
   IconPalette,
   IconPhoto,
+  IconPlayerPlay,
   IconPin,
   IconRefresh,
   IconSearch,
@@ -103,6 +105,7 @@ import {
   useStartCreativeContextImport,
   parseCreativeContexts,
   parseContextMemberships,
+  type CreativeContextSafePreview,
   type CreativeContextConnectionProvider,
   type CreativeContextRootRecommendation,
   type CreativeContextRecommendationProvider,
@@ -810,8 +813,202 @@ interface SafePreviewManifest {
   kind: string;
   itemId: string;
   itemVersionId: string;
-  hasPreview: boolean;
-  mediaUrl?: string;
+  preview: CreativeContextSafePreview | null;
+  media?: {
+    kind: string;
+    mimeType: string | null;
+    url: string;
+  } | null;
+}
+
+function StructuredPreview({
+  preview,
+  compact = false,
+}: {
+  preview: CreativeContextSafePreview | null;
+  compact?: boolean;
+}) {
+  if (!preview) {
+    return (
+      <div className="flex h-full min-h-28 items-center justify-center bg-muted text-muted-foreground">
+        <IconFileText className="size-5" />
+      </div>
+    );
+  }
+  if (preview.type === "slides") {
+    const visibleSlides = compact ? preview.slides.slice(0, 3) : preview.slides;
+    return (
+      <div className="grid h-full grid-cols-3 gap-1.5 bg-muted/50 p-2">
+        {visibleSlides.map((slide) => (
+          <div
+            key={slide.index}
+            className="min-w-0 rounded border border-border/70 bg-background p-1.5"
+          >
+            <span className="text-[10px] font-medium text-muted-foreground">
+              {slide.index}
+            </span>
+            <p className="mt-1 line-clamp-2 text-[11px] font-medium leading-tight">
+              {slide.title}
+            </p>
+            {!compact && slide.excerpt ? (
+              <p className="mt-1 line-clamp-5 text-[10px] leading-snug text-muted-foreground">
+                {slide.excerpt}
+              </p>
+            ) : null}
+          </div>
+        ))}
+        {!visibleSlides.length ? (
+          <div className="col-span-3 flex items-center justify-center text-xs text-muted-foreground">
+            {preview.slideCount} slides
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  if (preview.type === "slide") {
+    return (
+      <div className="flex h-full flex-col justify-between bg-muted/50 p-4">
+        <span className="text-xs text-muted-foreground">
+          Slide {preview.index}
+        </span>
+        <p className="line-clamp-3 text-sm font-semibold">{preview.title}</p>
+        {preview.excerpt ? (
+          <p className="line-clamp-5 text-xs leading-relaxed text-muted-foreground">
+            {preview.excerpt}
+          </p>
+        ) : null}
+      </div>
+    );
+  }
+  if (preview.type === "design" || preview.type === "design-frame") {
+    const frames =
+      preview.type === "design"
+        ? preview.frames
+        : [
+            {
+              title: preview.title,
+              fileType: preview.fileType,
+              excerpt: preview.excerpt,
+            },
+          ];
+    const visibleFrames = compact ? frames.slice(0, 4) : frames;
+    return (
+      <div className="grid h-full grid-cols-2 gap-1.5 bg-muted/50 p-2">
+        {visibleFrames.map((frame, index) => (
+          <div
+            key={`${frame.title}-${index}`}
+            className="min-w-0 rounded border border-border/70 bg-background p-2"
+          >
+            <div className="flex items-center gap-1 text-muted-foreground">
+              <IconLayout className="size-3 shrink-0" />
+              <span className="truncate text-[10px] uppercase tracking-wide">
+                {frame.fileType}
+              </span>
+            </div>
+            <p className="mt-2 line-clamp-2 text-xs font-medium leading-tight">
+              {frame.title}
+            </p>
+            {!compact && frame.excerpt ? (
+              <p className="mt-1 line-clamp-4 text-[10px] leading-snug text-muted-foreground">
+                {frame.excerpt}
+              </p>
+            ) : null}
+          </div>
+        ))}
+      </div>
+    );
+  }
+  if (preview.type === "document") {
+    return (
+      <article className="h-full overflow-hidden bg-background p-4">
+        {preview.headings.slice(0, compact ? 2 : 5).map((heading, index) => (
+          <p
+            key={`${heading}-${index}`}
+            className={
+              index === 0 ? "text-sm font-semibold" : "mt-2 text-xs font-medium"
+            }
+          >
+            {heading}
+          </p>
+        ))}
+        {preview.excerpt ? (
+          <p className="mt-3 line-clamp-6 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
+            {preview.excerpt}
+          </p>
+        ) : null}
+      </article>
+    );
+  }
+  if (preview.type === "asset") {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-2 bg-muted text-muted-foreground">
+        {preview.mediaType === "video" ? (
+          <IconPlayerPlay className="size-6" />
+        ) : (
+          <IconPhoto className="size-6" />
+        )}
+        {!compact && preview.width && preview.height ? (
+          <span className="text-xs">
+            {preview.width} × {preview.height}
+          </span>
+        ) : null}
+      </div>
+    );
+  }
+  return (
+    <div className="grid h-full grid-cols-2 gap-2 bg-muted/50 p-3">
+      {preview.panels.slice(0, compact ? 4 : 24).map((panel) => (
+        <div
+          key={panel.id}
+          className="rounded border border-border/70 bg-background p-2"
+        >
+          <div className="flex items-center gap-1 text-muted-foreground">
+            <IconChartBar className="size-3" />
+            <span className="truncate text-[10px] capitalize">
+              {panel.visualization}
+            </span>
+          </div>
+          <p className="mt-2 line-clamp-2 text-xs font-medium">{panel.title}</p>
+        </div>
+      ))}
+      {!preview.panels.length ? (
+        <div className="col-span-2 flex items-center justify-center text-xs text-muted-foreground">
+          Synthetic dashboard preview
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function ContextPreviewVisual({
+  manifest,
+  compact = false,
+}: {
+  manifest: SafePreviewManifest;
+  compact?: boolean;
+}) {
+  if (manifest.media?.mimeType?.startsWith("video/")) {
+    return (
+      <video
+        controls={!compact}
+        muted={compact}
+        playsInline
+        preload="metadata"
+        src={manifest.media.url}
+        className="h-full w-full bg-black object-contain"
+      />
+    );
+  }
+  if (manifest.media) {
+    return (
+      <img
+        src={manifest.media.url}
+        alt=""
+        className="h-full w-full object-contain"
+      />
+    );
+  }
+  return <StructuredPreview preview={manifest.preview} compact={compact} />;
 }
 
 function ContextPreviewSheet({
@@ -828,18 +1025,10 @@ function ContextPreviewSheet({
           <SheetTitle>{manifest?.title ?? "Context preview"}</SheetTitle>
           <SheetDescription>{manifest?.kind ?? ""}</SheetDescription>
         </SheetHeader>
-        {manifest?.hasPreview ? (
-          <img
-            src={
-              manifest.mediaUrl ??
-              creativeContextMediaUrl({
-                itemId: manifest.itemId,
-                itemVersionId: manifest.itemVersionId,
-              })
-            }
-            alt=""
-            className="mt-5 max-h-[70vh] w-full rounded-md border border-border object-contain"
-          />
+        {manifest?.media || manifest?.preview ? (
+          <div className="mt-5 min-h-56 overflow-hidden rounded-md border border-border">
+            <ContextPreviewVisual manifest={manifest} />
+          </div>
         ) : (
           <div className="mt-5 flex min-h-44 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
             No safe preview is available for this item.
@@ -1697,23 +1886,25 @@ export function CreativeContextPanel({
                           kind: item.kind,
                           itemId: item.id,
                           itemVersionId: item.itemVersionId,
-                          hasPreview: Boolean(medium),
-                          mediaUrl: medium?.url,
+                          preview: item.preview,
+                          media: medium ?? null,
                         })
                       }
                       className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40"
                     >
-                      {medium ? (
-                        <img
-                          src={medium.url}
-                          alt=""
-                          className="aspect-video w-full object-cover"
+                      <div className="aspect-video overflow-hidden">
+                        <ContextPreviewVisual
+                          compact
+                          manifest={{
+                            title: item.title,
+                            kind: item.kind,
+                            itemId: item.id,
+                            itemVersionId: item.itemVersionId,
+                            preview: item.preview,
+                            media: medium ?? null,
+                          }}
                         />
-                      ) : (
-                        <div className="flex aspect-video items-center justify-center bg-muted text-muted-foreground">
-                          <IconFileText className="size-5" />
-                        </div>
-                      )}
+                      </div>
                       <span className="block truncate p-3 text-sm font-medium">
                         {item.title}
                       </span>

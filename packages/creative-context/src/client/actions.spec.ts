@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   parseContextMemberships,
   parseContextMembershipsForResource,
+  parseCreativeContextSafePreview,
   parseCreativeContexts,
 } from "./actions.js";
 
@@ -76,5 +77,33 @@ describe("creative context client action contracts", () => {
     expect(JSON.stringify(memberships)).not.toContain(
       "slides:presentation:deck-1",
     );
+  });
+
+  it("keeps only bounded structured safe previews from membership results", () => {
+    const preview = parseCreativeContextSafePreview({
+      type: "slides",
+      slideCount: 2,
+      slides: [
+        {
+          index: 1,
+          title: "Launch overview",
+          excerpt: "A concise first-slide preview.",
+          cloneReference: "private-blob:should-not-cross",
+        },
+      ],
+      privateMetadata: { handle: "opaque" },
+    });
+    expect(preview).toEqual({
+      type: "slides",
+      slideCount: 2,
+      slides: [
+        {
+          index: 1,
+          title: "Launch overview",
+          excerpt: "A concise first-slide preview.",
+        },
+      ],
+    });
+    expect(JSON.stringify(preview)).not.toMatch(/private-blob|opaque/);
   });
 });
