@@ -10,11 +10,11 @@ import {
   runApiHandlerWithContext,
 } from "../lib/credentials";
 import {
-  listChannels,
   getChannelHistory,
-  searchMessages,
-  resolveUsers,
   getTeamInfo,
+  listChannelsWithCoverage,
+  resolveUsersWithCoverage,
+  searchMessages,
   type Workspace,
   type SlackMessage,
 } from "../lib/slack";
@@ -49,12 +49,21 @@ export const handleSlackTeam = defineEventHandler((event) =>
 export const handleSlackChannels = defineEventHandler((event) =>
   runApiHandlerWithContext(event, async () => {
     try {
-      const { workspace: workspaceParam } = getQuery(event);
+      const { workspace: workspaceParam, cursor } = getQuery(event);
       const workspace = parseWorkspace(workspaceParam as string);
       const missing = await requireSlackCredential(event, workspace);
       if (missing) return missing;
-      const channels = await listChannels(workspace);
-      return { channels, total: channels.length };
+      const result = await listChannelsWithCoverage(
+        workspace,
+        cursor as string | undefined,
+      );
+      return {
+        channels: result.channels,
+        total: result.total,
+        truncated: result.truncated,
+        pagination: result.pagination,
+        coverage: result.coverage,
+      };
     } catch (err: any) {
       console.error("Slack channels error:", err.message);
       setResponseStatus(event, 500);
@@ -112,15 +121,33 @@ export const handleSlackHistory = defineEventHandler((event) =>
       const userIds = result.messages
         .map((m) => m.user)
         .filter((id): id is string => !!id);
-      const users = await resolveUsers(workspace, userIds, result.messages);
+      const resolution = await resolveUsersWithCoverage(
+        workspace,
+        userIds,
+        result.messages,
+      );
 
       const enrichedMessages = enrichMessages(result.messages);
 
       return {
         messages: enrichedMessages,
-        users,
+        users: resolution.users,
         has_more: result.has_more,
         next_cursor: result.next_cursor,
+        truncated: result.truncated,
+        pagination: result.pagination,
+        coverage: {
+          ...result.coverage,
+          coverage_complete:
+            result.coverage.coverage_complete &&
+            resolution.coverage.coverage_complete,
+          truncated: result.coverage.truncated || resolution.coverage.truncated,
+          truncation_reasons: [
+            ...result.coverage.truncation_reasons,
+            ...resolution.coverage.truncation_reasons,
+          ],
+          authors: resolution.coverage,
+        },
       };
     } catch (err: any) {
       console.error("Slack history error:", err.message);
@@ -202,19 +229,58 @@ export const handleSlackMultiHistory = defineEventHandler((event) =>
       const userIds = enrichedMessages
         .map((m) => m.user)
         .filter((id): id is string => !!id);
-      const users = await resolveUsers(workspace, userIds, enrichedMessages);
+      const resolution = await resolveUsersWithCoverage(
+        workspace,
+        userIds,
+        enrichedMessages,
+      );
 
       // has_more is true if any channel has more messages
-      const hasMore =
-        Object.values(perChannelHasMore).some(Boolean) ||
-        allMessages.length > pageSize;
+      const providerTruncated = results.some((result) => result.truncated);
+      const mergedResultTruncated = allMessages.length > pageSize;
+      const hasMore = providerTruncated || mergedResultTruncated;
+      const truncationReasons = [
+        ...(providerTruncated ? ["provider_has_more"] : []),
+        ...(mergedResultTruncated ? ["merged_result_limit"] : []),
+      ];
 
       return {
         messages: enrichedMessages,
-        users,
+        users: resolution.users,
         has_more: hasMore,
         next_cursors: nextCursors,
         total: allMessages.length,
+        truncated: hasMore,
+        pagination: {
+          cursor_type: "per_channel_latest_ts",
+          request_cursors: cursors,
+          next_cursors: nextCursors,
+          channels: Object.fromEntries(
+            channelIds.map((channelId, index) => [
+              channelId,
+              results[index].pagination,
+            ]),
+          ),
+        },
+        coverage: {
+          requested: channelIds.length * pageSize,
+          fetched: allMessages.length,
+          returned: enrichedMessages.length,
+          pages_fetched: results.length,
+          coverage_complete: !hasMore && resolution.coverage.coverage_complete,
+          truncated: hasMore || resolution.coverage.truncated,
+          truncation_reasons: [
+            ...truncationReasons,
+            ...resolution.coverage.truncation_reasons,
+          ],
+          channels: Object.fromEntries(
+            channelIds.map((channelId, index) => [
+              channelId,
+              results[index].coverage,
+            ]),
+          ),
+          authors: resolution.coverage,
+        },
       };
     } catch (err: any) {
       console.error("Slack multi-history error:", err.message);
@@ -242,9 +308,33 @@ export const handleSlackSearch = defineEventHandler((event) =>
       const userIds = result.messages
         .map((m) => m.user)
         .filter((id): id is string => !!id);
-      const users = await resolveUsers(workspace, userIds, result.messages);
+      const resolution = await resolveUsersWithCoverage(
+        workspace,
+        userIds,
+        result.messages,
+      );
 
-      return { messages: result.messages, users, total: result.total };
+      return {
+        messages: result.messages,
+        users: resolution.users,
+        total: result.total,
+        unsupported: result.unsupported,
+        guidance: result.guidance,
+        truncated: result.truncated,
+        pagination: result.pagination,
+        coverage: {
+          ...result.coverage,
+          coverage_complete:
+            result.coverage.coverage_complete &&
+            resolution.coverage.coverage_complete,
+          truncated: result.coverage.truncated || resolution.coverage.truncated,
+          truncation_reasons: [
+            ...result.coverage.truncation_reasons,
+            ...resolution.coverage.truncation_reasons,
+          ],
+          authors: resolution.coverage,
+        },
+      };
     } catch (err: any) {
       console.error("Slack search error:", err.message);
       setResponseStatus(event, 500);

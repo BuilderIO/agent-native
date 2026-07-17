@@ -117,6 +117,33 @@ const answer = await callAgent(
 // answer is a plain string
 ```
 
+### Fast bounded read: `invokeAgentAction()`
+
+When the caller knows the exact receiver-owned read action and arguments, skip
+the receiver's model loop:
+
+```ts
+import { invokeAgentAction } from "@agent-native/core/a2a";
+
+const { result } = await invokeAgentAction({
+  target: "analytics",
+  action: "gong-calls",
+  input: { company: "Acme", days: 90, includeTranscripts: true },
+  userEmail,
+  orgDomain,
+  orgSecret,
+});
+```
+
+The receiver still owns schema validation, credentials, access scoping, audit
+attribution, and exposure policy. Direct invocation is available only for
+cataloged, authenticated, explicitly exposed read-only actions that do not
+require approval. Its JWT is audience-bound to the receiving app. Use normal
+message delegation for planning, synthesis, multi-step work, or mutations.
+
+Inside an agent loop, `call-agent` exposes the same path with `action` + `input`;
+omit `message` and `taskId` in that mode.
+
 ### Advanced: `A2AClient` (full control)
 
 ```ts
@@ -178,6 +205,7 @@ cannot carry these grants.
 | ---------------- | -------------------------------- | ------------- |
 | `message/send`   | Send a message, get a task back  | Yes           |
 | `message/stream` | Send a message, stream responses | Yes           |
+| `actions/invoke` | Invoke one exposed read action   | Yes, JWT      |
 | `tasks/get`      | Get task status by ID            | Yes           |
 | `tasks/cancel`   | Cancel a running task            | Yes           |
 

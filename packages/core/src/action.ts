@@ -24,8 +24,9 @@ import type { ActionAuditConfig } from "./audit/types.js";
  *   `callAction` (tagged with the `X-Request-Source` header).
  * - `"cli"` — `pnpm action <name>` (the CLI runner).
  * - `"mcp"` — an external agent over the MCP `tools/call` endpoint.
- * - `"a2a"` — a direct A2A action dispatch (currently unused: A2A runs through
- *   the agent loop, so those calls are `"tool"`). Reserved for completeness.
+ * - `"a2a"` — a direct, explicitly exposed read-only A2A action dispatch.
+ *   Natural-language A2A delegation still runs through the agent loop and its
+ *   selected actions are attributed as `"tool"`.
  */
 export type ActionCaller = "tool" | "http" | "frontend" | "cli" | "mcp" | "a2a";
 

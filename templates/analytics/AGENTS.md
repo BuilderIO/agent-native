@@ -122,10 +122,11 @@ membership id when its native update status reports `update-available`.
   with captured errors, mint a temporary replay-context link, and inspect the
   timeline, page navigation, console diagnostics, failed network requests, and
   clicks when needed. The authenticated connector catalog is the fast fallback
-  and exposes only bounded, user/org-scoped read actions for incident triage:
+  and exposes only bounded, user/org-scoped read actions. Incident triage uses:
   `list-session-recordings`, `get-session-replay-summary`,
   `get-session-replay-timeline`, `query-agent-native-analytics`,
-  `list-error-issues`, and `get-error-issue`. Fetch the summary before the
+  `list-error-issues`, and `get-error-issue`. Cross-app Gong work also exposes
+  `account-deep-dive`, `gong-calls`, and `gong-native-insights`. Fetch the summary before the
   sanitized timeline; the timeline contains bounded page/click/error markers
   without raw replay events or storage references. Do not add replay blob or
   dashboard mutation actions to this catalog without an explicit security
@@ -137,8 +138,9 @@ membership id when its native update status reports `update-available`.
   issue id.
 - Analytics keeps its direct MCP surface explicitly curated, so external
   agents should use `ask_app` for multi-step investigation and changes. The
-  six incident reads above are bounded, user/org-scoped fallback tools for
-  callers that already know which lookup they need. Generic core
+  cataloged reads above are bounded, user/org-scoped fallback tools for callers
+  that already know which lookup they need. Sibling apps should invoke the exact
+  action directly when no Analytics reasoning loop is needed. Generic core
   `db-schema` / `db-query` remain in-app agent tools and are not exposed
   directly because broad SQL/schema access is too powerful to infer from
   read-only metadata. Writes remain `ask_app`-only. Use the explicit catalog
@@ -163,14 +165,17 @@ membership id when its native update status reports `update-available`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
-- Dashboard extension boxes use `chartType: "extension"` with
-  `config.extensionSlotId`. The stable per-box slot is
-  `analytics.dashboard.<dashboard-id>.panel.<panel-id>`. To add an extension,
-  create/choose it, call `add-extension-slot-target` with that slot id, then
-  `install-extension` with the same slot id. Installs are per-user; the
-  dashboard panel remains shared. Slot-backed extensions receive dashboard id,
-  name, description, current filters, and the panel id/title/slot id as context.
-  `config.extensionId` is legacy direct embedding for existing dashboards.
+- Dashboard extension boxes use `chartType: "extension"`. For ordinary requests
+  such as "put X in this dashboard," default to `config.extensionId`: the
+  author-selected extension is part of the shared dashboard, renders for every
+  viewer who can access it, and remains present in scheduled report captures.
+  Direct embeds receive dashboard id, name, description, current filters, and
+  panel context. Use `config.extensionSlotId` only when the user explicitly asks
+  for a personal/per-viewer widget slot. The stable per-box slot is
+  `analytics.dashboard.<dashboard-id>.panel.<panel-id>`; call
+  `add-extension-slot-target` and `install-extension` for it. Slot installs are
+  per-user, so different viewers can see different widgets and service-account
+  report captures may show the empty install affordance.
 - Dashboard saves keep bounded history in SQL. Use
   `list-dashboard-revisions` to inspect undo points and
   `restore-dashboard-revision` to restore one instead of hand-editing history
@@ -196,7 +201,11 @@ membership id when its native update status reports `update-available`.
   `update-extension` blocks full-body replacement unless
   `allowFullReplacement: true` is explicit, and that flag is reserved for a
   user-requested broad rewrite or a complete replacement body supplied by the
-  user. If a focused edit fails, do not retry unchanged arguments.
+  user. A request that combines a visual rewrite (for example compacting,
+  removing sections, renaming, or changing padding) with a data repair is still
+  a broad rewrite; after inspecting the current extension, set
+  `allowFullReplacement: true` for the complete replacement. If a focused edit
+  fails, do not retry unchanged arguments.
 - Use framework sharing and access helpers for dashboards, analyses, and saved
   resources.
 - Dashboard email reports live in SQL via the

@@ -208,6 +208,7 @@ import {
   createA2AEngineToolSurface,
   filterAgentTools,
   filterPublicAgentActions,
+  filterDirectA2AActions,
   filterReadOnlyActions,
   resolveInitialToolNames,
   runA2AAgentLoop,
@@ -1146,6 +1147,36 @@ export function createAgentChatPlugin(
         publicSkillsOnly: true,
         streaming: true,
         durableBackgroundRuns: options?.durableBackgroundRuns,
+        executeReadOnlyAction: async ({ action, input }) => {
+          const actions = filterDirectA2AActions(
+            mcpFullActions ?? allScripts,
+            options ?? {},
+          );
+          const entry = actions[action];
+          if (!entry) {
+            return {
+              status: "failed" as const,
+              output: "Unknown or unavailable read-only action",
+            };
+          }
+
+          const result = await executeAgentToolCall({
+            actions: { [action]: entry },
+            name: action,
+            input,
+            callId: `a2a-action-${crypto.randomUUID()}`,
+            ownerEmail: getRequestUserEmail(),
+            orgId: getRequestOrgId() ?? null,
+            caller: "a2a",
+          });
+          if (result.status === "approval_required") {
+            return {
+              status: "failed" as const,
+              output: "Read-only action unexpectedly requires approval",
+            };
+          }
+          return { status: result.status, output: result.output };
+        },
         executeApproval: async (approval) => {
           const result = await executeAgentToolCall({
             actions: mcpFullActions ?? allScripts,

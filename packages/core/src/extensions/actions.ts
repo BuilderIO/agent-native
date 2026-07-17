@@ -727,20 +727,8 @@ export function createExtensionActionEntries(): Record<string, ActionEntry> {
           !coerceBoolean(args?.allowFullReplacement)
         ) {
           const message =
-            "Full extension-body replacement was blocked to preserve the existing visual design. Read the current extension and use focused patches/edits for a data-only repair. Only retry with allowFullReplacement=true when the user explicitly requested a broad visual rewrite or supplied a complete replacement body.";
-          throw new AgentActionStopError(message, {
-            errorCode: "extension_full_replacement_requires_explicit_intent",
-            toolResult: JSON.stringify(
-              {
-                error: "extension_full_replacement_requires_explicit_intent",
-                message,
-                recoverable: false,
-                next: "Call get-extension once, then update-extension with patches or edits that change only the data-loading code. Use allowFullReplacement=true only for an explicitly requested visual rewrite.",
-              },
-              null,
-              2,
-            ),
-          });
+            "Full extension-body replacement requires allowFullReplacement=true. No changes were applied. If the user's request includes a broad visual rewrite such as changing layout, compactness, visible sections, naming, or padding, retry once with allowFullReplacement=true; otherwise read the current extension and use focused patches/edits for a data-only repair. Do not retry unchanged arguments.";
+          throw new ExtensionContentEditError(message);
         }
 
         // Full-replacement content can come inline (`content`) or by reference

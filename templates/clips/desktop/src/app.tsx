@@ -4569,7 +4569,7 @@ function Setup({
       <div className="setup-section">
         <SettingLabel
           label="Clip Drafts"
-          hint="Clips dismissed after an upload problem stay in Movies/Clips/Drafts until you remove them in Finder."
+          hint="Only clips you dismiss from the saved-upload card appear in Movies/Clips/Drafts. To retry a failed upload, return to the Clips popover and use Retry."
         />
         <button
           type="button"

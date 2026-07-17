@@ -390,6 +390,8 @@ const SESSION_REPLAY_CLAIM_TIMEOUT_MS = 150;
 export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 /** rrweb custom-event tag for captured fetch/XHR request summaries. */
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
+/** Content-free agent-chat lifecycle markers for replay incident forensics. */
+export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 
 const DEFAULT_MAX_CONSOLE_EVENTS = 1000;
 const DEFAULT_MAX_NETWORK_EVENTS = 2000;
@@ -3382,5 +3384,34 @@ export function emitSessionReplayException(input: {
       ? { stack: input.stack.slice(0, MAX_CONSOLE_STACK_LENGTH) }
       : {}),
     ...(input.url ? { url: input.url } : {}),
+  });
+}
+
+export type SessionReplayAgentChatEvent = {
+  phase: "surface-mounted" | "run-observed" | "run-stopped";
+  surface: string;
+  threadId?: string;
+  runId?: string;
+  tabId?: string;
+};
+
+/**
+ * Add a content-free chat lifecycle marker to the active replay. The payload
+ * deliberately accepts only ids and low-cardinality state; prompt/response
+ * content must never enter replay diagnostics through this path.
+ */
+export function emitSessionReplayAgentChatEvent(
+  input: SessionReplayAgentChatEvent,
+): void {
+  const state = getState();
+  if (!state.active || !state.addCustomEvent) return;
+  const bounded = (value: string | undefined, max = 160) =>
+    value?.trim().slice(0, max) || undefined;
+  emitReplayCustomEvent(state, SESSION_REPLAY_AGENT_CHAT_EVENT_TAG, {
+    phase: input.phase,
+    surface: bounded(input.surface, 80) ?? "app",
+    ...(bounded(input.threadId) ? { threadId: bounded(input.threadId) } : {}),
+    ...(bounded(input.runId) ? { runId: bounded(input.runId) } : {}),
+    ...(bounded(input.tabId) ? { tabId: bounded(input.tabId) } : {}),
   });
 }

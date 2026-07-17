@@ -641,6 +641,17 @@ const messages = {
     languageDescription:
       "Wähle die Oberflächensprache für dieses Konto. Clips merkt sie sich geräteübergreifend.",
     languageLabel: "Oberflächensprache",
+    uploadWorkspaceTitle: "Aktiver Arbeitsbereich",
+    uploadWorkspaceDescription:
+      "Wähle den Arbeitsbereich, den Clips für neue Aufnahmen einschließlich Desktop-Uploads verwendet.",
+    uploadWorkspaceLabel: "Aktueller Arbeitsbereich",
+    uploadWorkspacePlaceholder: "Arbeitsbereich auswählen",
+    uploadWorkspaceHint:
+      "Dadurch werden auch die arbeitsbereichsbezogenen Clips-Ansichten aktualisiert.",
+    uploadWorkspaceSaving: "Arbeitsbereich wird gespeichert…",
+    uploadWorkspaceSaved: "Aktiver Arbeitsbereich aktualisiert",
+    uploadWorkspaceSaveFailed:
+      "Aktiver Arbeitsbereich konnte nicht aktualisiert werden",
     whatsNew: "Neuigkeiten",
     changelogEmpty: "Noch keine Updates.",
     viewAllUpdates: "Alle Updates anzeigen",
@@ -1397,7 +1408,7 @@ Alle sichtbaren Änderungen für Clips-Nutzer werden hier dokumentiert. Du kanns
     connectStorageToFinish:
       "Öffnen, um Speicher zu verbinden und das Speichern abzuschließen.",
     retryFromClipsMenu:
-      "Über das Clips-Menü erneut versuchen; keine neue Aufnahme nötig.",
+      "Öffne Clips über die Menüleiste, um diesen gespeicherten Upload erneut zu versuchen; keine neue Aufnahme nötig.",
     removeFailedClip: "Diesen fehlgeschlagenen Clip entfernen.",
     remove: "Entfernen",
     viewsCount: "{{count}} Aufrufe",

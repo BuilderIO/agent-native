@@ -8,7 +8,7 @@ import {
 } from "h3";
 import type { EventHandler as H3EventHandler } from "h3";
 
-import { isAgentActionStopError } from "../action.js";
+import { isAgentActionStopError, type ActionCaller } from "../action.js";
 import { readAppState } from "../application-state/script-helpers.js";
 import { isReadOnlyShellCommand } from "../coding-tools/index.js";
 import { extensionIdFromPathname } from "../extensions/path.js";
@@ -2479,6 +2479,8 @@ export interface ExecuteAgentToolCallOptions {
   signal?: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Audit/action attribution for this externally selected call. */
+  caller?: ActionCaller;
   threadId?: string;
   turnId?: string;
   approvedToolCalls?: string[];
@@ -2573,6 +2575,7 @@ export async function executeAgentToolCall(
       signal,
       ownerEmail: options.ownerEmail,
       orgId: options.orgId,
+      actionCaller: options.caller,
       executionMode: "act",
       maxIterations: 2,
       threadId: options.threadId,
@@ -3152,6 +3155,8 @@ export async function runAgentLoop(opts: {
   signal: AbortSignal;
   ownerEmail?: string | null;
   orgId?: string | null;
+  /** Action invocation attribution. Defaults to the normal agent tool loop. */
+  actionCaller?: ActionCaller;
   /**
    * Attachments submitted with this turn (pasted text, files, images), passed
    * through to each tool's `ActionRunContext.attachments` so actions can
@@ -4102,6 +4107,7 @@ export async function runAgentLoop(opts: {
         requestedActionStop ??= {
           message:
             `Stopped because ${toolCall.name} failed ${count} times with the same arguments and error. ` +
+            `Last error: ${sanitizedResult} ` +
             "Fix the underlying issue or change the arguments before retrying.",
           errorCode: "repeated_identical_tool_error",
         };
@@ -4208,7 +4214,7 @@ export async function runAgentLoop(opts: {
                   await actionEntry.needsApproval(toolCall.input, {
                     userEmail: getRequestUserEmail(),
                     orgId: getRequestOrgId() ?? null,
-                    caller: "tool",
+                    caller: opts.actionCaller ?? "tool",
                   }),
                 )
               : actionEntry.needsApproval === true;
@@ -4242,7 +4248,7 @@ export async function runAgentLoop(opts: {
               args: toolCall.input,
               ctx: {
                 actionName: toolCall.name,
-                caller: "tool",
+                caller: opts.actionCaller ?? "tool",
                 userEmail: getRequestUserEmail(),
                 orgId: getRequestOrgId() ?? null,
                 ...(opts.threadId ? { threadId: opts.threadId } : {}),
@@ -4638,7 +4644,7 @@ export async function runAgentLoop(opts: {
           send,
           userEmail: actionUserEmail ?? undefined,
           orgId: actionOrgId,
-          caller: "tool" as const,
+          caller: opts.actionCaller ?? "tool",
           attachments: opts.attachments,
           signal,
           // Audit attribution: the action name + the agent thread/turn that

@@ -258,6 +258,116 @@ describe("handleJsonRpc", () => {
     expect(result.error.message).toContain("unknown/method");
   });
 
+  it("runs direct actions only with a verified user request context", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-qa");
+    const executeReadOnlyAction = vi.fn(async ({ action, input }) => ({
+      status: "completed" as const,
+      output: JSON.stringify({
+        action,
+        input,
+        userEmail: getRequestUserEmail(),
+        orgId: getRequestOrgId(),
+      }),
+    }));
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 12,
+        method: "actions/invoke",
+        params: {
+          action: "gong-calls",
+          input: { company: "Acme" },
+        },
+      },
+      event,
+      { ...customHandler, executeReadOnlyAction },
+    );
+
+    expect(result.error).toBeUndefined();
+    expect(result.id).toBe(12);
+    expect(result.result).toEqual({
+      action: "gong-calls",
+      status: "completed",
+      output: JSON.stringify({
+        action: "gong-calls",
+        input: { company: "Acme" },
+        userEmail: "alice+qa@agent-native.test",
+        orgId: "org-qa",
+      }),
+    });
+    expect(executeReadOnlyAction).toHaveBeenCalledOnce();
+  });
+
+  it("rejects direct action invocation without a verified identity", async () => {
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 13,
+        method: "actions/invoke",
+        params: { action: "gong-calls", input: {} },
+      },
+      mockEvent(),
+      {
+        ...customHandler,
+        executeReadOnlyAction: vi.fn(),
+      },
+    );
+
+    expect(result.error).toMatchObject({
+      code: -32001,
+      message: expect.stringContaining("audience-bound user identity"),
+    });
+  });
+
+  it("rejects direct action invocation from a legacy non-audience token", async () => {
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 14,
+        method: "actions/invoke",
+        params: { action: "gong-calls", input: {} },
+      },
+      event,
+      { ...customHandler, executeReadOnlyAction: vi.fn() },
+    );
+
+    expect(result.error).toMatchObject({ code: -32001 });
+  });
+
+  it("caps direct action input before receiver execution", async () => {
+    const executeReadOnlyAction = vi.fn();
+    const event = mockEvent();
+    event.context = {
+      __a2aVerifiedEmail: "alice+qa@agent-native.test",
+      __a2aAudienceVerified: true,
+    };
+
+    const result = await handleJsonRpc(
+      {
+        jsonrpc: "2.0",
+        id: 15,
+        method: "actions/invoke",
+        params: { action: "gong-calls", input: { value: "x".repeat(70_000) } },
+      },
+      event,
+      { ...customHandler, executeReadOnlyAction },
+    );
+
+    expect(result.error).toMatchObject({ code: -32602 });
+    expect(executeReadOnlyAction).not.toHaveBeenCalled();
+  });
+
   it("handles message/send with custom handler", async () => {
     const event = mockEvent();
     const result = await handleJsonRpc(

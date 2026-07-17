@@ -64,6 +64,10 @@ type PageviewTrackingState = {
   lastPageviewKey: string | null;
 };
 
+type AgentChatTrackingState = {
+  seen: Set<string>;
+};
+
 /**
  * First-party, Sentry-style error capture configuration. Pass `true`/`false`
  * to force on/off, or an options object to tune it. When omitted, error
@@ -172,6 +176,9 @@ const AGENT_NATIVE_ANALYTICS_DEFAULT_ENDPOINT =
 export const AGENT_NATIVE_EXCEPTION_EVENT_NAME = "$exception";
 const PAGEVIEW_TRACKING_STATE_KEY = Symbol.for(
   "agent-native.client.pageviewTracking",
+);
+const AGENT_CHAT_TRACKING_STATE_KEY = Symbol.for(
+  "agent-native.client.agentChatTracking",
 );
 
 const LLM_CONNECTION_STORAGE_KEY = "agent-native.llm_connection_status";
@@ -1043,6 +1050,69 @@ function getPageviewTrackingState(): PageviewTrackingState {
     };
   }
   return g[PAGEVIEW_TRACKING_STATE_KEY];
+}
+
+function getAgentChatTrackingState(): AgentChatTrackingState {
+  const g = globalThis as typeof globalThis & {
+    [AGENT_CHAT_TRACKING_STATE_KEY]?: AgentChatTrackingState;
+  };
+  if (!g[AGENT_CHAT_TRACKING_STATE_KEY]) {
+    g[AGENT_CHAT_TRACKING_STATE_KEY] = { seen: new Set() };
+  }
+  return g[AGENT_CHAT_TRACKING_STATE_KEY];
+}
+
+export type AgentChatLifecycleEvent = {
+  phase: "surface-mounted" | "run-observed" | "run-stopped";
+  surface?: string;
+  threadId?: string;
+  runId?: string;
+  tabId?: string;
+};
+
+/**
+ * Record a content-free, browser-session-linked chat lifecycle marker and add
+ * the same marker to session replay when replay is configured. The global
+ * de-dupe survives React Strict Mode remounts and repeated active-run events.
+ */
+export function trackAgentChatLifecycle(input: AgentChatLifecycleEvent): void {
+  if (typeof window === "undefined") return;
+  const surface = input.surface?.trim() || "app";
+  const dedupeKey = [
+    input.phase,
+    surface,
+    input.threadId ?? "",
+    input.runId ?? "",
+    input.tabId ?? "",
+  ].join(":");
+  const state = getAgentChatTrackingState();
+  if (state.seen.has(dedupeKey)) return;
+  state.seen.add(dedupeKey);
+
+  void (async () => {
+    const replayResult =
+      _sessionReplayOptions && _trackingContentCaptureEnabled
+        ? await startConfiguredSessionReplay(_sessionReplayOptions)
+        : null;
+    const properties = {
+      phase: input.phase,
+      chat_surface: surface,
+      ...(input.threadId ? { thread_id: input.threadId } : {}),
+      ...(input.runId ? { run_id: input.runId } : {}),
+      ...(input.tabId ? { chat_tab_id: input.tabId } : {}),
+      replay_status: replayResult?.started
+        ? "active"
+        : (replayResult?.reason ?? "not-configured"),
+    };
+    trackEvent("agent_chat_lifecycle", properties);
+    _sessionReplayModuleForCapture?.emitSessionReplayAgentChatEvent?.({
+      phase: input.phase,
+      surface,
+      ...(input.threadId ? { threadId: input.threadId } : {}),
+      ...(input.runId ? { runId: input.runId } : {}),
+      ...(input.tabId ? { tabId: input.tabId } : {}),
+    });
+  })();
 }
 
 export function configureTracking(options: ConfigureTrackingOptions): void {

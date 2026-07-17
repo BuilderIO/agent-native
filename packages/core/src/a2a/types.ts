@@ -164,6 +164,18 @@ export interface A2AApprovalExecution {
   callId: string;
 }
 
+/** One explicitly exposed read-only app action invoked without an agent loop. */
+export interface A2AReadOnlyActionInvocation {
+  action: string;
+  input: Record<string, unknown>;
+}
+
+export interface A2AReadOnlyActionResult {
+  action: string;
+  status: "completed" | "failed";
+  output: string;
+}
+
 export type A2AHandler = (
   message: Message,
   context: A2AHandlerContext,
@@ -186,4 +198,8 @@ export interface A2AConfig {
     status: "completed" | "failed";
     output: string;
   }>;
+  /** Execute an explicitly exposed read-only action without starting a model. */
+  executeReadOnlyAction?: (
+    invocation: A2AReadOnlyActionInvocation,
+  ) => Promise<Pick<A2AReadOnlyActionResult, "status" | "output">>;
 }

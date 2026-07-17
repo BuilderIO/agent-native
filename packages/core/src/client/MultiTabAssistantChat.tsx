@@ -753,10 +753,15 @@ export function MultiTabAssistantChat({
   const [urlThreadId, setUrlThreadId] = useState<string | null>(() =>
     threadUrlSyncEnabled
       ? threadRouteControlsActiveThread
-        ? (routeThreadId ?? null)
+        ? (routeThreadId ?? readUrlThreadId(threadUrlParamName))
         : readUrlThreadId(threadUrlParamName)
       : null,
   );
+  const [deepLinkedThreadId] = useState<string | null>(() =>
+    threadUrlSyncEnabled ? null : readUrlThreadId(DEFAULT_THREAD_URL_PARAM),
+  );
+  const [activeDeepLinkedThreadId, setActiveDeepLinkedThreadId] =
+    useState(deepLinkedThreadId);
   const urlThreadIdRef = useRef(urlThreadId);
   urlThreadIdRef.current = urlThreadId;
 
@@ -780,8 +785,28 @@ export function MultiTabAssistantChat({
 
   useEffect(() => {
     if (!threadUrlSyncEnabled || !threadRouteControlsActiveThread) return;
-    setUrlThreadId(routeThreadId ?? null);
-  }, [routeThreadId, threadRouteControlsActiveThread, threadUrlSyncEnabled]);
+    setUrlThreadId(routeThreadId ?? readUrlThreadId(threadUrlParamName));
+  }, [
+    routeThreadId,
+    threadRouteControlsActiveThread,
+    threadUrlParamName,
+    threadUrlSyncEnabled,
+  ]);
+
+  useEffect(() => {
+    if (threadUrlSyncEnabled) return;
+    const update = () =>
+      setActiveDeepLinkedThreadId(readUrlThreadId(DEFAULT_THREAD_URL_PARAM));
+    const uninstallHistoryPatch = installHistoryThreadUrlPatch();
+    update();
+    window.addEventListener("popstate", update);
+    window.addEventListener(THREAD_URL_CHANGED_EVENT, update);
+    return () => {
+      uninstallHistoryPatch();
+      window.removeEventListener("popstate", update);
+      window.removeEventListener(THREAD_URL_CHANGED_EVENT, update);
+    };
+  }, [threadUrlSyncEnabled]);
 
   const writeThreadUrl = useCallback(
     (threadId: string | null, options: { replace?: boolean } = {}): void => {
@@ -856,7 +881,9 @@ export function MultiTabAssistantChat({
     renameThread,
   } = useChatThreads(apiUrl, storageKey, null, {
     restoreActiveThread,
-    routeThreadId: threadUrlSyncEnabled ? urlThreadId : undefined,
+    routeThreadId: threadUrlSyncEnabled
+      ? urlThreadId
+      : (activeDeepLinkedThreadId ?? undefined),
   });
 
   const switchThread = useCallback(

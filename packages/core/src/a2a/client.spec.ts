@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   A2AClient,
   A2ATaskTimeoutError,
+  callAction,
   callAgent,
   signA2AToken,
 } from "./client.js";
@@ -180,6 +181,54 @@ describe("A2AClient", () => {
     ).toHaveLength(1);
   });
 
+  it("continues an existing task without submitting duplicate work", async () => {
+    const methods: string[] = [];
+    let taskReads = 0;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (_url: string, init?: RequestInit) => {
+        if (init?.method !== "POST") {
+          return new Response("not found", { status: 404 });
+        }
+        const body = JSON.parse(String(init.body));
+        methods.push(body.method);
+        expect(body.method).toBe("tasks/get");
+        taskReads += 1;
+        return new Response(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              id: "task-existing",
+              status:
+                taskReads === 1
+                  ? { state: "working" }
+                  : {
+                      state: "completed",
+                      message: {
+                        role: "agent",
+                        parts: [{ type: "text", text: "finished once" }],
+                      },
+                    },
+              history: [],
+              artifacts: [],
+            },
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+
+    await expect(
+      callAgent("https://agent.test", "", {
+        taskId: "task-existing",
+        pollIntervalMs: 1,
+      }),
+    ).resolves.toBe("finished once");
+    expect(methods).toEqual(["tasks/get", "tasks/get"]);
+    expect(methods).not.toContain("message/send");
+  });
+
   it("sends exact approved actions as top-level authenticated request data", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       const body = JSON.parse(String(init?.body));
@@ -199,6 +248,74 @@ describe("A2AClient", () => {
         ],
       },
     );
+  });
+
+  it("invokes an exposed read-only action without sending a message", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      const body = JSON.parse(String(init?.body));
+      expect(body.method).toBe("actions/invoke");
+      expect(body.params).toEqual({
+        action: "gong-calls",
+        input: { company: "Acme", days: 30 },
+      });
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "gong-calls",
+            status: "completed",
+            output: '{"total":2}',
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const client = new A2AClient("https://analytics.test", "signed-token");
+    await expect(
+      client.invokeAction("gong-calls", { company: "Acme", days: 30 }),
+    ).resolves.toEqual({
+      action: "gong-calls",
+      status: "completed",
+      output: '{"total":2}',
+    });
+  });
+
+  it("binds direct action identity tokens to the receiving app", async () => {
+    process.env.A2A_SECRET = "shared-direct-secret";
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      if (init?.method !== "POST") {
+        return new Response("not found", { status: 404 });
+      }
+      const authorization = new Headers(init.headers).get("authorization");
+      const token = authorization?.replace(/^Bearer\s+/i, "") ?? "";
+      expect(jose.decodeJwt(token).aud).toBe("https://analytics.test");
+      const body = JSON.parse(String(init.body));
+      return new Response(
+        JSON.stringify({
+          jsonrpc: "2.0",
+          id: body.id,
+          result: {
+            action: "gong-calls",
+            status: "completed",
+            output: '{"total":2}',
+          },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction(
+        "https://analytics.test/",
+        "gong-calls",
+        { company: "Acme" },
+        { userEmail: "alice@example.test" },
+      ),
+    ).resolves.toMatchObject({ status: "completed", output: '{"total":2}' });
   });
 
   it("returns receiver-verified recoverable artifact text when callAgent times out", async () => {

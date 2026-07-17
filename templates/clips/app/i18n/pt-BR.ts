@@ -633,6 +633,16 @@ const messages = {
     languageDescription:
       "Escolha o idioma da interface para esta conta. O Clips lembrará em todos os seus dispositivos.",
     languageLabel: "Idioma da interface",
+    uploadWorkspaceTitle: "Espaço ativo",
+    uploadWorkspaceDescription:
+      "Escolha o espaço que o Clips usará para novas gravações, incluindo uploads do desktop.",
+    uploadWorkspaceLabel: "Espaço atual",
+    uploadWorkspacePlaceholder: "Escolha um espaço",
+    uploadWorkspaceHint:
+      "Isso também atualiza as telas do Clips vinculadas ao espaço.",
+    uploadWorkspaceSaving: "Salvando espaço…",
+    uploadWorkspaceSaved: "Espaço ativo atualizado",
+    uploadWorkspaceSaveFailed: "Não foi possível atualizar o espaço ativo",
     whatsNew: "Novidades",
     changelogEmpty: "Ainda não há atualizações.",
     viewAllUpdates: "Ver todas as atualizações",
@@ -1386,7 +1396,7 @@ Todas as mudanças visíveis para usuários do Clips são documentadas aqui. Voc
     connectStorageToFinish:
       "Abra para conectar o armazenamento e concluir o salvamento.",
     retryFromClipsMenu:
-      "Tente novamente pelo menu do Clips; não precisa gravar de novo.",
+      "Abra o Clips pela barra de menus para tentar novamente este upload salvo; não é preciso gravar de novo.",
     removeFailedClip: "Remover este clip com falha.",
     remove: "Remover",
     viewsCount: "{{count}} visualizações",

@@ -1284,6 +1284,35 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultHeaders: { "Notion-Version": "2026-03-11" },
     templateUses: ["analytics", "brain", "content", "dispatch"],
     examples: [{ label: "Search", method: "POST", path: "/search", body: {} }],
+    corpusRecipes: [
+      {
+        label: "Search a Notion data source with complete cursor coverage",
+        useWhen:
+          "Use for coverage-sensitive searches across one known Notion data source's page properties. This does not search page block bodies.",
+        workflow: [
+          "Resolve the exact data source id and apply the narrowest provider-side filter and filter_properties projection first.",
+          "Start provider-corpus-job with mode=paginated-search and pass next_cursor back as start_cursor in the POST body.",
+          "Search only the returned properties and report the 10,000-result API ceiling plus any incomplete request_status.",
+          "For page body text, stage page ids and fetch block children through a separate bounded data program; property search is not body search.",
+        ],
+        request: {
+          method: "POST",
+          path: "/data_sources/<data-source-id>/query",
+          body: { page_size: 100 },
+        },
+        pagination: {
+          itemsPath: "results",
+          nextCursorPath: "next_cursor",
+          cursorBodyPath: "start_cursor",
+          maxPages: 100,
+        },
+        search: {
+          textPaths: ["properties"],
+          idPaths: ["id"],
+          metadataPaths: ["id", "url", "created_time", "last_edited_time"],
+        },
+      },
+    ],
   },
   posthog: {
     id: "posthog",
@@ -1399,6 +1428,39 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     examples: [
       { label: "Search messages", method: "GET", path: "/search.messages" },
       { label: "Post message", method: "POST", path: "/chat.postMessage" },
+    ],
+    notes: [
+      "Bot-token reads must not call conversations.join implicitly. A bot can read only conversations it is already a member of with the required history scope.",
+      "search.messages requires a compatible user token; do not assume a bot token can use it. Use conversations.history for channel-scoped bot reads.",
+    ],
+    corpusRecipes: [
+      {
+        label: "Search complete Slack channel history",
+        useWhen:
+          "Use for all-message, mention, phrase, or absence-sensitive searches in one known Slack conversation without one agent turn per cursor page.",
+        workflow: [
+          "Resolve the exact channel id without joining or mutating membership.",
+          "Start provider-corpus-job with mode=paginated-search against conversations.history, bounded by oldest/latest when possible.",
+          "Pass response_metadata.next_cursor back as cursor and let quota_wait pause/resume rate-limited installations.",
+          "Report channel id, time bounds, pages, messages searched, matches, and is_limited or access gaps.",
+        ],
+        request: {
+          method: "GET",
+          path: "/conversations.history",
+          query: { channel: "<channel-id>" },
+        },
+        pagination: {
+          itemsPath: "messages",
+          nextCursorPath: "response_metadata.next_cursor",
+          cursorParam: "cursor",
+          maxPages: 500,
+        },
+        search: {
+          textPaths: ["text", "blocks", "attachments"],
+          idPaths: ["ts", "client_msg_id"],
+          metadataPaths: ["ts", "user", "thread_ts", "type", "subtype"],
+        },
+      },
     ],
   },
   stripe: {
@@ -1690,7 +1752,14 @@ export async function executeProviderApiRequest(
   // --- fetchAllPages mode ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
-    const { items, pageCount, lastStatus, lastContentType } =
+    const {
+      items,
+      pageCount,
+      lastStatus,
+      lastContentType,
+      truncated,
+      nextCursor,
+    } =
       await fetchAllPages(pageCfg, async (extra) => {
         const queryWithCursor = extra?.query
           ? mergeQueryObjects(
@@ -1751,6 +1820,8 @@ export async function executeProviderApiRequest(
       pagesRead: pageCount,
       totalItems: Array.isArray(items) ? items.length : 0,
       lastStatus,
+      truncated,
+      nextCursor,
     };
 
     if (args.saveToFile) {
@@ -2642,7 +2713,14 @@ async function executeCustomProviderApiRequest(
   // --- fetchAllPages mode (same cursor pagination as built-in providers) ---
   if (args.fetchAllPages) {
     const pageCfg = args.fetchAllPages;
-    const { items, pageCount, lastStatus, lastContentType } =
+    const {
+      items,
+      pageCount,
+      lastStatus,
+      lastContentType,
+      truncated,
+      nextCursor,
+    } =
       await fetchAllPages(pageCfg, async (extra) => {
         const queryWithCursor = extra?.query
           ? mergeQueryObjects(args.query, extra.query)
@@ -2704,6 +2782,8 @@ async function executeCustomProviderApiRequest(
       pagesRead: pageCount,
       totalItems: Array.isArray(items) ? items.length : 0,
       lastStatus,
+      truncated,
+      nextCursor,
     };
 
     if (args.saveToFile) {
@@ -5146,6 +5226,8 @@ async function fetchAllPages(
   pageCount: number;
   lastStatus: number;
   lastContentType: string | null;
+  truncated: boolean;
+  nextCursor: string | null;
 }> {
   const maxPages = Math.min(
     Number.isFinite(config.maxPages) && config.maxPages! > 0
@@ -5159,6 +5241,7 @@ async function fetchAllPages(
   let pageCount = 0;
   let lastStatus = 0;
   let lastContentType: string | null = null;
+  let truncated = false;
 
   if (!config.cursorParam && !config.cursorBodyPath) {
     throw new Error(
@@ -5224,12 +5307,21 @@ async function fetchAllPages(
       nextCursor === null ||
       nextCursor === cursor
     ) {
+      truncated = false;
       break;
     }
     cursor = String(nextCursor);
+    truncated = pageCount >= maxPages;
   }
 
-  return { items, pageCount, lastStatus, lastContentType };
+  return {
+    items,
+    pageCount,
+    lastStatus,
+    lastContentType,
+    truncated,
+    nextCursor: truncated ? (cursor ?? null) : null,
+  };
 }
 
 function fingerprint(value: string): string {

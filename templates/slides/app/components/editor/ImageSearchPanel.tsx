@@ -61,7 +61,7 @@ export default function ImageSearchPanel({
     setLoading(true);
     setError(null);
     try {
-      const data = await callAction<SearchResult[]>(
+      const data = await callAction(
         "search-images",
         { q: query.trim() },
         { method: "GET" },

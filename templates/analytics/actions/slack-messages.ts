@@ -4,9 +4,8 @@ import { z } from "zod";
 import {
   getChannelHistory,
   getTeamInfo,
-  listChannels,
-  resolveUsers,
-  searchMessages,
+  listChannelsWithCoverage,
+  resolveUsersWithCoverage,
   type SlackMessage,
   type Workspace,
 } from "../server/lib/slack";
@@ -41,7 +40,7 @@ function enrichMessages(messages: SlackMessage[]): SlackMessage[] {
 
 export default defineAction({
   description:
-    "Query the analytics app's configured Slack workspace: team info, channels, channel history, multi-channel history, or message search. Slack messages returned by this action are real source evidence; you may count mentions, code themes, classify sentiment, and summarize qualitative patterns from them while stating the sample size.",
+    "Query the analytics app's configured Slack workspace: team info, channels, channel history, or multi-channel history. Slack messages returned by this action are real source evidence; you may count mentions, code themes, classify sentiment, and summarize qualitative patterns from them while stating the sample size. The legacy search mode is preserved for compatibility but returns migration guidance because the configured bot credential cannot call Slack global search; use the Slack provider corpus recipe for channel-scoped exhaustive search.",
   schema: z.object({
     mode: z
       .enum(["team", "channels", "history", "multi-history", "search"])
@@ -68,7 +67,10 @@ export default defineAction({
       .max(200)
       .default(50)
       .describe("Message limit for history"),
-    cursor: z.string().optional().describe("Slack history cursor/latest ts"),
+    cursor: z
+      .string()
+      .optional()
+      .describe("Slack history/latest timestamp or channel-list cursor"),
     cursors: z
       .record(z.string(), z.string())
       .optional()
@@ -99,12 +101,31 @@ export default defineAction({
         const userIds = messages
           .map((message) => message.user)
           .filter((id): id is string => !!id);
-        const users = await resolveUsers(workspace, userIds, messages);
+        const resolution = await resolveUsersWithCoverage(
+          workspace,
+          userIds,
+          messages,
+        );
         return {
           messages,
-          users,
+          users: resolution.users,
           has_more: result.has_more,
           next_cursor: result.next_cursor,
+          truncated: result.truncated,
+          pagination: result.pagination,
+          coverage: {
+            ...result.coverage,
+            coverage_complete:
+              result.coverage.coverage_complete &&
+              resolution.coverage.coverage_complete,
+            truncated:
+              result.coverage.truncated || resolution.coverage.truncated,
+            truncation_reasons: [
+              ...result.coverage.truncation_reasons,
+              ...resolution.coverage.truncation_reasons,
+            ],
+            authors: resolution.coverage,
+          },
         };
       }
 
@@ -140,30 +161,91 @@ export default defineAction({
         const userIds = messages
           .map((message) => message.user)
           .filter((id): id is string => !!id);
-        const users = await resolveUsers(workspace, userIds, messages);
+        const resolution = await resolveUsersWithCoverage(
+          workspace,
+          userIds,
+          messages,
+        );
+        const providerTruncated = results.some((result) => result.truncated);
+        const mergedResultTruncated = allMessages.length > pageSize;
+        const truncated = providerTruncated || mergedResultTruncated;
+        const truncationReasons = [
+          ...(providerTruncated ? ["provider_has_more"] : []),
+          ...(mergedResultTruncated ? ["merged_result_limit"] : []),
+        ];
         return {
           messages,
-          users,
+          users: resolution.users,
           has_more:
             Object.values(perChannelHasMore).some(Boolean) ||
             allMessages.length > pageSize,
           next_cursors: nextCursors,
           total: allMessages.length,
+          truncated,
+          pagination: {
+            cursor_type: "per_channel_latest_ts",
+            request_cursors: args.cursors ?? {},
+            next_cursors: nextCursors,
+            channels: Object.fromEntries(
+              channelIds.map((channelId, index) => [
+                channelId,
+                results[index].pagination,
+              ]),
+            ),
+          },
+          coverage: {
+            requested: channelIds.length * pageSize,
+            fetched: allMessages.length,
+            returned: messages.length,
+            pages_fetched: results.length,
+            coverage_complete:
+              !truncated && resolution.coverage.coverage_complete,
+            truncated: truncated || resolution.coverage.truncated,
+            truncation_reasons: [
+              ...truncationReasons,
+              ...resolution.coverage.truncation_reasons,
+            ],
+            channels: Object.fromEntries(
+              channelIds.map((channelId, index) => [
+                channelId,
+                results[index].coverage,
+              ]),
+            ),
+            authors: resolution.coverage,
+          },
         };
       }
 
       if (args.mode === "search") {
         if (!args.query) return { error: "query is required" };
-        const result = await searchMessages(workspace, args.query);
-        const userIds = result.messages
-          .map((message) => message.user)
-          .filter((id): id is string => !!id);
-        const users = await resolveUsers(workspace, userIds, result.messages);
-        return { messages: result.messages, users, total: result.total };
+        return {
+          messages: [],
+          users: {},
+          total: 0,
+          unsupported: true,
+          truncated: true,
+          coverage: {
+            requested: 0,
+            fetched: 0,
+            returned: 0,
+            pages_fetched: 0,
+            coverage_complete: false,
+            truncated: true,
+            truncation_reasons: ["bot_token_global_search_unsupported"],
+          },
+          guidance:
+            "Slack global search is not available with the configured bot credential. Resolve a channel id, then use provider-api-catalog(provider='slack') and provider-corpus-job with the Slack conversations.history corpus recipe so cursor pages are fetched inside one resumable operation.",
+        };
       }
 
-      const channels = await listChannels(workspace);
-      return { channels, total: channels.length };
+      const result = await listChannelsWithCoverage(workspace, args.cursor);
+      return {
+        channels: result.channels,
+        total: result.total,
+        truncated: result.truncated,
+        pagination: result.pagination,
+        coverage: result.coverage,
+      };
     } catch (err) {
       return providerError(err);
     }
