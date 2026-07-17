@@ -1479,7 +1479,6 @@ function RunCard({
   rerunning?: boolean;
 }) {
   const t = useT();
-  const [bulkContextOpen, setBulkContextOpen] = useState(false);
   const settings = (run.settingsUsed ?? {}) as Record<string, unknown>;
   const referenceSelection = (run.referenceSelection ?? {}) as Record<
     string,
@@ -2049,6 +2048,7 @@ function AssetSwimlaneBoard({
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const t = useT();
+  const [bulkContextOpen, setBulkContextOpen] = useState(false);
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -2642,7 +2642,10 @@ function AssetSwimlaneBoard({
         resource={{
           appId: "assets",
           resourceType: "asset-selection",
-          resourceId: selectedAssets.map((asset) => asset.id).sort().join(","),
+          resourceId: selectedAssets
+            .map((asset) => asset.id)
+            .sort()
+            .join(","),
           title: `${selectedCount} selected assets`,
           preview: { kind: "document", label: "Asset selection" },
         }}
@@ -3257,111 +3260,111 @@ function AssetActionsMenu({
   const [contextOpen, setContextOpen] = useState(false);
   return (
     <>
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="h-8 w-8 shadow-sm"
-          aria-label={t("library.assetActions")}
-          disabled={busy}
-        >
-          <IconDotsVertical className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <Link to={`/asset/${asset.id}`}>
-            <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.viewDetails")}
-          </Link>
-        </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={(event) => {
-            event.preventDefault();
-            setContextOpen(true);
-          }}
-        >
-          <IconLink className="mr-2 h-4 w-4 shrink-0" />
-          Add to context
-        </DropdownMenuItem>
-        {onMoveToReferences ? (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 shadow-sm"
+            aria-label={t("library.assetActions")}
+            disabled={busy}
+          >
+            <IconDotsVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link to={`/asset/${asset.id}`}>
+              <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.viewDetails")}
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
-              onMoveToReferences();
+              setContextOpen(true);
             }}
           >
-            <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.addToReferences")}
+            <IconLink className="mr-2 h-4 w-4 shrink-0" />
+            Add to context
           </DropdownMenuItem>
-        ) : null}
-        {onRemoveFromReferences ? (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onRemoveFromReferences();
-            }}
-          >
-            <IconX className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.removeFromReferences")}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.moveTo")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
+          {onMoveToReferences ? (
             <DropdownMenuItem
-              onSelect={() =>
-                updateAsset.mutate({
-                  id: asset.id,
-                  folderId: null,
-                })
-              }
+              onSelect={(event) => {
+                event.preventDefault();
+                onMoveToReferences();
+              }}
             >
-              {t("library.unfiled")}
+              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.addToReferences")}
             </DropdownMenuItem>
-            {folders.map((folder) => (
+          ) : null}
+          {onRemoveFromReferences ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onRemoveFromReferences();
+              }}
+            >
+              <IconX className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.removeFromReferences")}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.moveTo")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
               <DropdownMenuItem
-                key={folder.id}
                 onSelect={() =>
                   updateAsset.mutate({
                     id: asset.id,
-                    folderId: folder.id,
+                    folderId: null,
                   })
                 }
               >
-                {folder.title}
+                {t("library.unfiled")}
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-          onSelect={onDelete}
-        >
-          <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-          {t("assetDetail.delete")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
-    <CreativeContextShareSheet
-      open={contextOpen}
-      onOpenChange={setContextOpen}
-      canManage
-      resource={{
-        appId: "assets",
-        resourceType: "asset",
-        resourceId: asset.id,
-        title: assetDisplayTitle(asset),
-        updatedAt: asset.updatedAt,
-        preview: { kind: "document", label: "Asset" },
-      }}
-    />
+              {folders.map((folder) => (
+                <DropdownMenuItem
+                  key={folder.id}
+                  onSelect={() =>
+                    updateAsset.mutate({
+                      id: asset.id,
+                      folderId: folder.id,
+                    })
+                  }
+                >
+                  {folder.title}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={onDelete}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            {t("assetDetail.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        canManage
+        resource={{
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: assetDisplayTitle(asset),
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document", label: "Asset" },
+        }}
+      />
     </>
   );
 }

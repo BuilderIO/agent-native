@@ -39,8 +39,8 @@ import {
   type PromptComposerSubmitOptions,
   type ReviewThread,
 } from "@agent-native/core/client";
-import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { ReviewComment } from "@agent-native/core/review";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { TweakDefinition } from "@shared/api";
 import {
   computeReparentedChildPosition,
@@ -23492,18 +23492,14 @@ function DesignEditor() {
       },
       {
         value: "context",
-        label: (
-          <span className={designShareTabLabelClassName}>
-            Context
-          </span>
-        ),
+        label: <span className={designShareTabLabelClassName}>Context</span>,
         content: (
           <CreativeContextShareTab
             resource={{
               appId: "design",
               resourceType: "design",
-              resourceId: id,
-              title: design.title,
+              resourceId: id ?? "",
+              title: design?.title ?? "Untitled design",
               updatedAt: activeFile?.updatedAt ?? undefined,
               preview: { kind: "document", label: "Design project" },
             }}

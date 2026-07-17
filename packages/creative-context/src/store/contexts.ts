@@ -448,6 +448,20 @@ export async function createCreativeContext(input: {
   const actor = requireActor();
   const timestamp = nowIso();
   if (actor.orgId) await assertCurrentRequestUserIsOrgAdmin(actor.orgId);
+  if (input.kind === "default") {
+    const defaultScope = actor.orgId
+      ? eq(schema.creativeContexts.orgId, actor.orgId)
+      : and(
+          isNull(schema.creativeContexts.orgId),
+          eq(schema.creativeContexts.ownerEmail, actor.ownerEmail),
+        );
+    const existing = await getDb()
+      .select({ id: schema.creativeContexts.id })
+      .from(schema.creativeContexts)
+      .where(and(eq(schema.creativeContexts.kind, "default"), defaultScope))
+      .limit(1);
+    if (existing[0]) return getCreativeContextById(existing[0].id);
+  }
   const id = newId("ccx"),
     stagingSourceId = newId("ccs"),
     publishedSourceId = newId("ccs");
@@ -490,7 +504,7 @@ export async function createCreativeContext(input: {
         updatedAt: timestamp,
         ownerEmail: actor.ownerEmail,
         orgId: actor.orgId,
-        visibility: "private",
+        visibility: actor.orgId ? "org" : "private",
       });
     await appendAudit(tx, id, "create", {
       kind: input.kind,
@@ -507,14 +521,16 @@ export async function ensureDefaultCreativeContext(): Promise<CreativeContextSum
   const scope = actor.orgId
     ? eq(schema.creativeContexts.orgId, actor.orgId)
     : isNull(schema.creativeContexts.orgId);
+  const defaultOwnerScope = actor.orgId
+    ? scope
+    : and(scope, eq(schema.creativeContexts.ownerEmail, actor.ownerEmail));
   const existing = await getDb()
     .select()
     .from(schema.creativeContexts)
     .where(
       and(
-        eq(schema.creativeContexts.ownerEmail, actor.ownerEmail),
         eq(schema.creativeContexts.kind, "default"),
-        scope,
+        defaultOwnerScope,
       ),
     )
     .limit(1);
@@ -614,6 +630,31 @@ export async function getCreativeContextById(
       ),
     );
   return mapContext(access.resource, Number(membershipCount?.value ?? 0));
+}
+
+export async function getCreativeContextAppBinding(
+  appId: string,
+): Promise<CreativeContextSummary | null> {
+  const { getDb, schema } = getCreativeContext();
+  const actor = requireActor();
+  const scope = actor.orgId
+    ? eq(schema.creativeContextAppBindings.orgId, actor.orgId)
+    : isNull(schema.creativeContextAppBindings.orgId);
+  const rows = await getDb()
+    .select({ contextId: schema.creativeContextAppBindings.contextId })
+    .from(schema.creativeContextAppBindings)
+    .where(
+      and(
+        eq(schema.creativeContextAppBindings.appId, appId),
+        scope,
+        ...(actor.orgId
+          ? []
+          : [eq(schema.creativeContextAppBindings.ownerEmail, actor.ownerEmail)]),
+      ),
+    )
+    .orderBy(asc(schema.creativeContextAppBindings.updatedAt))
+    .limit(1);
+  return rows[0] ? getCreativeContextById(rows[0].contextId) : null;
 }
 
 export async function listCreativeContexts(input: {
