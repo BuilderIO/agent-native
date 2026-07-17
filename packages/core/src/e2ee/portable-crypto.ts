@@ -75,7 +75,12 @@ export async function ancV1Hash(
   payload: Uint8Array,
 ): Promise<Uint8Array> {
   await ready();
-  return sodium.crypto_generichash(32, domainMessage(tag, payload), null);
+  const message = domainMessage(tag, payload);
+  try {
+    return sodium.crypto_generichash(32, message, null);
+  } finally {
+    message.fill(0);
+  }
 }
 
 export async function ancV1SigningKeypairFromSeed(seed: Uint8Array): Promise<{
@@ -209,12 +214,17 @@ export async function ancV1BoxEncrypt(
     sodium.crypto_box_SECRETKEYBYTES,
     "Sender private key",
   );
-  return sodium.crypto_box_easy(
-    domainMessage(tag, plaintext),
-    nonce,
-    recipientPublicKey,
-    senderPrivateKey,
-  );
+  const message = domainMessage(tag, plaintext);
+  try {
+    return sodium.crypto_box_easy(
+      message,
+      nonce,
+      recipientPublicKey,
+      senderPrivateKey,
+    );
+  } finally {
+    message.fill(0);
+  }
 }
 
 export async function ancV1BoxDecrypt(
@@ -236,8 +246,9 @@ export async function ancV1BoxDecrypt(
     sodium.crypto_box_SECRETKEYBYTES,
     "Recipient private key",
   );
+  let message: Uint8Array | undefined;
   try {
-    const message = sodium.crypto_box_open_easy(
+    message = sodium.crypto_box_open_easy(
       ciphertext,
       nonce,
       senderPublicKey,
@@ -250,10 +261,12 @@ export async function ancV1BoxDecrypt(
     ) {
       throw new AncV1CryptoError("Box domain separation failed");
     }
-    return message.subarray(prefix.byteLength);
+    return message.slice(prefix.byteLength);
   } catch (error) {
     if (error instanceof AncV1CryptoError) throw error;
     throw new AncV1CryptoError("Box authentication failed");
+  } finally {
+    message?.fill(0);
   }
 }
 

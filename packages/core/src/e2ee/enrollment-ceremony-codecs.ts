@@ -1546,6 +1546,11 @@ export async function verifyPersistedAncV1EnrollmentActivation(
     currentControlState: ControlLogState;
     /** Exact canonical signed entries, beginning with the enrollment commit. */
     descendantControlEntries: Uint8Array[];
+    verifyRecoveryWrapRotation: NonNullable<
+      Parameters<
+        typeof verifyAndReduceControlLogEntry
+      >[0]["verifyRecoveryWrapRotation"]
+    >;
     now: number;
   },
 ): Promise<AncV1EnrollmentAuthorization> {
@@ -1557,6 +1562,7 @@ export async function verifyPersistedAncV1EnrollmentActivation(
       "persistedCommitControlState",
       "currentControlState",
       "descendantControlEntries",
+      "verifyRecoveryWrapRotation",
       "now",
     ],
     "Persisted activation input",
@@ -1632,6 +1638,7 @@ export async function verifyPersistedAncV1EnrollmentActivation(
     const replayed = await verifyAndReduceControlLogEntry({
       current: replayedState,
       entry: decodeSignedControlLogEntry(encodedEntry),
+      verifyRecoveryWrapRotation: input.verifyRecoveryWrapRotation,
     });
     if (replayed.idempotent) {
       fail("Descendant control replay repeats an already-applied entry");

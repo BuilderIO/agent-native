@@ -15,6 +15,7 @@ import {
   type ControlLogState,
   type ControlCeremonyAbort,
   type ControlMembershipCommit,
+  controlMembershipCommitSchema,
   controlLogStateSchema,
   createSignedControlLogEntry,
   decodeSignedControlLogEntry,
@@ -89,6 +90,11 @@ function commit(
     outstandingJobsResolved: false,
     recoverySnapshotHash: null,
     recoveryAuthorizationHash: null,
+    recoveryGeneration: 1,
+    recoveryId: "recovery:authority-0001",
+    recoverySigningPublicKey: hash("c"),
+    recoveryKeyAgreementPublicKey: hash("d"),
+    recoveryWrapHash: hash("e"),
     ...patch,
   };
 }
@@ -182,10 +188,10 @@ describe("anc/v1 signed control log", () => {
     const encoded = encodeSignedControlLogEntry(entry);
     expect(decodeSignedControlLogEntry(encoded).innerEnvelope).toEqual(abort);
     expect(ancV1BytesToHex(encodeControlLogInnerEnvelope(abort))).toBe(
-      "a70166616e632f763102727661756c743a636f6e74726f6c2d30303031036e636572656d6f6e795f61626f72741897781b636572656d6f6e793a6164645f6465766963652d61626f7274656418986a6164645f64657669636518995820de0a32eedbf3346e32783650b1f54ce81de542ea69d7d613990d1e15ebdf0eb6189a6c7361735f6d69736d61746368",
+      "a70166616e632f763102727661756c743a636f6e74726f6c2d30303031036e636572656d6f6e795f61626f72741897781b636572656d6f6e793a6164645f6465766963652d61626f7274656418986a6164645f64657669636518995820271d457da682c8bb2fe47f1a84886b36fe286a6946c117fc557a539416e16add189a6c7361735f6d69736d61746368",
     );
     expect(ancV1BytesToHex(encoded)).toBe(
-      "aa0166616e632f763102727661756c743a636f6e74726f6c2d3030303103696c6f672d656e747279047818323032362d30372d31375430313a30303a30312e3030305a056b6c6f672d656e7472793a31186e01186f58208ec347170a0141befdf29e8bb47d63137e891668699cad0432b7315f93b3ec8a1870588ca70166616e632f763102727661756c743a636f6e74726f6c2d30303031036e636572656d6f6e795f61626f72741897781b636572656d6f6e793a6164645f6465766963652d61626f7274656418986a6164645f64657669636518995820de0a32eedbf3346e32783650b1f54ce81de542ea69d7d613990d1e15ebdf0eb6189a6c7361735f6d69736d61746368187173656e64706f696e743a6f776e65722d30303031187258407121e7ef6370bb1d1caff796b63b45bfa2031c8a03c45b8adf0025ce9ee3984d976da5618faf19adb8c1fffe56f275cdf38664ec86ae0cd11c9062ff4a258c0e",
+      "aa0166616e632f763102727661756c743a636f6e74726f6c2d3030303103696c6f672d656e747279047818323032362d30372d31375430313a30303a30312e3030305a056b6c6f672d656e7472793a31186e01186f58204cb822fc990dd81261ab37ad4540529226d284e92f7f2ccca8e036239fd91d321870588ca70166616e632f763102727661756c743a636f6e74726f6c2d30303031036e636572656d6f6e795f61626f72741897781b636572656d6f6e793a6164645f6465766963652d61626f7274656418986a6164645f64657669636518995820271d457da682c8bb2fe47f1a84886b36fe286a6946c117fc557a539416e16add189a6c7361735f6d69736d61746368187173656e64706f696e743a6f776e65722d30303031187258408bdf19cf467fcd42bc5dd16859a7277025d3534c3160055284ae72da5399748c156243bc2303c46754f38a21430ab2ff63b40f71f7d4569a069d8bc488ea0706",
     );
     await expect(
       verifyAndReduceControlLogEntry({
@@ -307,6 +313,59 @@ describe("anc/v1 signed control log", () => {
     ).resolves.toMatchObject({ idempotent: true });
   });
 
+  it("requires both recovery hashes iff the commit is a recovery", async () => {
+    const value = await genesis();
+    const base = commit({
+      ceremonyKind: "add_device",
+      activeMembers: value.state.activeMembers,
+    });
+    expect(
+      controlMembershipCommitSchema.safeParse({
+        ...base,
+        recoverySnapshotHash: hash("a"),
+      }).success,
+    ).toBe(false);
+    expect(
+      controlMembershipCommitSchema.safeParse({
+        ...base,
+        recoveryAuthorizationHash: hash("b"),
+      }).success,
+    ).toBe(false);
+    expect(
+      controlMembershipCommitSchema.safeParse({
+        ...base,
+        recoverySnapshotHash: hash("a"),
+        recoveryAuthorizationHash: hash("b"),
+      }).success,
+    ).toBe(false);
+    const recovery = {
+      ...base,
+      ceremonyKind: "recovery" as const,
+    };
+    expect(controlMembershipCommitSchema.safeParse(recovery).success).toBe(
+      false,
+    );
+    expect(
+      controlMembershipCommitSchema.safeParse({
+        ...recovery,
+        recoverySnapshotHash: hash("a"),
+      }).success,
+    ).toBe(false);
+    expect(
+      controlMembershipCommitSchema.safeParse({
+        ...recovery,
+        recoveryAuthorizationHash: hash("b"),
+      }).success,
+    ).toBe(false);
+    expect(
+      controlMembershipCommitSchema.safeParse({
+        ...recovery,
+        recoverySnapshotHash: hash("a"),
+        recoveryAuthorizationHash: hash("b"),
+      }).success,
+    ).toBe(true);
+  });
+
   it("adds a device and broker only under the existing endpoint signer", async () => {
     const value = await genesis();
     const device = await identity(2, "endpoint:second-0001", "endpoint");
@@ -407,12 +466,14 @@ describe("anc/v1 signed control log", () => {
         activeMembers: [broker.member, value.owner.member],
         removedEndpointIds: [device.member.endpointId],
         rotationCompleted: true,
+        recoveryWrapHash: hash("f"),
       }),
     });
     state = (
       await verifyAndReduceControlLogEntry({
         current: state,
         entry: removeDevice,
+        verifyRecoveryWrapRotation: async () => true,
       })
     ).state;
     expect(state.removedEndpointIds).toContain(device.member.endpointId);
@@ -448,10 +509,15 @@ describe("anc/v1 signed control log", () => {
         removedEndpointIds: [broker.member.endpointId],
         rotationCompleted: true,
         outstandingJobsResolved: true,
+        recoveryWrapHash: hash("1"),
       }),
     });
     state = (
-      await verifyAndReduceControlLogEntry({ current: state, entry: replace })
+      await verifyAndReduceControlLogEntry({
+        current: state,
+        entry: replace,
+        verifyRecoveryWrapRotation: async () => true,
+      })
     ).state;
     expect(
       state.activeMembers.filter((member) => member.role === "broker"),
@@ -491,12 +557,25 @@ describe("anc/v1 signed control log", () => {
         removedEndpointIds: [broker.member.endpointId],
         rotationCompleted: true,
         outstandingJobsResolved: true,
+        recoveryWrapHash: hash("f"),
       }),
     });
     await expect(
       verifyAndReduceControlLogEntry({
         current: withBroker,
         entry: removeBroker,
+      }),
+    ).rejects.toMatchObject({ code: "recovery_wrap_rotation_required" });
+    await expect(
+      verifyAndReduceControlLogEntry({
+        current: withBroker,
+        entry: removeBroker,
+        verifyRecoveryWrapRotation: async (callback) => {
+          callback.commit.epoch = 99;
+          callback.entry.sequence = 99;
+          callback.current.epoch = 99;
+          return true;
+        },
       }),
     ).resolves.toMatchObject({
       state: {
@@ -522,6 +601,11 @@ describe("anc/v1 signed control log", () => {
         rotationCompleted: true,
         recoverySnapshotHash: hash("a"),
         recoveryAuthorizationHash: hash("b"),
+        recoveryGeneration: 2,
+        recoveryId: "recovery:authority-0002",
+        recoverySigningPublicKey: hash("1"),
+        recoveryKeyAgreementPublicKey: hash("2"),
+        recoveryWrapHash: hash("3"),
       }),
     });
     await expect(
@@ -531,8 +615,14 @@ describe("anc/v1 signed control log", () => {
       verifyAndReduceControlLogEntry({
         current: value.state,
         entry: recovery,
-        verifyRecoveryAuthorization: async ({ commit: candidate }) =>
-          candidate.recoveryAuthorizationHash === hash("b"),
+        verifyRecoveryAuthorization: async (callback) => {
+          const allowed =
+            callback.commit.recoveryAuthorizationHash === hash("b");
+          callback.commit.epoch = 99;
+          callback.entry.sequence = 99;
+          callback.current.epoch = 99;
+          return allowed;
+        },
       }),
     ).resolves.toMatchObject({
       state: { activeMembers: [recovered.member], epoch: 2 },
@@ -686,7 +776,7 @@ describe("anc/v1 signed control log", () => {
     const value = await genesis();
     const encoded = encodeSignedControlLogEntry(value.entry);
     expect(ancV1BytesToHex(encoded)).toBe(
-      "aa0166616e632f763102727661756c743a636f6e74726f6c2d3030303103696c6f672d656e747279047818323032362d30372d31375430313a30303a30302e3030305a056b6c6f672d656e7472793a30186e00186f58200000000000000000000000000000000000000000000000000000000000000000187058f8ad0166616e632f763102727661756c743a636f6e74726f6c2d3030303103716d656d626572736869705f636f6d6d6974188c781a636572656d6f6e793a66697273745f6465766963652d30303031188d6c66697273745f646576696365188e01188ff61890818673656e64706f696e743a6f776e65722d3030303168656e64706f696e74f458208a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c58202929292929292929292929292929292929292929292929292929292929292929781e656e726f6c6c6d656e743a656e64706f696e743a6f776e65722d303030311891801892f41893f41894f61895f6187173656e64706f696e743a6f776e65722d3030303118725840d3d1b152295cb1d4000bf303c4f30cc26ac3c88c421b763f93f84d3d90a2707166a12f95eacbfe49325faab537d500e7828b934bb1740685814a9491ef19220c",
+      "aa0166616e632f763102727661756c743a636f6e74726f6c2d3030303103696c6f672d656e747279047818323032362d30372d31375430313a30303a30302e3030305a056b6c6f672d656e7472793a30186e00186f582000000000000000000000000000000000000000000000000000000000000000001870590181b20166616e632f763102727661756c743a636f6e74726f6c2d3030303103716d656d626572736869705f636f6d6d6974188c781a636572656d6f6e793a66697273745f6465766963652d30303031188d6c66697273745f646576696365188e01188ff61890818673656e64706f696e743a6f776e65722d3030303168656e64706f696e74f458208a88e3dd7409f195fd52db2d3cba5d72ca6709bf1d94121bf3748801b40f6f5c58202929292929292929292929292929292929292929292929292929292929292929781e656e726f6c6c6d656e743a656e64706f696e743a6f776e65722d303030311891801892f41893f41894f61895f6189b01189c777265636f766572793a617574686f726974792d30303031189d5820cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc189e5820dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd189f5820eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee187173656e64706f696e743a6f776e65722d3030303118725840c6c99c6b3386a343ca711e1551d0a11e19ec0f71f5d4ff81d9b4714002453fde3d6de8b27b161e6fd4a68809ef121454b6930aa4e38beab1cf66050a15cad301",
     );
 
     const nativePublicKey = Buffer.alloc(sodium.crypto_sign_PUBLICKEYBYTES);
@@ -717,7 +807,7 @@ describe("anc/v1 signed control log", () => {
     );
     expect(nativeSignature.toString("hex")).toBe(value.entry.signature);
     expect(value.entry.signature).toBe(
-      "d3d1b152295cb1d4000bf303c4f30cc26ac3c88c421b763f93f84d3d90a2707166a12f95eacbfe49325faab537d500e7828b934bb1740685814a9491ef19220c",
+      "c6c99c6b3386a343ca711e1551d0a11e19ec0f71f5d4ff81d9b4714002453fde3d6de8b27b161e6fd4a68809ef121454b6930aa4e38beab1cf66050a15cad301",
     );
   });
 });

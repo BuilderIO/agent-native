@@ -151,6 +151,15 @@ export const controlMembershipCommitSchema = z
     outstandingJobsResolved: z.boolean(),
     recoverySnapshotHash: hashSchema.nullable(),
     recoveryAuthorizationHash: hashSchema.nullable(),
+    recoveryGeneration: z
+      .number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER),
+    recoveryId: opaqueIdSchema,
+    recoverySigningPublicKey: publicKeySchema,
+    recoveryKeyAgreementPublicKey: publicKeySchema,
+    recoveryWrapHash: hashSchema,
   })
   .strict()
   .superRefine((commit, ctx) => {
@@ -165,9 +174,11 @@ export const controlMembershipCommitSchema = z
       });
     }
     const recovery = commit.ceremonyKind === "recovery";
+    const hasRecoverySnapshot = commit.recoverySnapshotHash !== null;
+    const hasRecoveryAuthorization = commit.recoveryAuthorizationHash !== null;
     if (
-      recovery !==
-      Boolean(commit.recoverySnapshotHash && commit.recoveryAuthorizationHash)
+      (recovery && (!hasRecoverySnapshot || !hasRecoveryAuthorization)) ||
+      (!recovery && (hasRecoverySnapshot || hasRecoveryAuthorization))
     ) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
@@ -247,6 +258,15 @@ export const controlLogStateSchema = z
     activeMembers: sortedMembersSchema,
     removedEndpointIds: accumulatedRemovedIdsSchema,
     epoch: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+    recoveryGeneration: z
+      .number()
+      .int()
+      .positive()
+      .max(Number.MAX_SAFE_INTEGER),
+    recoveryId: opaqueIdSchema,
+    recoverySigningPublicKey: publicKeySchema,
+    recoveryKeyAgreementPublicKey: publicKeySchema,
+    recoveryWrapHash: hashSchema,
     freshnessMode: z.enum(["endpoint_witnessed", "eventual_fork_detection"]),
   })
   .strict()
@@ -279,6 +299,7 @@ export type ControlLogFailureCode =
   | "future_head"
   | "genesis_authorization_required"
   | "recovery_authorization_required"
+  | "recovery_wrap_rotation_required"
   | "ceremony_abort_authorization_required";
 
 export class ControlLogVerificationError extends Error {
@@ -406,6 +427,21 @@ function encodeInnerMap(innerInput: ControlLogInnerEnvelope) {
       ? null
       : ancV1HexToBytes(inner.recoveryAuthorizationHash),
   );
+  const recovery = E2EE_ENVELOPE_FIELDS.controlMembership;
+  common.set(recovery.recoveryGeneration, inner.recoveryGeneration);
+  common.set(recovery.recoveryId, inner.recoveryId);
+  common.set(
+    recovery.recoverySigningPublicKey,
+    ancV1HexToBytes(inner.recoverySigningPublicKey),
+  );
+  common.set(
+    recovery.recoveryKeyAgreementPublicKey,
+    ancV1HexToBytes(inner.recoveryKeyAgreementPublicKey),
+  );
+  common.set(
+    recovery.recoveryWrapHash,
+    ancV1HexToBytes(inner.recoveryWrapHash),
+  );
   return common;
 }
 
@@ -502,6 +538,7 @@ export function decodeControlLogInnerEnvelope(
     throw new ControlLogVerificationError("invalid_entry");
   }
   const fields = E2EE_ENVELOPE_FIELDS.controlMembership;
+  const recovery = E2EE_ENVELOPE_FIELDS.controlMembership;
   const members = mapGet(map, fields.activeMembers, isArray).map(
     memberFromCanonical,
   );
@@ -532,6 +569,17 @@ export function decodeControlLogInnerEnvelope(
     ),
     recoveryAuthorizationHash: nullableHash(
       requiredValue(map, fields.recoveryAuthorizationHash),
+    ),
+    recoveryGeneration: mapGet(map, recovery.recoveryGeneration, isNumber),
+    recoveryId: mapGet(map, recovery.recoveryId, isString),
+    recoverySigningPublicKey: ancV1BytesToHex(
+      mapGet(map, recovery.recoverySigningPublicKey, isBytes),
+    ),
+    recoveryKeyAgreementPublicKey: ancV1BytesToHex(
+      mapGet(map, recovery.recoveryKeyAgreementPublicKey, isBytes),
+    ),
+    recoveryWrapHash: ancV1BytesToHex(
+      mapGet(map, recovery.recoveryWrapHash, isBytes),
     ),
   });
 }
@@ -728,9 +776,29 @@ function transitionValid(
   const brokersAfter = commit.activeMembers.filter(
     (member) => member.role === "broker",
   );
+  const sameRecoveryAuthority =
+    commit.recoveryGeneration === current.recoveryGeneration &&
+    commit.recoveryId === current.recoveryId &&
+    commit.recoverySigningPublicKey === current.recoverySigningPublicKey &&
+    commit.recoveryKeyAgreementPublicKey ===
+      current.recoveryKeyAgreementPublicKey;
+  const recoveryAuthorityTransitionValid =
+    commit.ceremonyKind === "recovery"
+      ? commit.recoveryGeneration === current.recoveryGeneration + 1 &&
+        commit.recoveryId !== current.recoveryId &&
+        commit.recoverySigningPublicKey !== current.recoverySigningPublicKey &&
+        commit.recoveryKeyAgreementPublicKey !==
+          current.recoveryKeyAgreementPublicKey &&
+        commit.recoveryWrapHash !== current.recoveryWrapHash
+      : sameRecoveryAuthority &&
+        (commit.epoch === current.epoch
+          ? commit.recoveryWrapHash === current.recoveryWrapHash
+          : commit.recoveryWrapHash !== current.recoveryWrapHash);
+  if (!recoveryAuthorityTransitionValid) return false;
   if (
     commit.ceremonyKind !== "broker_replacement" &&
     commit.ceremonyKind !== "remove_broker" &&
+    commit.ceremonyKind !== "recovery" &&
     commit.outstandingJobsResolved
   ) {
     return false;
@@ -795,6 +863,7 @@ function transitionValid(
         commit.activeMembers.length === 1 &&
         commit.epoch === current.epoch + 1 &&
         commit.rotationCompleted &&
+        commit.outstandingJobsResolved === (brokersBefore.length === 1) &&
         commit.recoverySnapshotHash !== null &&
         commit.recoveryAuthorizationHash !== null
       );
@@ -815,6 +884,11 @@ export interface VerifyAndReduceControlLogInput {
     entry: SignedControlLogEntry;
   }) => Promise<boolean>;
   readonly verifyRecoveryAuthorization?: (input: {
+    commit: ControlMembershipCommit;
+    entry: SignedControlLogEntry;
+    current: ControlLogState;
+  }) => Promise<boolean>;
+  readonly verifyRecoveryWrapRotation?: (input: {
     commit: ControlMembershipCommit;
     entry: SignedControlLogEntry;
     current: ControlLogState;
@@ -887,6 +961,7 @@ export async function verifyAndReduceControlLogEntry(
       inner.outstandingJobsResolved ||
       inner.recoverySnapshotHash !== null ||
       inner.recoveryAuthorizationHash !== null ||
+      inner.recoveryGeneration !== 1 ||
       entry.signerEndpointId !== inner.activeMembers[0]!.endpointId
     ) {
       throw new ControlLogVerificationError("invalid_genesis");
@@ -948,7 +1023,10 @@ export async function verifyAndReduceControlLogEntry(
     const commit = inner as ControlMembershipCommit;
     if (
       !input.verifyGenesisAuthorization ||
-      !(await input.verifyGenesisAuthorization({ commit, entry }))
+      !(await input.verifyGenesisAuthorization({
+        commit: controlMembershipCommitSchema.parse(commit),
+        entry: signedControlLogEntrySchema.parse(entry),
+      }))
     ) {
       throw new ControlLogVerificationError("genesis_authorization_required");
     }
@@ -962,6 +1040,11 @@ export async function verifyAndReduceControlLogEntry(
         activeMembers: commit.activeMembers,
         removedEndpointIds: commit.removedEndpointIds,
         epoch: commit.epoch,
+        recoveryGeneration: commit.recoveryGeneration,
+        recoveryId: commit.recoveryId,
+        recoverySigningPublicKey: commit.recoverySigningPublicKey,
+        recoveryKeyAgreementPublicKey: commit.recoveryKeyAgreementPublicKey,
+        recoveryWrapHash: commit.recoveryWrapHash,
         freshnessMode: "endpoint_witnessed",
       }),
       entryHash: hash,
@@ -994,9 +1077,9 @@ export async function verifyAndReduceControlLogEntry(
       signer.role !== "endpoint" ||
       !input.verifyCeremonyAbortAuthorization ||
       !(await input.verifyCeremonyAbortAuthorization({
-        abort: inner,
-        entry,
-        current,
+        abort: controlCeremonyAbortSchema.parse(inner),
+        entry: signedControlLogEntrySchema.parse(entry),
+        current: controlLogStateSchema.parse(current),
       }))
     ) {
       throw new ControlLogVerificationError(
@@ -1038,13 +1121,25 @@ export async function verifyAndReduceControlLogEntry(
   ) {
     throw new ControlLogVerificationError("candidate_self_enrollment");
   }
+  if (
+    inner.ceremonyKind !== "recovery" &&
+    inner.epoch === current.epoch + 1 &&
+    (!input.verifyRecoveryWrapRotation ||
+      !(await input.verifyRecoveryWrapRotation({
+        commit: controlMembershipCommitSchema.parse(inner),
+        entry: signedControlLogEntrySchema.parse(entry),
+        current: controlLogStateSchema.parse(current),
+      })))
+  ) {
+    throw new ControlLogVerificationError("recovery_wrap_rotation_required");
+  }
   if (inner.ceremonyKind === "recovery") {
     if (
       !input.verifyRecoveryAuthorization ||
       !(await input.verifyRecoveryAuthorization({
-        commit: inner,
-        entry,
-        current,
+        commit: controlMembershipCommitSchema.parse(inner),
+        entry: signedControlLogEntrySchema.parse(entry),
+        current: controlLogStateSchema.parse(current),
       }))
     ) {
       throw new ControlLogVerificationError("recovery_authorization_required");
@@ -1066,6 +1161,11 @@ export async function verifyAndReduceControlLogEntry(
       activeMembers: inner.activeMembers,
       removedEndpointIds,
       epoch: inner.epoch,
+      recoveryGeneration: inner.recoveryGeneration,
+      recoveryId: inner.recoveryId,
+      recoverySigningPublicKey: inner.recoverySigningPublicKey,
+      recoveryKeyAgreementPublicKey: inner.recoveryKeyAgreementPublicKey,
+      recoveryWrapHash: inner.recoveryWrapHash,
       freshnessMode: "endpoint_witnessed",
     }),
     entryHash: hash,

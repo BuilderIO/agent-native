@@ -315,6 +315,11 @@ describe("anc/v1 lifecycle canonical codecs", () => {
       activeMembers: [member(0x02, "endpoint"), member(0x03, "broker")],
       removedEndpointIds: [],
       epoch: 7,
+      recoveryGeneration: 1,
+      recoveryId: "04".repeat(16),
+      recoverySigningPublicKey: "05".repeat(32),
+      recoveryKeyAgreementPublicKey: "06".repeat(32),
+      recoveryWrapHash: "07".repeat(32),
       freshnessMode: "endpoint_witnessed" as const,
     };
     expect(() =>

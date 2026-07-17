@@ -27,15 +27,38 @@ describe("anc/v1 suite freeze", () => {
   });
 
   it("freezes domain separation and integer field tables", () => {
-    expect(E2EE_DOMAIN_TAGS).toContain("disclosure");
-    expect(E2EE_DOMAIN_TAGS).toContain("manifest");
-    expect(E2EE_DOMAIN_TAGS).toContain("endpoint-request-body");
-    expect(E2EE_DOMAIN_TAGS).toContain("endpoint-request");
-    expect(E2EE_DOMAIN_TAGS).toContain("enrollment-key-proof");
-    expect(E2EE_DOMAIN_TAGS).toContain("enrollment-challenge");
-    expect(E2EE_DOMAIN_TAGS).toContain("enrollment-sas");
-    expect(E2EE_DOMAIN_TAGS).toContain("enrollment-authorization");
-    expect(E2EE_DOMAIN_TAGS).toContain("ceremony-abort");
+    expect(E2EE_DOMAIN_TAGS).toEqual([
+      "endpoint",
+      "enrollment-offer",
+      "endpoint-request-body",
+      "endpoint-request",
+      "epoch",
+      "eek-wrap",
+      "dek-wrap",
+      "object-header",
+      "chunk",
+      "grant",
+      "grant-revoke",
+      "disclosure",
+      "job",
+      "result",
+      "log-entry",
+      "manifest",
+      "recovery",
+      "tombstone",
+      "enrollment-key-proof",
+      "enrollment-challenge",
+      "enrollment-sas",
+      "enrollment-authorization",
+      "genesis-recovery-confirmation",
+      "genesis-authorization",
+      "recovery-wrap",
+      "recovery-replacement-confirmation",
+      "recovery-authorization",
+      "recovery-authority",
+      "ceremony-abort",
+    ]);
+    expect(new Set(E2EE_DOMAIN_TAGS).size).toBe(E2EE_DOMAIN_TAGS.length);
     expect(E2EE_ENVELOPE_FIELDS.common).toEqual({
       suite: 1,
       vaultId: 2,
@@ -54,6 +77,11 @@ describe("anc/v1 suite freeze", () => {
       outstandingJobsResolved: 147,
       recoverySnapshotHash: 148,
       recoveryAuthorizationHash: 149,
+      recoveryGeneration: 155,
+      recoveryId: 156,
+      recoverySigningPublicKey: 157,
+      recoveryKeyAgreementPublicKey: 158,
+      recoveryWrapHash: 159,
     });
     expect(E2EE_ENVELOPE_FIELDS.controlContinuity).toEqual({
       membershipHash: 150,
@@ -134,6 +162,68 @@ describe("anc/v1 suite freeze", () => {
       plaintextOutstanding: 348,
       abortReason: 349,
       signerEndpointId: 350,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.genesisRecoveryConfirmation).toEqual({
+      ceremonyId: 360,
+      endpointId: 361,
+      recoveryId: 362,
+      recoverySigningPublicKey: 363,
+      recoveryKeyAgreementPublicKey: 364,
+      recoveryWrapHash: 365,
+      confirmedAt: 366,
+      recoveryGeneration: 367,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.genesisAuthorization).toEqual({
+      ceremonyId: 370,
+      endpointId: 371,
+      epoch: 372,
+      endpointEnvelope: 373,
+      recoveryConfirmation: 374,
+      signedGenesisCommit: 375,
+      signature: 376,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.recoveryWrap).toEqual({
+      ceremonyId: 400,
+      recoveryGeneration: 401,
+      recoveryId: 402,
+      recoveryKeyAgreementPublicKey: 403,
+      epoch: 404,
+      issuerEndpointId: 405,
+      activationControlSequence: 406,
+      activationPreviousHead: 407,
+      activationPreviousMembershipHash: 408,
+      nonce: 409,
+      ciphertext: 410,
+      signature: 411,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.recoveryReplacementConfirmation).toEqual({
+      ceremonyId: 420,
+      priorRecoveryGeneration: 421,
+      priorRecoveryId: 422,
+      replacementRecoveryGeneration: 423,
+      replacementRecoveryId: 424,
+      replacementRecoverySigningPublicKey: 425,
+      replacementRecoveryKeyAgreementPublicKey: 426,
+      replacementRecoveryWrapHash: 427,
+      candidateEndpointId: 428,
+      newEpoch: 429,
+      confirmationNonce: 430,
+      signature: 431,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.recoveryAuthorization).toEqual({
+      ceremonyId: 440,
+      consumedRecoveryGeneration: 441,
+      consumedRecoveryId: 442,
+      consumedRecoverySigningPublicKey: 443,
+      consumedRecoveryKeyAgreementPublicKey: 444,
+      currentSnapshotHash: 445,
+      consumedRecoveryWrapHash: 446,
+      candidateEndpointEnvelope: 447,
+      replacementConfirmation: 448,
+      replacementRecoveryWrap: 449,
+      newEpoch: 450,
+      expiresAt: 451,
+      signature: 452,
     });
     expect(E2EE_ENVELOPE_FIELDS.recovery).toEqual({
       salt: 200,

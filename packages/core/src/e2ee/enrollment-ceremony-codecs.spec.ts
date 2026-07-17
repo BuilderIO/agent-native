@@ -174,6 +174,11 @@ async function fixture() {
     ],
     removedEndpointIds: [],
     epoch: 7,
+    recoveryGeneration: 1,
+    recoveryId: "73".repeat(16),
+    recoverySigningPublicKey: "74".repeat(32),
+    recoveryKeyAgreementPublicKey: "75".repeat(32),
+    recoveryWrapHash: "76".repeat(32),
     freshnessMode: "endpoint_witnessed",
   };
   const challengeHash = await hashAncV1EnrollmentChallenge(
@@ -292,6 +297,11 @@ async function fullFixture() {
     outstandingJobsResolved: false,
     recoverySnapshotHash: null,
     recoveryAuthorizationHash: null,
+    recoveryGeneration: value.state.recoveryGeneration,
+    recoveryId: value.state.recoveryId,
+    recoverySigningPublicKey: value.state.recoverySigningPublicKey,
+    recoveryKeyAgreementPublicKey: value.state.recoveryKeyAgreementPublicKey,
+    recoveryWrapHash: value.state.recoveryWrapHash,
   };
   const signedCommit = await createSignedControlLogEntry({
     vaultId: value.state.vaultId,
@@ -675,6 +685,7 @@ describe("anc/v1 enrollment ceremony canonical contracts", () => {
         persistedCommitControlState: value.commitState,
         currentControlState,
         descendantControlEntries,
+        verifyRecoveryWrapRotation: async () => true,
         now: 1_721_111_170,
       });
     await expect(activate()).resolves.toEqual(value.authorization);
@@ -744,6 +755,12 @@ describe("anc/v1 enrollment ceremony canonical contracts", () => {
         outstandingJobsResolved: false,
         recoverySnapshotHash: null,
         recoveryAuthorizationHash: null,
+        recoveryGeneration: value.commitState.recoveryGeneration,
+        recoveryId: value.commitState.recoveryId,
+        recoverySigningPublicKey: value.commitState.recoverySigningPublicKey,
+        recoveryKeyAgreementPublicKey:
+          value.commitState.recoveryKeyAgreementPublicKey,
+        recoveryWrapHash: value.commitState.recoveryWrapHash,
       },
       signerEndpointId: value.state.activeMembers[0]!.endpointId,
       signingPrivateKey: value.authorizer.privateKey,
@@ -873,6 +890,7 @@ describe("anc/v1 enrollment ceremony canonical contracts", () => {
         persistedCommitControlState: value.commitState,
         currentControlState,
         descendantControlEntries,
+        verifyRecoveryWrapRotation: async () => true,
         now: 1_721_111_190,
       });
     const removal = await createSignedControlLogEntry({
@@ -895,6 +913,12 @@ describe("anc/v1 enrollment ceremony canonical contracts", () => {
         outstandingJobsResolved: false,
         recoverySnapshotHash: null,
         recoveryAuthorizationHash: null,
+        recoveryGeneration: value.commitState.recoveryGeneration,
+        recoveryId: value.commitState.recoveryId,
+        recoverySigningPublicKey: value.commitState.recoverySigningPublicKey,
+        recoveryKeyAgreementPublicKey:
+          value.commitState.recoveryKeyAgreementPublicKey,
+        recoveryWrapHash: "49".repeat(32),
       },
       signerEndpointId: value.state.activeMembers[0]!.endpointId,
       signingPrivateKey: value.authorizer.privateKey,
@@ -903,6 +927,7 @@ describe("anc/v1 enrollment ceremony canonical contracts", () => {
       await verifyAndReduceControlLogEntry({
         current: value.commitState,
         entry: removal,
+        verifyRecoveryWrapRotation: async () => true,
       })
     ).state;
     await expect(
