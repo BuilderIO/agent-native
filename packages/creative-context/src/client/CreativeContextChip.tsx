@@ -35,6 +35,21 @@ export interface CreativeContextChipProps {
   className?: string;
 }
 
+export type CreativeContextChipSelection =
+  | "off"
+  | "pinned-pack"
+  | "selected-context"
+  | "automatic";
+
+export function resolveCreativeContextChipSelection(
+  state: CreativeContextApplicationState,
+): CreativeContextChipSelection {
+  if (state.contextMode === "off") return "off";
+  if (state.pinnedPackId) return "pinned-pack";
+  if (state.selectedContextId) return "selected-context";
+  return "automatic";
+}
+
 export function CreativeContextChip({
   state,
   packs = [],
@@ -47,15 +62,15 @@ export function CreativeContextChip({
   const context = contexts.find(
     (candidate) => candidate.id === state.selectedContextId,
   );
+  const selection = resolveCreativeContextChipSelection(state);
   const label =
-    state.contextMode === "off"
+    selection === "off"
       ? t("creativeContext.off")
-      : state.pinnedPackId
+      : selection === "pinned-pack"
         ? pack?.name || packId
-        : context?.name ||
-          (state.selectedContextId
-            ? state.selectedContextId
-            : t("creativeContext.automatic"));
+        : selection === "selected-context"
+          ? context?.name || state.selectedContextId
+          : t("creativeContext.automatic");
 
   return (
     <Badge

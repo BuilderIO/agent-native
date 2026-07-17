@@ -14,6 +14,7 @@ const schema = z.discriminatedUnion("operation", [
 export default defineAction({
   description: "Create, govern, archive, or bind a governed Creative Context. Context sharing is managed by the shared resource actions.",
   schema,
+  agentInputSchema: z.object({ operation: z.enum(["create", "update", "archive", "set-app-default"]), contextId: z.string().optional(), name: z.string().optional(), description: z.string().nullable().optional(), kind: z.enum(["default", "specialty"]).optional(), brandProfileId: z.string().nullable().optional(), approvalPolicy: policy.optional(), appId: z.string().optional(), patch: z.record(z.string(), z.unknown()).optional() }),
   publicAgent: { expose: true, readOnly: false, requiresAuth: true, isConsequential: true },
   run: async (args) => {
     if (args.operation === "create") return { context: await createCreativeContext(args) };

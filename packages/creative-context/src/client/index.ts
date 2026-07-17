@@ -1,6 +1,7 @@
 export {
   CREATIVE_CONTEXT_ACTIONS,
   parseContextMemberships,
+  parseContextMembershipsForResource,
   parseCreativeContexts,
   useContextMemberships,
   useCreativeContextBrandProfile,
@@ -66,7 +67,9 @@ export {
 export {
   CreativeContextChip,
   CreativeContextComposerChip,
+  resolveCreativeContextChipSelection,
   type CreativeContextChipProps,
+  type CreativeContextChipSelection,
 } from "./CreativeContextChip.js";
 export {
   CreativeContextPanel,
@@ -75,6 +78,7 @@ export {
 export {
   CreativeContextShareSheet,
   CreativeContextShareTab,
+  creativeContextSafePreviewUrl,
   type CreativeContextResourceDescriptor,
   type CreativeContextResourcePreview,
   type CreativeContextShareTabProps,

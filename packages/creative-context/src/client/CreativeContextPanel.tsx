@@ -853,7 +853,7 @@ function ContextRail({
     id: string;
     name: string;
     description?: string | null;
-    itemCount?: number;
+    memberCount: number;
   }>;
   selectedContextId: string | null | undefined;
   disabled: boolean;
@@ -884,7 +884,7 @@ function ContextRail({
               {context.name}
             </span>
             <span className="mt-0.5 block truncate text-xs">
-              {context.description || `${context.itemCount ?? 0} items`}
+              {context.description || `${context.memberCount} resources`}
             </span>
           </button>
         ))}

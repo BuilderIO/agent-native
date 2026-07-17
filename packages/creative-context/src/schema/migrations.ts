@@ -293,7 +293,7 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
       );
       CREATE TABLE IF NOT EXISTS creative_context_app_bindings (
         id TEXT PRIMARY KEY, app_id TEXT NOT NULL, context_id TEXT NOT NULL,
-        is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
         owner_email TEXT NOT NULL, org_id TEXT
       );
       CREATE TABLE IF NOT EXISTS creative_context_published_snapshots (

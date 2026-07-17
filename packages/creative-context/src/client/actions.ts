@@ -175,7 +175,8 @@ function contextSummary(value: unknown): CreativeContextSummary | null {
       typeof source.memberCount === "number" ? source.memberCount : 0,
     updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
     approvalPolicy:
-      source.approvalPolicy === "review" || source.approvalPolicy === "admins-only"
+      source.approvalPolicy === "review" ||
+      source.approvalPolicy === "admins-only"
         ? source.approvalPolicy
         : "open",
   };
@@ -215,7 +216,9 @@ export function parseContextMemberships(
         id: item.id,
         contextId: item.contextId,
         publishedItemId:
-          typeof item.publishedItemId === "string" ? item.publishedItemId : null,
+          typeof item.publishedItemId === "string"
+            ? item.publishedItemId
+            : null,
         publishedItemVersionId:
           typeof item.publishedItemVersionId === "string"
             ? item.publishedItemVersionId
@@ -233,12 +236,28 @@ export function parseContextMemberships(
         updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
         pendingSubmission: (() => {
           const submission = record(item.pendingSubmission);
-          return submission && typeof submission.id === "string" && typeof submission.status === "string"
+          return submission &&
+            typeof submission.id === "string" &&
+            typeof submission.status === "string"
             ? { id: submission.id, status: submission.status }
             : null;
         })(),
       },
     ];
+  });
+}
+
+export function parseContextMembershipsForResource(
+  value: unknown,
+  resource: { appId: string; resourceType: string; resourceId: string },
+): CreativeContextMembership[] {
+  const source = record(value)?.memberships;
+  if (!Array.isArray(source)) return [];
+  const artifactKey = `${resource.appId}:${resource.resourceType}:${resource.resourceId}`;
+  return parseContextMemberships({
+    memberships: source.filter(
+      (value) => record(value)?.artifactKey === artifactKey,
+    ),
   });
 }
 
