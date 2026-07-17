@@ -1,5 +1,15 @@
 # @agent-native/core
 
+## 0.107.1
+
+### Patch Changes
+
+- 8e0afec: Preserve chat continuation context after stale background workers and make Stop durable before a serverless run id exists.
+- 8e0afec: Offer the Figma REST API personal access token fallback when Figma MCP links are restricted.
+- 8e0afec: Add a practical guide for organization context, team roles, resource permissions, RBAC, and framework environment variables.
+- 8e0afec: Keep empty full-page chat navigation from automatically opening the AgentSidebar.
+- 8e0afec: Keep the share popover open while adding people and preserve unfinished invite emails when it is reopened.
+
 ## 0.107.0
 
 ### Minor Changes
