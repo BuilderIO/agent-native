@@ -78,8 +78,14 @@ vi.mock("../server/self-dispatch.js", () => ({
     fireInternalDispatchMock(...args),
 }));
 
-const { insertRun, claimBackgroundRun, reapIfStale, reapAllStaleRuns } =
-  await import("./run-store.js");
+const {
+  insertRun,
+  claimBackgroundRun,
+  isTurnAborted,
+  markTurnAborted,
+  reapIfStale,
+  reapAllStaleRuns,
+} = await import("./run-store.js");
 
 let seq = 0;
 function ids(): { runId: string; thread: string; turn: string } {
@@ -126,6 +132,22 @@ function rowsForTurn(turnId: string): Array<{ id: string; status: string }> {
 const STALE_PAST_MS = 5 * 60_000; // comfortably past BACKGROUND_RUN_STALE_MS (90s)
 
 describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () => {
+  it("records an early Stop as a turn marker before any real run exists", async () => {
+    currentClient = makeRawClient(true);
+    const { thread, turn } = ids();
+
+    await markTurnAborted(thread, turn);
+
+    expect(await isTurnAborted(thread, turn)).toBe(true);
+    expect(await isTurnAborted(thread, `${turn}-other`)).toBe(false);
+    const marker = sqlite
+      .prepare(`SELECT status, dispatch_mode FROM agent_runs WHERE id = ?`)
+      .get(`turn-abort-${turn}`) as
+      | { status: string; dispatch_mode: string }
+      | undefined;
+    expect(marker).toEqual({ status: "aborted", dispatch_mode: "turn-abort" });
+  });
+
   it("creates exactly one unclaimed recovery successor for a dead claimed background worker, and does not stack a second on a re-reap", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
