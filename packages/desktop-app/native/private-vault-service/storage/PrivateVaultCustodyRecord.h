@@ -14,7 +14,10 @@ enum {
   ANC_PV_CUSTODY_RECORD_BYTES = 1088,
   ANC_PV_CUSTODY_ID_BYTES = 160,
   ANC_PV_CUSTODY_CHECKSUM_BYTES = ANC_PV_HASH_BYTES,
-  ANC_PV_CUSTODY_VERSION = 1,
+  ANC_PV_CUSTODY_LEGACY_VERSION = 1,
+  ANC_PV_CUSTODY_VERSION = 2,
+  ANC_PV_CUSTODY_FLAG_AUTHORITY_ANCHOR_PRESENT = 1 << 0,
+  ANC_PV_CUSTODY_FLAG_EXPECTED_EDGE_PRESENT = 1 << 1,
 };
 
 typedef enum AncPrivateVaultCustodyRecordStatus {
@@ -64,6 +67,9 @@ typedef enum AncPrivateVaultCustodyEnrollmentPhase {
  * Identifier lengths are authoritative; bytes after each length must be zero.
  */
 typedef struct AncPrivateVaultCustodySnapshot {
+  uint16_t record_version;
+  uint8_t authority_anchor_present;
+  uint8_t expected_edge_present;
   AncPrivateVaultCustodyLifecycle lifecycle;
   AncPrivateVaultCustodyRole role;
   AncPrivateVaultCustodyPendingKind pending_kind;
@@ -123,10 +129,10 @@ typedef struct AncPrivateVaultCustodySecretOutputs {
   uint8_t *pending_epoch_key;
 } AncPrivateVaultCustodySecretOutputs;
 
-AncPrivateVaultCustodyRecordStatus anc_pv_custody_record_encode(
-    const AncPrivateVaultCustodySnapshot *snapshot,
-    const AncPrivateVaultCustodySecretInputs *secrets, uint8_t *record,
-    size_t record_length);
+AncPrivateVaultCustodyRecordStatus
+anc_pv_custody_record_encode(const AncPrivateVaultCustodySnapshot *snapshot,
+                             const AncPrivateVaultCustodySecretInputs *secrets,
+                             uint8_t *record, size_t record_length);
 
 AncPrivateVaultCustodyRecordStatus anc_pv_custody_record_decode(
     const uint8_t *record, size_t record_length,

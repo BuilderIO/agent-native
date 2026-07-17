@@ -12,6 +12,8 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m"
+  "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m"
+  "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m"
 )
@@ -267,6 +269,42 @@ case "${PRIVATE_VAULT_BUILD_CUSTODY_TESTS:-}" in
     echo "Invalid Private Vault custody-test build mode" >&2
     exit 1
     ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  AUTHORITY_TEST_OUTPUT="$OUTPUT_ROOT/.authority-tests"
+  rm -rf "$AUTHORITY_TEST_OUTPUT"
+  mkdir -p "$AUTHORITY_TEST_OUTPUT"
+  build_authority_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$AUTHORITY_TEST_OUTPUT/private-vault-authority-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/storage" -I"$sodium_root/include" \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -DANC_PV_AUTHORITY_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-authority-store-vectors.json"'"' \
+      -framework Foundation -framework Security -framework LocalAuthentication \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultCustodyRepository.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshot.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthorityStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultAuthoritySnapshotTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_authority_tests arm64
+  build_authority_tests x86_64
+  ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_FENCE_TESTS:-}" in

@@ -44,36 +44,42 @@ typedef enum AncPrivateVaultCryptoStatus {
 
 AncPrivateVaultCryptoStatus anc_pv_crypto_init(void);
 
-AncPrivateVaultCryptoStatus anc_pv_blake2b_256(
-    uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *message,
-    size_t message_length);
+AncPrivateVaultCryptoStatus
+anc_pv_blake2b_256(uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *message,
+                   size_t message_length);
 
-AncPrivateVaultCryptoStatus anc_pv_ed25519_seed_keypair(
-    uint8_t public_key[ANC_PV_SIGN_PUBLIC_KEY_BYTES],
-    uint8_t private_key[ANC_PV_SIGN_PRIVATE_KEY_BYTES],
-    const uint8_t seed[ANC_PV_SEED_BYTES]);
+AncPrivateVaultCryptoStatus
+anc_pv_blake2b_256_keyed(uint8_t output[ANC_PV_HASH_BYTES],
+                         const uint8_t *message, size_t message_length,
+                         const uint8_t key[ANC_PV_KEY_BYTES]);
 
-AncPrivateVaultCryptoStatus anc_pv_ed25519_sign(
-    uint8_t signature[ANC_PV_SIGNATURE_BYTES], const uint8_t *message,
-    size_t message_length,
-    const uint8_t private_key[ANC_PV_SIGN_PRIVATE_KEY_BYTES]);
+AncPrivateVaultCryptoStatus
+anc_pv_ed25519_seed_keypair(uint8_t public_key[ANC_PV_SIGN_PUBLIC_KEY_BYTES],
+                            uint8_t private_key[ANC_PV_SIGN_PRIVATE_KEY_BYTES],
+                            const uint8_t seed[ANC_PV_SEED_BYTES]);
 
-AncPrivateVaultCryptoStatus anc_pv_ed25519_verify(
-    const uint8_t signature[ANC_PV_SIGNATURE_BYTES], const uint8_t *message,
-    size_t message_length,
-    const uint8_t public_key[ANC_PV_SIGN_PUBLIC_KEY_BYTES]);
+AncPrivateVaultCryptoStatus
+anc_pv_ed25519_sign(uint8_t signature[ANC_PV_SIGNATURE_BYTES],
+                    const uint8_t *message, size_t message_length,
+                    const uint8_t private_key[ANC_PV_SIGN_PRIVATE_KEY_BYTES]);
 
-AncPrivateVaultCryptoStatus anc_pv_box_seed_keypair(
-    uint8_t public_key[ANC_PV_BOX_PUBLIC_KEY_BYTES],
-    uint8_t private_key[ANC_PV_BOX_PRIVATE_KEY_BYTES],
-    const uint8_t seed[ANC_PV_SEED_BYTES]);
+AncPrivateVaultCryptoStatus
+anc_pv_ed25519_verify(const uint8_t signature[ANC_PV_SIGNATURE_BYTES],
+                      const uint8_t *message, size_t message_length,
+                      const uint8_t public_key[ANC_PV_SIGN_PUBLIC_KEY_BYTES]);
 
-AncPrivateVaultCryptoStatus anc_pv_box_wrap(
-    uint8_t *ciphertext, size_t ciphertext_capacity,
-    size_t *ciphertext_length, const uint8_t *plaintext,
-    size_t plaintext_length, const uint8_t nonce[ANC_PV_NONCE_BYTES],
-    const uint8_t recipient_public_key[ANC_PV_BOX_PUBLIC_KEY_BYTES],
-    const uint8_t sender_private_key[ANC_PV_BOX_PRIVATE_KEY_BYTES]);
+AncPrivateVaultCryptoStatus
+anc_pv_box_seed_keypair(uint8_t public_key[ANC_PV_BOX_PUBLIC_KEY_BYTES],
+                        uint8_t private_key[ANC_PV_BOX_PRIVATE_KEY_BYTES],
+                        const uint8_t seed[ANC_PV_SEED_BYTES]);
+
+AncPrivateVaultCryptoStatus
+anc_pv_box_wrap(uint8_t *ciphertext, size_t ciphertext_capacity,
+                size_t *ciphertext_length, const uint8_t *plaintext,
+                size_t plaintext_length,
+                const uint8_t nonce[ANC_PV_NONCE_BYTES],
+                const uint8_t recipient_public_key[ANC_PV_BOX_PUBLIC_KEY_BYTES],
+                const uint8_t sender_private_key[ANC_PV_BOX_PRIVATE_KEY_BYTES]);
 
 AncPrivateVaultCryptoStatus anc_pv_box_open(
     uint8_t *plaintext, size_t plaintext_capacity, size_t *plaintext_length,
@@ -83,10 +89,10 @@ AncPrivateVaultCryptoStatus anc_pv_box_open(
     const uint8_t recipient_private_key[ANC_PV_BOX_PRIVATE_KEY_BYTES]);
 
 AncPrivateVaultCryptoStatus anc_pv_xchacha20poly1305_encrypt(
-    uint8_t *ciphertext, size_t ciphertext_capacity,
-    size_t *ciphertext_length, const uint8_t *plaintext,
-    size_t plaintext_length, const uint8_t *associated_data,
-    size_t associated_data_length, const uint8_t nonce[ANC_PV_NONCE_BYTES],
+    uint8_t *ciphertext, size_t ciphertext_capacity, size_t *ciphertext_length,
+    const uint8_t *plaintext, size_t plaintext_length,
+    const uint8_t *associated_data, size_t associated_data_length,
+    const uint8_t nonce[ANC_PV_NONCE_BYTES],
     const uint8_t key[ANC_PV_KEY_BYTES]);
 
 AncPrivateVaultCryptoStatus anc_pv_xchacha20poly1305_decrypt(
@@ -96,10 +102,10 @@ AncPrivateVaultCryptoStatus anc_pv_xchacha20poly1305_decrypt(
     const uint8_t nonce[ANC_PV_NONCE_BYTES],
     const uint8_t key[ANC_PV_KEY_BYTES]);
 
-AncPrivateVaultCryptoStatus anc_pv_argon2id(
-    uint8_t output[ANC_PV_KEY_BYTES], const uint8_t *passphrase,
-    size_t passphrase_length,
-    const uint8_t salt[ANC_PV_PWHASH_SALT_BYTES]);
+AncPrivateVaultCryptoStatus
+anc_pv_argon2id(uint8_t output[ANC_PV_KEY_BYTES], const uint8_t *passphrase,
+                size_t passphrase_length,
+                const uint8_t salt[ANC_PV_PWHASH_SALT_BYTES]);
 
 AncPrivateVaultCryptoStatus anc_pv_secretstream_encrypt_final(
     uint8_t header[ANC_PV_SECRETSTREAM_HEADER_BYTES], uint8_t *ciphertext,

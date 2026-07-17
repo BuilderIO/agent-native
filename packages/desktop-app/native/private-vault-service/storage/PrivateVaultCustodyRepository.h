@@ -23,10 +23,15 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultCustodyRepositoryStatus) {
 typedef BOOL (^AncPrivateVaultCustodyHandleBorrowBlock)(
     const AncPrivateVaultCustodySecretInputs *secrets);
 
+typedef NS_ENUM(NSInteger, AncPrivateVaultCustodyEpochTransition) {
+  AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch = 0,
+  AncPrivateVaultCustodyEpochTransitionPromotePreparedEpoch = 1,
+};
+
 @interface AncPrivateVaultCustodyHandle : NSObject
 @property(nonatomic, readonly, getter=isClosed) BOOL closed;
-- (AncPrivateVaultCustodyRepositoryStatus)
-    borrow:(AncPrivateVaultCustodyHandleBorrowBlock)block;
+- (AncPrivateVaultCustodyRepositoryStatus)borrow:
+    (AncPrivateVaultCustodyHandleBorrowBlock)block;
 - (AncPrivateVaultCustodyRepositoryStatus)close;
 @end
 
@@ -38,21 +43,41 @@ typedef BOOL (^AncPrivateVaultCustodyHandleBorrowBlock)(
 
 - (AncPrivateVaultCustodyRepositoryStatus)
     storeSnapshot:(const AncPrivateVaultCustodySnapshot *)snapshot
-           secrets:(const AncPrivateVaultCustodySecretInputs *)secrets
-           vaultId:(NSString *)vaultId;
+          secrets:(const AncPrivateVaultCustodySecretInputs *)secrets
+          vaultId:(NSString *)vaultId;
 
 - (AncPrivateVaultCustodyRepositoryStatus)
     readVaultId:(NSString *)vaultId
        snapshot:(AncPrivateVaultCustodySnapshot *)snapshot
-          handle:(AncPrivateVaultCustodyHandle *_Nullable *_Nullable)handle;
+         handle:(AncPrivateVaultCustodyHandle *_Nullable *_Nullable)handle;
+
+/* Repository-owned authority CAS. No secret bundle crosses this boundary. */
+- (AncPrivateVaultCustodyRepositoryStatus)
+    advanceAuthorityAnchorVaultId:(NSString *)vaultId
+               expectedGeneration:(uint64_t)expectedGeneration
+           expectedSnapshotDigest:(NSData *)expectedSnapshotDigest
+               nextPublicSnapshot:
+                   (const AncPrivateVaultCustodySnapshot *)nextPublicSnapshot
+                  epochTransition:
+                      (AncPrivateVaultCustodyEpochTransition)epochTransition;
+
+- (AncPrivateVaultCustodyRepositoryStatus)
+    migrateLegacyCodecVaultId:(NSString *)vaultId
+           expectedGeneration:(uint64_t)expectedGeneration;
 
 @end
 
 #if ANC_PRIVATE_VAULT_TESTING
 typedef void (^AncPrivateVaultCustodyBeforeHandleCloseTestHook)(
     AncPrivateVaultCustodyHandle *handle);
+typedef AncPrivateVaultCustodyRepositoryStatus (
+    ^AncPrivateVaultCustodyHandleCloseStatusTestHook)(
+    AncPrivateVaultCustodyHandle *handle,
+    AncPrivateVaultCustodyRepositoryStatus actualStatus);
 FOUNDATION_EXPORT void AncPrivateVaultCustodySetBeforeHandleCloseForTesting(
     AncPrivateVaultCustodyBeforeHandleCloseTestHook _Nullable hook);
+FOUNDATION_EXPORT void AncPrivateVaultCustodySetHandleCloseStatusForTesting(
+    AncPrivateVaultCustodyHandleCloseStatusTestHook _Nullable hook);
 #endif
 
 // Keychain necessarily materializes a short-lived pageable CFData copy. The

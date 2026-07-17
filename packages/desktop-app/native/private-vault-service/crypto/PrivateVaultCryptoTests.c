@@ -9,7 +9,7 @@
 #define CHECK(condition)                                                       \
   do {                                                                         \
     if (!(condition)) {                                                        \
-      fprintf(stderr, "Private Vault crypto vector failed at line %d\n",      \
+      fprintf(stderr, "Private Vault crypto vector failed at line %d\n",       \
               __LINE__);                                                       \
       return 1;                                                                \
     }                                                                          \
@@ -20,10 +20,12 @@ static void fill(uint8_t *output, size_t length, uint8_t byte) {
 }
 
 static int from_hex(uint8_t *output, size_t output_length, const char *hex) {
-  if (strlen(hex) != output_length * 2) return 0;
+  if (strlen(hex) != output_length * 2)
+    return 0;
   for (size_t index = 0; index < output_length; index++) {
     unsigned int value = 0;
-    if (sscanf(hex + index * 2, "%2x", &value) != 1) return 0;
+    if (sscanf(hex + index * 2, "%2x", &value) != 1)
+      return 0;
     output[index] = (uint8_t)value;
   }
   return 1;
@@ -63,50 +65,62 @@ static int test_fixed_core_vectors(void) {
   fill(seed, sizeof seed, 0x11);
   CHECK(anc_pv_ed25519_seed_keypair(public_key, private_key, seed) ==
         ANC_PV_CRYPTO_OK);
-  CHECK(equal_hex(public_key, sizeof public_key,
-                  "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"));
-  CHECK(equal_hex(private_key, sizeof private_key,
-                  "1111111111111111111111111111111111111111111111111111111111111111"
-                  "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"));
+  CHECK(equal_hex(
+      public_key, sizeof public_key,
+      "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"));
+  CHECK(equal_hex(
+      private_key, sizeof private_key,
+      "1111111111111111111111111111111111111111111111111111111111111111"
+      "d04ab232742bb4ab3a1368bd4615e4e6d0224ab71a016baf8520a332c9778737"));
   CHECK(anc_pv_blake2b_256(hash, hash_message, sizeof hash_message - 1) ==
         ANC_PV_CRYPTO_OK);
-  CHECK(equal_hex(hash, sizeof hash,
-                  "05d9eaa8c60242e5f03cbc45b173911221113d0e5d5620113cc3910dffceef44"));
-  CHECK(anc_pv_ed25519_sign(signature, hash_message,
-                            sizeof hash_message - 1, private_key) ==
-        ANC_PV_CRYPTO_OK);
-  CHECK(equal_hex(signature, sizeof signature,
-                  "aa177c87cef4d73d2b8228c22a6174cba94260165e78590d9947f5ef21c6877c"
-                  "da43fb496c403622c042eb0ad1e131a063bace37c16eb2ca5089efb9ccfa2305"));
-  CHECK(anc_pv_ed25519_verify(signature, hash_message,
-                              sizeof hash_message - 1, public_key) ==
-        ANC_PV_CRYPTO_OK);
+  CHECK(equal_hex(
+      hash, sizeof hash,
+      "05d9eaa8c60242e5f03cbc45b173911221113d0e5d5620113cc3910dffceef44"));
+  fill(key, sizeof key, 0x22);
+  CHECK(anc_pv_blake2b_256_keyed(hash, hash_message, sizeof hash_message - 1,
+                                 key) == ANC_PV_CRYPTO_OK);
+  uint8_t keyed_expected[ANC_PV_HASH_BYTES] = {0};
+  CHECK(crypto_generichash_blake2b(keyed_expected, sizeof keyed_expected,
+                                   hash_message, sizeof hash_message - 1, key,
+                                   sizeof key) == 0);
+  CHECK(anc_pv_memcmp(hash, keyed_expected, sizeof hash) == ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(keyed_expected, sizeof keyed_expected);
+  CHECK(anc_pv_ed25519_sign(signature, hash_message, sizeof hash_message - 1,
+                            private_key) == ANC_PV_CRYPTO_OK);
+  CHECK(equal_hex(
+      signature, sizeof signature,
+      "aa177c87cef4d73d2b8228c22a6174cba94260165e78590d9947f5ef21c6877c"
+      "da43fb496c403622c042eb0ad1e131a063bace37c16eb2ca5089efb9ccfa2305"));
+  CHECK(anc_pv_ed25519_verify(signature, hash_message, sizeof hash_message - 1,
+                              public_key) == ANC_PV_CRYPTO_OK);
   signature[0] ^= 1;
-  CHECK(anc_pv_ed25519_verify(signature, hash_message,
-                              sizeof hash_message - 1, public_key) ==
+  CHECK(anc_pv_ed25519_verify(signature, hash_message, sizeof hash_message - 1,
+                              public_key) ==
         ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
 
   fill(key, sizeof key, 0x22);
   fill(nonce, sizeof nonce, 0x33);
   CHECK(anc_pv_xchacha20poly1305_encrypt(
             ciphertext, sizeof ciphertext, &ciphertext_length, payload,
-            sizeof payload - 1, aad, sizeof aad - 1, nonce, key) ==
-        ANC_PV_CRYPTO_OK);
-  CHECK(equal_hex(ciphertext, ciphertext_length,
-                  "e1834a19ada111efc33867ca2a8fdd420d10607b348a27917cb0976b01e1fa23"
-                  "b221ec1209ff2508d0e0658e4b93d9"));
-  CHECK(anc_pv_xchacha20poly1305_decrypt(
-            plaintext, sizeof plaintext, &plaintext_length, ciphertext,
-            ciphertext_length, aad, sizeof aad - 1, nonce, key) ==
-        ANC_PV_CRYPTO_OK);
+            sizeof payload - 1, aad, sizeof aad - 1, nonce,
+            key) == ANC_PV_CRYPTO_OK);
+  CHECK(equal_hex(
+      ciphertext, ciphertext_length,
+      "e1834a19ada111efc33867ca2a8fdd420d10607b348a27917cb0976b01e1fa23"
+      "b221ec1209ff2508d0e0658e4b93d9"));
+  CHECK(anc_pv_xchacha20poly1305_decrypt(plaintext, sizeof plaintext,
+                                         &plaintext_length, ciphertext,
+                                         ciphertext_length, aad, sizeof aad - 1,
+                                         nonce, key) == ANC_PV_CRYPTO_OK);
   CHECK(plaintext_length == sizeof payload - 1);
   CHECK(memcmp(plaintext, payload, plaintext_length) == 0);
   ciphertext[0] ^= 1;
   memset(plaintext, 0xa5, sizeof plaintext);
   CHECK(anc_pv_xchacha20poly1305_decrypt(
             plaintext, sizeof plaintext, &plaintext_length, ciphertext,
-            ciphertext_length, aad, sizeof aad - 1, nonce, key) ==
-        ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
+            ciphertext_length, aad, sizeof aad - 1, nonce,
+            key) == ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
   CHECK(plaintext_length == 0);
   for (size_t index = 0; index < sizeof payload - 1; index++)
     CHECK(plaintext[index] == 0);
@@ -125,9 +139,10 @@ static int test_fixed_core_vectors(void) {
   CHECK(anc_pv_box_wrap(ciphertext, sizeof ciphertext, &ciphertext_length,
                         box_message, sizeof box_message - 1, nonce,
                         recipient_public, sender_private) == ANC_PV_CRYPTO_OK);
-  CHECK(equal_hex(ciphertext, ciphertext_length,
-                  "04cb5679226c0ecd0226f7061beccc7f234ed8c6f634f01856ea771ef783de90"
-                  "86547122c712cb25e7b545aeaac0136a3b121ec23da1f757978a3d3faf70c3"));
+  CHECK(equal_hex(
+      ciphertext, ciphertext_length,
+      "04cb5679226c0ecd0226f7061beccc7f234ed8c6f634f01856ea771ef783de90"
+      "86547122c712cb25e7b545aeaac0136a3b121ec23da1f757978a3d3faf70c3"));
   CHECK(anc_pv_box_open(plaintext, sizeof plaintext, &plaintext_length,
                         ciphertext, ciphertext_length, nonce, sender_public,
                         recipient_private) == ANC_PV_CRYPTO_OK);
@@ -148,8 +163,9 @@ static int test_fixed_core_vectors(void) {
   fill(salt, sizeof salt, 0x66);
   CHECK(anc_pv_argon2id(key, passphrase, sizeof passphrase - 1, salt) ==
         ANC_PV_CRYPTO_OK);
-  CHECK(equal_hex(key, sizeof key,
-                  "b404bf5aa0ce57f3506e52e9a722a22c59adb1e0fb774eea451d2a94f2a824ad"));
+  CHECK(equal_hex(
+      key, sizeof key,
+      "b404bf5aa0ce57f3506e52e9a722a22c59adb1e0fb774eea451d2a94f2a824ad"));
 
   anc_pv_zeroize(seed, sizeof seed);
   anc_pv_zeroize(private_key, sizeof private_key);
@@ -182,18 +198,17 @@ static int test_secretstream_and_zeroize(void) {
   CHECK(from_hex(ciphertext, ciphertext_length, ciphertext_hex));
   fill(key, sizeof key, 0x66);
   CHECK(anc_pv_secretstream_decrypt_final(
-            plaintext, sizeof plaintext, &plaintext_length, header,
-            ciphertext, ciphertext_length, aad, sizeof aad, key) ==
-        ANC_PV_CRYPTO_OK);
+            plaintext, sizeof plaintext, &plaintext_length, header, ciphertext,
+            ciphertext_length, aad, sizeof aad, key) == ANC_PV_CRYPTO_OK);
   CHECK(plaintext_length == sizeof expected_plaintext - 1);
   CHECK(memcmp(plaintext, expected_plaintext, plaintext_length) == 0);
 
   ciphertext[ciphertext_length - 1] ^= 1;
   memset(plaintext, 0xa5, sizeof plaintext);
   CHECK(anc_pv_secretstream_decrypt_final(
-            plaintext, sizeof plaintext, &plaintext_length, header,
-            ciphertext, ciphertext_length, aad, sizeof aad, key) ==
-        ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
+            plaintext, sizeof plaintext, &plaintext_length, header, ciphertext,
+            ciphertext_length, aad, sizeof aad,
+            key) == ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
   CHECK(plaintext_length == 0);
   for (size_t index = 0; index < pinned_plaintext_length; index++)
     CHECK(plaintext[index] == 0);
@@ -204,9 +219,8 @@ static int test_secretstream_and_zeroize(void) {
             expected_plaintext, sizeof expected_plaintext - 1, aad, sizeof aad,
             key) == ANC_PV_CRYPTO_OK);
   CHECK(anc_pv_secretstream_decrypt_final(
-            plaintext, sizeof plaintext, &plaintext_length, header,
-            ciphertext, new_ciphertext_length, aad, sizeof aad, key) ==
-        ANC_PV_CRYPTO_OK);
+            plaintext, sizeof plaintext, &plaintext_length, header, ciphertext,
+            new_ciphertext_length, aad, sizeof aad, key) == ANC_PV_CRYPTO_OK);
 
   crypto_secretstream_xchacha20poly1305_state raw_state;
   unsigned long long raw_length = 0;
@@ -217,9 +231,9 @@ static int test_secretstream_and_zeroize(void) {
             sizeof expected_plaintext - 1, aad, sizeof aad,
             crypto_secretstream_xchacha20poly1305_TAG_MESSAGE) == 0);
   CHECK(anc_pv_secretstream_decrypt_final(
-            plaintext, sizeof plaintext, &plaintext_length, header,
-            ciphertext, (size_t)raw_length, aad, sizeof aad, key) ==
-        ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
+            plaintext, sizeof plaintext, &plaintext_length, header, ciphertext,
+            (size_t)raw_length, aad, sizeof aad,
+            key) == ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
   CHECK(plaintext_length == 0);
   anc_pv_zeroize(&raw_state, sizeof raw_state);
 
@@ -229,13 +243,14 @@ static int test_secretstream_and_zeroize(void) {
             key) == ANC_PV_CRYPTO_OK);
   ciphertext[new_ciphertext_length - 1] ^= 1;
   CHECK(anc_pv_secretstream_decrypt_final(
-            plaintext, sizeof plaintext, &plaintext_length, header,
-            ciphertext, new_ciphertext_length, aad, sizeof aad, key) ==
-        ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
+            plaintext, sizeof plaintext, &plaintext_length, header, ciphertext,
+            new_ciphertext_length, aad, sizeof aad,
+            key) == ANC_PV_CRYPTO_AUTHENTICATION_FAILED);
 
   fill(key, sizeof key, 0xa5);
   anc_pv_zeroize(key, sizeof key);
-  for (size_t index = 0; index < sizeof key; index++) CHECK(key[index] == 0);
+  for (size_t index = 0; index < sizeof key; index++)
+    CHECK(key[index] == 0);
   CHECK(anc_pv_memcmp(NULL, key, sizeof key) == ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(anc_pv_random(key, sizeof key) == ANC_PV_CRYPTO_OK);
   uint8_t random2[ANC_PV_KEY_BYTES];
@@ -253,35 +268,40 @@ static int test_bounds(void) {
   size_t length = 99;
   CHECK(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
   CHECK(strcmp(sodium_version_string(), "1.0.21") == 0);
-  CHECK(anc_pv_blake2b_256(output, NULL, 1) ==
+  CHECK(anc_pv_blake2b_256(output, NULL, 1) == ANC_PV_CRYPTO_INVALID_ARGUMENT);
+  uint8_t hash_key[ANC_PV_KEY_BYTES] = {0};
+  CHECK(anc_pv_blake2b_256_keyed(output, NULL, 1, hash_key) ==
+        ANC_PV_CRYPTO_INVALID_ARGUMENT);
+  CHECK(anc_pv_blake2b_256_keyed(output, output, 1, hash_key) ==
+        ANC_PV_CRYPTO_INVALID_ARGUMENT);
+  CHECK(anc_pv_blake2b_256_keyed(output, &one, 1, output) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(anc_pv_random(output, 0) == ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(anc_pv_argon2id(output, NULL, 0, output) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(anc_pv_xchacha20poly1305_encrypt(
-            output, sizeof output, &length, &one,
-            ANC_PV_MAX_MESSAGE_BYTES + 1, NULL, 0, output, output) ==
-        ANC_PV_CRYPTO_INVALID_ARGUMENT);
+            output, sizeof output, &length, &one, ANC_PV_MAX_MESSAGE_BYTES + 1,
+            NULL, 0, output, output) == ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(length == 0);
   uint8_t nonce[ANC_PV_NONCE_BYTES] = {0};
   uint8_t key[ANC_PV_KEY_BYTES] = {0};
   length = 99;
-  CHECK(anc_pv_xchacha20poly1305_encrypt(
-            output, 1, &length, &one, 1, NULL, 0, nonce, key) ==
+  CHECK(anc_pv_xchacha20poly1305_encrypt(output, 1, &length, &one, 1, NULL, 0,
+                                         nonce, key) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(length == 0);
   length = 99;
-  CHECK(anc_pv_xchacha20poly1305_encrypt(
-            output, sizeof output, &length, output, 1, NULL, 0, nonce, key) ==
+  CHECK(anc_pv_xchacha20poly1305_encrypt(output, sizeof output, &length, output,
+                                         1, NULL, 0, nonce, key) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(length == 0);
   length = 99;
-  CHECK(anc_pv_xchacha20poly1305_encrypt(
-            output, sizeof output, &length, &one, 1, output + 8, 1, nonce,
-            key) == ANC_PV_CRYPTO_INVALID_ARGUMENT);
+  CHECK(anc_pv_xchacha20poly1305_encrypt(output, sizeof output, &length, &one,
+                                         1, output + 8, 1, nonce, key) ==
+        ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(length == 0);
-  CHECK(anc_pv_xchacha20poly1305_encrypt(
-            output, sizeof output, NULL, &one, 1, NULL, 0, nonce, key) ==
+  CHECK(anc_pv_xchacha20poly1305_encrypt(output, sizeof output, NULL, &one, 1,
+                                         NULL, 0, nonce, key) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   uint8_t box_public[ANC_PV_BOX_PUBLIC_KEY_BYTES] = {0};
   uint8_t box_private[ANC_PV_BOX_PRIVATE_KEY_BYTES] = {0};
@@ -291,13 +311,13 @@ static int test_bounds(void) {
   CHECK(length == 0);
   uint8_t header[ANC_PV_SECRETSTREAM_HEADER_BYTES] = {0};
   length = 99;
-  CHECK(anc_pv_secretstream_encrypt_final(
-            header, output, 1, &length, &one, 1, NULL, 0, key) ==
+  CHECK(anc_pv_secretstream_encrypt_final(header, output, 1, &length, &one, 1,
+                                          NULL, 0, key) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(length == 0);
   length = 99;
-  CHECK(anc_pv_secretstream_encrypt_final(
-            output, output, sizeof output, &length, &one, 1, NULL, 0, key) ==
+  CHECK(anc_pv_secretstream_encrypt_final(output, output, sizeof output,
+                                          &length, &one, 1, NULL, 0, key) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);
   CHECK(length == 0);
   return 0;

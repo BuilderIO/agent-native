@@ -21,9 +21,9 @@ static dispatch_semaphore_t gLiveCopyEntered;
 static dispatch_semaphore_t gReleaseLiveCopy;
 
 static NSString *StoreKey(NSDictionary *query) {
-  return [NSString stringWithFormat:@"%@|%@",
-                                    query[(__bridge id)kSecAttrService],
-                                    query[(__bridge id)kSecAttrAccount]];
+  return
+      [NSString stringWithFormat:@"%@|%@", query[(__bridge id)kSecAttrService],
+                                 query[(__bridge id)kSecAttrAccount]];
 }
 
 static OSStatus MockCopy(CFDictionaryRef rawQuery, CFTypeRef *result) {
@@ -36,37 +36,43 @@ static OSStatus MockCopy(CFDictionaryRef rawQuery, CFTypeRef *result) {
     dispatch_semaphore_wait(gReleaseLiveCopy, DISPATCH_TIME_FOREVER);
   }
   NSData *value = gStore[StoreKey(query)];
-  if (value == nil) return errSecItemNotFound;
-  if (result != NULL) *result = CFBridgingRetain([value copy]);
+  if (value == nil)
+    return errSecItemNotFound;
+  if (result != NULL)
+    *result = CFBridgingRetain([value copy]);
   return errSecSuccess;
 }
 
 static OSStatus Mutation(NSDictionary *query, NSData *_Nullable value,
                          BOOL deleting) {
   gMutationCount += 1;
-  if (gFailBefore == gMutationCount) return errSecInternalComponent;
+  if (gFailBefore == gMutationCount)
+    return errSecInternalComponent;
   NSString *key = StoreKey(query);
   if (deleting) {
-    if (gStore[key] == nil) return errSecItemNotFound;
+    if (gStore[key] == nil)
+      return errSecItemNotFound;
     [gStore removeObjectForKey:key];
   } else {
     gStore[key] = [value copy];
   }
   return gCommitThenError == gMutationCount ? errSecInternalComponent
-                                             : errSecSuccess;
+                                            : errSecSuccess;
 }
 
 static OSStatus MockAdd(CFDictionaryRef raw, CFTypeRef *result) {
   (void)result;
   NSDictionary *attributes = (__bridge NSDictionary *)raw;
-  if (gStore[StoreKey(attributes)] != nil) return errSecDuplicateItem;
+  if (gStore[StoreKey(attributes)] != nil)
+    return errSecDuplicateItem;
   return Mutation(attributes, attributes[(__bridge id)kSecValueData], NO);
 }
 
 static OSStatus MockUpdate(CFDictionaryRef rawQuery,
                            CFDictionaryRef rawAttributes) {
   NSDictionary *query = (__bridge NSDictionary *)rawQuery;
-  if (gStore[StoreKey(query)] == nil) return errSecItemNotFound;
+  if (gStore[StoreKey(query)] == nil)
+    return errSecItemNotFound;
   NSDictionary *attributes = (__bridge NSDictionary *)rawAttributes;
   return Mutation(query, attributes[(__bridge id)kSecValueData], NO);
 }
@@ -92,11 +98,10 @@ static AncPrivateVaultKeychain *Keychain(void) {
       .update = MockUpdate,
       .deleteItem = MockDelete,
   };
-  return [[AncPrivateVaultKeychain alloc]
-      initWithFunctions:functions
-          contextFactory:^LAContext * {
-            return [[LAContext alloc] init];
-          }];
+  return [[AncPrivateVaultKeychain alloc] initWithFunctions:functions
+                                             contextFactory:^LAContext * {
+                                               return [[LAContext alloc] init];
+                                             }];
 }
 
 static AncPrivateVaultCustodyRepository *Repository(void) {
@@ -132,6 +137,8 @@ static void MakeActive(AncPrivateVaultCustodySnapshot *snapshot,
                        uint8_t seedStart, NSString *vaultId) {
   memset(snapshot, 0, sizeof *snapshot);
   memset(secrets, 0, sizeof *secrets);
+  snapshot->record_version = ANC_PV_CUSTODY_VERSION;
+  snapshot->authority_anchor_present = 1;
   snapshot->lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
   snapshot->role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
   snapshot->custody_generation = generation;
@@ -145,8 +152,7 @@ static void MakeActive(AncPrivateVaultCustodySnapshot *snapshot,
   uint8_t boxPrivate[32] = {0};
   assert(anc_pv_ed25519_seed_keypair(snapshot->signing_public_key,
                                      signingPrivate,
-                                     secrets->signingSeed) ==
-         ANC_PV_CRYPTO_OK);
+                                     secrets->signingSeed) == ANC_PV_CRYPTO_OK);
   assert(anc_pv_box_seed_keypair(snapshot->box_public_key, boxPrivate,
                                  secrets->boxSeed) == ANC_PV_CRYPTO_OK);
   anc_pv_zeroize(signingPrivate, sizeof signingPrivate);
@@ -163,7 +169,8 @@ static void MakeActive(AncPrivateVaultCustodySnapshot *snapshot,
 
 static NSString *KeyForService(NSString *service) {
   for (NSString *key in gStore)
-    if ([key hasPrefix:[service stringByAppendingString:@"|"]]) return key;
+    if ([key hasPrefix:[service stringByAppendingString:@"|"]])
+      return key;
   return nil;
 }
 
@@ -191,6 +198,62 @@ static NSData *CustodyDigest(NSData *record) {
   return result;
 }
 
+static NSData *LegacyRecord(NSData *v2Record) {
+  NSMutableData *legacy = [v2Record mutableCopy];
+  uint8_t *bytes = legacy.mutableBytes;
+  bytes[4] = 0;
+  bytes[5] = ANC_PV_CUSTODY_LEGACY_VERSION;
+  bytes[13] = 0;
+  static const uint8_t domain[] =
+      "agent-native/private-vault/custody-record/checksum/anc-v1";
+  uint8_t input[sizeof domain + 1056];
+  memcpy(input, domain, sizeof domain);
+  memcpy(input + sizeof domain, bytes, 1056);
+  assert(anc_pv_blake2b_256(bytes + 1056, input, sizeof input) ==
+         ANC_PV_CRYPTO_OK);
+  anc_pv_zeroize(input, sizeof input);
+  return legacy;
+}
+
+static void SeedLegacy(AncPrivateVaultKeychain *keychain, NSData *record,
+                       NSString *vaultId) {
+  NSData *digest = CustodyDigest(record);
+  assert([keychain addData:record
+                forService:AncPrivateVaultCustodyService
+                   vaultId:vaultId
+                  recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusOK);
+  AncPrivateVaultGenerationFence *fence =
+      [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
+  assert([fence beginGeneration:1
+                   recordDigest:digest
+                        vaultId:vaultId
+                       recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultFenceStatusOK);
+  assert([fence commitGeneration:1
+                    recordDigest:digest
+                         vaultId:vaultId
+                        recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultFenceStatusOK);
+}
+
+static void StageLegacy(AncPrivateVaultKeychain *keychain, NSData *record,
+                        NSString *vaultId, uint64_t generation) {
+  NSData *digest = CustodyDigest(record);
+  assert([keychain addData:record
+                forService:AncPrivateVaultCustodyStageService
+                   vaultId:vaultId
+                  recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusOK);
+  AncPrivateVaultGenerationFence *fence =
+      [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
+  assert([fence beginGeneration:generation
+                   recordDigest:digest
+                        vaultId:vaultId
+                       recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultFenceStatusOK);
+}
+
 static void AssertRead(AncPrivateVaultCustodyRepository *repository,
                        NSString *vaultId, uint64_t generation,
                        uint8_t firstSigningByte) {
@@ -200,20 +263,20 @@ static void AssertRead(AncPrivateVaultCustodyRepository *repository,
          AncPrivateVaultCustodyRepositoryStatusOK);
   assert(snapshot.custody_generation == generation);
   __block BOOL borrowed = NO;
-  assert([handle borrow:^BOOL(
-                     const AncPrivateVaultCustodySecretInputs *secrets) {
-           borrowed = YES;
-           return secrets->signing_seed[0] == firstSigningByte;
-         }] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(
+      [handle borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+        borrowed = YES;
+        return secrets->signing_seed[0] == firstSigningByte;
+      }] == AncPrivateVaultCustodyRepositoryStatusOK);
   assert(borrowed);
   assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
   assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
   assert(handle.closed);
-  assert([handle borrow:^BOOL(
-                     const AncPrivateVaultCustodySecretInputs *secrets) {
-           (void)secrets;
-           return YES;
-         }] != AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(
+      [handle borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+        (void)secrets;
+        return YES;
+      }] != AncPrivateVaultCustodyRepositoryStatusOK);
 }
 
 static void TestRoundTripAndMonotonicity(void) {
@@ -370,7 +433,9 @@ static void TestCorruptionSwapAndMissing(void) {
   TestSecrets secrets;
   MakeActive(&snapshot, &secrets, 1, 9, @"vault");
   AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
-  assert([repository storeSnapshot:&snapshot secrets:&inputs vaultId:@"vault"] ==
+  assert([repository storeSnapshot:&snapshot
+                           secrets:&inputs
+                           vaultId:@"vault"] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   NSString *liveKey = KeyForService(AncPrivateVaultCustodyService);
   NSData *original = [gStore[liveKey] copy];
@@ -398,7 +463,8 @@ static void TestCorruptionSwapAndMissing(void) {
   assert(anc_pv_custody_record_encode(&swappedSnapshot, &swappedInputs,
                                       swappedBytes, sizeof swappedBytes) ==
          ANC_PV_CUSTODY_OK);
-  NSData *swapped = [NSData dataWithBytes:swappedBytes length:sizeof swappedBytes];
+  NSData *swapped = [NSData dataWithBytes:swappedBytes
+                                   length:sizeof swappedBytes];
   anc_pv_zeroize(swappedBytes, sizeof swappedBytes);
   AncPrivateVaultKeychain *keychain = Keychain();
   assert([keychain addData:swapped
@@ -409,8 +475,8 @@ static void TestCorruptionSwapAndMissing(void) {
   assert([repository readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
          AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
   assert([keychain deleteDataForService:AncPrivateVaultCustodyStageService
-                                 vaultId:@"vault"
-                                recordId:AncPrivateVaultCustodyRecordId] ==
+                                vaultId:@"vault"
+                               recordId:AncPrivateVaultCustodyRecordId] ==
          AncPrivateVaultKeychainStatusOK);
   [gStore removeObjectForKey:liveKey];
   assert([repository readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
@@ -425,14 +491,18 @@ static void TestPendingMissingMismatchAndFutureStage(void) {
   MakeActive(&snapshot, &secrets, 1, 23, @"vault");
   AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
   gFailBefore = 4;
-  assert([repository storeSnapshot:&snapshot secrets:&inputs vaultId:@"vault"] !=
+  assert([repository storeSnapshot:&snapshot
+                           secrets:&inputs
+                           vaultId:@"vault"] !=
          AncPrivateVaultCustodyRepositoryStatusOK);
   gFailBefore = 0;
   NSString *stageKey = KeyForService(AncPrivateVaultCustodyStageService);
   NSData *stage = [gStore[stageKey] copy];
   [gStore removeObjectForKey:stageKey];
   AncPrivateVaultCustodyHandle *handle = nil;
-  assert([Repository() readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
+  assert([Repository() readVaultId:@"vault"
+                          snapshot:&snapshot
+                            handle:&handle] ==
          AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
 
   gStore[stageKey] = stage;
@@ -440,14 +510,18 @@ static void TestPendingMissingMismatchAndFutureStage(void) {
   TestSecrets mismatchSecrets;
   MakeActive(&mismatch, &mismatchSecrets, 1, 25, @"vault");
   gStore[stageKey] = Encode(&mismatch, &mismatchSecrets);
-  assert([Repository() readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
+  assert([Repository() readVaultId:@"vault"
+                          snapshot:&snapshot
+                            handle:&handle] ==
          AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
 
   Reset();
   repository = Repository();
   MakeActive(&snapshot, &secrets, 1, 27, @"vault");
   inputs = Inputs(&secrets);
-  assert([repository storeSnapshot:&snapshot secrets:&inputs vaultId:@"vault"] ==
+  assert([repository storeSnapshot:&snapshot
+                           secrets:&inputs
+                           vaultId:@"vault"] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   AncPrivateVaultCustodySnapshot future;
   TestSecrets futureSecrets;
@@ -485,8 +559,8 @@ static void TestGenesisTombstonesFailClosed(void) {
     MakeTombstone(&tombstone, &secrets, 1, lifecycle);
     AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets);
     assert([Repository() storeSnapshot:&tombstone
-                                secrets:&inputs
-                                vaultId:@"vault"] ==
+                               secrets:&inputs
+                               vaultId:@"vault"] ==
            AncPrivateVaultCustodyRepositoryStatusConflict);
     for (NSUInteger pendingFence = 0; pendingFence <= 1; pendingFence += 1) {
       Reset();
@@ -500,8 +574,7 @@ static void TestGenesisTombstonesFailClosed(void) {
              AncPrivateVaultKeychainStatusOK);
       if (pendingFence == 1) {
         AncPrivateVaultGenerationFence *fence =
-            [[AncPrivateVaultGenerationFence alloc]
-                initWithKeychain:keychain];
+            [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
         assert([fence beginGeneration:1
                          recordDigest:CustodyDigest(record)
                               vaultId:@"vault"
@@ -511,9 +584,9 @@ static void TestGenesisTombstonesFailClosed(void) {
       AncPrivateVaultCustodySnapshot observed;
       AncPrivateVaultCustodyHandle *handle = nil;
       assert([[[AncPrivateVaultCustodyRepository alloc]
-                  initWithKeychain:keychain] readVaultId:@"vault"
-                                           snapshot:&observed
-                                              handle:&handle] ==
+                 initWithKeychain:keychain] readVaultId:@"vault"
+                                               snapshot:&observed
+                                                 handle:&handle] ==
              AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
       assert(handle == nil);
     }
@@ -552,9 +625,9 @@ static void TestGenesisTombstonesFailClosed(void) {
       AncPrivateVaultCustodySnapshot observed;
       AncPrivateVaultCustodyHandle *handle = nil;
       assert([[[AncPrivateVaultCustodyRepository alloc]
-                  initWithKeychain:keychain] readVaultId:@"vault"
-                                           snapshot:&observed
-                                              handle:&handle] ==
+                 initWithKeychain:keychain] readVaultId:@"vault"
+                                               snapshot:&observed
+                                                 handle:&handle] ==
              AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
       assert(handle == nil);
     }
@@ -625,13 +698,13 @@ static void TestHandleRevocationAndReadStoreSerialization(void) {
          AncPrivateVaultCustodyRepositoryStatusOK);
   AncPrivateVaultCustodyHandle *oldHandle = nil;
   assert([firstRepository readVaultId:@"vault"
-                              snapshot:&first
-                                 handle:&oldHandle] ==
+                             snapshot:&first
+                               handle:&oldHandle] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   AncPrivateVaultCustodyHandle *otherHandle = nil;
   assert([secondRepository readVaultId:@"vault"
-                               snapshot:&first
-                                  handle:&otherHandle] ==
+                              snapshot:&first
+                                handle:&otherHandle] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
 
   dispatch_semaphore_t firstEntered = dispatch_semaphore_create(0);
@@ -642,32 +715,33 @@ static void TestHandleRevocationAndReadStoreSerialization(void) {
   dispatch_group_async(
       oppositeClosedGroup,
       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        assert([oldHandle borrow:^BOOL(
-                              const AncPrivateVaultCustodySecretInputs *secrets) {
-                 (void)secrets;
-                 dispatch_semaphore_signal(firstEntered);
-                 dispatch_semaphore_wait(secondEntered,
-                                         DISPATCH_TIME_FOREVER);
-                 firstSawOtherOpen = !otherHandle.closed;
-                 return YES;
-               }] == AncPrivateVaultCustodyRepositoryStatusOK);
+        assert(
+            [oldHandle borrow:^BOOL(
+                           const AncPrivateVaultCustodySecretInputs *secrets) {
+              (void)secrets;
+              dispatch_semaphore_signal(firstEntered);
+              dispatch_semaphore_wait(secondEntered, DISPATCH_TIME_FOREVER);
+              firstSawOtherOpen = !otherHandle.closed;
+              return YES;
+            }] == AncPrivateVaultCustodyRepositoryStatusOK);
       });
   dispatch_group_async(
       oppositeClosedGroup,
       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        assert([otherHandle borrow:^BOOL(
-                                const AncPrivateVaultCustodySecretInputs *secrets) {
-                 (void)secrets;
-                 dispatch_semaphore_signal(secondEntered);
-                 dispatch_semaphore_wait(firstEntered,
-                                         DISPATCH_TIME_FOREVER);
-                 secondSawOtherOpen = !oldHandle.closed;
-                 return YES;
-               }] == AncPrivateVaultCustodyRepositoryStatusOK);
+        assert([otherHandle
+                   borrow:^BOOL(
+                       const AncPrivateVaultCustodySecretInputs *secrets) {
+                     (void)secrets;
+                     dispatch_semaphore_signal(secondEntered);
+                     dispatch_semaphore_wait(firstEntered,
+                                             DISPATCH_TIME_FOREVER);
+                     secondSawOtherOpen = !oldHandle.closed;
+                     return YES;
+                   }] == AncPrivateVaultCustodyRepositoryStatusOK);
       });
-  assert(dispatch_group_wait(oppositeClosedGroup,
-                             dispatch_time(DISPATCH_TIME_NOW,
-                                           5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_group_wait(
+             oppositeClosedGroup,
+             dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
   assert(firstSawOtherOpen && secondSawOtherOpen);
 
   AncPrivateVaultCustodySnapshot second;
@@ -681,37 +755,39 @@ static void TestHandleRevocationAndReadStoreSerialization(void) {
         borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
           (void)secrets;
           assert(!oldHandle.closed);
-          assert([oldHandle borrow:^BOOL(
-                                const AncPrivateVaultCustodySecretInputs *inner) {
-                   (void)inner;
-                   return YES;
-                 }] == AncPrivateVaultCustodyRepositoryStatusConflict);
+          assert(
+              [oldHandle borrow:^BOOL(
+                             const AncPrivateVaultCustodySecretInputs *inner) {
+                (void)inner;
+                return YES;
+              }] == AncPrivateVaultCustodyRepositoryStatusConflict);
           assert([oldHandle close] ==
                  AncPrivateVaultCustodyRepositoryStatusConflict);
-          assert([otherHandle borrow:^BOOL(
-                                  const AncPrivateVaultCustodySecretInputs *inner) {
-                   (void)inner;
-                   return YES;
-                 }] == AncPrivateVaultCustodyRepositoryStatusConflict);
+          assert([otherHandle
+                     borrow:^BOOL(
+                         const AncPrivateVaultCustodySecretInputs *inner) {
+                       (void)inner;
+                       return YES;
+                     }] == AncPrivateVaultCustodyRepositoryStatusConflict);
           assert([otherHandle close] ==
                  AncPrivateVaultCustodyRepositoryStatusConflict);
           AncPrivateVaultCustodySnapshot nestedSnapshot;
           AncPrivateVaultCustodyHandle *nestedHandle = nil;
           assert([firstRepository readVaultId:@"vault"
-                                      snapshot:&nestedSnapshot
-                                         handle:&nestedHandle] ==
+                                     snapshot:&nestedSnapshot
+                                       handle:&nestedHandle] ==
                  AncPrivateVaultCustodyRepositoryStatusConflict);
           assert([secondRepository storeSnapshot:&second
-                                          secrets:&secondInputs
-                                          vaultId:@"vault"] ==
+                                         secrets:&secondInputs
+                                         vaultId:@"vault"] ==
                  AncPrivateVaultCustodyRepositoryStatusConflict);
           return YES;
         }];
     dispatch_semaphore_signal(recursiveDone);
   });
-  assert(dispatch_semaphore_wait(recursiveDone,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_semaphore_wait(
+             recursiveDone,
+             dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
   assert(recursiveStatus == AncPrivateVaultCustodyRepositoryStatusOK);
 
   dispatch_semaphore_t borrowed = dispatch_semaphore_create(0);
@@ -722,7 +798,8 @@ static void TestHandleRevocationAndReadStoreSerialization(void) {
   __block AncPrivateVaultCustodyRepositoryStatus storeStatus;
   AncPrivateVaultCustodySetBeforeHandleCloseForTesting(
       ^(AncPrivateVaultCustodyHandle *closing) {
-        if (closing == oldHandle) dispatch_semaphore_signal(closeAttempt);
+        if (closing == oldHandle)
+          dispatch_semaphore_signal(closeAttempt);
       });
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     borrowStatus = [oldHandle
@@ -733,23 +810,23 @@ static void TestHandleRevocationAndReadStoreSerialization(void) {
           return YES;
         }];
   });
-  assert(dispatch_semaphore_wait(borrowed,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_semaphore_wait(
+             borrowed, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) ==
+         0);
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     storeStatus = [secondRepository storeSnapshot:&second
-                                           secrets:&secondInputs
-                                           vaultId:@"vault"];
+                                          secrets:&secondInputs
+                                          vaultId:@"vault"];
     dispatch_semaphore_signal(storeDone);
   });
-  assert(dispatch_semaphore_wait(closeAttempt,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_semaphore_wait(
+             closeAttempt,
+             dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
   assert(dispatch_semaphore_wait(storeDone, DISPATCH_TIME_NOW) != 0);
   dispatch_semaphore_signal(releaseBorrow);
-  assert(dispatch_semaphore_wait(storeDone,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_semaphore_wait(
+             storeDone, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) ==
+         0);
   AncPrivateVaultCustodySetBeforeHandleCloseForTesting(nil);
   assert(borrowStatus == AncPrivateVaultCustodyRepositoryStatusOK);
   assert(storeStatus == AncPrivateVaultCustodyRepositoryStatusOK);
@@ -776,26 +853,26 @@ static void TestHandleRevocationAndReadStoreSerialization(void) {
   __block AncPrivateVaultCustodySnapshot racingSnapshot;
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     readStatus = [firstRepository readVaultId:@"vault"
-                                      snapshot:&racingSnapshot
-                                         handle:&racingHandle];
+                                     snapshot:&racingSnapshot
+                                       handle:&racingHandle];
     dispatch_semaphore_signal(readDone);
   });
-  assert(dispatch_semaphore_wait(gLiveCopyEntered,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_semaphore_wait(
+             gLiveCopyEntered,
+             dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) == 0);
   dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
     storeStatus = [secondRepository storeSnapshot:&second
-                                           secrets:&secondInputs
-                                           vaultId:@"vault"];
+                                          secrets:&secondInputs
+                                          vaultId:@"vault"];
     dispatch_semaphore_signal(storeDone);
   });
   dispatch_semaphore_signal(gReleaseLiveCopy);
-  assert(dispatch_semaphore_wait(readDone,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
-  assert(dispatch_semaphore_wait(storeDone,
-                                 dispatch_time(DISPATCH_TIME_NOW,
-                                               5 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_semaphore_wait(
+             readDone, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) ==
+         0);
+  assert(dispatch_semaphore_wait(
+             storeDone, dispatch_time(DISPATCH_TIME_NOW, 5 * NSEC_PER_SEC)) ==
+         0);
   assert(readStatus == AncPrivateVaultCustodyRepositoryStatusOK);
   assert(racingSnapshot.custody_generation == 1);
   assert(storeStatus == AncPrivateVaultCustodyRepositoryStatusOK);
@@ -814,22 +891,21 @@ static void TestSixtyFourConcurrentWriters(void) {
                            vaultId:@"vault"] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   const size_t count = 64;
-  AncPrivateVaultCustodySnapshot *snapshots =
-      calloc(count, sizeof *snapshots);
+  AncPrivateVaultCustodySnapshot *snapshots = calloc(count, sizeof *snapshots);
   TestSecrets *secrets = calloc(count, sizeof *secrets);
   AncPrivateVaultCustodyRepositoryStatus *statuses =
       calloc(count, sizeof *statuses);
   assert(snapshots != NULL && secrets != NULL && statuses != NULL);
   dispatch_group_t group = dispatch_group_create();
   for (size_t index = 0; index < count; index += 1) {
-    MakeActive(&snapshots[index], &secrets[index], 2,
-               (uint8_t)(65 + index), @"vault");
+    MakeActive(&snapshots[index], &secrets[index], 2, (uint8_t)(65 + index),
+               @"vault");
     dispatch_group_async(
         group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
           AncPrivateVaultCustodySecretInputs inputs = Inputs(&secrets[index]);
           statuses[index] = [Repository() storeSnapshot:&snapshots[index]
-                                                   secrets:&inputs
-                                                   vaultId:@"vault"];
+                                                secrets:&inputs
+                                                vaultId:@"vault"];
         });
   }
   dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
@@ -871,9 +947,8 @@ static void TestConcurrentUserCloseBorrowAndRepositoryRevoke(void) {
       group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         dispatch_semaphore_wait(start, DISPATCH_TIME_FOREVER);
         for (NSUInteger iteration = 0; iteration < 2000; iteration += 1) {
-          AncPrivateVaultCustodyRepositoryStatus status =
-              [handle borrow:^BOOL(
-                          const AncPrivateVaultCustodySecretInputs *secrets) {
+          AncPrivateVaultCustodyRepositoryStatus status = [handle
+              borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
                 (void)secrets;
                 return YES;
               }];
@@ -893,15 +968,14 @@ static void TestConcurrentUserCloseBorrowAndRepositoryRevoke(void) {
       group, dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         dispatch_semaphore_wait(start, DISPATCH_TIME_FOREVER);
         storeStatus = [Repository() storeSnapshot:&second
-                                           secrets:&secondInputs
-                                           vaultId:@"vault"];
+                                          secrets:&secondInputs
+                                          vaultId:@"vault"];
       });
   dispatch_semaphore_signal(start);
   dispatch_semaphore_signal(start);
   dispatch_semaphore_signal(start);
-  assert(dispatch_group_wait(group,
-                             dispatch_time(DISPATCH_TIME_NOW,
-                                           10 * NSEC_PER_SEC)) == 0);
+  assert(dispatch_group_wait(
+             group, dispatch_time(DISPATCH_TIME_NOW, 10 * NSEC_PER_SEC)) == 0);
   assert(borrowStatusesValid);
   assert(closeStatusesValid);
   assert(storeStatus == AncPrivateVaultCustodyRepositoryStatusOK);
@@ -932,16 +1006,17 @@ static void TestTombstonesAndConcurrentWriters(void) {
   __block AncPrivateVaultCustodyRepositoryStatus leftStatus;
   __block AncPrivateVaultCustodyRepositoryStatus rightStatus;
   dispatch_group_t group = dispatch_group_create();
-  dispatch_queue_t queue = dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
+  dispatch_queue_t queue =
+      dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0);
   dispatch_group_async(group, queue, ^{
     leftStatus = [firstRepository storeSnapshot:&left
-                                         secrets:&leftInputs
-                                         vaultId:@"vault"];
+                                        secrets:&leftInputs
+                                        vaultId:@"vault"];
   });
   dispatch_group_async(group, queue, ^{
     rightStatus = [secondRepository storeSnapshot:&right
-                                           secrets:&rightInputs
-                                           vaultId:@"vault"];
+                                          secrets:&rightInputs
+                                          vaultId:@"vault"];
   });
   dispatch_group_wait(group, DISPATCH_TIME_FOREVER);
   assert((leftStatus == AncPrivateVaultCustodyRepositoryStatusOK) !=
@@ -961,8 +1036,8 @@ static void TestTombstonesAndConcurrentWriters(void) {
   AncPrivateVaultCustodySnapshot retainedSnapshot;
   AncPrivateVaultCustodyHandle *retainedHandle = nil;
   assert([firstRepository readVaultId:@"vault"
-                              snapshot:&retainedSnapshot
-                                 handle:&retainedHandle] ==
+                             snapshot:&retainedSnapshot
+                               handle:&retainedHandle] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   assert(retainedHandle != nil && !retainedHandle.closed);
 
@@ -979,15 +1054,15 @@ static void TestTombstonesAndConcurrentWriters(void) {
   AncPrivateVaultCustodySnapshot tombstoneRead;
   AncPrivateVaultCustodyHandle *tombstoneHandle = nil;
   assert([firstRepository readVaultId:@"vault"
-                              snapshot:&tombstoneRead
-                                 handle:&tombstoneHandle] ==
+                             snapshot:&tombstoneRead
+                               handle:&tombstoneHandle] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   assert(tombstoneRead.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING);
   assert(tombstoneHandle == nil);
-  AncPrivateVaultCustodySnapshot removed;
-  TestSecrets removedSecrets;
-  MakeTombstone(&removed, &removedSecrets, 4,
-                ANC_PV_CUSTODY_LIFECYCLE_REMOVED);
+  AncPrivateVaultCustodySnapshot removed = removing;
+  removed.custody_generation = 4;
+  removed.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_REMOVED;
+  TestSecrets removedSecrets = {0};
   AncPrivateVaultCustodySecretInputs removedInputs = Inputs(&removedSecrets);
   assert([firstRepository storeSnapshot:&removed
                                 secrets:&removedInputs
@@ -1004,12 +1079,279 @@ static void TestTombstonesAndConcurrentWriters(void) {
          AncPrivateVaultCustodyRepositoryStatusConflict);
   tombstoneHandle = nil;
   assert([firstRepository readVaultId:@"vault"
-                              snapshot:&tombstoneRead
-                                 handle:&tombstoneHandle] ==
+                             snapshot:&tombstoneRead
+                               handle:&tombstoneHandle] ==
          AncPrivateVaultCustodyRepositoryStatusOK);
   assert(tombstoneRead.custody_generation == 4);
   assert(tombstoneRead.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED);
   assert(tombstoneHandle == nil);
+}
+
+static void TestAdvanceAuthorityAnchorCAS(void) {
+  Reset();
+  AncPrivateVaultCustodyRepository *repository = Repository();
+  AncPrivateVaultCustodySnapshot current;
+  TestSecrets secrets;
+  MakeActive(&current, &secrets, 1, 141, @"vault");
+  AncPrivateVaultCustodySecretInputs source = Inputs(&secrets);
+  assert([repository storeSnapshot:&current secrets:&source vaultId:@"vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  AncPrivateVaultCustodySnapshot observed;
+  AncPrivateVaultCustodyHandle *oldHandle = nil;
+  assert([repository readVaultId:@"vault"
+                        snapshot:&observed
+                          handle:&oldHandle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  NSData *expected = [NSData dataWithBytes:current.snapshot_digest length:32];
+  AncPrivateVaultCustodySnapshot next = current;
+  next.custody_generation = 2;
+  next.anchored_sequence += 1;
+  Fill(next.anchored_head, 32, 0xa1);
+  Fill(next.membership_digest, 32, 0xb1);
+  Fill(next.snapshot_digest, 32, 0xc1);
+  next.signed_at_ms += 1000;
+  next.freshness_ms += 1000;
+  assert(
+      [repository
+          advanceAuthorityAnchorVaultId:@"vault"
+                     expectedGeneration:1
+                 expectedSnapshotDigest:expected
+                     nextPublicSnapshot:&next
+                        epochTransition:
+                            AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch] ==
+      AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(oldHandle.closed);
+  assert([oldHandle
+             borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *borrowed) {
+               (void)borrowed;
+               return YES;
+             }] != AncPrivateVaultCustodyRepositoryStatusOK);
+  AssertRead(repository, @"vault", 2, 141);
+  assert(
+      [repository
+          advanceAuthorityAnchorVaultId:@"vault"
+                     expectedGeneration:1
+                 expectedSnapshotDigest:expected
+                     nextPublicSnapshot:&next
+                        epochTransition:
+                            AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch] ==
+      AncPrivateVaultCustodyRepositoryStatusConflict);
+}
+
+static void TestLegacyCodecMigrations(void) {
+  Reset();
+  AncPrivateVaultKeychain *keychain = Keychain();
+  AncPrivateVaultCustodyRepository *repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodySnapshot offer;
+  TestSecrets secrets;
+  MakeActive(&offer, &secrets, 1, 151, @"vault");
+  offer.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  offer.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_DEVICE;
+  offer.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING;
+  SetId(offer.ceremony_id, &offer.ceremony_id_length, @"ceremony-legacy");
+  offer.active_epoch = 0;
+  memset(secrets.activeKey, 0, 32);
+  offer.recovery_generation = 0;
+  offer.authority_anchor_present = 0;
+  offer.anchored_sequence = 0;
+  memset(offer.anchored_head, 0, 32);
+  memset(offer.membership_digest, 0, 32);
+  offer.signed_at_ms = 0;
+  memset(offer.snapshot_digest, 0, 32);
+  offer.freshness_ms = 0;
+  NSData *legacyOffer = LegacyRecord(Encode(&offer, &secrets));
+  SeedLegacy(keychain, legacyOffer, @"vault");
+  AncPrivateVaultCustodyRepositoryStatus offerMigration =
+      [repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1];
+  assert(offerMigration == AncPrivateVaultCustodyRepositoryStatusOK);
+  AncPrivateVaultCustodySnapshot migrated;
+  AncPrivateVaultCustodyHandle *handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&migrated handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(migrated.record_version == ANC_PV_CUSTODY_VERSION &&
+         migrated.custody_generation == 2 &&
+         !migrated.authority_anchor_present && !migrated.expected_edge_present);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+  assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+
+  Reset();
+  keychain = Keychain();
+  repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodySnapshot genesis;
+  TestSecrets genesisSecrets;
+  MakeActive(&genesis, &genesisSecrets, 1, 155, @"vault");
+  genesis.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  genesis.pending_kind = ANC_PV_CUSTODY_PENDING_GENESIS;
+  genesis.rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  SetId(genesis.ceremony_id, &genesis.ceremony_id_length, @"genesis-legacy");
+  genesis.active_epoch = 0;
+  memset(genesisSecrets.activeKey, 0, 32);
+  genesis.pending_epoch = 1;
+  Fill(genesisSecrets.pendingKey, 32, 0xd1);
+  genesis.recovery_generation = 0;
+  genesis.authority_anchor_present = 0;
+  genesis.anchored_sequence = 0;
+  memset(genesis.anchored_head, 0, 32);
+  memset(genesis.membership_digest, 0, 32);
+  genesis.signed_at_ms = 0;
+  memset(genesis.snapshot_digest, 0, 32);
+  genesis.freshness_ms = 0;
+  SeedLegacy(keychain, LegacyRecord(Encode(&genesis, &genesisSecrets)),
+             @"vault");
+  assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&migrated handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(migrated.record_version == ANC_PV_CUSTODY_VERSION &&
+         migrated.custody_generation == 2 &&
+         migrated.pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS &&
+         !migrated.expected_edge_present);
+  assert([handle close] == AncPrivateVaultCustodyRepositoryStatusOK);
+
+  Reset();
+  keychain = Keychain();
+  repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodySnapshot legacyActive;
+  TestSecrets legacyActiveSecrets;
+  MakeActive(&legacyActive, &legacyActiveSecrets, 1, 157, @"vault");
+  SeedLegacy(keychain,
+             LegacyRecord(Encode(&legacyActive, &legacyActiveSecrets)),
+             @"vault");
+  assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+
+  Reset();
+  keychain = Keychain();
+  repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodySnapshot recovery;
+  TestSecrets recoverySecrets;
+  MakeActive(&recovery, &recoverySecrets, 1, 159, @"vault");
+  recovery.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  recovery.pending_kind = ANC_PV_CUSTODY_PENDING_RECOVERY;
+  recovery.rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  SetId(recovery.ceremony_id, &recovery.ceremony_id_length, @"recovery-legacy");
+  memset(recoverySecrets.activeKey, 0, 32);
+  recovery.pending_epoch = recovery.active_epoch + 1;
+  Fill(recoverySecrets.pendingKey, 32, 0xe1);
+  recovery.expected_edge_present = 1;
+  recovery.expected_next_sequence = recovery.anchored_sequence + 1;
+  memcpy(recovery.expected_previous_head, recovery.anchored_head, 32);
+  Fill(recovery.pending_transcript_digest, 32, 0xf1);
+  SeedLegacy(keychain, LegacyRecord(Encode(&recovery, &recoverySecrets)),
+             @"vault");
+  assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1] ==
+         AncPrivateVaultCustodyRepositoryStatusConflict);
+
+  Reset();
+  keychain = Keychain();
+  repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodySnapshot invalidGenerationOne;
+  TestSecrets invalidGenerationOneSecrets;
+  MakeTombstone(&invalidGenerationOne, &invalidGenerationOneSecrets, 1,
+                ANC_PV_CUSTODY_LIFECYCLE_REMOVED);
+  SeedLegacy(
+      keychain,
+      LegacyRecord(Encode(&invalidGenerationOne, &invalidGenerationOneSecrets)),
+      @"vault");
+  assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:1] ==
+         AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
+
+  Reset();
+  keychain = Keychain();
+  repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  AncPrivateVaultCustodySnapshot active;
+  TestSecrets activeSecrets;
+  MakeActive(&active, &activeSecrets, 1, 161, @"vault");
+  AncPrivateVaultCustodySecretInputs activeInputs = Inputs(&activeSecrets);
+  assert([repository storeSnapshot:&active
+                           secrets:&activeInputs
+                           vaultId:@"vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  AncPrivateVaultCustodySnapshot removing;
+  TestSecrets removingSecrets;
+  MakeTombstone(&removing, &removingSecrets, 2,
+                ANC_PV_CUSTODY_LIFECYCLE_REMOVING);
+  StageLegacy(keychain, LegacyRecord(Encode(&removing, &removingSecrets)),
+              @"vault", 2);
+  AncPrivateVaultCustodyRepositoryStatus removingMigration =
+      [repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:2];
+  assert(removingMigration == AncPrivateVaultCustodyRepositoryStatusOK);
+  handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&migrated handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(migrated.record_version == ANC_PV_CUSTODY_VERSION &&
+         migrated.custody_generation == 3 &&
+         migrated.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING &&
+         handle == nil);
+
+  AncPrivateVaultCustodySnapshot removed = migrated;
+  removed.record_version = ANC_PV_CUSTODY_VERSION;
+  removed.custody_generation = 4;
+  removed.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_REMOVED;
+  TestSecrets removedSecrets = {0};
+  AncPrivateVaultCustodySecretInputs removedInputs = Inputs(&removedSecrets);
+  AncPrivateVaultCustodySnapshot substitutions[9];
+  for (size_t index = 0; index < 9; index += 1)
+    substitutions[index] = removed;
+  substitutions[0].endpoint_id[0] ^= 1;
+  substitutions[1].signing_public_key[0] ^= 1;
+  substitutions[2].box_public_key[0] ^= 1;
+  substitutions[3].membership_digest[0] ^= 1;
+  substitutions[4].removal_authorization_digest[0] ^= 1;
+  substitutions[5].signed_at_ms += 1;
+  substitutions[6].freshness_ms += 1;
+  substitutions[7].role = ANC_PV_CUSTODY_ROLE_BROKER;
+  substitutions[8].recovery_generation += 1;
+  for (size_t index = 0; index < 9; index += 1) {
+    assert([repository storeSnapshot:&substitutions[index]
+                             secrets:&removedInputs
+                             vaultId:@"vault"] ==
+           AncPrivateVaultCustodyRepositoryStatusConflict);
+  }
+  Reset();
+  keychain = Keychain();
+  repository =
+      [[AncPrivateVaultCustodyRepository alloc] initWithKeychain:keychain];
+  MakeActive(&active, &activeSecrets, 1, 163, @"vault");
+  activeInputs = Inputs(&activeSecrets);
+  assert([repository storeSnapshot:&active
+                           secrets:&activeInputs
+                           vaultId:@"vault"] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  MakeTombstone(&removing, &removingSecrets, 2,
+                ANC_PV_CUSTODY_LIFECYCLE_REMOVING);
+  StageLegacy(keychain, LegacyRecord(Encode(&removing, &removingSecrets)),
+              @"vault", 2);
+  handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&migrated handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(migrated.record_version == ANC_PV_CUSTODY_LEGACY_VERSION &&
+         migrated.custody_generation == 2 &&
+         migrated.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVING &&
+         handle == nil);
+  removed = migrated;
+  removed.record_version = ANC_PV_CUSTODY_VERSION;
+  removed.custody_generation = 3;
+  removed.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_REMOVED;
+  StageLegacy(keychain, LegacyRecord(Encode(&removed, &removedSecrets)),
+              @"vault", 3);
+  assert([repository migrateLegacyCodecVaultId:@"vault" expectedGeneration:3] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  handle = nil;
+  assert([repository readVaultId:@"vault" snapshot:&migrated handle:&handle] ==
+         AncPrivateVaultCustodyRepositoryStatusOK);
+  assert(migrated.record_version == ANC_PV_CUSTODY_VERSION &&
+         migrated.custody_generation == 4 &&
+         migrated.lifecycle == ANC_PV_CUSTODY_LIFECYCLE_REMOVED &&
+         handle == nil);
 }
 
 int main(void) {
@@ -1025,6 +1367,8 @@ int main(void) {
     TestSixtyFourConcurrentWriters();
     TestConcurrentUserCloseBorrowAndRepositoryRevoke();
     TestTombstonesAndConcurrentWriters();
+    TestAdvanceAuthorityAnchorCAS();
+    TestLegacyCodecMigrations();
     puts("private-vault custody repository tests passed");
   }
   return 0;

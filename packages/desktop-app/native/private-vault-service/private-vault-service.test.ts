@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
-import { readFileSync, statSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, statSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -16,11 +17,17 @@ const identity = readFileSync(
 
 describe("Private Vault XPC service contract", () => {
   it("binds both the peer connection and every message to the signed Desktop app", () => {
-    expect(identity).toContain('PV_CLIENT_IDENTIFIER "com.agentnative.desktop"');
+    expect(identity).toContain(
+      'PV_CLIENT_IDENTIFIER "com.agentnative.desktop"',
+    );
     expect(identity).toContain('PV_TEAM_IDENTIFIER "W3PMF2T3MW"');
     expect(identity).toContain("anchor apple generic");
-    expect(identity).toContain('certificate leaf[subject.OU] = \\"W3PMF2T3MW\\"');
-    expect(source).toContain("xpc_connection_set_peer_code_signing_requirement");
+    expect(identity).toContain(
+      'certificate leaf[subject.OU] = \\"W3PMF2T3MW\\"',
+    );
+    expect(source).toContain(
+      "xpc_connection_set_peer_code_signing_requirement",
+    );
     expect(source).toContain("SecCodeCreateWithXPCMessage");
     expect(source).toContain("SecCodeCheckValidity");
     expect(source).toContain("kSecCSStrictValidate");
@@ -70,7 +77,9 @@ describe("Private Vault XPC service contract", () => {
 
     const plistText = readFileSync(plist, "utf8");
     const entitlementText = readFileSync(entitlements, "utf8");
-    expect(plistText).toContain("com.agentnative.desktop.private-vault-service");
+    expect(plistText).toContain(
+      "com.agentnative.desktop.private-vault-service",
+    );
     expect(plistText).toContain("<string>XPC!</string>");
     expect(plistText).toContain("<string>13.0</string>");
     expect(entitlementText).toContain(
@@ -79,24 +88,28 @@ describe("Private Vault XPC service contract", () => {
   });
 
   it("builds one executable containing both supported architecture slices", () => {
-    const outputRoot = join(serviceRoot, "build-test");
-    const bundle = execFileSync(
-      join(desktopRoot, "native", "build-private-vault-service.sh"),
-      [outputRoot],
-      { encoding: "utf8" },
-    ).trim();
-    const executable = join(
-      bundle,
-      "Contents",
-      "MacOS",
-      "AgentNativePrivateVaultService",
-    );
+    const outputRoot = mkdtempSync(join(tmpdir(), "private-vault-build-test-"));
+    try {
+      const bundle = execFileSync(
+        join(desktopRoot, "native", "build-private-vault-service.sh"),
+        [outputRoot],
+        { encoding: "utf8" },
+      ).trim();
+      const executable = join(
+        bundle,
+        "Contents",
+        "MacOS",
+        "AgentNativePrivateVaultService",
+      );
 
-    expect(statSync(executable).isFile()).toBe(true);
-    const architectures = execFileSync("lipo", ["-archs", executable], {
-      encoding: "utf8",
-    });
-    expect(architectures).toContain("x86_64");
-    expect(architectures).toContain("arm64");
-  });
+      expect(statSync(executable).isFile()).toBe(true);
+      const architectures = execFileSync("lipo", ["-archs", executable], {
+        encoding: "utf8",
+      });
+      expect(architectures).toContain("x86_64");
+      expect(architectures).toContain("arm64");
+    } finally {
+      rmSync(outputRoot, { recursive: true, force: true });
+    }
+  }, 120_000);
 });

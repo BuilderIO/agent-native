@@ -10,7 +10,7 @@
 #define CHECK(condition)                                                       \
   do {                                                                         \
     if (!(condition)) {                                                        \
-      fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__,      \
+      fprintf(stderr, "CHECK failed at %s:%d: %s\n", __FILE__, __LINE__,       \
               #condition);                                                     \
       return 1;                                                                \
     }                                                                          \
@@ -60,6 +60,8 @@ static int make_active(AncPrivateVaultCustodySnapshot *snapshot,
                        TestSecrets *secrets) {
   memset(snapshot, 0, sizeof *snapshot);
   memset(secrets, 0, sizeof *secrets);
+  snapshot->record_version = ANC_PV_CUSTODY_VERSION;
+  snapshot->authority_anchor_present = 1;
   snapshot->lifecycle = ANC_PV_CUSTODY_LIFECYCLE_ACTIVE;
   snapshot->role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
   snapshot->pending_kind = ANC_PV_CUSTODY_PENDING_NONE;
@@ -76,8 +78,7 @@ static int make_active(AncPrivateVaultCustodySnapshot *snapshot,
   uint8_t box_private[32] = {0};
   CHECK(anc_pv_ed25519_seed_keypair(snapshot->signing_public_key,
                                     signing_private,
-                                    secrets->signing_seed) ==
-        ANC_PV_CRYPTO_OK);
+                                    secrets->signing_seed) == ANC_PV_CRYPTO_OK);
   CHECK(anc_pv_box_seed_keypair(snapshot->box_public_key, box_private,
                                 secrets->box_seed) == ANC_PV_CRYPTO_OK);
   anc_pv_zeroize(signing_private, sizeof signing_private);
@@ -93,8 +94,7 @@ static int make_active(AncPrivateVaultCustodySnapshot *snapshot,
   return 0;
 }
 
-static int recompute_checksum(
-    uint8_t record[ANC_PV_CUSTODY_RECORD_BYTES]) {
+static int recompute_checksum(uint8_t record[ANC_PV_CUSTODY_RECORD_BYTES]) {
   static const uint8_t domain[] =
       "agent-native/private-vault/custody-record/checksum/anc-v1";
   uint8_t input[sizeof domain + 1056];
@@ -117,12 +117,13 @@ static int test_golden_layout_and_round_trip(void) {
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   CHECK(sizeof record == 1088);
   CHECK(memcmp(record, "ANVC", 4) == 0);
-  CHECK(record[4] == 0 && record[5] == 1);
+  CHECK(record[4] == 0 && record[5] == 2);
   CHECK(record[6] == 0x04 && record[7] == 0x40);
   CHECK(record[8] == ANC_PV_CUSTODY_LIFECYCLE_ACTIVE);
   CHECK(record[9] == ANC_PV_CUSTODY_ROLE_ENDPOINT);
   CHECK(record[10] == 0 && record[11] == 0 && record[12] == 0);
-  CHECK(record[13] == 0 && record[14] == 0 && record[15] == 0);
+  CHECK(record[13] == ANC_PV_CUSTODY_FLAG_AUTHORITY_ANCHOR_PRESENT &&
+        record[14] == 0 && record[15] == 0);
   CHECK(record[16] == 0 && record[17] == 0 && record[18] == 1 &&
         record[19] == 2 && record[20] == 3 && record[21] == 4 &&
         record[22] == 5 && record[23] == 6);
@@ -138,13 +139,6 @@ static int test_golden_layout_and_round_trip(void) {
   CHECK(record[751] == 3 && record[759] == 9);
   for (size_t index = 1024; index < 1056; index += 1)
     CHECK(record[index] == 0);
-  CHECK(memcmp(record + 1056,
-               (const uint8_t[]){0xb5, 0x62, 0xee, 0x60, 0x80, 0xd2, 0x44,
-                                 0x20, 0x2d, 0x84, 0xf3, 0xe3, 0x4e, 0xd9,
-                                 0xf6, 0xd5, 0x01, 0xc2, 0x03, 0x43, 0x79,
-                                 0x5a, 0x85, 0xf4, 0x4d, 0x53, 0x09, 0xe6,
-                                 0x18, 0x37, 0xe6, 0xb8},
-               32) == 0);
 
   AncPrivateVaultCustodySnapshot decoded;
   TestSecrets decoded_secrets;
@@ -155,8 +149,8 @@ static int test_golden_layout_and_round_trip(void) {
   CHECK(decoded.lifecycle == snapshot.lifecycle);
   CHECK(decoded.custody_generation == snapshot.custody_generation);
   CHECK(decoded.vault_id_length == snapshot.vault_id_length);
-  CHECK(memcmp(decoded.vault_id, snapshot.vault_id,
-               snapshot.vault_id_length) == 0);
+  CHECK(memcmp(decoded.vault_id, snapshot.vault_id, snapshot.vault_id_length) ==
+        0);
   CHECK(memcmp(&decoded_secrets, &secrets, sizeof secrets) == 0);
 
   uint8_t second[ANC_PV_CUSTODY_RECORD_BYTES] = {0};
@@ -172,8 +166,90 @@ static int test_golden_layout_and_round_trip(void) {
 static int all_zero(const void *bytes, size_t length) {
   const uint8_t *value = bytes;
   uint8_t aggregate = 0;
-  for (size_t index = 0; index < length; index += 1) aggregate |= value[index];
+  for (size_t index = 0; index < length; index += 1)
+    aggregate |= value[index];
   return aggregate == 0;
+}
+
+static int test_v2_presence_and_v1_compatibility(void) {
+  AncPrivateVaultCustodySnapshot snapshot;
+  TestSecrets secrets;
+  CHECK(make_active(&snapshot, &secrets) == 0);
+  snapshot.anchored_sequence = 0;
+  AncPrivateVaultCustodySecretInputs source = inputs(&secrets);
+  uint8_t record[ANC_PV_CUSTODY_RECORD_BYTES] = {0};
+  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
+                                     sizeof record) == ANC_PV_CUSTODY_OK);
+  CHECK(record[13] == ANC_PV_CUSTODY_FLAG_AUTHORITY_ANCHOR_PRESENT);
+
+  AncPrivateVaultCustodySnapshot decoded;
+  TestSecrets decoded_secrets = {0};
+  AncPrivateVaultCustodySecretOutputs destination = outputs(&decoded_secrets);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &decoded,
+                                     &destination) == ANC_PV_CUSTODY_OK);
+  CHECK(decoded.record_version == ANC_PV_CUSTODY_VERSION);
+  CHECK(decoded.authority_anchor_present && decoded.anchored_sequence == 0);
+
+  record[13] |= 0x80;
+  CHECK(recompute_checksum(record) == 0);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &decoded,
+                                     &destination) ==
+        ANC_PV_CUSTODY_INVALID_RECORD);
+  record[13] &= 0x03;
+  record[14] = 1;
+  CHECK(recompute_checksum(record) == 0);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &decoded,
+                                     &destination) ==
+        ANC_PV_CUSTODY_INVALID_RECORD);
+
+  CHECK(make_active(&snapshot, &secrets) == 0);
+  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
+                                     sizeof record) == ANC_PV_CUSTODY_OK);
+  record[4] = 0;
+  record[5] = ANC_PV_CUSTODY_LEGACY_VERSION;
+  record[13] = 0;
+  CHECK(recompute_checksum(record) == 0);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &decoded,
+                                     &destination) == ANC_PV_CUSTODY_OK);
+  CHECK(decoded.record_version == ANC_PV_CUSTODY_LEGACY_VERSION);
+  CHECK(decoded.authority_anchor_present && !decoded.expected_edge_present);
+
+  memset(record + 752, 0, 8);
+  CHECK(recompute_checksum(record) == 0);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &decoded,
+                                     &destination) ==
+        ANC_PV_CUSTODY_INVALID_RECORD);
+
+  CHECK(make_active(&snapshot, &secrets) == 0);
+  snapshot.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
+  snapshot.pending_kind = ANC_PV_CUSTODY_PENDING_GENESIS;
+  snapshot.rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
+  set_id(snapshot.ceremony_id, &snapshot.ceremony_id_length, "ceremony-1");
+  snapshot.active_epoch = 0;
+  memset(secrets.active_epoch_key, 0, 32);
+  snapshot.pending_epoch = 1;
+  fill(secrets.pending_epoch_key, 32, 0xd1);
+  snapshot.recovery_generation = 0;
+  snapshot.authority_anchor_present = 0;
+  snapshot.anchored_sequence = 0;
+  memset(snapshot.anchored_head, 0, 32);
+  memset(snapshot.membership_digest, 0, 32);
+  snapshot.signed_at_ms = 0;
+  memset(snapshot.snapshot_digest, 0, 32);
+  snapshot.freshness_ms = 0;
+  snapshot.expected_edge_present = 1;
+  snapshot.expected_next_sequence = 0;
+  memset(snapshot.expected_previous_head, 0, 32);
+  fill(snapshot.pending_transcript_digest, 32, 0xe1);
+  source = inputs(&secrets);
+  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
+                                     sizeof record) == ANC_PV_CUSTODY_OK);
+  CHECK(record[13] == ANC_PV_CUSTODY_FLAG_EXPECTED_EDGE_PRESENT);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &decoded,
+                                     &destination) == ANC_PV_CUSTODY_OK);
+  CHECK(!decoded.authority_anchor_present && decoded.expected_edge_present &&
+        decoded.expected_next_sequence == 0);
+  return 0;
 }
 
 static int test_rejections_and_zeroization(void) {
@@ -232,9 +308,8 @@ static int test_rejections_and_zeroization(void) {
                                      &destination) ==
         ANC_PV_CUSTODY_INVALID_RECORD);
   const size_t invalid_header_or_enum_offsets[] = {0, 5, 7, 9, 10, 11, 12};
-  for (size_t index = 0;
-       index < sizeof invalid_header_or_enum_offsets /
-                   sizeof invalid_header_or_enum_offsets[0];
+  for (size_t index = 0; index < sizeof invalid_header_or_enum_offsets /
+                                     sizeof invalid_header_or_enum_offsets[0];
        index += 1) {
     memcpy(corrupt, record, sizeof corrupt);
     corrupt[invalid_header_or_enum_offsets[index]] = 0xff;
@@ -272,15 +347,16 @@ static int test_state_matrices_and_boundaries(void) {
   snapshot.active_epoch = 0;
   anc_pv_zeroize(secrets.active_epoch_key, 32);
   snapshot.anchored_sequence = 0;
+  snapshot.authority_anchor_present = 0;
   anc_pv_zeroize(snapshot.anchored_head, 32);
   anc_pv_zeroize(snapshot.membership_digest, 32);
   snapshot.signed_at_ms = 0;
   anc_pv_zeroize(snapshot.snapshot_digest, 32);
   snapshot.freshness_ms = 0;
   CHECK(snapshot.recovery_generation != 0);
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.recovery_generation = 0;
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
@@ -288,13 +364,12 @@ static int test_state_matrices_and_boundaries(void) {
   TestSecrets offer_secrets_after_crash;
   AncPrivateVaultCustodySecretOutputs offer_outputs =
       outputs(&offer_secrets_after_crash);
-  CHECK(anc_pv_custody_record_decode(record, sizeof record,
-                                     &offer_after_crash, &offer_outputs) ==
-        ANC_PV_CUSTODY_OK);
+  CHECK(anc_pv_custody_record_decode(record, sizeof record, &offer_after_crash,
+                                     &offer_outputs) == ANC_PV_CUSTODY_OK);
   CHECK(offer_after_crash.enrollment_phase ==
         ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING);
-  CHECK(memcmp(offer_secrets_after_crash.signing_seed,
-               secrets.signing_seed, 32) == 0);
+  CHECK(memcmp(offer_secrets_after_crash.signing_seed, secrets.signing_seed,
+               32) == 0);
   CHECK(memcmp(offer_secrets_after_crash.box_seed, secrets.box_seed, 32) == 0);
   CHECK(memcmp(offer_secrets_after_crash.local_state_key,
                secrets.local_state_key, 32) == 0);
@@ -304,19 +379,19 @@ static int test_state_matrices_and_boundaries(void) {
   snapshot.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_DEVICE;
   snapshot.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_PENDING;
   snapshot.rotation_phase = ANC_PV_CUSTODY_ROTATION_NONE;
-  snapshot.enrollment_phase =
-      ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED;
+  snapshot.enrollment_phase = ANC_PV_CUSTODY_ENROLLMENT_AUTHORIZATION_RECEIVED;
   set_id(snapshot.ceremony_id, &snapshot.ceremony_id_length, "ceremony-1");
   snapshot.expected_next_sequence = snapshot.anchored_sequence + 1;
+  snapshot.expected_edge_present = 1;
   memcpy(snapshot.expected_previous_head, snapshot.anchored_head, 32);
   fill(snapshot.pending_transcript_digest, 32, 17);
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   CHECK(snapshot.active_epoch == 7);
   snapshot.role = ANC_PV_CUSTODY_ROLE_BROKER;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.pending_kind = ANC_PV_CUSTODY_PENDING_ADD_BROKER;
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
@@ -324,15 +399,15 @@ static int test_state_matrices_and_boundaries(void) {
   snapshot.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
   snapshot.pending_epoch = snapshot.active_epoch + 1;
   fill(secrets.pending_epoch_key, 32, 222);
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.pending_epoch = 0;
   anc_pv_zeroize(secrets.pending_epoch_key, 32);
   snapshot.rotation_phase = ANC_PV_CUSTODY_ROTATION_PREPARED;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
 
   CHECK(make_active(&snapshot, &secrets) == 0);
   source = inputs(&secrets);
@@ -344,19 +419,20 @@ static int test_state_matrices_and_boundaries(void) {
   snapshot.pending_epoch = snapshot.active_epoch + 1;
   fill(secrets.pending_epoch_key, 32, 222);
   snapshot.expected_next_sequence = snapshot.anchored_sequence + 1;
+  snapshot.expected_edge_present = 1;
   memcpy(snapshot.expected_previous_head, snapshot.anchored_head, 32);
   fill(snapshot.pending_transcript_digest, 32, 18);
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   snapshot.role = ANC_PV_CUSTODY_ROLE_BROKER;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
   secrets.active_epoch_key[0] = 1;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
 
   CHECK(make_active(&snapshot, &secrets) == 0);
   source = inputs(&secrets);
@@ -369,43 +445,45 @@ static int test_state_matrices_and_boundaries(void) {
   snapshot.pending_epoch = 1;
   fill(secrets.pending_epoch_key, 32, 223);
   snapshot.anchored_sequence = 0;
+  snapshot.authority_anchor_present = 0;
   anc_pv_zeroize(snapshot.anchored_head, 32);
   anc_pv_zeroize(snapshot.membership_digest, 32);
   snapshot.signed_at_ms = 0;
   anc_pv_zeroize(snapshot.snapshot_digest, 32);
   snapshot.freshness_ms = 0;
-  snapshot.expected_next_sequence = 1;
+  snapshot.expected_edge_present = 1;
+  snapshot.expected_next_sequence = 0;
   anc_pv_zeroize(snapshot.expected_previous_head, 32);
   fill(snapshot.pending_transcript_digest, 32, 19);
   snapshot.recovery_generation = 0;
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   snapshot.role = ANC_PV_CUSTODY_ROLE_BROKER;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.role = ANC_PV_CUSTODY_ROLE_ENDPOINT;
 
   CHECK(make_active(&snapshot, &secrets) == 0);
   source = inputs(&secrets);
   snapshot.custody_generation = 9007199254740992ULL;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.custody_generation = 1;
   memset(snapshot.vault_id, 'v', sizeof snapshot.vault_id);
   snapshot.vault_id_length = sizeof snapshot.vault_id;
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   snapshot.vault_id[159] = 0;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.vault_id[159] = 'v';
   snapshot.vault_id_length = 159;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
 
   CHECK(make_active(&snapshot, &secrets) == 0);
   source = inputs(&secrets);
@@ -422,27 +500,27 @@ static int test_state_matrices_and_boundaries(void) {
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   snapshot.expected_next_sequence = 1;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.expected_next_sequence = 0;
   snapshot.expected_previous_head[0] = 1;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.expected_previous_head[0] = 0;
   snapshot.pending_transcript_digest[0] = 1;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   snapshot.pending_transcript_digest[0] = 0;
   snapshot.lifecycle = ANC_PV_CUSTODY_LIFECYCLE_REMOVED;
   CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
                                      sizeof record) == ANC_PV_CUSTODY_OK);
   secrets.local_state_key[0] = 1;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   return 0;
 }
 
@@ -456,8 +534,7 @@ static int test_independent_random_material(void) {
   CHECK(anc_pv_random(second_secrets.signing_seed, 32) == ANC_PV_CRYPTO_OK);
   CHECK(anc_pv_random(second_secrets.box_seed, 32) == ANC_PV_CRYPTO_OK);
   CHECK(anc_pv_random(second_secrets.local_state_key, 32) == ANC_PV_CRYPTO_OK);
-  CHECK(anc_pv_random(second_secrets.active_epoch_key, 32) ==
-        ANC_PV_CRYPTO_OK);
+  CHECK(anc_pv_random(second_secrets.active_epoch_key, 32) == ANC_PV_CRYPTO_OK);
   uint8_t signing_private[64] = {0};
   uint8_t box_private[32] = {0};
   CHECK(anc_pv_ed25519_seed_keypair(second.signing_public_key, signing_private,
@@ -472,8 +549,7 @@ static int test_independent_random_material(void) {
   uint8_t first_record[1088] = {0};
   uint8_t second_record[1088] = {0};
   CHECK(anc_pv_custody_record_encode(&first, &first_inputs, first_record,
-                                     sizeof first_record) ==
-        ANC_PV_CUSTODY_OK);
+                                     sizeof first_record) == ANC_PV_CUSTODY_OK);
   CHECK(anc_pv_custody_record_encode(&second, &second_inputs, second_record,
                                      sizeof second_record) ==
         ANC_PV_CUSTODY_OK);
@@ -492,17 +568,17 @@ static int test_alias_rejections(void) {
   uint8_t record_sentinel[1088];
   memcpy(record_sentinel, record, sizeof record_sentinel);
   source.signing_seed = record + 64;
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   CHECK(memcmp(record, record_sentinel, sizeof record) == 0);
 
   source = inputs(&secrets);
   source.box_seed = source.signing_seed;
   memset(record, 0xa5, sizeof record);
-  CHECK(anc_pv_custody_record_encode(&snapshot, &source, record,
-                                     sizeof record) ==
-        ANC_PV_CUSTODY_INVALID_ARGUMENT);
+  CHECK(
+      anc_pv_custody_record_encode(&snapshot, &source, record, sizeof record) ==
+      ANC_PV_CUSTODY_INVALID_ARGUMENT);
   CHECK(all_zero(record, sizeof record));
   CHECK(!all_zero(secrets.signing_seed, 32));
 
@@ -544,8 +620,7 @@ static int test_alias_rejections(void) {
   memcpy(record, pristine, sizeof record);
   memset(&decoded_secrets, 0xa5, sizeof decoded_secrets);
   destination = outputs(&decoded_secrets);
-  aliased_snapshot =
-      (AncPrivateVaultCustodySnapshot *)(void *)(record + 16);
+  aliased_snapshot = (AncPrivateVaultCustodySnapshot *)(void *)(record + 16);
   CHECK(anc_pv_custody_record_decode(record, sizeof record, aliased_snapshot,
                                      &destination) ==
         ANC_PV_CUSTODY_INVALID_ARGUMENT);
@@ -612,7 +687,8 @@ static GuardedTestState g_guarded;
 static void reset_guarded(void) { memset(&g_guarded, 0, sizeof g_guarded); }
 
 static void *test_malloc(size_t size) {
-  if (g_guarded.fail_malloc) return NULL;
+  if (g_guarded.fail_malloc)
+    return NULL;
   g_guarded.memory = malloc(size);
   g_guarded.memory_size = size;
   memset(g_guarded.memory, 0xa5, size);
@@ -638,16 +714,19 @@ static int test_readwrite(void *memory, __unused size_t size) {
 }
 
 static void test_memzero(void *memory, size_t size) {
-  if (memory != g_guarded.memory) abort();
+  if (memory != g_guarded.memory)
+    abort();
   g_guarded.memzero_calls += 1;
   memset(memory, 0, size);
 }
 
 static void test_free(void *memory) {
-  if (memory != g_guarded.memory) abort();
+  if (memory != g_guarded.memory)
+    abort();
   g_guarded.free_calls += 1;
   g_guarded.free_saw_zero = all_zero(memory, g_guarded.memory_size);
-  if (!g_guarded.free_saw_zero) memset(memory, 0, g_guarded.memory_size);
+  if (!g_guarded.free_saw_zero)
+    memset(memory, 0, g_guarded.memory_size);
   g_guarded.free_ended_zero = all_zero(memory, g_guarded.memory_size);
   free(memory);
   g_guarded.memory = NULL;
@@ -671,15 +750,15 @@ static int test_guarded_memory(void) {
   reset_guarded();
   g_guarded.fail_malloc = 1;
   CHECK([AncPrivateVaultGuardedMemory memoryWithLength:32
-                                            functions:&functions
-                                               status:&status] == nil);
+                                             functions:&functions
+                                                status:&status] == nil);
   CHECK(status == AncPrivateVaultGuardedMemoryStatusAllocationFailed);
 
   reset_guarded();
   g_guarded.fail_mlock = 1;
   CHECK([AncPrivateVaultGuardedMemory memoryWithLength:32
-                                            functions:&functions
-                                               status:&status] == nil);
+                                             functions:&functions
+                                                status:&status] == nil);
   CHECK(status == AncPrivateVaultGuardedMemoryStatusProtectionFailed);
   CHECK(g_guarded.memzero_calls == 1 && g_guarded.free_saw_zero &&
         g_guarded.free_ended_zero);
@@ -687,8 +766,8 @@ static int test_guarded_memory(void) {
   reset_guarded();
   g_guarded.fail_noaccess_at = 1;
   CHECK([AncPrivateVaultGuardedMemory memoryWithLength:32
-                                            functions:&functions
-                                               status:&status] == nil);
+                                             functions:&functions
+                                                status:&status] == nil);
   CHECK(status == AncPrivateVaultGuardedMemoryStatusProtectionFailed);
   CHECK(g_guarded.memzero_calls == 0 && !g_guarded.free_saw_zero &&
         g_guarded.free_ended_zero);
@@ -696,8 +775,8 @@ static int test_guarded_memory(void) {
   reset_guarded();
   AncPrivateVaultGuardedMemory *memory =
       [AncPrivateVaultGuardedMemory memoryWithLength:32
-                                          functions:&functions
-                                             status:&status];
+                                           functions:&functions
+                                              status:&status];
   CHECK(memory != nil && status == AncPrivateVaultGuardedMemoryStatusOK);
   CHECK(g_guarded.mlock_size == 32 && g_guarded.noaccess_calls == 1);
   CHECK([memory borrow:^BOOL(uint8_t *bytes, size_t length) {
@@ -706,12 +785,11 @@ static int test_guarded_memory(void) {
           return YES;
         }] == AncPrivateVaultGuardedMemoryStatusOK);
   CHECK(g_guarded.readwrite_calls == 1 && g_guarded.noaccess_calls == 2);
-  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes,
-                            __unused size_t length) { return NO; }] ==
-        AncPrivateVaultGuardedMemoryStatusCallbackFailed);
+  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes, __unused size_t length) {
+          return NO;
+        }] == AncPrivateVaultGuardedMemoryStatusCallbackFailed);
   CHECK(g_guarded.noaccess_calls == 3);
-  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes,
-                            __unused size_t length) {
+  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes, __unused size_t length) {
           @throw [NSException exceptionWithName:@"test"
                                          reason:@"test"
                                        userInfo:nil];
@@ -721,18 +799,18 @@ static int test_guarded_memory(void) {
   CHECK(g_guarded.memzero_calls == 1 && g_guarded.free_saw_zero &&
         g_guarded.free_calls == 1);
   CHECK([memory close] == AncPrivateVaultGuardedMemoryStatusOK);
-  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes,
-                            __unused size_t length) { return YES; }] ==
-        AncPrivateVaultGuardedMemoryStatusClosed);
+  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes, __unused size_t length) {
+          return YES;
+        }] == AncPrivateVaultGuardedMemoryStatusClosed);
 
   reset_guarded();
   g_guarded.fail_readwrite_at = 1;
   memory = [AncPrivateVaultGuardedMemory memoryWithLength:16
-                                               functions:&functions
-                                                  status:&status];
-  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes,
-                            __unused size_t length) { return YES; }] ==
-        AncPrivateVaultGuardedMemoryStatusProtectionFailed);
+                                                functions:&functions
+                                                   status:&status];
+  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes, __unused size_t length) {
+          return YES;
+        }] == AncPrivateVaultGuardedMemoryStatusProtectionFailed);
   CHECK(memory.closed && g_guarded.free_calls == 1 &&
         g_guarded.memzero_calls == 0 && !g_guarded.free_saw_zero &&
         g_guarded.free_ended_zero);
@@ -740,8 +818,8 @@ static int test_guarded_memory(void) {
   reset_guarded();
   g_guarded.fail_noaccess_at = 2;
   memory = [AncPrivateVaultGuardedMemory memoryWithLength:16
-                                               functions:&functions
-                                                  status:&status];
+                                                functions:&functions
+                                                   status:&status];
   CHECK([memory borrow:^BOOL(uint8_t *bytes, size_t length) {
           fill(bytes, length, 1);
           return YES;
@@ -753,10 +831,9 @@ static int test_guarded_memory(void) {
   g_guarded.fail_noaccess_at = 2;
   g_guarded.fail_readwrite_at = 2;
   memory = [AncPrivateVaultGuardedMemory memoryWithLength:16
-                                               functions:&functions
-                                                  status:&status];
-  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes,
-                            __unused size_t length) {
+                                                functions:&functions
+                                                   status:&status];
+  CHECK([memory borrow:^BOOL(__unused uint8_t *bytes, __unused size_t length) {
           @throw [NSException exceptionWithName:@"test"
                                          reason:@"test"
                                        userInfo:nil];
@@ -768,10 +845,9 @@ static int test_guarded_memory(void) {
   reset_guarded();
   g_guarded.fail_readwrite_at = 1;
   memory = [AncPrivateVaultGuardedMemory memoryWithLength:16
-                                               functions:&functions
-                                                  status:&status];
-  CHECK([memory close] ==
-        AncPrivateVaultGuardedMemoryStatusProtectionFailed);
+                                                functions:&functions
+                                                   status:&status];
+  CHECK([memory close] == AncPrivateVaultGuardedMemoryStatusProtectionFailed);
   CHECK(memory.closed && g_guarded.free_calls == 1 &&
         g_guarded.memzero_calls == 0 && !g_guarded.free_saw_zero &&
         g_guarded.free_ended_zero);
@@ -780,8 +856,8 @@ static int test_guarded_memory(void) {
   @autoreleasepool {
     AncPrivateVaultGuardedMemory *doomed =
         [AncPrivateVaultGuardedMemory memoryWithLength:16
-                                            functions:&functions
-                                               status:&status];
+                                             functions:&functions
+                                                status:&status];
     CHECK(doomed != nil);
     g_guarded.fail_readwrite_at = 1;
     doomed = nil;
@@ -810,6 +886,7 @@ int main(void) {
   @autoreleasepool {
     CHECK(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
     CHECK(test_golden_layout_and_round_trip() == 0);
+    CHECK(test_v2_presence_and_v1_compatibility() == 0);
     CHECK(test_rejections_and_zeroization() == 0);
     CHECK(test_state_matrices_and_boundaries() == 0);
     CHECK(test_independent_random_material() == 0);
