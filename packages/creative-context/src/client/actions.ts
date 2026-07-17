@@ -52,29 +52,29 @@ export interface CreativeContextSummary {
   id: string;
   name: string;
   description?: string | null;
-  itemCount?: number;
+  kind: "default" | "specialty";
+  memberCount: number;
   updatedAt?: string | null;
-  policy?: CreativeContextPolicy;
+  approvalPolicy: CreativeContextPolicy;
 }
 
 export interface CreativeContextMembership {
   id: string;
   contextId: string;
-  appId: string;
-  resourceType: string;
-  resourceId: string;
+  publishedItemId: string | null;
+  publishedItemVersionId: string | null;
+  pendingSubmissionId: string | null;
   rank: CreativeContextMembershipRank;
   purpose: string | null;
-  note: string | null;
-  status: "active" | "pending" | "withdrawn";
+  status: "active" | "removed";
   updatedAt?: string | null;
-  context?: CreativeContextSummary;
+  pendingSubmission?: { id: string; status: string } | null;
 }
 
 export interface ListCreativeContextsParams {
-  appId?: string;
-  resourceType?: string;
-  resourceId?: string;
+  limit?: number;
+  cursor?: string;
+  includeArchived?: boolean;
 }
 
 export interface ListCreativeContextsResult {
@@ -85,8 +85,10 @@ export type ManageCreativeContextParams =
   | {
       operation: "create";
       name: string;
-      description?: string;
-      policy?: CreativeContextPolicy;
+      description?: string | null;
+      kind: "default" | "specialty";
+      brandProfileId?: string | null;
+      approvalPolicy?: CreativeContextPolicy;
     }
   | {
       operation: "update";
@@ -94,20 +96,22 @@ export type ManageCreativeContextParams =
       patch: {
         name?: string;
         description?: string | null;
-        policy?: CreativeContextPolicy;
+        brandProfileId?: string | null;
+        approvalPolicy?: CreativeContextPolicy;
       };
-      expectedUpdatedAt?: string;
     }
-  | { operation: "archive"; contextId: string; expectedUpdatedAt?: string };
+  | { operation: "archive"; contextId: string }
+  | { operation: "set-app-default"; contextId: string; appId: string };
 
 export interface ManageCreativeContextResult {
   context: CreativeContextSummary | null;
 }
 
 export interface ListContextMembershipsParams {
-  appId: string;
-  resourceType: string;
-  resourceId: string;
+  contextId: string;
+  status?: "active" | "removed";
+  limit?: number;
+  cursor?: string;
 }
 
 export interface ListContextMembershipsResult {
@@ -116,31 +120,34 @@ export interface ListContextMembershipsResult {
 
 export type ManageContextMembershipParams =
   | {
-      operation: "add";
-      appId: string;
-      resourceType: string;
-      resourceId: string;
+      operation: "submit";
       contextId: string;
+      itemId?: string;
+      itemVersionId?: string;
+      nativeResource?: {
+        appId: string;
+        resourceType: string;
+        resourceId: string;
+        expectedUpdatedAt?: string;
+      };
       rank?: CreativeContextMembershipRank;
       purpose?: string;
       note?: string;
     }
   | {
-      operation: "update";
+      operation: "approve" | "request-changes" | "withdraw" | "remove";
+      contextId: string;
       membershipId: string;
-      rank?: CreativeContextMembershipRank;
-      purpose?: string | null;
       note?: string | null;
-      expectedUpdatedAt?: string;
-    }
-  | {
-      operation: "withdraw" | "remove";
-      membershipId: string;
-      expectedUpdatedAt?: string;
     };
 
 export interface ManageContextMembershipResult {
   membership: CreativeContextMembership | null;
+  membershipId?: string;
+  submission?: { id: string; status: string };
+  withdrawn?: boolean;
+  approved?: boolean;
+  requestChanges?: boolean;
 }
 
 function record(value: unknown): Record<string, unknown> | null {
@@ -163,15 +170,14 @@ function contextSummary(value: unknown): CreativeContextSummary | null {
     name: source.name,
     description:
       typeof source.description === "string" ? source.description : null,
-    itemCount:
-      typeof source.itemCount === "number" ? source.itemCount : undefined,
+    kind: source.kind === "specialty" ? "specialty" : "default",
+    memberCount:
+      typeof source.memberCount === "number" ? source.memberCount : 0,
     updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
-    policy:
-      source.policy === "open" ||
-      source.policy === "review" ||
-      source.policy === "admins-only"
-        ? source.policy
-        : undefined,
+    approvalPolicy:
+      source.approvalPolicy === "review" || source.approvalPolicy === "admins-only"
+        ? source.approvalPolicy
+        : "open",
   };
 }
 
@@ -200,10 +206,7 @@ export function parseContextMemberships(
     if (
       !item ||
       typeof item.id !== "string" ||
-      typeof item.contextId !== "string" ||
-      typeof item.appId !== "string" ||
-      typeof item.resourceType !== "string" ||
-      typeof item.resourceId !== "string"
+      typeof item.contextId !== "string"
     ) {
       return [];
     }
@@ -211,21 +214,29 @@ export function parseContextMemberships(
       {
         id: item.id,
         contextId: item.contextId,
-        appId: item.appId,
-        resourceType: item.resourceType,
-        resourceId: item.resourceId,
+        publishedItemId:
+          typeof item.publishedItemId === "string" ? item.publishedItemId : null,
+        publishedItemVersionId:
+          typeof item.publishedItemVersionId === "string"
+            ? item.publishedItemVersionId
+            : null,
+        pendingSubmissionId:
+          typeof item.pendingSubmissionId === "string"
+            ? item.pendingSubmissionId
+            : null,
         rank:
           item.rank === "canonical" || item.rank === "exemplar"
             ? item.rank
             : "normal",
         purpose: typeof item.purpose === "string" ? item.purpose : null,
-        note: typeof item.note === "string" ? item.note : null,
-        status:
-          item.status === "pending" || item.status === "withdrawn"
-            ? item.status
-            : "active",
+        status: item.status === "removed" ? "removed" : "active",
         updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
-        context: contextSummary(item.context) ?? undefined,
+        pendingSubmission: (() => {
+          const submission = record(item.pendingSubmission);
+          return submission && typeof submission.id === "string" && typeof submission.status === "string"
+            ? { id: submission.id, status: submission.status }
+            : null;
+        })(),
       },
     ];
   });
@@ -487,7 +498,7 @@ export function useCreativeContextSources(
 export function useCreativeContexts(params: ListCreativeContextsParams = {}) {
   return useActionQuery<ListCreativeContextsResult>(
     CREATIVE_CONTEXT_ACTIONS.listContexts,
-    params,
+    { limit: 50, ...params },
   );
 }
 
@@ -503,7 +514,7 @@ export function useContextMemberships(
 ) {
   return useActionQuery<ListContextMembershipsResult>(
     CREATIVE_CONTEXT_ACTIONS.listMemberships,
-    params ?? undefined,
+    params ? { limit: 50, ...params } : undefined,
     { enabled: Boolean(params) },
   );
 }

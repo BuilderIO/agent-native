@@ -109,10 +109,10 @@ function normalizedFromDetail(detail: NonNullable<Awaited<ReturnType<typeof getC
     colors: detail.item.colors,
     provenance: detail.item.provenance,
     thumbnailBlobRef: detail.item.thumbnailBlobRef ?? undefined,
-    metadata: detail.item.metadata,
-    chunks: detail.chunks.map((chunk) => ({ ...chunk })),
-    media: detail.media.map((media) => ({ ...media })),
-    edges: detail.edges.map((edge) => ({ ...edge })),
+    metadata: {},
+    chunks: detail.chunks.map((chunk) => ({ ordinal: chunk.ordinal, kind: chunk.kind, text: chunk.text, ...(chunk.startOffset === null ? {} : { startOffset: chunk.startOffset }), ...(chunk.endOffset === null ? {} : { endOffset: chunk.endOffset }), ...(chunk.tokenCount === null ? {} : { tokenCount: chunk.tokenCount }), metadata: chunk.metadata })),
+    media: detail.media.map((media) => ({ kind: media.kind, ...(media.mimeType ? { mimeType: media.mimeType } : {}), accessMode: media.accessMode, ...(media.url ? { url: media.url } : {}), ...(media.storageKey ? { storageKey: media.storageKey } : {}), ...(media.provenanceUrl ? { provenanceUrl: media.provenanceUrl } : {}), ...(media.altText ? { altText: media.altText } : {}), ...(media.caption ? { caption: media.caption } : {}), captionStatus: media.captionStatus, ...(media.ocrText ? { ocrText: media.ocrText } : {}), palette: media.palette, ...(media.contentHash ? { contentHash: media.contentHash } : {}), ...(media.width === null ? {} : { width: media.width }), ...(media.height === null ? {} : { height: media.height }), ...(media.durationMs === null ? {} : { durationMs: media.durationMs }), metadata: media.metadata })),
+    edges: detail.edges.map((edge) => ({ relation: edge.relation, ...(edge.toItemId ? { toItemId: edge.toItemId } : {}), ...(edge.toItemVersionId ? { toItemVersionId: edge.toItemVersionId } : {}), ...(edge.toExternalId ? { toExternalId: edge.toExternalId } : {}), metadata: edge.metadata })),
   };
 }
 
@@ -217,7 +217,7 @@ export async function listContextMemberships(input: { contextId: string; status?
 async function resolveSubmissionItem(input: { itemId?: string; itemVersionId?: string; nativeResource?: NativeCreativeResourceRef }) {
   if (input.nativeResource) {
     const captured = await captureNativeCreativeResource(input.nativeResource); if (!captured.items.length) throw new Error("Native capture returned no artifacts");
-    return { artifactKey: captured.artifactKey, item: captured.items[0]!, privateMetadata: captured.privateMetadata ?? {} };
+    return { artifactKey: captured.artifactKey, item: captured.items[0]!, privateMetadata: { ...(captured.privateMetadata ?? {}), nativeResource: input.nativeResource } };
   }
   if (!input.itemId) throw new Error("itemId or nativeResource is required"); const detail = await getCreativeContextItem(input.itemId, input.itemVersionId); if (!detail) throw new Error("Context item version not found or not accessible");
   return { artifactKey: `${detail.item.sourceId}:${detail.item.externalId}`, item: normalizedFromDetail(detail), privateMetadata: {} };
@@ -244,5 +244,5 @@ export async function manageContextMembership(input: { operation: "submit" | "ap
 }
 
 export async function resolveNativeContextCloneReference(input: NativeCreativeResourceRef & { contextId: string; artifactKey: string }) {
-  await assertContextRole(input.contextId, "viewer"); const { getDb, schema } = getCreativeContext(); const [membership] = await getDb().select().from(schema.creativeContextMemberships).where(and(eq(schema.creativeContextMemberships.contextId, input.contextId), eq(schema.creativeContextMemberships.artifactKey, input.artifactKey), eq(schema.creativeContextMemberships.status, "active"))).limit(1); if (!membership?.publishedItemId) throw new Error("Creative context artifact is not published"); const [submission] = await getDb().select().from(schema.creativeContextSubmissions).where(and(eq(schema.creativeContextSubmissions.membershipId, membership.id), eq(schema.creativeContextSubmissions.status, "approved"))).orderBy(asc(schema.creativeContextSubmissions.createdAt)).limit(1); const metadata = parseJson<Record<string, unknown>>(submission?.privateMetadata, {}); return { publishedItemId: membership.publishedItemId, publishedItemVersionId: membership.publishedItemVersionId, privateMetadata: metadata };
+  await assertContextRole(input.contextId, "viewer"); const { getDb, schema } = getCreativeContext(); const [membership] = await getDb().select().from(schema.creativeContextMemberships).where(and(eq(schema.creativeContextMemberships.contextId, input.contextId), eq(schema.creativeContextMemberships.artifactKey, input.artifactKey), eq(schema.creativeContextMemberships.status, "active"))).limit(1); if (!membership?.publishedItemId) throw new Error("Creative context artifact is not published"); const [submission] = await getDb().select().from(schema.creativeContextSubmissions).where(and(eq(schema.creativeContextSubmissions.membershipId, membership.id), eq(schema.creativeContextSubmissions.status, "approved"))).orderBy(asc(schema.creativeContextSubmissions.createdAt)).limit(1); const metadata = parseJson<Record<string, unknown>>(submission?.privateMetadata, {}); const stored = metadata.nativeResource as Partial<NativeCreativeResourceRef> | undefined; if (!stored || stored.appId !== input.appId || stored.resourceType !== input.resourceType || stored.resourceId !== input.resourceId || (input.expectedUpdatedAt !== undefined && stored.expectedUpdatedAt !== input.expectedUpdatedAt)) throw new Error("Native creative resource reference does not match the governed context submission"); return { publishedItemId: membership.publishedItemId, publishedItemVersionId: membership.publishedItemVersionId, privateMetadata: metadata };
 }

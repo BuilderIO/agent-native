@@ -58,7 +58,7 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
         const id = slide.id ?? String(index);
         return { externalId: `native:slides:deck:${deck.id}:slide:${id}`, kind: "slide", title: slide.title ?? `Slide ${index + 1}`, canonicalUrl: `/deck/${deck.id}?slide=${encodeURIComponent(id)}`, mimeType: "text/html", content, summary: content.slice(0, 500), contentHash: hash(`${deck.id}:${id}:${slide.content ?? ""}:${slide.notes ?? ""}`), sourceModifiedAt: deck.updatedAt, sourceVersion: version.id ?? contentHash, metadata: { preview: { type: "slide", index: index + 1 } } };
       })],
-      privateMetadata: { clone: { handle, contentHash, sourceVersion: version.id ?? contentHash, updatedAt: deck.updatedAt } },
+      privateMetadata: { nativeResource: { appId: "slides", resourceType: "deck", resourceId: deck.id, expectedUpdatedAt: reference.expectedUpdatedAt }, clone: { handle, appId: "slides", resourceType: "deck", resourceId: deck.id, contentHash, sourceVersion: version.id ?? contentHash, updatedAt: deck.updatedAt } },
     };
   },
 };
