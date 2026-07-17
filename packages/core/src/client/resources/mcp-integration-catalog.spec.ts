@@ -68,7 +68,7 @@ describe("MCP integration catalog", () => {
     );
 
     expect(atlassian).toMatchObject({
-      url: "https://mcp.atlassian.com/v1/mcp",
+      url: "https://mcp.atlassian.com/v1/mcp/authv2",
       authMode: "oauth",
       docsUrl:
         "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",

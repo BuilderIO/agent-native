@@ -157,7 +157,7 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     useCase:
       "project management, issue tracking, documentation, team collaboration",
     useCaseKey: "mcpIntegrations.catalog.atlassian.useCase",
-    url: "https://mcp.atlassian.com/v1/mcp",
+    url: "https://mcp.atlassian.com/v1/mcp/authv2",
     authMode: "oauth",
     connectionMode: "oauth",
     availability: "provider-setup",
