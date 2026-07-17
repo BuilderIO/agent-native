@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.109.0
+
+### Minor Changes
+
+- 6cd2c79: Add audience-bound direct invocation for explicitly exposed read-only actions so sibling apps can skip a second agent loop for bounded data operations.
+  Add shared Slack and Notion corpus recipes so cursor pagination runs inside one resumable data operation instead of one model turn per page.
+
+### Patch Changes
+
+- 6cd2c79: Prevent cross-turn chat stream splicing and link browser sessions and session replays to agent-chat threads and runs.
+- 6cd2c79: Resume existing A2A tasks after bounded waits so cross-app agents do not duplicate long-running work.
+- 6cd2c79: Make progress tracking tolerate blank optional status fields, make extension replacement guard errors retryable when the explicit intent flag is missing, expose extension readiness callbacks for host loading states, show the underlying repeated tool error in agent stop messages, and avoid MCP connection suggestions based on hidden tool payloads.
+- 6cd2c79: Show image attachments in queued agent chat messages.
+- 6cd2c79: Open shared chat-thread links in the matching full-page chat or agent sidebar.
+- 6cd2c79: Ignore stackless stale module-loader failures that are handled by route-chunk recovery instead of creating noisy error issues.
+- 6cd2c79: Keep long agent-chat tool histories compact by collapsing older calls behind a "Ran N tools" disclosure.
+- 6cd2c79: Show chat run durations in work summaries and animate their content when opening.
+
 ## 0.108.0
 
 ### Minor Changes
