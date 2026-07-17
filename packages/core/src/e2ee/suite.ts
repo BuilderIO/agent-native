@@ -13,6 +13,8 @@ export const E2EE_PRIMITIVES = Object.freeze({
 
 export const E2EE_DOMAIN_TAGS = Object.freeze([
   "endpoint",
+  "endpoint-request-body",
+  "endpoint-request",
   "epoch",
   "eek-wrap",
   "dek-wrap",

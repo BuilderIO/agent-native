@@ -28,6 +28,8 @@ describe("anc/v1 suite freeze", () => {
   it("freezes domain separation and integer field tables", () => {
     expect(E2EE_DOMAIN_TAGS).toContain("disclosure");
     expect(E2EE_DOMAIN_TAGS).toContain("manifest");
+    expect(E2EE_DOMAIN_TAGS).toContain("endpoint-request-body");
+    expect(E2EE_DOMAIN_TAGS).toContain("endpoint-request");
     expect(E2EE_ENVELOPE_FIELDS.common).toEqual({
       suite: 1,
       vaultId: 2,

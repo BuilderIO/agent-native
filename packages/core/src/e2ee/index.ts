@@ -1,6 +1,7 @@
 export * from "./ceremonies.js";
 export * from "./canonical.js";
 export * from "./contracts.js";
+export * from "./endpoint-request-auth.js";
 export * from "./failure-fixtures.js";
 export * from "./failure-vectors.js";
 export * from "./interoperability-vectors.js";
