@@ -115,9 +115,20 @@ build-pinned exact HTTPS origin plus the fixed append path, an ephemeral session
 with no cookies, credential store, redirects, or cache, and accepts only an exact
 200 response with the canonical media type and a declared 1–1024-byte body.
 Transport or receipt failure leaves the state at `CONSUMED` with the encrypted
-spool intact. Only receipt-authenticated finalization can advance to `CLEANED`;
-durable retry scheduling and user-visible observability remain required before
-the product may describe this cleanup as automatic.
+spool intact. After authenticated resumption and before any hosted network
+attempt, the native service durably writes a content-free, vault-bound retry
+marker under the pinned state root. Startup and signed-main health wakeups scan
+the bounded union of those markers and structurally valid encrypted live-spool
+identities, then re-enter the coordinator for official tuple and spool
+authentication. Duplicate work is coalesced and retried with bounded exponential
+backoff while constructing a fresh proof for every POST. The exact receipt is
+fenced in Keychain before spool deletion. If a
+crash lands between deletion and the final state CAS, a fresh native process can
+read that receipt internally and finish `CLEANED` without returning it to the
+caller. The retry marker is removed only after an official `CLEANED` reread.
+Signed-main health exposes only the aggregate acknowledgement state
+`unavailable`, `idle`, `pending`, `retrying`, or `attention`; it exposes no vault
+identifier, count, URL, HTTP detail, proof, receipt, or content.
 
 Hosted acknowledgement is bound to the exact historical control edge, not to
 the accident of that edge still being the latest head. The server replays and

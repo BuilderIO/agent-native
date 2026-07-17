@@ -15,12 +15,19 @@
 #import "PrivateVaultRotationPreparationSpool.h"
 #import "PrivateVaultRotationPreparationStore.h"
 #import "PrivateVaultStateRoot.h"
+#import "PrivateVaultHostedAppendCandidateIndex.h"
+#import "PrivateVaultHostedAppendRetryCoordinator.h"
+#import "PrivateVaultHostedAppendRetryStore.h"
 #import "PrivateVaultHostedAppendTransport.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
 static AncPrivateVaultRotationCoordinator *gRotationCoordinator = nil;
 static AncPrivateVaultHostedAppendTransport *gHostedAppendTransport = nil;
+static AncPrivateVaultHostedAppendCandidateIndex *gHostedAppendCandidates = nil;
+static AncPrivateVaultHostedAppendRetryCoordinator *gHostedAppendRetry = nil;
+
+static const char *PVRotationAckState(void);
 
 static NSURL *PVStateRootURL(void) {
     NSArray<NSString *> *roots =
@@ -113,10 +120,16 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
     xpc_dictionary_set_string(reply, "requestId", request->requestID);
 
     if (strcmp(request->operation, "health") == 0) {
-        bool available = gRotationCoordinator != nil;
+        if (gHostedAppendRetry != nil) {
+            [gHostedAppendRetry wake];
+        }
+        bool available = gRotationCoordinator != nil &&
+                         gHostedAppendRetry != nil;
         xpc_dictionary_set_string(reply, "state",
                                   available ? "locked" : "unavailable");
         xpc_dictionary_set_bool(reply, "available", available);
+        xpc_dictionary_set_string(reply, "rotationAckState",
+                                  PVRotationAckState());
     } else {
         xpc_dictionary_set_string(reply, "state", "locked");
     }
@@ -124,37 +137,28 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
     xpc_connection_send_message(peer, reply);
 }
 
-static void PVAttemptHostedAppend(NSData *vaultBytes) {
-    if (vaultBytes.length != 16 || gRotationCoordinator == nil ||
-        gHostedAppendTransport == nil) {
-        return;
+static const char *PVRotationAckState(void) {
+    if (gHostedAppendRetry == nil) {
+        return "unavailable";
     }
-    uint8_t vaultID[16] = {0};
-    [vaultBytes getBytes:vaultID length:sizeof vaultID];
-    AncPrivateVaultHostedAppendRequest *request = nil;
-    AncPrivateVaultRotationCoordinatorStatus status =
-        [gRotationCoordinator prepareHostedAppendVaultId:vaultID
-                                                  request:&request];
-    memset(vaultID, 0, sizeof vaultID);
-    if (status != AncPrivateVaultRotationCoordinatorStatusOK || request == nil) {
-        return;
+    AncPrivateVaultHostedAppendRetrySnapshot *snapshot =
+        [gHostedAppendRetry snapshot];
+    if (snapshot.blockedCount > 0 ||
+        snapshot.lastFailureCategory ==
+            AncPrivateVaultHostedAppendRetryFailureIntegrityBlocked ||
+        snapshot.lastFailureCategory ==
+            AncPrivateVaultHostedAppendRetryFailureInvalidBlocked ||
+        snapshot.lastFailureCategory ==
+            AncPrivateVaultHostedAppendRetryFailureProtectionBlocked) {
+        return "attention";
     }
-    [gHostedAppendTransport
-        appendBody:request.body
-        proofHeader:request.proofHeader
-        completion:^(AncPrivateVaultHostedAppendTransportStatus transportStatus,
-                     NSData *receipt) {
-          if (transportStatus != AncPrivateVaultHostedAppendTransportStatusOK ||
-              receipt == nil) {
-              return;
-          }
-          uint8_t finalVaultID[16] = {0};
-          [vaultBytes getBytes:finalVaultID length:sizeof finalVaultID];
-          [gRotationCoordinator finalizeHostedAppendVaultId:finalVaultID
-                                                    receipt:receipt
-                                                     result:nil];
-          memset(finalVaultID, 0, sizeof finalVaultID);
-        }];
+    if (snapshot.inFlightCount > 0 || snapshot.scheduledCount > 0) {
+        return "retrying";
+    }
+    if (snapshot.pendingCount > 0) {
+        return "pending";
+    }
+    return "idle";
 }
 
 static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
@@ -165,10 +169,15 @@ static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
         PVSendError(peer, message, "rotation_unavailable");
         return;
     }
+    NSData *vaultBytes = [NSData dataWithBytes:vaultID length:sizeof vaultID];
+    if (gHostedAppendCandidates == nil || gHostedAppendRetry == nil) {
+        memset(vaultID, 0, sizeof vaultID);
+        PVSendError(peer, message, "rotation_unavailable");
+        return;
+    }
     AncPrivateVaultRotationCoordinatorResult *result = nil;
     AncPrivateVaultRotationCoordinatorStatus status =
         [gRotationCoordinator resumeVaultId:vaultID result:&result];
-    NSData *vaultBytes = [NSData dataWithBytes:vaultID length:sizeof vaultID];
     memset(vaultID, 0, sizeof vaultID);
     NSString *headHash = result == nil ? nil : PVHex(result.headHash);
     if (status != AncPrivateVaultRotationCoordinatorStatusOK || result == nil ||
@@ -178,8 +187,14 @@ static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
         PVSendError(peer, message, "rotation_failed");
         return;
     }
+    if ([gHostedAppendCandidates markPendingVaultId:vaultBytes] !=
+        AncPrivateVaultHostedAppendCandidateStatusOK) {
+        PVSendError(peer, message, "rotation_unavailable");
+        return;
+    }
     xpc_object_t reply = xpc_dictionary_create_reply(message);
     if (reply == NULL) {
+        [gHostedAppendRetry admitResumedVaultId:vaultBytes];
         return;
     }
     xpc_dictionary_set_int64(reply, "version", PV_PROTOCOL_VERSION);
@@ -193,7 +208,7 @@ static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
     xpc_dictionary_set_uint64(reply, "sequence", result.sequence);
     xpc_dictionary_set_string(reply, "headHash", headHash.UTF8String);
     xpc_connection_send_message(peer, reply);
-    PVAttemptHostedAppend(vaultBytes);
+    [gHostedAppendRetry admitResumedVaultId:vaultBytes];
 }
 
 static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
@@ -279,10 +294,35 @@ int main(void) {
                           controlLog:controlLog];
         gHostedAppendTransport =
             [[AncPrivateVaultHostedAppendTransport alloc] init];
+        AncPrivateVaultHostedAppendRetryStore *retryStore =
+            [[AncPrivateVaultHostedAppendRetryStore alloc]
+                initWithStateRootURL:stateRoot];
+        gHostedAppendCandidates =
+            [[AncPrivateVaultHostedAppendCandidateIndex alloc]
+                initWithSpool:spool
+                   retryStore:retryStore];
+        dispatch_queue_t retryQueue = dispatch_queue_create(
+            "com.agentnative.private-vault.hosted-append-retry",
+            DISPATCH_QUEUE_SERIAL);
+        AncPrivateVaultHostedAppendDispatchScheduler *retryScheduler =
+            [[AncPrivateVaultHostedAppendDispatchScheduler alloc]
+                initWithQueue:retryQueue];
+        gHostedAppendRetry =
+            [[AncPrivateVaultHostedAppendRetryCoordinator alloc]
+                initWithCandidateSource:gHostedAppendCandidates
+                       rotationOperator:
+                           (id<AncPrivateVaultHostedAppendRotationOperator>)
+                               gRotationCoordinator
+                              transport:
+                                  (id<AncPrivateVaultHostedAppendTransporting>)
+                                      gHostedAppendTransport
+                              scheduler:retryScheduler];
         if (stateRoot == nil || keychain == nil || gCustodyRepository == nil ||
             spool == nil || preparation == nil || authority == nil ||
             controlLog == nil || gRotationCoordinator == nil ||
-            gHostedAppendTransport == nil) {
+            gHostedAppendTransport == nil || retryStore == nil ||
+            gHostedAppendCandidates == nil || retryScheduler == nil ||
+            gHostedAppendRetry == nil) {
             return EXIT_FAILURE;
         }
         OSStatus status = SecRequirementCreateWithString(
@@ -291,6 +331,8 @@ int main(void) {
         if (status != errSecSuccess || gClientRequirement == NULL) {
             return EXIT_FAILURE;
         }
+
+        [gHostedAppendRetry start];
 
         xpc_main(PVConnectionHandler);
     }

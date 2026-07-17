@@ -49,6 +49,12 @@ export type NativeHealthResult = ServiceHeader<"health"> & {
   readonly available: boolean;
   readonly ready: boolean;
   readonly unlocked: boolean;
+  readonly rotationAckState:
+    | "unavailable"
+    | "idle"
+    | "pending"
+    | "retrying"
+    | "attention";
 };
 
 export type NativeEnrollVaultRequest = ServiceHeader<"enrollVault"> & {
@@ -629,6 +635,7 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
         "available",
         "ready",
         "unlocked",
+        "rotationAckState",
       ]);
       if (
         ![
@@ -643,14 +650,19 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
       if (
         typeof record.available !== "boolean" ||
         typeof record.ready !== "boolean" ||
-        typeof record.unlocked !== "boolean"
+        typeof record.unlocked !== "boolean" ||
+        !["unavailable", "idle", "pending", "retrying", "attention"].includes(
+          record.rotationAckState as string,
+        )
       )
         fail("invalid_result");
       if (
         record.available !== (record.state !== "unavailable") ||
         record.unlocked !== (record.state === "unlocked") ||
         record.ready !==
-          (record.state === "locked" || record.state === "unlocked")
+          (record.state === "locked" || record.state === "unlocked") ||
+        (record.state === "unavailable") !==
+          (record.rotationAckState === "unavailable")
       )
         fail("invalid_result");
       return {
@@ -659,6 +671,8 @@ function parseResultUnchecked(value: unknown): PrivateVaultNativeServiceResult {
         available: record.available,
         ready: record.ready,
         unlocked: record.unlocked,
+        rotationAckState:
+          record.rotationAckState as NativeHealthResult["rotationAckState"],
       };
     }
     case "enrollVault":

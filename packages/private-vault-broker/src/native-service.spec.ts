@@ -76,6 +76,11 @@ function removalAuthorization(forVaultId = vaultId): Uint8Array {
       outstandingJobsResolved: true,
       recoverySnapshotHash: null,
       recoveryAuthorizationHash: null,
+      recoveryGeneration: 2,
+      recoveryId: "recovery-12345678",
+      recoverySigningPublicKey: "66".repeat(32),
+      recoveryKeyAgreementPublicKey: "77".repeat(32),
+      recoveryWrapHash: "88".repeat(32),
     },
   });
 }
@@ -212,6 +217,7 @@ describe("private-vault native service contract", () => {
         available: true,
         ready: false,
         unlocked: false,
+        rotationAckState: "idle",
       },
       {
         ...BASE,
@@ -399,6 +405,7 @@ describe("private-vault native service contract", () => {
         available: false,
         ready: false,
         unlocked: false,
+        rotationAckState: "unavailable",
       }),
     ).toMatchObject({ state: "unavailable", available: false, ready: false });
     expect(
@@ -409,6 +416,7 @@ describe("private-vault native service contract", () => {
         available: true,
         ready: true,
         unlocked: false,
+        rotationAckState: "idle",
       }),
     ).toEqual({
       ...BASE,
@@ -417,6 +425,7 @@ describe("private-vault native service contract", () => {
       available: true,
       ready: true,
       unlocked: false,
+      rotationAckState: "idle",
     });
     contractError(
       () =>
@@ -427,6 +436,7 @@ describe("private-vault native service contract", () => {
           available: true,
           ready: true,
           unlocked: false,
+          rotationAckState: "idle",
           vaultId,
         }),
       "invalid_result",

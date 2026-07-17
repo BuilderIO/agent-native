@@ -1003,8 +1003,134 @@ int main(int argc, const char *argv[]) {
     CHECK(lstat(files.firstObject.fileSystemRepresentation, &live) == 0);
     CHECK(S_ISREG(live.st_mode) && live.st_nlink == 1 &&
           (live.st_mode & 0777) == 0600);
+    NSArray<NSData *> *listedVaults = nil;
+    CHECK([store listLiveVaultIds:&listedVaults error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusOK);
+    CHECK(listedVaults.count == 1 && listedVaults.firstObject.length == 16);
+    CHECK([listedVaults isKindOfClass:NSArray.class] &&
+          ![listedVaults isKindOfClass:NSMutableArray.class]);
+    CHECK([listedVaults.firstObject isKindOfClass:NSData.class] &&
+          ![listedVaults.firstObject isKindOfClass:NSMutableData.class]);
+    CHECK(memcmp(listedVaults.firstObject.bytes, vault, 16) == 0);
+    uint8_t vaultSnapshot[16];
+    memcpy(vaultSnapshot, listedVaults.firstObject.bytes, 16);
+    vault[0] ^= 0xff;
+    CHECK(memcmp(listedVaults.firstObject.bytes, vaultSnapshot, 16) == 0);
+    vault[0] ^= 0xff;
     CHECK([store deleteVaultId:vault ceremonyId:ceremony error:nil] ==
           AncPrivateVaultRotationPreparationSpoolStatusOK);
+
+    CHECK([store writeStageOuterFrame:frame
+                                 vaultId:vault
+                              ceremonyId:ceremony
+               expectedSignedEntryLength:sizeof signedEntry
+              expectedRecoveryWrapLength:sizeof recoveryWrap
+                     expectedFrameDigest:frameDigest
+                              pendingKey:key
+                                   error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusOK);
+    listedVaults = nil;
+    CHECK([store listLiveVaultIds:&listedVaults error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusOK);
+    CHECK(listedVaults.count == 0);
+    CHECK([store deleteVaultId:vault ceremonyId:ceremony error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusOK);
+
+    uint8_t vaultTwo[16], ceremonyTwo[16], nonceTwo[24];
+    memset(vaultTwo, 0x22, sizeof vaultTwo);
+    memset(ceremonyTwo, 0x44, sizeof ceremonyTwo);
+    memset(nonceTwo, 0x99, sizeof nonceTwo);
+    uint8_t digestSameVault[32], digestSecondVault[32];
+    NSData *sameVaultFrame = AncPrivateVaultRotationPreparationSpoolEncode(
+        signedEntry, sizeof signedEntry, recoveryWrap, sizeof recoveryWrap,
+        vault, ceremonyTwo, key, nonceTwo, digestSameVault, &status);
+    NSData *secondVaultFrame = AncPrivateVaultRotationPreparationSpoolEncode(
+        signedEntry, sizeof signedEntry, recoveryWrap, sizeof recoveryWrap,
+        vaultTwo, ceremony, key, nonceTwo, digestSecondVault, &status);
+    CHECK(sameVaultFrame != nil && secondVaultFrame != nil);
+    NSArray<NSArray *> *candidateInputs = @[
+      @[
+        frame, [NSData dataWithBytes:vault length:16],
+        [NSData dataWithBytes:ceremony length:16],
+        [NSData dataWithBytes:frameDigest length:32]
+      ],
+      @[
+        sameVaultFrame, [NSData dataWithBytes:vault length:16],
+        [NSData dataWithBytes:ceremonyTwo length:16],
+        [NSData dataWithBytes:digestSameVault length:32]
+      ],
+      @[
+        secondVaultFrame, [NSData dataWithBytes:vaultTwo length:16],
+        [NSData dataWithBytes:ceremony length:16],
+        [NSData dataWithBytes:digestSecondVault length:32]
+      ],
+    ];
+    for (NSArray *candidate in candidateInputs) {
+      NSData *candidateVault = candidate[1];
+      NSData *candidateCeremony = candidate[2];
+      NSData *candidateDigest = candidate[3];
+      CHECK([store writeStageOuterFrame:candidate[0]
+                                   vaultId:candidateVault.bytes
+                                ceremonyId:candidateCeremony.bytes
+                 expectedSignedEntryLength:sizeof signedEntry
+                expectedRecoveryWrapLength:sizeof recoveryWrap
+                       expectedFrameDigest:candidateDigest.bytes
+                                pendingKey:key
+                                     error:nil] ==
+            AncPrivateVaultRotationPreparationSpoolStatusOK);
+      CHECK([store reconcileVaultId:candidateVault.bytes
+                                ceremonyId:candidateCeremony.bytes
+                 expectedSignedEntryLength:sizeof signedEntry
+                expectedRecoveryWrapLength:sizeof recoveryWrap
+                       expectedFrameDigest:candidateDigest.bytes
+                                pendingKey:key
+                                     error:nil] ==
+            AncPrivateVaultRotationPreparationSpoolStatusOK);
+    }
+    listedVaults = nil;
+    CHECK([store listLiveVaultIds:&listedVaults error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusOK);
+    CHECK(listedVaults.count == 2);
+    CHECK([listedVaults containsObject:[NSData dataWithBytes:vault length:16]]);
+    CHECK([listedVaults containsObject:[NSData dataWithBytes:vaultTwo
+                                                      length:16]]);
+    for (NSArray *candidate in candidateInputs)
+      CHECK([store deleteVaultId:((NSData *)candidate[1]).bytes
+                      ceremonyId:((NSData *)candidate[2]).bytes
+                           error:nil] ==
+            AncPrivateVaultRotationPreparationSpoolStatusOK);
+
+    NSString *unsafeName = [@"11111111111111111111111111111111"
+        stringByAppendingString:
+            @"33333333333333333333333333333333.rotation-spool"];
+    NSURL *unsafeURL = [root URLByAppendingPathComponent:unsafeName];
+    CHECK(symlink("/dev/null", unsafeURL.fileSystemRepresentation) == 0);
+    listedVaults = @[];
+    CHECK([store listLiveVaultIds:&listedVaults error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusCorrupt);
+    CHECK(listedVaults == nil);
+    CHECK(unlink(unsafeURL.fileSystemRepresentation) == 0);
+
+    NSURL *malformedURL =
+        [root URLByAppendingPathComponent:@"malformed.rotation-spool"];
+    CHECK([frame writeToURL:malformedURL options:0 error:nil]);
+    CHECK(chmod(malformedURL.fileSystemRepresentation, 0600) == 0);
+    listedVaults = @[];
+    CHECK([store listLiveVaultIds:&listedVaults error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusCorrupt);
+    CHECK(listedVaults == nil);
+    CHECK(unlink(malformedURL.fileSystemRepresentation) == 0);
+
+    NSMutableData *corruptLiveFrame = [frame mutableCopy];
+    ((uint8_t *)corruptLiveFrame.mutableBytes)[corruptLiveFrame.length - 1] ^=
+        0x01;
+    CHECK([corruptLiveFrame writeToURL:unsafeURL options:0 error:nil]);
+    CHECK(chmod(unsafeURL.fileSystemRepresentation, 0600) == 0);
+    listedVaults = @[];
+    CHECK([store listLiveVaultIds:&listedVaults error:nil] ==
+          AncPrivateVaultRotationPreparationSpoolStatusCorrupt);
+    CHECK(listedVaults == nil);
+    CHECK(unlink(unsafeURL.fileSystemRepresentation) == 0);
 
     NSURL *state = [temporary URLByAppendingPathComponent:@"state"
                                               isDirectory:YES];

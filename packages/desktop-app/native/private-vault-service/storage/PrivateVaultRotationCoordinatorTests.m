@@ -1318,6 +1318,26 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
   NSData *receipt = AppendReceipt(
       consumed.vaultId, entryId, consumed.sequence, consumed.headHash,
       consumed.recoveryWrapHash, recoveryWrapLength);
+  assert([environment.coordinator
+             recoverHostedAppendCleanupVaultId:material->vaultId
+                                         result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusNotFound);
+  assert(consumed.sequence > 0);
+  NSData *staleReceipt =
+      AppendReceipt(consumed.vaultId, entryId, consumed.sequence - 1,
+                    consumed.headHash, consumed.recoveryWrapHash,
+                    recoveryWrapLength);
+  assert([environment.keychain
+             addData:staleReceipt
+          forService:AncPrivateVaultRotationCleanupReceiptService
+             vaultId:environment.vaultId
+            recordId:@"rotation-cleanup-receipt"] ==
+         AncPrivateVaultKeychainStatusOK);
+  assert([environment.coordinator
+             recoverHostedAppendCleanupVaultId:material->vaultId
+                                         result:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusNotFound);
+  AssertConsumed(material, environment, consumed, spool);
 
   NSMutableData *wrongHead = [consumed.headHash mutableCopy];
   ((uint8_t *)wrongHead.mutableBytes)[0] ^= 0x80;
@@ -1392,6 +1412,10 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
                                   receipt:receipt
                                    result:&cleaned] ==
          AncPrivateVaultRotationCoordinatorStatusOK);
+  assert([environment.coordinator
+             recoverHostedAppendCleanupVaultId:material->vaultId
+                                         result:&cleaned] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
   AssertCleaned(material, environment);
   DestroyEnvironment(environment);
 
@@ -1428,9 +1452,8 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
   assert(stillConsumed.snapshot.phase ==
          ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED);
   assert([interrupted.coordinator
-             finalizeHostedAppendVaultId:material->vaultId
-                                  receipt:interruptedReceipt
-                                   result:nil] ==
+             recoverHostedAppendCleanupVaultId:material->vaultId
+                                         result:nil] ==
          AncPrivateVaultRotationCoordinatorStatusOK);
   AssertCleaned(material, interrupted);
   DestroyEnvironment(interrupted);
@@ -1467,9 +1490,8 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
          AncPrivateVaultKeychainStatusOK);
   assert([persistedReceipt isEqualToData:fencedReceipt]);
   assert([fenced.coordinator
-             finalizeHostedAppendVaultId:material->vaultId
-                                  receipt:fencedReceipt
-                                   result:nil] ==
+             recoverHostedAppendCleanupVaultId:material->vaultId
+                                         result:nil] ==
          AncPrivateVaultRotationCoordinatorStatusOK);
   AssertCleaned(material, fenced);
   DestroyEnvironment(fenced);
@@ -1848,23 +1870,9 @@ static void RunProcessDeathCleanup(const RotationMaterial *material,
   assert(preparation.snapshot.phase ==
          ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED);
   assert(preparation.snapshot.recovery_wrap_length > 0);
-  AncPrivateVaultAuthorityCheckpoint *authority = nil;
-  assert([environment.authority loadVaultId:environment.vaultId
-                                  checkpoint:&authority
-                                       error:nil] ==
-         AncPrivateVaultAuthorityStoreStatusOK);
-  assert(authority != nil);
-  NSString *entryId = AncPrivateVaultControlLogSignedEntryEnvelopeId(
-      [NSData dataWithBytes:material->signedEntry
-                     length:material->signedEntryLength]);
-  NSData *receipt = AppendReceipt(
-      environment.vaultId, entryId, authority.snapshot.sequence,
-      authority.snapshot.headHash, authority.snapshot.recoveryWrapHash,
-      preparation.snapshot.recovery_wrap_length);
   assert([environment.coordinator
-             finalizeHostedAppendVaultId:material->vaultId
-                                  receipt:receipt
-                                   result:nil] ==
+             recoverHostedAppendCleanupVaultId:material->vaultId
+                                         result:nil] ==
          AncPrivateVaultRotationCoordinatorStatusOK);
   AssertCleaned(material, environment);
   DestroyEnvironment(environment);

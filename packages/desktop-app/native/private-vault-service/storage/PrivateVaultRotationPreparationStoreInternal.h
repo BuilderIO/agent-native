@@ -57,6 +57,24 @@ typedef BOOL (^AncPrivateVaultConsumedHostedAppendConsumer)(
               checkpoint:(AncPrivateVaultRotationPreparationCheckpoint
                               *_Nullable *_Nullable)checkpoint;
 
+/* Restart-only cleanup capability. It reads the exact receipt fence from
+ * Keychain and feeds it back through cleanConsumedVaultId internally. Receipt
+ * bytes never cross this API; NotFound means no hosted acknowledgement has
+ * been durably fenced yet. */
+- (AncPrivateVaultRotationPreparationStoreStatus)
+    recoverPersistedHostedAppendReceiptVaultId:
+        (const uint8_t *_Nonnull)vaultId
+                                   authorityStore:
+                                       (AncPrivateVaultAuthorityStore *)
+                                           authorityStore
+                                custodyRepository:
+                                    (AncPrivateVaultCustodyRepository *)
+                                        custodyRepository
+                                       checkpoint:
+                                           (AncPrivateVaultRotationPreparationCheckpoint
+                                                *_Nullable *_Nullable)
+                                               checkpoint;
+
 /* Authenticates the exact CONSUMED official tuple and retained encrypted spool,
  * then lends its public append artifacts and guarded signing seed only for the
  * synchronous callback. No secret pointer or plaintext record escapes. */

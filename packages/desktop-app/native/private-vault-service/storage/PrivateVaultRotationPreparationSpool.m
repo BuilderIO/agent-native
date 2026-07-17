@@ -33,6 +33,7 @@ enum {
       ANC_PV_ROTATION_RECOVERY_WRAP_MAX_BYTES + kInnerChecksumBytes,
   kOuterMaximumBytes = kOuterHeaderBytes + kInnerMaximumBytes +
                        ANC_PV_AUTH_BYTES + kOuterChecksumBytes,
+  kMaximumLiveCandidateFiles = 256,
 };
 
 #if ANC_PRIVATE_VAULT_TESTING
@@ -621,6 +622,7 @@ ClearFileWitness(AncPrivateVaultRotationPreparationFileWitness *witness) {
 @property(nonatomic) dev_t directoryDevice;
 @property(nonatomic) ino_t directoryInode;
 @property(nonatomic) uid_t directoryOwner;
+@property(nonatomic) BOOL prepareIntegrityFailure;
 @end
 
 @implementation AncPrivateVaultRotationPreparationSpoolStore
@@ -658,6 +660,7 @@ ClearFileWitness(AncPrivateVaultRotationPreparationFileWitness *witness) {
 }
 
 - (BOOL)prepareDirectory {
+  self.prepareIntegrityFailure = NO;
   struct stat rootPath;
   if (lstat(self.stateRootURL.fileSystemRepresentation, &rootPath) != 0 ||
       !S_ISDIR(rootPath.st_mode) || rootPath.st_uid != getuid() ||
@@ -784,17 +787,26 @@ ClearFileWitness(AncPrivateVaultRotationPreparationFileWitness *witness) {
       continue;
     NSString *name = [NSString stringWithUTF8String:entry->d_name];
     NSRange range = NSMakeRange(0, name.length);
-    if (name == nil)
+    if (name == nil) {
+      self.prepareIntegrityFailure = YES;
       okay = NO;
-    else if ([allowed firstMatchInString:name options:0 range:range] != nil)
+    } else if ([allowed firstMatchInString:name options:0 range:range] != nil) {
       okay = [self isSafeFileName:name directory:dir];
-    else if ([temporary firstMatchInString:name options:0 range:range] != nil) {
+      if (!okay)
+        self.prepareIntegrityFailure = YES;
+    } else if ([temporary firstMatchInString:name options:0
+                                       range:range] != nil) {
       struct stat file;
-      okay = fstatat(dir, entry->d_name, &file, AT_SYMLINK_NOFOLLOW) == 0 &&
-             S_ISREG(file.st_mode) && file.st_uid == getuid() &&
-             file.st_nlink == 1 && (file.st_mode & 0777) == 0600 &&
-             unlinkat(dir, entry->d_name, 0) == 0 && fsync(dir) == 0;
+      BOOL structurallySafe =
+          fstatat(dir, entry->d_name, &file, AT_SYMLINK_NOFOLLOW) == 0 &&
+          S_ISREG(file.st_mode) && file.st_uid == getuid() &&
+          file.st_nlink == 1 && (file.st_mode & 0777) == 0600;
+      if (!structurallySafe)
+        self.prepareIntegrityFailure = YES;
+      okay = structurallySafe && unlinkat(dir, entry->d_name, 0) == 0 &&
+             fsync(dir) == 0;
     } else {
+      self.prepareIntegrityFailure = YES;
       okay = NO;
     }
   }
@@ -1299,6 +1311,117 @@ ClearFileWitness(AncPrivateVaultRotationPreparationFileWitness *witness) {
         frameDigest, pendingKey, consumer, &consumeStatus);
     result = consumeStatus;
   });
+  return result;
+}
+
+- (AncPrivateVaultRotationPreparationSpoolStatus)
+    listLiveVaultIds:(NSArray<NSData *> **)vaultIds
+               error:(NSError **)error {
+  (void)error;
+  if (vaultIds == NULL)
+    return AncPrivateVaultRotationPreparationSpoolStatusInvalid;
+  *vaultIds = nil;
+  __block AncPrivateVaultRotationPreparationSpoolStatus result;
+  __block NSArray<NSData *> *found = nil;
+  dispatch_sync(self.queue, ^{
+    if (![self prepareDirectory]) {
+      result = self.prepareIntegrityFailure
+                   ? AncPrivateVaultRotationPreparationSpoolStatusCorrupt
+                   : AncPrivateVaultRotationPreparationSpoolStatusStorageFailed;
+      return;
+    }
+    int dir = [self openValidatedDirectory];
+    int listingFD = dir < 0 ? -1 : dup(dir);
+    DIR *listing = listingFD < 0 ? NULL : fdopendir(listingFD);
+    if (listing == NULL ||
+        Fault(AncPrivateVaultRotationPreparationSpoolFaultDirectoryListing)) {
+      if (listing != NULL)
+        closedir(listing);
+      else if (listingFD >= 0)
+        close(listingFD);
+      (void)CloseDirectoryDescriptor(dir);
+      result = AncPrivateVaultRotationPreparationSpoolStatusStorageFailed;
+      return;
+    }
+    NSMutableOrderedSet<NSData *> *unique = [NSMutableOrderedSet orderedSet];
+    NSUInteger liveCandidateCount = 0;
+    BOOL okay = YES;
+    BOOL integrityFailure = NO;
+    struct dirent *entry;
+    while (okay) {
+      errno = 0;
+      entry = readdir(listing);
+      if (entry == NULL) {
+        okay = errno == 0;
+        break;
+      }
+      if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0)
+        continue;
+      NSString *name = [NSString stringWithUTF8String:entry->d_name];
+      if (name == nil || ![name hasSuffix:@".rotation-spool"])
+        continue;
+      liveCandidateCount++;
+      if (liveCandidateCount > kMaximumLiveCandidateFiles) {
+        integrityFailure = YES;
+        okay = NO;
+        break;
+      }
+      if (name.length != 64 + @".rotation-spool".length ||
+          ![self isSafeFileName:name directory:dir]) {
+        integrityFailure = YES;
+        okay = NO;
+        break;
+      }
+      uint8_t identity[32] = {0};
+      for (NSUInteger index = 0; index < sizeof identity && okay; index++) {
+        unichar high = [name characterAtIndex:index * 2];
+        unichar low = [name characterAtIndex:index * 2 + 1];
+        int highValue = high >= '0' && high <= '9'   ? high - '0'
+                        : high >= 'a' && high <= 'f' ? high - 'a' + 10
+                                                     : -1;
+        int lowValue = low >= '0' && low <= '9'   ? low - '0'
+                       : low >= 'a' && low <= 'f' ? low - 'a' + 10
+                                                  : -1;
+        if (highValue < 0 || lowValue < 0)
+          okay = NO;
+        else
+          identity[index] = (uint8_t)((highValue << 4) | lowValue);
+      }
+      if (!okay) {
+        integrityFailure = YES;
+        anc_pv_zeroize(identity, sizeof identity);
+        break;
+      }
+      BOOL missing = NO;
+      NSData *frame = [self readName:name missing:&missing witness:NULL];
+      BOOL valid =
+          frame != nil &&
+          ValidateOuter(frame, identity, identity + 16, 0, 0, NULL) ==
+              AncPrivateVaultRotationPreparationSpoolStatusOK &&
+          ConstantEqual((const uint8_t *)frame.bytes + 20, identity, 16) &&
+          ConstantEqual((const uint8_t *)frame.bytes + 36, identity + 16, 16);
+      if (valid)
+        [unique addObject:[NSData dataWithBytes:identity length:16]];
+      anc_pv_zeroize(identity, sizeof identity);
+      if (!valid) {
+        integrityFailure = YES;
+        okay = NO;
+      }
+    }
+    BOOL listingClosed = closedir(listing) == 0;
+    BOOL directoryClosed = CloseDirectoryDescriptor(dir);
+    okay = okay && listingClosed && directoryClosed;
+    if (!okay) {
+      result = integrityFailure
+                   ? AncPrivateVaultRotationPreparationSpoolStatusCorrupt
+                   : AncPrivateVaultRotationPreparationSpoolStatusStorageFailed;
+      return;
+    }
+    found = [[unique array] copy];
+    result = AncPrivateVaultRotationPreparationSpoolStatusOK;
+  });
+  if (result == AncPrivateVaultRotationPreparationSpoolStatusOK)
+    *vaultIds = found;
   return result;
 }
 

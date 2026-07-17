@@ -95,6 +95,15 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
                          result:(AncPrivateVaultRotationCoordinatorResult
                                      *_Nullable *_Nullable)result;
 
+/* Restart recovery after the exact hosted receipt was already fenced in
+ * Keychain. No caller supplies or receives receipt bytes. NotFound means the
+ * network append still needs to run; OK proves the official state is CLEANED. */
+- (AncPrivateVaultRotationCoordinatorStatus)
+    recoverHostedAppendCleanupVaultId:(const uint8_t *_Nullable)vaultId
+                                result:
+                                    (AncPrivateVaultRotationCoordinatorResult
+                                         *_Nullable *_Nullable)result;
+
 /* Rereads and authenticates the exact CONSUMED tuple and spool, then creates a
  * fresh body-bound proof with the guarded endpoint seed. No caller supplies a
  * path, endpoint identity, timestamp, nonce, body, or signing material. */

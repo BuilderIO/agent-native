@@ -23,7 +23,10 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m"
+  "$SOURCE_ROOT/storage/PrivateVaultHostedAppendRetryStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultStateRoot.m"
+  "$SOURCE_ROOT/transport/PrivateVaultHostedAppendCandidateIndex.m"
+  "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinator.m"
   "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
@@ -282,6 +285,53 @@ case "${PRIVATE_VAULT_BUILD_HOSTED_APPEND_TRANSPORT_TESTS:-}" in
   compile_hosted_append_transport_test_slice x86_64 "$X86_64_SODIUM"
   ;;
   *) echo "Invalid Private Vault hosted-append-transport-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_HOSTED_APPEND_RETRY_TESTS:-}" in
+  "") ;;
+  1)
+  HOSTED_APPEND_RETRY_TEST_OUTPUT="$OUTPUT_ROOT/.hosted-append-retry-tests"
+  rm -rf "$HOSTED_APPEND_RETRY_TEST_OUTPUT"
+  mkdir -p "$HOSTED_APPEND_RETRY_TEST_OUTPUT"
+  compile_hosted_append_retry_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local common=(
+      -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror
+      -DANC_PRIVATE_VAULT_TESTING=1
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture"
+      -I"$SOURCE_ROOT" -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control"
+      -I"$SOURCE_ROOT/storage" -I"$SOURCE_ROOT/transport"
+      -I"$sodium_root/include" -framework Foundation
+    )
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultHostedAppendRetryStore.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultHostedAppendRetryStoreTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$HOSTED_APPEND_RETRY_TEST_OUTPUT/private-vault-hosted-append-retry-store-tests-$architecture"
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinator.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinatorTests.m" \
+      -o "$HOSTED_APPEND_RETRY_TEST_OUTPUT/private-vault-hosted-append-retry-coordinator-tests-$architecture"
+    xcrun clang "${common[@]}" \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/storage/PrivateVaultGuardedMemory.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationSpool.m" \
+      "$SOURCE_ROOT/storage/PrivateVaultHostedAppendRetryStore.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendRetryCoordinator.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendCandidateIndex.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendCandidateIndexTests.m" \
+      "$sodium_root/lib/libsodium.a" \
+      -o "$HOSTED_APPEND_RETRY_TEST_OUTPUT/private-vault-hosted-append-candidate-index-tests-$architecture"
+    lipo "$HOSTED_APPEND_RETRY_TEST_OUTPUT/private-vault-hosted-append-retry-store-tests-$architecture" -verify_arch "$architecture"
+    lipo "$HOSTED_APPEND_RETRY_TEST_OUTPUT/private-vault-hosted-append-retry-coordinator-tests-$architecture" -verify_arch "$architecture"
+    lipo "$HOSTED_APPEND_RETRY_TEST_OUTPUT/private-vault-hosted-append-candidate-index-tests-$architecture" -verify_arch "$architecture"
+  }
+  compile_hosted_append_retry_test_slice arm64 "$ARM64_SODIUM"
+  compile_hosted_append_retry_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *) echo "Invalid Private Vault hosted-append-retry-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_CONTROL_LOG_TESTS:-}" in

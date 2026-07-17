@@ -119,6 +119,12 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultRotationPreparationSpoolConsume(
                           (AncPrivateVaultRotationPreparationArtifactsConsumer)
                               consumer
                          error:(NSError *_Nullable *_Nullable)error;
+/* Returns only unique vault identifiers backed by structurally valid live
+ * spool frames. The identifiers are immutable 16-byte values; filenames,
+ * ceremony identifiers, and frame contents never leave the store. */
+- (AncPrivateVaultRotationPreparationSpoolStatus)
+    listLiveVaultIds:(NSArray<NSData *> *_Nullable *_Nonnull)vaultIds
+                error:(NSError *_Nullable *_Nullable)error;
 - (AncPrivateVaultRotationPreparationSpoolStatus)
     deleteVaultId:(const uint8_t *)vaultId
        ceremonyId:(const uint8_t *)ceremonyId

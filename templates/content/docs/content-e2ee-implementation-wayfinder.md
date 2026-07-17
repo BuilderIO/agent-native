@@ -451,9 +451,11 @@ seams. Its hosted append transport is limited to a build-pinned HTTPS origin and
 fixed path; it carries no browser cookies or ambient credentials, rejects
 redirects, and bounds the content-free receipt before allocation. Native tests
 exercise the coordinator and transport on both arm64 and x86_64. This checkpoint
-does not close PR 5: durable retry/observability, complete enrollment and
-recovery product flows, malicious-directory and stolen-session transcripts, and
-the independently packageable broker exit gate still remain.
+also includes a native content-free retry marker, restart discovery, bounded
+backoff, receipt-only cleanup recovery across process death, and aggregate
+signed-main acknowledgement health. It does not close PR 5: complete enrollment
+and recovery product flows, malicious-directory and stolen-session transcripts,
+and the independently packageable broker exit gate still remain.
 
 ### PR 6 — Feature-gated Content Private Vault vertical slice
 

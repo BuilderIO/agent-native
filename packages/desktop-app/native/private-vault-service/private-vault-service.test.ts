@@ -90,10 +90,18 @@ describe("Private Vault XPC service contract", () => {
     ).toContain("endpoint request tests passed");
   }, 120_000);
 
-  it("posts consumed rotation artifacts only through the origin-pinned native transport", () => {
-    expect(source).toContain("PVAttemptHostedAppend(vaultBytes)");
-    expect(source).toContain("prepareHostedAppendVaultId");
-    expect(source).toContain("finalizeHostedAppendVaultId");
+  it("retries consumed rotation artifacts through the durable native-only boundary", () => {
+    expect(source).toContain("markPendingVaultId:vaultBytes");
+    expect(source).toContain("gHostedAppendRetry admitResumedVaultId:vaultBytes");
+    expect(source).toContain("gHostedAppendRetry wake");
+    expect(source).toContain('"rotationAckState"');
+    expect(source.indexOf("resumeVaultId:vaultID")).toBeLessThan(
+      source.indexOf("markPendingVaultId:vaultBytes"),
+    );
+    expect(source.indexOf("markPendingVaultId:vaultBytes")).toBeLessThan(
+      source.indexOf("admitResumedVaultId:vaultBytes"),
+    );
+    expect(source).not.toContain("PVAttemptHostedAppend");
     expect(hostedOrigin).toContain("https://content.agent-native.com");
     expect(buildSource).toContain("PRIVATE_VAULT_HOSTED_ORIGIN");
     expect(source).not.toContain("getenv(");
@@ -103,7 +111,12 @@ describe("Private Vault XPC service contract", () => {
         encoding: "utf8",
       }),
     ).toContain("hosted append transport tests passed");
-  }, 120_000);
+    expect(
+      execFileSync(join(serviceRoot, "run-hosted-append-retry-tests.sh"), {
+        encoding: "utf8",
+      }),
+    ).toContain("hosted append candidate index tests passed");
+  }, 240_000);
 
   it("declares a macOS 13 XPC bundle and a helper-only keychain group", () => {
     const plist = join(serviceRoot, "Info.plist");

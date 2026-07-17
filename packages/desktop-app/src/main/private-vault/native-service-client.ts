@@ -7,8 +7,16 @@ import type {
 } from "@agent-native/private-vault-broker";
 
 const SERVICE_VERSION = 1 as const;
+const XPC_PROTOCOL_VERSION = 2 as const;
 const SERVICE_SUITE = "anc/v1" as const;
 const PACKAGED_ADDON_NAME = "private-vault-xpc-client.node";
+
+type RotationAckState =
+  | "unavailable"
+  | "idle"
+  | "pending"
+  | "retrying"
+  | "attention";
 
 type NativeOperation = "health" | "lock" | "resume_rotation";
 
@@ -52,6 +60,7 @@ function unavailableHealth(): NativeHealthResult {
     available: false,
     ready: false,
     unlocked: false,
+    rotationAckState: "unavailable",
   });
 }
 
@@ -73,14 +82,25 @@ function hasExactKeys(
 function parseHealth(value: unknown): NativeHealthResult {
   if (
     !isRecord(value) ||
-    !hasExactKeys(value, ["version", "operation", "state", "available"]) ||
-    value.version !== SERVICE_VERSION ||
+    !hasExactKeys(value, [
+      "version",
+      "operation",
+      "state",
+      "available",
+      "rotationAckState",
+    ]) ||
+    value.version !== XPC_PROTOCOL_VERSION ||
     value.operation !== "health" ||
     typeof value.available !== "boolean" ||
     !["unavailable", "uninitialized", "locked", "unlocked", "closed"].includes(
       value.state as string,
     ) ||
-    value.available !== (value.state !== "unavailable")
+    value.available !== (value.state !== "unavailable") ||
+    !["unavailable", "idle", "pending", "retrying", "attention"].includes(
+      value.rotationAckState as string,
+    ) ||
+    (value.state === "unavailable") !==
+      (value.rotationAckState === "unavailable")
   ) {
     throw new PrivateVaultNativeServiceClientError();
   }
@@ -94,6 +114,7 @@ function parseHealth(value: unknown): NativeHealthResult {
     available: value.available,
     ready: state === "locked" || state === "unlocked",
     unlocked: state === "unlocked",
+    rotationAckState: value.rotationAckState as RotationAckState,
   });
 }
 
@@ -101,7 +122,7 @@ function parseLock(value: unknown): NativeLockResult {
   if (
     !isRecord(value) ||
     !hasExactKeys(value, ["version", "operation", "state"]) ||
-    value.version !== SERVICE_VERSION ||
+    value.version !== XPC_PROTOCOL_VERSION ||
     value.operation !== "lock" ||
     value.state !== "locked"
   ) {
@@ -147,7 +168,7 @@ function parseResumeRotation(
       "sequence",
       "headHash",
     ]) ||
-    value.version !== SERVICE_VERSION ||
+    value.version !== XPC_PROTOCOL_VERSION ||
     value.operation !== "resume_rotation" ||
     value.state !== "consumed" ||
     value.vaultId !== expectedVaultId ||

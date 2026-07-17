@@ -2483,4 +2483,68 @@ BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
   return status;
 }
 
+- (AncPrivateVaultRotationPreparationStoreStatus)
+    recoverPersistedHostedAppendReceiptVaultId:(const uint8_t[16])vaultId
+                                authorityStore:
+                                    (AncPrivateVaultAuthorityStore *)
+                                        authorityStore
+                             custodyRepository:
+                                 (AncPrivateVaultCustodyRepository *)
+                                     custodyRepository
+                                    checkpoint:
+                                        (AncPrivateVaultRotationPreparationCheckpoint **)
+                                            checkpoint {
+  if (checkpoint != NULL)
+    *checkpoint = nil;
+  if (vaultId == NULL ||
+      object_getClass(self) != AncPrivateVaultRotationPreparationStore.class ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class ||
+      AncRotationPreparationInBorrowScope())
+    return AncPrivateVaultRotationPreparationStoreStatusInvalid;
+  NSString *vaultHex = AncRotationPreparationHex(
+      vaultId, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+  if (vaultHex.length != 32)
+    return AncPrivateVaultRotationPreparationStoreStatusInvalid;
+  NSData *receipt = nil;
+  AncPrivateVaultRotationPreparationStoreStatus read =
+      AncRotationPreparationReadCleanupReceipt(self.keychain, vaultHex,
+                                               &receipt);
+  if (read != AncPrivateVaultRotationPreparationStoreStatusOK)
+    return read;
+  AncPrivateVaultRotationAppendReceipt *decoded =
+      AncPrivateVaultRotationAppendReceiptDecode(receipt);
+  if (decoded == nil)
+    return AncPrivateVaultRotationPreparationStoreStatusCorrupt;
+  if (![decoded.vaultId isEqualToString:vaultHex])
+    return AncPrivateVaultRotationPreparationStoreStatusConflict;
+  AncPrivateVaultRotationPreparationCheckpoint *current = nil;
+  read = [self readVaultId:vaultId checkpoint:&current handle:nil];
+  if (read != AncPrivateVaultRotationPreparationStoreStatusOK || current == nil)
+    return read == AncPrivateVaultRotationPreparationStoreStatusOK
+               ? AncPrivateVaultRotationPreparationStoreStatusCorrupt
+               : read;
+  AncPrivateVaultRotationPreparationSnapshot snapshot = current.snapshot;
+  if (snapshot.phase ==
+          ANC_PV_ROTATION_PREPARATION_PHASE_AWAITING_CONTROL_COMMIT ||
+      snapshot.phase == ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED) {
+    if (decoded.sequence < snapshot.expected_sequence)
+      return AncPrivateVaultRotationPreparationStoreStatusNotFound;
+    if (decoded.sequence > snapshot.expected_sequence)
+      return AncPrivateVaultRotationPreparationStoreStatusConflict;
+  } else if (snapshot.phase == ANC_PV_ROTATION_PREPARATION_PHASE_CLEANED) {
+    if (snapshot.base_sequence == UINT64_MAX ||
+        decoded.sequence != snapshot.base_sequence + 1)
+      return AncPrivateVaultRotationPreparationStoreStatusConflict;
+  } else {
+    return AncPrivateVaultRotationPreparationStoreStatusNotFound;
+  }
+  return [self cleanConsumedVaultId:vaultId
+                            receipt:receipt
+                     authorityStore:authorityStore
+                  custodyRepository:custodyRepository
+                         checkpoint:checkpoint];
+}
+
 @end

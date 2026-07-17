@@ -15,7 +15,7 @@
 #define PV_SERVICE_REQUIREMENT                                                 \
   "anchor apple generic and identifier \"" PV_SERVICE_IDENTIFIER               \
   "\" and certificate leaf[subject.OU] = \"" PV_SERVICE_TEAM_IDENTIFIER "\""
-#define PV_PROTOCOL_VERSION 1
+#define PV_PROTOCOL_VERSION 2
 #define PV_MAXIMUM_REPLY_FIELDS 9
 #define PV_MAXIMUM_REPLY_STRING_BYTES 64
 #define PV_REQUEST_TIMEOUT_NANOSECONDS (2LL * NSEC_PER_SEC)
@@ -38,6 +38,7 @@ struct PVParsedReply {
   PVFailure failure = PVFailure::Connection;
   bool available = false;
   char state[16] = {0};
+  char rotationAckState[16] = {0};
   char vaultID[33] = {0};
   char headHash[65] = {0};
   uint64_t custodyGeneration = 0;
@@ -89,6 +90,7 @@ struct PVAsyncRequest {
   PVFailure failure = PVFailure::Connection;
   bool available = false;
   char state[16] = {0};
+  char rotationAckState[16] = {0};
   char vaultID[33] = {0};
   char headHash[65] = {0};
   uint64_t custodyGeneration = 0;
@@ -188,8 +190,9 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
     return parsed;
   }
 
-  const char *const healthKeys[] = {"version", "ok", "requestId", "state",
-                                    "available"};
+  const char *const healthKeys[] = {"version", "ok", "requestId",
+                                    "state",   "available",
+                                    "rotationAckState"};
   const char *const lockKeys[] = {"version", "ok", "requestId", "state"};
   const char *const rotationKeys[] = {
       "version",           "ok",       "requestId",
@@ -198,7 +201,7 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
   };
   const bool validKeys =
       operation == PVOperation::Health
-          ? PVHasExactKeys(reply, healthKeys, 5)
+          ? PVHasExactKeys(reply, healthKeys, 6)
       : operation == PVOperation::Lock
           ? PVHasExactKeys(reply, lockKeys, 4)
           : PVHasExactKeys(reply, rotationKeys, 9);
@@ -217,8 +220,22 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
 
   if (operation == PVOperation::Health) {
     xpc_object_t availableValue = xpc_dictionary_get_value(reply, "available");
+    xpc_object_t rotationAckValue =
+        xpc_dictionary_get_value(reply, "rotationAckState");
+    const char *rotationAckState =
+        rotationAckValue == nullptr ||
+                xpc_get_type(rotationAckValue) != XPC_TYPE_STRING
+            ? nullptr
+            : xpc_dictionary_get_string(reply, "rotationAckState");
     if (availableValue == nullptr ||
         xpc_get_type(availableValue) != XPC_TYPE_BOOL ||
+        !PVStringIsBounded(rotationAckState,
+                           sizeof(parsed.rotationAckState) - 1) ||
+        (strcmp(rotationAckState, "unavailable") != 0 &&
+         strcmp(rotationAckState, "idle") != 0 &&
+         strcmp(rotationAckState, "pending") != 0 &&
+         strcmp(rotationAckState, "retrying") != 0 &&
+         strcmp(rotationAckState, "attention") != 0) ||
         (strcmp(state, "unavailable") != 0 &&
          strcmp(state, "uninitialized") != 0 && strcmp(state, "locked") != 0 &&
          strcmp(state, "unlocked") != 0 && strcmp(state, "closed") != 0)) {
@@ -226,10 +243,14 @@ PVParsedReply PVParseReply(xpc_object_t reply, PVOperation operation,
       return parsed;
     }
     parsed.available = xpc_dictionary_get_bool(reply, "available");
-    if (parsed.available != (strcmp(state, "unavailable") != 0)) {
+    if (parsed.available != (strcmp(state, "unavailable") != 0) ||
+        ((strcmp(state, "unavailable") == 0) !=
+         (strcmp(rotationAckState, "unavailable") == 0))) {
       parsed.failure = PVFailure::MalformedReply;
       return parsed;
     }
+    memcpy(parsed.rotationAckState, rotationAckState,
+           strlen(rotationAckState) + 1);
   } else if (operation == PVOperation::Lock) {
     if (strcmp(state, "locked") != 0) {
       parsed.failure = PVFailure::MalformedReply;
@@ -346,6 +367,8 @@ void PVExecute(napi_env env, void *data) {
     request->failure = parsed.failure;
     request->available = parsed.available;
     memcpy(request->state, parsed.state, sizeof(request->state));
+    memcpy(request->rotationAckState, parsed.rotationAckState,
+           sizeof(request->rotationAckState));
     memcpy(request->vaultID, parsed.vaultID, sizeof(request->vaultID));
     memcpy(request->headHash, parsed.headHash, sizeof(request->headHash));
     request->custodyGeneration = parsed.custodyGeneration;
@@ -407,6 +430,8 @@ void PVComplete(napi_env env, napi_status status, void *data) {
       napi_value available;
       napi_get_boolean(env, request->available, &available);
       napi_set_named_property(env, result, "available", available);
+      PVSetString(env, result, "rotationAckState",
+                  request->rotationAckState);
     } else if (request->operation == PVOperation::ResumeRotation) {
       PVSetString(env, result, "vaultId", request->vaultID);
       PVSetString(env, result, "headHash", request->headHash);

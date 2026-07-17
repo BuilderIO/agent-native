@@ -41,10 +41,11 @@ describe("Private Vault native service client", () => {
   it("normalizes the exact health and lock service contracts", async () => {
     await expect(
       clientFor({
-        version: 1,
+        version: 2,
         operation: "health",
         state: "locked",
         available: true,
+        rotationAckState: "idle",
       }).health(),
     ).resolves.toEqual({
       version: 1,
@@ -54,9 +55,10 @@ describe("Private Vault native service client", () => {
       available: true,
       ready: true,
       unlocked: false,
+      rotationAckState: "idle",
     });
     await expect(
-      clientFor({ version: 1, operation: "lock", state: "locked" }).lock(),
+      clientFor({ version: 2, operation: "lock", state: "locked" }).lock(),
     ).resolves.toEqual({
       version: 1,
       suite: "anc/v1",
@@ -68,7 +70,7 @@ describe("Private Vault native service client", () => {
   it("binds rotation resume to one exact vault and proof tuple", async () => {
     const vaultId = "00112233445566778899aabbccddeeff";
     const request = vi.fn(async () => ({
-      version: 1,
+      version: 2,
       operation: "resume_rotation",
       state: "consumed",
       vaultId,
@@ -107,7 +109,7 @@ describe("Private Vault native service client", () => {
       const malformed = createPrivateVaultNativeServiceClientForTest(
         async () => ({
           request: vi.fn(async () => ({
-            version: 1,
+            version: 2,
             operation: "resume_rotation",
             state: "consumed",
             vaultId,
@@ -128,16 +130,16 @@ describe("Private Vault native service client", () => {
   it("fails closed for unavailable, malformed, oversized, or unknown replies", async () => {
     const hostileValues = [
       null,
-      { version: 1, operation: "health", state: "locked", available: false },
+      { version: 2, operation: "health", state: "locked", available: false },
       {
-        version: 1,
+        version: 2,
         operation: "health",
         state: "locked",
         available: true,
         vaultId: "forbidden",
       },
       {
-        version: 1,
+        version: 2,
         operation: "health",
         state: "x".repeat(10_000),
         available: true,
@@ -178,13 +180,14 @@ describe("Private Vault native service client", () => {
         if (operation === "health") {
           await healthGate;
           return {
-            version: 1,
+            version: 2,
             operation: "health",
             state: "locked",
             available: true,
+            rotationAckState: "retrying",
           };
         }
-        return { version: 1, operation: "lock", state: "locked" };
+        return { version: 2, operation: "lock", state: "locked" };
       },
     );
     const client = createPrivateVaultNativeServiceClientForTest(async () => ({
