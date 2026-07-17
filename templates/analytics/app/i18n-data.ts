@@ -10826,6 +10826,7 @@ const translatedFeatureFlagAdminTranslations = {
     agents: {
       featureFlags: "功能开关",
       featureFlagsDescription: "查看已注册应用开关，并进行可逆的发布调整。",
+      reloadFlags: "重新加载开关",
       flagsUnavailable: "功能开关不可用",
       flagsUnreachable: "无法连接工作区目录。连接恢复后重试。",
       flagsEmpty: "没有应用报告功能开关",
@@ -10846,6 +10847,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "Indicadores de funciones",
       featureFlagsDescription:
         "Revisa los indicadores de las aplicaciones registradas y aplica cambios de lanzamiento reversibles.",
+      reloadFlags: "Volver a cargar indicadores",
       flagsUnavailable: "Los indicadores de funciones no están disponibles",
       flagsUnreachable:
         "No se pudo acceder al directorio del espacio de trabajo. Inténtalo de nuevo cuando esté disponible.",
@@ -10870,6 +10872,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "Indicateurs de fonctionnalités",
       featureFlagsDescription:
         "Examinez les indicateurs d'applications enregistrées et appliquez des changements de déploiement réversibles.",
+      reloadFlags: "Recharger les indicateurs",
       flagsUnavailable: "Les indicateurs de fonctionnalités sont indisponibles",
       flagsUnreachable:
         "Le répertoire de l'espace de travail est inaccessible. Réessayez lorsqu'il sera disponible.",
@@ -10894,6 +10897,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "Funktionsschalter",
       featureFlagsDescription:
         "Prüfe registrierte App-Schalter und nimm bewusste, rückgängig machbare Rollout-Änderungen vor.",
+      reloadFlags: "Funktionsschalter neu laden",
       flagsUnavailable: "Funktionsschalter sind nicht verfügbar",
       flagsUnreachable:
         "Das Arbeitsbereichsverzeichnis konnte nicht erreicht werden. Versuche es erneut, wenn die Verbindung verfügbar ist.",
@@ -10918,6 +10922,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "Sinalizadores de recursos",
       featureFlagsDescription:
         "Revise sinalizadores de apps registrados e faça mudanças de lançamento reversíveis.",
+      reloadFlags: "Recarregar sinalizadores",
       flagsUnavailable: "Sinalizadores de recursos indisponíveis",
       flagsUnreachable:
         "Não foi possível acessar o diretório do espaço de trabalho. Tente novamente quando estiver disponível.",
@@ -10942,6 +10947,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "機能フラグ",
       featureFlagsDescription:
         "登録済みアプリのフラグを確認し、元に戻せるロールアウト変更を行います。",
+      reloadFlags: "機能フラグを再読み込み",
       flagsUnavailable: "機能フラグを利用できません",
       flagsUnreachable:
         "ワークスペースディレクトリに接続できません。接続可能になったら再試行してください。",
@@ -10966,6 +10972,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "기능 플래그",
       featureFlagsDescription:
         "등록된 앱 플래그를 검토하고 되돌릴 수 있는 출시 변경을 적용합니다.",
+      reloadFlags: "기능 플래그 다시 불러오기",
       flagsUnavailable: "기능 플래그를 사용할 수 없습니다",
       flagsUnreachable:
         "작업 공간 디렉터리에 연결할 수 없습니다. 연결되면 다시 시도하세요.",
@@ -10989,6 +10996,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "फ़ीचर फ़्लैग",
       featureFlagsDescription:
         "पंजीकृत ऐप फ़्लैग देखें और वापस किए जा सकने वाले रोलआउट बदलाव करें।",
+      reloadFlags: "फ़ीचर फ़्लैग फिर से लोड करें",
       flagsUnavailable: "फ़ीचर फ़्लैग उपलब्ध नहीं हैं",
       flagsUnreachable:
         "वर्कस्पेस डायरेक्टरी तक नहीं पहुँचा जा सका। कनेक्शन उपलब्ध होने पर फिर कोशिश करें।",
@@ -11010,6 +11018,7 @@ const translatedFeatureFlagAdminTranslations = {
       featureFlags: "علامات الميزات",
       featureFlagsDescription:
         "راجع علامات التطبيقات المسجلة ونفّذ تغييرات طرح قابلة للعكس.",
+      reloadFlags: "إعادة تحميل علامات الميزات",
       flagsUnavailable: "علامات الميزات غير متاحة",
       flagsUnreachable:
         "تعذر الوصول إلى دليل مساحة العمل. أعد المحاولة عند توفر الاتصال.",
