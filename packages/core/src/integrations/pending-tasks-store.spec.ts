@@ -235,4 +235,89 @@ describe("integration pending task store", () => {
       "discord-task-retry",
     ]);
   });
+
+  it("atomically replaces a claimed task with a delivery-only payload", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { stageTaskDeliveryPayload } = await loadStore();
+    const payload = JSON.stringify({
+      kind: "response-delivery",
+      message: { text: "Done", platformContext: {} },
+    });
+
+    await stageTaskDeliveryPayload("slack-task", payload);
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("SET payload = ?, updated_at = ?"),
+      );
+    expect(update?.sql).toContain("WHERE id = ? AND status = 'processing'");
+    expect(update?.args).toEqual([payload, expect.any(Number), "slack-task"]);
+  });
+
+  it("fails closed when a delivery payload loses the processing-task race", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    const { stageTaskDeliveryPayload } = await loadStore();
+
+    await expect(
+      stageTaskDeliveryPayload("raced-task", '{"kind":"response-delivery"}'),
+    ).rejects.toThrow("no longer claimable");
+  });
+
+  it("atomically requeues the enriched delivery payload", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { markTaskDeliveryRetryable } = await loadStore();
+    const payload = JSON.stringify({
+      kind: "response-delivery",
+      deliveryReceipt: { status: "delivered" },
+      userMessageId: "user-1",
+      assistantMessageId: "assistant-1",
+    });
+
+    await markTaskDeliveryRetryable(
+      "slack-task",
+      payload,
+      "history checkpoint failed",
+    );
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" &&
+          query.sql.includes("SET status = ?, payload = ?"),
+      );
+    expect(update?.sql).toContain("WHERE id = ? AND status = 'processing'");
+    expect(update?.args).toEqual([
+      "pending",
+      payload,
+      expect.any(Number),
+      "history checkpoint failed",
+      "slack-task",
+    ]);
+  });
+
+  it("fails a broken delivery transition without overwriting another state", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 1 });
+    const { failTaskDeliveryTransition } = await loadStore();
+
+    await failTaskDeliveryTransition("slack-task", "atomic transition failed");
+
+    const update = executeMock.mock.calls
+      .map(([query]) => query)
+      .find(
+        (query): query is { sql: string; args: unknown[] } =>
+          typeof query !== "string" && query.sql.includes("payload = ?"),
+      );
+    expect(update?.sql).toContain("WHERE id = ? AND status = 'processing'");
+    expect(update?.args).toEqual([
+      "failed",
+      expect.any(Number),
+      "atomic transition failed",
+      "{}",
+      "slack-task",
+    ]);
+  });
 });

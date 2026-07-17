@@ -4,6 +4,7 @@ import {
   appendA2AArtifactLinks,
   buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
+  type A2AArtifactIdentity,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
 import { collectFinalResponseTextFromAgentEvents } from "../a2a/response-text.js";
@@ -62,6 +63,7 @@ import { signInternalToken } from "./internal-token.js";
 import {
   insertPendingTask,
   isDuplicateEventError,
+  stageTaskDeliveryPayload,
   type PendingTask,
 } from "./pending-tasks-store.js";
 import { integrationScopeSubjectKey } from "./scope-store.js";
@@ -69,6 +71,7 @@ import { getThreadMapping, saveThreadMapping } from "./thread-mapping-store.js";
 import type {
   PlatformAdapter,
   IncomingMessage,
+  OutgoingMessage,
   PlatformDeliveryReceipt,
 } from "./types.js";
 import {
@@ -91,6 +94,27 @@ type ToolDoneEvent = {
   isError?: boolean;
   completedSideEffect?: boolean;
 };
+
+export type IntegrationResponseDeliveryTaskPayload = {
+  kind: "response-delivery";
+  incoming: IncomingMessage;
+  message: OutgoingMessage;
+  placeholderRef?: string;
+  internalThreadId?: string;
+  userMessageId?: string;
+  assistantMessageId?: string;
+  deliveryReceipt?: PlatformDeliveryReceipt;
+  deliveredAt?: string;
+  artifacts?: A2AArtifactIdentity[];
+};
+
+export type ProcessIntegrationTaskResult =
+  | { status: "completed" }
+  | {
+      status: "delivery-pending";
+      payload: IntegrationResponseDeliveryTaskPayload;
+      errorMessage: string;
+    };
 
 /**
  * Build a stable per-event dedup key from the incoming message. The same
@@ -546,7 +570,7 @@ export function resolveBaseUrl(event: H3Event): string {
 export async function processIntegrationTask(
   task: PendingTask,
   options: WebhookHandlerOptions,
-): Promise<void> {
+): Promise<ProcessIntegrationTaskResult> {
   const parsed = JSON.parse(task.payload) as {
     incoming: IncomingMessage;
     placeholderRef?: string;
@@ -555,7 +579,7 @@ export async function processIntegrationTask(
 
   await recordInboundIntegrationAudit(task, parsed.incoming);
 
-  await processIncomingMessage(parsed.incoming, options, {
+  return processIncomingMessage(parsed.incoming, options, {
     taskId: task.id,
     attempts: task.attempts,
     placeholderRef: parsed.placeholderRef,
@@ -615,7 +639,7 @@ async function processIncomingMessage(
     orgId?: string;
     principalType?: "user" | "service";
   } = {},
-): Promise<void> {
+): Promise<ProcessIntegrationTaskResult> {
   const {
     adapter,
     systemPrompt,
@@ -698,10 +722,48 @@ async function processIncomingMessage(
     const outgoing = adapter.formatAgentResponse(
       "This channel or requester has reached its configured AI usage budget. An admin can review the budget in Messaging settings.",
     );
-    await adapter.sendResponse(outgoing, incoming, {
-      placeholderRef: opts.placeholderRef,
-    });
-    return;
+    const deliveryPayload: IntegrationResponseDeliveryTaskPayload = {
+      kind: "response-delivery",
+      incoming,
+      message: outgoing,
+      ...(opts.placeholderRef ? { placeholderRef: opts.placeholderRef } : {}),
+    };
+    try {
+      if (opts.taskId) {
+        await stageTaskDeliveryPayload(
+          opts.taskId,
+          JSON.stringify(deliveryPayload),
+        );
+      }
+      const receipt = await adapter.sendResponse(outgoing, incoming, {
+        placeholderRef: opts.placeholderRef,
+      });
+      if (receipt?.status !== "delivered") {
+        throw new Error(
+          `${incoming.platform} response completed without delivery proof`,
+        );
+      }
+      if (opts.taskId) {
+        await stageTaskDeliveryPayload(
+          opts.taskId,
+          JSON.stringify({
+            ...deliveryPayload,
+            deliveryReceipt: receipt,
+            deliveredAt: new Date().toISOString(),
+          }),
+        );
+      }
+      return { status: "completed" };
+    } catch (error) {
+      return {
+        status: "delivery-pending",
+        payload: deliveryPayload,
+        errorMessage:
+          error instanceof Error
+            ? error.message.slice(0, 1000)
+            : `${incoming.platform} response delivery failed`,
+      };
+    }
   }
 
   let threadId: string;
@@ -811,7 +873,7 @@ async function processIncomingMessage(
 
   // Wait for the run to complete inside this fresh function execution.
   // We use a Promise so the processor endpoint can await the full lifecycle.
-  await new Promise<void>((resolve) => {
+  return new Promise<ProcessIntegrationTaskResult>((resolve) => {
     startRun(
       runId,
       threadId,
@@ -921,6 +983,14 @@ async function processIncomingMessage(
       async (completedRun: ActiveRun) => {
         let keepSlackInputWindow = false;
         let queuedA2AContinuation = false;
+        let outgoingForDelivery: OutgoingMessage | undefined;
+        let stagedDeliveryPayload:
+          | IntegrationResponseDeliveryTaskPayload
+          | undefined;
+        let threadCheckpoint:
+          | { userMessageId: string; assistantMessageId?: string }
+          | undefined;
+        let outcome: ProcessIntegrationTaskResult = { status: "completed" };
         try {
           queuedA2AContinuation = hasQueuedA2AContinuation(completedRun);
           const slackInputRequest =
@@ -1029,6 +1099,23 @@ async function processIncomingMessage(
             const outgoing = adapter.formatAgentResponse(responseText, {
               threadDeepLinkUrl,
             });
+            outgoingForDelivery = outgoing;
+            stagedDeliveryPayload = {
+              kind: "response-delivery",
+              incoming,
+              message: outgoing,
+              ...(opts.placeholderRef
+                ? { placeholderRef: opts.placeholderRef }
+                : {}),
+              internalThreadId: threadId,
+              artifacts: extractA2AArtifactIdentities(toolResults),
+            };
+            if (opts.taskId) {
+              await stageTaskDeliveryPayload(
+                opts.taskId,
+                JSON.stringify(stagedDeliveryPayload),
+              );
+            }
             let deliveryReceipt: void | PlatformDeliveryReceipt;
             if (queuedA2AContinuation && progress?.ref) {
               // Post substantive parent results as a normal thread reply while
@@ -1054,24 +1141,33 @@ async function processIncomingMessage(
                 placeholderRef: opts.placeholderRef,
               });
             }
-            const delivered = deliveryReceipt?.status === "delivered";
-            if (!delivered) {
+            if (deliveryReceipt?.status !== "delivered") {
               throw new Error(
                 `${incoming.platform} response completed without delivery proof`,
               );
             }
-            if (delivered) {
-              deliveredResponse = {
-                platform: incoming.platform,
-                status: "delivered",
-                text: outgoing.text,
-                deliveredAt: new Date().toISOString(),
-                ...(deliveryReceipt?.messageRefs?.length
-                  ? { messageRefs: deliveryReceipt.messageRefs }
-                  : {}),
-              };
+            const deliveredAt = new Date().toISOString();
+            stagedDeliveryPayload = {
+              ...stagedDeliveryPayload,
+              deliveryReceipt,
+              deliveredAt,
+            };
+            if (opts.taskId) {
+              await stageTaskDeliveryPayload(
+                opts.taskId,
+                JSON.stringify(stagedDeliveryPayload),
+              );
             }
-            if (slackInputRequest && delivered && incoming.senderId) {
+            deliveredResponse = {
+              platform: incoming.platform,
+              status: "delivered",
+              text: outgoing.text,
+              deliveredAt,
+              ...(deliveryReceipt.messageRefs?.length
+                ? { messageRefs: deliveryReceipt.messageRefs }
+                : {}),
+            };
+            if (slackInputRequest && incoming.senderId) {
               await setIntegrationAwaitingInput({
                 platform: "slack",
                 externalThreadId: incoming.externalThreadId,
@@ -1113,7 +1209,7 @@ async function processIncomingMessage(
           }
 
           // Persist thread data
-          await persistThreadData(
+          threadCheckpoint = await persistThreadData(
             threadId,
             incoming.text,
             completedRun,
@@ -1121,6 +1217,24 @@ async function processIncomingMessage(
             deliveredResponse,
             toolResults,
           );
+          if (outgoingForDelivery && stagedDeliveryPayload) {
+            if (!threadCheckpoint) {
+              throw new Error("Integration response history checkpoint failed");
+            }
+            stagedDeliveryPayload = {
+              ...stagedDeliveryPayload,
+              userMessageId: threadCheckpoint.userMessageId,
+              ...(threadCheckpoint.assistantMessageId
+                ? { assistantMessageId: threadCheckpoint.assistantMessageId }
+                : {}),
+            };
+            if (opts.taskId) {
+              await stageTaskDeliveryPayload(
+                opts.taskId,
+                JSON.stringify(stagedDeliveryPayload),
+              );
+            }
+          }
           await recordIntegrationUsage({
             usage,
             ownerEmail,
@@ -1141,9 +1255,62 @@ async function processIncomingMessage(
             `[integrations] Error sending response to ${incoming.platform}:`,
             err,
           );
+          if (outgoingForDelivery) {
+            const errorMessage =
+              err instanceof Error
+                ? err.message.slice(0, 1000)
+                : `${incoming.platform} response delivery failed`;
+            if (!stagedDeliveryPayload?.deliveryReceipt) {
+              threadCheckpoint = await persistThreadData(
+                threadId,
+                incoming.text,
+                completedRun,
+                thread,
+                undefined,
+                collectToolResultSummaries(completedRun),
+              );
+            }
+            if (usage) {
+              await recordIntegrationUsage({
+                usage,
+                ownerEmail,
+                appId: options.appId,
+                runId,
+                threadId,
+                taskId: opts.taskId,
+                orgId: orgId ?? undefined,
+                incoming,
+              }).catch(() => {});
+              try {
+                await settleApplicableIntegrationBudgets(
+                  budgetReservations.reservations,
+                  usage,
+                );
+                budgetsSettled = true;
+              } catch {}
+            }
+            outcome = {
+              status: "delivery-pending",
+              payload: {
+                ...(stagedDeliveryPayload ?? {
+                  kind: "response-delivery",
+                  incoming,
+                  message: outgoingForDelivery,
+                  internalThreadId: threadId,
+                }),
+                ...(threadCheckpoint?.userMessageId
+                  ? { userMessageId: threadCheckpoint.userMessageId }
+                  : {}),
+                ...(threadCheckpoint?.assistantMessageId
+                  ? { assistantMessageId: threadCheckpoint.assistantMessageId }
+                  : {}),
+              },
+              errorMessage,
+            };
+            return;
+          }
           // A queued continuation owns the final platform response. Later
-          // bookkeeping failures (for example, persisting this parent run)
-          // must not close its resumable native stream with a false failure.
+          // bookkeeping failures must not close its stream with a false failure.
           if (queuedA2AContinuation) return;
           // Last-ditch: try to post a brief apology so the thread isn't silent.
           try {
@@ -1170,7 +1337,7 @@ async function processIncomingMessage(
               budgetReservations.reservations,
             );
           }
-          resolve();
+          resolve(outcome);
         }
       },
       // Integration workers are ordinary self-dispatched serverless requests,
@@ -1583,7 +1750,7 @@ async function persistThreadData(
     messageRefs?: string[];
   },
   toolResults: A2AToolResultSummary[] = [],
-): Promise<void> {
+): Promise<{ userMessageId: string; assistantMessageId?: string } | undefined> {
   try {
     let repo: any;
     try {
@@ -1608,12 +1775,12 @@ async function persistThreadData(
     );
     if (assistantMsg) {
       assistantMsg.metadata.integrationDeliveryAttempted = true;
+      const artifactIdentities = extractA2AArtifactIdentities(toolResults);
+      if (artifactIdentities.length > 0) {
+        assistantMsg.metadata.integrationArtifacts = artifactIdentities;
+      }
       if (deliveredResponse) {
         assistantMsg.metadata.integrationDelivery = deliveredResponse;
-        const artifactIdentities = extractA2AArtifactIdentities(toolResults);
-        if (artifactIdentities.length > 0) {
-          assistantMsg.metadata.integrationArtifacts = artifactIdentities;
-        }
       }
     }
 
@@ -1630,7 +1797,98 @@ async function persistThreadData(
       meta.preview || thread?.preview || "",
       repo.messages.length,
     );
+    return {
+      userMessageId: userMsg.id,
+      ...(assistantMsg?.id ? { assistantMessageId: assistantMsg.id } : {}),
+    };
   } catch {
     // Best-effort persistence
+    return undefined;
   }
+}
+
+export async function recordIntegrationResponseDelivery(
+  payload: IntegrationResponseDeliveryTaskPayload,
+  receipt: PlatformDeliveryReceipt,
+): Promise<void> {
+  if (!payload.internalThreadId) return;
+  const thread = await getThread(payload.internalThreadId);
+  if (!thread) throw new Error("Integration delivery thread was not found");
+
+  let repo: any;
+  try {
+    repo = JSON.parse(thread.threadData || "{}");
+  } catch {
+    throw new Error("Integration delivery thread data is invalid");
+  }
+  if (!Array.isArray(repo.messages)) {
+    if (payload.userMessageId || payload.assistantMessageId) {
+      throw new Error("Integration delivery thread has no message history");
+    }
+    repo.messages = [];
+  }
+  const userMsg = payload.userMessageId
+    ? repo.messages.find(
+        (message: any) => message?.id === payload.userMessageId,
+      )
+    : undefined;
+  if (payload.userMessageId && !userMsg) {
+    throw new Error(
+      "Integration delivery checkpoint user message was not found",
+    );
+  }
+  let assistantMsg = payload.assistantMessageId
+    ? repo.messages.find(
+        (message: any) => message?.id === payload.assistantMessageId,
+      )
+    : undefined;
+  if (payload.assistantMessageId && !assistantMsg) {
+    throw new Error("Integration delivery checkpoint message was not found");
+  }
+  if (!assistantMsg) {
+    const createdAt = payload.deliveredAt ?? new Date().toISOString();
+    if (!userMsg) {
+      repo.messages.push({
+        id: `msg-${Date.now()}-user-delivery-retry`,
+        role: "user",
+        content: [{ type: "text", text: payload.incoming.text }],
+        createdAt,
+      });
+    }
+    assistantMsg = {
+      id: `msg-${Date.now()}-assistant-delivery-retry`,
+      role: "assistant",
+      content: [{ type: "text", text: payload.message.text }],
+      createdAt,
+      metadata: {
+        integrationDeliveryAttempted: true,
+        ...(payload.artifacts?.length
+          ? { integrationArtifacts: payload.artifacts }
+          : {}),
+      },
+    };
+    repo.messages.push(assistantMsg);
+  }
+  if (!assistantMsg.metadata || typeof assistantMsg.metadata !== "object") {
+    assistantMsg.metadata = {};
+  }
+  assistantMsg.metadata.integrationDeliveryAttempted = true;
+  assistantMsg.metadata.integrationDelivery = {
+    platform: payload.incoming.platform,
+    status: "delivered",
+    text: payload.message.text,
+    deliveredAt: payload.deliveredAt ?? new Date().toISOString(),
+    ...(receipt.messageRefs?.length
+      ? { messageRefs: receipt.messageRefs }
+      : {}),
+  };
+
+  const meta = extractThreadMeta(repo);
+  await updateThreadData(
+    payload.internalThreadId,
+    JSON.stringify(repo),
+    meta.title || thread.title || "Integration Chat",
+    meta.preview || thread.preview || "",
+    repo.messages.length,
+  );
 }

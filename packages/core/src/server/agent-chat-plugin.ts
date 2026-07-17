@@ -14,6 +14,7 @@ import {
 } from "h3";
 
 import {
+  appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
   type A2AToolResultSummary,
 } from "../a2a/artifact-response.js";
@@ -27,6 +28,7 @@ import {
   createA2AApproval,
   updateTaskStatusMessage,
 } from "../a2a/task-store.js";
+import type { Message as A2AMessage } from "../a2a/types.js";
 import type { ActionHttpConfig } from "../action.js";
 import {
   canUpdateAgentAppModelDefaultSettings,
@@ -274,6 +276,60 @@ export { shouldBlockInProductCodeEditingSurface };
 export { loadRunCodeToolEntries };
 export { shouldDisableRecurringJobsRuntime };
 export { finalizeClaimedAgentChatProcessRunFailure };
+
+export function createSerializedA2ATaskStatusWriter(
+  taskId: string,
+  writeStatus: (
+    taskId: string,
+    message: A2AMessage,
+  ) => Promise<void> = updateTaskStatusMessage,
+  onError: (error: unknown) => void = (error) => {
+    console.error(
+      `[A2A] Failed to persist recoverable artifact message for task ${taskId}:`,
+      error,
+    );
+  },
+): {
+  enqueue: (message: A2AMessage) => void;
+  flush: () => Promise<void>;
+} {
+  const maxAttempts = 3;
+  let latestWrite: Promise<void> = Promise.resolve();
+
+  const persistWithRetry = async (message: A2AMessage): Promise<void> => {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      try {
+        await writeStatus(taskId, message);
+        return;
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    try {
+      onError(lastError);
+    } catch {
+      // The durable-write error below remains the authoritative failure.
+    }
+    throw lastError;
+  };
+
+  return {
+    enqueue(message) {
+      // A newer checkpoint supersedes an earlier failed checkpoint, so keep
+      // the queue moving. flush() still rejects when the latest write itself
+      // cannot be made durable after bounded retries.
+      latestWrite = latestWrite
+        .catch(() => undefined)
+        .then(() => {
+          return persistWithRetry(message);
+        });
+    },
+    flush() {
+      return latestWrite;
+    },
+  };
+}
 
 export function buildLeanRunPolicyPrompt(
   codeEditingSurfaceRestriction: string,
@@ -1468,6 +1524,8 @@ export function createAgentChatPlugin(
           const a2aEvents: AgentChatEvent[] = [];
           const a2aToolResults: A2AToolResultSummary[] = [];
           let lastRecoverableArtifactText = "";
+          const recoverableArtifactStatusWriter =
+            createSerializedA2ATaskStatusWriter(context.taskId);
           const controller = new AbortController();
 
           console.log(
@@ -1504,16 +1562,27 @@ export function createAgentChatPlugin(
                     isError: event.isError,
                     completedSideEffect: event.completedSideEffect,
                   });
-                  const recoverableArtifactText =
+                  const artifactBaseUrl = resolveArtifactBaseUrl(context.event);
+                  const recoverableArtifactMessage =
                     buildA2ARecoverableArtifactMessage(a2aToolResults, {
-                      baseUrl: resolveArtifactBaseUrl(context.event),
+                      baseUrl: artifactBaseUrl,
                     });
+                  const recoverableArtifactText = recoverableArtifactMessage
+                    ? appendA2AArtifactLinks(
+                        recoverableArtifactMessage,
+                        a2aToolResults,
+                        {
+                          baseUrl: artifactBaseUrl,
+                          includePersistedArtifactMarker: true,
+                        },
+                      )
+                    : null;
                   if (
                     recoverableArtifactText &&
                     recoverableArtifactText !== lastRecoverableArtifactText
                   ) {
                     lastRecoverableArtifactText = recoverableArtifactText;
-                    updateTaskStatusMessage(context.taskId, {
+                    recoverableArtifactStatusWriter.enqueue({
                       role: "agent",
                       metadata: { agentNativeRecoverableArtifacts: true },
                       parts: [
@@ -1522,11 +1591,6 @@ export function createAgentChatPlugin(
                           text: recoverableArtifactText,
                         },
                       ],
-                    }).catch((err) => {
-                      console.error(
-                        `[A2A] Failed to persist recoverable artifact message for task ${context.taskId}:`,
-                        err,
-                      );
                     });
                   }
                 } else if (event.type === "error") {
@@ -1547,6 +1611,10 @@ export function createAgentChatPlugin(
                 isInBackgroundFunctionRuntime(),
             },
           );
+
+          // The continuation can observe terminal output immediately, so make
+          // its latest mutation checkpoint durable first.
+          await recoverableArtifactStatusWriter.flush();
 
           const approval = [...a2aEvents]
             .reverse()

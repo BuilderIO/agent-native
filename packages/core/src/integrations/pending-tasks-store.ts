@@ -354,6 +354,67 @@ export async function markTaskRetryable(
   });
 }
 
+export async function stageTaskDeliveryPayload(
+  id: string,
+  payload: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const now = Date.now();
+  const result = await client.execute({
+    sql: `UPDATE integration_pending_tasks
+          SET payload = ?, updated_at = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: [payload, now, id],
+  });
+  const affected = Number(
+    (result as { rowsAffected?: number }).rowsAffected ??
+      (result as { rowCount?: number }).rowCount ??
+      0,
+  );
+  if (affected === 0) {
+    throw new Error("Integration task is no longer claimable for delivery");
+  }
+}
+
+export async function markTaskDeliveryRetryable(
+  id: string,
+  payload: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  const client = getDbExec();
+  const result = await client.execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, payload = ?, updated_at = ?, error_message = ?
+          WHERE id = ? AND status = 'processing'`,
+    args: ["pending", payload, Date.now(), errorMessage.slice(0, 2000), id],
+  });
+  const affected = Number(
+    (result as { rowsAffected?: number }).rowsAffected ??
+      (result as { rowCount?: number }).rowCount ??
+      0,
+  );
+  if (affected === 0) {
+    throw new Error(
+      "Integration task is no longer claimable for delivery retry",
+    );
+  }
+}
+
+export async function failTaskDeliveryTransition(
+  id: string,
+  errorMessage: string,
+): Promise<void> {
+  await ensureTable();
+  await getDbExec().execute({
+    sql: `UPDATE integration_pending_tasks
+          SET status = ?, updated_at = ?, error_message = ?, payload = ?, external_event_key = NULL
+          WHERE id = ? AND status = 'processing'`,
+    args: ["failed", Date.now(), errorMessage.slice(0, 2000), "{}", id],
+  });
+}
+
 /** Mark a task as failed and stash an error message. */
 export async function markTaskFailed(
   id: string,

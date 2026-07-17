@@ -172,10 +172,18 @@ async function processClaimedContinuation(
   });
   const deadline = Date.now() + PROCESSOR_WAIT_MS;
   let task: Task | null = null;
+  let latestRecoverableArtifactText: string | null = null;
 
   try {
     while (Date.now() < deadline) {
       task = await client.getTask(continuation.a2aTaskId);
+      const recoverableArtifactText = extractVerifiedRecoverableArtifactText(
+        task,
+        continuation.agentUrl,
+      );
+      if (recoverableArtifactText) {
+        latestRecoverableArtifactText = recoverableArtifactText;
+      }
       if (TERMINAL_STATES.has(task.status.state)) break;
       await reportA2AContinuationProgress(continuation, progress, task);
       await new Promise((resolve) => setTimeout(resolve, POLL_INTERVAL_MS));
@@ -183,6 +191,17 @@ async function processClaimedContinuation(
   } catch (err) {
     if (isTransientA2APollError(err)) {
       if (shouldStopPollingRemoteTask(continuation)) {
+        if (latestRecoverableArtifactText) {
+          await deliverAndCompleteA2AContinuation(
+            continuation,
+            adapter,
+            formatRecoverableArtifactFallbackText(
+              latestRecoverableArtifactText,
+            ),
+            progress,
+          );
+          return;
+        }
         await notifyAndFailA2AContinuation(
           continuation,
           adapter,
@@ -209,6 +228,15 @@ async function processClaimedContinuation(
 
   if (!task || !TERMINAL_STATES.has(task.status.state)) {
     if (shouldStopPollingRemoteTask(continuation)) {
+      if (latestRecoverableArtifactText) {
+        await deliverAndCompleteA2AContinuation(
+          continuation,
+          adapter,
+          formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+          progress,
+        );
+        return;
+      }
       await notifyAndFailA2AContinuation(
         continuation,
         adapter,
@@ -222,6 +250,15 @@ async function processClaimedContinuation(
   }
 
   if (task.status.state !== "completed") {
+    if (latestRecoverableArtifactText) {
+      await deliverAndCompleteA2AContinuation(
+        continuation,
+        adapter,
+        formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+        progress,
+      );
+      return;
+    }
     const reason =
       extractTaskText(task) ||
       `Remote A2A task ${continuation.a2aTaskId} ended with state ${task.status.state}`;
@@ -234,6 +271,15 @@ async function processClaimedContinuation(
     continuation.agentUrl,
   );
   if (!text.trim()) {
+    if (latestRecoverableArtifactText) {
+      await deliverAndCompleteA2AContinuation(
+        continuation,
+        adapter,
+        formatRecoverableArtifactFallbackText(latestRecoverableArtifactText),
+        progress,
+      );
+      return;
+    }
     await notifyAndFailA2AContinuation(
       continuation,
       adapter,
@@ -738,6 +784,32 @@ function extractTaskText(task: Task): string {
     })
     .map((part) => part.text)
     .join("\n");
+}
+
+function extractVerifiedRecoverableArtifactText(
+  task: Task,
+  agentUrl: string,
+): string | null {
+  if (task.status.message?.metadata?.agentNativeRecoverableArtifacts !== true) {
+    return null;
+  }
+
+  const text = formatContinuationArtifactText(extractTaskText(task), agentUrl);
+  if (!text.trim()) return null;
+
+  // Require the signed identity ledger so arbitrary peer progress prose cannot
+  // prematurely complete the continuation.
+  const artifacts = extractA2AArtifactIdentities([
+    { tool: "call-agent", result: text },
+  ]);
+  return artifacts.length > 0 ? text : null;
+}
+
+function formatRecoverableArtifactFallbackText(text: string): string {
+  return text.replace(
+    "The agent is still working on the full response, but these verified artifacts already exist:",
+    "The downstream agent did not finish its full response, but these verified artifacts already exist:",
+  );
 }
 
 function formatContinuationArtifactText(
