@@ -9,6 +9,7 @@ export interface FeatureFlagMetadata {
   description?: string | null;
   defaultValue: boolean;
   rules: FeatureFlagRules;
+  enabledForCurrentUser?: boolean;
 }
 
 export interface FeatureFlagRules {

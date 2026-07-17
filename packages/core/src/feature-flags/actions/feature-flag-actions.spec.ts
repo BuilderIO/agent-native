@@ -43,6 +43,7 @@ vi.mock("../permissions.js", () => ({
 
 const defaultFeatureFlagRulesMock = vi.fn();
 const getFeatureFlagRulesMock = vi.fn();
+const evaluateFeatureFlagRulesMock = vi.fn();
 const normalizeFeatureFlagRulesMock = vi.fn((value) => value);
 const mutateFeatureFlagRulesMock = vi.fn(
   async (
@@ -54,6 +55,8 @@ const mutateFeatureFlagRulesMock = vi.fn(
 vi.mock("../store.js", () => ({
   defaultFeatureFlagRules: () => defaultFeatureFlagRulesMock(),
   getFeatureFlagRules: (...args: any[]) => getFeatureFlagRulesMock(...args),
+  evaluateFeatureFlagRules: (...args: any[]) =>
+    evaluateFeatureFlagRulesMock(...args),
   mutateFeatureFlagRules: (...args: any[]) =>
     mutateFeatureFlagRulesMock(...args),
   normalizeFeatureFlagRules: (...args: any[]) =>
@@ -91,6 +94,7 @@ beforeEach(() => {
     updatedAt: 123,
     updatedBy: "admin@example.com",
   });
+  evaluateFeatureFlagRulesMock.mockReturnValue(false);
 });
 
 describe("feature flag action contracts", () => {
@@ -125,6 +129,30 @@ describe("feature flag action contracts", () => {
       canManage: true,
     });
     expect(requireFeatureFlagManagerMock).toHaveBeenCalledOnce();
+  });
+
+  it("reports whether the delegated operator currently has each flag", async () => {
+    evaluateFeatureFlagRulesMock.mockReturnValue(true);
+
+    const result = await listAction.run(
+      {},
+      { caller: "a2a", userEmail: "admin@example.com", orgId: "org-1" },
+    );
+
+    expect(evaluateFeatureFlagRulesMock).toHaveBeenCalledWith(
+      "new-editor",
+      expect.objectContaining({ mode: "off" }),
+      {
+        userEmail: "admin@example.com",
+        userKey: "admin@example.com",
+        orgId: "org-1",
+      },
+    );
+    expect(result).toEqual(
+      expect.objectContaining({
+        flags: [expect.objectContaining({ enabledForCurrentUser: true })],
+      }),
+    );
   });
 
   it("keeps administrative mutation out of extensions and returns persisted rules", async () => {

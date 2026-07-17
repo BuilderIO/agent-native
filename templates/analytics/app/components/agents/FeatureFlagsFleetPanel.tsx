@@ -159,7 +159,7 @@ export function FeatureFlagsFleetPanel() {
           onClick={() => void flags.refetch()}
         >
           <IconRefresh className="me-2 size-4" />
-          {t("sidebar.retry")}
+          {t("agents.reloadFlags")}
         </Button>
       </div>
       {apps.map((app) => (
@@ -171,9 +171,9 @@ export function FeatureFlagsFleetPanel() {
                 <p className="text-xs text-muted-foreground">{app.reason}</p>
               ) : null}
             </div>
-            <Badge variant={isReady(app) ? "secondary" : "outline"}>
-              {statusLabel(app)}
-            </Badge>
+            {!isReady(app) ? (
+              <Badge variant="outline">{statusLabel(app)}</Badge>
+            ) : null}
           </div>
           {isReady(app) ? (
             <div className="p-4">
@@ -183,7 +183,17 @@ export function FeatureFlagsFleetPanel() {
                     !!flag.rules && typeof flag.defaultValue === "boolean",
                 )}
                 isPending={mutation.isPending}
-                error={mutation.error}
+                error={
+                  mutation.variables?.appId === appId(app)
+                    ? mutation.error
+                    : null
+                }
+                errorFlagKey={
+                  mutation.variables?.appId === appId(app)
+                    ? mutation.variables.key
+                    : null
+                }
+                showHeader={false}
                 onMutate={(input) =>
                   mutation.mutate(qualifyFleetMutation(appId(app), input))
                 }
