@@ -272,6 +272,19 @@ export async function claimPendingTask(
                AND active.status = 'processing'
                AND active.id <> integration_pending_tasks.id
            )
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks earlier
+             WHERE earlier.platform = integration_pending_tasks.platform
+               AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
+               AND earlier.status = 'pending'
+               AND (
+                 earlier.created_at < integration_pending_tasks.created_at
+                 OR (
+                   earlier.created_at = integration_pending_tasks.created_at
+                   AND earlier.id < integration_pending_tasks.id
+                 )
+               )
+           )
          RETURNING id, platform, external_thread_id, payload, owner_email, org_id, status, attempts, error_message, created_at, updated_at, completed_at`
       : `UPDATE integration_pending_tasks
          SET status = ?, attempts = attempts + 1, updated_at = ?
@@ -282,6 +295,19 @@ export async function claimPendingTask(
                AND active.external_thread_id = integration_pending_tasks.external_thread_id
                AND active.status = 'processing'
                AND active.id <> integration_pending_tasks.id
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM integration_pending_tasks earlier
+             WHERE earlier.platform = integration_pending_tasks.platform
+               AND earlier.external_thread_id = integration_pending_tasks.external_thread_id
+               AND earlier.status = 'pending'
+               AND (
+                 earlier.created_at < integration_pending_tasks.created_at
+                 OR (
+                   earlier.created_at = integration_pending_tasks.created_at
+                   AND earlier.id < integration_pending_tasks.id
+                 )
+               )
            )`,
     args: ["processing", now, id],
   });
@@ -407,12 +433,22 @@ export async function failTaskDeliveryTransition(
   errorMessage: string,
 ): Promise<void> {
   await ensureTable();
-  await getDbExec().execute({
+  const result = await getDbExec().execute({
     sql: `UPDATE integration_pending_tasks
           SET status = ?, updated_at = ?, error_message = ?, payload = ?
           WHERE id = ? AND status = 'processing'`,
     args: ["failed", Date.now(), errorMessage.slice(0, 2000), "{}", id],
   });
+  const affected = Number(
+    (result as { rowsAffected?: number }).rowsAffected ??
+      (result as { rowCount?: number }).rowCount ??
+      0,
+  );
+  if (affected === 0) {
+    throw new Error(
+      "Integration task delivery failure transition lost its race",
+    );
+  }
 }
 
 /** Mark a task as failed and stash an error message. */

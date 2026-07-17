@@ -62,6 +62,12 @@ describe("integration pending task store", () => {
         sql: expect.stringContaining("WHERE id = ? AND status = 'pending'"),
       }),
     );
+    expect((updateCall?.[0] as { sql: string }).sql).toContain(
+      "earlier.status = 'pending'",
+    );
+    expect((updateCall?.[0] as { sql: string }).sql).toContain(
+      "earlier.created_at < integration_pending_tasks.created_at",
+    );
   });
 
   it("does not claim terminal failed tasks", async () => {
@@ -320,5 +326,14 @@ describe("integration pending task store", () => {
       "{}",
       "slack-task",
     ]);
+  });
+
+  it("fails loud when the terminal delivery transition loses its race", async () => {
+    executeMock.mockResolvedValue({ rows: [], rowsAffected: 0 });
+    const { failTaskDeliveryTransition } = await loadStore();
+
+    await expect(
+      failTaskDeliveryTransition("raced-task", "atomic transition failed"),
+    ).rejects.toThrow("lost its race");
   });
 });
