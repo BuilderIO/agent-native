@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.106.3
+
+### Patch Changes
+
+- 10fb9f4: Preserve durable `ask_app` task handles and return retryable status-read details when transient polling transport failures outlast bounded retries.
+
 ## 0.106.2
 
 ### Patch Changes
