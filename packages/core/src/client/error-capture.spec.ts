@@ -86,12 +86,11 @@ describe("installErrorCapture auto-capture filtering", () => {
     fireError(listeners, {
       message: "Importing a module script failed.",
     });
-    fireRejection(
-      listeners,
-      new TypeError(
-        "Failed to fetch dynamically imported module: /assets/route.js",
-      ),
+    const dynamicImportError = new TypeError(
+      "Failed to fetch dynamically imported module: /assets/route.js",
     );
+    dynamicImportError.stack = "";
+    fireRejection(listeners, dynamicImportError);
 
     expect(send).not.toHaveBeenCalled();
     dispose();
