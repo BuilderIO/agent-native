@@ -596,6 +596,54 @@ export default defineAction({
 });
 ```
 
+## Guarding staged features {#feature-flags}
+
+Use Core feature flags when an action is safe to deploy but should reach
+production gradually. Declare the default-off flag once, register it from a
+Nitro plugin, and evaluate it inside every guarded action. Hiding the matching
+button is presentation; the action check is enforcement.
+
+```ts
+// shared/feature-flags.ts
+import { defineFeatureFlag } from "@agent-native/core/feature-flags";
+
+export const FULL_APP_BUILDING = defineFeatureFlag({
+  key: "full-app-building",
+  displayName: "Full app building",
+  description: "Create and edit Fusion-backed applications.",
+});
+```
+
+```ts
+// server/plugins/feature-flags.ts
+import { createFeatureFlagsPlugin } from "@agent-native/core/server";
+
+import { FULL_APP_BUILDING } from "../../shared/feature-flags.js";
+
+export default createFeatureFlagsPlugin({ flags: [FULL_APP_BUILDING] });
+```
+
+```ts
+// actions/create-fusion-app.ts
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+
+run: async (args, ctx) => {
+  if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
+    throw new Error("Full app building is not enabled for this account.");
+  }
+  // Perform the guarded operation.
+};
+```
+
+Use `useFeatureFlag(FULL_APP_BUILDING.key)` from
+`@agent-native/core/client` to hide or reveal the client surface. Core mounts
+`get-feature-flags`, `list-feature-flags`, and `set-feature-flag`. Management
+is permission-checked and audited; fleet operator UIs call the same app-local
+actions through narrowly scoped A2A delegation. Analytics is the sole operator
+UI; apps should not add their own flag settings panels. Never route flag writes
+through generic settings endpoints or raw SQL, and never put authentication,
+authorization, audit, secrets, or SSR cache behavior behind a runtime flag.
+
 ## Legacy CLI-style actions {#legacy-cli-actions}
 
 The framework still supports older `export default async function(args)` actions that aren't wrapped in `defineAction` — useful for one-off dev scripts that don't need agent/HTTP exposure. These are CLI-only; they don't appear as agent tools, don't mount HTTP endpoints, and don't get typesafe frontend hooks.

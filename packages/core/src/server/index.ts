@@ -180,6 +180,7 @@ export { createSentryPlugin, defaultSentryPlugin } from "./sentry-plugin.js";
 // (which references "defaultOrgPlugin" from @agent-native/core/server) can
 // resolve it during the deploy build worker-entry generation.
 export { createOrgPlugin, defaultOrgPlugin } from "../org/plugin.js";
+export { createFeatureFlagsPlugin } from "../feature-flags/plugin.js";
 export {
   createContextXrayPlugin,
   defaultContextXrayPlugin,

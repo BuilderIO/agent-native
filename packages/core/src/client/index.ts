@@ -699,6 +699,17 @@ export {
 } from "./chat/widgets/data-widget-types.js";
 export { AgentNativeIcon } from "./components/icons/AgentNativeIcon.js";
 export {
+  FeatureFlagsEditor,
+  evaluatedFeatureFlagValues,
+  featureFlagValue,
+  useFeatureFlag,
+  useFeatureFlags,
+  type FeatureFlagActor,
+  type FeatureFlagMetadata,
+  type FeatureFlagRules,
+  type SetFeatureFlagInput,
+} from "./feature-flags/index.js";
+export {
   SettingsPanel,
   SettingsTabsPage,
   SecretsSection,

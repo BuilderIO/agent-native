@@ -261,7 +261,8 @@ patterns live in `.agents/skills/`.
   `connect-localhost`; list them with `list-localhost-connections` before
   creating or resolving local-code artboards. Fusion designs are full-app
   designs backed by a running Builder Fusion container, created via
-  `create-fusion-app` when `FULL_APP_BUILDING_ENABLED` is on; preserve the
+  `create-fusion-app` when the `full-app-building` feature flag is enabled;
+  preserve the
   design's `fusionApp` linkage data whenever present and never invent it.
 - Localhost route manifests are scaffolding for URL-backed Flow Canvas
   artboards. Use `add-localhost-screens` to place routes or path/query states as
@@ -431,8 +432,9 @@ patterns live in `.agents/skills/`.
 
 ## Full App Building
 
-Flag-gated (`FULL_APP_BUILDING_ENABLED` in `shared/full-app.ts`, default off)
-and requires Builder connected. See `full-app-build` skill for the full flow.
+Flag-gated by `FULL_APP_BUILDING` in `shared/full-app.ts` (key
+`full-app-building`, default off) and requires Builder connected. See
+`full-app-build` skill for the full flow.
 
 - `create-fusion-app`: creates the app branch via the Builder cloud agent; one
   branch per design; returns existing linkage if already created.

@@ -11,6 +11,7 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import {
   deployFusionProject,
   getFusionHostingUrl,
@@ -23,7 +24,7 @@ import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
 import { mutateDesignData } from "../server/lib/design-data-mutation.js";
 import {
-  FULL_APP_BUILDING_ENABLED,
+  FULL_APP_BUILDING,
   readFusionApp,
   writeFusionApp,
 } from "../shared/full-app.js";
@@ -58,8 +59,8 @@ export default defineAction({
           "use the design's already-reserved slug, or derive one from the title.",
       ),
   }),
-  run: async ({ designId, slug }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId, slug }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

@@ -1,6 +1,7 @@
 import {
   useActionQuery,
   useActionMutation,
+  useFeatureFlag,
   useT,
 } from "@agent-native/core/client";
 import type { PromptComposerSubmitOptions } from "@agent-native/core/client";
@@ -13,7 +14,7 @@ import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
-import { FULL_APP_BUILDING_ENABLED } from "@shared/full-app";
+import { FULL_APP_BUILDING } from "@shared/full-app";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconChecks,
@@ -96,13 +97,14 @@ export default function Index() {
     () => new Set(),
   );
   const [showNewPrompt, setShowNewPrompt] = useState(false);
+  const fullAppBuildingEnabled = useFeatureFlag(FULL_APP_BUILDING.key);
   const [newDesignHandoffPending, setNewDesignHandoffPending] = useState(false);
   const [newDesignSystemId, setNewDesignSystemId] = useState<
     string | null | undefined
   >(undefined);
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
   // "Design" (default, inline prototype) vs "Full app" (Builder Fusion
-  // cloud container). Only reachable behind FULL_APP_BUILDING_ENABLED — the
+  // cloud container). Only reachable behind the full-app-building flag — the
   // popover renders no mode control at all when the flag is off, so this
   // state is always "design" in that case.
   const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
@@ -136,7 +138,7 @@ export default function Index() {
     "create-design-from-template",
   );
   // Fires the fusion-backed cloud container build; only ever called when
-  // FULL_APP_BUILDING_ENABLED is true and the user picked "Full app".
+  // runtime flag is true and the user picked "Full app".
   const createFusionAppMutation = useActionMutation("create-fusion-app");
   const deleteMutation = useActionMutation("delete-design");
   const duplicateMutation = useActionMutation("duplicate-design");
@@ -482,7 +484,7 @@ export default function Index() {
       const { id, title, ready } = createDesign(derivedTitle, designSystemId);
       handleGenerateDesignTitle(id, prompt, title);
 
-      if (FULL_APP_BUILDING_ENABLED && newDesignMode === "app") {
+      if (fullAppBuildingEnabled && newDesignMode === "app") {
         // Full-app designs are backed by a real running container, not a
         // queued inline generation — skip writePendingGeneration and let the
         // fusion app mutation (and its own status/progress banner in the
@@ -1030,9 +1032,9 @@ export default function Index() {
           handleNewPromptOpenChange(false);
           navigate("/design-systems/setup");
         }}
-        creationMode={FULL_APP_BUILDING_ENABLED ? newDesignMode : undefined}
+        creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
         onCreationModeChange={
-          FULL_APP_BUILDING_ENABLED ? setNewDesignMode : undefined
+          fullAppBuildingEnabled ? setNewDesignMode : undefined
         }
       />
 

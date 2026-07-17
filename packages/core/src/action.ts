@@ -24,8 +24,8 @@ import type { ActionAuditConfig } from "./audit/types.js";
  *   `callAction` (tagged with the `X-Request-Source` header).
  * - `"cli"` — `pnpm action <name>` (the CLI runner).
  * - `"mcp"` — an external agent over the MCP `tools/call` endpoint.
- * - `"a2a"` — a direct A2A action dispatch (currently unused: A2A runs through
- *   the agent loop, so those calls are `"tool"`). Reserved for completeness.
+ * - `"a2a"` — a direct, scoped A2A action dispatch. Ordinary A2A agent work
+ *   still runs through the agent loop and is tagged `"tool"`.
  */
 export type ActionCaller = "tool" | "http" | "frontend" | "cli" | "mcp" | "a2a";
 
@@ -55,6 +55,10 @@ export interface ActionRunContext {
   orgId?: string | null;
   /** How this action was invoked. */
   caller: ActionCaller;
+  /** Verified network lineage for direct delegated action calls. */
+  networkProtocol?: "a2a" | "mcp" | "provider-api";
+  networkId?: string;
+  networkPeer?: string;
   /**
    * Attachments submitted with the current agent turn (pasted text blocks,
    * uploaded files, images), exactly as the server received them — with full,

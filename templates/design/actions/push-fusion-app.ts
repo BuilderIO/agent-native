@@ -7,16 +7,14 @@
  */
 
 import { defineAction } from "@agent-native/core";
+import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
 import { pushFusionBranch } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import { schema } from "../server/db/index.js";
 import "../server/db/index.js"; // ensure registerShareableResource runs
-import {
-  FULL_APP_BUILDING_ENABLED,
-  readFusionApp,
-} from "../shared/full-app.js";
+import { FULL_APP_BUILDING, readFusionApp } from "../shared/full-app.js";
 
 function asString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
@@ -31,8 +29,8 @@ export default defineAction({
   schema: z.object({
     designId: z.string().describe("Design project ID backed by a fusion app."),
   }),
-  run: async ({ designId }) => {
-    if (!FULL_APP_BUILDING_ENABLED) {
+  run: async ({ designId }, ctx) => {
+    if (!(await isFeatureFlagEnabled(FULL_APP_BUILDING, ctx))) {
       throw new Error("Full app building is not enabled");
     }
 

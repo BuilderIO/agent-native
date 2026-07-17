@@ -129,7 +129,9 @@ export function useNavigationState() {
       if (cmd.view === "sessions") return "/sessions";
       if (
         cmd.view === "agents" &&
-        (cmd.agentsView === "database" || cmd.agentsView === "dashboards")
+        (cmd.agentsView === "database" ||
+          cmd.agentsView === "dashboards" ||
+          cmd.agentsView === "flags")
       ) {
         const params = new URLSearchParams({ view: cmd.agentsView });
         if (cmd.agentsView === "database" && cmd.dbAdminConnectionId) {

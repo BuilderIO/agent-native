@@ -9,8 +9,10 @@ import {
   getRequestURL,
 } from "h3";
 
+import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -38,6 +40,30 @@ import { getH3App } from "./framework-request-handler.js";
 import { runWithRequestContext } from "./request-context.js";
 
 const ROUTE_PREFIX = "/_agent-native/actions";
+
+async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
+  const required =
+    actionName === "list-feature-flags"
+      ? "flags:read"
+      : actionName === "set-feature-flag"
+        ? "flags:write"
+        : null;
+  if (!required) return null;
+  const authorization = getHeader(event, "authorization");
+  if (!authorization?.startsWith("Bearer ")) return null;
+  const token = authorization.slice(7);
+  if (!declaresFeatureFlagDelegation(token)) return null;
+  const claims = await verifyA2ATokenWithClaims(token, event);
+  if (!claims || !claims.scope.includes(required))
+    throw new Error("Invalid feature flag delegation");
+  return {
+    owner: claims.email,
+    orgId: claims.orgId,
+    anonymous: false,
+    delegationJti: claims.jti,
+    delegationIssuer: claims.issuer,
+  } as ActionRouteResolvedCaller;
+}
 
 export function parseActionSearchParams(
   searchParams: URLSearchParams,
@@ -189,6 +215,9 @@ export type ActionRouteResolvedCaller = AgentRunOwnerContext & {
    * must not leak into the token caller's request context.
    */
   orgId?: string;
+  /** Verified A2A correlation and issuer metadata for the audit row. */
+  delegationJti?: string;
+  delegationIssuer?: string;
 };
 
 export interface ActionRouteAuthAdapter {
@@ -336,10 +365,14 @@ export function mountActionRoutes(
         // through, so a live same-origin session cookie can't silently execute
         // the request as the logged-in user.
         let resolvedCaller: ActionRouteResolvedCaller | null = null;
-        if (options?.actionRouteAuth?.resolveCaller) {
+        {
           let caller: ActionRouteResolvedCaller | null;
           try {
-            caller = await options.actionRouteAuth.resolveCaller(event);
+            caller = options?.actionRouteAuth?.resolveCaller
+              ? await options.actionRouteAuth.resolveCaller(event)
+              : null;
+            if (!caller)
+              caller = await resolveFeatureFlagA2ACaller(event, name);
           } catch {
             throw createError({
               statusCode: 401,
@@ -463,14 +496,23 @@ export function mountActionRoutes(
             // userEmail / orgId mirror the request context resolved above (do
             // NOT inject a dev identity — leave undefined when unauthenticated).
             try {
-              const caller = isFrontendActionRequest(event)
-                ? "frontend"
-                : "http";
+              const caller = resolvedCaller
+                ? "a2a"
+                : isFrontendActionRequest(event)
+                  ? "frontend"
+                  : "http";
               const result = await entry.run(params, {
                 userEmail,
                 orgId: orgId ?? null,
                 caller,
                 actionName: name,
+                ...(resolvedCaller?.delegationJti
+                  ? {
+                      networkProtocol: "a2a",
+                      networkId: resolvedCaller.delegationJti,
+                      networkPeer: resolvedCaller.delegationIssuer,
+                    }
+                  : {}),
               });
 
               // Auto-refresh the UI after a successful mutating action. GET

@@ -142,6 +142,21 @@ export {
   type AutomationWorkflowDefinition,
   type JsonSchema,
 } from "./automation/index.js";
+export {
+  createFeatureFlagsPlugin,
+  defineFeatureFlag,
+  defineFeatureFlags,
+  evaluateFeatureFlag,
+  getFeatureFlagDefinition,
+  getFeatureFlagRules,
+  isFeatureFlagEnabled,
+  listFeatureFlags,
+  registerFeatureFlags,
+  type FeatureFlagDefinition,
+  type FeatureFlagMode,
+  type FeatureFlagRules,
+  type FeatureFlagScope,
+} from "./feature-flags/index.js";
 
 // Server
 export {
