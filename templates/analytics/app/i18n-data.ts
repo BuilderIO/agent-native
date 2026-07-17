@@ -461,6 +461,7 @@ const enUS = {
     featureFlags: "Feature flags",
     featureFlagsDescription:
       "Review registered app flags and make deliberate, reversible rollout changes.",
+    loading: "Loading",
     flagsUnavailable: "Feature flags are unavailable",
     flagsUnreachable:
       "The workspace directory could not be reached. Retry when its connection is available.",

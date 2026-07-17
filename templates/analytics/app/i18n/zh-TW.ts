@@ -699,6 +699,7 @@ const messages = {
       "這會從 Analytics 移除 {{name}} 並刪除儲存的連線密鑰。目標應用程式資料庫不會被修改。",
     featureFlags: "功能旗標",
     featureFlagsDescription: "檢視已註冊應用程式旗標，並進行可回復的發布調整。",
+    loading: "載入中",
     flagsUnavailable: "功能旗標無法使用",
     flagsUnreachable: "無法連線到工作區目錄。連線可用後請重試。",
     flagsEmpty: "沒有應用程式回報功能旗標",
