@@ -56,7 +56,7 @@ export function sanitizeSafeNativePreviewHtml(html: string): string {
       "",
     )
     .replace(
-      /\s+(?:href|src|poster|action)\s*=\s*(?!data:image\/(?:png|jpe?g|gif|webp|svg\+xml);|#)[^\s>]+/gi,
+      /\s+(?:href|src|poster|action)\s*=\s*(?!["'])(?!data:image\/(?:png|jpe?g|gif|webp|svg\+xml);|#)[^\s>]+/gi,
       "",
     )
     .replace(/@import\s+(?:url\()?\s*["']?[^;"')]+["']?\s*\)?\s*;?/gi, "")

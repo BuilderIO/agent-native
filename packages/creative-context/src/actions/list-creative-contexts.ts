@@ -1,7 +1,11 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { listCreativeContexts } from "../store/index.js";
+import { getCreativeContext } from "../server/context.js";
+import {
+  getCreativeContextAppBinding,
+  listCreativeContexts,
+} from "../store/index.js";
 
 export default defineAction({
   description: "List governed creative contexts available to the current user.",
@@ -13,5 +17,16 @@ export default defineAction({
   http: { method: "GET" },
   readOnly: true,
   publicAgent: { expose: true, readOnly: true, requiresAuth: true },
-  run: listCreativeContexts,
+  run: async (args) => {
+    const appId = getCreativeContext().connectorContext.appId;
+    const [result, appBinding] = await Promise.all([
+      listCreativeContexts(args),
+      getCreativeContextAppBinding(appId),
+    ]);
+    return {
+      ...result,
+      appId,
+      appDefaultContextId: appBinding?.id ?? null,
+    };
+  },
 });

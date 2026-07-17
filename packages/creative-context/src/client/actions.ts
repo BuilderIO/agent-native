@@ -153,6 +153,8 @@ export interface ListCreativeContextsParams {
 
 export interface ListCreativeContextsResult {
   contexts: CreativeContextSummary[];
+  appId?: string;
+  appDefaultContextId?: string | null;
 }
 
 export type ManageCreativeContextParams =

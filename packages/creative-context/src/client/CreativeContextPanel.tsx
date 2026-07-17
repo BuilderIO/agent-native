@@ -1298,6 +1298,13 @@ export function CreativeContextPanel({
   );
   const [reviewedItems, setReviewedItems] = useState<ContextReviewItem[]>([]);
   const [reviewError, setReviewError] = useState<string | null>(null);
+  const [membershipUpdateCandidate, setMembershipUpdateCandidate] = useState<{
+    id: string;
+    title: string;
+  } | null>(null);
+  const [updatingMembershipId, setUpdatingMembershipId] = useState<
+    string | null
+  >(null);
   const [selectedPackId, setSelectedPackId] = useState<string | null>(null);
   const [suggestionError, setSuggestionError] = useState<string | null>(null);
   const previewQuery = usePreviewCreativeContextImport(previewSourceId);
@@ -1409,6 +1416,11 @@ export function CreativeContextPanel({
   const canManageScope = libraryScope === "user" || canManageOrg;
   const canCreateContext =
     canManageScope && contexts.some((context) => context.access.canAdmin);
+  const activeAppId = contextsQuery.data?.appId;
+  const appDefaultContextId = contextsQuery.data?.appDefaultContextId ?? null;
+  const canSetAppDefault = Boolean(
+    activeAppId && selectedLibraryContext?.access.canAdmin && canManageScope,
+  );
   const proposalCapabilities = suggestionsQuery.data?.capabilities;
   const logoCandidates = proposalCapabilities?.canonicalLogo
     ? (logoCandidatesQuery.data?.candidates ?? [])
@@ -1544,6 +1556,26 @@ export function CreativeContextPanel({
       await contextMembershipsQuery.refetch();
     } catch {
       setReviewError(t("creativeContext.saveFailed"));
+    }
+  }
+
+  async function submitLatestContextMembershipUpdate() {
+    if (!selectedLibraryContextId || !membershipUpdateCandidate) return;
+    setReviewError(null);
+    setUpdatingMembershipId(membershipUpdateCandidate.id);
+    try {
+      await manageContextMembership.mutateAsync({
+        operation: "submit-latest",
+        contextId: selectedLibraryContextId,
+        membershipId: membershipUpdateCandidate.id,
+        confirmBroaderPublication: true,
+      });
+      setMembershipUpdateCandidate(null);
+      await contextMembershipsQuery.refetch();
+    } catch {
+      setReviewError(t("creativeContext.submitUpdateFailed"));
+    } finally {
+      setUpdatingMembershipId(null);
     }
   }
 
@@ -1952,6 +1984,23 @@ export function CreativeContextPanel({
     }
   }
 
+  async function setAppDefaultContext() {
+    if (!activeAppId || !selectedLibraryContext || !canSetAppDefault) return;
+    setContextSettingsError(null);
+    try {
+      await manageContext.mutateAsync({
+        operation: "set-app-default",
+        contextId: selectedLibraryContext.id,
+        appId: activeAppId,
+      });
+      await contextsQuery.refetch();
+    } catch {
+      setContextSettingsError(
+        "Could not update the automatic context for this app.",
+      );
+    }
+  }
+
   async function search(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const searchText = query.trim();
@@ -2283,6 +2332,31 @@ export function CreativeContextPanel({
                   >
                     Save settings
                   </Button>
+                  {activeAppId ? (
+                    <div className="border-t border-border/70 pt-3">
+                      <p className="text-xs text-muted-foreground">
+                        Automatic generations use Default plus this context for
+                        {` ${activeAppId}`} when no context is chosen
+                        explicitly.
+                      </p>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        className="mt-3"
+                        disabled={
+                          !canSetAppDefault ||
+                          appDefaultContextId === selectedLibraryContext?.id ||
+                          manageContext.isPending
+                        }
+                        onClick={() => void setAppDefaultContext()}
+                      >
+                        {appDefaultContextId === selectedLibraryContext?.id
+                          ? `Automatic for ${activeAppId}`
+                          : `Use automatically for ${activeAppId}`}
+                      </Button>
+                    </div>
+                  ) : null}
                 </section>
                 <section className="space-y-3 rounded-md border border-dashed border-border p-4">
                   <div>
