@@ -80,6 +80,9 @@ export function Toolbar() {
   const [diskSpaceLevel, setDiskSpaceLevel] = useState<
     "ok" | "warning" | "critical"
   >("ok");
+  // Sink-watchdog warning ("capture isn't writing to disk") — sticky for the
+  // rest of the session so a glance at the pill shows something is wrong.
+  const [recordingWarning, setRecordingWarning] = useState<string | null>(null);
   const [markerCount, setMarkerCount] = useState(0);
   const [markerFlash, setMarkerFlash] = useState(false);
   const markerFlashTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -145,6 +148,7 @@ export function Toolbar() {
         setPendingAction(null);
         if (!ev.payload) {
           setDiskSpaceLevel("ok");
+          setRecordingWarning(null);
           setPaused(false);
           setElapsed(0);
           setMarkerCount(0);
@@ -163,6 +167,20 @@ export function Toolbar() {
       listen<{ freeMb: number }>("clips:disk-space-warning", () => {
         setDiskSpaceLevel((prev) =>
           prev === "critical" ? "critical" : "warning",
+        );
+      }),
+    );
+    trackListen(
+      // Emitted by the Rust sink watchdog when a capture is "running" but
+      // never materialized its file on disk — the recording is not being
+      // written and continuing is pointless. Surface it on the pill; the
+      // timer keeps ticking, so without this the failure is invisible until
+      // stop reports "recording file missing" minutes later.
+      listen<string>("clips:recording-warning", (ev) => {
+        setRecordingWarning(
+          typeof ev.payload === "string" && ev.payload.trim()
+            ? ev.payload
+            : "Recording warning — the capture may not be saving. Stop and re-record.",
         );
       }),
     );
@@ -354,6 +372,17 @@ export function Toolbar() {
           )}
         </button>
         <div className="toolbar-v-time">{formatTime(elapsed)}</div>
+        {recordingWarning && (
+          <div
+            className="toolbar-v-disk-indicator toolbar-v-disk-indicator-critical"
+            title={recordingWarning}
+            role="alert"
+            aria-label={recordingWarning}
+            data-no-drag
+          >
+            <IconAlertTriangle size={12} />
+          </div>
+        )}
         {diskSpaceLevel !== "ok" && (
           <div
             className={`toolbar-v-disk-indicator toolbar-v-disk-indicator-${diskSpaceLevel}`}

@@ -2128,11 +2128,53 @@ pub(crate) fn start_screencapturekit_backend_at(
             .add_recording_output(&recording)
             .map_err(|e| format!("add recording output failed: {e:?}"))?;
     }
-    if let Err(err) = stream.start_capture() {
-        let _ = stream.remove_recording_output(&recording);
-        let _ = std::fs::remove_file(output_path);
-        return Err(format!("capture start failed: {err:?}"));
-    }
+    // `start_capture()` can block forever when the process's connection to the
+    // screen-capture service is wedged (SCStream logs "Application connection
+    // interrupted" to the delegate and the start completion never fires — seen
+    // after a silent recording-sink failure). Run it on a watcher thread and
+    // give up after a bounded wait so the start surfaces an actionable error
+    // instead of hanging the warm/begin invoke — and the whole recording UI —
+    // indefinitely.
+    let (stream, recording) = {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let cleanup_path = output_path.to_path_buf();
+        std::thread::spawn(move || {
+            let result = stream.start_capture();
+            if let Err(unreceived) = tx.send((stream, recording, result)) {
+                // The caller timed out and moved on — tear down whatever the
+                // late start left running. This thread is already stranded, so
+                // potentially-blocking teardown calls are acceptable here.
+                let (stream, recording, result) = unreceived.0;
+                eprintln!(
+                    "[clips-tray] ScreenCaptureKit start_capture returned after the caller gave up (result: {result:?}); tearing down the stranded stream"
+                );
+                if result.is_ok() {
+                    let _ = stream.stop_capture();
+                }
+                let _ = stream.remove_recording_output(&recording);
+                let _ = std::fs::remove_file(&cleanup_path);
+            }
+        });
+        match rx.recv_timeout(SCK_START_TIMEOUT) {
+            Ok((stream, recording, Ok(()))) => (stream, recording),
+            Ok((stream, recording, Err(err))) => {
+                let _ = stream.remove_recording_output(&recording);
+                let _ = std::fs::remove_file(output_path);
+                return Err(format!("capture start failed: {err:?}"));
+            }
+            Err(_) => {
+                crate::diag::tray_diag_global(serde_json::json!({
+                    "event": "sck-start-timeout",
+                    "timeoutMs": SCK_START_TIMEOUT.as_millis() as u64,
+                }));
+                return Err(format!(
+                    "The macOS screen capture service did not respond within {}s. Quit and reopen {} and try again; if it keeps happening, log out or restart your Mac.",
+                    SCK_START_TIMEOUT.as_secs(),
+                    crate::product_name()
+                ));
+            }
+        }
+    };
     eprintln!(
         "[clips-tray] ScreenCaptureKit recording started: {width}x{height} @ {NATIVE_CAPTURE_FPS}fps from {capture_width}x{capture_height} (display {source_width}x{source_height}), mic_requested={include_audio} mic_recorded={capture_microphone_in_recording} system_audio={capture_system_audio} deferred_output={defer_recording_output}"
     );
@@ -3400,6 +3442,13 @@ fn region_source_rect(
 /// than hang the stop button forever).
 #[cfg(target_os = "macos")]
 const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Bound on `SCStream::start_capture()`. A wedged capture-service connection
+/// ("Application connection interrupted") makes the start completion callback
+/// never fire; without a bound the warm/begin command hangs forever and the
+/// recording UI is stuck at 0:00 with dead controls.
+#[cfg(target_os = "macos")]
+const SCK_START_TIMEOUT: Duration = Duration::from_secs(10);
 
 /// Stop the active recording. When `wait_for_finalize` is set (save/upload
 /// paths — the file is about to be moved) this blocks until ScreenCaptureKit
