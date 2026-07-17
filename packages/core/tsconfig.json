@@ -31,6 +31,8 @@
     "src/**/*.spec.tsx",
     "src/**/*.e2e-host.tsx",
     "src/e2ee/native-control-log-vectors.ts",
+    "src/e2ee/native-recovery-wrap-vectors.ts",
+    "src/e2ee/native-authority-store-vectors.ts",
     // TODO: fenced concurrent-agent work — flip strict after in-flight PRs land
     // recap.ts, skills.ts, workspace-dev.ts have strict errors but are fenced.
     // Excluding all of src/cli prevents dynamic imports from re-pulling them in.

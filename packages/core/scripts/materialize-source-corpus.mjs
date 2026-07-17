@@ -133,7 +133,20 @@ function shouldSkipFile(name) {
   return excludedFileSuffixes.some((suffix) => name.endsWith(suffix));
 }
 
+function isNativeTestVectorArtifact(relativePath) {
+  const normalized = relativePath.split("\\").join("/");
+  return (
+    /(?:^|\/)native-(?:control-log|authority-store|recovery-wrap)-vectors\.ts$/.test(
+      normalized,
+    ) ||
+    /(?:^|\/)fixtures\/anc-v1-native-(?:control-log|authority-store|recovery-wrap)-vectors\.json$/.test(
+      normalized,
+    )
+  );
+}
+
 function shouldSkipRelativePath(relativePath) {
+  if (isNativeTestVectorArtifact(relativePath)) return true;
   const segments = relativePath.split("/");
   if (
     segments.some(
@@ -145,6 +158,24 @@ function shouldSkipRelativePath(relativePath) {
   }
   const name = segments[segments.length - 1];
   return shouldSkipFile(name);
+}
+
+export function assertNoNativeTestVectorArtifacts(dir) {
+  const prohibited = [];
+  const walk = (current, prefix = "") => {
+    for (const entry of readdirSync(current, { withFileTypes: true })) {
+      const rel = prefix ? `${prefix}/${entry.name}` : entry.name;
+      const abs = join(current, entry.name);
+      if (entry.isDirectory()) walk(abs, rel);
+      else if (entry.isFile() && isNativeTestVectorArtifact(rel))
+        prohibited.push(rel);
+    }
+  };
+  if (existsSync(dir)) walk(dir);
+  if (prohibited.length > 0)
+    throw new Error(
+      `Native test vector artifacts must not ship in the Core corpus: ${prohibited.join(", ")}`,
+    );
 }
 
 function hasTextLikeName(relativePath) {
@@ -360,6 +391,7 @@ export function materializeSourceCorpus() {
   );
 
   const applied = swapCorpusDirIntoPlace(tempDir);
+  assertNoNativeTestVectorArtifacts(corpusDir);
 
   const size = relative(packageDir, corpusDir);
   const note = applied
