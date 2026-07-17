@@ -41,9 +41,9 @@ describe("native Creative Context clone actions", () => {
     expect(
       action("design", "clone-creative-context-design-native.ts"),
     ).toContain("saveImportedDesignFiles");
-    expect(
-      action("content", "clone-creative-context-document.ts"),
-    ).toContain("createDocument.run");
+    expect(action("content", "clone-creative-context-document.ts")).toContain(
+      "createDocument.run",
+    );
     expect(action("assets", "clone-creative-context-asset.ts")).toContain(
       "createAssetFromBuffer",
     );
@@ -54,7 +54,9 @@ describe("native Creative Context clone actions", () => {
 
   it("never executes Analytics dashboard queries while cloning", () => {
     const source = action("analytics", "clone-creative-context-dashboard.ts");
-    expect(source).not.toMatch(/execute(Query|Dashboard|Panel)|runDashboardQuery/);
+    expect(source).not.toMatch(
+      /execute(Query|Dashboard|Panel)|runDashboardQuery/,
+    );
     expect(source).toContain("without executing any of its queries");
   });
 });

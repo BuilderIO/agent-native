@@ -69,7 +69,20 @@ export interface CreativeContextMembership {
   purpose: string | null;
   status: "active" | "removed";
   updatedAt?: string | null;
-  pendingSubmission?: { id: string; status: string } | null;
+  publishedItem?: {
+    id: string;
+    itemVersionId: string;
+    title: string;
+    kind: string;
+    status: string;
+    media: Array<{ id: string; kind: string; mimeType: string | null; url: string }>;
+  } | null;
+  pendingSubmission?: {
+    id: string;
+    status: string;
+    note: string | null;
+    submittedBy: string;
+  } | null;
 }
 
 export interface ListCreativeContextsParams {
@@ -245,8 +258,58 @@ export function parseContextMemberships(
           return submission &&
             typeof submission.id === "string" &&
             typeof submission.status === "string"
-            ? { id: submission.id, status: submission.status }
+            ? {
+                id: submission.id,
+                status: submission.status,
+                note: typeof submission.note === "string" ? submission.note : null,
+                submittedBy:
+                  typeof submission.submittedBy === "string"
+                    ? submission.submittedBy
+                    : "",
+              }
             : null;
+        })(),
+        publishedItem: (() => {
+          const published = record(item.publishedItem);
+          if (
+            !published ||
+            typeof published.id !== "string" ||
+            typeof published.itemVersionId !== "string" ||
+            typeof published.title !== "string" ||
+            typeof published.kind !== "string"
+          ) {
+            return null;
+          }
+          const media = Array.isArray(published.media)
+            ? published.media.flatMap((value) => {
+                const medium = record(value);
+                return medium &&
+                  typeof medium.id === "string" &&
+                  typeof medium.kind === "string" &&
+                  typeof medium.url === "string"
+                  ? [
+                      {
+                        id: medium.id,
+                        kind: medium.kind,
+                        mimeType:
+                          typeof medium.mimeType === "string"
+                            ? medium.mimeType
+                            : null,
+                        url: medium.url,
+                      },
+                    ]
+                  : [];
+              })
+            : [];
+          return {
+            id: published.id,
+            itemVersionId: published.itemVersionId,
+            title: published.title,
+            kind: published.kind,
+            status:
+              typeof published.status === "string" ? published.status : "active",
+            media,
+          };
         })(),
       },
     ];
