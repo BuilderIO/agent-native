@@ -176,6 +176,18 @@ export async function createContextPack(input: {
       { skipResourceBody: true },
     );
   }
+  const contextAccess = input.baseContextId
+    ? await resolveAccess("creative-context", input.baseContextId)
+    : null;
+  if (input.baseContextId && !contextAccess) {
+    throw new Error("Base Creative Context not found or not accessible");
+  }
+  const inheritedShares = input.baseContextId
+    ? await getDb()
+        .select()
+        .from(schema.creativeContextShares)
+        .where(eq(schema.creativeContextShares.resourceId, input.baseContextId))
+    : [];
   await getDb().transaction(async (tx: any) => {
     await tx.insert(schema.contextPacks).values({
       id,
@@ -191,7 +203,7 @@ export async function createContextPack(input: {
       archivedAt: null,
       ownerEmail: actor.ownerEmail,
       orgId: actor.orgId,
-      visibility: "private",
+      visibility: contextAccess?.resource.visibility ?? "private",
       createdAt: timestamp,
     });
     if (resolvedMembers.length) {
@@ -207,6 +219,19 @@ export async function createContextPack(input: {
           scoreMetadata: stringifyJson(member.scoreMetadata),
           ownerEmail: actor.ownerEmail,
           orgId: actor.orgId,
+          createdAt: timestamp,
+        })),
+      );
+    }
+    if (inheritedShares.length) {
+      await tx.insert(schema.contextPackShares).values(
+        (inheritedShares as any[]).map((share) => ({
+          id: newId("ccpsh"),
+          resourceId: id,
+          principalType: share.principalType,
+          principalId: share.principalId,
+          role: share.role,
+          createdBy: actor.ownerEmail,
           createdAt: timestamp,
         })),
       );

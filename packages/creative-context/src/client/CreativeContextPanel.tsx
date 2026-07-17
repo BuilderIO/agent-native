@@ -1214,6 +1214,23 @@ export function CreativeContextPanel({
     }
   }
 
+  async function reviewContextMembership(
+    membershipId: string,
+    operation: "approve" | "request-changes",
+  ) {
+    if (!selectedLibraryContextId) return;
+    try {
+      await manageContextMembership.mutateAsync({
+        operation,
+        contextId: selectedLibraryContextId,
+        membershipId,
+      });
+      await contextMembershipsQuery.refetch();
+    } catch {
+      setReviewError(t("creativeContext.saveFailed"));
+    }
+  }
+
   function refresh(sourceId: string) {
     setRefreshMessage(null);
     refreshSource.mutate(
