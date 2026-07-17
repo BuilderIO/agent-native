@@ -1,5 +1,11 @@
 # @agent-native/dispatch
 
+## 0.15.0
+
+### Minor Changes
+
+- 6cd2c79: Add curated workspace app discovery and template remix workflows.
+
 ## 0.14.14
 
 ### Patch Changes
