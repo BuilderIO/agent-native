@@ -159,6 +159,7 @@ export function serializeDatabase(
     id: database.id,
     documentId: database.documentId,
     title: database.title,
+    systemRole: database.systemRole,
     description,
     viewConfig: parseDatabaseViewConfig(database.viewConfigJson),
     createdAt: database.createdAt,

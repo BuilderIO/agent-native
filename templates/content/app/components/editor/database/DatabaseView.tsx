@@ -1,12 +1,14 @@
 import {
   agentNativePath,
   getBrowserTabId,
+  setClientAppState,
   useBuilderConnectFlow,
   useBuilderStatus,
   useCodeMode,
   useSession,
   useT,
 } from "@agent-native/core/client";
+import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -147,6 +149,11 @@ import { Link, useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import {
+  contentSpaceForCatalogItem,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
+  selectContentSpace,
+} from "@/components/sidebar/select-content-space";
+import {
   isContentDatabaseUnavailable,
   useAddDatabaseItem,
   useAddContentDatabaseSourceFieldProperty,
@@ -175,6 +182,7 @@ import {
   useUpdateContentDatabasePersonalView,
   useUpdateContentDatabaseView,
 } from "@/hooks/use-content-database";
+import { useContentSpaces } from "@/hooks/use-content-spaces";
 import {
   useConfigureDocumentProperty,
   useSetDocumentProperty,
@@ -188,6 +196,7 @@ import {
   useUpdatePreviewDocumentDraft,
   useUpdateDocument,
 } from "@/hooks/use-documents";
+import { useLocalStorage } from "@/hooks/use-local-storage";
 import { messagesByLocale } from "@/i18n-data";
 import { cn } from "@/lib/utils";
 
@@ -668,6 +677,13 @@ function DatabaseTable({
   const t = useT();
   const navigate = useNavigate();
   const queryClient = useQueryClient();
+  const contentSpacesQuery = useContentSpaces();
+  const activeOrgQuery = useOrg();
+  const switchOrg = useSwitchOrg();
+  const [, setStoredSpaceId] = useLocalStorage<string | null>(
+    SELECTED_CONTENT_SPACE_STORAGE_KEY,
+    null,
+  );
   const [databaseItemLimit, setDatabaseItemLimit] = useState(
     CONTENT_DATABASE_PAGE_SIZE,
   );
@@ -1240,6 +1256,7 @@ function DatabaseTable({
   ]);
 
   function previewItemPage(item: ContentDatabaseItem) {
+    if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     if (activeView.openPagesIn === "full_page") {
@@ -1279,9 +1296,46 @@ function DatabaseTable({
   }
 
   function openItemPage(item: ContentDatabaseItem) {
+    if (openWorkspaceFiles(item)) return;
     seedDatabaseItemDocumentCaches(queryClient, item);
     prioritizeBuilderBodyHydrationForItem(item);
     navigate(`/page/${item.document.id}`);
+  }
+
+  function openWorkspaceFiles(item: ContentDatabaseItem) {
+    if (data?.database.systemRole !== "workspaces") return false;
+    void (async () => {
+      const spacesResponse =
+        contentSpacesQuery.data ?? (await contentSpacesQuery.refetch()).data;
+      const space = contentSpaceForCatalogItem({
+        databaseId,
+        catalogDatabaseId: spacesResponse?.catalogDatabaseId,
+        documentId: item.document.id,
+        spaces: spacesResponse?.spaces ?? [],
+      });
+      if (!space) throw new Error("This workspace is no longer available");
+      await selectContentSpace({
+        space,
+        activeOrgId: activeOrgQuery.data?.orgId,
+        switchOrg: (orgId) => switchOrg.mutateAsync(orgId),
+        syncApplicationState: (selected) =>
+          setClientAppState(
+            "content-space",
+            {
+              spaceId: selected.id,
+              name: selected.name,
+              kind: selected.kind,
+              filesDatabaseId: selected.filesDatabaseId,
+            },
+            { requestSource: "content-workspaces-database" },
+          ),
+        persistSelection: setStoredSpaceId,
+        openFiles: (documentId) => navigate(`/page/${documentId}`),
+      });
+    })().catch((error) => {
+      toast.error(error instanceof Error ? error.message : String(error));
+    });
+    return true;
   }
 
   function prioritizeBuilderBodyHydrationForItem(item: ContentDatabaseItem) {

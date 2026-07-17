@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { getDocumentContextPath } from "../server/lib/document-context.js";
@@ -277,7 +277,15 @@ export async function getContentDatabaseResponse(
                 schema.documents.id,
                 items.map((item) => item.documentId),
               ),
-              eq(schema.documents.ownerEmail, database.ownerEmail),
+              database.systemRole === "files" && database.orgId
+                ? and(
+                    eq(schema.documents.orgId, database.orgId),
+                    or(
+                      eq(schema.documents.visibility, "org"),
+                      eq(schema.documents.visibility, "public"),
+                    ),
+                  )
+                : eq(schema.documents.ownerEmail, database.ownerEmail),
             ),
           )
       : [];

@@ -55,6 +55,8 @@ describe("mountActionRoutes", () => {
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
     delete process.env.AGENT_USER_TIMEZONE;
+    delete process.env.AGENT_NATIVE_BUILD_ID;
+    delete process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION;
     mockNotifyActionChange.mockReset();
     mockResolveOrgIdForEmail.mockReset();
     mockGetSession.mockReset();
@@ -62,6 +64,78 @@ describe("mountActionRoutes", () => {
     mockGetOrgContext.mockReset();
     mockGetOrgContext.mockResolvedValue({ orgId: undefined });
     vi.restoreAllMocks();
+  });
+
+  it("rejects cached frontend clients before an action can read or write", async () => {
+    process.env.AGENT_NATIVE_BUILD_ID = "server-build";
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(nitroApp, { test: { run } as any });
+    const event = {
+      _method: "POST",
+      _headers: { "x-agent-native-frontend": "1" },
+      req: { json: vi.fn(async () => ({})) },
+    };
+
+    await expect(mounted[0]!.handler(event)).resolves.toMatchObject({
+      code: "client_build_mismatch",
+      serverBuildId: "server-build",
+      requiredCompatibility: "spaces-v1",
+    });
+    expect(event).toMatchObject({
+      _status: 409,
+      _responseHeaders: {
+        "cache-control": "no-store",
+        "x-agent-native-client-mismatch": "1",
+      },
+    });
+    expect(event.req.json).not.toHaveBeenCalled();
+    expect(run).not.toHaveBeenCalled();
+  });
+
+  it("allows matching frontend clients and leaves non-frontend callers unaffected", async () => {
+    process.env.AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION = "spaces-v1";
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const run = vi.fn(async () => ({ ok: true }));
+    const nitroApp = {
+      use: vi.fn((path: string, handler: any) =>
+        mounted.push({ path, handler }),
+      ),
+    };
+
+    mountActionRoutes(
+      nitroApp,
+      { test: { run } as any },
+      {
+        getOwnerFromEvent: async () => "owner@example.com",
+      },
+    );
+    const matchingFrontend = {
+      _method: "POST",
+      _headers: {
+        "x-agent-native-frontend": "1",
+        "x-agent-native-client-compatibility": "spaces-v1",
+      },
+      req: { json: async () => ({}) },
+    };
+    const agentCaller = {
+      _method: "POST",
+      _headers: {},
+      req: { json: async () => ({}) },
+    };
+
+    await expect(mounted[0]!.handler(matchingFrontend)).resolves.toBeTruthy();
+    await expect(mounted[0]!.handler(agentCaller)).resolves.toBeTruthy();
+    expect(run).toHaveBeenCalledTimes(2);
   });
 
   it("uses action error statusCode for HTTP responses", async () => {

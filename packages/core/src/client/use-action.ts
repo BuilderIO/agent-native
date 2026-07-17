@@ -29,6 +29,11 @@ import type {
 
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import {
+  clientBuildId,
+  clientCompatibilityVersion,
+  reloadForClientCompatibilityMismatch,
+} from "./build-compatibility.js";
 import { ensureEmbedAuthFetchInterceptor } from "./embed-auth.js";
 
 const ACTION_PREFIX = agentNativePath("/_agent-native/actions");
@@ -276,6 +281,12 @@ async function actionFetch<T>(
         }
       : {}),
   };
+  const compatibilityVersion = clientCompatibilityVersion();
+  if (compatibilityVersion) {
+    headers["X-Agent-Native-Client-Compatibility"] = compatibilityVersion;
+  }
+  const buildId = clientBuildId();
+  if (buildId) headers["X-Agent-Native-Build-Id"] = buildId;
   const tz = resolveUserTimezone();
   if (tz) headers["x-user-timezone"] = tz;
   const init: RequestInit = {
@@ -341,6 +352,26 @@ async function actionFetch<T>(
       // useful message instead of the opaque "Failed to fetch".
       const cause = err instanceof Error ? err.message : String(err);
       throw new Error(`Action ${name} failed: ${cause}`);
+    }
+
+    if (
+      res.status === 409 &&
+      res.headers.get("X-Agent-Native-Client-Mismatch") === "1"
+    ) {
+      const serverBuildId =
+        res.headers.get("X-Agent-Native-Build-Id") ?? "latest";
+      const requiredCompatibility =
+        res.headers.get("X-Agent-Native-Client-Compatibility") ?? "unknown";
+      reloadForClientCompatibilityMismatch(
+        serverBuildId,
+        requiredCompatibility,
+      );
+      const error = new Error(
+        `Action ${name} requires a refreshed browser client`,
+      );
+      (error as any).status = 409;
+      (error as any).code = "client_build_mismatch";
+      throw error;
     }
 
     // 204 No Content — nothing to parse.

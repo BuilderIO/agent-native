@@ -6,6 +6,7 @@ export type ContentSpaceSummary = {
   name: string;
   kind: string;
   filesDatabaseId: string;
+  filesDocumentId: string;
   orgId: string | null;
   role: "owner" | "editor" | "viewer";
   catalogItemId: string;

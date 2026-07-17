@@ -19,6 +19,17 @@ function jsonResponse(body: unknown, init: ResponseInit = {}): Response {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+  delete (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_BUILD_ID__?: string;
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+    }
+  ).__AGENT_NATIVE_BUILD_ID__;
+  delete (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__?: string;
+    }
+  ).__AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__;
 });
 
 describe("serializeActionQueryParams", () => {
@@ -39,6 +50,48 @@ describe("serializeActionQueryParams", () => {
 });
 
 describe("callAction", () => {
+  it("sends build compatibility and hard-refreshes once on a mismatch", async () => {
+    Object.assign(globalThis, {
+      __AGENT_NATIVE_BUILD_ID__: "client-build",
+      __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: "spaces-v1",
+    });
+    const replace = vi.fn();
+    vi.stubGlobal("window", {
+      location: { href: "https://content.example/page/one", replace },
+      history: { state: null, replaceState: vi.fn() },
+      sessionStorage: {
+        getItem: vi.fn(() => null),
+        setItem: vi.fn(),
+      },
+    });
+    const fetchMock = vi.fn().mockResolvedValue(
+      jsonResponse(
+        { code: "client_build_mismatch" },
+        {
+          status: 409,
+          headers: {
+            "Content-Type": "application/json",
+            "X-Agent-Native-Client-Mismatch": "1",
+            "X-Agent-Native-Build-Id": "server-build",
+            "X-Agent-Native-Client-Compatibility": "spaces-v2",
+          },
+        },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      callAction("list-files", {}, { method: "GET" }),
+    ).rejects.toMatchObject({ status: 409, code: "client_build_mismatch" });
+    expect(fetchMock.mock.calls[0]?.[1]?.headers).toMatchObject({
+      "X-Agent-Native-Client-Compatibility": "spaces-v1",
+      "X-Agent-Native-Build-Id": "client-build",
+    });
+    expect(replace).toHaveBeenCalledWith(
+      "https://content.example/page/one?__an_build=server-build",
+    );
+  });
+
   it("calls mutating actions through the framework action transport", async () => {
     const fetchMock = vi
       .fn()

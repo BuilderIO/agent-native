@@ -242,19 +242,8 @@ export async function reconcileContentFilesMemberships(
   const orgSpaceIds = new Map<string, string>();
   for (const membership of memberships) {
     const spaceId = organizationContentSpaceId(membership.orgId);
-    try {
-      await resolveContentSpaceAccess(spaceId, "editor");
-      orgSpaceIds.set(membership.orgId, spaceId);
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        error.message ===
-          `Editor access is required for Content space "${spaceId}"`
-      ) {
-        continue;
-      }
-      throw error;
-    }
+    await resolveContentSpaceAccess(spaceId);
+    orgSpaceIds.set(membership.orgId, spaceId);
   }
   const accessibleSpaceIds = [personalSpaceId, ...orgSpaceIds.values()];
   const now = new Date().toISOString();

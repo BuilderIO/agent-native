@@ -4,7 +4,7 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 const TEST_DB_PATH = join(
@@ -22,6 +22,7 @@ let provisionContentSpaces: typeof import("./_content-spaces.js").provisionConte
 let personalContentSpaceId: typeof import("./_content-spaces.js").personalContentSpaceId;
 let organizationContentSpaceId: typeof import("./_content-spaces.js").organizationContentSpaceId;
 let reconcileContentFilesMemberships: typeof import("./_content-files.js").reconcileContentFilesMemberships;
+let getContentDatabaseAction: typeof import("./get-content-database.js").default;
 
 beforeAll(async () => {
   process.env.DATABASE_URL = `file:${TEST_DB_PATH}`;
@@ -34,6 +35,8 @@ beforeAll(async () => {
     organizationContentSpaceId,
   } = await import("./_content-spaces.js"));
   ({ reconcileContentFilesMemberships } = await import("./_content-files.js"));
+  getContentDatabaseAction = (await import("./get-content-database.js"))
+    .default;
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   await getDbExec().execute(`CREATE TABLE IF NOT EXISTS organizations (
@@ -100,7 +103,7 @@ async function getFilesDatabase(spaceId: string) {
 }
 
 describe("Content Files membership reconciliation", () => {
-  it("does not let organization viewers backfill legacy organization pages", async () => {
+  it("lets an ordinary member backfill legacy organization pages without changing their content or ownership", async () => {
     const viewerOrgId = "files-viewer-org";
     await getDbExec().execute({
       sql: "INSERT INTO organizations (id, name, created_by, created_at) VALUES (?, ?, ?, ?)",
@@ -120,21 +123,88 @@ describe("Content Files membership reconciliation", () => {
     await createLegacyDocument({
       id: "viewer-legacy-org",
       orgId: viewerOrgId,
-      title: "Viewer cannot reconcile",
+      title: "Member can reconcile",
     });
+    await createLegacyDocument({
+      id: "owner-private-org",
+      orgId: viewerOrgId,
+      title: "Owner private page",
+    });
+    await getDb()
+      .update(schema.documents)
+      .set({ content: "Keep this body exactly", icon: "📚" })
+      .where(eq(schema.documents.id, "viewer-legacy-org"));
+    await getDb()
+      .update(schema.documents)
+      .set({ visibility: "private" })
+      .where(eq(schema.documents.id, "owner-private-org"));
+    const [before] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, "viewer-legacy-org"));
 
     await runWithRequestContext({ userEmail: VIEWER }, () =>
       reconcileContentFilesMemberships(getDb(), VIEWER),
     );
 
     const [legacyDocument] = await getDb()
-      .select({ spaceId: schema.documents.spaceId })
+      .select()
       .from(schema.documents)
       .where(eq(schema.documents.id, "viewer-legacy-org"));
-    expect(legacyDocument?.spaceId).toBeNull();
+    expect(legacyDocument).toMatchObject({
+      id: before!.id,
+      ownerEmail: before!.ownerEmail,
+      orgId: before!.orgId,
+      title: before!.title,
+      content: before!.content,
+      icon: before!.icon,
+      visibility: before!.visibility,
+      spaceId: organizationContentSpaceId(viewerOrgId),
+    });
+    const filesDatabase = await getFilesDatabase(
+      organizationContentSpaceId(viewerOrgId),
+    );
+    await expect(
+      getDb()
+        .select()
+        .from(schema.contentDatabaseItems)
+        .where(
+          and(
+            eq(schema.contentDatabaseItems.databaseId, filesDatabase.id),
+            eq(schema.contentDatabaseItems.documentId, "viewer-legacy-org"),
+          ),
+        ),
+    ).resolves.toHaveLength(1);
+    const databaseResponse = await runWithRequestContext(
+      { userEmail: VIEWER, orgId: viewerOrgId },
+      () => getContentDatabaseAction.run({ databaseId: filesDatabase.id }),
+    );
+    expect(databaseResponse).toMatchObject({
+      database: { id: filesDatabase.id, systemRole: "files" },
+      items: expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({
+            id: "viewer-legacy-org",
+            title: "Member can reconcile",
+          }),
+        }),
+      ]),
+    });
+    expect(databaseResponse.items).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          document: expect.objectContaining({ id: "owner-private-org" }),
+        }),
+      ]),
+    );
     await getDb()
       .delete(schema.documents)
-      .where(eq(schema.documents.id, "viewer-legacy-org"));
+      .where(
+        inArray(schema.documents.id, [
+          "viewer-legacy-org",
+          "owner-private-org",
+        ]),
+      );
   });
 
   it("assigns personal and organization legacy pages to their canonical Files databases", async () => {

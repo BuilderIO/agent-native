@@ -122,6 +122,7 @@ import { NotionButton } from "./NotionButton";
 import {
   contentSpaceAvailability,
   contentSpaceForActiveOrg,
+  SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
 } from "./select-content-space";
 
@@ -188,8 +189,6 @@ type CollapsedSectionsState = Record<SidebarSectionId, boolean>;
 
 const SIDEBAR_SECTION_COLLAPSE_STORAGE_KEY =
   "content-sidebar-collapsed-sections";
-const SELECTED_CONTENT_SPACE_STORAGE_KEY = "content-selected-space";
-
 const DEFAULT_COLLAPSED_SECTIONS: CollapsedSectionsState = {
   "local-files": false,
   "shared-copies": false,
@@ -304,13 +303,26 @@ export function DocumentSidebar({
           space,
           activeOrgId: activeOrg?.orgId,
           switchOrg: (orgId) => switchOrg.mutateAsync(orgId),
+          syncApplicationState: (selected) =>
+            setClientAppState(
+              "content-space",
+              {
+                spaceId: selected.id,
+                name: selected.name,
+                kind: selected.kind,
+                filesDatabaseId: selected.filesDatabaseId,
+              },
+              { requestSource: "content-sidebar" },
+            ),
           persistSelection: setStoredSpaceId,
+          openFiles: (documentId) =>
+            navigate(`/page/${documentId}`, { flushSync: true }),
         });
       } catch (error) {
         toast.error(error instanceof Error ? error.message : String(error));
       }
     },
-    [activeOrg?.orgId, setStoredSpaceId, switchOrg, t],
+    [activeOrg?.orgId, navigate, setStoredSpaceId, switchOrg],
   );
   useEffect(() => {
     if (!selectedSpace) return;
