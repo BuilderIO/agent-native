@@ -11,6 +11,7 @@ import {
 import {
   IconAlertTriangle,
   IconArrowLeft,
+  IconDeviceDesktop,
   IconDownload,
   IconDots,
   IconExternalLink,
@@ -39,6 +40,7 @@ import { CaptureInstallButton } from "@/components/capture-install-options";
 import { AccessPasswordPrompt } from "@/components/player/access-password-prompt";
 import { CommentsPanel } from "@/components/player/comments-panel";
 import { RecordingOptionsMenu } from "@/components/player/delete-recording-menu";
+import { InsightsPanel } from "@/components/player/insights-panel";
 import { ReactionsTray } from "@/components/player/reactions-tray";
 import { ShareRecordingPopover } from "@/components/player/share-dialog";
 import { SignInPromptDialog } from "@/components/player/sign-in-prompt-dialog";
@@ -483,7 +485,17 @@ export default function ShareRoute() {
     dataQ.data?.data?.transcript?.failureReason ?? null;
   const ctas = dataQ.data?.data?.ctas ?? [];
   const firstCta = ctas[0] ?? null;
-  const viewerCanEdit = Boolean(dataQ.data?.data?.viewer?.canEdit);
+  const viewerRole = dataQ.data?.data?.viewer?.role as
+    | "owner"
+    | "admin"
+    | "editor"
+    | "viewer"
+    | undefined;
+  const viewerCanEdit =
+    Boolean(dataQ.data?.data?.viewer?.canEdit) ||
+    viewerRole === "owner" ||
+    viewerRole === "admin" ||
+    viewerRole === "editor";
   const viewerIsOwner = Boolean(dataQ.data?.data?.viewer?.isOwner);
   const showTitleSkeleton = recording
     ? shouldShowGeneratedTitleSkeleton(recording, transcriptStatus)
@@ -944,7 +956,7 @@ export default function ShareRoute() {
               durationMs={recording.durationMs}
               editsJson={recording.editsJson}
               thumbnailUrl={recording.thumbnailUrl}
-              role={viewerCanEdit ? "owner" : "viewer"}
+              role={viewerRole ?? (viewerCanEdit ? "owner" : "viewer")}
               defaultSpeed={parsePlaybackSpeed(recording.defaultSpeed) ?? 1.2}
               comments={comments}
               chapters={chapters}
@@ -1122,7 +1134,14 @@ export default function ShareRoute() {
             value="insights"
             className="mt-3 min-h-0 flex-1 data-[state=inactive]:hidden"
           >
-            <PublicInsightsState />
+            {viewerCanEdit ? (
+              <InsightsPanel
+                recordingId={recording.id}
+                durationMs={recording.durationMs}
+              />
+            ) : (
+              <PublicInsightsState />
+            )}
           </TabsContent>
         </Tabs>
       </aside>
@@ -1220,6 +1239,12 @@ function PublicAgentEmptyState({
           className="w-full gap-2"
           align="center"
           onClick={() => onCtaClick("download")}
+          downloadedChildren={
+            <>
+              <IconDeviceDesktop className="h-4 w-4" />
+              {t("captureInstall.openDesktopApp")}
+            </>
+          }
         >
           <IconDownload className="h-4 w-4" />
           {downloadLabel}

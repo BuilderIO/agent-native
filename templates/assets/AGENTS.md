@@ -49,6 +49,8 @@ Detailed library, generation, image, embed, and engine rules live in
 - To submit an asset to a governed Creative Context, use the Context tab or
   `manage-context-membership`; it pins immutable media bytes and metadata.
   Reuse only its opaque native clone reference through the Assets action path.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
   context. Human Library state uses

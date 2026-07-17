@@ -1,5 +1,23 @@
 # @agent-native/core
 
+## 0.106.3
+
+### Patch Changes
+
+- 10fb9f4: Preserve durable `ask_app` task handles and return retryable status-read details when transient polling transport failures outlast bounded retries.
+
+## 0.106.2
+
+### Patch Changes
+
+- 7fb8e89: Return a verified artifact receipt when an integration mutation succeeds without a final model summary.
+
+## 0.106.1
+
+### Patch Changes
+
+- 0d8118e: Allow review comment composers to render a custom agent action in the standard action row, choose the Enter-key submit target, and atomically compare-and-set application state for race-safe UI workflows.
+
 ## 0.106.0
 
 ### Minor Changes

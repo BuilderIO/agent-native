@@ -27,6 +27,36 @@ function escapeLike(s: string): string {
   return s.replace(/([\\%_])/g, "\\$1");
 }
 
+type RecordingMediaFields = {
+  id: string;
+  sourceAppName?: string | null;
+  sourceWindowTitle?: string | null;
+  videoUrl?: string | null;
+  videoFormat?: "webm" | "mp4" | null;
+};
+
+export function resolveListRecordingMedia(
+  recording: RecordingMediaFields,
+  includeMedia: boolean,
+): { videoUrl: string | null; videoFormat: "webm" | "mp4" | null } {
+  if (!includeMedia) {
+    return { videoUrl: null, videoFormat: null };
+  }
+
+  return {
+    videoUrl: resolvePlayerVideoUrl(
+      {
+        id: recording.id,
+        sourceAppName: recording.sourceAppName,
+        sourceWindowTitle: recording.sourceWindowTitle,
+        videoUrl: recording.videoUrl,
+      },
+      { proxyRemoteMedia: true },
+    ),
+    videoFormat: recording.videoFormat ?? null,
+  };
+}
+
 export default defineAction({
   description:
     "List recordings visible to the current user. Supports filtering by view (library/shared/space/archive/trash/all), folder, space, tag, free-text, and sort. The shared view returns accessible recordings owned by someone else.",
@@ -324,18 +354,7 @@ export default defineAction({
         hasCamera: Boolean(r.hasCamera),
         width: r.width,
         height: r.height,
-        videoUrl: args.includeMedia
-          ? resolvePlayerVideoUrl(
-              {
-                id: r.id,
-                sourceAppName: r.sourceAppName,
-                sourceWindowTitle: r.sourceWindowTitle,
-                videoUrl: r.videoUrl,
-              },
-              { proxyRemoteMedia: true },
-            )
-          : null,
-        videoFormat: args.includeMedia ? r.videoFormat : null,
+        ...resolveListRecordingMedia(r, args.includeMedia),
         transcriptStatus: row.transcriptStatus ?? null,
         transcriptHasText: Number(row.transcriptHasText ?? 0) > 0,
       };

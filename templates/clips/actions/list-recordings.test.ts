@@ -82,7 +82,31 @@ vi.mock("../server/lib/recordings.js", () => ({
   parseSpaceIds: vi.fn(),
 }));
 
-import action from "./list-recordings";
+import action, { resolveListRecordingMedia } from "./list-recordings";
+
+describe("list-recordings editor media", () => {
+  it("keeps playable media out of normal library rows", () => {
+    expect(
+      resolveListRecordingMedia(
+        { id: "rec-1", videoUrl: "/api/video/rec-1", videoFormat: "mp4" },
+        false,
+      ),
+    ).toEqual({ videoUrl: null, videoFormat: null });
+  });
+
+  it("returns a same-origin media route for editor sources", () => {
+    expect(
+      resolveListRecordingMedia(
+        {
+          id: "rec-1",
+          videoUrl: "https://cdn.example.test/rec-1.webm",
+          videoFormat: "webm",
+        },
+        true,
+      ),
+    ).toEqual({ videoUrl: "/api/video/rec-1", videoFormat: "webm" });
+  });
+});
 
 describe("list-recordings shared view", () => {
   beforeEach(() => {

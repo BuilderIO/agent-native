@@ -33,6 +33,20 @@ describe("design review agent instructions", () => {
   });
 });
 
+describe("select and reprompt agent contract", () => {
+  it("keeps the preview-only rule in every always-visible instruction surface", () => {
+    expect(agentChatSource).toContain(
+      "the design must remain unchanged until the user accepts a preview",
+    );
+    expect(agentChatSource).toContain('"propose-node-rewrite"');
+    expect(agentChatSource).toContain("frontend-only resolve-node-rewrite");
+    expect(designAgentGuide.slice(0, 6_000)).toContain("[Reprompt selection]");
+    expect(designAgentGuide.slice(0, 6_000)).toContain("propose-node-rewrite");
+    expect(agentChatSource).toContain("[Selection question]");
+    expect(designAgentGuide.slice(0, 6_000)).toContain("[Selection question]");
+  });
+});
+
 describe("design template agent instructions", () => {
   it.each([
     ["agent chat system prompt", agentChatSource],

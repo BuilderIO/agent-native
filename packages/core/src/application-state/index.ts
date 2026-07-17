@@ -4,6 +4,7 @@ export {
   appStateGetMany,
   appStatePut,
   appStateDelete,
+  appStateCompareAndSet,
   appStateList,
   appStateDeleteByPrefix,
 } from "./store.js";
@@ -33,6 +34,7 @@ export {
   readAppState,
   writeAppState,
   deleteAppState,
+  compareAndSetAppState,
   listAppState,
   deleteAppStateByPrefix,
   readAppStateForCurrentTab,

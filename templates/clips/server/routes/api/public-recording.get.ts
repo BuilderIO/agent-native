@@ -9,8 +9,8 @@
  *   - recording.visibility === 'public' (or the signed-in viewer is owner), AND
  *   - either no password is set, the viewer is owner, or the provided password matches
  *
- * For `org` or `private` visibility, returns 401 (viewer must sign in and use
- * the authenticated player route).
+ * For `org` or `private` visibility, signed-in org members and explicit shares
+ * may load the same player payload as the authenticated route.
  */
 
 import {
@@ -467,11 +467,17 @@ export default defineEventHandler(async (event) => {
       placement: c.placement,
     })),
     viewer: session?.email
-      ? {
-          canEdit: viewerIsOwner,
-          isOwner: viewerIsOwner,
-          role: viewerIsOwner ? "owner" : "viewer",
-        }
+      ? (() => {
+          const role =
+            viewerAccess?.role ?? (viewerIsOrgMember ? "viewer" : null);
+          const canEdit =
+            role === "owner" || role === "admin" || role === "editor";
+          return {
+            canEdit,
+            isOwner: role === "owner",
+            role: role ?? "viewer",
+          };
+        })()
       : null,
   };
 });

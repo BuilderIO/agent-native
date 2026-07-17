@@ -48,6 +48,15 @@ use util::{
 // should replace with their real icon.
 pub(crate) const TRAY_PNG: &[u8] = include_bytes!("../icons/tray.png");
 
+fn present_popover(app: &tauri::AppHandle) {
+    if let Some(window) = app.get_webview_window("popover") {
+        set_capture_included(&window);
+        configure_overlay_behavior(&window);
+        position_popover(app, &window);
+        present_interactive_window(&window);
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     sentry_report::init();
@@ -57,12 +66,7 @@ pub fn run() {
             // Second launch just focuses the popover of the already-running
             // instance. Prevents the "two tray icons" UX where clicks fight
             // over focus and neither popover shows.
-            if let Some(window) = app.get_webview_window("popover") {
-                set_capture_included(&window);
-                configure_overlay_behavior(&window);
-                position_popover(app, &window);
-                present_interactive_window(&window);
-            }
+            present_popover(app);
         }))
         .invoke_handler(tauri::generate_handler![
             // clips commands
@@ -189,6 +193,7 @@ pub fn run() {
             logfile::open_logs,
         ])
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_deep_link::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_fs::init())
         .plugin(
@@ -235,6 +240,36 @@ pub fn run() {
                 eprintln!("[clips-tray] popover build failed: {err}");
                 err
             })?;
+
+            // clips:// deep-link handler — a web "Open desktop app" click
+            // launches or focuses the running tray popover (same as a second
+            // launch). macOS registers the scheme via Info.plist at build time;
+            // Windows/Linux register it at runtime below.
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                let dl_handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    let urls: Vec<String> =
+                        event.urls().iter().map(|u| u.to_string()).collect();
+                    dlog!("[clips-tray] deep link opened: {:?}", urls);
+                    present_popover(&dl_handle);
+                    let _ = dl_handle.emit("clips:deep-link", urls);
+                });
+                #[cfg(any(windows, target_os = "linux"))]
+                if let Err(err) = app.deep_link().register_all() {
+                    eprintln!("[clips-tray] deep link register_all failed: {err}");
+                }
+                // On Linux/Windows a cold launch from clips:// arrives as startup
+                // arguments rather than an on_open_url event. Consume it here so
+                // the popover appears and the browser does not hit its fallback.
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    let url_strings: Vec<String> =
+                        urls.iter().map(|u| u.to_string()).collect();
+                    dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
+                    present_popover(app.handle());
+                    let _ = app.handle().emit("clips:deep-link", url_strings);
+                }
+            }
 
             if let Err(err) = notifications::show_meeting_notification_window(app.handle()) {
                 println!("[clips-tray] show meeting notification failed: {err}");

@@ -1,0 +1,331 @@
+---
+title: "Organizations, Teams & Permissions"
+description: "A practical guide to organization context, team roles, resource sharing, RBAC, and the environment variables used by Agent Native apps."
+---
+
+# Organizations, Teams & Permissions
+
+If you are building an app for more than one person, start here. Agent Native
+has several scopes that are easy to conflate:
+
+| Scope | What it identifies | Where it appears |
+| ----- | ------------------ | ---------------- |
+| **User** | The signed-in person | `session.email`, `ctx.userEmail` |
+| **Organization** | The team or tenant the person is currently using | `session.orgId`, `session.orgRole`, `ctx.orgId` |
+| **Resource** | A document, dashboard, design, or other app row | `owner_email`, `org_id`, `visibility`, and share grants |
+| **Workspace** | A deployment shape containing multiple apps and shared configuration | `AGENT_NATIVE_WORKSPACE`, shared `.env`, app base paths |
+
+An organization is the team boundary for application data. A workspace is a
+deployment and customization concept; it is not a replacement for an
+organization and it does not grant access to application rows by itself.
+
+## The access model in one minute
+
+The framework resolves a request in this order:
+
+1. Authentication identifies the user.
+2. The org module resolves the user's active organization and membership role.
+3. SQL and resource access helpers scope reads and writes to that identity.
+
+```text
+Better Auth session
+  -> active organization: orgId + orgRole
+  -> request context: userEmail + orgId
+  -> scoped SQL / resource access
+```
+
+The same context is used by the UI, actions, custom server routes, and the
+agent. Hiding a button in React is useful UX, but it is not authorization. The
+server-side action or access guard must enforce the rule.
+
+## Organizations and teams
+
+Every scaffold includes the framework's own `org/` module. It is backed by
+`organizations`, `org_members`, and `org_invitations`; it is not Better Auth's
+organization plugin. The built-in flow supports:
+
+- Creating an organization. The creator becomes the `owner`.
+- Inviting people as `member` or `admin` and accepting invitations.
+- Switching the active organization when a user belongs to more than one.
+- Joining by an allowed email domain when the organization enables that policy.
+- Renaming an organization, managing members, and managing cross-app A2A
+  settings from the team surface.
+
+The framework mounts the server surface under `/_agent-native/org/*`. The main
+routes are:
+
+| Route | Purpose |
+| ----- | ------- |
+| `GET /_agent-native/org/me` | Active org, memberships, pending invites, and domain matches |
+| `POST /_agent-native/org` | Create an organization |
+| `PUT /_agent-native/org/switch` | Switch the active organization |
+| `GET /_agent-native/org/members` | List members in the active organization |
+| `POST /_agent-native/org/invitations` | Invite one or more people |
+| `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation |
+| `PUT /_agent-native/org/members/:email/role` | Change a member's role |
+| `PUT /_agent-native/org/domain` | Set or clear the allowed email domain |
+
+Use the shared UI and hooks instead of recreating this flow in each app:
+
+```tsx
+import {
+  OrgSwitcher,
+  RequireActiveOrg,
+  TeamPage,
+  useOrgRole,
+} from "@agent-native/core/client/org-team";
+
+export function AppShell() {
+  return <OrgSwitcher />;
+}
+
+export function TeamSettings() {
+  return (
+    <RequireActiveOrg>
+      <TeamPage />
+    </RequireActiveOrg>
+  );
+}
+
+export function InviteButton() {
+  const { canInviteOrgMembers } = useOrgRole();
+  return canInviteOrgMembers ? <button>Invite members</button> : null;
+}
+```
+
+On the server, import the org helpers from `@agent-native/core/org-team`.
+`getOrgContext(event)` returns the resolved `{ email, orgId, orgName, role }`.
+For actions, the second `run` argument is the simpler path for the identity
+needed by most app code:
+
+```ts
+export default defineAction({
+  description: "Create a project in the active organization.",
+  schema: z.object({ name: z.string().min(1) }),
+  run: async ({ name }, ctx) => {
+    if (!ctx?.userEmail) throw new Error("Authentication required");
+
+    await db.insert(projects).values({
+      id: crypto.randomUUID(),
+      name,
+      ownerEmail: ctx.userEmail,
+      orgId: ctx.orgId,
+    });
+
+    return { ok: true };
+  },
+});
+```
+
+The active organization is selected from the user's memberships. For a user
+with several memberships, the framework honors the `active-org-id` user
+setting. If a signed-in user has no membership, the framework creates a
+personal organization by default. Set `AUTO_CREATE_DEFAULT_ORG=0` when an app
+must require an explicit invite or organization-creation step.
+
+## Organization roles (membership RBAC)
+
+Organization roles answer: **what may this person do to the team itself?**
+
+| Role | Meaning | Typical capabilities |
+| ---- | ------- | -------------------- |
+| `owner` | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings |
+| `admin` | Team administrator | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, and only the owner manages admin-to-admin transitions |
+| `member` | Regular team member | Use resources that the app shares with the organization; cannot manage membership |
+
+The shared role helpers are deliberately small and composable:
+
+```ts
+import {
+  canInviteOrgMembers,
+  canManageOrg,
+  canManageOrgDomain,
+  orgRoleAtLeast,
+} from "@agent-native/core/org-team";
+
+if (!orgRoleAtLeast(role, "admin")) {
+  throw new Error("Organization admin role required");
+}
+```
+
+The same helpers are available from
+`@agent-native/core/client/org-team` for presentation logic. Treat those
+client checks as progressive disclosure only; repeat the authorization check
+in the server action or route that changes org state.
+
+## Resource permissions (sharing RBAC)
+
+Organization roles and resource roles are different systems:
+
+- **Organization role** controls team administration.
+- **Resource role** controls access to one document, dashboard, or other
+  shareable row.
+
+Shareable resources use three layers together:
+
+1. `owner_email` identifies the creator.
+2. `org_id` and `visibility` define the resource's tenant and coarse visibility.
+3. A companion shares table grants a user or organization `viewer`, `editor`,
+   or `admin` access.
+
+| Resource role | Access |
+| ------------- | ------ |
+| `viewer` | Read |
+| `editor` | Read and write |
+| `admin` | Read, write, and manage shares |
+
+`admin` on a resource does not transfer ownership. The resource owner remains
+separate from every share grant.
+
+For new tenant-aware tables, use `ownableColumns()` and the access helpers:
+
+```ts
+import { table, text, ownableColumns } from "@agent-native/core/db/schema";
+import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+
+export const projects = table("projects", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  ...ownableColumns(), // owner_email + org_id + visibility
+});
+
+const visibleProjects = await db
+  .select()
+  .from(projects)
+  .where(accessFilter(projects, projectShares));
+
+await assertAccess("project", projectId, "editor");
+```
+
+Use these helpers consistently:
+
+- `accessFilter(table, sharesTable)` for list/read queries.
+- `resolveAccess(resourceType, resourceId)` when the action needs to inspect
+  the effective access role.
+- `assertAccess(resourceType, resourceId, minRole)` at the top of a write or
+  single-record action.
+
+The framework's SQL agent tools are scoped as well, but direct Drizzle queries
+in actions and custom routes still need the access helpers. Run
+`pnpm action db-check-scoping` and `pnpm guards` while developing to catch
+missing ownership or unscoped query paths.
+
+## Environment variables: what belongs where
+
+Environment variables configure the deployment. They are not a database for
+user or team state.
+
+| Store | Use it for | Do not use it for |
+| ----- | ---------- | ---------------- |
+| Server/deploy environment | One value shared by the whole app instance, such as `DATABASE_URL`, auth signing keys, or an A2A secret | A user's API key or a team's mutable setting |
+| `VITE_*` build-time environment | Non-secret values that must be embedded in browser code | Secrets; anything with `VITE_` can be public |
+| Encrypted credential/vault APIs | Per-user and per-organization provider keys, OAuth tokens, and app secrets | Deployment bootstrapping that must exist before the database is available |
+| SQL application state/settings | App state, preferences, and references | Raw credentials, tokens, or large file payloads |
+
+For local development, put deploy-level values in a gitignored `.env`. In a
+workspace, the root `.env` is shared by apps and `apps/<name>/.env` overrides it
+for that app. Never commit real values.
+
+## Framework environment variables
+
+There is no single useful list of every environment variable in an app: each
+template and provider adds its own integration settings. The table below is the
+framework-level set developers most often need. Feature-specific variables stay
+on the page for the feature that owns them.
+
+### Database and public URL
+
+| Variable | What it does |
+| -------- | ------------ |
+| `DATABASE_URL` | Persistent SQL connection. Unset uses local SQLite; `pglite:./data/pglite` opts into local Postgres semantics. |
+| `DATABASE_AUTH_TOKEN` | Separate auth token for providers such as Turso/libSQL. |
+| `<APP_NAME>_DATABASE_URL` | Per-app database override in a multi-app workspace; it wins over `DATABASE_URL`. |
+| `<APP_NAME>_DATABASE_URL_UNPOOLED` | Per-app unpooled connection used for migrations where the provider exposes one. |
+| `APP_URL` | Canonical app/workspace origin used for generated links and callbacks. |
+| `BETTER_AUTH_URL` | Public auth origin used for session and OAuth URL construction. |
+| `WEBHOOK_BASE_URL` | Optional callback origin when webhook self-callbacks should use a stable custom domain instead of the deploy preview URL. |
+| `PORT` | Node server port. |
+| `APP_BASE_PATH` | Mounts a standalone app under a path such as `/mail`. |
+
+### Authentication, cookies, and org defaults
+
+| Variable | What it does |
+| -------- | ------------ |
+| `BETTER_AUTH_SECRET` | Production session-signing secret and fallback key material. Generate a fresh 32+ character value. |
+| `OAUTH_STATE_SECRET` | Dedicated HMAC key for OAuth state envelopes; falls back to `BETTER_AUTH_SECRET` when unset. |
+| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM key for encrypted credentials and vault rows; falls back to `BETTER_AUTH_SECRET`. |
+| `AUTH_DISABLED` | Local/demo escape hatch that makes every request one shared user. Never use it with real production users. |
+| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` for QA/preview signup without email verification. |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost's automatic throwaway account. |
+| `AUTH_MODE` | Controls CLI/agent identity resolution such as `pnpm action`; it is not a browser login bypass. |
+| `COOKIE_DOMAIN` | Shares cookies across same-database subdomains when explicitly configured. |
+| `AGENT_NATIVE_WORKSPACE` | Enables the shared workspace session realm for a multi-app workspace. |
+| `AUTO_CREATE_DEFAULT_ORG` | Defaults to enabled; set to `0` to stop creating a personal organization for users with no membership. |
+
+### Agent providers and runtime
+
+| Variable | What it does |
+| -------- | ------------ |
+| `AGENT_ENGINE` | Explicitly selects the agent engine, for example a built-in provider or `codex-cli`. |
+| `AGENT_ENGINE_PREFER_BYO_KEY` | Set to `true` to prefer a user's stored provider key over the managed Builder engine. |
+| `ANTHROPIC_API_KEY` | Deploy-level Anthropic fallback for the agent. In multi-tenant hosted apps, prefer per-user credentials. |
+| `OPENAI_API_KEY` | Deploy-level OpenAI provider key. |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Deploy-level Google Gemini provider key. |
+| `OPENROUTER_API_KEY` | Deploy-level OpenRouter provider key. |
+| `GROQ_API_KEY` | Deploy-level Groq provider key. |
+| `MISTRAL_API_KEY` | Deploy-level Mistral provider key. |
+| `COHERE_API_KEY` | Deploy-level Cohere provider key. |
+| `AGENT_MAX_ITERATIONS` | Default maximum agent loop iterations; app settings can override it where supported. |
+| `AGENT_MAX_OUTPUT_TOKENS` | Default output-token limit for the agent. |
+| `AGENT_PROD_CODE_EXECUTION` | Production code execution mode: `off`, `sandboxed`, or `trusted`. The default is `off`. |
+
+### MCP, A2A, and CLI identity
+
+| Variable | What it does |
+| -------- | ------------ |
+| `A2A_SECRET` | Shared signing secret for production cross-app A2A and queued integration dispatch. Use the same value across sibling apps. |
+| `ACCESS_TOKEN` | One static bearer fallback for MCP clients that cannot use OAuth. It is not browser authentication. |
+| `ACCESS_TOKENS` | Comma-separated static bearer fallbacks for MCP clients. |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL` | Lifetime for MCP OAuth access tokens; defaults to `30d`. |
+| `AGENT_USER_EMAIL` | CLI-only user identity fallback when no request context exists. It does not impersonate browser requests. |
+| `AGENT_USER_NAME` | CLI-only display-name fallback. |
+| `AGENT_ORG_ID` | CLI-only active-org fallback when no request context exists. It does not override a browser session. |
+| `AGENT_USER_TIMEZONE` | CLI/agent timezone fallback. |
+
+### Workspace route visibility
+
+These are generated automatically by the workspace deploy/dev commands in most
+projects. Configure them directly only when you are building the workspace
+runtime yourself:
+
+| Variable | What it does |
+| -------- | ------------ |
+| `AGENT_NATIVE_WORKSPACE_APP_ID` | Identifies the current app inside a multi-app workspace. |
+| `AGENT_NATIVE_WORKSPACE_APP_AUDIENCE` | Sets the app audience, usually `internal` or `public`. |
+| `AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS` | JSON array of public route prefixes. |
+| `AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS` | JSON array of route prefixes that remain authenticated. |
+
+## A practical setup sequence
+
+For a new team app, configure in this order:
+
+1. Set `DATABASE_URL` if the app will be shared or deployed.
+2. Set `BETTER_AUTH_SECRET` and `BETTER_AUTH_URL` before production.
+3. Render `OrgSwitcher` and `TeamPage` from the shared org/team kit.
+4. Add `...ownableColumns()` to tenant-aware tables.
+5. Use `ctx.orgId` when creating rows and `accessFilter` / `assertAccess` when
+   reading or mutating them.
+6. Put provider credentials in the encrypted credential/vault surface when
+   they vary by user or organization; keep env keys for deploy-level defaults.
+7. Add `A2A_SECRET` to every production app that delegates to a sibling app or
+   processes signed integration tasks.
+
+## Related docs
+
+- [**Authentication**](/docs/authentication) — sessions, OAuth, cookies, and auth flags
+- [**Multi-Tenancy**](/docs/multi-tenancy) — org switching and tenant isolation
+- [**Security — Data Scoping**](/docs/security#data-scoping) — SQL scoping and access guards
+- [**Sharing & Privacy**](/docs/sharing) — resource visibility and share roles
+- [**Database**](/docs/database) — schema and connection details
+- [**Deployment**](/docs/deployment#environment-variables) — production and provider environment
+- [**Org & Team Kit**](/docs/toolkit-org-team) — reusable UI components and hooks

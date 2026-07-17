@@ -46,6 +46,8 @@ Detailed document editing, Notion, storage, and UI rules live in
 - To submit a document to a governed Creative Context, use the Context tab or
   `manage-context-membership`; the app flushes live collaboration and captures
   one immutable Markdown version. Reuse only its opaque native clone reference.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 
 - `navigation` exposes document, selected block, comment, media, and Notion view
   context.

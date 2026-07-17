@@ -191,6 +191,44 @@ export async function appStateDelete(
   return deleted;
 }
 
+export async function appStateCompareAndSet(
+  sessionId: string,
+  key: string,
+  expectedValue: Record<string, unknown>,
+  nextValue: Record<string, unknown> | null,
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  await ensureTable();
+  const client = getDbExec();
+  const expected = JSON.stringify(expectedValue);
+  if (nextValue === null) {
+    const result = await client.execute({
+      sql: `DELETE FROM application_state WHERE session_id = ? AND key = ? AND value = ?`,
+      args: [sessionId, key, expected],
+    });
+    const changed = result.rowsAffected > 0;
+    if (changed) emitAppStateDelete(key, options?.requestSource, sessionId);
+    return changed;
+  }
+
+  const next = JSON.stringify(nextValue);
+  if (
+    !isLocalDatabase() &&
+    Buffer.byteLength(next, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
+  ) {
+    throw new Error(
+      `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
+    );
+  }
+  const result = await client.execute({
+    sql: `UPDATE application_state SET value = ?, updated_at = ? WHERE session_id = ? AND key = ? AND value = ?`,
+    args: [next, Date.now(), sessionId, key, expected],
+  });
+  const changed = result.rowsAffected > 0;
+  if (changed) emitAppStateChange(key, options?.requestSource, sessionId);
+  return changed;
+}
+
 export async function appStateList(
   sessionId: string,
   keyPrefix: string,

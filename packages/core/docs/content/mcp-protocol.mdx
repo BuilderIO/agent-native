@@ -244,6 +244,14 @@ Call `ask_app_status` with those arguments until the task reaches a terminal
 state. Dispatch's app-owned `ask_app` uses the same durable task and status
 contract, with the selected-app grant checked on both submission and polling.
 
+If a bounded transient status read is unavailable, `ask_app_status` can return
+`status: "unknown"`, `statusRead: "unavailable"`, `retryable: true`, the
+original `app` and `taskId`, and `pollAfterMs` / `poll`. This means the status
+read is unavailable—not that the durable task failed. Retry `ask_app_status`
+with that exact `app` and `taskId`; never resubmit `ask_app` to recover, because
+submission can duplicate work. Permanent authentication, not-found, and
+protocol failures remain errors.
+
 ## Authentication {#authentication}
 
 The MCP endpoint supports standard remote MCP OAuth plus the existing bearer-token fallback:

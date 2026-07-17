@@ -137,12 +137,16 @@ describe("creative context client action contracts", () => {
             kind: "slides-deck",
             sourceModifiedAt: "2026-07-17T12:00:00.000Z",
           },
+          nativeUpdateStatus: { state: "update-available" },
         },
       ],
     });
     expect(membership?.publishedItem?.sourceModifiedAt).toBe(
       "2026-07-17T12:00:00.000Z",
     );
+    expect(membership?.nativeUpdateStatus).toEqual({
+      state: "update-available",
+    });
   });
 
   it("keeps a bounded inert document block model for read-only rendering", () => {

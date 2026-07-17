@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   appendA2AArtifactLinks,
   buildA2ARecoverableArtifactMessage,
+  buildA2AVerifiedMutationReceipt,
   extractA2AArtifactIdentities,
   stripA2APersistedArtifactMarkers,
 } from "./artifact-response.js";
@@ -145,6 +146,48 @@ describe("appendA2AArtifactLinks", () => {
         },
       ]),
     ).toEqual([]);
+  });
+
+  it("keeps nested mutation receipts on the target app origin", () => {
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret-for-nested-mutation-receipts");
+    const downstream = appendA2AArtifactLinks(
+      "Updated the existing row.",
+      [
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_123" }),
+          completedSideEffect: true,
+        },
+      ],
+      {
+        baseUrl: "https://content.agent.test",
+        includeReferencedArtifacts: true,
+        includePersistedArtifactMarker: true,
+      },
+    );
+    const callAgentResult = {
+      tool: "call-agent",
+      result: downstream,
+      completedSideEffect: true,
+    };
+
+    const receipt = buildA2AVerifiedMutationReceipt([callAgentResult], {
+      baseUrl: "https://dispatch.agent.test",
+    });
+    expect(receipt).toContain("Document ID: request_123");
+    expect(receipt).not.toContain(
+      "https://dispatch.agent.test/page/request_123",
+    );
+
+    const delivered = appendA2AArtifactLinks(receipt ?? "", [callAgentResult], {
+      baseUrl: "https://dispatch.agent.test",
+    });
+    expect(delivered).toContain(
+      "https://content.agent.test/page/request_123 (ID: request_123)",
+    );
+    expect(delivered).not.toContain(
+      "https://dispatch.agent.test/page/request_123",
+    );
   });
 
   it("excludes lookup artifacts from the stable identity ledger", () => {
@@ -323,6 +366,101 @@ describe("appendA2AArtifactLinks", () => {
     expect(text).toContain(
       '- Document "Homepage refresh": https://content.agent.test/page/request_456 (ID: request_456)',
     );
+  });
+
+  it("builds an identity-only receipt for a verified document update", () => {
+    const text = buildA2AVerifiedMutationReceipt(
+      [
+        {
+          tool: "update-document",
+          result: JSON.stringify({
+            id: "request_456",
+            title: "Historical title must not be repeated",
+            urlPath: "/page/request_456",
+          }),
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain("A verified change was saved");
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_456 (ID: request_456)",
+    );
+    expect(text).not.toContain("Historical title must not be repeated");
+  });
+
+  it("does not treat read-only or failed action results as mutation receipts", () => {
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "get-document",
+          result: JSON.stringify({
+            id: "request_456",
+            urlPath: "/page/request_456",
+          }),
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "update-document",
+          result: "Error: update rejected",
+        },
+      ]),
+    ).toBeNull();
+  });
+
+  it("builds a document receipt for a sparse property correction", () => {
+    const text = buildA2AVerifiedMutationReceipt(
+      [
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          completedSideEffect: true,
+        },
+      ],
+      { baseUrl: "https://content.agent.test/" },
+    );
+
+    expect(text).toContain(
+      "- Document: https://content.agent.test/page/request_456 (ID: request_456)",
+    );
+  });
+
+  it("rejects conflicts and explicitly incomplete write events", () => {
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "update-document",
+          result: JSON.stringify({
+            conflict: true,
+            id: "request_456",
+            document: { id: "request_456" },
+          }),
+          completedSideEffect: true,
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          completedSideEffect: false,
+        },
+      ]),
+    ).toBeNull();
+    expect(
+      buildA2AVerifiedMutationReceipt([
+        {
+          tool: "set-document-property",
+          result: JSON.stringify({ documentId: "request_456" }),
+          isError: true,
+        },
+      ]),
+    ).toBeNull();
   });
 
   it("ignores a mismatched Content submission URL and uses the canonical page route", () => {

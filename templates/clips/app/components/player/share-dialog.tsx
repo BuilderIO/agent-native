@@ -386,9 +386,7 @@ function LinkTab({
             : t("shareDialog.shareWithHumans")
         }
         value={shareUrl}
-        disabled={
-          visibilityPending || !sharesLoaded || (!isPublic && canManage)
-        }
+        disabled={visibilityPending || !sharesLoaded}
       />
 
       {!isPublic ? (

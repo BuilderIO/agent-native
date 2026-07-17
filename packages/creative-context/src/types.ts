@@ -528,6 +528,9 @@ export interface CreativeContextMembership {
   status: CreativeContextMembershipStatus;
   createdAt: string;
   updatedAt: string;
+  nativeUpdateStatus?: {
+    state: "current" | "update-available" | "unknown";
+  };
 }
 
 export interface CreativeContextMembershipPreview {
@@ -537,6 +540,7 @@ export interface CreativeContextMembershipPreview {
   kind: string;
   canonicalUrl: string | null;
   status: ContextItemStatus;
+  sourceModifiedAt?: string | null;
   media: Array<{
     id: string;
     kind: ContextMediaInput["kind"];

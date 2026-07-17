@@ -47,6 +47,8 @@ Detailed deck, slide-editing, image, design-system, and export workflows live in
 - To submit a deck to a governed Creative Context, use the Context tab or
   `manage-context-membership`; it captures one immutable deck version. Reuse
   only a returned opaque native clone reference through the Slides clone action.
+  Use `operation="submit-latest"` with a Library membership id when its native
+  update status reports `update-available`.
 
 ## Persistence Model
 
