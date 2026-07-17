@@ -603,6 +603,9 @@ export async function ensureDefaultCreativeContext(): Promise<CreativeContextSum
     .where(
       and(
         accessFilter(schema.contextSources, schema.contextSourceShares),
+        ...(created.visibility === "org"
+          ? [inArray(schema.contextSources.visibility, ["org", "public"])]
+          : []),
         eq(schema.contextItems.curationStatus, "included"),
         eq(schema.contextItems.status, "active"),
         eq(schema.contextSources.status, "active"),
@@ -777,7 +780,9 @@ export async function updateCreativeContext(
 }
 
 export async function archiveCreativeContext(contextId: string) {
-  await assertContextRole(contextId, "admin");
+  const access = await assertContextRole(contextId, "admin");
+  if (access.resource.kind === "default")
+    throw new Error("The Default Creative Context cannot be archived");
   const { getDb, schema } = getCreativeContext();
   await getDb()
     .update(schema.creativeContexts)
@@ -790,9 +795,7 @@ export async function setCreativeContextAppDefault(
   contextId: string,
   appId: string,
 ) {
-  const access = await assertContextRole(contextId, "admin");
-  if (access.resource.orgId)
-    await assertCurrentRequestUserIsOrgAdmin(access.resource.orgId);
+  await assertContextRole(contextId, "viewer");
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
   const timestamp = nowIso();
