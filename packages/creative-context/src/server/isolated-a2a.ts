@@ -99,6 +99,7 @@ const resolvePayloadSchema = z
     limit: z.number().int().min(1).max(20).optional(),
     contextPackId: boundedId.optional(),
     contextPackSource: z.enum(["explicit", "inherited"]).optional(),
+    selectedContextId: boundedId.nullable().optional(),
   })
   .strict();
 const validatePayloadSchema = z
