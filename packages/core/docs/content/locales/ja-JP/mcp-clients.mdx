@@ -255,8 +255,14 @@ MCP (モデル コンテキスト プロトコル) サーバーは、Zapier、Cl
 区別します。後者も発見用に表示され公式のセットアップ手順へリンクしますが、対応して
 いない場合に誤解を招くワンクリック接続ボタンは表示しません。サンドボックス化された
 拡張機能はホストのアクションを通じて `agentNative.mcp.listTools`、
-`agentNative.mcp.callTool`、`agentNative.providerApi` を使用でき、接続 URL や
-トークンを受け取ることはありません。
+`agentNative.mcp.callTool`、`agentNative.providerApi.catalog(...)`、
+`agentNative.providerApi.docs(...)` を使用して接続済みデータを検出でき、接続 URL や
+アクセストークン、リフレッシュトークンを受け取ることはありません。生の
+`provider-api-request` は意図的にホストとエージェントのみに限定されています。任意の
+メソッド/パスのリクエストを共有拡張機能に公開すると、拡張機能が認証済みの書き込み
+プロキシになってしまうためです。拡張機能は代わりに、範囲を限定したプロバイダー操作
+のために `agentNative.mcp.callTool(...)` か、専用に用意されたアプリのアクションを
+使用する必要があります。
 
 ### Atlassian / Jira
 

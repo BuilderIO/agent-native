@@ -256,8 +256,15 @@ o una aplicación OAuth registrada previamente. Estos últimos siguen visibles
 para su descubrimiento y enlazan a las instrucciones oficiales, pero no muestran
 un botón de conexión de un clic que pueda resultar engañoso. Las extensiones
 aisladas usan `agentNative.mcp.listTools`, `agentNative.mcp.callTool` y
-`agentNative.providerApi` a través de las acciones del host; nunca reciben URL
-de conexión ni tokens.
+`agentNative.providerApi.catalog(...)`/`agentNative.providerApi.docs(...)` a
+través de las acciones del host para descubrir datos conectados; nunca reciben
+URL de conexión, tokens de acceso ni tokens de actualización. La llamada
+directa `provider-api-request` se reserva intencionadamente al host y al
+agente: exponer solicitudes arbitrarias de método/ruta a extensiones
+compartidas convertiría a una extensión en un proxy de escritura autenticado.
+En su lugar, las extensiones deben usar `agentNative.mcp.callTool(...)` o una
+acción de la aplicación creada para ese fin, limitada a operaciones concretas
+del proveedor.
 
 ### Atlassian / Jira
 

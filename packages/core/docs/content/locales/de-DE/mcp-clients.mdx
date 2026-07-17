@@ -254,9 +254,15 @@ Anbietern, die einen vom Anbieter genehmigten Client oder eine vorab registriert
 OAuth-Anwendung benötigen. Solche Einträge bleiben zur Entdeckung sichtbar und
 verlinken auf die offiziellen Einrichtungsanweisungen, zeigen aber keinen
 irreführenden Ein-Klick-Verbindungsbutton. Sandboxed Erweiterungen verwenden
-`agentNative.mcp.listTools`, `agentNative.mcp.callTool` und
-`agentNative.providerApi` über die Host-Aktionen; Verbindungs-URLs und Tokens
-werden ihnen niemals übergeben.
+`agentNative.mcp.listTools`, `agentNative.mcp.callTool` sowie
+`agentNative.providerApi.catalog(...)` und `agentNative.providerApi.docs(...)`
+über die Host-Aktionen, um verbundene Daten zu ermitteln; Verbindungs-URLs,
+Zugriffs- und Refresh-Tokens werden ihnen niemals übergeben. Der rohe
+`provider-api-request`-Aufruf bleibt bewusst dem Host und dem Agenten
+vorbehalten: Stünde er beliebigen Methoden-/Pfad-Anfragen gemeinsam genutzter
+Erweiterungen offen, könnte eine Erweiterung zu einem authentifizierten
+Schreib-Proxy werden. Erweiterungen sollten stattdessen `agentNative.mcp.callTool(...)`
+oder eine dafür vorgesehene App-Aktion für begrenzte Anbieteroperationen verwenden.
 
 ### Atlassian / Jira
 

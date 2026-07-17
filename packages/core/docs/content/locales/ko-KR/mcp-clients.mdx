@@ -254,7 +254,13 @@ MCP(모델 컨텍스트 프로토콜) 서버는 에이전트에 Zapier, Cloudfla
 위해 표시하고 공식 설정 안내로 연결하지만, 지원되지 않는 경우 오해를 부르는
 원클릭 연결 버튼은 표시하지 않습니다. 샌드박스 확장은 호스트 액션을 통해
 `agentNative.mcp.listTools`, `agentNative.mcp.callTool`,
-`agentNative.providerApi`를 사용할 수 있으며 연결 URL이나 토큰을 받지 않습니다.
+`agentNative.providerApi.catalog(...)`, `agentNative.providerApi.docs(...)`를
+사용해 연결된 데이터를 검색할 수 있으며, 연결 URL이나 액세스 토큰, 리프레시
+토큰은 절대 받지 않습니다. 원시 `provider-api-request`는 의도적으로 호스트와
+에이전트에서만 사용할 수 있습니다. 임의의 메서드/경로 요청을 공유 확장에
+노출하면 해당 확장이 인증된 쓰기 프록시가 될 수 있기 때문입니다. 확장은
+대신 범위가 제한된 공급자 작업을 위해 `agentNative.mcp.callTool(...)`이나
+목적에 맞게 만들어진 앱 액션을 사용해야 합니다.
 
 ### Atlassian / Jira
 

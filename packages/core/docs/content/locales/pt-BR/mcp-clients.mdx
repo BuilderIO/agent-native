@@ -254,8 +254,15 @@ que exigem um cliente aprovado pelo provedor ou um aplicativo OAuth pré-registr
 Essas entradas continuam visíveis para descoberta e apontam para as instruções
 oficiais, mas não exibem um botão enganoso de conexão com um clique. Extensões
 isoladas usam `agentNative.mcp.listTools`, `agentNative.mcp.callTool` e
-`agentNative.providerApi` por meio das ações do host; elas nunca recebem URLs de
-conexão nem tokens.
+`agentNative.providerApi.catalog(...)`/`agentNative.providerApi.docs(...)` por
+meio das ações do host para descobrir dados conectados; elas nunca recebem
+URLs de conexão, tokens de acesso nem tokens de atualização. A chamada bruta
+`provider-api-request` é intencionalmente restrita ao host e ao agente: expor
+requisições arbitrárias de método/caminho a extensões compartilhadas
+transformaria uma extensão em um proxy de escrita autenticado. Em vez disso,
+as extensões devem usar `agentNative.mcp.callTool(...)` ou uma ação de
+aplicativo criada especificamente para operações de provedor com escopo
+limitado.
 
 ### Atlassian / Jira
 

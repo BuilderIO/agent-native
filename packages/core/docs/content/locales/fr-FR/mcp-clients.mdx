@@ -254,9 +254,16 @@ OAuth générique des fournisseurs qui exigent un client approuvé par le fourni
 ou une application OAuth préenregistrée. Ces entrées restent visibles pour la
 découverte et renvoient vers les instructions officielles, mais n'affichent pas
 de bouton de connexion en un clic trompeur. Les extensions isolées utilisent
-`agentNative.mcp.listTools`, `agentNative.mcp.callTool` et
-`agentNative.providerApi` via les actions de l'hôte ; elles ne reçoivent jamais
-les URL de connexion ni les jetons.
+`agentNative.mcp.listTools`, `agentNative.mcp.callTool` ainsi que
+`agentNative.providerApi.catalog(...)` et `agentNative.providerApi.docs(...)`
+via les actions de l'hôte pour découvrir les données connectées ; elles ne
+reçoivent jamais les URL de connexion, les jetons d'accès ni les jetons
+d'actualisation. L'appel brut `provider-api-request` reste volontairement
+réservé à l'hôte et à l'agent : exposer des requêtes arbitraires (méthode/chemin)
+aux extensions partagées transformerait une extension en proxy d'écriture
+authentifié. Les extensions doivent plutôt utiliser `agentNative.mcp.callTool(...)`
+ou une action d'application dédiée pour des opérations de fournisseur limitées
+et bien définies.
 
 ### Atlassian / Jira
 
