@@ -129,7 +129,7 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
   it("creates exactly one unclaimed recovery successor for a dead claimed background worker, and does not stack a second on a re-reap", async () => {
     currentClient = makeRawClient(true);
     const { runId, thread, turn } = ids();
-    const payload = JSON.stringify({ internalContinuation: true, foo: "bar" });
+    const payload = JSON.stringify({ message: "original ingress", foo: "bar" });
     await insertRun(runId, thread, turn, {
       dispatchMode: "background",
       dispatchPayload: payload,
@@ -158,7 +158,11 @@ describe("FIX 3 — stale-run reaper server-owned recovery (reapIfStale)", () =>
     expect(successorRow?.status).toBe("running");
     const successorFull = readRow(successorRow!.id);
     expect(successorFull?.dispatch_mode).toBe("background");
-    expect(successorFull?.dispatch_payload).toBe(payload);
+    expect(JSON.parse(successorFull?.dispatch_payload ?? "null")).toEqual({
+      message: "original ingress",
+      foo: "bar",
+      internalContinuation: true,
+    });
 
     // Re-reaping the now-terminal row is a no-op (status is no longer
     // 'running', so the conditional UPDATE's WHERE clause can't match) — at

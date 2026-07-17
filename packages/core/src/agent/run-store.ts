@@ -1373,6 +1373,21 @@ function generateRecoveryRunId(): string {
   return `run-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 }
 
+function staleRecoveryDispatchPayload(payload: string): string {
+  try {
+    const parsed = JSON.parse(payload);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return payload;
+    }
+    return JSON.stringify({
+      ...(parsed as Record<string, unknown>),
+      internalContinuation: true,
+    });
+  } catch {
+    return payload;
+  }
+}
+
 /**
  * FIX 3 (durable-background incident): when a stale-run reaper is about to
  * flip a BACKGROUND chat-turn run to errored/stale_run, attempt to keep the
@@ -1466,7 +1481,15 @@ async function attemptStaleRunRecovery(
   const now = Date.now();
   await db.execute({
     sql: `INSERT INTO agent_runs (id, thread_id, status, started_at, heartbeat_at, last_progress_at, turn_id, dispatch_mode, dispatch_payload) VALUES (?, ?, 'running', ?, ?, ?, ?, 'background', ?) ON CONFLICT (id) DO NOTHING`,
-    args: [successorRunId, threadId, now, now, now, turnId, payload],
+    args: [
+      successorRunId,
+      threadId,
+      now,
+      now,
+      now,
+      turnId,
+      staleRecoveryDispatchPayload(payload),
+    ],
   });
   return { outcome: "recovered", successorRunId, threadId, turnId };
 }

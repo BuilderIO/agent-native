@@ -5180,6 +5180,9 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               }
               workerBody = {
                 ...parsedPayload,
+                ...(prepared.body.internalContinuation === true
+                  ? { internalContinuation: true }
+                  : {}),
                 [AGENT_CHAT_BACKGROUND_RUN_FIELD]: preparedMarker,
               };
             }
