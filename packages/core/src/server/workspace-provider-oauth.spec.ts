@@ -9,6 +9,7 @@ import {
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
   resolveWorkspaceProviderIdentities,
+  scopedOAuthAccountId,
   type WorkspaceProviderOAuthFlow,
 } from "./workspace-provider-oauth.js";
 
@@ -22,7 +23,22 @@ describe("workspace provider OAuth", () => {
     expect(canConnectWorkspaceProviderOAuth("org-1", "admin")).toBe(true);
     expect(canConnectWorkspaceProviderOAuth("org-1", "member")).toBe(false);
     expect(canConnectWorkspaceProviderOAuth("org-1", null)).toBe(false);
-    expect(canConnectWorkspaceProviderOAuth(null, null)).toBe(true);
+    expect(canConnectWorkspaceProviderOAuth(null, null)).toBe(false);
+  });
+
+  it("keeps portal and site OAuth token keys owner-scoped", () => {
+    expect(scopedOAuthAccountId("hubspot", "ada@example.com", "12345")).toBe(
+      "12345::0ea25af177e09e3cb26331b4",
+    );
+    expect(scopedOAuthAccountId("hubspot", "ada@example.com", "12345")).toBe(
+      scopedOAuthAccountId("hubspot", "ada@example.com", "12345"),
+    );
+    expect(
+      scopedOAuthAccountId("hubspot", "grace@example.com", "12345"),
+    ).not.toBe(scopedOAuthAccountId("hubspot", "ada@example.com", "12345"));
+    expect(scopedOAuthAccountId("figma", "ada@example.com", "figma-1")).toBe(
+      "figma-1",
+    );
   });
 
   it("preserves prior app grants and scopes across sequential connects", () => {

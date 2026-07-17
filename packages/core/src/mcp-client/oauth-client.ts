@@ -28,6 +28,7 @@ import {
 import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
+const MAX_OAUTH_REDIRECTS = 5;
 
 type GuardedFetch = (
   url: string | URL,
@@ -45,7 +46,56 @@ function checkedRemoteUrl(value: string | URL, label: string): URL {
 }
 
 function guardedOAuthFetch(): GuardedFetch {
-  return async (url, init) => fetch(checkedRemoteUrl(url, "request"), init);
+  return async (url, init) => {
+    let currentUrl = checkedRemoteUrl(url, "request");
+    let currentInit: RequestInit = { ...init, redirect: "manual" };
+
+    for (let redirectCount = 0; ; redirectCount += 1) {
+      const response = await fetch(currentUrl, currentInit);
+      if (![301, 302, 303, 307, 308].includes(response.status)) {
+        return response;
+      }
+      if (redirectCount >= MAX_OAUTH_REDIRECTS) {
+        throw new Error("MCP OAuth redirect limit exceeded.");
+      }
+      const location = response.headers.get("location");
+      if (!location) throw new Error("MCP OAuth redirect is missing a target.");
+
+      let nextUrl: URL;
+      try {
+        nextUrl = checkedRemoteUrl(
+          new URL(location, currentUrl),
+          "redirect target",
+        );
+      } catch {
+        throw new Error("MCP OAuth redirect target is not allowed.");
+      }
+      await response.body?.cancel().catch(() => undefined);
+
+      const nextHeaders = new Headers(currentInit.headers);
+      if (nextUrl.origin !== currentUrl.origin) {
+        nextHeaders.delete("authorization");
+        nextHeaders.delete("cookie");
+        nextHeaders.delete("proxy-authorization");
+      }
+      const nextInit: RequestInit = {
+        ...currentInit,
+        headers: nextHeaders,
+      };
+      if (
+        response.status === 303 ||
+        ((response.status === 301 || response.status === 302) &&
+          (currentInit.method ?? "GET").toUpperCase() === "POST")
+      ) {
+        nextInit.method = "GET";
+        delete nextInit.body;
+        nextHeaders.delete("content-length");
+        nextHeaders.delete("content-type");
+      }
+      currentUrl = nextUrl;
+      currentInit = nextInit;
+    }
+  };
 }
 
 function validateDiscoveryUrls(state: {
@@ -320,6 +370,13 @@ export async function readMcpOAuthCredentials(options: {
     return null;
   }
   if (!validateRemoteUrl(parsed.serverUrl).ok) return null;
+  if (parsed.discoveryState) {
+    try {
+      validateDiscoveryUrls(parsed.discoveryState);
+    } catch {
+      return null;
+    }
+  }
   return parsed as McpOAuthCredentialBundle;
 }
 
@@ -377,16 +434,25 @@ export async function getMcpOAuthAccessToken(options: {
       resource,
       fetchFn: guardedOAuthFetch(),
     });
+    const nextTokens: OAuthTokens = {
+      ...credentials.tokens,
+      ...refreshed,
+      ...(refreshed.refresh_token
+        ? { refresh_token: refreshed.refresh_token }
+        : credentials.tokens.refresh_token
+          ? { refresh_token: credentials.tokens.refresh_token }
+          : {}),
+    };
     const next: McpOAuthCredentialBundle = {
       ...credentials,
-      tokens: refreshed,
-      tokenExpiresAt: tokenExpiresAt(refreshed),
+      tokens: nextTokens,
+      tokenExpiresAt: tokenExpiresAt(nextTokens),
     };
     await saveMcpOAuthCredentials({
       ...options,
       credentials: next,
     });
-    return refreshed.access_token;
+    return nextTokens.access_token;
   } catch {
     // Keep the old token so the MCP request can return the provider's normal
     // auth error. A single expired connector must not remove every server from

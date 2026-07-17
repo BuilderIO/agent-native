@@ -95,8 +95,21 @@ export async function handleWorkspaceProviderOAuthStart(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const authorizationError = await requireWorkspaceProviderOAuthAdmin(event);
-  if (authorizationError) return authorizationError;
+  const orgContext = await requireWorkspaceProviderOAuthAdmin(event);
+  if (!orgContext) {
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
+  const orgId = orgContext.orgId;
+  if (!orgId) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
   const provider = requiredProvider(providerId);
   const query = getQuery(event);
   const appId = normalizeAppId(
@@ -114,7 +127,7 @@ export async function handleWorkspaceProviderOAuthStart(
     return { error: "Invalid OAuth redirect URI." };
   }
   return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
+    { userEmail: session.email, orgId },
     async () => {
       const [clientId, clientSecret] =
         await resolveProviderClientCredentials(providerId);
@@ -137,7 +150,7 @@ export async function handleWorkspaceProviderOAuthStart(
       const state = encodeOAuthState({
         redirectUri,
         owner: session.email,
-        orgId: session.orgId,
+        orgId,
         app: appId,
         returnUrl,
         flowId,
@@ -148,7 +161,7 @@ export async function handleWorkspaceProviderOAuthStart(
         verifier,
         redirectUri,
         owner: session.email,
-        ...(session.orgId ? { orgId: session.orgId } : {}),
+        orgId,
         appId,
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
@@ -183,8 +196,21 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
-  const authorizationError = await requireWorkspaceProviderOAuthAdmin(event);
-  if (authorizationError) return authorizationError;
+  const orgContext = await requireWorkspaceProviderOAuthAdmin(event);
+  if (!orgContext) {
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
+  const orgId = orgContext.orgId;
+  if (!orgId) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
   const query = getQuery(event);
   const code = text(query.code);
   const stateParam = text(query.state);
@@ -207,7 +233,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       state,
       provider: providerId,
       sessionEmail: session.email,
-      sessionOrgId: session.orgId,
+      sessionOrgId: orgId,
     })
   ) {
     setResponseStatus(event, 400);
@@ -215,7 +241,7 @@ export async function handleWorkspaceProviderOAuthCallback(
   }
   const provider = requiredProvider(providerId);
   return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
+    { userEmail: session.email, orgId },
     async () => {
       const [clientId, clientSecret] =
         await resolveProviderClientCredentials(providerId);
@@ -248,19 +274,24 @@ export async function handleWorkspaceProviderOAuthCallback(
         includeDisabled: true,
       });
       for (const identity of identities) {
+        const accountId = scopedOAuthAccountId(
+          providerId,
+          session.email,
+          identity.accountId,
+        );
         await saveOAuthTokens(
           provider.oauth!.provider,
-          identity.accountId,
+          accountId,
           tokens,
           session.email,
         );
         await setOAuthDisplayName(
           provider.oauth!.provider,
-          identity.accountId,
+          accountId,
           identity.label,
         );
         const existing = existingConnections.find(
-          (connection) => connection.accountId === identity.accountId,
+          (connection) => connection.accountId === accountId,
         );
         const scopes = mergeWorkspaceOAuthValues(
           existing?.scopes ?? [],
@@ -268,13 +299,16 @@ export async function handleWorkspaceProviderOAuthCallback(
         );
         const connectionConfig = {
           credentialMode: "oauth",
+          ...(providerId === "hubspot" || providerId === "jira"
+            ? { externalAccountId: identity.accountId }
+            : {}),
           ...(identity.config ?? {}),
         };
         const connection = await upsertWorkspaceConnection({
           ...(existing ? { id: existing.id } : {}),
           provider: providerId,
           label: `${provider.label}: ${identity.label}`,
-          accountId: identity.accountId,
+          accountId,
           accountLabel: identity.label,
           status: "connected",
           scopes,
@@ -757,7 +791,21 @@ export function canConnectWorkspaceProviderOAuth(
   orgId: string | null | undefined,
   role: string | null | undefined,
 ): boolean {
-  return !orgId || role === "owner" || role === "admin";
+  return Boolean(orgId) && (role === "owner" || role === "admin");
+}
+
+export function scopedOAuthAccountId(
+  provider: GenericWorkspaceOAuthProvider,
+  owner: string,
+  accountId: string,
+): string {
+  if (provider !== "hubspot" && provider !== "jira") return accountId;
+  const ownerKey = crypto
+    .createHash("sha256")
+    .update(`${provider}:${owner.trim().toLowerCase()}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `${accountId}::${ownerKey}`;
 }
 
 async function fetchBoundedProviderJson(
@@ -916,10 +964,7 @@ async function requireWorkspaceProviderOAuthAdmin(event: H3Event) {
     !canConnectWorkspaceProviderOAuth(context.orgId, context.role)
   ) {
     setResponseStatus(event, 403);
-    return {
-      error:
-        "Only organization owners and admins can connect shared OAuth accounts.",
-    };
+    return null;
   }
-  return null;
+  return context;
 }

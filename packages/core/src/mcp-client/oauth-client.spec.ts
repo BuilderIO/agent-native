@@ -121,6 +121,69 @@ describe("MCP OAuth client", () => {
     ).toThrow(/private\/internal address/);
   });
 
+  it("validates every OAuth redirect hop and strips credentials across origins", async () => {
+    let fetchFn:
+      | ((url: string | URL, init?: RequestInit) => Promise<Response>)
+      | undefined;
+    authMock.mockImplementationOnce(
+      async (
+        _provider: McpOAuthClientProvider,
+        options: { fetchFn?: typeof fetchFn },
+      ) => {
+        fetchFn = options.fetchFn;
+        _provider.saveClientInformation(clientInformation as any);
+        _provider.saveCodeVerifier("<CODE_VERIFIER>");
+        _provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+    await startMcpOAuthAuthorization({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+      new Response(null, {
+        status: 302,
+        headers: { location: "https://127.0.0.1/private" },
+      }),
+    );
+    await expect(
+      fetchFn!("https://auth.example.com/discovery", {
+        headers: { Authorization: "Bearer <TOKEN>" },
+      }),
+    ).rejects.toThrow(/redirect target|private\/internal address/);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    fetchMock.mockReset();
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(null, {
+          status: 302,
+          headers: { location: "https://other.example.com/token" },
+        }),
+      )
+      .mockResolvedValueOnce(new Response("ok", { status: 200 }));
+    await expect(
+      fetchFn!("https://auth.example.com/discovery", {
+        method: "POST",
+        headers: { Authorization: "Bearer <TOKEN>" },
+        body: "code=<CODE>",
+      }),
+    ).resolves.toMatchObject({ status: 200 });
+    expect(String(fetchMock.mock.calls[1]?.[0])).toBe(
+      "https://other.example.com/token",
+    );
+    const redirectedInit = fetchMock.mock.calls[1]?.[1] as RequestInit;
+    expect(redirectedInit.method).toBe("GET");
+    expect(new Headers(redirectedInit.headers).has("authorization")).toBe(
+      false,
+    );
+  });
+
   it("finishes the code exchange without exposing the token to the flow result", async () => {
     authMock.mockImplementationOnce(
       async (provider: McpOAuthClientProvider) => {
@@ -172,7 +235,6 @@ describe("MCP OAuth client", () => {
     getOAuthTokensMock.mockResolvedValueOnce(expiring);
     refreshAuthorizationMock.mockResolvedValueOnce({
       access_token: "<NEW_ACCESS_TOKEN>",
-      refresh_token: "<NEW_REFRESH_TOKEN>",
       token_type: "bearer",
       expires_in: 3600,
     });
@@ -190,6 +252,9 @@ describe("MCP OAuth client", () => {
     expect(saveOAuthTokensMock.mock.calls[0]?.[0]).toBe("mcp");
     expect(saveOAuthTokensMock.mock.calls[0]?.[1]).toBe("mcp_oauth:test");
     expect(saveOAuthTokensMock.mock.calls[0]?.[3]).toBe("org:org-test");
+    expect(
+      (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.refresh_token,
+    ).toBe("<REFRESH_TOKEN>");
   });
 
   it("rejects malformed stored bundles", async () => {

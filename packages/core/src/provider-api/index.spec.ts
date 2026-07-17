@@ -660,6 +660,62 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("falls back to explicit Jira basic credentials for legacy connections", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "jira-legacy",
+        label: "Legacy Jira",
+        accountId: null,
+        config: { credentialMode: "api_key" },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const resolveConnectionCredential = vi.fn(
+      async ({ key }: { key: string }) => {
+        const value =
+          {
+            JIRA_BASE_URL: "https://legacy.atlassian.net",
+            JIRA_USER_EMAIL: "ada@example.com",
+            JIRA_API_TOKEN: "jira-api-token",
+          }[key] ?? null;
+        return value
+          ? { key, value, provider: "jira", source: "workspace_connection" }
+          : null;
+      },
+    );
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["jira"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: resolveConnectionCredential,
+    });
+
+    await runtime.executeRequest({
+      provider: "jira",
+      path: "/rest/api/3/project",
+      connectionId: "jira-legacy",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://legacy.atlassian.net/rest/api/3/project",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: `Basic ${Buffer.from("ada@example.com:jira-api-token").toString("base64")}`,
+        }),
+      }),
+    );
+    expect(resolveConnectionCredential).toHaveBeenCalledWith(
+      expect.objectContaining({
+        key: "JIRA_BASE_URL",
+        connectionId: "jira-legacy",
+        workspaceProvider: "jira",
+      }),
+    );
+  });
+
   it("propagates rotated Jira refresh tokens across sites linked to one grant", async () => {
     resolveSecret.mockImplementation(async (key: string) =>
       key === "JIRA_CLIENT_ID"

@@ -3150,12 +3150,21 @@ async function resolveBaseUrl(
   );
   if (oauthBaseUrl) return oauthBaseUrl;
   if (!config.baseUrlCredentialKey) return config.defaultBaseUrl;
+  const auth = config.auth;
+  const workspaceProvider =
+    auth.type === "oauth-bearer" ||
+    auth.type === "oauth-bearer-or-api-key-header" ||
+    auth.type === "oauth-bearer-or-bearer-key" ||
+    auth.type === "oauth-bearer-or-basic"
+      ? auth.workspaceProvider
+      : undefined;
   const configured = await resolveCredentialValue({
     config,
     runtime,
     ctx,
     key: config.baseUrlCredentialKey,
     args,
+    workspaceProvider,
   });
   return (configured || config.defaultBaseUrl).replace(/\/+$/, "");
 }
@@ -3174,12 +3183,23 @@ async function resolveWorkspaceOAuthBaseUrl(
       ? auth.workspaceProvider
       : undefined;
   if (workspaceProvider !== "jira") return null;
-  const resolved = await resolveWorkspaceConnectionForApp({
-    appId: runtime.appId,
-    provider: workspaceProvider,
-    connectionId: args.connectionId ?? undefined,
-    requireConnected: true,
-  });
+  let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
+  try {
+    resolved = await resolveWorkspaceConnectionForApp({
+      appId: runtime.appId,
+      provider: workspaceProvider,
+      connectionId: args.connectionId ?? undefined,
+      requireConnected: true,
+    });
+  } catch (error) {
+    if (
+      error instanceof Error &&
+      error.message === "Workspace connections require an authenticated user."
+    ) {
+      return null;
+    }
+    throw error;
+  }
   if (!resolved.available || !resolved.connection) return null;
   const connectionConfig = resolved.connection.config;
   if (connectionConfig.credentialMode !== "oauth") return null;
@@ -3492,6 +3512,7 @@ async function resolveAuth(
         connectionId: args.connectionId,
         accountId: args.accountId,
         workspaceProvider: auth.workspaceProvider,
+        allowUnbound: true,
       });
     if (workspaceCredential) {
       return {
@@ -3560,6 +3581,7 @@ async function resolveAuth(
         connectionId: args.connectionId,
         accountId: args.accountId,
         workspaceProvider: auth.workspaceProvider,
+        allowUnbound: true,
       });
     if (workspaceCredential) {
       return {
@@ -3610,6 +3632,7 @@ async function resolveAuth(
         connectionId: args.connectionId,
         accountId: args.accountId,
         workspaceProvider: auth.workspaceProvider,
+        allowUnbound: true,
       });
     if (workspaceCredential) {
       return {
@@ -3939,6 +3962,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   workspaceProvider: string;
   connectionId?: string | null;
   accountId?: string | null;
+  allowUnbound?: boolean;
 }): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
   let resolved: Awaited<ReturnType<typeof resolveWorkspaceConnectionForApp>>;
@@ -3964,6 +3988,7 @@ async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
   }
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
+    if (options.allowUnbound) return null;
     throw new Error(
       `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
     );

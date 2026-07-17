@@ -114,12 +114,19 @@ async function handleMcpOAuthStart(
   }
 
   const requestedScope = query.scope === "org" ? "org" : "user";
+  const requestedOrgId = text(query.orgId);
   const org =
     requestedScope === "org"
       ? await getOrgContext(event).catch(() => null)
       : null;
   const scope: RemoteMcpScope = requestedScope;
   const scopeId = scope === "user" ? session.email : (org?.orgId ?? "");
+  if (scope === "org" && requestedOrgId && requestedOrgId !== scopeId) {
+    setResponseStatus(event, 403);
+    return {
+      error: "The selected organization is not the active organization.",
+    };
+  }
   if (scope === "org" && (!scopeId || !isOrgAdmin(org?.role))) {
     setResponseStatus(event, scopeId ? 403 : 400);
     return {
