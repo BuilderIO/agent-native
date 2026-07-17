@@ -947,9 +947,23 @@ async function resolveSubmissionItem(input: {
     "creative-context-source",
     detail.item.sourceId,
   );
+  const children = await Promise.all(
+    detail.edges
+      .filter(
+        (edge) =>
+          edge.relation === "contains-native-child" &&
+          typeof edge.toItemId === "string",
+      )
+      .map((edge) =>
+        getCreativeContextItem(edge.toItemId!, edge.toItemVersionId ?? undefined),
+      ),
+  );
   return {
     artifactKey: `${detail.item.sourceId}:${detail.item.externalId}`,
-    items: [normalizedFromDetail(detail)],
+    items: [
+      normalizedFromDetail(detail),
+      ...children.flatMap((child) => (child ? [normalizedFromDetail(child)] : [])),
+    ],
     privateMetadata: {},
     sourceAccess: sourceAccess
       ? {
@@ -989,6 +1003,11 @@ async function approveSubmission(
     submission.privateMetadata,
     {},
   );
+  const publishedChildren: Array<{
+    artifactKey: string;
+    itemId: string;
+    itemVersionId: string;
+  }> = [];
   for (const child of Array.isArray(privateMetadata.stagedChildren)
     ? (privateMetadata.stagedChildren as Array<{
         artifactKey?: string;
@@ -1002,13 +1021,25 @@ async function approveSubmission(
       typeof child.itemVersionId !== "string"
     )
       continue;
-    await writeSnapshot({
+    const publishedChild = await writeSnapshot({
       sourceId: context.publishedSourceId,
       artifactKey: child.artifactKey,
       item: await readSnapshot(child.itemId, child.itemVersionId),
       ownerEmail: context.ownerEmail,
       orgId: context.orgId ?? null,
     });
+    publishedChildren.push({ artifactKey: child.artifactKey, ...publishedChild });
+  }
+  for (const child of publishedChildren) {
+    await getDb()
+      .update(schema.contextEdges)
+      .set({ toItemId: child.itemId, toItemVersionId: child.itemVersionId })
+      .where(
+        and(
+          eq(schema.contextEdges.fromItemVersionId, published.itemVersionId),
+          eq(schema.contextEdges.toExternalId, child.artifactKey),
+        ),
+      );
   }
   const timestamp = nowIso();
   await getDb().transaction(async (tx: any) => {
@@ -1129,6 +1160,17 @@ export async function manageContextMembership(input: {
         };
       }),
     );
+    for (const child of stagedChildren) {
+      await getDb()
+        .update(schema.contextEdges)
+        .set({ toItemId: child.itemId, toItemVersionId: child.itemVersionId })
+        .where(
+          and(
+            eq(schema.contextEdges.fromItemVersionId, staged.itemVersionId),
+            eq(schema.contextEdges.toExternalId, child.artifactKey),
+          ),
+        );
+    }
     const submissionId = newId("ccsub");
     const autoApprove =
       context.approvalPolicy === "open" ||
