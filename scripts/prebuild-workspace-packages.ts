@@ -134,6 +134,15 @@ const targets: PackageTarget[] = [
     ],
   },
   {
+    id: "private-vault-broker",
+    name: "@agent-native/private-vault-broker",
+    dir: "packages/private-vault-broker",
+    expectedOutputs: exportedDistOutputs("packages/private-vault-broker"),
+    tsBuildInfoFiles: [
+      "node_modules/.cache/tsbuildinfo/private-vault-broker.tsbuildinfo",
+    ],
+  },
+  {
     id: "code-agents-ui",
     name: "@agent-native/code-agents-ui",
     dir: "packages/code-agents-ui",
@@ -186,6 +195,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "shared-app-config",
     "toolkit",
     "core",
+    "private-vault-broker",
     "code-agents-ui",
     "scheduling",
     "dispatch",
@@ -196,6 +206,7 @@ const modeTargets: Record<PrebuildMode, string[]> = {
     "shared-app-config",
     "toolkit",
     "core",
+    "private-vault-broker",
     "code-agents-ui",
     "migrate",
     "pinpoint",

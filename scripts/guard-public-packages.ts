@@ -11,6 +11,7 @@ const npmPublishAllowlist = new Set([
   "@agent-native/core",
   "@agent-native/dispatch",
   "@agent-native/pinpoint",
+  "@agent-native/private-vault-broker",
   "@agent-native/recap-cli",
   "@agent-native/scheduling",
   "@agent-native/skills",

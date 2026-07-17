@@ -1,0 +1,54 @@
+{
+  "name": "@agent-native/private-vault-broker",
+  "version": "0.1.0",
+  "description": "Headless private-vault broker primitives and native anc/v1 cryptography for Agent Native apps.",
+  "homepage": "https://github.com/BuilderIO/agent-native#readme",
+  "bugs": {
+    "url": "https://github.com/BuilderIO/agent-native/issues"
+  },
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BuilderIO/agent-native",
+    "directory": "packages/private-vault-broker"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./crypto": {
+      "types": "./dist/crypto/index.d.ts",
+      "default": "./dist/crypto/index.js"
+    }
+  },
+  "publishConfig": {
+    "access": "public",
+    "provenance": true
+  },
+  "scripts": {
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "@agent-native/core": "workspace:^",
+    "sodium-native": "5.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.2.1",
+    "typescript-7": "catalog:",
+    "vitest": "catalog:"
+  },
+  "engines": {
+    "node": ">=22.22.0"
+  }
+}

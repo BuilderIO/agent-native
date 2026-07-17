@@ -28,6 +28,7 @@ on:
       - "packages/core/**"
       - "packages/dispatch/**"
       - "packages/pinpoint/**"
+      - "packages/private-vault-broker/**"
       - "packages/recap-cli/**"
       - "packages/scheduling/**"
       - "packages/skills/**"
