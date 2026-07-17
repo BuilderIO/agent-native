@@ -59,13 +59,7 @@ export function contentSpaceForCatalogItem(args: {
   documentId: string;
   spaces: ContentSpaceSummary[];
 }) {
-  const personalFilesDatabaseId = args.spaces.find(
-    (space) => space.kind === "personal",
-  )?.filesDatabaseId;
-  if (
-    args.databaseId !== args.catalogDatabaseId &&
-    args.databaseId !== personalFilesDatabaseId
-  ) {
+  if (args.databaseId !== args.catalogDatabaseId) {
     return null;
   }
   return (

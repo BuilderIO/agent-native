@@ -175,6 +175,18 @@ describe("document sidebar layout", () => {
     expect(messages).toContain('files: "Files"');
   });
 
+  it("nests the selected Files list beneath workspace disclosure rows", () => {
+    const sidebar = readSidebarSource("./DocumentSidebar.tsx");
+
+    expect(sidebar).toContain("aria-expanded={expanded}");
+    expect(sidebar).toContain("collapsedWorkspaceId !== space.id");
+    expect(sidebar).toContain("{expanded && renderSelectedWorkspaceFiles()}");
+    expect(sidebar).toContain('t("sidebar.workspaces")');
+    expect(sidebar).toContain('t("sidebar.files")');
+    expect(sidebar).not.toContain("onOpenItem={(item) =>");
+    expect(sidebar).not.toContain("<OrgSwitcher />");
+  });
+
   it("keeps the trashed inline database lifecycle visible in the sidebar", () => {
     const sidebar = readSidebarSource("./DocumentSidebar.tsx");
     const messages = readSidebarSource("../../i18n-data.ts");

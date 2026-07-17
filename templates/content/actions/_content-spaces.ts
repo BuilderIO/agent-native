@@ -267,15 +267,6 @@ export async function provisionContentSpaces(
       now,
       created: result.created,
     });
-    await ensureDatabaseItem({
-      db: tx,
-      databaseId: personalFiles.id,
-      documentId: catalog.documentId,
-      ownerEmail: email,
-      orgId: null,
-      position: 0,
-      now,
-    });
 
     const spaces = [
       {
@@ -386,15 +377,6 @@ export async function provisionContentSpaces(
         position: index,
         now,
       });
-      await ensureDatabaseItem({
-        db: tx,
-        databaseId: personalFiles.id,
-        documentId: referenceDocumentId,
-        ownerEmail: email,
-        orgId: null,
-        position: index + 1,
-        now,
-      });
       const [existingCatalogItem] = await tx
         .select({ id: schema.contentSpaceCatalogItems.id })
         .from(schema.contentSpaceCatalogItems)
@@ -488,7 +470,6 @@ export async function provisionSourceBackedContentSpace(
   const now = new Date().toISOString();
   const spaceId = sourceBackedContentSpaceId(email, connectionId);
   const personalSpaceId = personalContentSpaceId(email);
-  const personalFilesIds = systemIdsForContentSpace(personalSpaceId, "files");
   const catalogIds = systemIdsForContentSpace(personalSpaceId, "workspaces");
   const created: ProvisionedContentSpaces["created"] = {
     spaces: 0,
@@ -574,15 +555,6 @@ export async function provisionSourceBackedContentSpace(
     const catalogItemId = await ensureDatabaseItem({
       db: tx,
       databaseId: catalogIds.databaseId,
-      documentId: referenceDocumentId,
-      ownerEmail: email,
-      orgId: null,
-      position: (maxCatalogPosition?.max ?? -1) + 1,
-      now,
-    });
-    await ensureDatabaseItem({
-      db: tx,
-      databaseId: personalFilesIds.databaseId,
       documentId: referenceDocumentId,
       ownerEmail: email,
       orgId: null,

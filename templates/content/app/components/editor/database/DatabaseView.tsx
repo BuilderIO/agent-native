@@ -1309,10 +1309,7 @@ function DatabaseTable({
   }
 
   function openWorkspaceFiles(item: ContentDatabaseItem) {
-    if (
-      data?.database.systemRole !== "workspaces" &&
-      data?.database.systemRole !== "files"
-    ) {
+    if (data?.database.systemRole !== "workspaces") {
       return false;
     }
     const spacesResponse = contentSpacesQuery.data;

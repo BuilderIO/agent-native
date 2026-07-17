@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 
 import { accessFilter } from "@agent-native/core/sharing";
-import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, or, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
 import {
@@ -62,9 +62,44 @@ async function reconcileDocuments(args: {
     args.filesDatabases.map((database) => [database.spaceId, database]),
   );
   const filesDatabaseIds = args.filesDatabases.map((database) => database.id);
-  const filesBackingDocumentIds = new Set(
-    args.filesDatabases.map((database) => database.documentId),
-  );
+  const documentIds = args.documents.map((document) => document.id);
+  const [systemDatabaseDocuments, workspaceReferenceDocuments] =
+    documentIds.length > 0
+      ? await Promise.all([
+          args.db
+            .select({ id: schema.contentDatabases.documentId })
+            .from(schema.contentDatabases)
+            .where(
+              and(
+                inArray(schema.contentDatabases.documentId, documentIds),
+                isNotNull(schema.contentDatabases.systemRole),
+              ),
+            ),
+          args.db
+            .select({ id: schema.contentSpaceCatalogItems.documentId })
+            .from(schema.contentSpaceCatalogItems)
+            .innerJoin(
+              schema.contentDatabases,
+              eq(
+                schema.contentDatabases.id,
+                schema.contentSpaceCatalogItems.catalogDatabaseId,
+              ),
+            )
+            .where(
+              and(
+                inArray(
+                  schema.contentSpaceCatalogItems.documentId,
+                  documentIds,
+                ),
+                eq(schema.contentDatabases.systemRole, "workspaces"),
+              ),
+            ),
+        ])
+      : [[], []];
+  const excludedDocumentIds = new Set([
+    ...systemDatabaseDocuments.map((document: any) => document.id),
+    ...workspaceReferenceDocuments.map((document: any) => document.id),
+  ]);
   const existingItems = filesDatabaseIds.length
     ? await args.db
         .select()
@@ -93,7 +128,7 @@ async function reconcileDocuments(args: {
   const inserts: Array<typeof schema.contentDatabaseItems.$inferInsert> = [];
   for (const document of args.documents) {
     const existing = itemsByDocument.get(document.id) ?? [];
-    if (filesBackingDocumentIds.has(document.id)) {
+    if (excludedDocumentIds.has(document.id)) {
       for (const item of existing) deleteIds.add(item.id);
       continue;
     }

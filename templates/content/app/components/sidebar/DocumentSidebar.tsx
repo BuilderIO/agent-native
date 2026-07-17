@@ -11,11 +11,7 @@ import {
   ExtensionSlot,
   ExtensionsSidebarSection,
 } from "@agent-native/core/client/extensions";
-import {
-  OrgSwitcher,
-  useOrg,
-  useSwitchOrg,
-} from "@agent-native/core/client/org";
+import { useOrg, useSwitchOrg } from "@agent-native/core/client/org";
 import {
   closestCenter,
   DndContext,
@@ -45,6 +41,7 @@ import {
   IconLayoutSidebarLeftCollapse,
   IconLayoutSidebarLeftExpand,
   IconFolderOpen,
+  IconChevronDown,
   IconChevronRight,
   IconDots,
   IconTrash,
@@ -122,7 +119,6 @@ import { NotionButton } from "./NotionButton";
 import {
   contentSpaceAvailability,
   contentSpaceForActiveOrg,
-  contentSpaceForCatalogItem,
   createContentSpaceSelectionQueue,
   SELECTED_CONTENT_SPACE_STORAGE_KEY,
   selectContentSpace,
@@ -274,6 +270,9 @@ export function DocumentSidebar({
     storedSpaceId,
     activeOrgId: activeOrg?.orgId,
   });
+  const [collapsedWorkspaceId, setCollapsedWorkspaceId] = useState<
+    string | null
+  >(null);
   const contentSpaceState = contentSpaceAvailability({
     hasSelectedSpace: Boolean(selectedSpace),
     contentSpacesLoading: contentSpacesQuery.isLoading,
@@ -1115,76 +1114,84 @@ export function DocumentSidebar({
     );
   };
 
-  const renderWorkspaceNavigation = () => (
-    <div className="mb-2 space-y-1 px-2">
-      <div className="px-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {t("sidebar.workspaces")}
+  const renderSelectedWorkspaceFiles = () => (
+    <div className="ms-3 border-s border-border/70 ps-1">
+      <div className="px-2 py-1 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {t("sidebar.files")}
       </div>
-      {contentSpaces.map((space) => (
-        <button
-          key={space.id}
-          type="button"
-          className={cn(
-            "flex h-8 w-full min-w-0 items-center rounded-md px-2 text-sm",
-            selectedSpace?.id === space.id
-              ? "bg-accent text-accent-foreground"
-              : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
-          )}
-          onClick={() => void handleSelectContentSpace(space)}
-          disabled={switchOrg.isPending}
-        >
-          <span className="min-w-0 flex-1 truncate text-start">
-            {space.name}
-          </span>
-        </button>
-      ))}
+      <ContentFilesSidebarView
+        data={filesDatabase.data}
+        overrides={filesPersonalView.data?.overrides}
+        isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
+        onSelectView={(viewId) => {
+          if (!selectedSpace) return;
+          const current = filesPersonalView.data?.overrides;
+          updateFilesPersonalView.mutate({
+            databaseId: selectedSpace.filesDatabaseId,
+            overrides: {
+              version: current?.version ?? 1,
+              activeViewId: viewId,
+              views: current?.views ?? [],
+            },
+          });
+        }}
+        labels={{
+          loadingLabel: t("sidebar.loadingFiles"),
+          noMatchesLabel: t("database.noRowsMatchThisView"),
+          clearLabel: t("database.clearSearchAndFilters"),
+          navigationLabel: t("sidebar.files"),
+          untitledLabel: t("sidebar.untitled"),
+        }}
+      />
+      {renderNewButton()}
     </div>
   );
 
-  const renderFilesDatabase = () => (
-    <div className="min-w-0">
-      <div className="px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-        {t("sidebar.files")}
+  const renderWorkspaceNavigation = () => (
+    <div className="mb-2 px-2">
+      <div className="px-1 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+        {t("sidebar.workspaces")}
       </div>
       {contentSpaceState === "ready" && selectedSpace ? (
-        <>
-          <ContentFilesSidebarView
-            data={filesDatabase.data}
-            overrides={filesPersonalView.data?.overrides}
-            isLoading={filesDatabase.isLoading || filesPersonalView.isLoading}
-            onOpenItem={(item) => {
-              const space = contentSpaceForCatalogItem({
-                databaseId: selectedSpace.filesDatabaseId,
-                catalogDatabaseId: contentSpacesQuery.data?.catalogDatabaseId,
-                documentId: item.document.id,
-                spaces: contentSpaces,
-              });
-              if (!space) return false;
-              void handleSelectContentSpace(space);
-              return true;
-            }}
-            onSelectView={(viewId) => {
-              if (!selectedSpace) return;
-              const current = filesPersonalView.data?.overrides;
-              updateFilesPersonalView.mutate({
-                databaseId: selectedSpace.filesDatabaseId,
-                overrides: {
-                  version: current?.version ?? 1,
-                  activeViewId: viewId,
-                  views: current?.views ?? [],
-                },
-              });
-            }}
-            labels={{
-              loadingLabel: t("sidebar.loadingFiles"),
-              noMatchesLabel: t("database.noRowsMatchThisView"),
-              clearLabel: t("database.clearSearchAndFilters"),
-              navigationLabel: t("sidebar.files"),
-              untitledLabel: t("sidebar.untitled"),
-            }}
-          />
-          {renderNewButton()}
-        </>
+        <div className="grid gap-0.5">
+          {contentSpaces.map((space) => {
+            const selected = selectedSpace.id === space.id;
+            const expanded = selected && collapsedWorkspaceId !== space.id;
+            return (
+              <div key={space.id} className="min-w-0">
+                <button
+                  type="button"
+                  aria-expanded={expanded}
+                  className={cn(
+                    "flex h-8 w-full min-w-0 items-center gap-1.5 rounded-md px-1.5 text-sm",
+                    selected
+                      ? "bg-accent text-accent-foreground"
+                      : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
+                  )}
+                  onClick={() => {
+                    if (selected) {
+                      setCollapsedWorkspaceId(expanded ? space.id : null);
+                      return;
+                    }
+                    setCollapsedWorkspaceId(null);
+                    void handleSelectContentSpace(space);
+                  }}
+                  disabled={switchOrg.isPending}
+                >
+                  {expanded ? (
+                    <IconChevronDown size={14} className="shrink-0" />
+                  ) : (
+                    <IconChevronRight size={14} className="shrink-0" />
+                  )}
+                  <span className="min-w-0 flex-1 truncate text-start">
+                    {space.name}
+                  </span>
+                </button>
+                {expanded && renderSelectedWorkspaceFiles()}
+              </div>
+            );
+          })}
+        </div>
       ) : contentSpaceState === "loading" ? (
         <div className="px-3 py-4 text-center text-sm text-muted-foreground">
           {t("sidebar.loadingFiles")}
@@ -1526,7 +1533,6 @@ export function DocumentSidebar({
               )}
 
               {renderWorkspaceNavigation()}
-              {renderFilesDatabase()}
               {renderTrashSection()}
             </>
           )}
@@ -1558,7 +1564,6 @@ export function DocumentSidebar({
 
       {/* Footer */}
       <div className="shrink-0 space-y-2 px-3 py-2">
-        <OrgSwitcher />
         {isCodeMode ? <DevDatabaseLink /> : null}
         <div className="flex items-center gap-1">
           <FeedbackButton className="h-8 min-w-0 flex-1 gap-2 rounded-md px-2 py-0" />
