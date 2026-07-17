@@ -1,5 +1,11 @@
 # @agent-native/core
 
+## 0.107.2
+
+### Patch Changes
+
+- 2a4d2db: Retry messaging replies without repeating successful agent mutations, and deliver verified A2A artifact checkpoints as soon as they are durable.
+
 ## 0.107.1
 
 ### Patch Changes
