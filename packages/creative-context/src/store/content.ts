@@ -1081,7 +1081,12 @@ export async function listAccessibleSearchDocuments(
     ...(input.contextId
       ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
       : input.packId
-        ? [or(sourceAccess, isNotNull(schema.creativeContextPublishedSnapshots.id))]
+        ? [
+            or(
+              sourceAccess,
+              isNotNull(schema.creativeContextPublishedSnapshots.id),
+            ),
+          ]
         : [sourceAccess]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
@@ -1318,7 +1323,12 @@ export async function listAccessibleLexicalCandidates(
     ...(input.contextId
       ? [inArray(schema.contextChunks.itemVersionId, contextVersionIds!)]
       : input.packId
-        ? [or(sourceAccess, isNotNull(schema.creativeContextPublishedSnapshots.id))]
+        ? [
+            or(
+              sourceAccess,
+              isNotNull(schema.creativeContextPublishedSnapshots.id),
+            ),
+          ]
         : [sourceAccess]),
     ...(packVersionIds
       ? [inArray(schema.contextChunks.itemVersionId, packVersionIds)]
@@ -1489,7 +1499,8 @@ export async function getCreativeContextItem(
   itemVersionId?: string,
 ): Promise<ContextDetail | null> {
   const { getDb, schema } = getCreativeContext();
-  const requestedVersionId = itemVersionId ?? schema.contextItems.currentVersionId;
+  const requestedVersionId =
+    itemVersionId ?? schema.contextItems.currentVersionId;
   const itemRows = await getDb()
     .select({ item: schema.contextItems })
     .from(schema.contextItems)

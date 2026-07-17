@@ -530,10 +530,7 @@ export async function getContextPack(
           eq(schema.contextPackMembers.packId, packId),
           or(
             and(
-              accessFilter(
-                schema.contextSources,
-                schema.contextSourceShares,
-              ),
+              accessFilter(schema.contextSources, schema.contextSourceShares),
               ne(schema.contextSources.upstreamAccess, "restricted"),
               ne(schema.contextSources.status, "archived"),
             ),
