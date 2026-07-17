@@ -909,6 +909,7 @@ export async function listContextMemberships(input: {
             kind: schema.contextItems.kind,
             canonicalUrl: schema.contextItems.canonicalUrl,
             status: schema.contextItems.status,
+            sourceModifiedAt: schema.contextItemVersions.sourceModifiedAt,
             metadata: schema.contextItemVersions.metadata,
           })
           .from(schema.contextItemVersions)
@@ -959,6 +960,7 @@ export async function listContextMemberships(input: {
               ? (sanitizePublicMetadata(item.canonicalUrl) as string)
               : null,
           status: item.status,
+          sourceModifiedAt: item.sourceModifiedAt ?? null,
           media: mediaByVersion.get(item.itemVersionId) ?? [],
           ...(preview && typeof preview === "object" && !Array.isArray(preview)
             ? { preview: preview as Record<string, unknown> }
@@ -1549,14 +1551,80 @@ export async function manageContextMembership(input: {
   if (!membership) throw new Error("Context membership not found");
   if (input.operation === "remove") {
     await requireReviewer(input.contextId);
-    await getDb()
-      .update(schema.creativeContextMemberships)
-      .set({
-        status: "removed",
-        pendingSubmissionId: null,
-        updatedAt: nowIso(),
-      })
-      .where(eq(schema.creativeContextMemberships.id, membership.id));
+    const timestamp = nowIso();
+    await getDb().transaction(async (tx: any) => {
+      await tx
+        .update(schema.creativeContextMemberships)
+        .set({
+          status: "removed",
+          pendingSubmissionId: null,
+          updatedAt: timestamp,
+        })
+        .where(eq(schema.creativeContextMemberships.id, membership.id));
+      const snapshots = await tx
+        .select({
+          itemId: schema.creativeContextPublishedSnapshots.itemId,
+          itemVersionId: schema.creativeContextPublishedSnapshots.itemVersionId,
+        })
+        .from(schema.creativeContextPublishedSnapshots)
+        .where(
+          eq(
+            schema.creativeContextPublishedSnapshots.membershipId,
+            membership.id,
+          ),
+        );
+      const dependencies = (
+        snapshots as Array<{
+          itemId: string;
+          itemVersionId: string;
+        }>
+      ).filter(
+        (snapshot) =>
+          snapshot.itemId !== membership.publishedItemId ||
+          snapshot.itemVersionId !== membership.publishedItemVersionId,
+      );
+      if (!dependencies.length) return;
+      const dependentMemberships = await tx
+        .select({ id: schema.creativeContextMemberships.id })
+        .from(schema.creativeContextMemberships)
+        .where(
+          and(
+            eq(schema.creativeContextMemberships.contextId, input.contextId),
+            eq(schema.creativeContextMemberships.status, "active"),
+            eq(
+              schema.creativeContextMemberships.purpose,
+              "Native artifact child",
+            ),
+            or(
+              ...dependencies.map((dependency) =>
+                and(
+                  eq(
+                    schema.creativeContextMemberships.publishedItemId,
+                    dependency.itemId,
+                  ),
+                  eq(
+                    schema.creativeContextMemberships.publishedItemVersionId,
+                    dependency.itemVersionId,
+                  ),
+                ),
+              ),
+            ),
+          ),
+        );
+      const dependentIds = (dependentMemberships as Array<{ id: string }>).map(
+        (row) => row.id,
+      );
+      if (dependentIds.length) {
+        await tx
+          .update(schema.creativeContextMemberships)
+          .set({
+            status: "removed",
+            pendingSubmissionId: null,
+            updatedAt: timestamp,
+          })
+          .where(inArray(schema.creativeContextMemberships.id, dependentIds));
+      }
+    });
     return {
       membership: mapMembership({
         ...membership,

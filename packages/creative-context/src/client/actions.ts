@@ -103,6 +103,7 @@ export interface CreativeContextPreviewItem {
   title: string;
   kind: string;
   status: string;
+  sourceModifiedAt: string | null;
   preview: CreativeContextSafePreview | null;
   media: Array<{
     id: string;
@@ -437,6 +438,8 @@ function parseContextPreviewItem(
     title: item.title,
     kind: item.kind,
     status: typeof item.status === "string" ? item.status : "active",
+    sourceModifiedAt:
+      typeof item.sourceModifiedAt === "string" ? item.sourceModifiedAt : null,
     preview: parseCreativeContextSafePreview(item.preview),
     media,
   };

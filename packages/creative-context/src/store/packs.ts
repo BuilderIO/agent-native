@@ -31,6 +31,16 @@ import {
   stringifyJson,
 } from "./helpers.js";
 
+type ResolvedPackMember = {
+  itemId: string;
+  itemVersionId: string;
+  reason?: string;
+  score?: number;
+  scoreMetadata?: Record<string, unknown>;
+};
+
+const MAX_NATIVE_PACK_DEPENDENCIES = 256;
+
 export function assertImmutablePackMembership(operation: string): never {
   throw new Error(
     `Context-pack membership is append-only; ${operation} must derive a new pack snapshot`,
@@ -59,15 +69,9 @@ async function resolveBrandDnaVersion(
   return dnaVersionId;
 }
 
-async function resolveMembers(members: ContextPackMemberInput[]): Promise<
-  Array<{
-    itemId: string;
-    itemVersionId: string;
-    reason?: string;
-    score?: number;
-    scoreMetadata?: Record<string, unknown>;
-  }>
-> {
+async function resolveMembers(
+  members: ContextPackMemberInput[],
+): Promise<ResolvedPackMember[]> {
   const { getDb, schema } = getCreativeContext();
   const itemIds = members.map((member) => member.itemId);
   if (new Set(itemIds).size !== itemIds.length) {
@@ -163,6 +167,114 @@ async function resolveMembers(members: ContextPackMemberInput[]): Promise<
   });
 }
 
+async function includeNativeArtifactDependencies(
+  explicitMembers: ResolvedPackMember[],
+): Promise<ResolvedPackMember[]> {
+  if (!explicitMembers.length) return explicitMembers;
+  const { getDb, schema } = getCreativeContext();
+  const members = [...explicitMembers];
+  const byItemId = new Map(members.map((member) => [member.itemId, member]));
+  const sourceByVersion = new Map<string, string>();
+  const initialItems = await getDb()
+    .select({
+      itemId: schema.contextItems.id,
+      itemVersionId: schema.contextItemVersions.id,
+      sourceId: schema.contextItems.sourceId,
+    })
+    .from(schema.contextItemVersions)
+    .innerJoin(
+      schema.contextItems,
+      eq(schema.contextItems.id, schema.contextItemVersions.itemId),
+    )
+    .where(
+      inArray(
+        schema.contextItemVersions.id,
+        explicitMembers.map((member) => member.itemVersionId),
+      ),
+    );
+  for (const item of initialItems as Array<{
+    itemId: string;
+    itemVersionId: string;
+    sourceId: string;
+  }>) {
+    sourceByVersion.set(item.itemVersionId, item.sourceId);
+  }
+
+  let frontier = explicitMembers.map((member) => member.itemVersionId);
+  let dependencyCount = 0;
+  while (frontier.length) {
+    const edges = await getDb()
+      .select({
+        fromItemVersionId: schema.contextEdges.fromItemVersionId,
+        toItemId: schema.contextEdges.toItemId,
+        toItemVersionId: schema.contextEdges.toItemVersionId,
+        toExternalId: schema.contextEdges.toExternalId,
+        childSourceId: schema.contextItems.sourceId,
+      })
+      .from(schema.contextEdges)
+      .leftJoin(
+        schema.contextItems,
+        eq(schema.contextItems.id, schema.contextEdges.toItemId),
+      )
+      .where(
+        and(
+          inArray(schema.contextEdges.fromItemVersionId, frontier),
+          eq(schema.contextEdges.relation, "contains-native-child"),
+        ),
+      )
+      .orderBy(
+        asc(schema.contextEdges.fromItemVersionId),
+        asc(schema.contextEdges.toExternalId),
+      );
+    const next: string[] = [];
+    for (const edge of edges as Array<{
+      fromItemVersionId: string;
+      toItemId: string | null;
+      toItemVersionId: string | null;
+      toExternalId: string | null;
+      childSourceId: string | null;
+    }>) {
+      if (!edge.toItemId || !edge.toItemVersionId || !edge.childSourceId) {
+        throw new Error(
+          `Native artifact child ${edge.toExternalId ?? "(unknown)"} has no immutable version reference`,
+        );
+      }
+      const parentSourceId = sourceByVersion.get(edge.fromItemVersionId);
+      if (!parentSourceId || parentSourceId !== edge.childSourceId) {
+        throw new Error(
+          "Native artifact dependencies must stay within the pinned source snapshot",
+        );
+      }
+      const existing = byItemId.get(edge.toItemId);
+      if (existing) {
+        if (existing.itemVersionId !== edge.toItemVersionId) {
+          throw new Error(
+            "A native artifact dependency conflicts with an explicitly pinned item version",
+          );
+        }
+        continue;
+      }
+      dependencyCount += 1;
+      if (dependencyCount > MAX_NATIVE_PACK_DEPENDENCIES) {
+        throw new Error(
+          "Native artifact pack dependencies exceed the safe limit",
+        );
+      }
+      const dependency: ResolvedPackMember = {
+        itemId: edge.toItemId,
+        itemVersionId: edge.toItemVersionId,
+        reason: "Native artifact dependency",
+      };
+      members.push(dependency);
+      byItemId.set(dependency.itemId, dependency);
+      sourceByVersion.set(dependency.itemVersionId, edge.childSourceId);
+      next.push(dependency.itemVersionId);
+    }
+    frontier = [...new Set(next)];
+  }
+  return members;
+}
+
 export async function createContextPack(input: {
   name: string;
   description?: string | null;
@@ -180,10 +292,12 @@ export async function createContextPack(input: {
   const actor = requireActor();
   const timestamp = nowIso();
   const id = newId("ccp");
-  const [resolvedMembers, brandDnaVersionId] = await Promise.all([
+  const [explicitMembers, brandDnaVersionId] = await Promise.all([
     resolveMembers(input.members),
     resolveBrandDnaVersion(input.brandDnaVersionId),
   ]);
+  const resolvedMembers =
+    await includeNativeArtifactDependencies(explicitMembers);
   if (input.derivedFromPackId) {
     await assertAccess(
       "creative-context-pack",

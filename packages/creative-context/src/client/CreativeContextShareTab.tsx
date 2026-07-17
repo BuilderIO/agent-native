@@ -200,6 +200,7 @@ export async function submitCreativeContextResources({
 
 function MembershipRow({
   membership,
+  updateAvailable,
   canReview,
   canWithdraw,
   canRemove,
@@ -207,6 +208,7 @@ function MembershipRow({
   onAction,
 }: {
   membership: CreativeContextMembership;
+  updateAvailable: boolean;
   canReview: boolean;
   canWithdraw: boolean;
   canRemove: boolean;
@@ -233,6 +235,9 @@ function MembershipRow({
         ) : (
           <Badge variant="secondary">Published</Badge>
         )}
+        {updateAvailable ? (
+          <Badge variant="outline">Update available</Badge>
+        ) : null}
         {pending && canWithdraw ? (
           <Button
             type="button"
@@ -309,7 +314,6 @@ function ContextSelect({
 export function CreativeContextShareTab({
   resource,
   resources,
-  canManage = false,
   className,
 }: CreativeContextShareTabProps) {
   const contextsQuery = useCreativeContexts();
@@ -339,6 +343,7 @@ export function CreativeContextShareTab({
     useState(false);
   const busy = manageContext.isPending || manageMembership.isPending;
   const selectedContext = contexts.find((context) => context.id === contextId);
+  const canCreateContext = contexts.some((context) => context.access.canAdmin);
   const needsBroaderPublicationConfirmation = selectedResources.some((item) =>
     requiresBroaderPublication(item, selectedContext),
   );
@@ -468,10 +473,16 @@ export function CreativeContextShareTab({
                 <MembershipRow
                   key={membership.id}
                   membership={membership}
+                  updateAvailable={Boolean(
+                    primaryResource?.updatedAt &&
+                    membership.publishedItem?.sourceModifiedAt &&
+                    primaryResource.updatedAt !==
+                      membership.publishedItem.sourceModifiedAt,
+                  )}
                   canReview={selectedContext?.access.canReview === true}
                   canWithdraw={
                     selectedContext?.access.canReview === true ||
-                    (canManage && selectedContext?.access.canSubmit === true)
+                    selectedContext?.access.canSubmit === true
                   }
                   canRemove={selectedContext?.access.canAdmin === true}
                   busy={busy}
@@ -488,7 +499,9 @@ export function CreativeContextShareTab({
           {contextId && selectedResources.length ? (
             <div className="rounded-md border border-dashed border-border p-3">
               <p className="text-sm font-medium">
-                Add{" "}
+                {memberships.some((membership) => membership.publishedItem)
+                  ? "Submit update for "
+                  : "Add "}
                 {selectedResources.length === 1
                   ? "this resource"
                   : `${selectedResources.length} resources`}
@@ -553,7 +566,7 @@ export function CreativeContextShareTab({
               </Button>
             </div>
           ) : null}
-          {canManage ? (
+          {canCreateContext ? (
             <div className="flex gap-2 border-t border-border/60 pt-3">
               <Input
                 value={newContextName}
