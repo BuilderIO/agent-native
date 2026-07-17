@@ -359,6 +359,15 @@ export function FormBuilderPage() {
             <Skeleton className="h-8 w-20 rounded-md" />
           </div>
         </div>
+        {/* Tabs */}
+        <div className="border-b border-border px-2 sm:px-4 py-2 shrink-0 overflow-hidden">
+          <div className="flex w-max items-center gap-1 rounded-lg bg-muted/40 p-1">
+            <Skeleton className="h-8 w-12 rounded-md" />
+            <Skeleton className="h-8 w-16 rounded-md" />
+            <Skeleton className="h-8 w-16 rounded-md" />
+            <Skeleton className="h-8 w-24 rounded-md" />
+          </div>
+        </div>
         {/* Body: builder */}
         <div className="flex flex-1 overflow-hidden relative">
           <div className="flex-1 overflow-auto bg-muted/30">
