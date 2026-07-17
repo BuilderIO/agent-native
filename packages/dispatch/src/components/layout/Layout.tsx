@@ -870,6 +870,7 @@ export function Layout({
     storageKey: "dispatch",
     isChatPath: (pathname: string) =>
       pathname === "/chat" || pathname.startsWith("/chat/"),
+    requireActiveHandoff: true,
   };
   useAgentChatHomeHandoffLinks(chatHandoffLinkOptions);
 

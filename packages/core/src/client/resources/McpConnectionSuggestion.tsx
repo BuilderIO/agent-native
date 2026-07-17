@@ -7,10 +7,12 @@ import {
 import { useEffect, useMemo, useState } from "react";
 
 import { agentNativePath } from "../api-path.js";
+import { openAgentSettings } from "../CommandMenu.js";
 import { useT } from "../i18n.js";
 import {
   buildMcpOAuthStartUrl,
   findMcpIntegrationForText,
+  getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isMcpConnectionFailureText,
   type DefaultMcpIntegration,
@@ -67,6 +69,12 @@ function canStartOAuth(integration: DefaultMcpIntegration): boolean {
   );
 }
 
+function hasApiFallback(
+  apiFallback: DefaultMcpIntegration["apiFallback"] | null,
+): boolean {
+  return Boolean(apiFallback);
+}
+
 export function McpConnectionSuggestion({
   text,
   contextText = "",
@@ -96,6 +104,9 @@ export function McpConnectionSuggestion({
     textIntegration.id !== contextIntegration.id
       ? null
       : (textIntegration ?? contextIntegration);
+  const apiFallback = integration
+    ? getMcpIntegrationApiFallback(integration)
+    : null;
   const servers = useMemo(
     () => [
       ...(mcpServersQuery.data?.user ?? []),
@@ -121,6 +132,11 @@ export function McpConnectionSuggestion({
   const connect = async () => {
     if (!integration || connecting) return;
     setError(null);
+
+    if (apiFallback) {
+      openAgentSettings(`secrets:${apiFallback.secretKey}`);
+      return;
+    }
 
     if (canStartOAuth(integration)) {
       window.location.assign(
@@ -163,12 +179,14 @@ export function McpConnectionSuggestion({
     setDialogOpen(true);
   };
 
-  const actionLabel = canStartOAuth(integration)
-    ? t("mcpIntegrations.connectWithOAuth")
-    : integration.availability === "client-restricted" ||
-        integration.availability === "provider-setup"
-      ? t("mcpIntegrations.viewSetup")
-      : t("mcpIntegrations.connect");
+  const actionLabel = hasApiFallback(apiFallback)
+    ? t("mcpIntegrations.useApiToken")
+    : canStartOAuth(integration)
+      ? t("mcpIntegrations.connectWithOAuth")
+      : integration.availability === "client-restricted" ||
+          integration.availability === "provider-setup"
+        ? t("mcpIntegrations.viewSetup")
+        : t("mcpIntegrations.connect");
 
   return (
     <>
@@ -194,7 +212,12 @@ export function McpConnectionSuggestion({
           )}
         </div>
         <span className="min-w-0 flex-1 leading-snug text-foreground">
-          {t("mcpIntegrations.connectSuggestion", { name: integration.name })}
+          {t(
+            hasApiFallback(apiFallback)
+              ? "mcpIntegrations.connectSuggestionWithApiToken"
+              : "mcpIntegrations.connectSuggestion",
+            { name: integration.name },
+          )}
         </span>
         <button
           type="button"
@@ -203,13 +226,20 @@ export function McpConnectionSuggestion({
           className="inline-flex shrink-0 items-center gap-1 rounded-md bg-primary px-2.5 py-1.5 text-[11px] font-medium text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-60"
         >
           {connecting && <IconLoader2 className="h-3 w-3 animate-spin" />}
-          {!connecting && canStartOAuth(integration) && (
+          {!connecting &&
+            canStartOAuth(integration) &&
+            !hasApiFallback(apiFallback) && (
+              <IconPlugConnected className="h-3 w-3" />
+            )}
+          {!connecting && hasApiFallback(apiFallback) && (
             <IconPlugConnected className="h-3 w-3" />
           )}
           {actionLabel}
-          {!connecting && !canStartOAuth(integration) && (
-            <IconArrowUpRight className="h-3 w-3" />
-          )}
+          {!connecting &&
+            !canStartOAuth(integration) &&
+            !hasApiFallback(apiFallback) && (
+              <IconArrowUpRight className="h-3 w-3" />
+            )}
         </button>
         <button
           type="button"

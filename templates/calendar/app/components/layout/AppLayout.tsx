@@ -390,7 +390,7 @@ export function AppLayout({ children }: AppLayoutProps) {
             />
             <AgentSidebar
               position="right"
-              defaultOpen
+              defaultOpen={false}
               emptyStateText={t("agentSidebar.emptyState")}
               agentPageHref="/agent"
               suggestions={[

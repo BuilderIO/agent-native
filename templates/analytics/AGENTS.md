@@ -163,6 +163,14 @@ membership id when its native update status reports `update-available`.
   serialization traps. The script is constrained: only documented dashboard
   method calls with JSON-compatible arguments are parsed; variables, imports,
   loops, functions, network, filesystem, and DB access are not available.
+- Dashboard extension boxes use `chartType: "extension"` with
+  `config.extensionSlotId`. The stable per-box slot is
+  `analytics.dashboard.<dashboard-id>.panel.<panel-id>`. To add an extension,
+  create/choose it, call `add-extension-slot-target` with that slot id, then
+  `install-extension` with the same slot id. Installs are per-user; the
+  dashboard panel remains shared. Slot-backed extensions receive dashboard id,
+  name, description, current filters, and the panel id/title/slot id as context.
+  `config.extensionId` is legacy direct embedding for existing dashboards.
 - Dashboard saves keep bounded history in SQL. Use
   `list-dashboard-revisions` to inspect undo points and
   `restore-dashboard-revision` to restore one instead of hand-editing history

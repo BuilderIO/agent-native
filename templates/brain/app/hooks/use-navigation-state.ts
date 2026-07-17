@@ -1,6 +1,7 @@
 import {
   appBasePath,
   appPath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
   useAgentRouteState,
 } from "@agent-native/core/client";
@@ -106,7 +107,11 @@ export function useNavigationState() {
       return `${path}${params.size ? `?${params.toString()}` : ""}`;
     },
     onNavigate: (_command, path) => {
-      if (location.pathname === "/" && pathnameFromPath(path) !== "/") {
+      if (
+        location.pathname === "/" &&
+        pathnameFromPath(path) !== "/" &&
+        isAgentChatHomeHandoffActive("brain")
+      ) {
         markAgentChatHomeHandoff("brain");
       }
     },

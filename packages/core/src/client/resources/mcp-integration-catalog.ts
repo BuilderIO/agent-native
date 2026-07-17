@@ -24,6 +24,7 @@ export type McpIntegrationVerification =
 declare const __AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__:
   | NormalizedMcpIntegrationsConfig
   | undefined;
+declare const __AGENT_NATIVE_TEMPLATE__: string | undefined;
 
 export interface DefaultMcpIntegration {
   id: string;
@@ -41,6 +42,11 @@ export interface DefaultMcpIntegration {
   logoUrl: string;
   docsUrl?: string;
   setupNoteKey?: string;
+  apiFallback?: {
+    secretKey: string;
+    docsUrl: string;
+    templateUses?: readonly string[];
+  };
   headerPlaceholder?: string;
   keywords: string[];
 }
@@ -272,6 +278,12 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("figma"),
     docsUrl: "https://developers.figma.com/docs/figma-mcp-server/",
     setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
+    apiFallback: {
+      secretKey: "FIGMA_ACCESS_TOKEN",
+      docsUrl:
+        "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
+      templateUses: ["design"],
+    },
     keywords: ["design", "figjam", "components", "variables", "canvas"],
   },
   {
@@ -530,6 +542,39 @@ function readRuntimeMcpIntegrationsConfig(): NormalizedMcpIntegrationsConfig {
     // Test and non-Vite contexts may not define the compile-time constant.
   }
   return normalizeMcpIntegrationsConfig();
+}
+
+function normalizeTemplateName(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  return normalized || null;
+}
+
+function getActiveTemplateName(): string | null {
+  try {
+    const compiledTemplate = normalizeTemplateName(__AGENT_NATIVE_TEMPLATE__);
+    if (compiledTemplate) return compiledTemplate;
+  } catch {
+    // Test and non-Vite contexts may not define the compile-time constant.
+  }
+
+  const runtimeConfig = (
+    globalThis as typeof globalThis & {
+      __AGENT_NATIVE_CONFIG__?: { template?: unknown };
+    }
+  ).__AGENT_NATIVE_CONFIG__;
+  return normalizeTemplateName(runtimeConfig?.template);
+}
+
+export function getMcpIntegrationApiFallback(
+  integration: DefaultMcpIntegration,
+  templateName = getActiveTemplateName(),
+): DefaultMcpIntegration["apiFallback"] | null {
+  const fallback = integration.apiFallback;
+  if (!fallback) return null;
+  if (!fallback.templateUses?.length) return fallback;
+  if (!templateName) return null;
+  return fallback.templateUses.includes(templateName) ? fallback : null;
 }
 
 function normalizePresetConfig(

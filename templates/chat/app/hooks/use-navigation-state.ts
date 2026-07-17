@@ -1,5 +1,6 @@
 import {
   appBasePath,
+  isAgentChatHomeHandoffActive,
   appPath,
   markAgentChatHomeHandoff,
   useAgentRouteState,
@@ -34,7 +35,9 @@ export function useNavigationState() {
         isChatPath(location.pathname) &&
         !isChatPath(pathnameFromPath(path))
       ) {
-        markAgentChatHomeHandoff("chat");
+        if (isAgentChatHomeHandoffActive("chat")) {
+          markAgentChatHomeHandoff("chat");
+        }
       }
     },
   });

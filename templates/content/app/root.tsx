@@ -479,15 +479,6 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
 
   useEffect(() => setMounted(true), []);
 
-  useEffect(() => {
-    if (!mounted) return;
-    if (!window.matchMedia("(min-width: 768px)").matches) return;
-    const id = window.setTimeout(() => {
-      window.dispatchEvent(new Event("agent-panel:open"));
-    }, 0);
-    return () => window.clearTimeout(id);
-  }, [mounted]);
-
   const content = <>{children}</>;
 
   if (!mounted) {
@@ -503,7 +494,7 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   return (
     <AgentSidebar
       position="right"
-      defaultOpen
+      defaultOpen={false}
       defaultSidebarWidth={420}
       emptyStateText={t("chat.publicEmptyState")}
       suggestions={[

@@ -50,6 +50,16 @@ export function resolveCreativeContextChipSelection(
   return "automatic";
 }
 
+export function hasCreativeContextConfiguration(
+  packs: ReadonlyArray<Pick<ContextPackSummary, "memberCount">>,
+  contexts: ReadonlyArray<Pick<CreativeContextSummary, "memberCount">>,
+): boolean {
+  return (
+    packs.some((pack) => pack.memberCount > 0) ||
+    contexts.some((context) => context.memberCount > 0)
+  );
+}
+
 export function CreativeContextChip({
   state,
   packs = [],
@@ -101,6 +111,8 @@ export function CreativeContextComposerChip({
   const contextsQuery = useCreativeContexts();
   const packs = packsQuery.data?.packs ?? [];
   const contexts = parseCreativeContexts(contextsQuery.data);
+
+  if (!hasCreativeContextConfiguration(packs, contexts)) return null;
 
   async function selectAutomatic() {
     await contextState.setState({

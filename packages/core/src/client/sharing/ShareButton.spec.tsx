@@ -18,6 +18,12 @@ const popoverInteractOutsideHandlers = vi.hoisted(
       }) => void
     >,
 );
+const popoverOpenChangeHandlers = vi.hoisted(
+  () => [] as Array<(open: boolean) => void>,
+);
+const popoverTestState = vi.hoisted(() => ({
+  simulateMounting: false,
+}));
 const sharesData = vi.hoisted(() => ({
   current: {
     ownerEmail: "owner@example.com",
@@ -38,40 +44,77 @@ vi.mock("../use-action.js", () => ({
   }),
 }));
 
-vi.mock("../components/ui/popover.js", () => ({
-  Popover: ({ children }: { children: React.ReactNode }) => (
-    <div>{children}</div>
-  ),
-  PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
-    <>{children}</>
-  ),
-  PopoverContent: ({
-    children,
-    onInteractOutside,
-    onOpenAutoFocus: _onOpenAutoFocus,
-    align: _align,
-    sideOffset: _sideOffset,
-    ...props
-  }: {
-    children: React.ReactNode;
-    onInteractOutside?: (event: {
-      detail: { originalEvent: { target: EventTarget | null } };
-      preventDefault: () => void;
-    }) => void;
-    onOpenAutoFocus?: unknown;
-    align?: unknown;
-    sideOffset?: unknown;
-    [key: string]: unknown;
-  }) => {
-    if (onInteractOutside) {
-      popoverInteractOutsideHandlers.push(onInteractOutside);
-    }
-    return <div {...props}>{children}</div>;
-  },
-}));
+vi.mock("../components/ui/popover.js", () => {
+  const PopoverOpenContext = React.createContext(true);
+  const isOuterSharePopover = (node: React.ReactNode): boolean =>
+    React.Children.toArray(node).some((child) => {
+      if (!React.isValidElement(child)) return false;
+      const props = child.props as { children?: React.ReactNode } & Record<
+        string,
+        unknown
+      >;
+      return String(props.className ?? "").includes("w-[min(460px,92vw)]");
+    });
+
+  return {
+    Popover: ({
+      children,
+      open,
+      onOpenChange,
+    }: {
+      children: React.ReactNode;
+      open?: boolean;
+      onOpenChange?: (open: boolean) => void;
+    }) => {
+      if (
+        onOpenChange &&
+        typeof open === "boolean" &&
+        isOuterSharePopover(children)
+      ) {
+        popoverOpenChangeHandlers.push(onOpenChange);
+      }
+      return isOuterSharePopover(children) ? (
+        <PopoverOpenContext.Provider
+          value={popoverTestState.simulateMounting ? open === true : true}
+        >
+          <div>{children}</div>
+        </PopoverOpenContext.Provider>
+      ) : (
+        <div>{children}</div>
+      );
+    },
+    PopoverTrigger: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    PopoverAnchor: ({ children }: { children: React.ReactNode }) => (
+      <>{children}</>
+    ),
+    PopoverContent: ({
+      children,
+      onInteractOutside,
+      onOpenAutoFocus: _onOpenAutoFocus,
+      align: _align,
+      sideOffset: _sideOffset,
+      ...props
+    }: {
+      children: React.ReactNode;
+      onInteractOutside?: (event: {
+        detail: { originalEvent: { target: EventTarget | null } };
+        preventDefault: () => void;
+      }) => void;
+      onOpenAutoFocus?: unknown;
+      align?: unknown;
+      sideOffset?: unknown;
+      [key: string]: unknown;
+    }) => {
+      if (onInteractOutside) {
+        popoverInteractOutsideHandlers.push(onInteractOutside);
+      }
+      if (!React.useContext(PopoverOpenContext)) return null;
+      return <div {...props}>{children}</div>;
+    },
+  };
+});
 
 function setInputValue(input: HTMLInputElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(
@@ -104,6 +147,8 @@ describe("ShareButton", () => {
     otherMutate.mockReset();
     refetchShares.mockClear();
     popoverInteractOutsideHandlers.length = 0;
+    popoverOpenChangeHandlers.length = 0;
+    popoverTestState.simulateMounting = false;
     sharesData.current = {
       ownerEmail: "owner@example.com",
       orgId: null,
@@ -169,6 +214,81 @@ describe("ShareButton", () => {
       }),
       expect.any(Object),
     );
+  });
+
+  it("submits one typed email with Add while keeping the share popover open", async () => {
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton
+            resourceType="document"
+            resourceId="doc-1"
+            resourceTitle="Launch notes"
+          />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "first@example.com");
+
+    const add = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent === "Add",
+    );
+    if (!add) throw new Error("Add button not found");
+
+    act(() => {
+      add.click();
+    });
+
+    expect(shareMutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        principalId: "first@example.com",
+        role: "viewer",
+        notify: true,
+      }),
+      expect.any(Object),
+    );
+    expect(container.textContent).toContain("Done");
+    expect(
+      container.querySelector('input[placeholder="Add people by email"]'),
+    ).toBeTruthy();
+  });
+
+  it("keeps a draft email when the share popover is closed and reopened", async () => {
+    popoverTestState.simulateMounting = true;
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareButton resourceType="document" resourceId="doc-1" defaultOpen />
+        </QueryClientProvider>,
+      );
+    });
+
+    const input = container.querySelector(
+      'input[placeholder="Add people by email"]',
+    ) as HTMLInputElement;
+    setInputValue(input, "recover-me@example.com");
+
+    const openChange = popoverOpenChangeHandlers.at(-1);
+    if (!openChange) throw new Error("share popover open handler not found");
+
+    act(() => openChange(false));
+    expect(
+      container.querySelector('input[placeholder="Add people by email"]'),
+    ).toBeNull();
+
+    act(() => openChange(true));
+    expect(
+      (
+        container.querySelector(
+          'input[placeholder="Add people by email"]',
+        ) as HTMLInputElement
+      ).value,
+    ).toBe("recover-me@example.com");
   });
 
   it("shows the copy action for share URLs regardless of visibility", async () => {

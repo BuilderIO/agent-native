@@ -1,4 +1,5 @@
 const STORAGE_KEY = "agent-chat-active-run";
+const PENDING_TURN_STORAGE_KEY = "agent-chat-pending-turn";
 export const ACTIVE_RUN_STATE_EVENT = "agent-chat:active-run-state-change";
 
 export interface ActiveRunState {
@@ -6,6 +7,11 @@ export interface ActiveRunState {
   runId: string;
   lastSeq: number;
   activityTool?: string | null;
+}
+
+export interface PendingTurnState {
+  threadId: string;
+  turnId: string;
 }
 
 function notifyActiveRunStateChanged(state: ActiveRunState | null): void {
@@ -86,6 +92,34 @@ export function clearActiveRunIfMatches(threadId: string, runId: string): void {
   const state = getActiveRun();
   if (state?.threadId !== threadId || state.runId !== runId) return;
   clearActiveRun();
+}
+
+export function setPendingTurn(state: PendingTurnState): void {
+  try {
+    sessionStorage.setItem(PENDING_TURN_STORAGE_KEY, JSON.stringify(state));
+  } catch {}
+}
+
+export function getPendingTurn(threadId: string): PendingTurnState | null {
+  try {
+    const raw = sessionStorage.getItem(PENDING_TURN_STORAGE_KEY);
+    if (!raw) return null;
+    const state = JSON.parse(raw) as PendingTurnState;
+    return state.threadId === threadId && state.turnId ? state : null;
+  } catch {
+    return null;
+  }
+}
+
+export function clearPendingTurnIfMatches(
+  threadId: string,
+  turnId?: string,
+): void {
+  const state = getPendingTurn(threadId);
+  if (!state || (turnId && state.turnId !== turnId)) return;
+  try {
+    sessionStorage.removeItem(PENDING_TURN_STORAGE_KEY);
+  } catch {}
 }
 
 /** Resume reconnect SSE after the last seen event (0 = replay from the start). */

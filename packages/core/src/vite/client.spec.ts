@@ -343,6 +343,25 @@ describe("route warmup config", () => {
 });
 
 describe("MCP integrations config", () => {
+  it("exposes the active template to shared client capabilities", () => {
+    const previous = process.env.AGENT_NATIVE_TEMPLATE;
+    process.env.AGENT_NATIVE_TEMPLATE = " Design ";
+
+    try {
+      const config = defineConfig();
+
+      expect(config.define?.__AGENT_NATIVE_TEMPLATE__).toBe(
+        JSON.stringify("design"),
+      );
+    } finally {
+      if (previous === undefined) {
+        delete process.env.AGENT_NATIVE_TEMPLATE;
+      } else {
+        process.env.AGENT_NATIVE_TEMPLATE = previous;
+      }
+    }
+  });
+
   it("exposes default MCP integration catalog settings", () => {
     const config = defineConfig();
     const mcpIntegrations = JSON.parse(

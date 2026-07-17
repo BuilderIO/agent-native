@@ -2,6 +2,7 @@ import {
   agentNativePath,
   appBasePath,
   appPath,
+  isAgentChatHomeHandoffActive,
   markAgentChatHomeHandoff,
 } from "@agent-native/core/client";
 import { extensionIdFromPathname } from "@agent-native/core/client/extensions";
@@ -86,7 +87,9 @@ export function useNavigationState(extensions?: DispatchExtensionConfig) {
       isChatPath(routerPath(location.pathname)) &&
       !isChatPath(pathnameFromPath(nextPath))
     ) {
-      markAgentChatHomeHandoff("dispatch");
+      if (isAgentChatHomeHandoffActive("dispatch")) {
+        markAgentChatHomeHandoff("dispatch");
+      }
     }
     navigate(nextPath);
     qc.setQueryData(["navigate-command"], null);

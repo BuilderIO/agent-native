@@ -38,7 +38,9 @@ import React, {
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
   ACTIVE_RUN_STATE_EVENT,
+  clearPendingTurnIfMatches,
   clearActiveRunIfMatches,
+  getPendingTurn,
   getActiveRunActivityTool,
   getActiveRun,
   resolveReconnectAfterSeq,
@@ -4281,6 +4283,7 @@ const AssistantChatInner = forwardRef<
       }
       const activeRun = getActiveRun();
       const runIdToAbort = reconnectRunIdRef.current ?? activeRun?.runId;
+      const pendingTurn = threadId ? getPendingTurn(threadId) : null;
       userStoppedRunRef.current = {
         at: Date.now(),
         ...(runIdToAbort ? { runId: runIdToAbort } : {}),
@@ -4292,6 +4295,16 @@ const AssistantChatInner = forwardRef<
         fetch(`${apiUrl}/runs/${encodeURIComponent(runIdToAbort)}/abort`, {
           method: "POST",
         }).catch(() => {});
+      } else if (pendingTurn && threadId) {
+        clearPendingTurnIfMatches(threadId, pendingTurn.turnId);
+        fetch(
+          `${apiUrl}/runs/turn/${encodeURIComponent(pendingTurn.turnId)}/abort`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ threadId }),
+          },
+        ).catch(() => {});
       }
       if (isReconnecting) {
         reconnectAbortRef.current?.abort();
