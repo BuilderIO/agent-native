@@ -262,6 +262,10 @@ MCP_SERVERS='{"servers":{"zapier":{"type":"http","url":"https://mcp.example.com/
 الإضافات `agentNative.mcp.callTool(...)` أو إجراء تطبيق مخصص لهذا الغرض
 لتنفيذ عمليات مزوّد محدودة النطاق بدلاً من ذلك.
 
+يجب أن تسمح الإضافات المحلية صراحةً بـ `list-mcp-tools` و`call-mcp-tool` وأي
+إجراء مزوّد مدعوم تستخدمه في `extension.json`. تتوفر أدوات الاكتشاف أيضًا عبر
+`agentNative.connectors.mcp` و`agentNative.connectors.providerApi`.
+
 ### Atlassian / Jira
 
 يستخدم إعداد Atlassian المسبق نقطة نهاية OAuth 2.1 الخاصة بـ Atlassian Rovo MCP،

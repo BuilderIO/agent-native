@@ -264,6 +264,11 @@ as extensões devem usar `agentNative.mcp.callTool(...)` ou uma ação de
 aplicativo criada especificamente para operações de provedor com escopo
 limitado.
 
+Extensões de arquivo local devem permitir explicitamente `list-mcp-tools`,
+`call-mcp-tool` e qualquer ação de provedor compatível que usem em
+`extension.json`. Os helpers de descoberta também estão disponíveis em
+`agentNative.connectors.mcp` e `agentNative.connectors.providerApi`.
+
 ### Atlassian / Jira
 
 O preset Atlassian usa o endpoint OAuth 2.1 do Atlassian Rovo MCP,

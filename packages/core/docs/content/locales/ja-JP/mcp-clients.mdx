@@ -264,6 +264,11 @@ MCP (モデル コンテキスト プロトコル) サーバーは、Zapier、Cl
 のために `agentNative.mcp.callTool(...)` か、専用に用意されたアプリのアクションを
 使用する必要があります。
 
+ローカルファイル拡張機能は、`extension.json` で `list-mcp-tools`、
+`call-mcp-tool`、および使用するサポート対象のプロバイダーアクションを
+明示的に許可する必要があります。検出ヘルパーは
+`agentNative.connectors.mcp` と `agentNative.connectors.providerApi` からも利用できます。
+
 ### Atlassian / Jira
 
 Atlassian プリセットは、Atlassian Rovo MCP の OAuth 2.1 エンドポイント

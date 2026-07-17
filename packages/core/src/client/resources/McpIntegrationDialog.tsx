@@ -492,6 +492,11 @@ export function McpIntegrationDialog({
                       <p className="mt-1 line-clamp-2 flex-1 text-[12px] leading-relaxed text-muted-foreground">
                         {t(integration.descriptionKey)}
                       </p>
+                      {integration.setupNoteKey && (
+                        <p className="mt-2 line-clamp-3 text-[10px] leading-relaxed text-amber-700 dark:text-amber-300">
+                          {t(integration.setupNoteKey)}
+                        </p>
+                      )}
                       <div className="mt-3 flex items-center gap-2">
                         {connected ? (
                           <button
@@ -721,7 +726,16 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.test")}
               </button>
-              {!selected && (
+              {selected?.authMode === "oauth" ? (
+                <button
+                  type="button"
+                  onClick={() => connectWithOAuth(selected)}
+                  disabled={!name.trim() || !url.trim() || busy}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {t("mcpIntegrations.connectWithOAuth")}
+                </button>
+              ) : !selected ? (
                 <button
                   type="button"
                   onClick={connectCustomWithOAuth}
@@ -730,7 +744,7 @@ export function McpIntegrationDialog({
                 >
                   {t("mcpIntegrations.connectWithOAuth")}
                 </button>
-              )}
+              ) : null}
               <button
                 type="button"
                 onClick={submitForm}

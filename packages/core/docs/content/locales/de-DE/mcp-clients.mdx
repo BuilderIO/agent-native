@@ -264,6 +264,11 @@ Erweiterungen offen, könnte eine Erweiterung zu einem authentifizierten
 Schreib-Proxy werden. Erweiterungen sollten stattdessen `agentNative.mcp.callTool(...)`
 oder eine dafür vorgesehene App-Aktion für begrenzte Anbieteroperationen verwenden.
 
+Lokale Datei-Erweiterungen müssen `list-mcp-tools`, `call-mcp-tool` und jede
+unterstützte Anbieteraktion, die sie verwenden, ausdrücklich in `extension.json`
+freigeben. Die Discovery-Helfer sind auch unter `agentNative.connectors.mcp`
+und `agentNative.connectors.providerApi` verfügbar.
+
 ### Atlassian / Jira
 
 Das Atlassian-Preset verwendet den OAuth-2.1-Endpunkt von Atlassian Rovo MCP,

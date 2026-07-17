@@ -265,6 +265,11 @@ authentifié. Les extensions doivent plutôt utiliser `agentNative.mcp.callTool(
 ou une action d'application dédiée pour des opérations de fournisseur limitées
 et bien définies.
 
+Les extensions locales doivent autoriser explicitement `list-mcp-tools`,
+`call-mcp-tool` et toute action fournisseur prise en charge qu'elles utilisent
+dans `extension.json`. Les assistants de découverte sont également disponibles
+via `agentNative.connectors.mcp` et `agentNative.connectors.providerApi`.
+
 ### Atlassian / Jira
 
 Le préréglage Atlassian utilise le point de terminaison OAuth 2.1 d'Atlassian Rovo MCP,

@@ -264,6 +264,11 @@ OAuth ऐप मांगते हैं। ऐसे प्रदाता ख
 `agentNative.mcp.callTool(...)` या किसी खास उद्देश्य के लिए बनाए गए ऐप एक्शन
 का उपयोग करना चाहिए।
 
+लोकल-फ़ाइल एक्सटेंशन को `extension.json` में `list-mcp-tools`, `call-mcp-tool`
+और उनके द्वारा उपयोग की जाने वाली हर समर्थित प्रोवाइडर कार्रवाई को स्पष्ट रूप
+से अनुमति देनी होगी। डिस्कवरी हेल्पर `agentNative.connectors.mcp` और
+`agentNative.connectors.providerApi` के तहत भी उपलब्ध हैं।
+
 ### Atlassian / Jira
 
 Atlassian प्रीसेट, Atlassian Rovo MCP के OAuth 2.1 एंडपॉइंट

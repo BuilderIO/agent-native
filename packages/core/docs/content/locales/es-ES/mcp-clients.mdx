@@ -266,6 +266,11 @@ En su lugar, las extensiones deben usar `agentNative.mcp.callTool(...)` o una
 acción de la aplicación creada para ese fin, limitada a operaciones concretas
 del proveedor.
 
+Las extensiones locales deben permitir explícitamente `list-mcp-tools`,
+`call-mcp-tool` y cualquier acción de proveedor compatible que utilicen en
+`extension.json`. Los helpers de descubrimiento también están disponibles en
+`agentNative.connectors.mcp` y `agentNative.connectors.providerApi`.
+
 ### Atlassian / Jira
 
 El ajuste preestablecido de Atlassian usa el punto de conexión OAuth 2.1 de Atlassian Rovo MCP,
