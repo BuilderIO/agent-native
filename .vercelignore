@@ -26,16 +26,16 @@ packages/*
 !packages/dispatch/
 !packages/dispatch/**
 
-.agents
-.changeset
-.claude
-.github
-.screenshots
-.vscode
-animation-plans
-docs
-plans
-skills
+/.agents
+/.changeset
+/.claude
+/.github
+/.screenshots
+/.vscode
+/animation-plans
+/docs
+/plans
+/skills
 
 # Generated outputs must come last so package/template re-includes above do
 # not accidentally bring local build products back into the archive.
