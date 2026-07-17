@@ -8,12 +8,12 @@ description: "A practical guide to organization context, team roles, resource sh
 If you are building an app for more than one person, start here. Agent Native
 has several scopes that are easy to conflate:
 
-| Scope | What it identifies | Where it appears |
-| ----- | ------------------ | ---------------- |
-| **User** | The signed-in person | `session.email`, `ctx.userEmail` |
-| **Organization** | The team or tenant the person is currently using | `session.orgId`, `session.orgRole`, `ctx.orgId` |
-| **Resource** | A document, dashboard, design, or other app row | `owner_email`, `org_id`, `visibility`, and share grants |
-| **Workspace** | A deployment shape containing multiple apps and shared configuration | `AGENT_NATIVE_WORKSPACE`, shared `.env`, app base paths |
+| Scope            | What it identifies                                                   | Where it appears                                        |
+| ---------------- | -------------------------------------------------------------------- | ------------------------------------------------------- |
+| **User**         | The signed-in person                                                 | `session.email`, `ctx.userEmail`                        |
+| **Organization** | The team or tenant the person is currently using                     | `session.orgId`, `session.orgRole`, `ctx.orgId`         |
+| **Resource**     | A document, dashboard, design, or other app row                      | `owner_email`, `org_id`, `visibility`, and share grants |
+| **Workspace**    | A deployment shape containing multiple apps and shared configuration | `AGENT_NATIVE_WORKSPACE`, shared `.env`, app base paths |
 
 An organization is the team boundary for application data. A workspace is a
 deployment and customization concept; it is not a replacement for an
@@ -54,20 +54,20 @@ organization plugin. The built-in flow supports:
 The framework mounts the server surface under `/_agent-native/org/*`. The main
 routes are:
 
-| Route | Purpose |
-| ----- | ------- |
-| `GET /_agent-native/org/me` | Active org, memberships, pending invites, and domain matches |
-| `POST /_agent-native/org` | Create an organization |
-| `PATCH /_agent-native/org` | Rename the active organization |
-| `PUT /_agent-native/org/switch` | Switch the active organization |
-| `GET /_agent-native/org/members` | List members in the active organization |
-| `DELETE /_agent-native/org/members/:email` | Remove a member |
-| `PUT /_agent-native/org/members/:email/role` | Change a member's role |
-| `POST /_agent-native/org/invitations` | Invite one or more people |
-| `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation |
-| `POST /_agent-native/org/join-by-domain` | Join an organization matched by email domain |
-| `PUT /_agent-native/org/domain` | Set or clear the allowed email domain |
-| `PUT /_agent-native/org/a2a-secret` | Set or regenerate the active org's A2A secret |
+| Route                                            | Purpose                                                      |
+| ------------------------------------------------ | ------------------------------------------------------------ |
+| `GET /_agent-native/org/me`                      | Active org, memberships, pending invites, and domain matches |
+| `POST /_agent-native/org`                        | Create an organization                                       |
+| `PATCH /_agent-native/org`                       | Rename the active organization                               |
+| `PUT /_agent-native/org/switch`                  | Switch the active organization                               |
+| `GET /_agent-native/org/members`                 | List members in the active organization                      |
+| `DELETE /_agent-native/org/members/:email`       | Remove a member                                              |
+| `PUT /_agent-native/org/members/:email/role`     | Change a member's role                                       |
+| `POST /_agent-native/org/invitations`            | Invite one or more people                                    |
+| `POST /_agent-native/org/invitations/:id/accept` | Accept an invitation                                         |
+| `POST /_agent-native/org/join-by-domain`         | Join an organization matched by email domain                 |
+| `PUT /_agent-native/org/domain`                  | Set or clear the allowed email domain                        |
+| `PUT /_agent-native/org/a2a-secret`              | Set or regenerate the active org's A2A secret                |
 
 Use the shared UI and hooks instead of recreating this flow in each app:
 
@@ -131,11 +131,11 @@ must require an explicit invite or organization-creation step.
 
 Organization roles answer: **what may this person do to the team itself?**
 
-| Role | Meaning | Typical capabilities |
-| ---- | ------- | -------------------- |
-| `owner` | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings |
-| `admin` | Team administrator | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, only the owner manages admin-to-admin transitions, and the shared client domain helper is owner-only |
-| `member` | Regular team member | Use resources that the app shares with the organization; cannot manage membership |
+| Role     | Meaning                          | Typical capabilities                                                                                                                                                                                |
+| -------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `owner`  | Full control of the organization | Manage the organization, members, admins, domain policy, and org-level A2A settings                                                                                                                 |
+| `admin`  | Team administrator               | Invite/remove members and manage ordinary member roles; admins cannot change the owner's role, only the owner manages admin-to-admin transitions, and the shared client domain helper is owner-only |
+| `member` | Regular team member              | Use resources that the app shares with the organization; cannot manage membership                                                                                                                   |
 
 The shared role helpers are deliberately small and composable:
 
@@ -172,11 +172,11 @@ Shareable resources use three layers together:
 3. A companion shares table grants a user or organization `viewer`, `editor`,
    or `admin` access.
 
-| Resource role | Access |
-| ------------- | ------ |
-| `viewer` | Read |
-| `editor` | Read and write |
-| `admin` | Read, write, and manage shares |
+| Resource role | Access                         |
+| ------------- | ------------------------------ |
+| `viewer`      | Read                           |
+| `editor`      | Read and write                 |
+| `admin`       | Read, write, and manage shares |
 
 `admin` on a resource does not transfer ownership. The resource owner remains
 separate from every share grant.
@@ -219,12 +219,12 @@ missing ownership or unscoped query paths.
 Environment variables configure the deployment. They are not a database for
 user or team state.
 
-| Store | Use it for | Do not use it for |
-| ----- | ---------- | ---------------- |
-| Server/deploy environment | One value shared by the whole app instance, such as `DATABASE_URL`, auth signing keys, or an A2A secret | A user's API key or a team's mutable setting |
-| `VITE_*` build-time environment | Non-secret values that must be embedded in browser code | Secrets; anything with `VITE_` can be public |
-| Encrypted credential/vault APIs | Per-user and per-organization provider keys, OAuth tokens, and app secrets | Deployment bootstrapping that must exist before the database is available |
-| SQL application state/settings | App state, preferences, and references | Raw credentials, tokens, or large file payloads |
+| Store                           | Use it for                                                                                              | Do not use it for                                                         |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| Server/deploy environment       | One value shared by the whole app instance, such as `DATABASE_URL`, auth signing keys, or an A2A secret | A user's API key or a team's mutable setting                              |
+| `VITE_*` build-time environment | Non-secret values that must be embedded in browser code                                                 | Secrets; anything with `VITE_` can be public                              |
+| Encrypted credential/vault APIs | Per-user and per-organization provider keys, OAuth tokens, and app secrets                              | Deployment bootstrapping that must exist before the database is available |
+| SQL application state/settings  | App state, preferences, and references                                                                  | Raw credentials, tokens, or large file payloads                           |
 
 For local development, put deploy-level values in a gitignored `.env`. In a
 workspace, the root `.env` is shared by apps and `apps/<name>/.env` overrides it
@@ -258,70 +258,70 @@ on the page for the feature that owns them.
 
 ### Database and public URL
 
-| Variable | What it does |
-| -------- | ------------ |
-| `APP_NAME` | Names the current app and enables prefixed lookups such as `MAIL_DATABASE_URL` when the app name is `mail`. |
-| `DATABASE_URL` | Persistent SQL connection. Unset uses local SQLite; `pglite:./data/pglite` opts into local Postgres semantics. |
-| `DATABASE_AUTH_TOKEN` | Separate auth token for providers such as Turso/libSQL. |
-| `<APP_NAME>_DATABASE_URL` | Per-app database override in a multi-app workspace; it wins over `DATABASE_URL` and `NETLIFY_DATABASE_URL`. |
-| `<APP_NAME>_DATABASE_AUTH_TOKEN` | Per-app auth-token override; it wins over `DATABASE_AUTH_TOKEN` and `NETLIFY_DATABASE_AUTH_TOKEN`. |
-| `NETLIFY_DATABASE_URL` | Netlify-managed database fallback when no app-prefixed or generic `DATABASE_URL` is set. |
-| `NETLIFY_DATABASE_AUTH_TOKEN` | Netlify-managed database auth-token fallback. |
-| `<APP_NAME>_DATABASE_URL_UNPOOLED` | Per-app direct connection used for migrations where the provider exposes a pooled and unpooled endpoint. |
-| `DATABASE_URL_UNPOOLED` / `NETLIFY_DATABASE_URL_UNPOOLED` | Generic or Netlify direct migration connection fallback. The app-prefixed value wins when present. |
-| `ALLOW_DRIZZLE_PUSH_ON_NEON` | Set to `1` only for an intentional local schema push against Neon. Do not set it in CI or production. |
-| `APP_URL` | Canonical app/workspace origin used for generated links and callbacks. |
-| `WORKSPACE_OAUTH_ORIGIN` / `VITE_WORKSPACE_OAUTH_ORIGIN` | Workspace OAuth origin, used when the workspace gateway and app origin differ. |
-| `BETTER_AUTH_URL` / `VITE_BETTER_AUTH_URL` | Explicit public auth origin for session and OAuth URL construction; `APP_URL` and request/platform origins can provide fallbacks. |
-| `WEBHOOK_BASE_URL` | Optional callback origin when webhook self-callbacks should use a stable custom domain instead of the deploy preview URL. |
-| `URL` / `DEPLOY_URL` / `DEPLOY_PRIME_URL` | Platform-provided public URL fallbacks, especially for Netlify previews and deploys. |
-| `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL` | Vercel's production and deployment-hostname fallbacks. |
-| `PORT` | Node server port. |
-| `APP_BASE_PATH` / `VITE_APP_BASE_PATH` | Mounts an app under a path such as `/mail`; the `VITE_*` form preserves that path in browser code. |
-| `NITRO_PRESET` | Selects the deployment/build target, such as `netlify`, `vercel`, or `cloudflare_pages`. |
+| Variable                                                  | What it does                                                                                                                      |
+| --------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_NAME`                                                | Names the current app and enables prefixed lookups such as `MAIL_DATABASE_URL` when the app name is `mail`.                       |
+| `DATABASE_URL`                                            | Persistent SQL connection. Unset uses local SQLite; `pglite:./data/pglite` opts into local Postgres semantics.                    |
+| `DATABASE_AUTH_TOKEN`                                     | Separate auth token for providers such as Turso/libSQL.                                                                           |
+| `<APP_NAME>_DATABASE_URL`                                 | Per-app database override in a multi-app workspace; it wins over `DATABASE_URL` and `NETLIFY_DATABASE_URL`.                       |
+| `<APP_NAME>_DATABASE_AUTH_TOKEN`                          | Per-app auth-token override; it wins over `DATABASE_AUTH_TOKEN` and `NETLIFY_DATABASE_AUTH_TOKEN`.                                |
+| `NETLIFY_DATABASE_URL`                                    | Netlify-managed database fallback when no app-prefixed or generic `DATABASE_URL` is set.                                          |
+| `NETLIFY_DATABASE_AUTH_TOKEN`                             | Netlify-managed database auth-token fallback.                                                                                     |
+| `<APP_NAME>_DATABASE_URL_UNPOOLED`                        | Per-app direct connection used for migrations where the provider exposes a pooled and unpooled endpoint.                          |
+| `DATABASE_URL_UNPOOLED` / `NETLIFY_DATABASE_URL_UNPOOLED` | Generic or Netlify direct migration connection fallback. The app-prefixed value wins when present.                                |
+| `ALLOW_DRIZZLE_PUSH_ON_NEON`                              | Set to `1` only for an intentional local schema push against Neon. Do not set it in CI or production.                             |
+| `APP_URL`                                                 | Canonical app/workspace origin used for generated links and callbacks.                                                            |
+| `WORKSPACE_OAUTH_ORIGIN` / `VITE_WORKSPACE_OAUTH_ORIGIN`  | Workspace OAuth origin, used when the workspace gateway and app origin differ.                                                    |
+| `BETTER_AUTH_URL` / `VITE_BETTER_AUTH_URL`                | Explicit public auth origin for session and OAuth URL construction; `APP_URL` and request/platform origins can provide fallbacks. |
+| `WEBHOOK_BASE_URL`                                        | Optional callback origin when webhook self-callbacks should use a stable custom domain instead of the deploy preview URL.         |
+| `URL` / `DEPLOY_URL` / `DEPLOY_PRIME_URL`                 | Platform-provided public URL fallbacks, especially for Netlify previews and deploys.                                              |
+| `VERCEL_PROJECT_PRODUCTION_URL` / `VERCEL_URL`            | Vercel's production and deployment-hostname fallbacks.                                                                            |
+| `PORT`                                                    | Node server port.                                                                                                                 |
+| `APP_BASE_PATH` / `VITE_APP_BASE_PATH`                    | Mounts an app under a path such as `/mail`; the `VITE_*` form preserves that path in browser code.                                |
+| `NITRO_PRESET`                                            | Selects the deployment/build target, such as `netlify`, `vercel`, or `cloudflare_pages`.                                          |
 
 ### Authentication, cookies, and org defaults
 
-| Variable | What it does |
-| -------- | ------------ |
-| `BETTER_AUTH_SECRET` | Production session-signing secret and fallback key material. Generate a fresh 32+ character value. |
-| `OAUTH_STATE_SECRET` | Dedicated HMAC key for OAuth state envelopes; falls back to `BETTER_AUTH_SECRET` when unset. |
-| `SECRETS_ENCRYPTION_KEY` | AES-256-GCM key for encrypted credentials and vault rows; falls back to `BETTER_AUTH_SECRET`. |
-| `AUTH_DISABLED` | Local/demo escape hatch that makes every request one shared user. Never use it with real production users. |
-| `AUTH_SKIP_EMAIL_VERIFICATION` | Set to `1` for QA/preview signup without email verification. |
-| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost's automatic throwaway account. |
-| `AUTH_MODE` | Controls CLI/agent identity resolution such as `pnpm action`; it is not a browser login bypass. |
-| `COOKIE_DOMAIN` | Shares cookies across same-database subdomains when explicitly configured. |
-| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN` | Set to `1` with `COOKIE_DOMAIN` when intentionally sharing one auth database across first-party subdomains. |
-| `AGENT_NATIVE_WORKSPACE` | Enables the shared workspace session realm for a multi-app workspace. |
-| `VITE_AGENT_NATIVE_WORKSPACE` | Build-time/browser equivalent of `AGENT_NATIVE_WORKSPACE`. |
-| `AUTO_CREATE_DEFAULT_ORG` | Defaults to enabled; set to `0` to stop creating a personal organization for users with no membership. |
+| Variable                                | What it does                                                                                                |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
+| `BETTER_AUTH_SECRET`                    | Production session-signing secret and fallback key material. Generate a fresh 32+ character value.          |
+| `OAUTH_STATE_SECRET`                    | Dedicated HMAC key for OAuth state envelopes; falls back to `BETTER_AUTH_SECRET` when unset.                |
+| `SECRETS_ENCRYPTION_KEY`                | AES-256-GCM key for encrypted credentials and vault rows; falls back to `BETTER_AUTH_SECRET`.               |
+| `AUTH_DISABLED`                         | Local/demo escape hatch that makes every request one shared user. Never use it with real production users.  |
+| `AUTH_SKIP_EMAIL_VERIFICATION`          | Set to `1` for QA/preview signup without email verification.                                                |
+| `AGENT_NATIVE_DISABLE_AUTO_DEV_ACCOUNT` | Set to `1` to disable localhost's automatic throwaway account.                                              |
+| `AUTH_MODE`                             | Controls CLI/agent identity resolution such as `pnpm action`; it is not a browser login bypass.             |
+| `COOKIE_DOMAIN`                         | Shares cookies across same-database subdomains when explicitly configured.                                  |
+| `AGENT_NATIVE_SHARE_COOKIE_DOMAIN`      | Set to `1` with `COOKIE_DOMAIN` when intentionally sharing one auth database across first-party subdomains. |
+| `AGENT_NATIVE_WORKSPACE`                | Enables the shared workspace session realm for a multi-app workspace.                                       |
+| `VITE_AGENT_NATIVE_WORKSPACE`           | Build-time/browser equivalent of `AGENT_NATIVE_WORKSPACE`.                                                  |
+| `AUTO_CREATE_DEFAULT_ORG`               | Defaults to enabled; set to `0` to stop creating a personal organization for users with no membership.      |
 
 ### OAuth providers
 
-| Variable | What it does |
-| -------- | ------------ |
-| `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` | Preferred low-scope Google OAuth client for signing users in. |
-| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` | Google OAuth fallback and client credentials for Google API integrations such as Calendar. |
-| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET` | Enable GitHub sign-in. |
-| `GOOGLE_AUTH_MODE` | Chooses Google sign-in UX: `auto`, `popup`, or `redirect`; defaults to `auto`. |
+| Variable                                                    | What it does                                                                               |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| `GOOGLE_SIGN_IN_CLIENT_ID` / `GOOGLE_SIGN_IN_CLIENT_SECRET` | Preferred low-scope Google OAuth client for signing users in.                              |
+| `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET`                 | Google OAuth fallback and client credentials for Google API integrations such as Calendar. |
+| `GITHUB_CLIENT_ID` / `GITHUB_CLIENT_SECRET`                 | Enable GitHub sign-in.                                                                     |
+| `GOOGLE_AUTH_MODE`                                          | Chooses Google sign-in UX: `auto`, `popup`, or `redirect`; defaults to `auto`.             |
 
 ### Agent providers and runtime
 
-| Variable | What it does |
-| -------- | ------------ |
-| `AGENT_ENGINE` | Explicitly selects the agent engine, for example a built-in provider or `codex-cli`. |
-| `AGENT_ENGINE_PREFER_BYO_KEY` | Set to `true` to prefer a user's stored provider key over the managed Builder engine. |
-| `ANTHROPIC_API_KEY` | Deploy-level Anthropic fallback for the agent. In multi-tenant hosted apps, prefer per-user credentials. |
-| `OPENAI_API_KEY` | Deploy-level OpenAI provider key. |
-| `GOOGLE_GENERATIVE_AI_API_KEY` | Deploy-level Google Gemini provider key. |
-| `OPENROUTER_API_KEY` | Deploy-level OpenRouter provider key. |
-| `GROQ_API_KEY` | Deploy-level Groq provider key. |
-| `MISTRAL_API_KEY` | Deploy-level Mistral provider key. |
-| `COHERE_API_KEY` | Deploy-level Cohere provider key. |
-| `AGENT_MAX_ITERATIONS` | Default maximum agent loop iterations; app settings can override it where supported. |
-| `AGENT_MAX_OUTPUT_TOKENS` | Default output-token limit for the agent. |
-| `AGENT_PROD_CODE_EXECUTION` | Production code execution mode: `off`, `sandboxed`, or `trusted`. The default is `off`. |
+| Variable                       | What it does                                                                                             |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------- |
+| `AGENT_ENGINE`                 | Explicitly selects the agent engine, for example a built-in provider or `codex-cli`.                     |
+| `AGENT_ENGINE_PREFER_BYO_KEY`  | Set to `true` to prefer a user's stored provider key over the managed Builder engine.                    |
+| `ANTHROPIC_API_KEY`            | Deploy-level Anthropic fallback for the agent. In multi-tenant hosted apps, prefer per-user credentials. |
+| `OPENAI_API_KEY`               | Deploy-level OpenAI provider key.                                                                        |
+| `GOOGLE_GENERATIVE_AI_API_KEY` | Deploy-level Google Gemini provider key.                                                                 |
+| `OPENROUTER_API_KEY`           | Deploy-level OpenRouter provider key.                                                                    |
+| `GROQ_API_KEY`                 | Deploy-level Groq provider key.                                                                          |
+| `MISTRAL_API_KEY`              | Deploy-level Mistral provider key.                                                                       |
+| `COHERE_API_KEY`               | Deploy-level Cohere provider key.                                                                        |
+| `AGENT_MAX_ITERATIONS`         | Default maximum agent loop iterations; app settings can override it where supported.                     |
+| `AGENT_MAX_OUTPUT_TOKENS`      | Default output-token limit for the agent.                                                                |
+| `AGENT_PROD_CODE_EXECUTION`    | Production code execution mode: `off`, `sandboxed`, or `trusted`. The default is `off`.                  |
 
 ### Optional framework integrations
 
@@ -329,21 +329,21 @@ These values enable optional capabilities. When a user or organization has a
 scoped credential in the app's secret or credential settings, that scoped value
 can take precedence over the deploy environment.
 
-| Variable | What it does |
-| -------- | ------------ |
-| `BRAVE_SEARCH_API_KEY` / `TAVILY_API_KEY` / `EXA_API_KEY` / `FIRECRAWL_API_KEY` | Enable the corresponding web-search BYOK provider. The search tool tries configured providers before the managed Builder fallback. |
-| `GITHUB_TOKEN` | Workspace-level GitHub API fallback for repository and PR operations. |
-| `RESEND_API_KEY` | Enables Resend email delivery. |
-| `SENDGRID_API_KEY` / `EMAIL_FROM` | Enables SendGrid email delivery and supplies its sender address. Production email requires Resend or SendGrid; SendGrid also requires a sender. |
-| `SENTRY_SERVER_DSN` / `SENTRY_CLIENT_DSN` / `SENTRY_DSN` | Optional Sentry error reporting for Nitro, browser, or both. No DSN means that surface is disabled. |
-| `VITE_SENTRY_CLIENT_DSN` | Build-time browser Sentry DSN; runtime `SENTRY_CLIENT_DSN` or shared `SENTRY_DSN` can also configure SSR apps. |
-| `SENTRY_ENVIRONMENT` / `SENTRY_SERVER_TRACES_SAMPLE_RATE` | Label Sentry events and opt into server performance traces (`0`–`1`; default `0`). |
-| `POSTHOG_API_KEY` / `POSTHOG_HOST` | Configure PostHog tracking and its optional host. |
-| `MIXPANEL_TOKEN` / `AMPLITUDE_API_KEY` | Configure Mixpanel or Amplitude tracking. |
-| `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` / `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` | Public write key for first-party analytics ingestion; the `VITE_*` form is for browser builds. |
-| `AGENT_NATIVE_ANALYTICS_ENDPOINT` / `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT` | Override the first-party analytics ingestion endpoint for server or browser events. |
-| `TRACKING_WEBHOOK_URL` / `TRACKING_WEBHOOK_AUTH` | Send tracking events to a webhook and optionally provide its `Authorization` header value. |
-| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS` | Set to `1` only for local development while configuring webhook signing secrets. Never set it in production. |
+| Variable                                                                        | What it does                                                                                                                                    |
+| ------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `BRAVE_SEARCH_API_KEY` / `TAVILY_API_KEY` / `EXA_API_KEY` / `FIRECRAWL_API_KEY` | Enable the corresponding web-search BYOK provider. The search tool tries configured providers before the managed Builder fallback.              |
+| `GITHUB_TOKEN`                                                                  | Workspace-level GitHub API fallback for repository and PR operations.                                                                           |
+| `RESEND_API_KEY`                                                                | Enables Resend email delivery.                                                                                                                  |
+| `SENDGRID_API_KEY` / `EMAIL_FROM`                                               | Enables SendGrid email delivery and supplies its sender address. Production email requires Resend or SendGrid; SendGrid also requires a sender. |
+| `SENTRY_SERVER_DSN` / `SENTRY_CLIENT_DSN` / `SENTRY_DSN`                        | Optional Sentry error reporting for Nitro, browser, or both. No DSN means that surface is disabled.                                             |
+| `VITE_SENTRY_CLIENT_DSN`                                                        | Build-time browser Sentry DSN; runtime `SENTRY_CLIENT_DSN` or shared `SENTRY_DSN` can also configure SSR apps.                                  |
+| `SENTRY_ENVIRONMENT` / `SENTRY_SERVER_TRACES_SAMPLE_RATE`                       | Label Sentry events and opt into server performance traces (`0`–`1`; default `0`).                                                              |
+| `POSTHOG_API_KEY` / `POSTHOG_HOST`                                              | Configure PostHog tracking and its optional host.                                                                                               |
+| `MIXPANEL_TOKEN` / `AMPLITUDE_API_KEY`                                          | Configure Mixpanel or Amplitude tracking.                                                                                                       |
+| `AGENT_NATIVE_ANALYTICS_PUBLIC_KEY` / `VITE_AGENT_NATIVE_ANALYTICS_PUBLIC_KEY`  | Public write key for first-party analytics ingestion; the `VITE_*` form is for browser builds.                                                  |
+| `AGENT_NATIVE_ANALYTICS_ENDPOINT` / `VITE_AGENT_NATIVE_ANALYTICS_ENDPOINT`      | Override the first-party analytics ingestion endpoint for server or browser events.                                                             |
+| `TRACKING_WEBHOOK_URL` / `TRACKING_WEBHOOK_AUTH`                                | Send tracking events to a webhook and optionally provide its `Authorization` header value.                                                      |
+| `AGENT_NATIVE_ALLOW_UNVERIFIED_WEBHOOKS`                                        | Set to `1` only for local development while configuring webhook signing secrets. Never set it in production.                                    |
 
 Template-specific variables belong with the template that owns the feature and
 its `.env.example` or feature docs. Start with [Messaging](/docs/messaging),
@@ -353,16 +353,16 @@ map.
 
 ### MCP, A2A, and CLI identity
 
-| Variable | What it does |
-| -------- | ------------ |
-| `A2A_SECRET` | Shared signing secret for production cross-app A2A and queued integration dispatch. Use the same value across sibling apps. |
-| `ACCESS_TOKEN` | One static bearer fallback for MCP clients that cannot use OAuth. It is not browser authentication. |
-| `ACCESS_TOKENS` | Comma-separated static bearer fallbacks for MCP clients. |
-| `MCP_OAUTH_ACCESS_TOKEN_TTL` | Lifetime for MCP OAuth access tokens; defaults to `30d`. |
-| `AGENT_USER_EMAIL` | CLI-only user identity fallback when no request context exists. It does not impersonate browser requests. |
-| `AGENT_USER_NAME` | CLI-only display-name fallback. |
-| `AGENT_ORG_ID` | CLI-only active-org fallback when no request context exists. It does not override a browser session. |
-| `AGENT_USER_TIMEZONE` | CLI/agent timezone fallback. |
+| Variable                     | What it does                                                                                                                |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `A2A_SECRET`                 | Shared signing secret for production cross-app A2A and queued integration dispatch. Use the same value across sibling apps. |
+| `ACCESS_TOKEN`               | One static bearer fallback for MCP clients that cannot use OAuth. It is not browser authentication.                         |
+| `ACCESS_TOKENS`              | Comma-separated static bearer fallbacks for MCP clients.                                                                    |
+| `MCP_OAUTH_ACCESS_TOKEN_TTL` | Lifetime for MCP OAuth access tokens; defaults to `30d`.                                                                    |
+| `AGENT_USER_EMAIL`           | CLI-only user identity fallback when no request context exists. It does not impersonate browser requests.                   |
+| `AGENT_USER_NAME`            | CLI-only display-name fallback.                                                                                             |
+| `AGENT_ORG_ID`               | CLI-only active-org fallback when no request context exists. It does not override a browser session.                        |
+| `AGENT_USER_TIMEZONE`        | CLI/agent timezone fallback.                                                                                                |
 
 `A2A_SECRET` is deployment-wide signing material. The organization-level
 `organizations.a2a_secret` is a separate, UI-managed secret used when an org
@@ -376,15 +376,15 @@ These are generated automatically by the workspace deploy/dev commands in most
 projects. Configure them directly only when you are building the workspace
 runtime yourself:
 
-| Variable | What it does |
-| -------- | ------------ |
-| `AGENT_NATIVE_WORKSPACE_APP_ID` | Identifies the current app inside a multi-app workspace. |
-| `AGENT_NATIVE_WORKSPACE_APP_AUDIENCE` | Sets the app audience, usually `internal` or `public`. |
-| `AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS` | JSON array of public route prefixes. |
-| `AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS` | JSON array of route prefixes that remain authenticated. |
-| `WORKSPACE_ORG_NAME` | Optional organization name used by workspace bootstrap tooling. |
-| `WORKSPACE_ORG_DOMAIN` | Optional allowed email domain used by workspace bootstrap tooling. |
-| `WORKSPACE_OWNER_EMAIL` | Optional owner identity used by workspace bootstrap tooling. |
+| Variable                                     | What it does                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------ |
+| `AGENT_NATIVE_WORKSPACE_APP_ID`              | Identifies the current app inside a multi-app workspace.           |
+| `AGENT_NATIVE_WORKSPACE_APP_AUDIENCE`        | Sets the app audience, usually `internal` or `public`.             |
+| `AGENT_NATIVE_WORKSPACE_APP_PUBLIC_PATHS`    | JSON array of public route prefixes.                               |
+| `AGENT_NATIVE_WORKSPACE_APP_PROTECTED_PATHS` | JSON array of route prefixes that remain authenticated.            |
+| `WORKSPACE_ORG_NAME`                         | Optional organization name used by workspace bootstrap tooling.    |
+| `WORKSPACE_ORG_DOMAIN`                       | Optional allowed email domain used by workspace bootstrap tooling. |
+| `WORKSPACE_OWNER_EMAIL`                      | Optional owner identity used by workspace bootstrap tooling.       |
 
 ## A practical setup sequence
 
