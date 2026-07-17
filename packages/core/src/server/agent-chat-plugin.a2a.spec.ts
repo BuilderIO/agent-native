@@ -5,9 +5,108 @@ import {
   assembleA2AFinalResponse,
   buildPublicAgentA2ASkills,
   createA2AEngineToolSurface,
+  createSerializedA2ATaskStatusWriter,
+  resolveA2ARecoverableArtifactSecret,
   runMCPAgentLoop,
   runA2AAgentLoop,
 } from "./agent-chat-plugin.js";
+
+describe("delegated A2A recoverable artifact checkpoints", () => {
+  it("uses an organization A2A secret when no global secret is configured", async () => {
+    vi.stubEnv("A2A_SECRET", "");
+    vi.doMock("../org/context.js", () => ({
+      getOrgA2ASecret: vi.fn(async () => "org-only-a2a-secret"),
+    }));
+
+    await expect(resolveA2ARecoverableArtifactSecret("org-qa")).resolves.toBe(
+      "org-only-a2a-secret",
+    );
+
+    vi.doUnmock("../org/context.js");
+    vi.unstubAllEnvs();
+  });
+
+  it("serializes status writes and flushes the latest checkpoint", async () => {
+    let releaseFirst!: () => void;
+    let releaseSecond!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+    const secondWrite = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+    const writeStatus = vi
+      .fn()
+      .mockImplementationOnce(() => firstWrite)
+      .mockImplementationOnce(() => secondWrite);
+    const writer = createSerializedA2ATaskStatusWriter(
+      "task-checkpoint",
+      writeStatus,
+    );
+
+    writer.enqueue({
+      role: "agent",
+      parts: [{ type: "text", text: "first checkpoint" }],
+    });
+    writer.enqueue({
+      role: "agent",
+      parts: [{ type: "text", text: "latest checkpoint" }],
+    });
+    await vi.waitFor(() => expect(writeStatus).toHaveBeenCalledTimes(1));
+
+    let flushed = false;
+    const flush = writer.flush().then(() => {
+      flushed = true;
+    });
+    await Promise.resolve();
+    expect(flushed).toBe(false);
+    expect(writeStatus).toHaveBeenNthCalledWith(
+      1,
+      "task-checkpoint",
+      expect.objectContaining({
+        parts: [{ type: "text", text: "first checkpoint" }],
+      }),
+    );
+
+    releaseFirst();
+    await vi.waitFor(() => expect(writeStatus).toHaveBeenCalledTimes(2));
+    expect(flushed).toBe(false);
+    expect(writeStatus).toHaveBeenNthCalledWith(
+      2,
+      "task-checkpoint",
+      expect.objectContaining({
+        parts: [{ type: "text", text: "latest checkpoint" }],
+      }),
+    );
+
+    releaseSecond();
+    await flush;
+    expect(flushed).toBe(true);
+  });
+
+  it("retries a failed latest checkpoint and rejects flush when it is not durable", async () => {
+    const writeError = new Error("database unavailable");
+    const writeStatus = vi.fn(async () => {
+      throw writeError;
+    });
+    const onError = vi.fn();
+    const writer = createSerializedA2ATaskStatusWriter(
+      "task-checkpoint-failure",
+      writeStatus,
+      onError,
+    );
+
+    writer.enqueue({
+      role: "agent",
+      parts: [{ type: "text", text: "must become durable" }],
+    });
+
+    await expect(writer.flush()).rejects.toBe(writeError);
+    expect(writeStatus).toHaveBeenCalledTimes(3);
+    expect(onError).toHaveBeenCalledOnce();
+    expect(onError).toHaveBeenCalledWith(writeError);
+  });
+});
 
 describe("delegated A2A final response guards", () => {
   it("runs an Analytics-style real-data guard for delegated turns", async () => {

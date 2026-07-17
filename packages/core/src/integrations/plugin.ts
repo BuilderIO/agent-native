@@ -78,13 +78,16 @@ import {
 import { startPendingTasksRetryJob } from "./pending-tasks-retry-job.js";
 import {
   claimPendingTask,
+  failTaskDeliveryTransition,
   getNextPendingTaskIdForThread,
   insertPendingTask,
   isDuplicateEventError,
   MAX_PENDING_TASK_ATTEMPTS,
   markTaskCompleted,
+  markTaskDeliveryRetryable,
   markTaskFailed,
   markTaskRetryable,
+  stageTaskDeliveryPayload,
 } from "./pending-tasks-store.js";
 import {
   claimNextComputerCommand,
@@ -142,12 +145,18 @@ import type {
   IntegrationStatus,
   IntegrationExecutionContext,
   IncomingMessage,
+  PlatformDeliveryReceipt,
 } from "./types.js";
 import {
   listIntegrationUsageBudgets,
   saveIntegrationUsageBudget,
 } from "./usage-budget-store.js";
-import { handleWebhook, processIntegrationTask } from "./webhook-handler.js";
+import {
+  handleWebhook,
+  processIntegrationTask,
+  recordIntegrationResponseDelivery,
+  type IntegrationResponseDeliveryTaskPayload,
+} from "./webhook-handler.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -1615,6 +1624,11 @@ export function createIntegrationsPlugin(
           return { ok: true, skipped: "already-claimed-or-missing" };
         }
 
+        let deliveryRetryTransitionStarted = false;
+        let deliveryRetryRecovery:
+          | { payload: string; errorMessage: string }
+          | undefined;
+        let confirmedDeliveryRetryPayload: string | undefined;
         try {
           const adapter = adapterMap.get(task.platform);
           if (!adapter) {
@@ -1622,7 +1636,7 @@ export function createIntegrationsPlugin(
             setResponseStatus(event, 404);
             return { error: "Unknown platform" };
           }
-          await runWithRequestContext(
+          const processingResult = await runWithRequestContext(
             {
               userEmail: task.ownerEmail,
               ...(task.orgId ? { orgId: task.orgId } : {}),
@@ -1631,6 +1645,7 @@ export function createIntegrationsPlugin(
             async () => {
               const taskPayload = JSON.parse(task.payload) as
                 | IntegrationSystemNoticeTaskPayload
+                | IntegrationResponseDeliveryTaskPayload
                 | { kind?: undefined };
               if (taskPayload.kind === "system-notice") {
                 if (!adapter.sendSystemNotice) {
@@ -1657,13 +1672,59 @@ export function createIntegrationsPlugin(
                 );
                 return;
               }
+              if (taskPayload.kind === "response-delivery") {
+                let receipt: void | PlatformDeliveryReceipt =
+                  taskPayload.deliveryReceipt;
+                if (!receipt) {
+                  receipt = await adapter.sendResponse(
+                    taskPayload.message,
+                    taskPayload.incoming,
+                    {
+                      ...(taskPayload.placeholderRef
+                        ? { placeholderRef: taskPayload.placeholderRef }
+                        : {}),
+                    },
+                  );
+                }
+                if (receipt?.status !== "delivered") {
+                  throw new Error(
+                    `${task.platform} response completed without delivery proof`,
+                  );
+                }
+                const deliveredPayload = taskPayload.deliveryReceipt
+                  ? taskPayload
+                  : {
+                      ...taskPayload,
+                      deliveryReceipt: receipt,
+                      deliveredAt: new Date().toISOString(),
+                    };
+                confirmedDeliveryRetryPayload =
+                  JSON.stringify(deliveredPayload);
+                if (!taskPayload.deliveryReceipt) {
+                  deliveryRetryRecovery = {
+                    payload: confirmedDeliveryRetryPayload,
+                    errorMessage:
+                      "Provider delivery was confirmed but its receipt checkpoint failed",
+                  };
+                  await stageTaskDeliveryPayload(
+                    task.id,
+                    deliveryRetryRecovery.payload,
+                  );
+                  deliveryRetryRecovery = undefined;
+                }
+                await recordIntegrationResponseDelivery(
+                  deliveredPayload,
+                  receipt,
+                );
+                return;
+              }
               const resources = await loadResourcesForPrompt(
                 task.ownerEmail,
                 true,
                 options?.appId,
                 task.orgId,
               );
-              await processIntegrationTask(task, {
+              const result = await processIntegrationTask(task, {
                 adapter,
                 systemPrompt: baseSystemPrompt + resources,
                 actions,
@@ -1674,8 +1735,22 @@ export function createIntegrationsPlugin(
                 ownerEmail: task.ownerEmail,
                 appId: options?.appId,
               });
+              if (result?.status === "delivery-pending") {
+                deliveryRetryTransitionStarted = true;
+                await markTaskDeliveryRetryable(
+                  task.id,
+                  JSON.stringify(result.payload),
+                  result.errorMessage,
+                );
+                return "delivery-retry" as const;
+              }
+              return "completed" as const;
             },
           );
+          if (processingResult === "delivery-retry") {
+            setResponseStatus(event, 202);
+            return { ok: true, taskId, retrying: "response-delivery" };
+          }
           await markTaskCompleted(taskId);
           const nextTaskId = await getNextPendingTaskIdForThread(
             task.platform,
@@ -1711,7 +1786,57 @@ export function createIntegrationsPlugin(
           const errorMessage = err?.message
             ? String(err.message).slice(0, 1000)
             : "processor failed";
-          if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
+          if (deliveryRetryRecovery) {
+            try {
+              await markTaskDeliveryRetryable(
+                taskId,
+                deliveryRetryRecovery.payload,
+                `${deliveryRetryRecovery.errorMessage}: ${errorMessage}`,
+              );
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "response-delivery" };
+            } catch (transitionError) {
+              const transitionMessage =
+                transitionError instanceof Error
+                  ? transitionError.message
+                  : String(transitionError);
+              await failTaskDeliveryTransition(
+                taskId,
+                `Could not safely checkpoint the delivery receipt: ${transitionMessage}`,
+              ).catch((failureTransitionError) => {
+                console.error(
+                  "[integrations] Failed to contain delivery receipt transition failure:",
+                  failureTransitionError,
+                );
+              });
+            }
+          } else if (confirmedDeliveryRetryPayload) {
+            try {
+              await markTaskDeliveryRetryable(
+                taskId,
+                confirmedDeliveryRetryPayload,
+                `Provider delivery was confirmed but history persistence failed: ${errorMessage}`,
+              );
+              console.error("[integrations] process-task failure:", err);
+              setResponseStatus(event, 202);
+              return { ok: true, taskId, retrying: "response-delivery" };
+            } catch (transitionError) {
+              console.error(
+                "[integrations] Failed to requeue confirmed delivery history:",
+                transitionError,
+              );
+            }
+          } else if (deliveryRetryTransitionStarted) {
+            await failTaskDeliveryTransition(
+              taskId,
+              `Could not safely checkpoint the delivery retry: ${errorMessage}`,
+            ).catch((transitionError) => {
+              console.error(
+                "[integrations] Failed to contain delivery retry transition failure:",
+                transitionError,
+              );
+            });
+          } else if (task.attempts >= MAX_PENDING_TASK_ATTEMPTS) {
             await markTaskFailed(taskId, errorMessage);
           } else {
             await markTaskRetryable(taskId, errorMessage);
