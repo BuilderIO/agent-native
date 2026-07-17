@@ -75,7 +75,12 @@ export interface CreativeContextMembership {
     title: string;
     kind: string;
     status: string;
-    media: Array<{ id: string; kind: string; mimeType: string | null; url: string }>;
+    media: Array<{
+      id: string;
+      kind: string;
+      mimeType: string | null;
+      url: string;
+    }>;
   } | null;
   pendingSubmission?: {
     id: string;
@@ -261,7 +266,8 @@ export function parseContextMemberships(
             ? {
                 id: submission.id,
                 status: submission.status,
-                note: typeof submission.note === "string" ? submission.note : null,
+                note:
+                  typeof submission.note === "string" ? submission.note : null,
                 submittedBy:
                   typeof submission.submittedBy === "string"
                     ? submission.submittedBy
@@ -307,7 +313,9 @@ export function parseContextMemberships(
             title: published.title,
             kind: published.kind,
             status:
-              typeof published.status === "string" ? published.status : "active",
+              typeof published.status === "string"
+                ? published.status
+                : "active",
             media,
           };
         })(),

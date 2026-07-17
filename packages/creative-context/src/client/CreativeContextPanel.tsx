@@ -1684,27 +1684,29 @@ export function CreativeContextPanel({
             </TabsList>
             <TabsContent value="items">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {reviewedItems
-                  .filter((item) => item.curationStatus !== "review")
-                  .map((item) => (
+                {publishedContextMemberships.map((membership) => {
+                  const item = membership.publishedItem!;
+                  const medium = item.media[0];
+                  return (
                     <button
-                      key={item.id}
+                      key={membership.id}
                       type="button"
                       onClick={() =>
                         setPreviewManifest({
                           title: item.title,
                           kind: item.kind,
                           itemId: item.id,
-                          itemVersionId: item.currentVersionId,
-                          hasPreview: Boolean(item.thumbnailBlobRef),
+                          itemVersionId: item.itemVersionId,
+                          hasPreview: Boolean(medium),
+                          mediaUrl: medium?.url,
                         })
                       }
                       className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40"
                     >
-                      {item.thumbnailBlobRef ? (
-                        <AccessScopedThumbnail
-                          itemId={item.id}
-                          itemVersionId={item.currentVersionId}
+                      {medium ? (
+                        <img
+                          src={medium.url}
+                          alt=""
                           className="aspect-video w-full object-cover"
                         />
                       ) : (
@@ -1716,57 +1718,56 @@ export function CreativeContextPanel({
                         {item.title}
                       </span>
                     </button>
-                  ))}
+                  );
+                })}
               </div>
-              {!reviewedItems.filter((item) => item.curationStatus !== "review")
-                .length ? (
+              {!publishedContextMemberships.length ? (
                 <p className="py-4 text-sm text-muted-foreground">
-                  Approved items appear here after they are reviewed from a
-                  source.
+                  Approved context items appear here after publication.
                 </p>
               ) : null}
             </TabsContent>
             <TabsContent value="approvals">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {reviewedItems
-                  .filter((item) => item.curationStatus === "review")
-                  .map((item) => (
-                    <article
-                      key={item.id}
-                      className="rounded-md border border-border p-3"
-                    >
-                      <p className="truncate text-sm font-medium">
-                        {item.title}
-                      </p>
-                      <p className="mt-0.5 text-xs text-muted-foreground">
-                        Awaiting review
-                      </p>
-                      <div className="mt-3 flex gap-2">
-                        <Button
-                          size="sm"
-                          onClick={() =>
-                            void reviewContextItem("approve", item.id)
-                          }
-                        >
-                          Approve
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            void reviewContextItem("exclude", item.id)
-                          }
-                        >
-                          Exclude
-                        </Button>
-                      </div>
-                    </article>
-                  ))}
+                {pendingContextMemberships.map((membership) => (
+                  <article
+                    key={membership.id}
+                    className="rounded-md border border-border p-3"
+                  >
+                    <p className="truncate text-sm font-medium">
+                      Pending context submission
+                    </p>
+                    <p className="mt-0.5 text-xs text-muted-foreground">
+                      Awaiting review
+                    </p>
+                    <div className="mt-3 flex gap-2">
+                      <Button
+                        size="sm"
+                        onClick={() =>
+                          void reviewContextMembership(membership.id, "approve")
+                        }
+                      >
+                        Approve
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        onClick={() =>
+                          void reviewContextMembership(
+                            membership.id,
+                            "request-changes",
+                          )
+                        }
+                      >
+                        Exclude
+                      </Button>
+                    </div>
+                  </article>
+                ))}
               </div>
-              {!reviewedItems.filter((item) => item.curationStatus === "review")
-                .length ? (
+              {!pendingContextMemberships.length ? (
                 <p className="py-4 text-sm text-muted-foreground">
-                  Open a source review queue to approve pending items.
+                  No context submissions need review.
                 </p>
               ) : null}
             </TabsContent>
