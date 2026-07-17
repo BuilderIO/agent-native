@@ -1,5 +1,38 @@
 # @agent-native/core
 
+## 0.106.0
+
+### Minor Changes
+
+- a485fbe: Add the Creative Context package for importing, versioning, searching, and reusing workspace decks, designs, assets, websites, and content across creative apps.
+
+  Expose reusable ingestion, prompt-context provider, and search utility seams from core for package-driven creative context.
+
+  Includes bounded image-region cropping for durable localized creative-context fallbacks.
+
+- a485fbe: Add one-click OAuth connections for standard remote MCP servers and shared workspace providers, including GitHub, Figma, Google Drive, HubSpot, Jira Cloud, Notion, and Sentry. OAuth credentials are encrypted and refreshed per user or organization without exposing tokens to browsers or MCP App iframes. Existing API-key and token credentials remain available as explicit fallbacks, and provider API requests can use an OAuth-backed workspace connection.
+- a485fbe: Redesign the agent workspace with plain files first, dedicated resource collections, and a snapshots view for recent context inspection.
+- a485fbe: Add public session replay context and timestamped Analytics links, support host-owned tracking identity, and allow Analytics replay pages to open at a requested timeline offset.
+
+### Patch Changes
+
+- a485fbe: Fail serverless builds that bundle Vitest test runtime code into production SSR output.
+- a485fbe: Disable app-shell transitions across the shared AgentSidebar subtree while the sidebar is being resized.
+- a485fbe: Count explicitly failed action tool events as errors in observability traces and summaries even when their result text does not start with `Error`.
+- a485fbe: Fix managed Slack OAuth to resolve scoped app credentials within the signed-in request context.
+- a485fbe: Show a skeleton while the agent chat model picker is loading its provider and model list.
+- a485fbe: Render dashboard, form, and other resource context as a normal composer chip instead of a scoped-chat badge and history partition.
+- a485fbe: Protect existing extension visual design during data-only repairs by requiring explicit intent for full-body replacements, stop deterministic edit failures before the agent retries the same arguments, and resume cleanly when a provider closes while an action input is still being assembled.
+- a485fbe: Teach Plan agents to fence destructive edits against fresh plan revisions and verify persisted content before closing feedback.
+- a485fbe: Inline `AgentChatSurface` and `AgentChatHome` instances now hide the legacy Chat/Workspace header and chat tab row by default.
+- a485fbe: Share package-registered actions across runtime module instances and mount them alongside explicit app action registries.
+- a485fbe: Hide sidebar chat tabs until a second chat is open so a lone chat does not show a “New chat” tab.
+- a485fbe: Re-enable the sticky 80/20 Sonnet 5 versus GPT-5.6 Luna default-model experiment across first-party hosted templates.
+- a485fbe: Avoid repeated desktop sidebar width transitions while the agent sidebar is being resized.
+- a485fbe: Prevent duplicate recovery submissions and reject late worker events after an agent run has already reached a terminal state.
+- Updated dependencies [a485fbe]
+  - @agent-native/recap-cli@0.4.4
+
 ## 0.105.0
 
 ### Minor Changes
