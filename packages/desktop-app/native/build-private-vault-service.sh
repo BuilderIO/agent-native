@@ -9,6 +9,7 @@ SOURCES=(
   "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c"
   "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m"
   "$SOURCE_ROOT/control/PrivateVaultControlLog.m"
+  "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m"
   "$SOURCE_ROOT/storage/PrivateVaultKeychain.m"
   "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m"
   "$SOURCE_ROOT/storage/PrivateVaultCustodyRecord.m"
@@ -304,6 +305,34 @@ case "${PRIVATE_VAULT_BUILD_AUTHORITY_TESTS:-}" in
   }
   build_authority_tests arm64
   build_authority_tests x86_64
+  ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_RECOVERY_WRAP_TESTS:-}" in
+1 | true | TRUE | yes | YES)
+  RECOVERY_WRAP_TEST_OUTPUT="$OUTPUT_ROOT/.recovery-wrap-tests"
+  rm -rf "$RECOVERY_WRAP_TEST_OUTPUT"
+  mkdir -p "$RECOVERY_WRAP_TEST_OUTPUT"
+  build_recovery_wrap_tests() {
+    local architecture="$1"
+    local sodium_root
+    if [[ "$architecture" == "arm64" ]]; then sodium_root="$ARM64_SODIUM"; else sodium_root="$X86_64_SODIUM"; fi
+    local output="$RECOVERY_WRAP_TEST_OUTPUT/private-vault-recovery-wrap-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -isysroot "$SDK" -arch "$architecture" -mmacosx-version-min=13.0 \
+      -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$sodium_root/include" -DANC_PRIVATE_VAULT_TESTING=1 \
+      -DANC_PV_RECOVERY_WRAP_VECTOR_PATH='"'"$ROOT/../core/src/e2ee/fixtures/anc-v1-native-recovery-wrap-vectors.json"'"' \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
+      "$SOURCE_ROOT/control/PrivateVaultRecoveryWrapTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  build_recovery_wrap_tests arm64
+  build_recovery_wrap_tests x86_64
   ;;
 esac
 
