@@ -50,7 +50,7 @@ export default defineAction({
       throw new Error(
         "Governed deck clone payload failed integrity verification.",
       );
-    const deck = JSON.parse(data) as {
+    const deck = JSON.parse(data) as Record<string, unknown> & {
       slides?: Array<Record<string, unknown>>;
       title?: string;
       designSystemId?: string;

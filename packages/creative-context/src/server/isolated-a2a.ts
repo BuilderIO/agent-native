@@ -387,6 +387,7 @@ export type IsolatedResolvePayload = {
   limit?: number;
   contextPackId?: string;
   contextPackSource?: "explicit" | "inherited";
+  selectedContextId?: string | null;
 };
 
 export function isolatedResolvePayload(
@@ -398,6 +399,7 @@ export function isolatedResolvePayload(
     limit: input.limit,
     contextPackId: input.contextPackId,
     contextPackSource: input.contextPackSource,
+    selectedContextId: input.selectedContextId ?? undefined,
   };
 }
 
