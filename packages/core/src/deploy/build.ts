@@ -2516,12 +2516,15 @@ function hasBareYjsRuntimeImport(source: string): boolean {
 const NETLIFY_BUNDLED_INGESTION_DEPENDENCIES = [
   "fast-xml-parser",
   "jszip",
+  "officeparser",
+  "pdf-parse",
+  "pdfjs-dist",
 ] as const;
 
 function hasBareRuntimeImport(source: string, packageName: string): boolean {
   const escapedPackageName = packageName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   return new RegExp(
-    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}\\1`,
+    `\\b(?:from\\s*|import\\s*\\(\\s*|import\\s*)(["'\\\`])${escapedPackageName}(?:/[^"'\\\`]+)?\\1`,
   ).test(source);
 }
 

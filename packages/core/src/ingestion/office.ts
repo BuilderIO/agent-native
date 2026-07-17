@@ -189,9 +189,8 @@ export function normalizeDocumentText(value: string): string {
 }
 
 async function loadOfficeParser(): Promise<OfficeDocumentParser | null> {
-  const specifier = "officeparser";
   try {
-    const module = (await import(specifier)) as {
+    const module = (await import("officeparser")) as unknown as {
       OfficeParser?: OfficeDocumentParser;
     };
     return module.OfficeParser ?? null;
