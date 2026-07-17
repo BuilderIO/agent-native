@@ -2,7 +2,6 @@ import {
   buildReviewThreads,
   callAction,
   ReviewCommentComposer,
-  setClientAppState,
   useCreateReviewComment,
   useReplyReviewComment,
   useResolveReviewThread,
@@ -11,10 +10,7 @@ import {
   type ReviewThread,
 } from "@agent-native/core/client";
 import type { ReviewComment } from "@agent-native/core/review";
-import {
-  designRepromptPendingStateKey,
-  type NodeRewriteTarget,
-} from "@shared/node-rewrite";
+import type { NodeRewriteTarget } from "@shared/node-rewrite";
 import {
   IconArrowUp,
   IconChevronDown,
@@ -875,10 +871,9 @@ export function ReviewCanvasPins({
           element = null;
         }
       }
-      const stateKey = designRepromptPendingStateKey(resourceId, targetId);
       setAgentSubmitting(true);
       try {
-        await setClientAppState(stateKey, pending);
+        await callAction("begin-node-rewrite-request", pending);
         const submission = formatNodeRepromptSubmission({
           ...pending,
           subtreeHtml:

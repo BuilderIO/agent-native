@@ -17,6 +17,17 @@ const rawClient = {
     const info = stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),
+  transaction: vi.fn(async <T>(fn: (tx: typeof rawClient) => Promise<T>) => {
+    sqlite.exec("BEGIN IMMEDIATE");
+    try {
+      const result = await fn(rawClient);
+      sqlite.exec("COMMIT");
+      return result;
+    } catch (error) {
+      sqlite.exec("ROLLBACK");
+      throw error;
+    }
+  }),
 };
 
 const emitAppStateChange = vi.fn();
@@ -41,6 +52,7 @@ const {
   appStateGet,
   appStateGetMany,
   appStateCompareAndSet,
+  appStateCompareAndSetMany,
   appStateList,
   appStateDeleteByPrefix,
 } = await import("./store.js");
@@ -203,6 +215,57 @@ describe("application-state store", () => {
       undefined,
       SESSION,
     );
+  });
+
+  it("atomically creates a value only while its key is absent", async () => {
+    await expect(
+      appStateCompareAndSet(SESSION, "rewrite", null, { repromptId: "r1" }),
+    ).resolves.toBe(true);
+    await expect(
+      appStateCompareAndSet(SESSION, "rewrite", null, { repromptId: "r2" }),
+    ).resolves.toBe(false);
+    expect(await appStateGet(SESSION, "rewrite")).toEqual({ repromptId: "r1" });
+  });
+
+  it("rolls back every key when one operation in a multi-key CAS misses", async () => {
+    await appStatePut(SESSION, "pending", { repromptId: "r1" });
+    await appStatePut(SESSION, "proposal", { proposalId: "p1" });
+
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        {
+          key: "pending",
+          expectedValue: { repromptId: "r1" },
+          nextValue: null,
+        },
+        {
+          key: "proposal",
+          expectedValue: { proposalId: "stale" },
+          nextValue: null,
+        },
+      ]),
+    ).resolves.toBe(false);
+    expect(await appStateGet(SESSION, "pending")).toEqual({ repromptId: "r1" });
+    expect(await appStateGet(SESSION, "proposal")).toEqual({
+      proposalId: "p1",
+    });
+
+    await expect(
+      appStateCompareAndSetMany(SESSION, [
+        {
+          key: "pending",
+          expectedValue: { repromptId: "r1" },
+          nextValue: null,
+        },
+        {
+          key: "proposal",
+          expectedValue: { proposalId: "p1" },
+          nextValue: null,
+        },
+      ]),
+    ).resolves.toBe(true);
+    expect(await appStateGet(SESSION, "pending")).toBeNull();
+    expect(await appStateGet(SESSION, "proposal")).toBeNull();
   });
 
   it("rejects oversized hosted application_state values", async () => {

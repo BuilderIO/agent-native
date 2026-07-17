@@ -539,8 +539,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     await act(async () => send?.click());
 
     expect(mocks.createMutate).not.toHaveBeenCalled();
-    expect(mocks.setClientAppState).toHaveBeenCalledWith(
-      "design-reprompt-pending:design-1:screen-1",
+    expect(mocks.callAction).toHaveBeenCalledWith(
+      "begin-node-rewrite-request",
       expect.objectContaining({
         designId: "design-1",
         fileId: "screen-1",
@@ -564,8 +564,10 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(document.body.textContent).not.toContain("review.clickToPin");
 
     const pinsBeforePreview = document.querySelectorAll("[data-review-pin]");
-    const appStateCalls = mocks.setClientAppState.mock.calls;
-    const pending = appStateCalls[appStateCalls.length - 1]?.[1] as {
+    const beginCall = mocks.callAction.mock.calls.find(
+      ([name]) => name === "begin-node-rewrite-request",
+    );
+    const pending = beginCall?.[1] as {
       repromptId?: string;
     };
     await act(async () => {

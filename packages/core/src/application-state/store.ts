@@ -4,6 +4,7 @@ import {
   isConnectionError,
   isPostgres,
   intType,
+  type DbExec,
 } from "../db/client.js";
 import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
@@ -194,39 +195,141 @@ export async function appStateDelete(
 export async function appStateCompareAndSet(
   sessionId: string,
   key: string,
-  expectedValue: Record<string, unknown>,
+  expectedValue: Record<string, unknown> | null,
   nextValue: Record<string, unknown> | null,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
   await ensureTable();
   const client = getDbExec();
+  const changed = await executeAppStateCompareAndSet(
+    client,
+    sessionId,
+    key,
+    expectedValue,
+    nextValue,
+  );
+  if (changed) {
+    if (nextValue === null) {
+      emitAppStateDelete(key, options?.requestSource, sessionId);
+    } else {
+      emitAppStateChange(key, options?.requestSource, sessionId);
+    }
+  }
+  return changed;
+}
+
+export interface AppStateCompareAndSetOperation {
+  key: string;
+  expectedValue: Record<string, unknown> | null;
+  nextValue: Record<string, unknown> | null;
+}
+
+const APP_STATE_CAS_MISMATCH = Symbol("app-state-cas-mismatch");
+
+async function executeAppStateCompareAndSet(
+  client: DbExec,
+  sessionId: string,
+  key: string,
+  expectedValue: Record<string, unknown> | null,
+  nextValue: Record<string, unknown> | null,
+): Promise<boolean> {
+  if (expectedValue === null) {
+    if (nextValue === null) {
+      throw new Error(
+        "Application state CAS cannot replace absence with absence.",
+      );
+    }
+    const next = serializeAppStateValue(key, nextValue);
+    const result = await client.execute({
+      sql: isPostgres()
+        ? `INSERT INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?) ON CONFLICT (session_id, key) DO NOTHING`
+        : `INSERT OR IGNORE INTO application_state (session_id, key, value, updated_at) SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM application_state WHERE session_id = ? AND key = ?)`,
+      args: [sessionId, key, next, Date.now(), sessionId, key],
+    });
+    return result.rowsAffected > 0;
+  }
+
   const expected = JSON.stringify(expectedValue);
   if (nextValue === null) {
     const result = await client.execute({
       sql: `DELETE FROM application_state WHERE session_id = ? AND key = ? AND value = ?`,
       args: [sessionId, key, expected],
     });
-    const changed = result.rowsAffected > 0;
-    if (changed) emitAppStateDelete(key, options?.requestSource, sessionId);
-    return changed;
+    return result.rowsAffected > 0;
   }
 
-  const next = JSON.stringify(nextValue);
+  const next = serializeAppStateValue(key, nextValue);
+  const result = await client.execute({
+    sql: `UPDATE application_state SET value = ?, updated_at = ? WHERE session_id = ? AND key = ? AND value = ?`,
+    args: [next, Date.now(), sessionId, key, expected],
+  });
+  return result.rowsAffected > 0;
+}
+
+function serializeAppStateValue(
+  key: string,
+  value: Record<string, unknown>,
+): string {
+  const serialized = JSON.stringify(value);
   if (
     !isLocalDatabase() &&
-    Buffer.byteLength(next, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
+    Buffer.byteLength(serialized, "utf8") > MAX_HOSTED_APP_STATE_VALUE_BYTES
   ) {
     throw new Error(
       `application_state value "${key}" is too large for hosted SQL storage. Store large files, base64, or blobs in file storage and write only a URL or handle.`,
     );
   }
-  const result = await client.execute({
-    sql: `UPDATE application_state SET value = ?, updated_at = ? WHERE session_id = ? AND key = ? AND value = ?`,
-    args: [next, Date.now(), sessionId, key, expected],
-  });
-  const changed = result.rowsAffected > 0;
-  if (changed) emitAppStateChange(key, options?.requestSource, sessionId);
-  return changed;
+  return serialized;
+}
+
+export async function appStateCompareAndSetMany(
+  sessionId: string,
+  operations: readonly AppStateCompareAndSetOperation[],
+  options?: StoreWriteOptions,
+): Promise<boolean> {
+  if (operations.length === 0) return true;
+  const keys = new Set(operations.map(({ key }) => key));
+  if (keys.size !== operations.length) {
+    throw new Error("Application state multi-key CAS requires unique keys.");
+  }
+  for (const { key, nextValue } of operations) {
+    if (nextValue) serializeAppStateValue(key, nextValue);
+  }
+  const orderedOperations = [...operations].sort((a, b) =>
+    a.key.localeCompare(b.key),
+  );
+
+  await ensureTable();
+  const client = getDbExec();
+  if (!client.transaction) {
+    throw new Error("Application state multi-key CAS requires transactions.");
+  }
+  try {
+    await client.transaction(async (tx) => {
+      for (const operation of orderedOperations) {
+        const changed = await executeAppStateCompareAndSet(
+          tx,
+          sessionId,
+          operation.key,
+          operation.expectedValue,
+          operation.nextValue,
+        );
+        if (!changed) throw APP_STATE_CAS_MISMATCH;
+      }
+    });
+  } catch (error) {
+    if (error === APP_STATE_CAS_MISMATCH) return false;
+    throw error;
+  }
+
+  for (const { key, nextValue } of operations) {
+    if (nextValue === null) {
+      emitAppStateDelete(key, options?.requestSource, sessionId);
+    } else {
+      emitAppStateChange(key, options?.requestSource, sessionId);
+    }
+  }
+  return true;
 }
 
 export async function appStateList(
