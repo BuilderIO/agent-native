@@ -11,9 +11,11 @@ import type {
 } from "../agent/types.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
 import {
+  clearPendingTurnIfMatches,
   setActiveRun,
   updateActiveRunSeq,
   clearActiveRun,
+  setPendingTurn,
 } from "./active-run-state.js";
 import { captureError } from "./analytics.js";
 import { agentNativePath } from "./api-path.js";
@@ -1634,6 +1636,7 @@ export function createAgentChatAdapter(
       const content: ContentPart[] = [];
       const toolCallCounter = { value: 0 };
       const turnId = generateTurnId();
+      if (threadId) setPendingTurn({ threadId, turnId });
       let runId: string | null = null;
       let lastSeq = -1;
       const seenRunSeqs = new Map<string, number>();
@@ -3279,6 +3282,7 @@ export function createAgentChatAdapter(
               attemptedRunIds.push(runId);
             }
             if (runId && threadId) {
+              clearPendingTurnIfMatches(threadId, turnId);
               setActiveRun({ threadId, runId, lastSeq: -1 });
             }
 

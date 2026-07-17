@@ -136,6 +136,7 @@ import {
   readLedgerEntry,
   clearLedgerForThread,
   insertRun,
+  isTurnAborted,
   updateRunHeartbeat,
   updateRunStatusIfRunning,
   setRunError,
@@ -7058,6 +7059,13 @@ export function createProductionAgentHandler(
     // slot and inserted the run row before dispatching, so re-claiming here
     // would falsely 409 against the row the foreground holds.
     if (threadId && !isBackgroundWorker) {
+      if (
+        typeof requestTurnId === "string" &&
+        requestTurnId &&
+        (await isTurnAborted(threadId, requestTurnId))
+      ) {
+        return { ok: true, stopped: true };
+      }
       const slot = await tryClaimRunSlot(threadId);
       if (!slot.claimed) {
         setResponseStatus(event, 409);
