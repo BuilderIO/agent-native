@@ -7,6 +7,7 @@ import {
   isWorkspaceProviderOAuthFlowValid,
   mergeWorkspaceOAuthValues,
   resolveWorkspaceProviderIdentity,
+  resolveWorkspaceProviderIdentities,
   type WorkspaceProviderOAuthFlow,
 } from "./workspace-provider-oauth.js";
 
@@ -135,6 +136,65 @@ describe("workspace provider OAuth", () => {
     expect(url.searchParams.has("code_challenge")).toBe(false);
   });
 
+  it("builds a GitHub authorization request from shared catalog metadata", () => {
+    const provider = getWorkspaceConnectionProvider("github")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "github-client",
+        redirectUri:
+          "https://app.example.com/_agent-native/connections/oauth/github/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://github.com/login/oauth/authorize",
+    );
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      client_id: "github-client",
+      response_type: "code",
+      state: "signed-state",
+      allow_signup: "true",
+    });
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining(["repo", "read:org", "read:user", "user:email"]),
+    );
+  });
+
+  it("builds an Atlassian 3LO authorization request for Jira Cloud", () => {
+    const provider = getWorkspaceConnectionProvider("jira")!;
+    const url = new URL(
+      buildWorkspaceProviderAuthorizationUrl({
+        provider,
+        clientId: "jira-client",
+        redirectUri:
+          "https://app.example.com/_agent-native/connections/oauth/jira/callback",
+        state: "signed-state",
+        challenge: "unused-challenge",
+      }),
+    );
+
+    expect(url.origin + url.pathname).toBe(
+      "https://auth.atlassian.com/authorize",
+    );
+    expect(Object.fromEntries(url.searchParams)).toMatchObject({
+      audience: "api.atlassian.com",
+      client_id: "jira-client",
+      prompt: "consent",
+      response_type: "code",
+      state: "signed-state",
+    });
+    expect(url.searchParams.get("scope")?.split(" ")).toEqual(
+      expect.arrayContaining([
+        "read:jira-work",
+        "read:jira-user",
+        "offline_access",
+      ]),
+    );
+  });
+
   it("isolates offline consent to Picker-selected Drive files", () => {
     const provider = getWorkspaceConnectionProvider("google_drive")!;
     const url = new URL(
@@ -228,6 +288,186 @@ describe("workspace provider OAuth", () => {
     await expect(exchange).rejects.not.toThrow("secret provider detail");
   });
 
+  it("exchanges GitHub authorization codes with bounded JSON responses", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        Accept: "application/json",
+        "Content-Type": "application/json",
+      });
+      expect(JSON.parse(String(init?.body))).toMatchObject({
+        client_id: "github-client",
+        client_secret: "github-secret",
+        code: "code",
+        redirect_uri: "https://app.example.com/callback",
+      });
+      return new Response(JSON.stringify({ access_token: "github-token" }), {
+        status: 200,
+      });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = getWorkspaceConnectionProvider("github")!;
+    await expect(
+      exchangeWorkspaceProviderOAuthCode({
+        providerId: "github",
+        provider,
+        clientId: "github-client",
+        clientSecret: "github-secret",
+        code: "code",
+        verifier: "unused-verifier",
+        redirectUri: "https://app.example.com/callback",
+      }),
+    ).resolves.toMatchObject({ access_token: "github-token" });
+  });
+
+  it("exchanges Jira authorization codes as JSON and discovers every accessible site", async () => {
+    const fetchMock = vi.fn(async (url: string, init?: RequestInit) => {
+      if (url.endsWith("/oauth/token")) {
+        expect(init?.headers).toMatchObject({
+          "Content-Type": "application/json",
+        });
+        expect(JSON.parse(String(init?.body))).toMatchObject({
+          grant_type: "authorization_code",
+          client_id: "jira-client",
+        });
+        return new Response(
+          JSON.stringify({ access_token: "jira-token", expires_in: 3600 }),
+          { status: 200 },
+        );
+      }
+      return new Response(
+        JSON.stringify([
+          {
+            id: "cloud-1",
+            name: "One",
+            url: "https://one.atlassian.net",
+            scopes: ["read:jira-work"],
+          },
+          {
+            id: "cloud-2",
+            name: "Two",
+            url: "https://two.atlassian.net",
+            scopes: ["read:jira-user"],
+          },
+        ]),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = getWorkspaceConnectionProvider("jira")!;
+    const tokens = await exchangeWorkspaceProviderOAuthCode({
+      providerId: "jira",
+      provider,
+      clientId: "jira-client",
+      clientSecret: "jira-secret",
+      code: "code",
+      verifier: "verifier",
+      redirectUri: "https://app.example.com/callback",
+    });
+    expect(tokens).toMatchObject({
+      access_token: "jira-token",
+      expiry_date: expect.any(Number),
+    });
+
+    const identities = await resolveWorkspaceProviderIdentities("jira", tokens);
+    expect(identities).toEqual([
+      expect.objectContaining({
+        accountId: "cloud-1",
+        label: "One",
+        config: expect.objectContaining({
+          atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
+        }),
+      }),
+      expect.objectContaining({ accountId: "cloud-2", label: "Two" }),
+    ]);
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.atlassian.com/oauth/token/accessible-resources",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer jira-token",
+        }),
+      }),
+    );
+  });
+
+  it("exchanges HubSpot authorization codes as a form-encoded request", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        "Content-Type": "application/x-www-form-urlencoded",
+      });
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("client_id")).toBe("hubspot-client");
+      expect(body.get("client_secret")).toBe("hubspot-secret");
+      expect(body.get("grant_type")).toBe("authorization_code");
+      return new Response(
+        JSON.stringify({
+          access_token: "hubspot-token",
+          refresh_token: "hubspot-refresh",
+          expires_in: 1800,
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = getWorkspaceConnectionProvider("hubspot")!;
+    await expect(
+      exchangeWorkspaceProviderOAuthCode({
+        providerId: "hubspot",
+        provider,
+        clientId: "hubspot-client",
+        clientSecret: "hubspot-secret",
+        code: "code",
+        verifier: "unused-verifier",
+        redirectUri: "https://app.example.com/callback",
+      }),
+    ).resolves.toMatchObject({
+      access_token: "hubspot-token",
+      refresh_token: "hubspot-refresh",
+      expiry_date: expect.any(Number),
+    });
+  });
+
+  it("exchanges Sentry authorization codes with PKCE", async () => {
+    const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
+      expect(init?.headers).toMatchObject({
+        "Content-Type": "application/x-www-form-urlencoded",
+      });
+      const body = new URLSearchParams(String(init?.body));
+      expect(body.get("client_id")).toBe("sentry-client");
+      expect(body.get("client_secret")).toBe("sentry-secret");
+      expect(body.get("code_verifier")).toBe("verifier");
+      return new Response(
+        JSON.stringify({
+          access_token: "sentry-token",
+          refresh_token: "sentry-refresh",
+          expires_in: 2_592_000,
+          user: { id: "sentry-user", email: "dev@example.com" },
+        }),
+        { status: 200 },
+      );
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const provider = getWorkspaceConnectionProvider("sentry")!;
+    await expect(
+      exchangeWorkspaceProviderOAuthCode({
+        providerId: "sentry",
+        provider,
+        clientId: "sentry-client",
+        clientSecret: "sentry-secret",
+        code: "code",
+        verifier: "verifier",
+        redirectUri: "https://app.example.com/callback",
+      }),
+    ).resolves.toMatchObject({
+      access_token: "sentry-token",
+      refresh_token: "sentry-refresh",
+      expiry_date: expect.any(Number),
+    });
+  });
+
   it("exchanges Google authorization codes as a confidential web client", async () => {
     const fetchMock = vi.fn(async (_url: string, init?: RequestInit) => {
       expect(init?.headers).toMatchObject({
@@ -302,6 +542,30 @@ describe("workspace provider OAuth", () => {
     );
   });
 
+  it("resolves GitHub account identity without exposing the access token", async () => {
+    const fetchMock = vi.fn(
+      async (_url: string, init?: RequestInit) =>
+        new Response(JSON.stringify({ login: "octocat", name: "Octo Cat" }), {
+          status: 200,
+        }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      resolveWorkspaceProviderIdentity("github", {
+        access_token: "github-access",
+      }),
+    ).resolves.toEqual({ accountId: "octocat", label: "Octo Cat" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/user",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer github-access",
+        }),
+      }),
+    );
+  });
+
   it("rejects oversized provider responses before parsing them", async () => {
     vi.stubGlobal(
       "fetch",
@@ -326,5 +590,42 @@ describe("workspace provider OAuth", () => {
         redirectUri: "https://app.example.com/callback",
       }),
     ).rejects.toThrow("Figma OAuth response exceeded the size limit.");
+  });
+});
+
+it("resolves HubSpot portal identity through the token metadata endpoint", async () => {
+  const fetchMock = vi.fn(
+    async (_url: string, init?: RequestInit) =>
+      new Response(
+        JSON.stringify({ hub_id: 12345, hub_domain: "example.hubspot.com" }),
+        { status: 200 },
+      ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
+  await expect(
+    resolveWorkspaceProviderIdentity("hubspot", {
+      access_token: "hubspot-access",
+    }),
+  ).resolves.toEqual({
+    accountId: "12345",
+    label: "example.hubspot.com",
+  });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://api.hubapi.com/oauth/v1/access-tokens/hubspot-access",
+    expect.objectContaining({
+      headers: { Accept: "application/json" },
+    }),
+  );
+});
+
+it("resolves Sentry account identity from the OAuth user payload", async () => {
+  await expect(
+    resolveWorkspaceProviderIdentity("sentry", {
+      user: { id: "sentry-user", email: "dev@example.com" },
+    }),
+  ).resolves.toEqual({
+    accountId: "sentry-user",
+    label: "dev@example.com",
   });
 });

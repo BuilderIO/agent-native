@@ -26,6 +26,7 @@ import {
   IconCopy,
   IconDotsVertical,
   IconBrandGithub,
+  IconPlugConnected,
 } from "@tabler/icons-react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -423,6 +424,55 @@ function GitHubOAuthView({
           {(connectMutation.error as Error).message}
         </div>
       )}
+    </div>
+  );
+}
+
+function WorkspaceOAuthView({
+  provider,
+  label,
+  connected,
+}: {
+  provider: string;
+  label: string;
+  connected: boolean;
+}) {
+  const t = useT();
+  const connect = () => {
+    const params = new URLSearchParams({
+      appId: "analytics",
+      return: "/data-sources",
+    });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/connections/oauth/${provider}/start?${params.toString()}`,
+      ),
+    );
+  };
+
+  return (
+    <div className="space-y-3 rounded-md border border-border/50 bg-muted/20 p-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-background text-muted-foreground">
+            <IconPlugConnected className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 space-y-1">
+            <p className="text-xs font-medium text-foreground">{label}</p>
+            <p className="text-xs text-muted-foreground">
+              {t("dataSources.sharedIntegration")}
+            </p>
+          </div>
+        </div>
+        <Button
+          size="sm"
+          variant={connected ? "outline" : "default"}
+          onClick={connect}
+          className="shrink-0 text-xs"
+        >
+          {connected ? t("dataSources.reconnect") : t("dataSources.connect")}
+        </Button>
+      </div>
     </div>
   );
 }
@@ -1098,6 +1148,17 @@ function DataSourceCard({
               <GitHubOAuthView
                 connected={locallyConfigured}
                 onSaved={onSaved}
+              />
+            </div>
+          )}
+          {(["notion", "hubspot", "jira", "sentry"] as const).includes(
+            source.id as "notion" | "hubspot" | "jira" | "sentry",
+          ) && (
+            <div className="mb-4">
+              <WorkspaceOAuthView
+                provider={source.id}
+                label={source.name}
+                connected={readyViaWorkspace}
               />
             </div>
           )}

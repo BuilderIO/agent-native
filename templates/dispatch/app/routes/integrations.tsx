@@ -1,4 +1,5 @@
 import {
+  agentNativePath,
   useActionMutation,
   useActionQuery,
   useT,
@@ -127,6 +128,13 @@ interface WorkspaceConnectionProvider {
   credentialKeys: WorkspaceConnectionCredentialKey[];
   capabilities: string[];
   recommendedTemplateUses: string[];
+  oauth?: {
+    provider: string;
+    authorizationUrl: string;
+    tokenUrl: string;
+    refreshUrl?: string;
+    scopes: string[];
+  };
   readiness?: WorkspaceConnectionProviderReadiness;
 }
 
@@ -718,6 +726,32 @@ function summarizeAppList(
     : t("integrations.noApps");
 }
 
+function startWorkspaceProviderOAuth(provider: WorkspaceConnectionProvider) {
+  const returnPath = `${window.location.pathname}${window.location.search}`;
+  if (provider.id === "slack") {
+    const params = new URLSearchParams({ return: returnPath });
+    window.location.assign(
+      agentNativePath(
+        `/_agent-native/integrations/slack/oauth/install?${params.toString()}`,
+      ),
+    );
+    return;
+  }
+  const params = new URLSearchParams({
+    appId: "dispatch",
+    return: returnPath,
+  });
+  window.location.assign(
+    agentNativePath(
+      `/_agent-native/connections/oauth/${provider.id}/start?${params.toString()}`,
+    ),
+  );
+}
+
+function providerHasOAuth(provider: WorkspaceConnectionProvider): boolean {
+  return Boolean(provider.oauth) || provider.id === "slack";
+}
+
 function ProviderCard({
   provider,
   connections,
@@ -788,10 +822,29 @@ function ProviderCard({
                   count: provider.credentialKeys.length,
                 })}
         </span>
-        <Button type="button" variant="outline" size="sm" onClick={onCreate}>
-          <IconPlus size={14} />
-          {t("integrations.connect")}
-        </Button>
+        <div className="flex items-center gap-2">
+          {providerHasOAuth(provider) ? (
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => startWorkspaceProviderOAuth(provider)}
+            >
+              <IconShieldCheck size={14} />
+              {t("integrations.connect")}
+            </Button>
+          ) : null}
+          <Button
+            type="button"
+            variant={providerHasOAuth(provider) ? "ghost" : "outline"}
+            size="sm"
+            onClick={onCreate}
+          >
+            <IconKey size={14} />
+            {providerHasOAuth(provider)
+              ? t("integrations.connectionFallback")
+              : t("integrations.connect")}
+          </Button>
+        </div>
       </div>
     </article>
   );

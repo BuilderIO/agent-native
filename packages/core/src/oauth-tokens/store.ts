@@ -142,13 +142,16 @@ async function ensureTable(): Promise<void> {
 export async function getOAuthTokens(
   provider: string,
   accountId: string,
+  owner?: string,
 ): Promise<Record<string, unknown> | null> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
+  const ownerClause = owner ? " AND owner = ?" : "";
+  const args = owner ? [provider, accountId, owner] : [provider, accountId];
   const { rows } = await client.execute({
-    sql: `SELECT tokens FROM ${table} WHERE provider = ? AND account_id = ?`,
-    args: [provider, accountId],
+    sql: `SELECT tokens FROM ${table} WHERE provider = ? AND account_id = ?${ownerClause}`,
+    args,
   });
   if (rows.length === 0) return null;
   return parseStoredTokens(rows[0].tokens as string);
@@ -271,14 +274,17 @@ export async function saveOAuthTokens(
 export async function deleteOAuthTokens(
   provider: string,
   accountId?: string,
+  owner?: string,
 ): Promise<number> {
   await ensureTable();
   const client = getDbExec();
   const table = oauthTokensTable();
   if (accountId) {
+    const ownerClause = owner ? " AND owner = ?" : "";
+    const args = owner ? [provider, accountId, owner] : [provider, accountId];
     const result = await client.execute({
-      sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ?`,
-      args: [provider, accountId],
+      sql: `DELETE FROM ${table} WHERE provider = ? AND account_id = ?${ownerClause}`,
+      args,
     });
     return result.rowsAffected;
   }

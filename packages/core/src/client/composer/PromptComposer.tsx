@@ -136,6 +136,8 @@ export interface PromptComposerProps {
   onSlashCommand?: (command: string) => void;
   /** External model list for hosts that already resolve models outside the app. */
   availableModels?: EngineModelGroup[];
+  /** Whether the external model list is still being resolved. */
+  modelListLoading?: boolean;
   selectedModel?: string;
   selectedEngine?: string;
   selectedEffort?: ReasoningEffort;
@@ -468,6 +470,7 @@ function PromptComposerInner({
   includeDefaultSlashSkills,
   onSlashCommand,
   availableModels,
+  modelListLoading,
   selectedModel,
   selectedEngine,
   selectedEffort,
@@ -501,6 +504,10 @@ function PromptComposerInner({
   const composerModelGroups = showModelSelector
     ? (availableModels ?? models.availableModels)
     : undefined;
+  const composerModelListLoading =
+    showModelSelector &&
+    (modelListLoading ??
+      (availableModels ? availableModels.length === 0 : models.isLoading));
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -645,6 +652,7 @@ function PromptComposerInner({
           selectedModel={composerModel}
           selectedEffort={composerEffort}
           availableModels={composerModelGroups}
+          modelListLoading={composerModelListLoading}
           onModelChange={handleModelChange}
           onEffortChange={handleEffortChange}
           providerConnectStatusEnabled={resolvedModelStatusChecksEnabled}

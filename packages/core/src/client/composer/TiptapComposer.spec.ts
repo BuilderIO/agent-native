@@ -19,6 +19,7 @@ import {
   MODEL_SELECTOR_POPOVER_STYLE,
   resolveContextChipBackspaceAction,
   resolveComposerPrimaryAction,
+  shouldShowModelSelectorSkeleton,
 } from "./TiptapComposer.js";
 
 describe("createTiptapComposerExtensions", () => {
@@ -338,5 +339,11 @@ describe("createTiptapComposerExtensions", () => {
         "min(500px, var(--radix-popover-content-available-height, 500px))",
     });
     expect(MODEL_SELECTOR_POPOVER_STYLE).not.toHaveProperty("height");
+  });
+
+  it("shows the model picker skeleton only while the initial list is loading", () => {
+    expect(shouldShowModelSelectorSkeleton(true, 0)).toBe(true);
+    expect(shouldShowModelSelectorSkeleton(true, 2)).toBe(false);
+    expect(shouldShowModelSelectorSkeleton(false, 0)).toBe(false);
   });
 });

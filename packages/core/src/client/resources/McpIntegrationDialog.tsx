@@ -7,6 +7,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 
+import { agentNativePath } from "../api-path.js";
 import {
   Dialog,
   DialogContent,
@@ -22,10 +23,12 @@ import {
 import { useT } from "../i18n.js";
 import { cn } from "../utils.js";
 import {
+  buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
+  resolveMcpIntegrationScope,
   type DefaultMcpIntegration,
 } from "./mcp-integration-catalog.js";
 import {
@@ -92,7 +95,12 @@ export function McpIntegrationDialog({
   const [mode, setMode] = useState<DialogMode>("catalog");
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState<DefaultMcpIntegration | null>(null);
-  const [scope, setScope] = useState<McpServerScope>(defaultScope);
+  const safeDefaultScope = resolveMcpIntegrationScope(
+    defaultScope,
+    hasOrg,
+    canCreateOrgMcp,
+  );
+  const [scope, setScope] = useState<McpServerScope>(safeDefaultScope);
   const [name, setName] = useState("");
   const [url, setUrl] = useState("");
   const [description, setDescription] = useState("");
@@ -135,7 +143,7 @@ export function McpIntegrationDialog({
     setMode(showCatalog ? "catalog" : "form");
     setQuery("");
     setSelected(null);
-    setScope(defaultScope);
+    setScope(safeDefaultScope);
     setName("");
     setUrl("");
     setDescription("");
@@ -144,7 +152,7 @@ export function McpIntegrationDialog({
     setQuickBusyId(null);
     setError(null);
     setTestResult(null);
-  }, [defaultScope, open, showCatalog]);
+  }, [open, safeDefaultScope, showCatalog]);
 
   useEffect(() => {
     if (open && mode === "form") {
@@ -161,7 +169,7 @@ export function McpIntegrationDialog({
   const openForm = (integration?: DefaultMcpIntegration | null) => {
     const defaults = createMcpIntegrationFormDefaults(integration);
     setSelected(integration ?? null);
-    setScope(defaultScope);
+    setScope(safeDefaultScope);
     setName(defaults.name);
     setUrl(defaults.url);
     setDescription(defaults.description);
@@ -169,6 +177,55 @@ export function McpIntegrationDialog({
     setError(null);
     setTestResult(null);
     setMode("form");
+  };
+
+  const beginOAuth = (args: {
+    name: string;
+    url: string;
+    description: string;
+  }) => {
+    const validationError = getMcpUrlValidationError(args.url);
+    if (validationError) {
+      setError(validationError);
+      setTestResult(null);
+      return;
+    }
+    const returnUrl =
+      typeof window === "undefined"
+        ? "/"
+        : window.location.pathname +
+          window.location.search +
+          window.location.hash;
+    window.location.assign(
+      agentNativePath(
+        buildMcpOAuthStartUrl({
+          name: args.name,
+          url: args.url,
+          description: args.description,
+          scope: safeDefaultScope,
+          returnUrl,
+        }),
+      ),
+    );
+  };
+
+  const connectWithOAuth = (integration: DefaultMcpIntegration) =>
+    beginOAuth({
+      name: integration.name,
+      url: integration.url,
+      description: integration.description,
+    });
+
+  const connectCustomWithOAuth = () => {
+    if (!name.trim()) {
+      setError(t("mcpIntegrations.serverNameRequired"));
+      return;
+    }
+    beginOAuth({
+      name: name.trim(),
+      url: url.trim(),
+      description: description.trim(),
+    });
   };
 
   const createServer = async (
@@ -211,13 +268,17 @@ export function McpIntegrationDialog({
   };
 
   const quickConnect = (integration: DefaultMcpIntegration) => {
-    if (integration.authMode !== "none") {
+    if (integration.authMode === "oauth") {
+      connectWithOAuth(integration);
+      return;
+    }
+    if (integration.authMode === "headers") {
       openForm(integration);
       return;
     }
     void createServer(
       {
-        scope: defaultScope,
+        scope: safeDefaultScope,
         name: integration.name,
         url: integration.url,
         description: integration.description,
@@ -350,7 +411,7 @@ export function McpIntegrationDialog({
                   const connected = connectedUrls.has(
                     compareUrl(integration.url),
                   );
-                  const requiresConfig = integration.authMode !== "none";
+                  const requiresHeaders = integration.authMode === "headers";
                   return (
                     <article
                       key={integration.id}
@@ -381,9 +442,11 @@ export function McpIntegrationDialog({
                           ) : null}
                           {connected
                             ? t("mcpIntegrations.connected")
-                            : requiresConfig
-                              ? t("mcpIntegrations.configure")
-                              : t("mcpIntegrations.connect")}
+                            : integration.authMode === "oauth"
+                              ? t("mcpIntegrations.connectWithOAuth")
+                              : requiresHeaders
+                                ? t("mcpIntegrations.configure")
+                                : t("mcpIntegrations.connect")}
                         </button>
                         {integration.docsUrl && (
                           <Tooltip>
@@ -507,28 +570,30 @@ export function McpIntegrationDialog({
                     placeholder={t("mcpIntegrations.descriptionPlaceholder")}
                   />
                 </label>
-                <label className="block">
-                  <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
-                    {t("mcpIntegrations.headers")}
-                  </span>
-                  <textarea
-                    value={headersText}
-                    onChange={(event) => {
-                      setHeadersText(event.target.value);
-                      clearFeedback();
-                    }}
-                    rows={3}
-                    className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
-                    style={{
-                      fontFamily:
-                        'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
-                    }}
-                    placeholder={
-                      selected?.headerPlaceholder ??
-                      t("mcpIntegrations.headersPlaceholder")
-                    }
-                  />
-                </label>
+                {selected?.authMode !== "oauth" && (
+                  <label className="block">
+                    <span className="mb-1 block text-[10px] font-medium text-muted-foreground">
+                      {t("mcpIntegrations.headers")}
+                    </span>
+                    <textarea
+                      value={headersText}
+                      onChange={(event) => {
+                        setHeadersText(event.target.value);
+                        clearFeedback();
+                      }}
+                      rows={3}
+                      className="w-full resize-y rounded-md border border-border bg-background px-2.5 py-1.5 text-[12px] text-foreground outline-none placeholder:text-muted-foreground/50 focus:ring-1 focus:ring-ring"
+                      style={{
+                        fontFamily:
+                          'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+                      }}
+                      placeholder={
+                        selected?.headerPlaceholder ??
+                        t("mcpIntegrations.headersPlaceholder")
+                      }
+                    />
+                  </label>
+                )}
                 {selected?.docsUrl && (
                   <a
                     href={selected.docsUrl}
@@ -573,6 +638,16 @@ export function McpIntegrationDialog({
               >
                 {t("mcpIntegrations.test")}
               </button>
+              {!selected && (
+                <button
+                  type="button"
+                  onClick={connectCustomWithOAuth}
+                  disabled={!name.trim() || !url.trim() || busy}
+                  className="rounded-md border border-border bg-background px-3 py-1.5 text-[12px] font-medium text-foreground hover:bg-accent disabled:pointer-events-none disabled:opacity-40"
+                >
+                  {t("mcpIntegrations.connectWithOAuth")}
+                </button>
+              )}
               <button
                 type="button"
                 onClick={submitForm}

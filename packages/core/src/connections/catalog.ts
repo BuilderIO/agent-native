@@ -27,6 +27,8 @@ export type WorkspaceConnectionProviderId =
   | "gmail"
   | "google_drive"
   | "hubspot"
+  | "jira"
+  | "sentry"
   | "granola"
   | "clips"
   | "generic";
@@ -91,12 +93,18 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: [
       {
         key: "GITHUB_TOKEN",
-        label: "GitHub token",
+        label: "GitHub token (fallback)",
         description:
-          "Fine-grained token or app credential scoped to the repositories the workspace should access.",
-        required: true,
+          "Optional fine-grained token fallback. OAuth is preferred for new connections.",
+        required: false,
       },
     ],
+    oauth: {
+      provider: "github",
+      authorizationUrl: "https://github.com/login/oauth/authorize",
+      tokenUrl: "https://github.com/login/oauth/access_token",
+      scopes: ["repo", "read:org", "read:user", "user:email"],
+    },
     capabilities: ["search", "import", "code", "docs"],
     recommendedTemplateUses: ["brain", "analytics", "dispatch"],
   }),
@@ -199,14 +207,107 @@ export const WORKSPACE_CONNECTION_PROVIDERS = [
     credentialKeys: [
       {
         key: "HUBSPOT_PRIVATE_APP_TOKEN",
-        label: "HubSpot private app token",
+        label: "HubSpot private app token (fallback)",
         description:
-          "Private app token scoped to the CRM objects the workspace needs.",
-        required: true,
+          "Optional private app token fallback. OAuth is preferred for new connections.",
+        required: false,
+      },
+      {
+        key: "HUBSPOT_ACCESS_TOKEN",
+        label: "HubSpot access token (fallback)",
+        description:
+          "Optional legacy access token fallback for existing HubSpot setups.",
+        required: false,
       },
     ],
+    oauth: {
+      provider: "hubspot",
+      authorizationUrl: "https://app.hubspot.com/oauth/authorize",
+      tokenUrl: "https://api.hubapi.com/oauth/v3/token",
+      refreshUrl: "https://api.hubapi.com/oauth/v3/token",
+      scopes: [
+        "oauth",
+        "crm.objects.contacts.read",
+        "crm.objects.companies.read",
+        "crm.objects.deals.read",
+        "crm.objects.tickets.read",
+        "crm.schemas.contacts.read",
+        "crm.schemas.companies.read",
+        "crm.schemas.deals.read",
+        "crm.schemas.tickets.read",
+      ],
+    },
     capabilities: ["search", "import", "crm"],
     recommendedTemplateUses: ["analytics", "brain", "mail", "dispatch"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "jira",
+    label: "Jira Cloud",
+    description:
+      "Projects, issues, sprints, and delivery context for engineering analytics and product workflows.",
+    credentialKeys: [
+      {
+        key: "JIRA_BASE_URL",
+        label: "Jira base URL (fallback)",
+        description:
+          "Optional site URL for API-token fallback connections. OAuth connections discover their site automatically.",
+        required: false,
+      },
+      {
+        key: "JIRA_USER_EMAIL",
+        label: "Jira email (fallback)",
+        description:
+          "Optional Atlassian account email for API-token fallback connections.",
+        required: false,
+      },
+      {
+        key: "JIRA_API_TOKEN",
+        label: "Jira API token (fallback)",
+        description:
+          "Optional API token fallback for existing Jira Cloud setups. OAuth is preferred for new connections.",
+        required: false,
+      },
+    ],
+    oauth: {
+      provider: "jira",
+      authorizationUrl: "https://auth.atlassian.com/authorize",
+      tokenUrl: "https://auth.atlassian.com/oauth/token",
+      refreshUrl: "https://auth.atlassian.com/oauth/token",
+      scopes: ["read:jira-work", "read:jira-user", "offline_access"],
+    },
+    capabilities: ["search", "import", "code", "docs"],
+    recommendedTemplateUses: ["analytics", "brain", "dispatch"],
+  }),
+  defineWorkspaceConnectionProvider({
+    id: "sentry",
+    label: "Sentry",
+    description:
+      "Error tracking, performance issues, projects, and release context for engineering analytics.",
+    credentialKeys: [
+      {
+        key: "SENTRY_AUTH_TOKEN",
+        label: "Sentry auth token (fallback)",
+        description:
+          "Optional auth token fallback for self-hosted or local Sentry setups. OAuth is preferred for sentry.io.",
+        required: false,
+      },
+      {
+        key: "SENTRY_SERVER_TOKEN",
+        label: "Sentry server token (fallback)",
+        description:
+          "Optional server token fallback for existing Sentry deployments.",
+        required: false,
+      },
+    ],
+    oauth: {
+      provider: "sentry",
+      authorizationUrl: "https://sentry.io/oauth/authorize/",
+      tokenUrl: "https://sentry.io/oauth/token/",
+      refreshUrl: "https://sentry.io/oauth/token/",
+      scopes: ["org:read", "project:read", "event:read", "team:read"],
+    },
+    capabilities: ["search", "import", "docs"],
+    recommendedTemplateUses: ["analytics", "brain", "dispatch"],
   }),
   defineWorkspaceConnectionProvider({
     id: "granola",

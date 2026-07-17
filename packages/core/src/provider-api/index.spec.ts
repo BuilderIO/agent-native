@@ -174,6 +174,47 @@ describe("provider API runtime", () => {
     expect(oauthHeaders).not.toHaveProperty("X-Figma-Token");
   });
 
+  it("uses a shared GitHub OAuth connection while retaining token fallback", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "octocat",
+        displayName: "Octo Cat",
+        tokens: { access_token: "github-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "github-connection",
+        label: "Octo Cat",
+        accountId: "octocat",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "github",
+      path: "/user",
+      connectionId: "github-connection",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/user",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer github-oauth-example",
+        }),
+      }),
+    );
+  });
+
   it("never falls back to an admin Figma token after an explicit connection fails", async () => {
     resolveCredential.mockImplementation(async (key: string) =>
       key === "FIGMA_ACCESS_TOKEN" ? "admin-token-must-not-be-used" : null,
@@ -516,6 +557,188 @@ describe("provider API runtime", () => {
     expect(fetchMock.mock.calls.at(-1)?.[1]?.headers).toMatchObject({
       Authorization: "Bearer google-slides-oauth",
     });
+  });
+
+  it("routes Jira OAuth requests through the connected Atlassian cloud site", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "cloud-1",
+        displayName: "Jira One",
+        tokens: { access_token: "jira-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "jira-connection",
+        label: "Jira One",
+        accountId: "cloud-1",
+        ownerEmail: "connector@example.com",
+        config: {
+          credentialMode: "oauth",
+          atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["jira"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "jira",
+      path: "/rest/api/3/project",
+      connectionId: "jira-connection",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.atlassian.com/ex/jira/cloud-1/rest/api/3/project",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer jira-oauth-example",
+        }),
+      }),
+    );
+    expect(listOAuthAccountsByOwner).toHaveBeenCalledWith(
+      "jira",
+      "connector@example.com",
+    );
+  });
+
+  it("propagates rotated Jira refresh tokens across sites linked to one grant", async () => {
+    resolveSecret.mockImplementation(async (key: string) =>
+      key === "JIRA_CLIENT_ID"
+        ? "jira-client-id"
+        : key === "JIRA_CLIENT_SECRET"
+          ? "jira-client-secret"
+          : null,
+    );
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "cloud-1",
+        displayName: "Jira One",
+        tokens: {
+          access_token: "expired-jira-access",
+          refresh_token: "jira-refresh-old",
+          expiry_date: Date.now() - 60_000,
+        },
+      },
+      {
+        accountId: "cloud-2",
+        displayName: "Jira Two",
+        tokens: { refresh_token: "jira-refresh-old" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "jira-connection",
+        label: "Jira One",
+        accountId: "cloud-1",
+        ownerEmail: "connector@example.com",
+        config: {
+          credentialMode: "oauth",
+          atlassianApiBaseUrl: "https://api.atlassian.com/ex/jira/cloud-1",
+        },
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    fetchMock
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            access_token: "jira-access-new",
+            refresh_token: "jira-refresh-rotated",
+            expires_in: 3600,
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ values: [] }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        }),
+      );
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["jira"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "jira",
+      path: "/rest/api/3/project",
+      connectionId: "jira-connection",
+    });
+
+    expect(saveOAuthTokens).toHaveBeenNthCalledWith(
+      1,
+      "jira",
+      "cloud-1",
+      expect.objectContaining({
+        access_token: "jira-access-new",
+        refresh_token: "jira-refresh-rotated",
+      }),
+      "connector@example.com",
+    );
+    expect(saveOAuthTokens).toHaveBeenNthCalledWith(
+      2,
+      "jira",
+      "cloud-2",
+      expect.objectContaining({
+        access_token: "jira-access-new",
+        refresh_token: "jira-refresh-rotated",
+      }),
+      "connector@example.com",
+    );
+  });
+
+  it("uses a granted HubSpot OAuth connection by default", async () => {
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "12345",
+        displayName: "example.hubspot.com",
+        tokens: { access_token: "hubspot-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "hubspot-connection",
+        label: "example.hubspot.com",
+        accountId: "12345",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["hubspot"],
+      getCredentialContext: () => credentialContext,
+    });
+
+    await runtime.executeRequest({
+      provider: "hubspot",
+      path: "/crm/v3/objects/deals",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.hubapi.com/crm/v3/objects/deals",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer hubspot-oauth-example",
+        }),
+      }),
+    );
   });
 
   it("resolves a connection-bound OAuth token for trusted UI bridges", async () => {

@@ -60,6 +60,7 @@ import {
   type McpClientManager,
   type McpTool,
 } from "./manager.js";
+import { mountMcpOAuthRoutes } from "./oauth-routes.js";
 import {
   addRemoteServer,
   listRemoteServers,
@@ -97,6 +98,11 @@ function projectForClient(
     name: stored.name,
     url: stored.url,
     headers: redactHeaders(stored.headers),
+    authMode: stored.oauthSecretKey
+      ? "oauth"
+      : stored.headerSecretKey || stored.headers
+        ? "headers"
+        : "none",
     description: stored.description,
     firstParty: stored.firstParty === true,
     createdAt: stored.createdAt,
@@ -111,6 +117,7 @@ export interface ClientServer {
   name: string;
   url: string;
   headers?: Record<string, { set: true }>;
+  authMode: "none" | "headers" | "oauth";
   description?: string;
   firstParty?: boolean;
   createdAt: number;
@@ -366,6 +373,10 @@ export function mountMcpServersRoutes(
   ).__agentNativeMcpServersMountedApps ??= new WeakSet<object>());
   if (mountedApps.has(nitroApp)) return;
   mountedApps.add(nitroApp);
+
+  mountMcpOAuthRoutes(nitroApp, {
+    reconfigure: () => reconfigureManager(manager),
+  });
 
   try {
     getH3App(nitroApp).use(

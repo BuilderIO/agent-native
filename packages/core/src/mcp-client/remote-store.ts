@@ -39,6 +39,12 @@ import {
   deleteUserSetting,
 } from "../settings/user-settings.js";
 import type { McpHttpServerConfig } from "./config.js";
+import {
+  deleteMcpOAuthCredentials,
+  getMcpOAuthAccessToken,
+  saveMcpOAuthCredentials,
+  type McpOAuthCredentialBundle,
+} from "./oauth-client.js";
 
 const SETTINGS_KEY = "mcp-servers-remote";
 
@@ -70,6 +76,8 @@ export interface StoredRemoteMcpServer {
    * supplied (or for legacy cleartext rows).
    */
   headerSecretKey?: string;
+  /** Reference to the encrypted OAuth credential bundle for this server. */
+  oauthSecretKey?: string;
   /**
    * Trusted first-party Agent-Native app. Only framework-controlled
    * registrations should set this; management routes intentionally do not
@@ -340,6 +348,58 @@ export async function addRemoteServer(
   return addRemoteServerInternal(scope, scopeId, input);
 }
 
+/**
+ * Persist a remote MCP server whose authorization is managed by the MCP
+ * server's OAuth 2.1 metadata and token endpoints. OAuth credentials are
+ * stored separately from the settings row and never returned to clients.
+ */
+export async function addOAuthRemoteServer(
+  scope: RemoteMcpScope,
+  scopeId: string,
+  input: {
+    name: string;
+    url: string;
+    description?: string;
+    credentials: McpOAuthCredentialBundle;
+  },
+): Promise<
+  { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
+> {
+  const oauthSecretKey = `mcp_oauth:${shortId()}`;
+  try {
+    await saveMcpOAuthCredentials({
+      key: oauthSecretKey,
+      scope,
+      scopeId,
+      credentials: input.credentials,
+    });
+    const result = await addRemoteServerInternal(scope, scopeId, {
+      name: input.name,
+      url: input.url,
+      description: input.description,
+      oauthSecretKey,
+    });
+    if (!result.ok) {
+      await deleteMcpOAuthCredentials({
+        key: oauthSecretKey,
+        scope,
+        scopeId,
+      });
+    }
+    return result;
+  } catch (err: any) {
+    await deleteMcpOAuthCredentials({
+      key: oauthSecretKey,
+      scope,
+      scopeId,
+    }).catch(() => {});
+    return {
+      ok: false,
+      error: `Failed to save MCP OAuth credentials: ${err?.message ?? err}`,
+    };
+  }
+}
+
 export async function addFirstPartyRemoteServer(
   orgId: string,
   input: {
@@ -376,6 +436,7 @@ async function addRemoteServerInternal(
     description?: string;
     firstParty?: boolean;
     firstPartyAppId?: string;
+    oauthSecretKey?: string;
   },
 ): Promise<
   { ok: true; server: StoredRemoteMcpServer } | { ok: false; error: string }
@@ -427,6 +488,7 @@ async function addRemoteServerInternal(
     ...(input.firstPartyAppId
       ? { firstPartyAppId: input.firstPartyAppId }
       : {}),
+    ...(input.oauthSecretKey ? { oauthSecretKey: input.oauthSecretKey } : {}),
     description: input.description?.trim() || undefined,
     createdAt: Date.now(),
   };
@@ -546,6 +608,20 @@ export async function removeRemoteServer(
       );
     }
   }
+  if (removed?.oauthSecretKey) {
+    try {
+      await deleteMcpOAuthCredentials({
+        key: removed.oauthSecretKey,
+        scope,
+        scopeId,
+      });
+    } catch (err: any) {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `[mcp-client] Failed to delete MCP OAuth credentials ${removed.oauthSecretKey}: ${err?.message ?? err}`,
+      );
+    }
+  }
   return true;
 }
 
@@ -628,10 +704,23 @@ export async function toHttpServerConfigAsync(
   scopeId: string,
   stored: StoredRemoteMcpServer,
 ): Promise<McpHttpServerConfig> {
+  let headers = await materializeHeaders(scope, scopeId, stored);
+  if (stored.oauthSecretKey) {
+    const accessToken = await getMcpOAuthAccessToken({
+      key: stored.oauthSecretKey,
+      scope,
+      scopeId,
+      serverUrl: stored.url,
+    });
+    if (accessToken) {
+      headers ??= {};
+      headers.Authorization = `Bearer ${accessToken}`;
+    }
+  }
   return {
     type: "http",
     url: stored.url,
-    headers: await materializeHeaders(scope, scopeId, stored),
+    headers,
     ...(stored.firstParty ? { firstParty: true } : {}),
     ...(stored.firstPartyAppId
       ? { firstPartyAppId: stored.firstPartyAppId }

@@ -355,6 +355,7 @@ export type ProviderApiAuthKind =
       oauthProvider: string;
       tokenLabel: string;
       key: string;
+      fallbackKeys?: readonly string[];
       header: string;
       workspaceProvider: string;
     }
@@ -363,6 +364,15 @@ export type ProviderApiAuthKind =
       oauthProvider: string;
       tokenLabel: string;
       key: string;
+      fallbackKeys?: readonly string[];
+      workspaceProvider: string;
+    }
+  | {
+      type: "oauth-bearer-or-basic";
+      oauthProvider: string;
+      tokenLabel: string;
+      usernameKey: string;
+      passwordKey: string;
       workspaceProvider: string;
     }
   | {
@@ -488,6 +498,11 @@ export interface ProviderApiRuntime {
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
   fetchDocs(options: ProviderApiDocsOptions): Promise<unknown>;
   executeRequest(args: ProviderApiRequestArgs): Promise<unknown>;
+  resolveOAuthAccessToken(args: {
+    provider: ProviderApiId;
+    connectionId?: string | null;
+    accountId?: string | null;
+  }): Promise<ProviderApiOAuthAccessToken>;
   listGitHubRepositoryFiles(
     args: GitHubRepositoryFileListArgs,
   ): Promise<GitHubRepositoryFileListResult>;
@@ -840,8 +855,10 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "GitHub REST API",
     defaultBaseUrl: "https://api.github.com",
     auth: {
-      type: "bearer",
-      keys: ["GITHUB_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "github",
+      tokenLabel: "GitHub OAuth token",
+      key: "GITHUB_TOKEN",
       workspaceProvider: "github",
     },
     credentialKeys: ["GITHUB_TOKEN"],
@@ -1154,8 +1171,11 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "HubSpot",
     defaultBaseUrl: "https://api.hubapi.com",
     auth: {
-      type: "bearer",
-      keys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "hubspot",
+      tokenLabel: "HubSpot OAuth token",
+      key: "HUBSPOT_PRIVATE_APP_TOKEN",
+      fallbackKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
       workspaceProvider: "hubspot",
     },
     credentialKeys: ["HUBSPOT_PRIVATE_APP_TOKEN", "HUBSPOT_ACCESS_TOKEN"],
@@ -1195,9 +1215,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     defaultBaseUrl: "https://example.atlassian.net",
     baseUrlCredentialKey: "JIRA_BASE_URL",
     auth: {
-      type: "basic",
+      type: "oauth-bearer-or-basic",
+      oauthProvider: "jira",
+      tokenLabel: "Jira",
       usernameKey: "JIRA_USER_EMAIL",
       passwordKey: "JIRA_API_TOKEN",
+      workspaceProvider: "jira",
     },
     credentialKeys: ["JIRA_BASE_URL", "JIRA_USER_EMAIL", "JIRA_API_TOKEN"],
     docsUrls: [
@@ -1329,8 +1352,12 @@ const PROVIDER_CONFIGS: Record<ProviderApiId, ProviderApiConfig> = {
     label: "Sentry",
     defaultBaseUrl: "https://sentry.io/api/0",
     auth: {
-      type: "bearer",
-      keys: ["SENTRY_AUTH_TOKEN", "SENTRY_SERVER_TOKEN"],
+      type: "oauth-bearer-or-bearer-key",
+      oauthProvider: "sentry",
+      tokenLabel: "Sentry OAuth token",
+      key: "SENTRY_AUTH_TOKEN",
+      fallbackKeys: ["SENTRY_AUTH_TOKEN", "SENTRY_SERVER_TOKEN"],
+      workspaceProvider: "sentry",
     },
     credentialKeys: [
       "SENTRY_AUTH_TOKEN",
@@ -1485,6 +1512,8 @@ export function createProviderApiRuntime(
     fetchDocs: (docsOptions) =>
       fetchProviderApiDocs(docsOptions, runtimeOptions),
     executeRequest: (args) => executeProviderApiRequest(args, runtimeOptions),
+    resolveOAuthAccessToken: (args) =>
+      resolveProviderApiOAuthAccessToken(args, runtimeOptions),
     listGitHubRepositoryFiles: (args) =>
       listGitHubRepositoryFiles(args, runtimeOptions),
     searchGitHubRepositoryFiles: (args) =>
@@ -1826,7 +1855,26 @@ export async function resolveProviderApiOAuthAccessToken(
   await assertProviderAllowedAsync(args.provider, runtime);
   const config = getProviderApiConfig(args.provider);
   const auth = config.auth;
-  if (auth.type !== "oauth-bearer") {
+  const oauthAuth =
+    auth.type === "oauth-bearer"
+      ? auth
+      : auth.type === "oauth-bearer-or-api-key-header" ||
+          auth.type === "oauth-bearer-or-bearer-key"
+        ? {
+            type: "oauth-bearer" as const,
+            oauthProvider: auth.oauthProvider,
+            tokenLabel: auth.tokenLabel,
+            workspaceProvider: auth.workspaceProvider,
+          }
+        : auth.type === "oauth-bearer-or-basic"
+          ? {
+              type: "oauth-bearer" as const,
+              oauthProvider: auth.oauthProvider,
+              tokenLabel: auth.tokenLabel,
+              workspaceProvider: auth.workspaceProvider,
+            }
+          : null;
+  if (!oauthAuth) {
     throw new Error(
       `Provider API ${args.provider} does not use a direct OAuth bearer token.`,
     );
@@ -1835,21 +1883,25 @@ export async function resolveProviderApiOAuthAccessToken(
     runtime,
     config.credentialKeys[0] ?? config.id,
   );
-  const credential =
-    auth.workspaceProvider && args.connectionId
-      ? await resolveConnectionBoundOAuthBearerToken({
-          auth,
-          runtime,
-          ctx,
-          workspaceProvider: auth.workspaceProvider,
-          connectionId: args.connectionId,
-          accountId: args.accountId,
-        })
-      : await resolveOAuthBearerToken({
-          auth,
-          ctx,
-          accountId: args.accountId,
-        });
+  const credential = oauthAuth.workspaceProvider
+    ? await resolveOptionalConnectionBoundOAuthBearerToken({
+        auth: oauthAuth,
+        runtime,
+        ctx,
+        workspaceProvider: oauthAuth.workspaceProvider,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+      })
+    : await resolveOAuthBearerToken({
+        auth: oauthAuth,
+        ctx,
+        accountId: args.accountId,
+      });
+  if (!credential) {
+    throw new Error(
+      `${oauthAuth.tokenLabel} workspace connection is not available to ${runtime.appId}.`,
+    );
+  }
   return {
     accessToken: credential.value,
     accountId: credential.accountId ?? null,
@@ -3061,10 +3113,13 @@ function describeAuth(auth: ProviderApiAuthKind): string {
   if (auth.type === "google-service-account") return "google-service-account";
   if (auth.type === "oauth-bearer") return `oauth-bearer:${auth.oauthProvider}`;
   if (auth.type === "oauth-bearer-or-api-key-header") {
-    return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}`;
+    return `oauth-bearer:${auth.oauthProvider}-or-api-key-header:${auth.header}:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
   }
   if (auth.type === "oauth-bearer-or-bearer-key") {
-    return `oauth-bearer:${auth.oauthProvider}-or-bearer-key:${auth.key}`;
+    return `oauth-bearer:${auth.oauthProvider}-or-bearer-key:${(auth.fallbackKeys ?? [auth.key]).join(",")}`;
+  }
+  if (auth.type === "oauth-bearer-or-basic") {
+    return `oauth-bearer:${auth.oauthProvider}-or-basic:${auth.usernameKey}:${auth.passwordKey}`;
   }
   return "prometheus-basic-or-bearer";
 }
@@ -3088,6 +3143,12 @@ async function resolveBaseUrl(
   ctx: CredentialContext,
   args: ProviderApiRequestArgs,
 ): Promise<string> {
+  const oauthBaseUrl = await resolveWorkspaceOAuthBaseUrl(
+    config,
+    runtime,
+    args,
+  );
+  if (oauthBaseUrl) return oauthBaseUrl;
   if (!config.baseUrlCredentialKey) return config.defaultBaseUrl;
   const configured = await resolveCredentialValue({
     config,
@@ -3097,6 +3158,34 @@ async function resolveBaseUrl(
     args,
   });
   return (configured || config.defaultBaseUrl).replace(/\/+$/, "");
+}
+
+async function resolveWorkspaceOAuthBaseUrl(
+  config: ProviderApiConfig,
+  runtime: ProviderApiRuntimeOptions,
+  args: ProviderApiRequestArgs,
+): Promise<string | null> {
+  const auth = config.auth;
+  const workspaceProvider =
+    auth.type === "oauth-bearer" ||
+    auth.type === "oauth-bearer-or-api-key-header" ||
+    auth.type === "oauth-bearer-or-bearer-key" ||
+    auth.type === "oauth-bearer-or-basic"
+      ? auth.workspaceProvider
+      : undefined;
+  if (workspaceProvider !== "jira") return null;
+  const resolved = await resolveWorkspaceConnectionForApp({
+    appId: runtime.appId,
+    provider: workspaceProvider,
+    connectionId: args.connectionId ?? undefined,
+    requireConnected: true,
+  });
+  if (!resolved.available || !resolved.connection) return null;
+  const connectionConfig = resolved.connection.config;
+  if (connectionConfig.credentialMode !== "oauth") return null;
+  const baseUrl = connectionConfig.atlassianApiBaseUrl;
+  if (typeof baseUrl !== "string" || !baseUrl.trim()) return null;
+  return baseUrl.replace(/\/+$/, "");
 }
 
 async function resolvePlaceholders(
@@ -3373,8 +3462,22 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer-or-api-key-header") {
-    if (args.connectionId) {
-      const credential = await resolveConnectionBoundOAuthBearerToken({
+    const resolvedFallback = await resolveHybridFallbackCredential({
+      auth,
+      config,
+      runtime,
+      ctx,
+      args,
+    });
+    if (resolvedFallback) {
+      return {
+        headers: { [auth.header]: resolvedFallback.value },
+        credentialSources: [omitCredentialValue(resolvedFallback)],
+        secretValues: [resolvedFallback.value],
+      };
+    }
+    const workspaceCredential =
+      await resolveOptionalConnectionBoundOAuthBearerToken({
         auth: {
           type: "oauth-bearer",
           oauthProvider: auth.oauthProvider,
@@ -3386,16 +3489,17 @@ async function resolveAuth(
         accountId: args.accountId,
         workspaceProvider: auth.workspaceProvider,
       });
+    if (workspaceCredential) {
       return {
-        headers: { Authorization: `Bearer ${credential.value}` },
-        credentialSources: [omitCredentialValue(credential)],
-        secretValues: [credential.value],
+        headers: { Authorization: `Bearer ${workspaceCredential.value}` },
+        credentialSources: [omitCredentialValue(workspaceCredential)],
+        secretValues: [workspaceCredential.value],
       };
     }
-    const credential = await resolveRequiredCredential({
+    const credential = await resolveAnyCredential({
       provider: config.id,
       workspaceProvider: auth.workspaceProvider,
-      key: auth.key,
+      keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
     });
@@ -3406,8 +3510,22 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer-or-bearer-key") {
-    if (args.connectionId) {
-      const credential = await resolveConnectionBoundOAuthBearerToken({
+    const resolvedFallback = await resolveHybridFallbackCredential({
+      auth,
+      config,
+      runtime,
+      ctx,
+      args,
+    });
+    if (resolvedFallback) {
+      return {
+        headers: { Authorization: `Bearer ${resolvedFallback.value}` },
+        credentialSources: [omitCredentialValue(resolvedFallback)],
+        secretValues: [resolvedFallback.value],
+      };
+    }
+    const workspaceCredential =
+      await resolveOptionalConnectionBoundOAuthBearerToken({
         auth: {
           type: "oauth-bearer",
           oauthProvider: auth.oauthProvider,
@@ -3419,16 +3537,17 @@ async function resolveAuth(
         accountId: args.accountId,
         workspaceProvider: auth.workspaceProvider,
       });
+    if (workspaceCredential) {
       return {
-        headers: { Authorization: `Bearer ${credential.value}` },
-        credentialSources: [omitCredentialValue(credential)],
-        secretValues: [credential.value],
+        headers: { Authorization: `Bearer ${workspaceCredential.value}` },
+        credentialSources: [omitCredentialValue(workspaceCredential)],
+        secretValues: [workspaceCredential.value],
       };
     }
-    const credential = await resolveRequiredCredential({
+    const credential = await resolveAnyCredential({
       provider: config.id,
       workspaceProvider: auth.workspaceProvider,
-      key: auth.key,
+      keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
     });
@@ -3436,6 +3555,55 @@ async function resolveAuth(
       headers: { Authorization: `Bearer ${credential.value}` },
       credentialSources: [omitCredentialValue(credential)],
       secretValues: [credential.value],
+    };
+  }
+  if (auth.type === "oauth-bearer-or-basic") {
+    const workspaceCredential =
+      await resolveOptionalConnectionBoundOAuthBearerToken({
+        auth: {
+          type: "oauth-bearer",
+          oauthProvider: auth.oauthProvider,
+          tokenLabel: auth.tokenLabel,
+        },
+        runtime,
+        ctx,
+        connectionId: args.connectionId,
+        accountId: args.accountId,
+        workspaceProvider: auth.workspaceProvider,
+      });
+    if (workspaceCredential) {
+      return {
+        headers: { Authorization: `Bearer ${workspaceCredential.value}` },
+        credentialSources: [omitCredentialValue(workspaceCredential)],
+        secretValues: [workspaceCredential.value],
+      };
+    }
+    const username = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.usernameKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const password = await resolveRequiredCredential({
+      provider: config.id,
+      workspaceProvider: auth.workspaceProvider,
+      key: auth.passwordKey,
+      ctx,
+      runtime,
+      connectionId: args.connectionId,
+    });
+    const encoded = Buffer.from(`${username.value}:${password.value}`).toString(
+      "base64",
+    );
+    return {
+      headers: { Authorization: `Basic ${encoded}` },
+      credentialSources: [
+        omitCredentialValue(username),
+        omitCredentialValue(password),
+      ],
+      secretValues: [username.value, password.value, encoded],
     };
   }
 
@@ -3497,6 +3665,34 @@ async function resolveAuth(
 
 function emptyAuth(): ResolvedAuth {
   return { headers: {}, credentialSources: [], secretValues: [] };
+}
+
+async function resolveHybridFallbackCredential(options: {
+  auth:
+    | Extract<ProviderApiAuthKind, { type: "oauth-bearer-or-api-key-header" }>
+    | Extract<ProviderApiAuthKind, { type: "oauth-bearer-or-bearer-key" }>;
+  config: ProviderApiConfig;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  args: ProviderApiRequestArgs;
+}): Promise<ProviderApiResolvedCredential | null> {
+  // Analytics has a legacy GitHub resolver that knows how to select its
+  // existing workspace or local token. Preserve that resolver for explicit
+  // GitHub connections while allowing the shared OAuth connection path below
+  // to handle OAuth-backed workspace rows.
+  if (
+    options.auth.oauthProvider !== "github" ||
+    !options.runtime.resolveCredential
+  )
+    return null;
+  return resolveOptionalCredential({
+    provider: options.config.id,
+    workspaceProvider: options.auth.workspaceProvider,
+    key: options.auth.key,
+    ctx: options.ctx,
+    runtime: options.runtime,
+    connectionId: options.args.connectionId,
+  });
 }
 
 async function resolveAnyCredential(options: {
@@ -3648,14 +3844,16 @@ async function resolveOAuthBearerToken(options: {
   auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
   ctx: CredentialContext;
   accountId?: string | null;
+  ownerEmail?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
+  const ownerEmail = options.ownerEmail?.trim() || options.ctx.userEmail;
   const accounts = await listOAuthAccountsByOwner(
     options.auth.oauthProvider,
-    options.ctx.userEmail,
+    ownerEmail,
   );
   if (accounts.length === 0) {
     throw new Error(
-      `${options.auth.tokenLabel} is not connected for ${options.ctx.userEmail}.`,
+      `${options.auth.tokenLabel} is not connected for ${ownerEmail}.`,
     );
   }
   const accountId = options.accountId?.trim();
@@ -3664,14 +3862,14 @@ async function resolveOAuthBearerToken(options: {
     : accounts[0];
   if (!account) {
     throw new Error(
-      `${options.auth.tokenLabel} account ${accountId} is not available to ${options.ctx.userEmail}.`,
+      `${options.auth.tokenLabel} account ${accountId} is not available to ${ownerEmail}.`,
     );
   }
   const tokens = account.tokens as OAuthTokens;
   const token = await getValidOAuthAccessToken({
     oauthProvider: options.auth.oauthProvider,
     accountId: account.accountId,
-    ownerEmail: options.ctx.userEmail,
+    ownerEmail,
     tokens,
   });
   return {
@@ -3692,12 +3890,23 @@ async function resolveConnectionBoundOAuthBearerToken(options: {
   connectionId?: string | null;
   accountId?: string | null;
 }): Promise<ProviderApiResolvedCredential> {
+  const credential =
+    await resolveOptionalConnectionBoundOAuthBearerToken(options);
+  if (credential) return credential;
+  throw new Error(
+    `${options.auth.tokenLabel} requires an available workspace connection.`,
+  );
+}
+
+async function resolveOptionalConnectionBoundOAuthBearerToken(options: {
+  auth: Extract<ProviderApiAuthKind, { type: "oauth-bearer" }>;
+  runtime: ProviderApiRuntimeOptions;
+  ctx: CredentialContext;
+  workspaceProvider: string;
+  connectionId?: string | null;
+  accountId?: string | null;
+}): Promise<ProviderApiResolvedCredential | null> {
   const requestedConnectionId = options.connectionId?.trim();
-  if (!requestedConnectionId) {
-    throw new Error(
-      `${options.auth.tokenLabel} requires an explicit workspace connection selection.`,
-    );
-  }
   const resolved = await resolveWorkspaceConnectionForApp({
     appId: options.runtime.appId,
     provider: options.workspaceProvider,
@@ -3705,12 +3914,13 @@ async function resolveConnectionBoundOAuthBearerToken(options: {
     requireConnected: true,
   });
   if (!resolved.available || !resolved.connection) {
-    throw new Error(resolved.reason);
+    if (requestedConnectionId) throw new Error(resolved.reason);
+    return null;
   }
   const connectionAccountId = resolved.connection.accountId?.trim();
   if (!connectionAccountId) {
     throw new Error(
-      `${options.auth.tokenLabel} workspace connection ${requestedConnectionId} is missing its OAuth account binding.`,
+      `${options.auth.tokenLabel} workspace connection ${resolved.connection.id} is missing its OAuth account binding.`,
     );
   }
   const requestedAccountId = options.accountId?.trim();
@@ -3723,6 +3933,7 @@ async function resolveConnectionBoundOAuthBearerToken(options: {
     auth: options.auth,
     ctx: options.ctx,
     accountId: connectionAccountId,
+    ownerEmail: resolved.connection.ownerEmail,
   });
   return {
     ...credential,
@@ -3767,6 +3978,18 @@ async function getValidOAuthAccessToken(options: {
   }
   if (options.oauthProvider === "notion") {
     return refreshNotionOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "github") {
+    return refreshGitHubOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "hubspot") {
+    return refreshHubSpotOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "jira") {
+    return refreshJiraOAuthToken(options, refreshToken);
+  }
+  if (options.oauthProvider === "sentry") {
+    return refreshSentryOAuthToken(options, refreshToken);
   }
   throw new Error(
     `${options.oauthProvider} OAuth token is expired and automatic refresh is not configured for provider-api.`,
@@ -3878,6 +4101,322 @@ async function refreshNotionOAuthToken(
     token_type: data.token_type ?? "bearer",
     expiry_date: Date.now() + (data.expires_in ?? 3600) * 1_000,
     refresh_token: data.refresh_token ?? refreshToken,
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshGitHubOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("GITHUB");
+  if (!credentials.length) {
+    throw new Error(
+      "GITHUB_CLIENT_ID/SECRET not set for GitHub OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://github.com/login/oauth/access_token",
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          grant_type: "refresh_token",
+          refresh_token: refreshToken,
+        }),
+      },
+      "GitHub",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`GitHub OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function saveOAuthTokensAndLinkedJiraAccounts(options: {
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  };
+  previousRefreshToken: string;
+  updated: OAuthTokens;
+}): Promise<void> {
+  const serializedTokens = options.updated as unknown as Record<
+    string,
+    unknown
+  >;
+  await saveOAuthTokens(
+    options.options.oauthProvider,
+    options.options.accountId,
+    serializedTokens,
+    options.options.ownerEmail,
+  );
+
+  const accounts = await listOAuthAccountsByOwner(
+    options.options.oauthProvider,
+    options.options.ownerEmail,
+  );
+  for (const account of accounts) {
+    if (account.accountId === options.options.accountId) continue;
+    const accountRefreshToken =
+      (account.tokens.refresh_token as string | undefined) ??
+      (account.tokens.refreshToken as string | undefined);
+    if (accountRefreshToken !== options.previousRefreshToken) continue;
+    await saveOAuthTokens(
+      options.options.oauthProvider,
+      account.accountId,
+      serializedTokens,
+      options.options.ownerEmail,
+    );
+  }
+}
+
+async function refreshHubSpotOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("HUBSPOT");
+  if (!credentials.length) {
+    throw new Error(
+      "HUBSPOT_CLIENT_ID/SECRET not set for HubSpot OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://api.hubapi.com/oauth/v3/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "HubSpot",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`HubSpot OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokens(
+    options.oauthProvider,
+    options.accountId,
+    updated as unknown as Record<string, unknown>,
+    options.ownerEmail,
+  );
+  return data.access_token;
+}
+
+async function refreshJiraOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("JIRA");
+  if (!credentials.length) {
+    throw new Error("JIRA_CLIENT_ID/SECRET not set for Jira OAuth refresh.");
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://auth.atlassian.com/oauth/token",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "Jira",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`Jira OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
+  };
+  await saveOAuthTokensAndLinkedJiraAccounts({
+    options,
+    previousRefreshToken: refreshToken,
+    updated,
+  });
+  return data.access_token;
+}
+
+async function refreshSentryOAuthToken(
+  options: {
+    oauthProvider: string;
+    accountId: string;
+    ownerEmail: string;
+    tokens: OAuthTokens;
+  },
+  refreshToken: string,
+): Promise<string> {
+  const credentials = await resolveOAuthClientCredentialCandidates("SENTRY");
+  if (!credentials.length) {
+    throw new Error(
+      "SENTRY_CLIENT_ID/SECRET not set for Sentry OAuth refresh.",
+    );
+  }
+
+  let response: Response | null = null;
+  let data: {
+    access_token?: string;
+    refresh_token?: string;
+    expires_in?: number;
+    token_type?: string;
+  } = {};
+  for (const credential of credentials) {
+    const result = await fetchBoundedOAuthRefreshJson<{
+      access_token?: string;
+      refresh_token?: string;
+      expires_in?: number;
+      token_type?: string;
+    }>(
+      "https://sentry.io/oauth/token/",
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "refresh_token",
+          client_id: credential.clientId,
+          client_secret: credential.clientSecret,
+          refresh_token: refreshToken,
+        }),
+      },
+      "Sentry",
+    );
+    response = result.response;
+    data = result.data;
+    if (response.ok && data.access_token) break;
+  }
+
+  if (!response?.ok || !data.access_token) {
+    throw new Error(`Sentry OAuth refresh failed (${response?.status ?? 0}).`);
+  }
+  const updated = {
+    ...options.tokens,
+    access_token: data.access_token,
+    refresh_token: data.refresh_token ?? refreshToken,
+    token_type: data.token_type ?? options.tokens.token_type,
+    ...(Number.isFinite(data.expires_in) && (data.expires_in ?? 0) > 0
+      ? { expiry_date: Date.now() + (data.expires_in as number) * 1_000 }
+      : {}),
   };
   await saveOAuthTokens(
     options.oauthProvider,
@@ -4039,6 +4578,32 @@ async function refreshGoogleOAuthToken(
 function dedupeGoogleOAuthCredentials(
   candidates: Array<{ clientId: string; clientSecret: string }>,
 ): Array<{ clientId: string; clientSecret: string }> {
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (seen.has(candidate.clientId)) return false;
+    seen.add(candidate.clientId);
+    return true;
+  });
+}
+
+async function resolveOAuthClientCredentialCandidates(
+  provider: string,
+): Promise<Array<{ clientId: string; clientSecret: string }>> {
+  const [clientId, clientSecret, integrationClientId, integrationClientSecret] =
+    await Promise.all([
+      resolveSecret(`${provider}_CLIENT_ID`),
+      resolveSecret(`${provider}_CLIENT_SECRET`),
+      resolveSecret(`${provider}_INTEGRATION_CLIENT_ID`),
+      resolveSecret(`${provider}_INTEGRATION_CLIENT_SECRET`),
+    ]);
+  const candidates = [
+    integrationClientId && integrationClientSecret
+      ? { clientId: integrationClientId, clientSecret: integrationClientSecret }
+      : null,
+    clientId && clientSecret ? { clientId, clientSecret } : null,
+  ].filter((value): value is { clientId: string; clientSecret: string } =>
+    Boolean(value),
+  );
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
     if (seen.has(candidate.clientId)) return false;

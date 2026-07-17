@@ -33,6 +33,14 @@ export interface McpIntegrationFormDefaults {
   headersText: string;
 }
 
+export interface McpOAuthStartParams {
+  name: string;
+  url: string;
+  description: string;
+  scope: "user" | "org";
+  returnUrl: string;
+}
+
 export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
   {
     id: "context7",
@@ -213,6 +221,31 @@ export function mcpIntegrationAuthLabel(mode: McpIntegrationAuthMode): string {
   if (mode === "none") return "No auth";
   if (mode === "headers") return "Header";
   return "OAuth";
+}
+
+export function buildMcpOAuthStartUrl({
+  name,
+  url,
+  description,
+  scope,
+  returnUrl,
+}: McpOAuthStartParams): string {
+  const params = new URLSearchParams({
+    name,
+    url,
+    description,
+    scope,
+    return: returnUrl,
+  });
+  return `/_agent-native/mcp/servers/oauth/start?${params.toString()}`;
+}
+
+export function resolveMcpIntegrationScope(
+  defaultScope: "user" | "org",
+  hasOrg: boolean,
+  canCreateOrgMcp: boolean,
+): "user" | "org" {
+  return defaultScope === "org" && hasOrg && canCreateOrgMcp ? "org" : "user";
 }
 
 export function filterMcpIntegrations(
