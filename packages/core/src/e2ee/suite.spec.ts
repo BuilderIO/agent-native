@@ -37,6 +37,21 @@ describe("anc/v1 suite freeze", () => {
       createdAt: 4,
       envelopeId: 5,
     });
+    expect(E2EE_ENVELOPE_FIELDS.controlMembership).toEqual({
+      ceremonyId: 140,
+      ceremonyKind: 141,
+      epoch: 142,
+      previousMembershipHash: 143,
+      activeMembers: 144,
+      removedEndpointIds: 145,
+      rotationCompleted: 146,
+      outstandingJobsResolved: 147,
+      recoverySnapshotHash: 148,
+      recoveryAuthorizationHash: 149,
+    });
+    expect(E2EE_ENVELOPE_FIELDS.controlContinuity).toEqual({
+      membershipHash: 150,
+    });
     expect("title" in E2EE_ENVELOPE_FIELDS.objectHeader).toBe(false);
     expect(Array.from(e2eeDomainSeparationPrefix("job"))).toEqual(
       Array.from(new TextEncoder().encode("anc/v1/job\0")),

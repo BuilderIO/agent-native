@@ -130,6 +130,21 @@ export const E2EE_ENVELOPE_FIELDS = Object.freeze({
     signerEndpointId: 113,
     signature: 114,
   }),
+  controlMembership: Object.freeze({
+    ceremonyId: 140,
+    ceremonyKind: 141,
+    epoch: 142,
+    previousMembershipHash: 143,
+    activeMembers: 144,
+    removedEndpointIds: 145,
+    rotationCompleted: 146,
+    outstandingJobsResolved: 147,
+    recoverySnapshotHash: 148,
+    recoveryAuthorizationHash: 149,
+  }),
+  controlContinuity: Object.freeze({
+    membershipHash: 150,
+  }),
   manifest: Object.freeze({
     sequence: 120,
     objectRevisions: 121,
