@@ -646,10 +646,19 @@ async function resolveWorkspaceProviderIdentitySingle(
     };
   }
   if (providerId === "sentry") {
-    const user = record(tokens.user);
-    const accountId =
-      text(user?.id) ?? text(tokens.user_id) ?? text(tokens.account_id);
-    if (!accountId) {
+    const accessToken = text(tokens.access_token)!;
+    const { response, body: user } = await fetchBoundedProviderJson(
+      "https://sentry.io/api/0/users/me/",
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+      "Sentry",
+    );
+    const accountId = text(user.id);
+    if (!response.ok || !accountId) {
       throw new Error(
         "Sentry OAuth response did not identify the connected account.",
       );

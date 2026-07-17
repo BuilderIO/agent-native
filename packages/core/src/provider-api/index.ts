@@ -3462,13 +3462,19 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer-or-api-key-header") {
-    const resolvedFallback = await resolveHybridFallbackCredential({
-      auth,
-      config,
-      runtime,
-      ctx,
-      args,
-    });
+    const explicitGitHubFallback =
+      auth.oauthProvider === "github" &&
+      Boolean(args.connectionId?.trim()) &&
+      Boolean(runtime.resolveCredential);
+    const resolvedFallback = explicitGitHubFallback
+      ? await resolveHybridFallbackCredential({
+          auth,
+          config,
+          runtime,
+          ctx,
+          args,
+        })
+      : null;
     if (resolvedFallback) {
       return {
         headers: { [auth.header]: resolvedFallback.value },
@@ -3496,6 +3502,22 @@ async function resolveAuth(
         secretValues: [workspaceCredential.value],
       };
     }
+    if (!explicitGitHubFallback) {
+      const resolvedFallback = await resolveHybridFallbackCredential({
+        auth,
+        config,
+        runtime,
+        ctx,
+        args,
+      });
+      if (resolvedFallback) {
+        return {
+          headers: { [auth.header]: resolvedFallback.value },
+          credentialSources: [omitCredentialValue(resolvedFallback)],
+          secretValues: [resolvedFallback.value],
+        };
+      }
+    }
     const credential = await resolveAnyCredential({
       provider: config.id,
       workspaceProvider: auth.workspaceProvider,
@@ -3510,13 +3532,19 @@ async function resolveAuth(
     };
   }
   if (auth.type === "oauth-bearer-or-bearer-key") {
-    const resolvedFallback = await resolveHybridFallbackCredential({
-      auth,
-      config,
-      runtime,
-      ctx,
-      args,
-    });
+    const explicitGitHubFallback =
+      auth.oauthProvider === "github" &&
+      Boolean(args.connectionId?.trim()) &&
+      Boolean(runtime.resolveCredential);
+    const resolvedFallback = explicitGitHubFallback
+      ? await resolveHybridFallbackCredential({
+          auth,
+          config,
+          runtime,
+          ctx,
+          args,
+        })
+      : null;
     if (resolvedFallback) {
       return {
         headers: { Authorization: `Bearer ${resolvedFallback.value}` },
@@ -3543,6 +3571,22 @@ async function resolveAuth(
         credentialSources: [omitCredentialValue(workspaceCredential)],
         secretValues: [workspaceCredential.value],
       };
+    }
+    if (!explicitGitHubFallback) {
+      const resolvedFallback = await resolveHybridFallbackCredential({
+        auth,
+        config,
+        runtime,
+        ctx,
+        args,
+      });
+      if (resolvedFallback) {
+        return {
+          headers: { Authorization: `Bearer ${resolvedFallback.value}` },
+          credentialSources: [omitCredentialValue(resolvedFallback)],
+          secretValues: [resolvedFallback.value],
+        };
+      }
     }
     const credential = await resolveAnyCredential({
       provider: config.id,
@@ -3676,10 +3720,9 @@ async function resolveHybridFallbackCredential(options: {
   ctx: CredentialContext;
   args: ProviderApiRequestArgs;
 }): Promise<ProviderApiResolvedCredential | null> {
-  // Analytics has a legacy GitHub resolver that knows how to select its
-  // existing workspace or local token. Preserve that resolver for explicit
-  // GitHub connections while allowing the shared OAuth connection path below
-  // to handle OAuth-backed workspace rows.
+  // Analytics has a legacy GitHub resolver for existing workspace or local
+  // tokens. It runs only after the shared OAuth connection path has had a
+  // chance to resolve a granted account.
   if (
     options.auth.oauthProvider !== "github" ||
     !options.runtime.resolveCredential

@@ -628,13 +628,31 @@ it("resolves HubSpot portal identity through the token metadata endpoint", async
   );
 });
 
-it("resolves Sentry account identity from the OAuth user payload", async () => {
+it("resolves Sentry account identity through the authenticated user endpoint", async () => {
+  const fetchMock = vi.fn(
+    async (_url: string, init?: RequestInit) =>
+      new Response(
+        JSON.stringify({ id: "sentry-user", email: "dev@example.com" }),
+        { status: 200 },
+      ),
+  );
+  vi.stubGlobal("fetch", fetchMock);
+
   await expect(
     resolveWorkspaceProviderIdentity("sentry", {
-      user: { id: "sentry-user", email: "dev@example.com" },
+      access_token: "sentry-access",
     }),
   ).resolves.toEqual({
     accountId: "sentry-user",
     label: "dev@example.com",
   });
+  expect(fetchMock).toHaveBeenCalledWith(
+    "https://sentry.io/api/0/users/me/",
+    expect.objectContaining({
+      headers: {
+        Accept: "application/json",
+        Authorization: "Bearer sentry-access",
+      },
+    }),
+  );
 });

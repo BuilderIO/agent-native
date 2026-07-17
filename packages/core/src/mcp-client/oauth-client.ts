@@ -25,8 +25,57 @@ import {
   getOAuthTokens,
   saveOAuthTokens,
 } from "../oauth-tokens/store.js";
+import { validateRemoteUrl } from "./remote-url.js";
 
 const TOKEN_EXPIRY_SKEW_MS = 60_000;
+
+type GuardedFetch = (
+  url: string | URL,
+  init?: RequestInit,
+) => Promise<Response>;
+
+function checkedRemoteUrl(value: string | URL, label: string): URL {
+  const result = validateRemoteUrl(String(value));
+  if (!result.ok || !result.url) {
+    throw new Error(
+      `MCP OAuth ${label} is not allowed: ${result.error ?? "invalid URL"}`,
+    );
+  }
+  return result.url;
+}
+
+function guardedOAuthFetch(): GuardedFetch {
+  return async (url, init) => fetch(checkedRemoteUrl(url, "request"), init);
+}
+
+function validateDiscoveryUrls(state: {
+  authorizationServerUrl: string;
+  authorizationServerMetadata?: AuthorizationServerMetadata;
+  resourceMetadata?: OAuthProtectedResourceMetadata;
+  resourceMetadataUrl?: string;
+}): void {
+  checkedRemoteUrl(state.authorizationServerUrl, "authorization server");
+  if (state.resourceMetadataUrl) {
+    checkedRemoteUrl(state.resourceMetadataUrl, "resource metadata");
+  }
+  for (const url of state.resourceMetadata?.authorization_servers ?? []) {
+    checkedRemoteUrl(url, "discovered authorization server");
+  }
+  for (const field of [
+    "authorization_endpoint",
+    "token_endpoint",
+    "registration_endpoint",
+    "introspection_endpoint",
+    "revocation_endpoint",
+  ] as const) {
+    const url = (
+      state.authorizationServerMetadata as Record<string, unknown> | undefined
+    )?.[field];
+    if (typeof url === "string") {
+      checkedRemoteUrl(url, `OAuth ${field}`);
+    }
+  }
+}
 
 function credentialOwner(options: { scope: "user" | "org"; scopeId: string }) {
   return `${options.scope}:${options.scopeId}`;
@@ -127,7 +176,10 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
   }
 
   redirectToAuthorization(authorizationUrl: URL): void {
-    this.authorizationUrl = authorizationUrl;
+    this.authorizationUrl = checkedRemoteUrl(
+      authorizationUrl,
+      "authorization redirect",
+    );
   }
 
   saveCodeVerifier(codeVerifier: string): void {
@@ -147,6 +199,7 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
     resourceMetadata?: OAuthProtectedResourceMetadata;
     resourceMetadataUrl?: string;
   }): void {
+    validateDiscoveryUrls(state);
     this.savedDiscovery = state;
   }
 
@@ -174,10 +227,12 @@ export class McpOAuthClientProvider implements OAuthClientProvider {
 export async function startMcpOAuthAuthorization(
   options: McpOAuthProviderOptions & { scope?: string },
 ): Promise<McpOAuthStartResult> {
+  checkedRemoteUrl(options.serverUrl, "server");
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     scope: options.scope,
+    fetchFn: guardedOAuthFetch(),
   });
   if (result !== "REDIRECT" || !provider.authorizationRedirect) {
     throw new Error("MCP server did not start an interactive OAuth flow");
@@ -198,10 +253,12 @@ export async function startMcpOAuthAuthorization(
 export async function finishMcpOAuthAuthorization(
   options: McpOAuthProviderOptions & { authorizationCode: string },
 ): Promise<McpOAuthCallbackResult> {
+  checkedRemoteUrl(options.serverUrl, "server");
   const provider = new McpOAuthClientProvider(options);
   const result = await auth(provider, {
     serverUrl: options.serverUrl,
     authorizationCode: options.authorizationCode,
+    fetchFn: guardedOAuthFetch(),
   });
   if (result !== "AUTHORIZED" || !provider.savedTokensValue) {
     throw new Error("MCP OAuth token exchange did not complete");
@@ -230,6 +287,10 @@ export async function saveMcpOAuthCredentials(options: {
   scopeId: string;
   credentials: McpOAuthCredentialBundle;
 }): Promise<void> {
+  checkedRemoteUrl(options.credentials.serverUrl, "server");
+  if (options.credentials.discoveryState) {
+    validateDiscoveryUrls(options.credentials.discoveryState);
+  }
   await saveOAuthTokens(
     "mcp",
     options.key,
@@ -258,6 +319,7 @@ export async function readMcpOAuthCredentials(options: {
   ) {
     return null;
   }
+  if (!validateRemoteUrl(parsed.serverUrl).ok) return null;
   return parsed as McpOAuthCredentialBundle;
 }
 
@@ -282,6 +344,7 @@ export async function getMcpOAuthAccessToken(options: {
   scopeId: string;
   serverUrl: string;
 }): Promise<string | null> {
+  if (!validateRemoteUrl(options.serverUrl).ok) return null;
   const credentials = await readMcpOAuthCredentials(options);
   if (!credentials || credentials.serverUrl !== options.serverUrl) return null;
 
@@ -301,17 +364,19 @@ export async function getMcpOAuthAccessToken(options: {
 
   try {
     const resource = discovery.resourceMetadata?.resource
-      ? new URL(discovery.resourceMetadata.resource)
+      ? checkedRemoteUrl(discovery.resourceMetadata.resource, "resource")
       : undefined;
-    const refreshed = await refreshAuthorization(
+    const authorizationServerUrl = checkedRemoteUrl(
       discovery.authorizationServerUrl,
-      {
-        metadata: discovery.authorizationServerMetadata,
-        clientInformation: credentials.clientInformation,
-        refreshToken,
-        resource,
-      },
+      "authorization server",
     );
+    const refreshed = await refreshAuthorization(authorizationServerUrl, {
+      metadata: discovery.authorizationServerMetadata,
+      clientInformation: credentials.clientInformation,
+      refreshToken,
+      resource,
+      fetchFn: guardedOAuthFetch(),
+    });
     const next: McpOAuthCredentialBundle = {
       ...credentials,
       tokens: refreshed,

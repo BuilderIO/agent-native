@@ -215,6 +215,57 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("prefers a shared GitHub OAuth connection over Analytics' legacy token resolver", async () => {
+    resolveCredential.mockResolvedValue({
+      key: "GITHUB_TOKEN",
+      value: "legacy-github-token",
+      source: "analytics_local",
+      provider: "github",
+    });
+    listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "octocat",
+        displayName: "Octo Cat",
+        tokens: { access_token: "github-oauth-example" },
+      },
+    ]);
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: {
+        id: "github-connection",
+        label: "Octo Cat",
+        accountId: "octocat",
+      },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const runtime = createProviderApiRuntime({
+      appId: "analytics",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      resolveCredential: async (lookup) => {
+        const credential = await resolveCredential(lookup.key);
+        return credential;
+      },
+    });
+
+    await runtime.executeRequest({
+      provider: "github",
+      path: "/user",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.github.com/user",
+      expect.objectContaining({
+        headers: expect.objectContaining({
+          Authorization: "Bearer github-oauth-example",
+        }),
+      }),
+    );
+    expect(resolveCredential).not.toHaveBeenCalled();
+  });
+
   it("never falls back to an admin Figma token after an explicit connection fails", async () => {
     resolveCredential.mockImplementation(async (key: string) =>
       key === "FIGMA_ACCESS_TOKEN" ? "admin-token-must-not-be-used" : null,

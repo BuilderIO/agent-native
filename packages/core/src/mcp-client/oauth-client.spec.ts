@@ -81,6 +81,46 @@ describe("MCP OAuth client", () => {
     expect(result.clientInformation).toEqual(clientInformation);
   });
 
+  it("guards SDK OAuth requests and persisted discovery URLs", async () => {
+    let fetchFn:
+      | ((url: string | URL, init?: RequestInit) => Promise<Response>)
+      | undefined;
+    authMock.mockImplementationOnce(
+      async (
+        provider: McpOAuthClientProvider,
+        options: { fetchFn?: typeof fetchFn },
+      ) => {
+        fetchFn = options.fetchFn;
+        provider.saveClientInformation(clientInformation as any);
+        provider.saveCodeVerifier("<CODE_VERIFIER>");
+        provider.redirectToAuthorization(
+          new URL("https://auth.example.com/authorize"),
+        );
+        return "REDIRECT";
+      },
+    );
+
+    await startMcpOAuthAuthorization({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+
+    await expect(
+      fetchFn!("https://127.0.0.1/.well-known/oauth-authorization-server"),
+    ).rejects.toThrow(/private\/internal address/);
+    const provider = new McpOAuthClientProvider({
+      serverUrl: "https://mcp.example.com/mcp",
+      redirectUrl: "https://app.example.com/callback",
+      state: "<STATE>",
+    });
+    expect(() =>
+      provider.saveDiscoveryState({
+        authorizationServerUrl: "https://10.0.0.5/oauth",
+      }),
+    ).toThrow(/private\/internal address/);
+  });
+
   it("finishes the code exchange without exposing the token to the flow result", async () => {
     authMock.mockImplementationOnce(
       async (provider: McpOAuthClientProvider) => {
