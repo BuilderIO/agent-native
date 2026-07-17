@@ -1800,6 +1800,8 @@ export interface AssistantChatProps {
     models: string[];
     configured: boolean;
   }>;
+  /** Whether the model list is still being resolved. */
+  modelListLoading?: boolean;
   /** Callback when user picks a model from the picker */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks a reasoning effort from the picker */
@@ -2174,6 +2176,7 @@ const AssistantChatInner = forwardRef<
     defaultModel,
     selectedEffort,
     availableModels,
+    modelListLoading,
     onModelChange,
     onEffortChange,
     imageModelMenu,
@@ -5531,6 +5534,7 @@ const AssistantChatInner = forwardRef<
                             selectedModel={selectedModel ?? defaultModel}
                             selectedEffort={selectedEffort}
                             availableModels={availableModels}
+                            modelListLoading={modelListLoading}
                             onModelChange={onModelChange}
                             onEffortChange={onEffortChange}
                             imageModelMenu={imageModelMenu}

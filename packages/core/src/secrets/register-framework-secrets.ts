@@ -34,6 +34,36 @@ export function registerFrameworkSecrets(): void {
         "https://developers.google.com/identity/protocols/oauth2/web-server",
     },
     {
+      id: "github",
+      credentialPrefix: "GITHUB",
+      oauthProvider: "github",
+      label: "GitHub",
+      docsUrl: "https://docs.github.com/apps/oauth-apps/building-oauth-apps",
+    },
+    {
+      id: "hubspot",
+      credentialPrefix: "HUBSPOT",
+      oauthProvider: "hubspot",
+      label: "HubSpot",
+      docsUrl:
+        "https://developers.hubspot.com/docs/apps/developer-platform/build-apps/authentication/oauth/oauth-quickstart-guide",
+    },
+    {
+      id: "jira",
+      credentialPrefix: "JIRA",
+      oauthProvider: "jira",
+      label: "Jira Cloud",
+      docsUrl:
+        "https://developer.atlassian.com/cloud/jira/platform/oauth-2-3lo-apps/",
+    },
+    {
+      id: "sentry",
+      credentialPrefix: "SENTRY",
+      oauthProvider: "sentry",
+      label: "Sentry",
+      docsUrl: "https://docs.sentry.io/api/auth/",
+    },
+    {
       id: "notion",
       credentialPrefix: "NOTION",
       oauthProvider: "notion",

@@ -16,6 +16,7 @@ import {
   type WorkspaceConnectionProvider,
 } from "../connections/catalog.js";
 import { saveOAuthTokens, setOAuthDisplayName } from "../oauth-tokens/store.js";
+import { getOrgContext } from "../org/context.js";
 import { decryptSecretValue, encryptSecretValue } from "../secrets/crypto.js";
 import {
   listWorkspaceConnections,
@@ -33,11 +34,22 @@ import {
 } from "./google-oauth.js";
 import { runWithRequestContext } from "./request-context.js";
 
-export type GenericWorkspaceOAuthProvider = "figma" | "google_drive" | "notion";
+export type GenericWorkspaceOAuthProvider =
+  | "figma"
+  | "google_drive"
+  | "github"
+  | "hubspot"
+  | "jira"
+  | "sentry"
+  | "notion";
 
 const SUPPORTED_PROVIDERS = new Set<GenericWorkspaceOAuthProvider>([
   "figma",
   "google_drive",
+  "github",
+  "hubspot",
+  "jira",
+  "sentry",
   "notion",
 ]);
 const FLOW_TTL_SECONDS = 10 * 60;
@@ -83,6 +95,21 @@ export async function handleWorkspaceProviderOAuthStart(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const orgContext = await requireWorkspaceProviderOAuthAdmin(event);
+  if (!orgContext) {
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
+  const orgId = orgContext.orgId;
+  if (!orgId) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
   const provider = requiredProvider(providerId);
   const query = getQuery(event);
   const appId = normalizeAppId(
@@ -100,12 +127,10 @@ export async function handleWorkspaceProviderOAuthStart(
     return { error: "Invalid OAuth redirect URI." };
   }
   return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
+    { userEmail: session.email, orgId },
     async () => {
-      const [clientId, clientSecret] = await Promise.all([
-        resolveSecret(clientCredentialKey(providerId, "id")),
-        resolveSecret(clientCredentialKey(providerId, "secret")),
-      ]);
+      const [clientId, clientSecret] =
+        await resolveProviderClientCredentials(providerId);
       if (!clientId || !clientSecret) {
         setResponseStatus(event, 503);
         return {
@@ -125,7 +150,7 @@ export async function handleWorkspaceProviderOAuthStart(
       const state = encodeOAuthState({
         redirectUri,
         owner: session.email,
-        orgId: session.orgId,
+        orgId,
         app: appId,
         returnUrl,
         flowId,
@@ -136,7 +161,7 @@ export async function handleWorkspaceProviderOAuthStart(
         verifier,
         redirectUri,
         owner: session.email,
-        ...(session.orgId ? { orgId: session.orgId } : {}),
+        orgId,
         appId,
         expiresAt: Date.now() + FLOW_TTL_SECONDS * 1_000,
       };
@@ -171,6 +196,21 @@ export async function handleWorkspaceProviderOAuthCallback(
   if (getMethod(event) !== "GET") return methodNotAllowed(event);
   const session = await getSession(event).catch(() => null);
   if (!session?.email) return unauthorized(event);
+  const orgContext = await requireWorkspaceProviderOAuthAdmin(event);
+  if (!orgContext) {
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
+  const orgId = orgContext.orgId;
+  if (!orgId) {
+    setResponseStatus(event, 403);
+    return {
+      error:
+        "Only organization owners and admins can connect shared OAuth accounts.",
+    };
+  }
   const query = getQuery(event);
   const code = text(query.code);
   const stateParam = text(query.state);
@@ -193,7 +233,7 @@ export async function handleWorkspaceProviderOAuthCallback(
       state,
       provider: providerId,
       sessionEmail: session.email,
-      sessionOrgId: session.orgId,
+      sessionOrgId: orgId,
     })
   ) {
     setResponseStatus(event, 400);
@@ -201,12 +241,10 @@ export async function handleWorkspaceProviderOAuthCallback(
   }
   const provider = requiredProvider(providerId);
   return runWithRequestContext(
-    { userEmail: session.email, orgId: session.orgId },
+    { userEmail: session.email, orgId },
     async () => {
-      const [clientId, clientSecret] = await Promise.all([
-        resolveSecret(clientCredentialKey(providerId, "id")),
-        resolveSecret(clientCredentialKey(providerId, "secret")),
-      ]);
+      const [clientId, clientSecret] =
+        await resolveProviderClientCredentials(providerId);
       if (!clientId || !clientSecret) {
         setResponseStatus(event, 503);
         return {
@@ -222,51 +260,71 @@ export async function handleWorkspaceProviderOAuthCallback(
         verifier: flow.verifier,
         redirectUri: flow.redirectUri,
       });
-      const identity = await resolveWorkspaceProviderIdentity(
+      const identities = await resolveWorkspaceProviderIdentities(
         providerId,
         tokens,
       );
-      await saveOAuthTokens(
-        provider.oauth!.provider,
-        identity.accountId,
-        tokens,
-        session.email,
-      );
-      await setOAuthDisplayName(
-        provider.oauth!.provider,
-        identity.accountId,
-        identity.label,
-      );
-      const existing = (
-        await listWorkspaceConnections({
+      if (!identities.length) {
+        throw new Error(
+          `${provider.label} OAuth did not return an accessible account.`,
+        );
+      }
+      const existingConnections = await listWorkspaceConnections({
+        provider: providerId,
+        includeDisabled: true,
+      });
+      for (const identity of identities) {
+        const accountId = scopedOAuthAccountId(
+          providerId,
+          session.email,
+          identity.accountId,
+        );
+        await saveOAuthTokens(
+          provider.oauth!.provider,
+          accountId,
+          tokens,
+          session.email,
+        );
+        await setOAuthDisplayName(
+          provider.oauth!.provider,
+          accountId,
+          identity.label,
+        );
+        const existing = existingConnections.find(
+          (connection) => connection.accountId === accountId,
+        );
+        const scopes = mergeWorkspaceOAuthValues(
+          existing?.scopes ?? [],
+          identity.scopes ?? tokenScopes(tokens, provider.oauth!.scopes),
+        );
+        const connectionConfig = {
+          credentialMode: "oauth",
+          ...(providerId === "hubspot" || providerId === "jira"
+            ? { externalAccountId: identity.accountId }
+            : {}),
+          ...(identity.config ?? {}),
+        };
+        const connection = await upsertWorkspaceConnection({
+          ...(existing ? { id: existing.id } : {}),
           provider: providerId,
-          includeDisabled: true,
-        })
-      ).find((connection) => connection.accountId === identity.accountId);
-      const scopes = mergeWorkspaceOAuthValues(
-        existing?.scopes ?? [],
-        tokenScopes(tokens, provider.oauth!.scopes),
-      );
-      const connection = await upsertWorkspaceConnection({
-        ...(existing ? { id: existing.id } : {}),
-        provider: providerId,
-        label: `${provider.label}: ${identity.label}`,
-        accountId: identity.accountId,
-        accountLabel: identity.label,
-        status: "connected",
-        scopes,
-        allowedApps: existing?.allowedApps ?? [],
-        config: { credentialMode: "oauth" },
-        lastCheckedAt: new Date(),
-        lastError: null,
-      });
-      await upsertWorkspaceConnectionGrant({
-        connectionId: connection.id,
-        appId: flow.appId,
-        provider: providerId,
-        scopes,
-        config: { credentialMode: "oauth" },
-      });
+          label: `${provider.label}: ${identity.label}`,
+          accountId,
+          accountLabel: identity.label,
+          status: "connected",
+          scopes,
+          allowedApps: existing?.allowedApps ?? [],
+          config: connectionConfig,
+          lastCheckedAt: new Date(),
+          lastError: null,
+        });
+        await upsertWorkspaceConnectionGrant({
+          connectionId: connection.id,
+          appId: flow.appId,
+          provider: providerId,
+          scopes,
+          config: connectionConfig,
+        });
+      }
       const returnPath =
         state.returnUrl ??
         `/settings/connections?connected=${encodeURIComponent(providerId)}`;
@@ -289,9 +347,16 @@ export function buildWorkspaceProviderAuthorizationUrl(input: {
   url.searchParams.set("redirect_uri", input.redirectUri);
   url.searchParams.set("response_type", "code");
   url.searchParams.set("state", input.state);
-  if (input.provider.id === "figma") {
+  if (input.provider.id === "figma" || input.provider.id === "sentry") {
     url.searchParams.set("code_challenge", input.challenge);
     url.searchParams.set("code_challenge_method", "S256");
+  }
+  if (input.provider.id === "github") {
+    url.searchParams.set("allow_signup", "true");
+  }
+  if (input.provider.id === "jira") {
+    url.searchParams.set("audience", "api.atlassian.com");
+    url.searchParams.set("prompt", "consent");
   }
   if (input.provider.id === "google_drive") {
     url.searchParams.set("access_type", "offline");
@@ -317,11 +382,109 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
   const tokenUrl = input.provider.oauth?.tokenUrl;
   if (!tokenUrl) throw new Error("Provider does not support OAuth.");
   const authorization = `Basic ${Buffer.from(`${input.clientId}:${input.clientSecret}`).toString("base64")}`;
+  if (input.providerId === "github") {
+    const { response, body } = await fetchBoundedProviderJson(
+      tokenUrl,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          client_id: input.clientId,
+          client_secret: input.clientSecret,
+          code: input.code,
+          redirect_uri: input.redirectUri,
+        }),
+      },
+      input.provider.label,
+    );
+    const accessToken = text(body.access_token);
+    if (!response.ok || !accessToken) {
+      throw new Error(
+        `${input.provider.label} OAuth token exchange failed (${response.status}).`,
+      );
+    }
+    return {
+      ...body,
+      ...(Number.isFinite(Number(body.expires_in)) &&
+      Number(body.expires_in) > 0
+        ? { expiry_date: Date.now() + Number(body.expires_in) * 1_000 }
+        : {}),
+    };
+  }
+  if (input.providerId === "hubspot") {
+    const { response, body } = await fetchBoundedProviderJson(
+      tokenUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/x-www-form-urlencoded" },
+        body: new URLSearchParams({
+          grant_type: "authorization_code",
+          client_id: input.clientId,
+          client_secret: input.clientSecret,
+          code: input.code,
+          redirect_uri: input.redirectUri,
+        }),
+      },
+      input.provider.label,
+    );
+    const accessToken = text(body.access_token);
+    if (!response.ok || !accessToken) {
+      throw new Error(
+        `${input.provider.label} OAuth token exchange failed (${response.status}).`,
+      );
+    }
+    return {
+      ...body,
+      ...(Number.isFinite(Number(body.expires_in)) &&
+      Number(body.expires_in) > 0
+        ? { expiry_date: Date.now() + Number(body.expires_in) * 1_000 }
+        : {}),
+    };
+  }
+  if (input.providerId === "jira") {
+    const { response, body } = await fetchBoundedProviderJsonValue(
+      tokenUrl,
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          grant_type: "authorization_code",
+          client_id: input.clientId,
+          client_secret: input.clientSecret,
+          code: input.code,
+          redirect_uri: input.redirectUri,
+        }),
+      },
+      input.provider.label,
+    );
+    const tokenBody = record(body) ?? {};
+    const accessToken = text(tokenBody.access_token);
+    if (!response.ok || !accessToken) {
+      throw new Error(
+        `${input.provider.label} OAuth token exchange failed (${response.status}).`,
+      );
+    }
+    const expiresIn = Number(tokenBody.expires_in);
+    return {
+      ...tokenBody,
+      ...(Number.isFinite(expiresIn) && expiresIn > 0
+        ? { expiry_date: Date.now() + expiresIn * 1_000 }
+        : {}),
+    };
+  }
   const fields = {
     grant_type: "authorization_code",
     code: input.code,
     redirect_uri: input.redirectUri,
-    ...(input.providerId === "figma" ? { code_verifier: input.verifier } : {}),
+    ...(input.providerId === "figma" || input.providerId === "sentry"
+      ? { code_verifier: input.verifier }
+      : {}),
+    ...(input.providerId === "sentry"
+      ? { client_id: input.clientId, client_secret: input.clientSecret }
+      : {}),
     ...(input.providerId === "google_drive"
       ? { client_id: input.clientId, client_secret: input.clientSecret }
       : {}),
@@ -368,7 +531,91 @@ export async function exchangeWorkspaceProviderOAuthCode(input: {
 export async function resolveWorkspaceProviderIdentity(
   providerId: GenericWorkspaceOAuthProvider,
   tokens: Record<string, unknown>,
-): Promise<{ accountId: string; label: string }> {
+): Promise<WorkspaceProviderIdentity> {
+  const [identity] = await resolveWorkspaceProviderIdentities(
+    providerId,
+    tokens,
+  );
+  if (!identity) {
+    throw new Error(
+      `${providerId} OAuth response did not identify an account.`,
+    );
+  }
+  return identity;
+}
+
+export async function resolveWorkspaceProviderIdentities(
+  providerId: GenericWorkspaceOAuthProvider,
+  tokens: Record<string, unknown>,
+): Promise<WorkspaceProviderIdentity[]> {
+  if (providerId === "jira") {
+    const accessToken = text(tokens.access_token);
+    if (!accessToken) {
+      throw new Error("Jira OAuth response did not include an access token.");
+    }
+    const { response, body } = await fetchBoundedProviderJsonValue(
+      "https://api.atlassian.com/oauth/token/accessible-resources",
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+      "Jira",
+    );
+    if (!response.ok || !Array.isArray(body)) {
+      throw new Error("Jira OAuth response did not identify accessible sites.");
+    }
+    return body.flatMap((resource) => {
+      const entry = record(resource);
+      const cloudId = text(entry?.id);
+      const siteUrl = text(entry?.url);
+      if (!cloudId || !siteUrl) return [];
+      let parsedUrl: URL;
+      try {
+        parsedUrl = new URL(siteUrl);
+      } catch {
+        return [];
+      }
+      if (
+        parsedUrl.protocol !== "https:" ||
+        !parsedUrl.hostname.endsWith(".atlassian.net")
+      ) {
+        return [];
+      }
+      const scopes = Array.isArray(entry?.scopes)
+        ? entry.scopes.filter(
+            (scope): scope is string => typeof scope === "string",
+          )
+        : undefined;
+      return [
+        {
+          accountId: cloudId,
+          label: text(entry?.name) ?? parsedUrl.hostname,
+          ...(scopes?.length ? { scopes } : {}),
+          config: {
+            atlassianCloudId: cloudId,
+            atlassianApiBaseUrl: `https://api.atlassian.com/ex/jira/${encodeURIComponent(cloudId)}`,
+            siteUrl: parsedUrl.origin,
+          },
+        },
+      ];
+    });
+  }
+  return [await resolveWorkspaceProviderIdentitySingle(providerId, tokens)];
+}
+
+type WorkspaceProviderIdentity = {
+  accountId: string;
+  label: string;
+  scopes?: string[];
+  config?: Record<string, unknown>;
+};
+
+async function resolveWorkspaceProviderIdentitySingle(
+  providerId: GenericWorkspaceOAuthProvider,
+  tokens: Record<string, unknown>,
+): Promise<WorkspaceProviderIdentity> {
   if (providerId === "notion") {
     const owner = record(tokens.owner);
     const user = record(owner?.user);
@@ -388,6 +635,71 @@ export async function resolveWorkspaceProviderIdentity(
         text(person?.email) ??
         text(tokens.workspace_name) ??
         "Notion workspace",
+    };
+  }
+  if (providerId === "github") {
+    const accessToken = text(tokens.access_token)!;
+    const { response, body: user } = await fetchBoundedProviderJson(
+      "https://api.github.com/user",
+      {
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${accessToken}`,
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
+      },
+      "GitHub",
+    );
+    const accountId = text(user.login) ?? text(user.id);
+    if (!response.ok || !accountId) {
+      throw new Error(
+        "GitHub OAuth response did not identify the connected user.",
+      );
+    }
+    return {
+      accountId,
+      label: text(user.name) ?? text(user.login) ?? "GitHub account",
+    };
+  }
+  if (providerId === "hubspot") {
+    const accessToken = text(tokens.access_token)!;
+    const { response, body } = await fetchBoundedProviderJson(
+      `https://api.hubapi.com/oauth/v1/access-tokens/${encodeURIComponent(accessToken)}`,
+      { headers: { Accept: "application/json" } },
+      "HubSpot",
+    );
+    const accountId = scalarText(body.hub_id) ?? scalarText(body.user_id);
+    if (!response.ok || !accountId) {
+      throw new Error(
+        "HubSpot OAuth response did not identify the connected portal.",
+      );
+    }
+    return {
+      accountId,
+      label: text(body.hub_domain) ?? `HubSpot portal ${accountId}`,
+    };
+  }
+  if (providerId === "sentry") {
+    const accessToken = text(tokens.access_token)!;
+    const { response, body: user } = await fetchBoundedProviderJson(
+      "https://sentry.io/api/0/users/me/",
+      {
+        headers: {
+          Accept: "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      },
+      "Sentry",
+    );
+    const accountId = text(user.id);
+    if (!response.ok || !accountId) {
+      throw new Error(
+        "Sentry OAuth response did not identify the connected account.",
+      );
+    }
+    return {
+      accountId,
+      label: text(user?.email) ?? text(user?.name) ?? "Sentry account",
     };
   }
   if (providerId === "google_drive") {
@@ -475,11 +787,45 @@ export function isWorkspaceProviderOAuthFlowValid(input: {
   );
 }
 
+export function canConnectWorkspaceProviderOAuth(
+  orgId: string | null | undefined,
+  role: string | null | undefined,
+): boolean {
+  return Boolean(orgId) && (role === "owner" || role === "admin");
+}
+
+export function scopedOAuthAccountId(
+  provider: GenericWorkspaceOAuthProvider,
+  owner: string,
+  accountId: string,
+): string {
+  if (provider !== "hubspot" && provider !== "jira") return accountId;
+  const ownerKey = crypto
+    .createHash("sha256")
+    .update(`${provider}:${owner.trim().toLowerCase()}`)
+    .digest("hex")
+    .slice(0, 24);
+  return `${accountId}::${ownerKey}`;
+}
+
 async function fetchBoundedProviderJson(
   url: string,
   init: RequestInit,
   providerLabel: string,
 ): Promise<{ response: Response; body: Record<string, unknown> }> {
+  const { response, body } = await fetchBoundedProviderJsonValue(
+    url,
+    init,
+    providerLabel,
+  );
+  return { response, body: record(body) ?? {} };
+}
+
+async function fetchBoundedProviderJsonValue(
+  url: string,
+  init: RequestInit,
+  providerLabel: string,
+): Promise<{ response: Response; body: unknown }> {
   let response: Response;
   try {
     response = await fetch(url, {
@@ -520,7 +866,7 @@ async function fetchBoundedProviderJson(
   try {
     const json = Buffer.concat(chunks).toString("utf8");
     const body = JSON.parse(json) as unknown;
-    return { response, body: record(body) ?? {} };
+    return { response, body };
   } catch {
     return { response, body: {} };
   }
@@ -541,13 +887,37 @@ export function mergeWorkspaceOAuthValues(
   return [...new Set([...existing, ...incoming])];
 }
 
-function clientCredentialKey(
+function clientCredentialKeys(
   provider: GenericWorkspaceOAuthProvider,
   field: "id" | "secret",
-): string {
+): string[] {
   const prefix =
     provider === "google_drive" ? "GOOGLE" : provider.toUpperCase();
-  return `${prefix}_CLIENT_${field === "id" ? "ID" : "SECRET"}`;
+  const suffix = field === "id" ? "ID" : "SECRET";
+  if (provider === "github") {
+    const integrationPrefix = `GITHUB_INTEGRATION_CLIENT_${suffix}`;
+    return [integrationPrefix, `GITHUB_CLIENT_${suffix}`];
+  }
+  if (provider === "hubspot") {
+    const integrationPrefix = `HUBSPOT_INTEGRATION_CLIENT_${suffix}`;
+    return [integrationPrefix, `HUBSPOT_CLIENT_${suffix}`];
+  }
+  return [`${prefix}_CLIENT_${suffix}`];
+}
+
+async function resolveProviderClientCredentials(
+  provider: GenericWorkspaceOAuthProvider,
+): Promise<[string | null, string | null]> {
+  const [clientId, clientSecret] = await Promise.all(
+    (["id", "secret"] as const).map(async (field) => {
+      for (const key of clientCredentialKeys(provider, field)) {
+        const value = await resolveSecret(key);
+        if (value) return value;
+      }
+      return null;
+    }),
+  );
+  return [clientId, clientSecret];
 }
 
 function flowCookieName(provider: GenericWorkspaceOAuthProvider): string {
@@ -566,6 +936,11 @@ function text(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function scalarText(value: unknown): string | undefined {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return text(value);
+}
+
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -580,4 +955,16 @@ function methodNotAllowed(event: H3Event) {
 function unauthorized(event: H3Event) {
   setResponseStatus(event, 401);
   return { error: "Authentication required" };
+}
+
+async function requireWorkspaceProviderOAuthAdmin(event: H3Event) {
+  const context = await getOrgContext(event).catch(() => null);
+  if (
+    !context ||
+    !canConnectWorkspaceProviderOAuth(context.orgId, context.role)
+  ) {
+    setResponseStatus(event, 403);
+    return null;
+  }
+  return context;
 }

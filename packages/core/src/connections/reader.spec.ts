@@ -65,7 +65,7 @@ describe("provider reader registry", () => {
     expect(getProviderReader("github")).toMatchObject({
       providerId: "github",
       implementationStatus: "template-owned",
-      requiredCredentialKeys: ["GITHUB_TOKEN"],
+      requiredCredentialKeys: [],
     });
     expect(getProviderReader("missing")).toBeUndefined();
 

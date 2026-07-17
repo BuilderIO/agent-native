@@ -133,13 +133,15 @@ capability is missing, add or extend a `defineAction` so both the agent and UI
 share the same operation. Do not create `/api/*` routes that only call,
 repackage, or proxy an action.
 
-| Action        | Args                              | Purpose                         |
-| ------------- | --------------------------------- | ------------------------------- |
-| `view-screen` |                                   | See current UI state            |
-| `navigate`    | `--view <name>` or `--path <url>` | Navigate the UI                 |
-| `hello`       | `[--name <name>]`                 | Example script                  |
-| `db-schema`   |                                   | Show all tables, columns, types |
-| `db-query`    | `--sql "SELECT ..."`              | Run a SELECT query              |
+| Action           | Args                                                   | Purpose                                                   |
+| ---------------- | ------------------------------------------------------ | --------------------------------------------------------- |
+| `view-screen`    |                                                        | See current UI state                                      |
+| `navigate`       | `--view <name>` or `--path <url>`                      | Navigate the UI                                           |
+| `hello`          | `[--name <name>]`                                      | Example script                                            |
+| `db-schema`      |                                                        | Show all tables, columns, types                           |
+| `db-query`       | `--sql "SELECT ..."`                                   | Run a SELECT query                                        |
+| `list-mcp-tools` | `--serverId <id>`                                      | List connected MCP tools visible to the authenticated app |
+| `call-mcp-tool`  | `--serverId <id> --toolName <name> --arguments <json>` | Call a connected MCP tool through the scoped app API      |
 
 **For data changes, pick the right surface:**
 

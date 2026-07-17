@@ -68,7 +68,9 @@ export interface SharedConnectionStatus {
 const dataSourceWorkspaceProviderIds: Record<string, string> = {
   github: "github",
   hubspot: "hubspot",
+  jira: "jira",
   notion: "notion",
+  sentry: "sentry",
   slack: "slack",
 };
 

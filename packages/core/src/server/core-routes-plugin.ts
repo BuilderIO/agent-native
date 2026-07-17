@@ -1204,7 +1204,15 @@ export function createCoreRoutesPlugin(
 
       const P = FRAMEWORK_ROUTE_PREFIX;
 
-      for (const provider of ["figma", "google_drive", "notion"] as const) {
+      for (const provider of [
+        "figma",
+        "google_drive",
+        "github",
+        "hubspot",
+        "jira",
+        "sentry",
+        "notion",
+      ] as const) {
         getH3App(nitroApp).use(
           `${P}/connections/oauth/${provider}/start`,
           createWorkspaceProviderOAuthHandler(provider, "start"),

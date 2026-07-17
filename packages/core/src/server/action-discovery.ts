@@ -732,6 +732,8 @@ export async function mergeCoreSharingActions(
       "revoke-org-service-token",
       () => import("../mcp/actions/revoke-org-service-token.js"),
     ],
+    ["list-mcp-tools", () => import("../mcp/actions/list-mcp-tools.js")],
+    ["call-mcp-tool", () => import("../mcp/actions/call-mcp-tool.js")],
   ];
   for (const [name, loader] of entries) {
     if (registry[name]) continue;

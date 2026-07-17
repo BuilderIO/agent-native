@@ -911,6 +911,7 @@ export function MultiTabAssistantChat({
   const [availableModels, setAvailableModels] = useState<EngineModelGroup[]>(
     [],
   );
+  const [modelListLoading, setModelListLoading] = useState(true);
   const [defaultModel, setDefaultModel] = useState<string>(DEFAULT_MODEL);
   const threadModelRef = useRef<
     Map<string, { model: string; engine?: string; effort?: ReasoningEffort }>
@@ -1035,6 +1036,7 @@ export function MultiTabAssistantChat({
   );
 
   const refreshEngines = useCallback(() => {
+    setModelListLoading(true);
     Promise.all([
       callAction("manage-agent-engine" as any, { action: "list" } as any).catch(
         () => null,
@@ -1068,7 +1070,8 @@ export function MultiTabAssistantChat({
         setAvailableModels(groups);
         setDefaultModel(currentModel ?? DEFAULT_MODEL);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setModelListLoading(false));
   }, []);
 
   useEffect(() => {
@@ -2522,6 +2525,7 @@ export function MultiTabAssistantChat({
                   composerSlot={props.composerSlot}
                   defaultModel={defaultModel}
                   availableModels={availableModels}
+                  modelListLoading={modelListLoading}
                   onModelChange={handleModelChange}
                   onEffortChange={handleEffortChange}
                   onForkChat={() => handleForkChat(tabId)}
