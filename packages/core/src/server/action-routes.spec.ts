@@ -939,6 +939,43 @@ describe("mountActionRoutes", () => {
     expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
   });
 
+  it("leaves ordinary JWTs with common identity claims to legacy auth", async () => {
+    const { mountActionRoutes } = await import("./action-routes.js");
+    const mounted: Array<{ path: string; handler: any }> = [];
+    const getOwnerFromEvent = vi.fn(async () => "session@example.com");
+    let context: any;
+    mountActionRoutes(
+      { use: (path: string, handler: any) => mounted.push({ path, handler }) },
+      {
+        "list-feature-flags": {
+          run: async (_: unknown, ctx: any) => {
+            context = ctx;
+            return { ok: true };
+          },
+        } as any,
+      },
+      { getOwnerFromEvent },
+    );
+    const token = fakeUnsignedJwt({
+      org_id: "org-1",
+      jti: "ordinary-session-token",
+      scope: "openid profile",
+    });
+
+    await mounted[0].handler({
+      _method: "POST",
+      _headers: { authorization: `Bearer ${token}` },
+      context: {},
+      req: { json: async () => ({}) },
+    });
+
+    expect(context).toMatchObject({
+      caller: "http",
+      userEmail: "session@example.com",
+    });
+    expect(mockVerifyA2ATokenWithClaims).not.toHaveBeenCalled();
+  });
+
   it("falls back to built-in delegation after a custom adapter returns null", async () => {
     const { mountActionRoutes } = await import("./action-routes.js");
     mockVerifyA2ATokenWithClaims.mockResolvedValue({

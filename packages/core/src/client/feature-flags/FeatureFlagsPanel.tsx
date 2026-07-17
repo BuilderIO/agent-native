@@ -1,3 +1,15 @@
+import { Button } from "@agent-native/toolkit/ui/button";
+import { Input } from "@agent-native/toolkit/ui/input";
+import { Label } from "@agent-native/toolkit/ui/label";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@agent-native/toolkit/ui/select";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconAdjustmentsHorizontal,
   IconBolt,
@@ -15,7 +27,10 @@ import {
   DialogTitle,
 } from "../components/ui/dialog.js";
 import { useT } from "../i18n.js";
-import { normalizeFeatureFlagRules } from "./helpers.js";
+import {
+  normalizeFeatureFlagPercentage,
+  normalizeFeatureFlagRules,
+} from "./helpers.js";
 import type {
   FeatureFlagMetadata,
   FeatureFlagRules,
@@ -93,13 +108,17 @@ function TargetingDialog({
   isPending?: boolean;
 }) {
   const t = useT();
+  const modeId = `feature-flag-${flag.key}-mode`;
+  const emailsId = `feature-flag-${flag.key}-emails`;
+  const orgIdsId = `feature-flag-${flag.key}-org-ids`;
+  const percentageId = `feature-flag-${flag.key}-percentage`;
   const [mode, setMode] = useState(flag.rules.mode);
   const [emails, setEmails] = useState(() => listText(flag.rules.emails));
   const [orgIds, setOrgIds] = useState(() => listText(flag.rules.orgIds));
   const [percentage, setPercentage] = useState(String(flag.rules.percentage));
 
   const save = () => {
-    const nextPercentage = Math.max(0, Math.min(100, Number(percentage) || 0));
+    const nextPercentage = normalizeFeatureFlagPercentage(percentage);
     onMutate({
       key: flag.key,
       operation: "replace-rules",
@@ -124,70 +143,78 @@ function TargetingDialog({
             })}
           </DialogDescription>
         </DialogHeader>
-        <label className="grid gap-2 text-sm font-medium text-foreground">
-          {t("featureFlags.modeLabel")}
-          <select
-            className="h-10 rounded-md border border-border bg-background px-3 text-sm font-normal text-foreground outline-none focus:ring-1 focus:ring-accent"
+        <div className="grid gap-2">
+          <Label htmlFor={modeId}>{t("featureFlags.modeLabel")}</Label>
+          <Select
             value={mode}
-            onChange={(event) =>
-              setMode(event.target.value as FeatureFlagRules["mode"])
+            onValueChange={(value) =>
+              setMode(value as FeatureFlagRules["mode"])
             }
           >
-            <option value="off">{t("featureFlags.off")}</option>
-            <option value="rules">{t("featureFlags.targeted")}</option>
-            <option value="on">{t("featureFlags.everyone")}</option>
-          </select>
-        </label>
+            <SelectTrigger id={modeId}>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectGroup>
+                <SelectItem value="off">{t("featureFlags.off")}</SelectItem>
+                <SelectItem value="rules">
+                  {t("featureFlags.targeted")}
+                </SelectItem>
+                <SelectItem value="on">{t("featureFlags.everyone")}</SelectItem>
+              </SelectGroup>
+            </SelectContent>
+          </Select>
+        </div>
         {mode === "rules" ? (
           <div className="grid gap-4">
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              {t("featureFlags.emailsLabel")}
-              <textarea
-                className="min-h-20 rounded-md border border-border bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-1 focus:ring-accent"
+            <div className="grid gap-2">
+              <Label htmlFor={emailsId}>{t("featureFlags.emailsLabel")}</Label>
+              <Textarea
+                id={emailsId}
+                className="min-h-20"
                 value={emails}
                 onChange={(event) => setEmails(event.target.value)}
                 placeholder="one@example.com"
               />
-            </label>
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              {t("featureFlags.orgIdsLabel")}
-              <textarea
-                className="min-h-20 rounded-md border border-border bg-background px-3 py-2 text-sm font-normal text-foreground outline-none focus:ring-1 focus:ring-accent"
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={orgIdsId}>{t("featureFlags.orgIdsLabel")}</Label>
+              <Textarea
+                id={orgIdsId}
+                className="min-h-20"
                 value={orgIds}
                 onChange={(event) => setOrgIds(event.target.value)}
                 placeholder="org_123"
               />
-            </label>
-            <label className="grid gap-2 text-sm font-medium text-foreground">
-              {t("featureFlags.percentageLabel")}
-              <input
-                className="h-10 rounded-md border border-border bg-background px-3 text-sm font-normal text-foreground outline-none focus:ring-1 focus:ring-accent"
+            </div>
+            <div className="grid gap-2">
+              <Label htmlFor={percentageId}>
+                {t("featureFlags.percentageLabel")}
+              </Label>
+              <Input
+                id={percentageId}
                 type="number"
                 min="0"
                 max="100"
+                step="1"
                 value={percentage}
                 onChange={(event) => setPercentage(event.target.value)}
               />
-            </label>
+            </div>
           </div>
         ) : null}
         <DialogFooter>
-          <button
+          <Button
             type="button"
-            className="rounded-md px-3 py-2 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+            variant="ghost"
             onClick={() => onOpenChange(false)}
           >
             {t("featureFlags.cancel")}
-          </button>
-          <button
-            type="button"
-            className="inline-flex items-center justify-center gap-2 rounded-md bg-accent px-3 py-2 text-sm font-medium text-foreground transition-colors hover:bg-accent/80 disabled:opacity-50"
-            disabled={isPending}
-            onClick={save}
-          >
-            {isPending ? <IconLoader2 className="size-4 animate-spin" /> : null}
+          </Button>
+          <Button type="button" disabled={isPending} onClick={save}>
+            {isPending ? <IconLoader2 className="animate-spin" /> : null}
             {t("featureFlags.saveRules")}
-          </button>
+          </Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>
@@ -246,9 +273,11 @@ function FeatureFlagRow({
         </div>
       </div>
       <div className="flex flex-wrap items-center gap-2 sm:justify-end">
-        <button
+        <Button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-foreground transition-colors hover:bg-accent/40 disabled:opacity-50"
+          variant="outline"
+          size="sm"
+          className="text-xs"
           disabled={isPending}
           onClick={() =>
             onMutate({
@@ -257,21 +286,25 @@ function FeatureFlagRow({
             })
           }
         >
-          <IconUserCheck className="size-3.5" />
+          <IconUserCheck />
           {t("featureFlags.enableForMe")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1.5 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:opacity-50"
+          variant="outline"
+          size="sm"
+          className="text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
           disabled={isPending}
           onClick={() => onMutate({ key: flag.key, operation: "off" })}
         >
-          <IconBolt className="size-3.5" />
+          <IconBolt />
           {t("featureFlags.immediateOff")}
-        </button>
-        <button
+        </Button>
+        <Button
           type="button"
-          className="inline-flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground"
+          variant="ghost"
+          size="icon"
+          className="size-8 text-muted-foreground"
           disabled={isPending}
           onClick={() => setTargetingOpen(true)}
           aria-label={t("featureFlags.advancedFor", {
@@ -279,8 +312,8 @@ function FeatureFlagRow({
           })}
           title={t("featureFlags.advanced")}
         >
-          <IconAdjustmentsHorizontal className="size-4" />
-        </button>
+          <IconAdjustmentsHorizontal />
+        </Button>
       </div>
       {targetingOpen ? (
         <TargetingDialog

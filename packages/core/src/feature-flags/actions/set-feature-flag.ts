@@ -13,7 +13,7 @@ const rulesSchema = z.object({
   mode: z.enum(["off", "on", "rules"]),
   emails: z.array(z.string().email()).max(500).optional(),
   orgIds: z.array(z.string().min(1).max(200)).max(500).optional(),
-  percentage: z.number().min(0).max(100).optional(),
+  percentage: z.number().int().min(0).max(100).optional(),
 });
 
 const schema = z.discriminatedUnion("operation", [

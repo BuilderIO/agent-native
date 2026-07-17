@@ -36,6 +36,13 @@ export function featureFlagValue(
   return values[key] === true;
 }
 
+export function normalizeFeatureFlagPercentage(value: unknown): number {
+  const percentage = Number(value);
+  return Number.isFinite(percentage)
+    ? Math.floor(Math.max(0, Math.min(100, percentage)))
+    : 0;
+}
+
 /**
  * Keep the shared editor safe while a remote app is upgrading or returning an
  * optimistic/transient rule envelope. The fleet contract still validates the
@@ -49,9 +56,7 @@ export function normalizeFeatureFlagRules(
     rules?.mode === "off" || rules?.mode === "on" || rules?.mode === "rules"
       ? rules.mode
       : "rules";
-  const percentage = Number.isFinite(rules?.percentage)
-    ? Math.max(0, Math.min(100, Number(rules?.percentage)))
-    : 0;
+  const percentage = normalizeFeatureFlagPercentage(rules?.percentage);
 
   return {
     ...rules,
