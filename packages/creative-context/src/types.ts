@@ -524,6 +524,16 @@ export interface CreativeContextMembership {
   updatedAt: string;
 }
 
+export interface CreativeContextMembershipPreview {
+  id: string;
+  itemVersionId: string;
+  title: string;
+  kind: string;
+  canonicalUrl: string | null;
+  status: ContextItemStatus;
+  media: Array<{ id: string; kind: ContextMediaInput["kind"]; mimeType: string | null; url: string }>;
+}
+
 /** Public submission summary deliberately omits staging and native capability data. */
 export interface CreativeContextSubmissionSummary {
   id: string;

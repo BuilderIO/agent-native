@@ -1,8 +1,8 @@
-import { getDbExec } from "@agent-native/core/db";
 import {
   resourcePut,
   sharedResourceOwner,
 } from "@agent-native/core/resources/store";
+import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
 import {
   accessFilter,
   assertAccess,
@@ -202,22 +202,6 @@ async function projectPublishedBrandContext(
   );
 }
 
-async function currentActorIsOrgAdmin(
-  orgId: string,
-  ownerEmail: string,
-): Promise<boolean> {
-  try {
-    const result = await getDbExec().execute({
-      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
-      args: [orgId, ownerEmail.toLowerCase()],
-    });
-    const role = String(result.rows[0]?.role ?? "").toLowerCase();
-    return role === "owner" || role === "admin";
-  } catch {
-    return false;
-  }
-}
-
 export async function previewBrandProfilePromotion(profileId: string) {
   const access = await assertAccess(
     "creative-context-brand",
@@ -227,7 +211,7 @@ export async function previewBrandProfilePromotion(profileId: string) {
   const actor = requireActor();
   if (
     !actor.orgId ||
-    !(await currentActorIsOrgAdmin(actor.orgId, actor.ownerEmail))
+    !(await currentRequestUserIsOrgAdmin(actor.orgId))
   ) {
     throw new Error(
       "Brand profile promotion requires an active organization owner or admin.",

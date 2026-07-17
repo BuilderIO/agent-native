@@ -1,4 +1,4 @@
-import { getDbExec } from "@agent-native/core/db";
+import { currentRequestUserIsOrgAdmin } from "@agent-native/core/server";
 import {
   buildSearchSnippet,
   escapeLikeTerm,
@@ -1701,12 +1701,7 @@ export async function createEmbeddingSet(input: {
   const { getDb, schema } = getCreativeContext();
   const actor = requireActor();
   if (actor.orgId) {
-    const membership = await getDbExec().execute({
-      sql: "SELECT role FROM org_members WHERE org_id = ? AND LOWER(email) = ? LIMIT 1",
-      args: [actor.orgId, actor.ownerEmail.toLowerCase()],
-    });
-    const role = String(membership.rows[0]?.role ?? "").toLowerCase();
-    if (role !== "owner" && role !== "admin") {
+    if (!(await currentRequestUserIsOrgAdmin(actor.orgId))) {
       throw new Error(
         "Only organization owners or admins can activate an organization embedding family.",
       );
