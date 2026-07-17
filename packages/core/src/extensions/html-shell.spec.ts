@@ -80,6 +80,22 @@ describe("buildExtensionHtml", () => {
     expect(html).toContain("method: 'PUT'");
   });
 
+  it("exposes server-side connector helpers without copying credentials into the iframe", () => {
+    const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
+
+    expect(html).toContain("var mcp = {");
+    expect(html).toContain("appAction('list-mcp-tools', params)");
+    expect(html).toContain("appAction('call-mcp-tool'");
+    expect(html).toContain("var providerApi = {");
+    expect(html).toContain("appAction('provider-api-catalog'");
+    expect(html).not.toContain("appAction('provider-api-request'");
+    expect(html).not.toContain("request: function(params)");
+    expect(html).toContain("mcp: mcp");
+    expect(html).toContain("providerApi: providerApi");
+    expect(html).not.toContain("accessToken");
+    expect(html).not.toContain("clientSecret");
+  });
+
   it("exposes a chat bridge helper to extension code", () => {
     const html = buildExtensionHtml("<div/>", ":root{}", false, "extension-1");
 

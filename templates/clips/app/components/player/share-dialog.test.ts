@@ -37,4 +37,13 @@ describe("recording share popover", () => {
     expect(shareDialogSource).toContain("initialVisibility ??");
     expect(shareDialogSource).not.toContain('?? "private"');
   });
+
+  it("keeps private and org human links copyable after access loads", () => {
+    const shareDialogSource = readSource("./share-dialog.tsx");
+
+    expect(shareDialogSource).toContain(
+      "disabled={visibilityPending || !sharesLoaded}",
+    );
+    expect(shareDialogSource).not.toContain("(!isPublic && canManage)");
+  });
 });

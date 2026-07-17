@@ -14,6 +14,10 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import {
+  CreativeContextShareSheet,
+  CreativeContextShareTab,
+} from "@agent-native/creative-context/client";
+import {
   useDroppable,
   DndContext,
   DragOverlay,
@@ -504,6 +508,7 @@ export default function SqlDashboardPage() {
   const [emailReportOpen, setEmailReportOpen] = useState(false);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [dashboardActionsOpen, setDashboardActionsOpen] = useState(false);
+  const [contextSheetOpen, setContextSheetOpen] = useState(false);
   const [activeDropSlot, setActiveDropSlot] =
     useState<DashboardDropSlot | null>(null);
   const [activeDragPanelId, setActiveDragPanelId] = useState<string | null>(
@@ -1424,6 +1429,29 @@ export default function SqlDashboardPage() {
             resourceId={dashboardId}
             resourceTitle={dashboard.name}
             variant="compact"
+            shareTabs={{
+              tabs: [
+                {
+                  value: "context",
+                  label: "Context",
+                  content: (
+                    <CreativeContextShareTab
+                      resource={{
+                        appId: "analytics",
+                        resourceType: "dashboard",
+                        resourceId: dashboardId,
+                        title: dashboard.name,
+                        updatedAt: dashboardUpdatedAt ?? undefined,
+                        preview: {
+                          kind: "document",
+                          label: t("dashboard.sqlDashboard"),
+                        },
+                      }}
+                    />
+                  ),
+                },
+              ],
+            }}
           />
         ) : null}
         {canEdit ? (
@@ -1509,6 +1537,18 @@ export default function SqlDashboardPage() {
             {(canEdit && !archivedAt) || canManage ? (
               <DropdownMenuSeparator />
             ) : null}
+            {dashboardId && canEdit && !archivedAt ? (
+              <DropdownMenuItem
+                onSelect={(event) => {
+                  event.preventDefault();
+                  setDashboardActionsOpen(false);
+                  setContextSheetOpen(true);
+                }}
+              >
+                <IconPlus className="mr-2 h-3.5 w-3.5" />
+                {t("creativeContext.addToContext" /* i18n-key-ignore */)}
+              </DropdownMenuItem>
+            ) : null}
             {dashboardId ? (
               <>
                 <DropdownMenuSeparator />
@@ -1579,6 +1619,25 @@ export default function SqlDashboardPage() {
             open={historyOpen}
             onOpenChange={setHistoryOpen}
             canRestore={canEdit && !archivedAt}
+          />
+        ) : null}
+        {dashboardId ? (
+          <CreativeContextShareSheet
+            open={contextSheetOpen}
+            onOpenChange={setContextSheetOpen}
+            resource={{
+              appId: "analytics",
+              resourceType: "dashboard",
+              resourceId: dashboardId,
+              title: dashboard.name,
+              updatedAt: dashboardUpdatedAt ?? undefined,
+              visibility: dashboardVisibility ?? undefined,
+              preview: {
+                kind: "document",
+                label: t("dashboard.sqlDashboard"),
+              },
+            }}
+            canManage={canManage}
           />
         ) : null}
         {canManage ? (

@@ -8,7 +8,7 @@ import type {
 } from "../types.js";
 
 const BLOCKED_METADATA_KEY =
-  /(?:authorization|token|secret|password|cookie|storageKey|blobRef|rawSnapshot|downloadUrl|providerUrl|leaseToken|leaseOwner)/i;
+  /(?:authorization|token|secret|password|cookie|storageKey|blobRef|rawSnapshot|downloadUrl|providerUrl|leaseToken|leaseOwner|handle|cloneReference|privateMetadata|nativeClone)/i;
 const CAPABILITY_VALUE =
   /(?:creative-context-blob:|private-blob:|https?:\/\/)[^\s<>{}\[\]"']*/gi;
 

@@ -1266,6 +1266,762 @@ describe("creative context access and revocation", () => {
     ).rejects.toThrow("unavailable at the pinned source version");
   });
 
+  it("publishes trusted Slides and Figma hierarchies without losing compiler metadata or child pins", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const { reassembleNativeCreativeArtifact } =
+      await import("../native-artifact-reassembly.js");
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const asBob = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "bob@example.test", orgId: "org-1" },
+        fn,
+      );
+    const fidelityReport = {
+      exact: { count: 1 },
+      approximated: { count: 0, reasons: [] },
+      imageFallback: { count: 0, reasons: [] },
+    };
+    for (const fixture of [
+      {
+        app: "slides" as const,
+        format: "slides-html" as const,
+        compiler: "@agent-native/creative-context:google-slides-native",
+      },
+      {
+        app: "design" as const,
+        format: "design-html" as const,
+        compiler: "@agent-native/core/ingestion:figma-node-to-html",
+      },
+    ]) {
+      const rootExternalId = `${fixture.app}:published-root`;
+      const childExternalId = `${fixture.app}:published-child`;
+      const rootHtml = `<!doctype html><html><head></head><body><div data-creative-context-child="${childExternalId}"></div></body></html>`;
+      const childHtml = `<!doctype html><html><head></head><body><div>${fixture.app} child</div></body></html>`;
+      const ingested = await asAlice(() =>
+        store.ingestItems({
+          sourceId: "source-1",
+          items: [
+            {
+              externalId: rootExternalId,
+              kind: "native-manifest",
+              title: `${fixture.app} root`,
+              mimeType: "text/html",
+              content: rootHtml,
+              contentHash: `${fixture.app}-root-v1`,
+              provenance: { compiler: fixture.compiler },
+              metadata: {
+                nativeArtifact: {
+                  schemaVersion: 1,
+                  app: fixture.app,
+                  format: fixture.format,
+                  rootExternalId,
+                  childExternalIds: [childExternalId],
+                  manifest: {
+                    kind: "hierarchical-artboard",
+                    children: [
+                      {
+                        externalId: childExternalId,
+                        sourceNodeId: "child-1",
+                        bounds: { x: 0, y: 0, width: 10, height: 10 },
+                        zOrder: 0,
+                      },
+                    ],
+                  },
+                  fidelityReport,
+                },
+              },
+              edges: [
+                {
+                  relation: "contains-native-child",
+                  toExternalId: childExternalId,
+                },
+              ],
+            },
+            {
+              externalId: childExternalId,
+              kind: "native-child",
+              title: `${fixture.app} child`,
+              mimeType: "text/html",
+              content: childHtml,
+              contentHash: `${fixture.app}-child-v1`,
+              provenance: { compiler: fixture.compiler },
+              metadata: {
+                nativeArtifact: {
+                  schemaVersion: 1,
+                  app: fixture.app,
+                  format: fixture.format,
+                  rootExternalId: childExternalId,
+                  fidelityReport,
+                },
+              },
+            },
+          ],
+        }),
+      );
+      const context = await asAlice(() =>
+        store.createCreativeContext({
+          name: `${fixture.app} fidelity`,
+          kind: "specialty",
+        }),
+      );
+      await asAlice(() =>
+        store.manageContextMembership({
+          operation: "submit",
+          contextId: context!.id,
+          itemId: ingested.itemIds[0],
+          confirmBroaderPublication: true,
+        }),
+      );
+      const membership = (
+        await asAlice(() =>
+          store.listContextMemberships({ contextId: context!.id, limit: 20 }),
+        )
+      ).memberships.find(
+        (entry) => entry.artifactKey === `source-1:${rootExternalId}`,
+      )!;
+      const published = await asBob(() =>
+        store.getCreativeContextItem(
+          membership.publishedItemId!,
+          membership.publishedItemVersionId!,
+        ),
+      );
+      expect(published?.item.provenance.compiler).toBe(fixture.compiler);
+      expect(published?.version.metadata).toMatchObject({
+        nativeArtifact: { app: fixture.app, format: fixture.format },
+      });
+      const reassembled = await asBob(() =>
+        reassembleNativeCreativeArtifact({
+          root: published!,
+          app: fixture.app,
+          format: fixture.format,
+          resolveChild: store.getCreativeContextItemByExternalId,
+        }),
+      );
+      expect(reassembled.html).toContain(`${fixture.app} child`);
+      expect(reassembled.evidence).toHaveLength(2);
+
+      const childEdge = published!.edges.find(
+        (edge) => edge.relation === "contains-native-child",
+      );
+      expect(childEdge).toMatchObject({
+        toItemId: expect.any(String),
+        toItemVersionId: expect.any(String),
+      });
+      const pack = await asAlice(() =>
+        store.createContextPack({
+          name: `${fixture.app} hierarchical replay`,
+          baseContextId: context!.id,
+          members: [
+            {
+              itemId: published!.item.id,
+              itemVersionId: published!.version.id,
+              reason: "Explicit root",
+              score: 0.91,
+              scoreMetadata: { source: "test" },
+            },
+          ],
+        }),
+      );
+      expect(pack.members).toEqual([
+        expect.objectContaining({
+          itemId: published!.item.id,
+          itemVersionId: published!.version.id,
+          ordinal: 0,
+          reason: "Explicit root",
+          score: 0.91,
+          scoreMetadata: { source: "test" },
+        }),
+        expect.objectContaining({
+          itemId: childEdge!.toItemId,
+          itemVersionId: childEdge!.toItemVersionId,
+          ordinal: 1,
+          reason: "Native artifact dependency",
+          score: null,
+        }),
+      ]);
+      await asAlice(() =>
+        store.manageContextMembership({
+          operation: "remove",
+          contextId: context!.id,
+          membershipId: membership.id,
+        }),
+      );
+      const removedMemberships = await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 20 }),
+      );
+      expect(
+        removedMemberships.memberships.filter(
+          (entry) =>
+            entry.publishedItemId === published!.item.id ||
+            entry.publishedItemId === childEdge!.toItemId,
+        ),
+      ).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            publishedItemId: published!.item.id,
+            status: "removed",
+          }),
+          expect.objectContaining({
+            publishedItemId: childEdge!.toItemId,
+            status: "removed",
+          }),
+        ]),
+      );
+      const replayPack = await asBob(() => store.getContextPack(pack.id));
+      expect(replayPack?.members).toHaveLength(2);
+      const replayRoot = await asBob(() =>
+        store.getCreativeContextItem(published!.item.id, published!.version.id),
+      );
+      const replayChild = await asBob(() =>
+        store.getCreativeContextItem(
+          childEdge!.toItemId!,
+          childEdge!.toItemVersionId!,
+        ),
+      );
+      expect(replayRoot?.version.id).toBe(published!.version.id);
+      expect(replayChild?.version.id).toBe(childEdge!.toItemVersionId);
+      const replayed = await asBob(() =>
+        reassembleNativeCreativeArtifact({
+          root: replayRoot!,
+          app: fixture.app,
+          format: fixture.format,
+          resolveChild: store.getCreativeContextItemByExternalId,
+        }),
+      );
+      expect(replayed.html).toContain(`${fixture.app} child`);
+      expect(replayed.evidence).toEqual(
+        expect.arrayContaining([
+          {
+            itemId: published!.item.id,
+            itemVersionId: published!.version.id,
+          },
+          {
+            itemId: childEdge!.toItemId,
+            itemVersionId: childEdge!.toItemVersionId,
+          },
+        ]),
+      );
+    }
+  });
+
+  it("does not turn a forged compiler id into a trusted published artifact", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const { reassembleNativeCreativeArtifact } =
+      await import("../native-artifact-reassembly.js");
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const ingested = await asAlice(() =>
+      store.ingestItems({
+        sourceId: "source-1",
+        items: [
+          {
+            externalId: "forged-native",
+            kind: "native",
+            title: "Forged",
+            mimeType: "text/html",
+            content:
+              "<!doctype html><html><head></head><body><div>forged</div></body></html>",
+            contentHash: "forged-v1",
+            provenance: { compiler: "attacker/compiler" },
+            metadata: {
+              nativeArtifact: {
+                schemaVersion: 1,
+                app: "design",
+                format: "design-html",
+                rootExternalId: "forged-native",
+                fidelityReport: {
+                  exact: { count: 1 },
+                  approximated: { count: 0, reasons: [] },
+                  imageFallback: { count: 0, reasons: [] },
+                },
+              },
+            },
+          },
+        ],
+      }),
+    );
+    const context = await asAlice(() =>
+      store.createCreativeContext({ name: "forged", kind: "specialty" }),
+    );
+    await asAlice(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: ingested.itemIds[0],
+        confirmBroaderPublication: true,
+      }),
+    );
+    const membership = (
+      await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      )
+    ).memberships[0]!;
+    const published = await asAlice(() =>
+      store.getCreativeContextItem(
+        membership.publishedItemId!,
+        membership.publishedItemVersionId!,
+      ),
+    );
+    await expect(
+      asAlice(() =>
+        reassembleNativeCreativeArtifact({
+          root: published!,
+          app: "design",
+          format: "design-html",
+          resolveChild: store.getCreativeContextItemByExternalId,
+        }),
+      ),
+    ).rejects.toThrow(/trusted native artifact compiler/i);
+  });
+
+  it("keeps pending submissions private to their submitter and context reviewers", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asUser = <T>(userEmail: string, fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail, orgId: "org-1" }, fn);
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      asUser("alice@example.test", fn);
+    const asBob = <T>(fn: () => Promise<T>) => asUser("bob@example.test", fn);
+    const asCarol = <T>(fn: () => Promise<T>) =>
+      asUser("carol@example.test", fn);
+    const asDrew = <T>(fn: () => Promise<T>) => asUser("drew@example.test", fn);
+    const context = await asAlice(() =>
+      store.createCreativeContext({
+        name: "Review-only governance",
+        kind: "specialty",
+        approvalPolicy: "review",
+      }),
+    );
+    const timestamp = "2026-07-17T00:00:00.000Z";
+    await exec.execute({
+      sql: `INSERT INTO creative_context_source_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "source-share-bob",
+        "source-1",
+        "user",
+        "bob@example.test",
+        "admin",
+        "alice@example.test",
+        timestamp,
+      ],
+    });
+    for (const [id, email] of [
+      ["context-share-bob", "bob@example.test"],
+      ["context-share-drew", "drew@example.test"],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_shares
+          (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          context!.id,
+          "user",
+          email,
+          "editor",
+          "alice@example.test",
+          timestamp,
+        ],
+      });
+    }
+    await exec.execute({
+      sql: "UPDATE creative_context_items SET thumbnail_blob_ref = ? WHERE id = ?",
+      args: ["creative-context-blob:v1:pending-preview-opaque", "allowed"],
+    });
+
+    await expect(
+      asCarol(() =>
+        store.manageContextMembership({
+          operation: "submit",
+          contextId: context!.id,
+          itemId: "allowed",
+        }),
+      ),
+    ).rejects.toThrow();
+    expect(
+      (await asBob(() => store.getCreativeContextById(context!.id)))?.access,
+    ).toMatchObject({ canSubmit: true, canReview: false });
+
+    const submitted = await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: "allowed",
+        confirmBroaderPublication: true,
+      }),
+    );
+    const membershipId = submitted.membershipId;
+    await expect(
+      asBob(() =>
+        store.manageContextMembership({
+          operation: "approve",
+          contextId: context!.id,
+          membershipId,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asDrew(() =>
+        store.manageContextMembership({
+          operation: "remove",
+          contextId: context!.id,
+          membershipId,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asBob(() =>
+        store.updateCreativeContext(context!.id, { name: "Unapproved edit" }),
+      ),
+    ).rejects.toThrow();
+
+    const ownPending = await asBob(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(ownPending.memberships).toEqual([
+      expect.objectContaining({
+        id: membershipId,
+        artifactKey: "source-1:allowed",
+        pendingSubmission: expect.objectContaining({
+          submittedBy: "bob@example.test",
+          proposedItem: expect.objectContaining({
+            title: "allowed title",
+            itemVersionId: expect.any(String),
+          }),
+        }),
+      }),
+    ]);
+    const proposedItem =
+      ownPending.memberships[0]?.pendingSubmission?.proposedItem;
+    expect(proposedItem).toMatchObject({
+      id: expect.any(String),
+      itemVersionId: expect.any(String),
+    });
+    expect(JSON.stringify(ownPending)).not.toContain("pending-preview-opaque");
+    await expect(
+      asBob(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      storageKey: "creative-context-blob:v1:pending-preview-opaque",
+    });
+    await expect(
+      asAlice(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      storageKey: "creative-context-blob:v1:pending-preview-opaque",
+    });
+    await expect(
+      asDrew(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      asCarol(() =>
+        store.readPendingCreativeContextMedia({
+          itemId: proposedItem!.id,
+          itemVersionId: proposedItem!.itemVersionId,
+        }),
+      ),
+    ).resolves.toBeNull();
+    await expect(
+      asDrew(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      ),
+    ).resolves.toMatchObject({ memberships: [] });
+    await expect(
+      asCarol(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      ),
+    ).resolves.toMatchObject({ memberships: [] });
+
+    const reviewerView = await asAlice(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(reviewerView.memberships[0]).toMatchObject({
+      id: membershipId,
+      pendingSubmission: expect.objectContaining({
+        submittedBy: "bob@example.test",
+        proposedItem: expect.objectContaining({
+          title: "allowed title",
+        }),
+      }),
+    });
+    expect(
+      (await asAlice(() => store.getCreativeContextById(context!.id)))?.access,
+    ).toMatchObject({ canReview: true, canAdmin: true });
+
+    await asAlice(() =>
+      store.manageContextMembership({
+        operation: "approve",
+        contextId: context!.id,
+        membershipId,
+      }),
+    );
+    const approvedForViewer = await asCarol(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(approvedForViewer.memberships).toEqual([
+      expect.objectContaining({
+        id: membershipId,
+        artifactKey: "source-1:allowed",
+        pendingSubmissionId: null,
+        pendingSubmission: null,
+        publishedItem: expect.objectContaining({ id: expect.any(String) }),
+      }),
+    ]);
+
+    const approvedVersionId =
+      approvedForViewer.memberships[0]!.publishedItemVersionId;
+    await asAlice(() =>
+      store.ingestItems({
+        sourceId: "source-1",
+        items: [
+          {
+            externalId: "allowed",
+            kind: "slide",
+            title: "allowed title update",
+            content: "new source version pending review",
+            contentHash: "allowed-hash-v3",
+            upstreamAccess: "available",
+          },
+        ],
+      }),
+    );
+    await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: "allowed",
+        confirmBroaderPublication: true,
+      }),
+    );
+    const viewerDuringUpdate = await asCarol(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(viewerDuringUpdate.memberships[0]).toMatchObject({
+      publishedItemVersionId: approvedVersionId,
+      pendingSubmissionId: null,
+      pendingSubmission: null,
+    });
+    const reviewerDuringUpdate = await asAlice(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(reviewerDuringUpdate.memberships[0]).toMatchObject({
+      publishedItemVersionId: approvedVersionId,
+      pendingSubmission: expect.objectContaining({ status: "pending" }),
+    });
+  });
+
+  it("applies open and admins-only publication policies to editor submissions", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asUser = <T>(userEmail: string, fn: () => Promise<T>) =>
+      runWithRequestContext({ userEmail, orgId: "org-1" }, fn);
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      asUser("alice@example.test", fn);
+    const asBob = <T>(fn: () => Promise<T>) => asUser("bob@example.test", fn);
+    await exec.execute({
+      sql: "UPDATE creative_context_sources SET visibility = 'org' WHERE id = 'source-1'",
+      args: [],
+    });
+    const [open, adminsOnly] = await Promise.all([
+      asAlice(() =>
+        store.createCreativeContext({
+          name: "Open",
+          kind: "specialty",
+          approvalPolicy: "open",
+        }),
+      ),
+      asAlice(() =>
+        store.createCreativeContext({
+          name: "Admin publishing",
+          kind: "specialty",
+          approvalPolicy: "admins-only",
+        }),
+      ),
+    ]);
+    for (const [id, contextId] of [
+      ["open-editor", open!.id],
+      ["admins-editor", adminsOnly!.id],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_shares
+          (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+          VALUES (?, ?, 'user', 'bob@example.test', 'editor', 'alice@example.test', ?)`,
+        args: [id, contextId, "2026-07-17T00:00:00.000Z"],
+      });
+    }
+    const openSubmission = await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: open!.id,
+        itemId: "allowed",
+      }),
+    );
+    expect(openSubmission.submission).toMatchObject({ status: "approved" });
+
+    const governedSubmission = await asBob(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: adminsOnly!.id,
+        itemId: "allowed",
+      }),
+    );
+    expect(governedSubmission.submission).toMatchObject({ status: "pending" });
+    await expect(
+      asBob(() =>
+        store.manageContextMembership({
+          operation: "approve",
+          contextId: adminsOnly!.id,
+          membershipId: governedSubmission.membershipId,
+        }),
+      ),
+    ).rejects.toThrow();
+    await expect(
+      asAlice(() =>
+        store.manageContextMembership({
+          operation: "approve",
+          contextId: adminsOnly!.id,
+          membershipId: governedSubmission.membershipId,
+        }),
+      ),
+    ).resolves.toEqual({ approved: true });
+  });
+
+  it("serializes concurrent Default creation to one scope-owned context", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const createDefault = () =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        () => store.createCreativeContext({ name: "Default", kind: "default" }),
+      );
+    const [first, second] = await Promise.all([
+      createDefault(),
+      createDefault(),
+    ]);
+    expect(first?.id).toBe(second?.id);
+    const rows = await exec.execute({
+      sql: `SELECT id FROM creative_contexts
+        WHERE default_scope_key = ?`,
+      args: ["org:org-1"],
+    });
+    expect(rows.rows).toHaveLength(1);
+  });
+
+  it("keeps Default non-archivable and does not broaden private corpus during org backfill", async () => {
+    const { runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const context = await asAlice(() => store.ensureDefaultCreativeContext());
+    expect(context).toMatchObject({ kind: "default", visibility: "org" });
+    await expect(
+      asAlice(() => store.archiveCreativeContext(context!.id)),
+    ).rejects.toThrow(/Default Creative Context cannot be archived/);
+    const memberships = await asAlice(() =>
+      store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+    );
+    expect(memberships.memberships).toEqual([]);
+  });
+
+  it("applies each Creative Context's rank to the same item at retrieval time", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const [canonical, normal] = await Promise.all([
+      asAlice(() =>
+        store.createCreativeContext({
+          name: "Canonical lane",
+          kind: "specialty",
+        }),
+      ),
+      asAlice(() =>
+        store.createCreativeContext({ name: "Normal lane", kind: "specialty" }),
+      ),
+    ]);
+    for (const [id, contextId, rank] of [
+      ["canonical-membership", canonical!.id, "canonical"],
+      ["normal-membership", normal!.id, "normal"],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_memberships
+          (id, context_id, artifact_key, published_item_id, published_item_version_id,
+           rank, status, created_at, updated_at, owner_email, org_id)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          id,
+          contextId,
+          "source-1:allowed",
+          "allowed",
+          "allowed-v2",
+          rank,
+          "active",
+          "2026-07-17T00:00:00.000Z",
+          "2026-07-17T00:00:00.000Z",
+          "alice@example.test",
+          "org-1",
+        ],
+      });
+    }
+    const [canonicalResults, normalResults, canonicalDocuments] =
+      await Promise.all([
+        asAlice(() =>
+          store.listAccessibleLexicalCandidates({
+            query: "canonical version 2",
+            contextId: canonical!.id,
+            limit: 10,
+          }),
+        ),
+        asAlice(() =>
+          store.listAccessibleLexicalCandidates({
+            query: "canonical version 2",
+            contextId: normal!.id,
+            limit: 10,
+          }),
+        ),
+        asAlice(() =>
+          store.listAccessibleSearchDocuments({
+            contextId: canonical!.id,
+            limit: 10,
+          }),
+        ),
+      ]);
+    expect(canonicalResults.results[0]).toMatchObject({
+      itemId: "allowed",
+      itemVersionId: "allowed-v2",
+    });
+    expect(canonicalResults.results[0]!.score).toBeGreaterThan(
+      normalResults.results[0]!.score,
+    );
+    expect(canonicalDocuments[0]).toMatchObject({
+      itemId: "allowed",
+      curationRank: "canonical",
+    });
+  });
+
   it("finds native artifacts through bounded code-token chunks", async () => {
     const { runWithRequestContext, store } = await setup();
     const { performCreativeContextSearch } =
@@ -1576,6 +2332,366 @@ describe("creative context access and revocation", () => {
         chunkId: "allowed-chunk-v1",
       }),
     ]);
+  });
+
+  it("limits pack replay bypasses to context-owned published snapshots", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const asBob = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "bob@example.test", orgId: "org-1" },
+        fn,
+      );
+
+    await exec.execute({
+      sql: `INSERT INTO creative_context_packs
+        (id, name, context_mode, request, created_at, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "unsafe-pack",
+        "Unsafe library replay",
+        "manual",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+        "private",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_pack_members
+        (id, pack_id, item_id, item_version_id, ordinal, score_metadata,
+         created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "unsafe-member",
+        "unsafe-pack",
+        "allowed",
+        "allowed-v1",
+        0,
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_pack_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "unsafe-pack-share",
+        "unsafe-pack",
+        "user",
+        "bob@example.test",
+        "viewer",
+        "alice@example.test",
+        "2026-07-16T00:00:00.000Z",
+      ],
+    });
+    await exec.execute(
+      "UPDATE creative_context_sources SET upstream_access = 'restricted' WHERE id = 'source-1'",
+    );
+
+    await expect(
+      asBob(() => store.getCreativeContextItem("allowed", "allowed-v1")),
+    ).resolves.toBeNull();
+    await expect(
+      asBob(() =>
+        store.listAccessibleLexicalCandidates({
+          query: "version 1",
+          packId: "unsafe-pack",
+          limit: 10,
+        }),
+      ),
+    ).resolves.toEqual({ results: [], nextCursor: undefined });
+
+    for (const source of [
+      ["context-staging-source", "Context staging"],
+      ["context-published-source", "Context published"],
+    ]) {
+      await exec.execute({
+        sql: `INSERT INTO creative_context_sources
+          (id, name, kind, config, upstream_access, status, health_status,
+           item_count, restricted_item_count, owner_email, org_id, visibility,
+           created_at, updated_at)
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          source[0],
+          source[1],
+          "native-app",
+          "{}",
+          "available",
+          "active",
+          "healthy",
+          1,
+          0,
+          "alice@example.test",
+          "org-1",
+          "private",
+          "2026-07-16T00:00:00.000Z",
+          "2026-07-16T00:00:00.000Z",
+        ],
+      });
+    }
+    await exec.execute({
+      sql: `INSERT INTO creative_contexts
+        (id, name, kind, staging_source_id, published_source_id, approval_policy,
+         created_at, updated_at, owner_email, org_id, visibility)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "context-owned",
+        "Governed context",
+        "specialty",
+        "context-staging-source",
+        "context-published-source",
+        "review",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+        "private",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_items
+        (id, source_id, external_id, kind, title, current_version_id,
+         current_content_hash, status, upstream_access, curation_status,
+         curation_rank, inventory_state, index_state, tags, colors, provenance,
+         metadata, created_at, updated_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-item",
+        "context-published-source",
+        "published-artifact",
+        "slide",
+        "Published evidence",
+        "published-version",
+        "published-hash",
+        "active",
+        "available",
+        "included",
+        "normal",
+        "available",
+        "pending",
+        "[]",
+        "[]",
+        "{}",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_item_versions
+        (id, item_id, version_number, content_hash, title, content, parse_status,
+         metadata, created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-version",
+        "published-item",
+        1,
+        "published-hash",
+        "Published evidence",
+        "historical governed context evidence",
+        "parsed",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_chunks
+        (id, item_id, item_version_id, ordinal, kind, text, metadata,
+         created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-chunk",
+        "published-item",
+        "published-version",
+        0,
+        "text",
+        "historical governed context evidence",
+        "{}",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_memberships
+        (id, context_id, artifact_key, published_item_id, published_item_version_id,
+         rank, status, created_at, updated_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "removed-membership",
+        "context-owned",
+        "published-artifact",
+        "published-item",
+        "published-version",
+        "normal",
+        "removed",
+        "2026-07-16T00:00:00.000Z",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    await exec.execute({
+      sql: `INSERT INTO creative_context_published_snapshots
+        (id, context_id, source_id, membership_id, item_id, item_version_id,
+         submission_id, created_at, owner_email, org_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "published-snapshot",
+        "context-owned",
+        "context-published-source",
+        "removed-membership",
+        "published-item",
+        "published-version",
+        "approved-submission",
+        "2026-07-16T00:00:00.000Z",
+        "alice@example.test",
+        "org-1",
+      ],
+    });
+    const historicalPack = await asAlice(() =>
+      store.createContextPack({
+        name: "Historical governed replay",
+        baseContextId: "context-owned",
+        members: [
+          { itemId: "published-item", itemVersionId: "published-version" },
+        ],
+      }),
+    );
+    await exec.execute({
+      sql: `INSERT INTO creative_context_pack_shares
+        (id, resource_id, principal_type, principal_id, role, created_by, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "historical-pack-share",
+        historicalPack.id,
+        "user",
+        "bob@example.test",
+        "viewer",
+        "alice@example.test",
+        "2026-07-16T00:00:00.000Z",
+      ],
+    });
+
+    await expect(
+      asBob(() => store.getContextPack(historicalPack.id)),
+    ).resolves.toMatchObject({
+      members: [
+        expect.objectContaining({
+          itemId: "published-item",
+          itemVersionId: "published-version",
+        }),
+      ],
+    });
+    await expect(
+      asBob(() =>
+        store.getCreativeContextItem("published-item", "published-version"),
+      ),
+    ).resolves.toMatchObject({
+      version: { id: "published-version" },
+    });
+    await expect(
+      asBob(() =>
+        store.listAccessibleLexicalCandidates({
+          query: "historical governed",
+          packId: historicalPack.id,
+          limit: 10,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      results: [
+        expect.objectContaining({ itemVersionId: "published-version" }),
+      ],
+    });
+  });
+
+  it("legal purge follows provenance into staged and context-owned copies", async () => {
+    const { exec, runWithRequestContext, store } = await setup();
+    const asAlice = <T>(fn: () => Promise<T>) =>
+      runWithRequestContext(
+        { userEmail: "alice@example.test", orgId: "org-1" },
+        fn,
+      );
+    const context = await asAlice(() =>
+      store.createCreativeContext({
+        name: "Purge provenance",
+        kind: "specialty",
+        approvalPolicy: "open",
+      }),
+    );
+    const submitted = await asAlice(() =>
+      store.manageContextMembership({
+        operation: "submit",
+        contextId: context!.id,
+        itemId: "allowed",
+        confirmBroaderPublication: true,
+      }),
+    );
+    const membership = (
+      await asAlice(() =>
+        store.listContextMemberships({ contextId: context!.id, limit: 10 }),
+      )
+    ).memberships[0]!;
+    await asAlice(() =>
+      store.createContextPack({
+        name: "Published snapshot receipt",
+        members: [
+          {
+            itemId: membership.publishedItemId!,
+            itemVersionId: membership.publishedItemVersionId!,
+          },
+        ],
+      }),
+    );
+
+    await expect(
+      asAlice(() => store.purgeContextSourceArtifacts("source-1")),
+    ).resolves.toMatchObject({ sourceId: "source-1" });
+
+    const membershipRows = await exec.execute({
+      sql: `SELECT status, published_item_id, published_item_version_id,
+        pending_submission_id FROM creative_context_memberships WHERE id = ?`,
+      args: [submitted.membershipId],
+    });
+    expect(membershipRows.rows[0]).toMatchObject({
+      status: "removed",
+      published_item_id: null,
+      published_item_version_id: null,
+      pending_submission_id: null,
+    });
+    for (const table of [
+      "creative_context_submissions",
+      "creative_context_published_snapshots",
+    ]) {
+      const rows = await exec.execute({
+        sql: `SELECT id FROM ${table} WHERE context_id = ?`,
+        args: [context!.id],
+      });
+      expect(rows.rows).toEqual([]);
+    }
+    const copiedItems = await exec.execute({
+      sql: `SELECT id FROM creative_context_items
+        WHERE id = ? OR source_id IN (
+          SELECT staging_source_id FROM creative_contexts WHERE id = ?
+          UNION
+          SELECT published_source_id FROM creative_contexts WHERE id = ?
+        )`,
+      args: [membership.publishedItemId, context!.id, context!.id],
+    });
+    expect(copiedItems.rows).toEqual([]);
   });
 
   it("allows explicit deprecated search without making removed items retrievable", async () => {

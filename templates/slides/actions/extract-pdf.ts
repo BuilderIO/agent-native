@@ -10,13 +10,14 @@ export default async function (args: string[]) {
   }
 
   const buf = fs.readFileSync(pdfPath);
-  const { CanvasFactory } = await import("pdf-parse/worker");
+  const { CanvasFactory, getData } = await import("pdf-parse/worker");
   const { PDFParse } = await import("pdf-parse");
+  PDFParse.setWorker(getData());
   const pdf = new PDFParse({
     data: new Uint8Array(buf),
     CanvasFactory,
   });
-  const result = await pdf.getText();
+  const result = await pdf.getText().finally(() => pdf.destroy());
   const pages = result.pages || [];
   console.log("Total pages:", pages.length);
   pages.forEach((page: { num: number; text: string }) => {

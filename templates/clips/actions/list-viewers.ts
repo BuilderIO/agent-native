@@ -11,6 +11,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { clampCompletionPct } from "../shared/view-analytics.js";
 
 export default defineAction({
   description:
@@ -38,7 +39,7 @@ export default defineAction({
         viewerEmail: v.viewerEmail,
         viewerName: v.viewerName,
         totalWatchMs: v.totalWatchMs ?? 0,
-        completedPct: v.completedPct ?? 0,
+        completedPct: clampCompletionPct(v.completedPct),
         countedView: Boolean(v.countedView),
         ctaClicked: Boolean(v.ctaClicked),
         firstViewedAt: v.firstViewedAt,

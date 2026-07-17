@@ -83,6 +83,10 @@ export {
   IDENTITY_SSO_SCOPE,
 } from "./identity-sso.js";
 export { requireEnvKey, type MissingKeyResponse } from "./missing-key.js";
+export {
+  assertCurrentRequestUserIsOrgAdmin,
+  currentRequestUserIsOrgAdmin,
+} from "./org-admin.js";
 export { verifyCaptcha, type CaptchaVerifyResult } from "./captcha.js";
 export {
   getLocaleInitScript,

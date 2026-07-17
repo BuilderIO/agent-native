@@ -70,7 +70,9 @@ export function StitchManager({
   const [title, setTitle] = useState(t("stitchManager.defaultTitle"));
   const [dragIndex, setDragIndex] = useState<number | null>(null);
 
-  const listQuery = useActionQuery("list-recordings", {});
+  const listQuery = useActionQuery("list-recordings", {
+    includeMedia: true,
+  });
   const stitch = useActionMutation("stitch-recordings");
 
   useEffect(() => {

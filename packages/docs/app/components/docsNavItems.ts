@@ -219,6 +219,11 @@ const NAV_SECTION_CONFIG: NavSectionConfig[] = [
     id: "integrations",
     titleKey: "integrations",
     items: [
+      {
+        id: "integration-directory",
+        labelKey: "integrations",
+        slug: "integrations",
+      },
       { id: "messaging", labelKey: "messaging", slug: "messaging" },
       { id: "dispatch", labelKey: "dispatch", slug: "dispatch" },
       { id: "a2a-protocol", labelKey: "a2aProtocol", slug: "a2a-protocol" },

@@ -7,6 +7,7 @@ export default defineAction({
   description:
     "Call an MCP tool visible to the authenticated app request by server id and original tool name. Server credentials and tokens are never exposed.",
   agentTool: false,
+  toolCallable: false,
   requiresAuth: true,
   schema: z.object({
     serverId: z.string().trim().min(1),

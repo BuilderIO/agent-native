@@ -4,10 +4,12 @@ import {
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   DEFAULT_MCP_INTEGRATIONS,
+  findMcpIntegrationForText,
   filterMcpIntegrations,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
   isMcpIntegrationCatalogAvailable,
+  isMcpConnectionFailureText,
   mcpIntegrationAuthLabel,
   resolveMcpIntegrationScope,
 } from "./mcp-integration-catalog.js";
@@ -32,11 +34,15 @@ describe("MCP integration catalog", () => {
       "supabase",
       "neon",
     ]);
-    expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual([
-      "sentry",
-      "linear",
-      "atlassian",
-    ]);
+    expect(filterMcpIntegrations("issues").map((item) => item.id)).toEqual(
+      expect.arrayContaining([
+        "sentry",
+        "linear",
+        "atlassian",
+        "github",
+        "gitlab",
+      ]),
+    );
     expect(filterMcpIntegrations("jira").map((item) => item.id)).toEqual([
       "atlassian",
     ]);
@@ -70,6 +76,106 @@ describe("MCP integration catalog", () => {
         "https://developer.atlassian.com/cloud/rovo-mcp/guides/getting-started/",
       setupNoteKey: "mcpIntegrations.catalog.atlassian.setupNote",
     });
+  });
+
+  it("records logo and provider-gating metadata for remote directory entries", () => {
+    const context7 = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "context7",
+    );
+    const semgrep = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "semgrep",
+    );
+    const cloudflare = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "cloudflare",
+    );
+    const figma = DEFAULT_MCP_INTEGRATIONS.find(
+      (integration) => integration.id === "figma",
+    );
+
+    expect(context7?.logoUrl).toMatch(
+      /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
+    );
+    expect(semgrep?.logoUrl).toMatch(
+      /^data:image\/(?:x-icon|vnd\.microsoft\.icon);base64,/,
+    );
+    expect(cloudflare).toMatchObject({
+      url: "https://mcp.cloudflare.com/mcp",
+      authMode: "oauth",
+      connectionMode: "oauth",
+      availability: "ready",
+    });
+    expect(cloudflare?.logoUrl).toMatch(/^data:image\/svg\+xml;base64,/);
+    expect(figma).toMatchObject({
+      url: "https://mcp.figma.com/mcp",
+      connectionMode: "manual",
+      availability: "client-restricted",
+      setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
+    });
+    expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(25);
+    expect(
+      new Set(DEFAULT_MCP_INTEGRATIONS.map((integration) => integration.id))
+        .size,
+    ).toBe(25);
+    for (const integration of DEFAULT_MCP_INTEGRATIONS) {
+      expect(integration.logoUrl).toMatch(
+        /^data:image\/(?:svg\+xml|x-icon|vnd\.microsoft\.icon);base64,/,
+      );
+      expect(["verified", "preflight-only", "restricted"]).toContain(
+        integration.verification,
+      );
+    }
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "github"),
+    ).toMatchObject({
+      availability: "provider-setup",
+      verification: "restricted",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "intercom"),
+    ).toMatchObject({ url: "https://mcp.intercom.com/mcp" });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "zapier"),
+    ).toMatchObject({
+      url: "https://mcp.zapier.com/api/v1/connect",
+      authMode: "headers",
+      availability: "ready",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "paypal"),
+    ).toMatchObject({
+      url: "https://mcp.paypal.com/sse",
+      authMode: "oauth",
+      availability: "ready",
+    });
+    expect(
+      DEFAULT_MCP_INTEGRATIONS.find((item) => item.id === "canva"),
+    ).toMatchObject({
+      url: "https://mcp.canva.com/mcp",
+      connectionMode: "manual",
+      availability: "client-restricted",
+    });
+  });
+
+  it("matches resource links to their MCP preset", () => {
+    expect(
+      findMcpIntegrationForText(
+        "Please read https://www.notion.so/acme/Project-123",
+      )?.id,
+    ).toBe("notion");
+    expect(
+      findMcpIntegrationForText("Canva link: https://canva.com/design/abc")?.id,
+    ).toBe("canva");
+    expect(
+      findMcpIntegrationForText("I cannot read this Notion page")?.id,
+    ).toBe("notion");
+    expect(findMcpIntegrationForText("Explain linear algebra")).toBeNull();
+    expect(
+      findMcpIntegrationForText("Connect Linear to read my issues")?.id,
+    ).toBe("linear");
+    expect(isMcpConnectionFailureText("I can't read that Notion link")).toBe(
+      true,
+    );
+    expect(isMcpConnectionFailureText("I can read it now")).toBe(false);
   });
 
   it("labels authentication modes for compact badges", () => {

@@ -10,6 +10,7 @@ const schema = z
     mediaId: z.string().min(1).optional(),
     sourceIds: z.array(z.string().min(1)).max(100).optional(),
     packId: z.string().min(1).optional(),
+    contextId: z.string().min(1).optional(),
     kinds: z.array(z.string().min(1)).max(50).optional(),
     tags: z.array(z.string().min(1)).max(100).optional(),
     colors: z.array(z.string().min(1)).max(100).optional(),
@@ -40,7 +41,7 @@ const schema = z
 
 export default defineAction({
   description:
-    "Search accessible curated creative context through portable lexical, Postgres FTS, and same-database pgvector lanes; fuse and diversify results, collapse revisions, and snapshot exact evidence by default.",
+    "Search accessible approved Creative Context evidence, optionally within one named context, through portable lexical, Postgres FTS, and same-database pgvector lanes; fuse and diversify results, collapse revisions, and snapshot exact evidence by default.",
   schema,
   publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: performCreativeContextSearch,

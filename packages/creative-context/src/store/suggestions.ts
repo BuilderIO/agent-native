@@ -5,6 +5,7 @@ import { assertContextItemSqlTextLimits } from "../connectors/normalize.js";
 import { reassembleNativeCreativeArtifact } from "../native-artifact-reassembly.js";
 import { nativeCreativeArtifactFromMetadata } from "../native-artifact.js";
 import { getCreativeContext } from "../server/context.js";
+import { sanitizePublicMetadata } from "../server/public-serialization.js";
 import type { CreativeContextSuggestion } from "../types.js";
 import {
   getCreativeContextItem,
@@ -30,7 +31,8 @@ function mapSuggestion(row: any): CreativeContextSuggestion {
     itemId: row.itemId,
     itemVersionId: row.itemVersionId,
     reason: row.reason ?? null,
-    payload: parseJson(row.payload, {}),
+    payload: (sanitizePublicMetadata(parseJson(row.payload, {})) ??
+      {}) as Record<string, unknown>,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   };

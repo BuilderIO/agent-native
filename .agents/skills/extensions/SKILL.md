@@ -87,6 +87,15 @@ Extensions have full access to app data via helpers injected into the iframe
 (full signatures in `references/api.md`):
 
 - `appAction(name, params)` — call any app action
+- `agentNative.mcp.listTools(serverId?)` and
+  `agentNative.mcp.callTool(serverId, toolName, arguments)` — inspect and call
+  connected remote MCP tools through the host app's authenticated, scoped
+  action surface. The iframe never receives MCP credentials.
+- `agentNative.providerApi.catalog(params)` and `agentNative.providerApi.docs(params)`
+  — discover provider APIs and their contracts using existing OAuth workspace
+  connections. Arbitrary `providerApi.request` is intentionally not exposed to
+  extensions because it could turn a shared extension into an authenticated
+  write proxy; use `agentNative.mcp.callTool` or an explicit app action instead.
 - `appFetch(path, options)` — call allowed framework endpoints under
   `/_agent-native/*`
 - `dbQuery(sql, args)` — read from SQL

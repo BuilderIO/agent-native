@@ -197,6 +197,7 @@ async function verifyCapabilitySignature(
   let bytes: Uint8Array;
   try {
     bytes = Buffer.from(signature, "base64url");
+    if (Buffer.from(bytes).toString("base64url") !== signature) return false;
   } catch {
     return false;
   }

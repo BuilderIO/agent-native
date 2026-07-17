@@ -35,9 +35,11 @@ role cannot silently stand in for another:
 
 1. Follow the user's explicit instructions and the object currently selected in
    the app.
-2. Read the `creative-context` application-state record. If
-   `pinnedPackId` is set, prefer that immutable pack. Otherwise use
-   `currentPackId` when it records context already selected for this session.
+2. Read the `creative-context` application-state record. If `pinnedPackId` is
+   set, replay that immutable pack. Otherwise honor `selectedContextId`; when it
+   is unset, let retrieval use Default plus at most one app-bound or
+   semantically matching specialty context. `currentPackId` is the receipt from
+   the latest materialized generation, not a replacement for context selection.
 3. Call `search-creative-context` with a narrow query for exact facts, visual
    language, audience guidance, prior decisions, or reusable references.
 4. Call `get-context-item` only for the specific search result versions
@@ -60,6 +62,7 @@ The single state key is `creative-context`:
 ```json
 {
   "contextMode": "auto",
+  "selectedContextId": null,
   "currentPackId": null,
   "pinnedPackId": null
 }
@@ -83,3 +86,9 @@ versions may support factual claims. Preserve the returned `contextPackId`
 and short reuse labels with the document generation provenance. A published
 brand profile can guide tone automatically; it never overrides the user's
 current brief, and it must not turn an unsupported prior claim into a fact.
+
+When an approved app-created document already fits, call
+`clone-creative-context-document` with its exact item and version ids before
+rewriting from excerpts. The typed action resolves the approved private
+Markdown/document payload through Content's normal create path; generic context
+actions never expose that payload.

@@ -34,6 +34,7 @@ const enUS = {
     created: "Created {{date}}",
   },
   dashboard: {
+    sqlDashboard: "SQL dashboard",
     historyTitle: "Dashboard history",
     historyDescription:
       "Restore a previous dashboard state. Restoring snapshots the current state first.",

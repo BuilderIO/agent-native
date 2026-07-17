@@ -11,6 +11,7 @@ import {
   type CollabUser,
 } from "@agent-native/core/client";
 import { RunsTray } from "@agent-native/core/client/progress";
+import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import {
   IconArrowLeft,
   IconPlayerPlay,
@@ -955,6 +956,26 @@ graph TD
           secondaryShareUrlDescription={t(
             "editorToolbar.presentationLinkDescription",
           )}
+          shareTabs={{
+            tabs: [
+              {
+                value: "context",
+                label: "Context",
+                content: (
+                  <CreativeContextShareTab
+                    resource={{
+                      appId: "slides",
+                      resourceType: "deck",
+                      resourceId: deckId,
+                      title: deckTitle,
+                      updatedAt: deck.updatedAt,
+                      preview: { kind: "document", label: "Deck" },
+                    }}
+                  />
+                ),
+              },
+            ],
+          }}
         />
       </div>
       {/* Present button — matches Share trigger height (h-9) */}

@@ -7,6 +7,11 @@ const mockGetRequestUserEmail = vi.hoisted(() => vi.fn());
 const mockGetRequestOrgId = vi.hoisted(() => vi.fn());
 const mockUpsertBuilderProxyDesignSystem = vi.hoisted(() => vi.fn());
 const mockPdfParseOptions = vi.hoisted(() => vi.fn());
+const mockPdfSetWorker = vi.hoisted(() => vi.fn());
+const mockPdfDestroy = vi.hoisted(() => vi.fn().mockResolvedValue(undefined));
+const mockGetPdfWorkerData = vi.hoisted(() =>
+  vi.fn(() => "data:text/javascript;base64,d29ya2Vy"),
+);
 const mockCanvasFactory = vi.hoisted(() => ({
   create: vi.fn(),
   reset: vi.fn(),
@@ -15,16 +20,25 @@ const mockCanvasFactory = vi.hoisted(() => ({
 
 vi.mock("pdf-parse/worker", () => ({
   CanvasFactory: mockCanvasFactory,
+  getData: mockGetPdfWorkerData,
 }));
 
 vi.mock("pdf-parse", () => ({
   PDFParse: class {
+    static setWorker(worker: string) {
+      mockPdfSetWorker(worker);
+    }
+
     constructor(options: unknown) {
       mockPdfParseOptions(options);
     }
 
     async getText() {
       return mockPdfText();
+    }
+
+    async destroy() {
+      return mockPdfDestroy();
     }
   },
 }));
@@ -71,6 +85,9 @@ import action from "./import-file";
 beforeEach(() => {
   vi.clearAllMocks();
   mockPdfParseOptions.mockReset();
+  mockPdfSetWorker.mockReset();
+  mockPdfDestroy.mockClear();
+  mockGetPdfWorkerData.mockClear();
   mockReadUserUploadedFile.mockImplementation(async (filePath: string) => ({
     data: Buffer.from("%PDF-1.7\n"),
     filename: filePath,
@@ -118,6 +135,11 @@ describe("import-file PDF source extraction", () => {
       data: expect.any(Uint8Array),
       CanvasFactory: mockCanvasFactory,
     });
+    expect(mockGetPdfWorkerData).toHaveBeenCalledOnce();
+    expect(mockPdfSetWorker).toHaveBeenCalledWith(
+      "data:text/javascript;base64,d29ya2Vy",
+    );
+    expect(mockPdfDestroy).toHaveBeenCalledOnce();
   });
 
   it("caps large PDF extraction output by default", async () => {

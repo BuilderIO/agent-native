@@ -9,6 +9,7 @@ import {
   useActionMutation,
   useActionQuery,
 } from "@agent-native/core/client";
+import { CreativeContextShareSheet } from "@agent-native/creative-context/client";
 import {
   IconCheck,
   IconClipboard,
@@ -20,6 +21,7 @@ import {
   IconFolderPlus,
   IconLayoutBottombar,
   IconLayoutGrid,
+  IconLink,
   IconMessageCircle,
   IconPencil,
   IconPhoto,
@@ -2100,6 +2102,7 @@ function AssetSwimlaneBoard({
   onRestoreOptimisticDelete?: (ids: string[]) => void;
 }) {
   const t = useT();
+  const [bulkContextOpen, setBulkContextOpen] = useState(false);
   const deleteAsset = useActionMutation("delete-asset");
   const deleteAssets = useActionMutation("delete-assets");
   const updateAsset = useActionMutation("update-asset");
@@ -2652,6 +2655,17 @@ function AssetSwimlaneBoard({
               ) : null}
               <Button
                 type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setBulkContextOpen(true)}
+                disabled={deleting || changingReference}
+              >
+                <IconLink className="h-4 w-4" />
+                Add to context
+                {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
+              </Button>
+              <Button
+                type="button"
                 variant="ghost"
                 size="sm"
                 onClick={() => onSelectedIdsChange(new Set())}
@@ -2678,6 +2692,18 @@ function AssetSwimlaneBoard({
           ) : null}
         </div>
       )}
+      <CreativeContextShareSheet
+        open={bulkContextOpen}
+        onOpenChange={setBulkContextOpen}
+        resources={selectedAssets.map((asset) => ({
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: assetDisplayTitle(asset),
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document" as const, label: "Asset" },
+        }))}
+      />
 
       {viewMode === "cards" ? (
         <AssetCardsView items={visibleGalleryItems} />
@@ -3285,90 +3311,115 @@ function AssetActionsMenu({
   onRemoveFromReferences?: () => void;
 }) {
   const t = useT();
+  const [contextOpen, setContextOpen] = useState(false);
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button
-          type="button"
-          variant="secondary"
-          size="icon"
-          className="h-8 w-8 shadow-sm"
-          aria-label={t("library.assetActions")}
-          disabled={busy}
-        >
-          <IconDotsVertical className="h-4 w-4" />
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem asChild>
-          <Link to={`/asset/${asset.id}`}>
-            <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.viewDetails")}
-          </Link>
-        </DropdownMenuItem>
-        {onMoveToReferences ? (
+    <>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon"
+            className="h-8 w-8 shadow-sm"
+            aria-label={t("library.assetActions")}
+            disabled={busy}
+          >
+            <IconDotsVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end">
+          <DropdownMenuItem asChild>
+            <Link to={`/asset/${asset.id}`}>
+              <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.viewDetails")}
+            </Link>
+          </DropdownMenuItem>
           <DropdownMenuItem
             onSelect={(event) => {
               event.preventDefault();
-              onMoveToReferences();
+              setContextOpen(true);
             }}
           >
-            <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.addToReferences")}
+            <IconLink className="mr-2 h-4 w-4 shrink-0" />
+            Add to context
+            {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
           </DropdownMenuItem>
-        ) : null}
-        {onRemoveFromReferences ? (
-          <DropdownMenuItem
-            onSelect={(event) => {
-              event.preventDefault();
-              onRemoveFromReferences();
-            }}
-          >
-            <IconX className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.removeFromReferences")}
-          </DropdownMenuItem>
-        ) : null}
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <IconFolder className="mr-2 h-4 w-4 shrink-0" />
-            {t("library.moveTo")}
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
+          {onMoveToReferences ? (
             <DropdownMenuItem
-              onSelect={() =>
-                updateAsset.mutate({
-                  id: asset.id,
-                  folderId: null,
-                })
-              }
+              onSelect={(event) => {
+                event.preventDefault();
+                onMoveToReferences();
+              }}
             >
-              {t("library.unfiled")}
+              <IconPhotoPlus className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.addToReferences")}
             </DropdownMenuItem>
-            {folders.map((folder) => (
+          ) : null}
+          {onRemoveFromReferences ? (
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                onRemoveFromReferences();
+              }}
+            >
+              <IconX className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.removeFromReferences")}
+            </DropdownMenuItem>
+          ) : null}
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger>
+              <IconFolder className="mr-2 h-4 w-4 shrink-0" />
+              {t("library.moveTo")}
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent>
               <DropdownMenuItem
-                key={folder.id}
                 onSelect={() =>
                   updateAsset.mutate({
                     id: asset.id,
-                    folderId: folder.id,
+                    folderId: null,
                   })
                 }
               >
-                {folder.title}
+                {t("library.unfiled")}
               </DropdownMenuItem>
-            ))}
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-        <DropdownMenuSeparator />
-        <DropdownMenuItem
-          className="text-destructive focus:bg-destructive/10 focus:text-destructive"
-          onSelect={onDelete}
-        >
-          <IconTrash className="mr-2 h-4 w-4 shrink-0" />
-          {t("assetDetail.delete")}
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+              {folders.map((folder) => (
+                <DropdownMenuItem
+                  key={folder.id}
+                  onSelect={() =>
+                    updateAsset.mutate({
+                      id: asset.id,
+                      folderId: folder.id,
+                    })
+                  }
+                >
+                  {folder.title}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem
+            className="text-destructive focus:bg-destructive/10 focus:text-destructive"
+            onSelect={onDelete}
+          >
+            <IconTrash className="mr-2 h-4 w-4 shrink-0" />
+            {t("assetDetail.delete")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        resource={{
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: assetDisplayTitle(asset),
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document", label: "Asset" },
+        }}
+      />
+    </>
   );
 }
 
@@ -3425,6 +3476,7 @@ function AssetLaneTile({
   onMoveToReferences?: () => void;
 }) {
   const t = useT();
+  const [contextOpen, setContextOpen] = useState(false);
   const displayTitle = assetDisplayTitle(asset);
   const sourceText = assetLineageSourceText(asset);
   const canMoveToReferences = Boolean(onMoveToReferences);
@@ -3474,6 +3526,16 @@ function AssetLaneTile({
                 <IconArrowUpRight className="mr-2 h-4 w-4 shrink-0" />
                 {t("library.viewDetails")}
               </Link>
+            </DropdownMenuItem>
+            <DropdownMenuItem
+              onSelect={(event) => {
+                event.preventDefault();
+                setContextOpen(true);
+              }}
+            >
+              <IconLink className="mr-2 h-4 w-4 shrink-0" />
+              Add to context
+              {/* i18n-ignore assets template UI is raw-English pending template i18n pass */}
             </DropdownMenuItem>
             {canMoveToReferences ? (
               <DropdownMenuItem
@@ -3604,6 +3666,18 @@ function AssetLaneTile({
           </div>
         </div>
       ) : null}
+      <CreativeContextShareSheet
+        open={contextOpen}
+        onOpenChange={setContextOpen}
+        resource={{
+          appId: "assets",
+          resourceType: "asset",
+          resourceId: asset.id,
+          title: displayTitle,
+          updatedAt: asset.updatedAt,
+          preview: { kind: "document", label: "Asset" },
+        }}
+      />
     </div>
   );
 }

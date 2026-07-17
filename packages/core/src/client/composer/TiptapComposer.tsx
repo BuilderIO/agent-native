@@ -110,6 +110,28 @@ export function canSubmitComposerContent(options: {
   );
 }
 
+const VOICE_TERMINAL_PUNCTUATION = /[.!?…。！？:;](?:["'”’»)\]}]*)$/;
+
+export function formatVoiceTranscriptForComposer(text: string): string {
+  const trimmed = text.trim();
+  if (!trimmed) return "";
+  return `${trimmed}${VOICE_TERMINAL_PUNCTUATION.test(trimmed) ? "" : "."} `;
+}
+
+export function canRemoveVoicePreview(options: {
+  documentSize: number;
+  anchor: number;
+  previewText: string;
+  currentText: string;
+}): boolean {
+  if (!options.previewText) return false;
+  if (options.anchor < 1) return false;
+  if (options.anchor + options.previewText.length > options.documentSize) {
+    return false;
+  }
+  return options.currentText === options.previewText;
+}
+
 export function resolveComposerPrimaryAction(options: {
   canSubmit: boolean;
   hasStopButton: boolean;
@@ -2082,15 +2104,16 @@ export function TiptapComposer({
     (text: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+      const formattedText = formatVoiceTranscriptForComposer(text);
 
       const anchor = voiceAnchorRef.current;
       if (anchor != null) {
         const prevLen = prevVoiceInsertRef.current.length;
-        if (text) {
+        if (formattedText) {
           ed.chain()
             .focus()
             .deleteRange({ from: anchor, to: anchor + prevLen })
-            .insertContentAt(anchor, text + " ")
+            .insertContentAt(anchor, formattedText)
             .run();
         } else if (prevLen > 0) {
           ed.chain()
@@ -2099,14 +2122,14 @@ export function TiptapComposer({
         }
         voiceAnchorRef.current = null;
         prevVoiceInsertRef.current = "";
-      } else if (text) {
+      } else if (formattedText) {
         const { from } = ed.state.selection;
         const prevChar =
           from > 1 ? ed.state.doc.textBetween(from - 1, from) : "";
         const needsLead = prevChar && !/\s/.test(prevChar);
         ed.chain()
           .focus()
-          .insertContent((needsLead ? " " : "") + text + " ")
+          .insertContent((needsLead ? " " : "") + formattedText)
           .run();
       }
     },
@@ -2172,10 +2195,24 @@ export function TiptapComposer({
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
       if (isComposerEditorUsable(editor) && prevLen > 0) {
-        editor
-          .chain()
-          .deleteRange({ from: anchor, to: anchor + prevLen })
-          .run();
+        const documentSize = editor.state.doc.content.size;
+        const currentText =
+          anchor >= 1 && anchor + prevLen <= documentSize
+            ? editor.state.doc.textBetween(anchor, anchor + prevLen, "", "\n")
+            : "";
+        if (
+          canRemoveVoicePreview({
+            documentSize,
+            anchor,
+            previewText: prevVoiceInsertRef.current,
+            currentText,
+          })
+        ) {
+          editor
+            .chain()
+            .deleteRange({ from: anchor, to: anchor + prevLen })
+            .run();
+        }
       }
       voiceAnchorRef.current = null;
       prevVoiceInsertRef.current = "";
