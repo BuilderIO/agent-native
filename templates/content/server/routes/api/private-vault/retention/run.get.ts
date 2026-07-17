@@ -5,6 +5,7 @@ import {
   defineEventHandler,
   getHeader,
   setResponseHeader,
+  setResponseStatus,
 } from "h3";
 
 import { privateVaultRetentionService } from "../../../../lib/private-vault-retention.js";
@@ -57,9 +58,9 @@ export default defineEventHandler(async (event) => {
   }
   const authorization = getHeader(event, "authorization");
   const isAuthorized = authorized(authorization, authenticator);
-  if (
-    process.env.CONTENT_PRIVATE_VAULT_RETENTION_CRON_DIAGNOSTICS === "1" // guard:allow-env-credential — temporary content-free diagnostics for the isolated synthetic deployment.
-  ) {
+  const diagnosticsEnabled =
+    process.env.CONTENT_PRIVATE_VAULT_RETENTION_CRON_DIAGNOSTICS === "1"; // guard:allow-env-credential — temporary content-free diagnostics for the isolated synthetic deployment.
+  if (diagnosticsEnabled) {
     const supplied = authorization?.trim() ?? "";
     setResponseHeader(
       event,
@@ -83,6 +84,10 @@ export default defineEventHandler(async (event) => {
     );
   }
   if (!isAuthorized) {
+    if (diagnosticsEnabled) {
+      setResponseStatus(event, 401, "Unauthorized");
+      return { error: "Unauthorized" };
+    }
     throw createError({ statusCode: 401, statusMessage: "Unauthorized" });
   }
 

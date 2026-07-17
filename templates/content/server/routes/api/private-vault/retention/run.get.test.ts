@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const sweep = vi.hoisted(() => vi.fn());
 const getHeader = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
+const setResponseStatus = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../lib/private-vault-retention.js", () => ({
   privateVaultRetentionService: { sweep },
@@ -13,6 +14,7 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getHeader: (...args: unknown[]) => getHeader(...args),
   setResponseHeader: (...args: unknown[]) => setResponseHeader(...args),
+  setResponseStatus: (...args: unknown[]) => setResponseStatus(...args),
   createError: (input: Record<string, unknown>) =>
     Object.assign(new Error(), input),
 }));
@@ -105,9 +107,10 @@ describe("Private Vault retention cron route", () => {
     );
     getHeader.mockReturnValue("Bearer wrong-secret");
 
-    await expect(handler({} as never)).rejects.toMatchObject({
-      statusCode: 401,
+    await expect(handler({} as never)).resolves.toEqual({
+      error: "Unauthorized",
     });
+    expect(setResponseStatus).toHaveBeenCalledWith({}, 401, "Unauthorized");
     expect(setResponseHeader).toHaveBeenCalledWith(
       {},
       "X-Private-Vault-Cron-Auth-Mode",
