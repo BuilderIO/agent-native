@@ -2579,6 +2579,27 @@ function createAgentNativePlugins(
   ].filter(Boolean);
 }
 
+function resolveAgentNativeTemplate(cwd: string): string {
+  const configured = [
+    process.env.AGENT_NATIVE_TEMPLATE,
+    process.env.VITE_AGENT_NATIVE_TEMPLATE,
+    process.env.VITE_APP_TEMPLATE,
+  ].find((value) => value?.trim());
+  if (configured) return configured.trim().toLowerCase();
+
+  const normalizedCwd = cwd.replaceAll("\\", "/");
+  const marker = "/templates/";
+  const markerIndex = normalizedCwd.lastIndexOf(marker);
+  if (markerIndex === -1) return "";
+  return (
+    normalizedCwd
+      .slice(markerIndex + marker.length)
+      .split("/")[0]
+      ?.trim()
+      .toLowerCase() ?? ""
+  );
+}
+
 function createAgentNativeConfig(
   options: ClientConfigOptions | AgentNativeVitePluginOptions = {},
   command?: AgentNativeViteCommand,
@@ -2682,6 +2703,9 @@ function createAgentNativeConfig(
       ),
       __AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__: JSON.stringify(
         normalizeMcpIntegrationsConfig(options.mcpIntegrations),
+      ),
+      __AGENT_NATIVE_TEMPLATE__: JSON.stringify(
+        resolveAgentNativeTemplate(cwd),
       ),
     },
     server: {

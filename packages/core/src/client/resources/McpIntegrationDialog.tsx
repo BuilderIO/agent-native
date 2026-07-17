@@ -28,6 +28,7 @@ import {
   buildMcpOAuthStartUrl,
   createMcpIntegrationFormDefaults,
   filterMcpIntegrations,
+  getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isCustomMcpIntegrationEnabled,
   resolveMcpIntegrationScope,
@@ -446,6 +447,7 @@ export function McpIntegrationDialog({
               )}
               <div className="grid gap-3 sm:grid-cols-2">
                 {filteredIntegrations.map((integration) => {
+                  const apiFallback = getMcpIntegrationApiFallback(integration);
                   const connected = connectedUrls.has(
                     compareUrl(integration.url),
                   );
@@ -517,12 +519,12 @@ export function McpIntegrationDialog({
                           </button>
                         ) : setupOnly ? (
                           <>
-                            {integration.apiFallback && (
+                            {apiFallback && (
                               <button
                                 type="button"
                                 onClick={() =>
                                   openAgentSettings(
-                                    `secrets:${integration.apiFallback?.secretKey}`,
+                                    `secrets:${apiFallback.secretKey}`,
                                   )
                                 }
                                 className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"

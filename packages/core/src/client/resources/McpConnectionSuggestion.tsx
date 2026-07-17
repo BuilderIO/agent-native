@@ -12,6 +12,7 @@ import { useT } from "../i18n.js";
 import {
   buildMcpOAuthStartUrl,
   findMcpIntegrationForText,
+  getMcpIntegrationApiFallback,
   getDefaultMcpIntegrations,
   isMcpConnectionFailureText,
   type DefaultMcpIntegration,
@@ -68,8 +69,10 @@ function canStartOAuth(integration: DefaultMcpIntegration): boolean {
   );
 }
 
-function hasApiFallback(integration: DefaultMcpIntegration): boolean {
-  return Boolean(integration.apiFallback);
+function hasApiFallback(
+  apiFallback: DefaultMcpIntegration["apiFallback"] | null,
+): boolean {
+  return Boolean(apiFallback);
 }
 
 export function McpConnectionSuggestion({
@@ -101,6 +104,9 @@ export function McpConnectionSuggestion({
     textIntegration.id !== contextIntegration.id
       ? null
       : (textIntegration ?? contextIntegration);
+  const apiFallback = integration
+    ? getMcpIntegrationApiFallback(integration)
+    : null;
   const servers = useMemo(
     () => [
       ...(mcpServersQuery.data?.user ?? []),
@@ -127,8 +133,8 @@ export function McpConnectionSuggestion({
     if (!integration || connecting) return;
     setError(null);
 
-    if (integration.apiFallback) {
-      openAgentSettings(`secrets:${integration.apiFallback.secretKey}`);
+    if (apiFallback) {
+      openAgentSettings(`secrets:${apiFallback.secretKey}`);
       return;
     }
 
@@ -173,7 +179,7 @@ export function McpConnectionSuggestion({
     setDialogOpen(true);
   };
 
-  const actionLabel = hasApiFallback(integration)
+  const actionLabel = hasApiFallback(apiFallback)
     ? t("mcpIntegrations.useApiToken")
     : canStartOAuth(integration)
       ? t("mcpIntegrations.connectWithOAuth")
@@ -207,7 +213,7 @@ export function McpConnectionSuggestion({
         </div>
         <span className="min-w-0 flex-1 leading-snug text-foreground">
           {t(
-            hasApiFallback(integration)
+            hasApiFallback(apiFallback)
               ? "mcpIntegrations.connectSuggestionWithApiToken"
               : "mcpIntegrations.connectSuggestion",
             { name: integration.name },
@@ -222,16 +228,16 @@ export function McpConnectionSuggestion({
           {connecting && <IconLoader2 className="h-3 w-3 animate-spin" />}
           {!connecting &&
             canStartOAuth(integration) &&
-            !hasApiFallback(integration) && (
+            !hasApiFallback(apiFallback) && (
               <IconPlugConnected className="h-3 w-3" />
             )}
-          {!connecting && hasApiFallback(integration) && (
+          {!connecting && hasApiFallback(apiFallback) && (
             <IconPlugConnected className="h-3 w-3" />
           )}
           {actionLabel}
           {!connecting &&
             !canStartOAuth(integration) &&
-            !hasApiFallback(integration) && (
+            !hasApiFallback(apiFallback) && (
               <IconArrowUpRight className="h-3 w-3" />
             )}
         </button>
