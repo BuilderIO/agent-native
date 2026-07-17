@@ -46,6 +46,9 @@ Detailed library, generation, image, embed, and engine rules live in
   Respect `creative-context.contextMode: "off"` without silently restoring a
   pack. This shared Agent-page Library does not replace Assets' existing
   `/library` media workflow.
+- To submit an asset to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; it pins immutable media bytes and metadata.
+  Reuse only its opaque native clone reference through the Assets action path.
 
 - `navigation` exposes library, asset, generation, picker, embed, and selection
   context. Human Library state uses

@@ -6,6 +6,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
+  registerNativeResourceCaptureAdapter,
   readCreativeContextMedia,
   setupCreativeContext,
   type CreativeContextProjectionAdapters,
@@ -18,6 +19,7 @@ import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
 import { createAssetFromBuffer } from "../lib/assets.js";
+import { nativeAssetCreativeContextAdapter } from "../lib/native-creative-context.js";
 import { seedDefaultGenerationPresets } from "../lib/generation-presets.js";
 import { nowIso, parseJson, stringifyJson } from "../lib/json.js";
 
@@ -201,5 +203,7 @@ registerOnboardingStep({
     }
   },
 });
+
+registerNativeResourceCaptureAdapter(nativeAssetCreativeContextAdapter);
 
 export default setupCreativeContext({ appId: "assets", projections });

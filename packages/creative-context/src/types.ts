@@ -1,4 +1,14 @@
 export type ContextSourceStatus = "active" | "paused" | "archived" | "error";
+export const CREATIVE_CONTEXT_SOURCE_KINDS = [
+  "manual",
+  "upload",
+  "google-slides",
+  "figma",
+  "notion",
+  "website",
+  "native-app",
+] as const;
+export type ContextSourceKind = (typeof CREATIVE_CONTEXT_SOURCE_KINDS)[number];
 export type ContextSourceHealth =
   | "healthy"
   | "stale"
@@ -466,11 +476,69 @@ export interface ContextPackSummary {
   brandDnaVersionId: string | null;
   contextMode: string;
   request: Record<string, unknown>;
+  baseContextId: string | null;
+  specialtyContextId: string | null;
+  selectionReason: string | null;
   memberCount: number;
   pinned: boolean;
   archivedAt: string | null;
   visibility: "private" | "org" | "public";
   createdAt: string;
+}
+
+export type CreativeContextKind = "default" | "specialty";
+export type CreativeContextApprovalPolicy = "open" | "review" | "admins-only";
+export type CreativeContextMembershipStatus = "active" | "removed";
+export type CreativeContextSubmissionStatus =
+  | "pending"
+  | "approved"
+  | "rejected"
+  | "withdrawn"
+  | "superseded";
+
+export interface CreativeContextSummary {
+  id: string;
+  name: string;
+  description: string | null;
+  kind: CreativeContextKind;
+  brandProfileId: string | null;
+  approvalPolicy: CreativeContextApprovalPolicy;
+  archivedAt: string | null;
+  visibility: "private" | "org" | "public";
+  memberCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreativeContextMembership {
+  id: string;
+  contextId: string;
+  artifactKey: string;
+  publishedItemId: string | null;
+  publishedItemVersionId: string | null;
+  pendingSubmissionId: string | null;
+  rank: Exclude<ContextCurationRank, "ignored">;
+  purpose: string | null;
+  status: CreativeContextMembershipStatus;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** Public submission summary deliberately omits staging and native capability data. */
+export interface CreativeContextSubmissionSummary {
+  id: string;
+  contextId: string;
+  membershipId: string;
+  artifactKey: string;
+  publishedItemId: string | null;
+  publishedItemVersionId: string | null;
+  note: string | null;
+  status: CreativeContextSubmissionStatus;
+  submittedBy: string;
+  reviewedBy: string | null;
+  reviewNote: string | null;
+  createdAt: string;
+  reviewedAt: string | null;
 }
 
 export interface ContextPackDetail extends ContextPackSummary {

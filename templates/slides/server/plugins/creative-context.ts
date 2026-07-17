@@ -4,6 +4,7 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server/request-context";
 import {
+  registerNativeResourceCaptureAdapter,
   setupCreativeContext,
   type CreativeContextProjectionAdapters,
 } from "@agent-native/creative-context/server";
@@ -12,6 +13,7 @@ import { desc, eq } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
+import { nativeDeckCreativeContextAdapter } from "../lib/native-creative-context.js";
 
 type ProjectedLayoutTemplate = {
   id: string;
@@ -162,5 +164,7 @@ registerOnboardingStep({
     }
   },
 });
+
+registerNativeResourceCaptureAdapter(nativeDeckCreativeContextAdapter);
 
 export default setupCreativeContext({ appId: "slides", projections });

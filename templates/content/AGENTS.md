@@ -43,6 +43,9 @@ Detailed document editing, Notion, storage, and UI rules live in
   document first, then a pinned/current pack, then narrow library search.
   Respect `creative-context.contextMode: "off"` without silently restoring a
   pack.
+- To submit a document to a governed Creative Context, use the Context tab or
+  `manage-context-membership`; the app flushes live collaboration and captures
+  one immutable Markdown version. Reuse only its opaque native clone reference.
 
 - `navigation` exposes document, selected block, comment, media, and Notion view
   context.

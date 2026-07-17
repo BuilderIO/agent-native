@@ -42,6 +42,17 @@ registerWorkspaceConnectionLifecycleListener(async (event) => {
 function registerCreativeContextShareables(): void {
   const getDb = () => getCreativeContext().getDb();
   registerShareableResource({
+    type: "creative-context",
+    resourceTable: schema.creativeContexts,
+    sharesTable: schema.creativeContextShares,
+    displayName: "Creative context",
+    titleColumn: "name",
+    getResourcePath: getCreativeContextResourcePath,
+    getDb,
+    allowPublic: false,
+    requireOrgMemberForUserShares: true,
+  });
+  registerShareableResource({
     type: "creative-context-source",
     resourceTable: schema.contextSources,
     sharesTable: schema.contextSourceShares,
@@ -128,6 +139,7 @@ export * from "./prompt-provider.js";
 export * from "./retrieval.js";
 export * from "./untrusted-reference.js";
 export * from "./media.js";
+export * from "./native-resource-capture.js";
 export {
   CREATIVE_CONTEXT_BACKGROUND_PROCESSOR_ROUTE,
   CREATIVE_CONTEXT_IMPORT_PROCESSOR_ROUTE,

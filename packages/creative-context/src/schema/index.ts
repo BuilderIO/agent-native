@@ -323,6 +323,117 @@ export const contextPackPins = table("creative_context_pack_pins", {
   ...scopedColumns(),
 });
 
+/** A governed, shareable collection of published creative artifacts. */
+export const creativeContexts = table("creative_contexts", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  description: text("description"),
+  kind: text("kind", { enum: ["default", "specialty"] }).notNull(),
+  brandProfileId: text("brand_profile_id"),
+  stagingSourceId: text("staging_source_id").notNull(),
+  // This source is owned by the context and is intentionally not a library source.
+  publishedSourceId: text("published_source_id").notNull(),
+  approvalPolicy: text("approval_policy", {
+    enum: ["open", "review", "admins-only"],
+  }).notNull().default("open"),
+  archivedAt: text("archived_at"),
+  createdAt: text("created_at").notNull(),
+  updatedAt: text("updated_at").notNull(),
+  ...ownableColumns(),
+});
+
+export const creativeContextShares = createSharesTable(
+  "creative_context_shares",
+);
+
+export const creativeContextAudit = table("creative_context_audit", {
+  id: text("id").primaryKey(),
+  contextId: text("context_id").notNull(),
+  operation: text("operation").notNull(),
+  actorEmail: text("actor_email").notNull(),
+  details: text("details").notNull().default("{}"),
+  createdAt: text("created_at").notNull(),
+  ...scopedColumns(),
+});
+
+/** One stable row per context/artifact identity; published pointers are mutable. */
+export const creativeContextMemberships = table(
+  "creative_context_memberships",
+  {
+    id: text("id").primaryKey(),
+    contextId: text("context_id").notNull(),
+    artifactKey: text("artifact_key").notNull(),
+    publishedItemId: text("published_item_id"),
+    publishedItemVersionId: text("published_item_version_id"),
+    pendingSubmissionId: text("pending_submission_id"),
+    rank: text("rank", { enum: ["canonical", "exemplar", "normal"] })
+      .notNull()
+      .default("normal"),
+    purpose: text("purpose"),
+    status: text("status", { enum: ["active", "removed"] })
+      .notNull()
+      .default("active"),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    ...scopedColumns(),
+  },
+);
+
+/** Submission rows are append-only evidence and staging pointers. */
+export const creativeContextSubmissions = table(
+  "creative_context_submissions",
+  {
+    id: text("id").primaryKey(),
+    contextId: text("context_id").notNull(),
+    membershipId: text("membership_id").notNull(),
+    artifactKey: text("artifact_key").notNull(),
+    stagingItemId: text("staging_item_id"),
+    stagingItemVersionId: text("staging_item_version_id"),
+    publishedItemId: text("published_item_id"),
+    publishedItemVersionId: text("published_item_version_id"),
+    note: text("note"),
+    privateMetadata: text("private_metadata").notNull().default("{}"),
+    status: text("status", {
+      enum: ["pending", "approved", "rejected", "withdrawn", "superseded"],
+    }).notNull(),
+    submittedBy: text("submitted_by").notNull(),
+    reviewedBy: text("reviewed_by"),
+    reviewNote: text("review_note"),
+    createdAt: text("created_at").notNull(),
+    reviewedAt: text("reviewed_at"),
+    ...scopedColumns(),
+  },
+);
+
+export const creativeContextAppBindings = table(
+  "creative_context_app_bindings",
+  {
+    id: text("id").primaryKey(),
+    appId: text("app_id").notNull(),
+    contextId: text("context_id").notNull(),
+    isDefault: integer("is_default").notNull().default(0),
+    createdAt: text("created_at").notNull(),
+    updatedAt: text("updated_at").notNull(),
+    ...scopedColumns(),
+  },
+);
+
+/** Internal history of publish/materialization operations; never public API. */
+export const creativeContextPublishedSnapshots = table(
+  "creative_context_published_snapshots",
+  {
+    id: text("id").primaryKey(),
+    contextId: text("context_id").notNull(),
+    sourceId: text("source_id").notNull(),
+    membershipId: text("membership_id").notNull(),
+    itemId: text("item_id").notNull(),
+    itemVersionId: text("item_version_id").notNull(),
+    submissionId: text("submission_id").notNull(),
+    createdAt: text("created_at").notNull(),
+    ...scopedColumns(),
+  },
+);
+
 export const contextJobs = table("creative_context_jobs", {
   id: text("id").primaryKey(),
   dedupeKey: text("dedupe_key"),

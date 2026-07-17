@@ -28,7 +28,16 @@ import {
   SelectItem,
   SelectTrigger,
   SelectValue,
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
   Skeleton,
+  Tabs,
+  TabsContent,
+  TabsList,
+  TabsTrigger,
   Textarea,
 } from "@agent-native/toolkit/ui";
 import {
@@ -70,6 +79,7 @@ import type {
 } from "../types.js";
 import {
   useCreativeContextBrandProfile,
+  useCreativeContexts,
   useCanonicalLogoCandidates,
   useCreativeContextConnections,
   useCreativeContextGooglePickerSession,
@@ -89,6 +99,7 @@ import {
   useRefreshCreativeContextSource,
   useReviewCreativeContextItems,
   useStartCreativeContextImport,
+  parseCreativeContexts,
   type CreativeContextConnectionProvider,
   type CreativeContextRootRecommendation,
   type CreativeContextRecommendationProvider,
@@ -789,6 +800,86 @@ function ItemCuration({
   );
 }
 
+type LibraryView = "items" | "sources" | "approvals" | "settings";
+
+interface SafePreviewManifest {
+  title: string;
+  kind: string;
+  itemId: string;
+  itemVersionId: string;
+  hasPreview: boolean;
+}
+
+function ContextPreviewSheet({
+  manifest,
+  onOpenChange,
+}: {
+  manifest: SafePreviewManifest | null;
+  onOpenChange: (open: boolean) => void;
+}) {
+  return (
+    <Sheet open={Boolean(manifest)} onOpenChange={onOpenChange}>
+      <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
+        <SheetHeader>
+          <SheetTitle>{manifest?.title ?? "Context preview"}</SheetTitle>
+          <SheetDescription>{manifest?.kind ?? ""}</SheetDescription>
+        </SheetHeader>
+        {manifest?.hasPreview ? (
+          <img
+            src={creativeContextMediaUrl({ itemId: manifest.itemId, itemVersionId: manifest.itemVersionId })}
+            alt=""
+            className="mt-5 max-h-[70vh] w-full rounded-md border border-border object-contain"
+          />
+        ) : (
+          <div className="mt-5 flex min-h-44 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
+            No safe preview is available for this item.
+          </div>
+        )}
+      </SheetContent>
+    </Sheet>
+  );
+}
+
+function ContextRail({
+  contexts,
+  selectedContextId,
+  disabled,
+  onSelect,
+}: {
+  contexts: Array<{ id: string; name: string; description?: string | null; itemCount?: number }>;
+  selectedContextId: string | null | undefined;
+  disabled: boolean;
+  onSelect: (contextId: string) => void;
+}) {
+  return (
+    <aside className="border-b border-border/70 pb-5">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h2 className="text-sm font-semibold">Contexts</h2>
+          <p className="mt-0.5 text-xs text-muted-foreground">Choose the reusable context that should guide this work.</p>
+        </div>
+        <Badge variant="outline">{contexts.length}</Badge>
+      </div>
+      <div className="mt-3 flex gap-2 overflow-x-auto pb-1">
+        {contexts.map((context) => (
+          <button
+            key={context.id}
+            type="button"
+            disabled={disabled}
+            aria-pressed={selectedContextId === context.id}
+            onClick={() => onSelect(context.id)}
+            className={`min-w-40 rounded-md border px-3 py-2 text-start transition-colors disabled:opacity-60 ${selectedContextId === context.id ? "border-foreground/25 bg-accent text-foreground" : "border-border text-muted-foreground hover:bg-accent/50 hover:text-foreground"}`}
+          >
+            <span className="block truncate text-sm font-medium">{context.name}</span>
+            <span className="mt-0.5 block truncate text-xs">{context.description || `${context.itemCount ?? 0} items`}</span>
+          </button>
+        ))}
+        {!contexts.length ? <p className="py-2 text-sm text-muted-foreground">Create a context from a resource’s Share tab to start organizing the Library.</p> : null}
+      </div>
+    </aside>
+  );
+}
+
 export function CreativeContextPanel({
   scope = "user",
   canManageOrg = false,
@@ -800,6 +891,7 @@ export function CreativeContextPanel({
   const { data: org } = useOrg();
   const [libraryScope, setLibraryScope] = useState<AgentPageScope>(scope);
   const sourcesQuery = useCreativeContextSources({ limit: 100 });
+  const contextsQuery = useCreativeContexts();
   const packsQuery = useCreativeContextPacks();
   const brandProfileQuery = useCreativeContextBrandProfile();
   const suggestionsQuery = useCreativeContextSuggestions();
@@ -819,6 +911,9 @@ export function CreativeContextPanel({
   const manageLayoutTemplate = useManageLayoutTemplate();
   const contextState = useCreativeContextState();
   const [query, setQuery] = useState("");
+  const [libraryView, setLibraryView] = useState<LibraryView>("items");
+  const [previewManifest, setPreviewManifest] =
+    useState<SafePreviewManifest | null>(null);
   const [savingState, setSavingState] = useState(false);
   const [stateError, setStateError] = useState<string | null>(null);
   const [refreshMessage, setRefreshMessage] = useState<string | null>(null);
@@ -945,6 +1040,10 @@ export function CreativeContextPanel({
       ),
     [libraryScope, packsQuery.data?.packs],
   );
+  const contexts = useMemo(
+    () => parseCreativeContexts(contextsQuery.data),
+    [contextsQuery.data],
+  );
   const activePack = packs.find(
     (pack) => pack.id === contextState.state.currentPackId,
   );
@@ -1020,8 +1119,18 @@ export function CreativeContextPanel({
     try {
       await contextState.setState(
         mode === "off"
-          ? { contextMode: "off", currentPackId: null, pinnedPackId: null }
-          : { ...contextState.state, contextMode: "auto" },
+          ? {
+              contextMode: "off",
+              selectedContextId: null,
+              currentPackId: null,
+              pinnedPackId: null,
+            }
+          : {
+              ...contextState.state,
+              contextMode: "auto",
+              selectedContextId: null,
+              pinnedPackId: null,
+            },
       );
     } catch {
       setStateError(t("creativeContext.stateSaveFailed"));
@@ -1037,7 +1146,25 @@ export function CreativeContextPanel({
       await contextState.setState({
         ...contextState.state,
         contextMode: "auto",
+        selectedContextId: null,
         pinnedPackId: packId,
+      });
+    } catch {
+      setStateError(t("creativeContext.stateSaveFailed"));
+    } finally {
+      setSavingState(false);
+    }
+  }
+
+  async function selectContext(contextId: string) {
+    setSavingState(true);
+    setStateError(null);
+    try {
+      await contextState.setState({
+        ...contextState.state,
+        contextMode: "auto",
+        selectedContextId: contextId,
+        pinnedPackId: null,
       });
     } catch {
       setStateError(t("creativeContext.stateSaveFailed"));
@@ -1437,8 +1564,8 @@ export function CreativeContextPanel({
   }
 
   const loading =
-    sourcesQuery.isLoading || packsQuery.isLoading || contextState.isLoading;
-  const unavailable = sourcesQuery.error || packsQuery.error;
+    sourcesQuery.isLoading || packsQuery.isLoading || contextsQuery.isLoading || contextState.isLoading;
+  const unavailable = sourcesQuery.error || packsQuery.error || contextsQuery.error;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-7 p-6 lg:p-10">
@@ -1456,7 +1583,7 @@ export function CreativeContextPanel({
             (org?.orgId ? (
               <ScopeControl scope={libraryScope} onChange={setLibraryScope} />
             ) : null)}
-          <CreativeContextChip state={contextState.state} packs={packs} />
+          <CreativeContextChip state={contextState.state} packs={packs} contexts={contexts} />
         </div>
       </header>
 
@@ -1473,6 +1600,41 @@ export function CreativeContextPanel({
         </div>
       ) : (
         <>
+          <ContextRail
+            contexts={contexts}
+            selectedContextId={contextState.state.selectedContextId}
+            disabled={savingState}
+            onSelect={(contextId) => void selectContext(contextId)}
+          />
+          <Tabs value={libraryView} onValueChange={(value) => setLibraryView(value as LibraryView)}>
+            <TabsList className="w-full justify-start overflow-x-auto">
+              <TabsTrigger value="items">Items</TabsTrigger>
+              <TabsTrigger value="sources">Sources</TabsTrigger>
+              <TabsTrigger value="approvals">Approvals</TabsTrigger>
+              <TabsTrigger value="settings">Settings</TabsTrigger>
+            </TabsList>
+            <TabsContent value="items">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {reviewedItems.filter((item) => item.curationStatus !== "review").map((item) => (
+                  <button key={item.id} type="button" onClick={() => setPreviewManifest({ title: item.title, kind: item.kind, itemId: item.id, itemVersionId: item.currentVersionId, hasPreview: Boolean(item.thumbnailBlobRef) })} className="overflow-hidden rounded-md border border-border text-start transition-colors hover:bg-accent/40">
+                    {item.thumbnailBlobRef ? <AccessScopedThumbnail itemId={item.id} itemVersionId={item.currentVersionId} className="aspect-video w-full object-cover" /> : <div className="flex aspect-video items-center justify-center bg-muted text-muted-foreground"><IconFileText className="size-5" /></div>}
+                    <span className="block truncate p-3 text-sm font-medium">{item.title}</span>
+                  </button>
+                ))}
+              </div>
+              {!reviewedItems.filter((item) => item.curationStatus !== "review").length ? <p className="py-4 text-sm text-muted-foreground">Approved items appear here after they are reviewed from a source.</p> : null}
+            </TabsContent>
+            <TabsContent value="approvals">
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {reviewedItems.filter((item) => item.curationStatus === "review").map((item) => (
+                  <article key={item.id} className="rounded-md border border-border p-3"><p className="truncate text-sm font-medium">{item.title}</p><p className="mt-0.5 text-xs text-muted-foreground">Awaiting review</p><div className="mt-3 flex gap-2"><Button size="sm" onClick={() => void reviewContextItem("approve", item.id)}>Approve</Button><Button size="sm" variant="outline" onClick={() => void reviewContextItem("exclude", item.id)}>Exclude</Button></div></article>
+                ))}
+              </div>
+              {!reviewedItems.filter((item) => item.curationStatus === "review").length ? <p className="py-4 text-sm text-muted-foreground">Open a source review queue to approve pending items.</p> : null}
+            </TabsContent>
+            <TabsContent value="sources"><p className="text-sm text-muted-foreground">Sources and their review queues are managed below.</p></TabsContent>
+            <TabsContent value="settings"><p className="text-sm text-muted-foreground">Automatic selection is the default. Exact context packs remain available as an advanced provenance pin.</p></TabsContent>
+          </Tabs>
           <section className="space-y-3">
             <div>
               <h2 className="text-sm font-semibold">
@@ -2508,6 +2670,12 @@ export function CreativeContextPanel({
           </section>
         </>
       )}
+      <ContextPreviewSheet
+        manifest={previewManifest}
+        onOpenChange={(open) => {
+          if (!open) setPreviewManifest(null);
+        }}
+      />
       <AlertDialog
         open={Boolean(deleteSource)}
         onOpenChange={(open) => {

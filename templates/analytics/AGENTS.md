@@ -7,6 +7,9 @@ through actions and SQL-backed state.
 Keep this file essential. Querying, dashboard, warehouse, and implementation
 details live in `.agents/skills/`.
 
+Governed Creative Contexts submit immutable, SQL-backed dashboard revisions;
+their previews use only structure and synthetic data, never query results.
+
 ## Core Rules
 
 - Store large file/blob payloads in configured file/blob storage, not SQL: no

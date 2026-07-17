@@ -255,4 +255,62 @@ export const creativeContextMigrations: CreativeContextMigration[] = [
         ON creative_context_jobs (dedupe_scope, scoped_dedupe_key);
     `,
   },
+  {
+    version: 6,
+    name: "creative-context-governed-collections",
+    sql: `
+      CREATE TABLE IF NOT EXISTS creative_contexts (
+        id TEXT PRIMARY KEY, name TEXT NOT NULL, description TEXT,
+        kind TEXT NOT NULL, brand_profile_id TEXT, staging_source_id TEXT NOT NULL, published_source_id TEXT NOT NULL,
+        approval_policy TEXT NOT NULL DEFAULT 'open', archived_at TEXT,
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL DEFAULT 'local@localhost', org_id TEXT,
+        visibility TEXT NOT NULL DEFAULT 'private'
+      );
+      CREATE TABLE IF NOT EXISTS creative_context_shares (
+        id TEXT PRIMARY KEY, resource_id TEXT NOT NULL, principal_type TEXT NOT NULL,
+        principal_id TEXT NOT NULL, role TEXT NOT NULL DEFAULT 'viewer',
+        created_by TEXT NOT NULL, created_at TEXT NOT NULL
+      );
+      CREATE TABLE IF NOT EXISTS creative_context_audit (
+        id TEXT PRIMARY KEY, context_id TEXT NOT NULL, operation TEXT NOT NULL,
+        actor_email TEXT NOT NULL, details TEXT NOT NULL DEFAULT '{}', created_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL, org_id TEXT
+      );
+      CREATE TABLE IF NOT EXISTS creative_context_memberships (
+        id TEXT PRIMARY KEY, context_id TEXT NOT NULL, artifact_key TEXT NOT NULL,
+        published_item_id TEXT, published_item_version_id TEXT, pending_submission_id TEXT,
+        rank TEXT NOT NULL DEFAULT 'normal', purpose TEXT, status TEXT NOT NULL DEFAULT 'active',
+        created_at TEXT NOT NULL, updated_at TEXT NOT NULL, owner_email TEXT NOT NULL, org_id TEXT
+      );
+      CREATE TABLE IF NOT EXISTS creative_context_submissions (
+        id TEXT PRIMARY KEY, context_id TEXT NOT NULL, membership_id TEXT NOT NULL,
+        artifact_key TEXT NOT NULL, staging_item_id TEXT, staging_item_version_id TEXT,
+        published_item_id TEXT, published_item_version_id TEXT, note TEXT,
+        private_metadata TEXT NOT NULL DEFAULT '{}', status TEXT NOT NULL,
+        submitted_by TEXT NOT NULL, reviewed_by TEXT, review_note TEXT,
+        created_at TEXT NOT NULL, reviewed_at TEXT, owner_email TEXT NOT NULL, org_id TEXT
+      );
+      CREATE TABLE IF NOT EXISTS creative_context_app_bindings (
+        id TEXT PRIMARY KEY, app_id TEXT NOT NULL, context_id TEXT NOT NULL,
+        is_default INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL,
+        owner_email TEXT NOT NULL, org_id TEXT
+      );
+      CREATE TABLE IF NOT EXISTS creative_context_published_snapshots (
+        id TEXT PRIMARY KEY, context_id TEXT NOT NULL, source_id TEXT NOT NULL,
+        membership_id TEXT NOT NULL, item_id TEXT NOT NULL, item_version_id TEXT NOT NULL,
+        submission_id TEXT NOT NULL, created_at TEXT NOT NULL, owner_email TEXT NOT NULL, org_id TEXT
+      );
+      CREATE UNIQUE INDEX IF NOT EXISTS creative_context_membership_artifact_uidx
+        ON creative_context_memberships (context_id, artifact_key);
+      CREATE INDEX IF NOT EXISTS creative_context_memberships_context_status_idx
+        ON creative_context_memberships (context_id, status, updated_at);
+      CREATE INDEX IF NOT EXISTS creative_context_submissions_context_status_idx
+        ON creative_context_submissions (context_id, status, created_at);
+      CREATE UNIQUE INDEX IF NOT EXISTS creative_context_app_binding_uidx
+        ON creative_context_app_bindings (app_id, context_id, owner_email, org_id);
+      CREATE INDEX IF NOT EXISTS creative_context_shares_lookup_idx
+        ON creative_context_shares (resource_id, principal_type, principal_id);
+    `,
+  },
 ];

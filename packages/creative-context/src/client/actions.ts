@@ -18,6 +18,10 @@ import type {
 } from "../types.js";
 
 export const CREATIVE_CONTEXT_ACTIONS = {
+  listContexts: "list-creative-contexts",
+  manageContext: "manage-creative-context",
+  listMemberships: "list-context-memberships",
+  manageMembership: "manage-context-membership",
   listSources: "list-context-sources",
   manageSource: "manage-context-source",
   previewImport: "preview-context-import",
@@ -40,6 +44,168 @@ export const CREATIVE_CONTEXT_ACTIONS = {
   listSuggestions: "list-context-suggestions",
   manageLayoutTemplate: "manage-layout-template",
 } as const;
+
+export type CreativeContextPolicy = "open" | "review" | "admins-only";
+export type CreativeContextMembershipRank = "canonical" | "exemplar" | "normal";
+
+export interface CreativeContextSummary {
+  id: string;
+  name: string;
+  description?: string | null;
+  itemCount?: number;
+  updatedAt?: string | null;
+  policy?: CreativeContextPolicy;
+}
+
+export interface CreativeContextMembership {
+  id: string;
+  contextId: string;
+  appId: string;
+  resourceType: string;
+  resourceId: string;
+  rank: CreativeContextMembershipRank;
+  purpose: string | null;
+  note: string | null;
+  status: "active" | "pending" | "withdrawn";
+  updatedAt?: string | null;
+  context?: CreativeContextSummary;
+}
+
+export interface ListCreativeContextsParams {
+  appId?: string;
+  resourceType?: string;
+  resourceId?: string;
+}
+
+export interface ListCreativeContextsResult {
+  contexts: CreativeContextSummary[];
+}
+
+export type ManageCreativeContextParams =
+  | {
+      operation: "create";
+      name: string;
+      description?: string;
+      policy?: CreativeContextPolicy;
+    }
+  | {
+      operation: "update";
+      contextId: string;
+      patch: {
+        name?: string;
+        description?: string | null;
+        policy?: CreativeContextPolicy;
+      };
+      expectedUpdatedAt?: string;
+    }
+  | { operation: "archive"; contextId: string; expectedUpdatedAt?: string };
+
+export interface ManageCreativeContextResult {
+  context: CreativeContextSummary | null;
+}
+
+export interface ListContextMembershipsParams {
+  appId: string;
+  resourceType: string;
+  resourceId: string;
+}
+
+export interface ListContextMembershipsResult {
+  memberships: CreativeContextMembership[];
+}
+
+export type ManageContextMembershipParams =
+  | {
+      operation: "add";
+      appId: string;
+      resourceType: string;
+      resourceId: string;
+      contextId: string;
+      rank?: CreativeContextMembershipRank;
+      purpose?: string;
+      note?: string;
+    }
+  | {
+      operation: "update";
+      membershipId: string;
+      rank?: CreativeContextMembershipRank;
+      purpose?: string | null;
+      note?: string | null;
+      expectedUpdatedAt?: string;
+    }
+  | {
+      operation: "withdraw" | "remove";
+      membershipId: string;
+      expectedUpdatedAt?: string;
+    };
+
+export interface ManageContextMembershipResult {
+  membership: CreativeContextMembership | null;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" ? (value as Record<string, unknown>) : null;
+}
+
+function contextSummary(value: unknown): CreativeContextSummary | null {
+  const source = record(value);
+  if (!source || typeof source.id !== "string" || typeof source.name !== "string") {
+    return null;
+  }
+  return {
+    id: source.id,
+    name: source.name,
+    description: typeof source.description === "string" ? source.description : null,
+    itemCount: typeof source.itemCount === "number" ? source.itemCount : undefined,
+    updatedAt: typeof source.updatedAt === "string" ? source.updatedAt : null,
+    policy:
+      source.policy === "open" || source.policy === "review" || source.policy === "admins-only"
+        ? source.policy
+        : undefined,
+  };
+}
+
+export function parseCreativeContexts(value: unknown): CreativeContextSummary[] {
+  const source = Array.isArray(value)
+    ? value
+    : record(value)?.contexts ?? record(value)?.items ?? [];
+  return Array.isArray(source)
+    ? source.map(contextSummary).filter((item): item is CreativeContextSummary => Boolean(item))
+    : [];
+}
+
+export function parseContextMemberships(value: unknown): CreativeContextMembership[] {
+  const source = Array.isArray(value)
+    ? value
+    : record(value)?.memberships ?? record(value)?.items ?? [];
+  if (!Array.isArray(source)) return [];
+  return source.flatMap((value) => {
+    const item = record(value);
+    if (
+      !item ||
+      typeof item.id !== "string" ||
+      typeof item.contextId !== "string" ||
+      typeof item.appId !== "string" ||
+      typeof item.resourceType !== "string" ||
+      typeof item.resourceId !== "string"
+    ) {
+      return [];
+    }
+    return [{
+      id: item.id,
+      contextId: item.contextId,
+      appId: item.appId,
+      resourceType: item.resourceType,
+      resourceId: item.resourceId,
+      rank: item.rank === "canonical" || item.rank === "exemplar" ? item.rank : "normal",
+      purpose: typeof item.purpose === "string" ? item.purpose : null,
+      note: typeof item.note === "string" ? item.note : null,
+      status: item.status === "pending" || item.status === "withdrawn" ? item.status : "active",
+      updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
+      context: contextSummary(item.context),
+    }];
+  });
+}
 
 export interface CanonicalLogoCandidate {
   mediaId: string;
@@ -292,6 +458,37 @@ export function useCreativeContextSources(
     CREATIVE_CONTEXT_ACTIONS.listSources,
     params,
   );
+}
+
+export function useCreativeContexts(params: ListCreativeContextsParams = {}) {
+  return useActionQuery<ListCreativeContextsResult>(
+    CREATIVE_CONTEXT_ACTIONS.listContexts,
+    params,
+  );
+}
+
+export function useManageCreativeContext() {
+  return useActionMutation<
+    ManageCreativeContextResult,
+    ManageCreativeContextParams
+  >(CREATIVE_CONTEXT_ACTIONS.manageContext);
+}
+
+export function useContextMemberships(
+  params: ListContextMembershipsParams | null,
+) {
+  return useActionQuery<ListContextMembershipsResult>(
+    CREATIVE_CONTEXT_ACTIONS.listMemberships,
+    params ?? undefined,
+    { enabled: Boolean(params) },
+  );
+}
+
+export function useManageContextMembership() {
+  return useActionMutation<
+    ManageContextMembershipResult,
+    ManageContextMembershipParams
+  >(CREATIVE_CONTEXT_ACTIONS.manageMembership);
 }
 
 export function useCreativeContextSearch() {
