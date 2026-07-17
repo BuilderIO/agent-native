@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // the action contract itself.
 const chain = () => {
   const value: Record<string, unknown> = {};
-  for (const method of ["min", "max", "email", "optional"]) {
+  for (const method of ["min", "max", "email", "int", "optional"]) {
     value[method] = () => value;
   }
   return value;
@@ -179,22 +179,15 @@ describe("feature flag action contracts", () => {
     );
   });
 
-  it("derives replace-rules and its rollout epoch inside the atomic mutation", async () => {
-    const randomUUID = vi
-      .spyOn(crypto, "randomUUID")
-      .mockReturnValue("11111111-1111-4111-8111-111111111111");
-    try {
-      await setAction.run(
-        {
-          operation: "replace-rules",
-          key: "new-editor",
-          rules: { mode: "rules", percentage: 50 },
-        },
-        { caller: "tool", userEmail: "admin@example.com", orgId: "org-1" },
-      );
-    } finally {
-      randomUUID.mockRestore();
-    }
+  it("derives replacement rules inside the atomic mutation", async () => {
+    await setAction.run(
+      {
+        operation: "replace-rules",
+        key: "new-editor",
+        rules: { mode: "rules", percentage: 50 },
+      },
+      { caller: "tool", userEmail: "admin@example.com", orgId: "org-1" },
+    );
 
     expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
     expect(normalizeFeatureFlagRulesMock).toHaveBeenCalledWith(

@@ -8,11 +8,11 @@ import {
   getHeader,
   getRequestURL,
 } from "h3";
-import * as jose from "jose";
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isAgentActionStopError } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { resolveOrgIdForEmail } from "../org/context.js";
 import { readBody } from "../server/h3-helpers.js";
 import { EMBED_TARGET_HEADER } from "../shared/embed-auth.js";
@@ -52,18 +52,7 @@ async function resolveFeatureFlagA2ACaller(event: any, actionName: string) {
   const authorization = getHeader(event, "authorization");
   if (!authorization?.startsWith("Bearer ")) return null;
   const token = authorization.slice(7);
-  let declared = false;
-  try {
-    const raw = jose.decodeJwt(token);
-    declared =
-      typeof raw.org_id === "string" ||
-      typeof raw.jti === "string" ||
-      (typeof raw.scope === "string" &&
-        raw.scope.split(/\s+/).some((scope) => scope.startsWith("flags:")));
-  } catch {
-    return null;
-  }
-  if (!declared) return null;
+  if (!declaresFeatureFlagDelegation(token)) return null;
   const claims = await verifyA2ATokenWithClaims(token, event);
   if (!claims || !claims.scope.includes(required))
     throw new Error("Invalid feature flag delegation");

@@ -37,4 +37,16 @@ describe("set-workspace-feature-flag", () => {
     });
     expect(setWorkspaceFeatureFlag).toHaveBeenCalledWith(admin, input);
   });
+
+  it("rejects decimal rollout percentages before delegating a write", () => {
+    const result = action.schema.safeParse({
+      appId: "content",
+      key: "new-editor",
+      operation: "replace-rules",
+      rules: { mode: "rules", percentage: 12.5 },
+    });
+
+    expect(result.success).toBe(false);
+    expect(setWorkspaceFeatureFlag).not.toHaveBeenCalled();
+  });
 });
