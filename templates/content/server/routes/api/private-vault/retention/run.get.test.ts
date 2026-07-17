@@ -5,7 +5,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const sweep = vi.hoisted(() => vi.fn());
 const getHeader = vi.hoisted(() => vi.fn());
 const setResponseHeader = vi.hoisted(() => vi.fn());
-const setResponseStatus = vi.hoisted(() => vi.fn());
 
 vi.mock("../../../../lib/private-vault-retention.js", () => ({
   privateVaultRetentionService: { sweep },
@@ -14,7 +13,6 @@ vi.mock("h3", () => ({
   defineEventHandler: (handler: unknown) => handler,
   getHeader: (...args: unknown[]) => getHeader(...args),
   setResponseHeader: (...args: unknown[]) => setResponseHeader(...args),
-  setResponseStatus: (...args: unknown[]) => setResponseStatus(...args),
   createError: (input: Record<string, unknown>) =>
     Object.assign(new Error(), input),
 }));
@@ -24,7 +22,6 @@ import handler from "./run.get";
 describe("Private Vault retention cron route", () => {
   beforeEach(() => {
     vi.resetAllMocks();
-    vi.stubEnv("CONTENT_PRIVATE_VAULT_RETENTION_CRON_DIAGNOSTICS", "");
     vi.stubEnv("CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256", "");
     vi.stubEnv("CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET", "test-secret");
     getHeader.mockReturnValue("Bearer test-secret");
@@ -97,40 +94,6 @@ describe("Private Vault retention cron route", () => {
       statusCode: 401,
     });
     expect(sweep).not.toHaveBeenCalled();
-  });
-
-  it("emits only content-free diagnostics when explicitly enabled", async () => {
-    vi.stubEnv("CONTENT_PRIVATE_VAULT_RETENTION_CRON_DIAGNOSTICS", "1");
-    vi.stubEnv(
-      "CONTENT_PRIVATE_VAULT_RETENTION_CRON_SECRET_SHA256",
-      createHash("sha256").update("verifier-secret").digest("hex"),
-    );
-    getHeader.mockReturnValue("Bearer wrong-secret");
-
-    await expect(handler({} as never)).resolves.toEqual({
-      error: "Unauthorized",
-    });
-    expect(setResponseStatus).toHaveBeenCalledWith({}, 401, "Unauthorized");
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      {},
-      "X-Private-Vault-Cron-Auth-Mode",
-      "sha256",
-    );
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      {},
-      "X-Private-Vault-Cron-Authorization-Length",
-      "19",
-    );
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      {},
-      "X-Private-Vault-Cron-Bearer-Syntax",
-      "true",
-    );
-    expect(setResponseHeader).toHaveBeenCalledWith(
-      {},
-      "X-Private-Vault-Cron-Authorized",
-      "false",
-    );
   });
 
   it("uses a timing-safe bearer check before sweeping", async () => {
