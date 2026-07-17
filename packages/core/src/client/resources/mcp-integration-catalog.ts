@@ -41,6 +41,10 @@ export interface DefaultMcpIntegration {
   logoUrl: string;
   docsUrl?: string;
   setupNoteKey?: string;
+  apiFallback?: {
+    secretKey: string;
+    docsUrl: string;
+  };
   headerPlaceholder?: string;
   keywords: string[];
 }
@@ -272,6 +276,11 @@ export const DEFAULT_MCP_INTEGRATIONS: DefaultMcpIntegration[] = [
     logoUrl: mcpIntegrationLogo("figma"),
     docsUrl: "https://developers.figma.com/docs/figma-mcp-server/",
     setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
+    apiFallback: {
+      secretKey: "FIGMA_ACCESS_TOKEN",
+      docsUrl:
+        "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
+    },
     keywords: ["design", "figjam", "components", "variables", "canvas"],
   },
   {

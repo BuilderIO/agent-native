@@ -110,6 +110,11 @@ describe("MCP integration catalog", () => {
       connectionMode: "manual",
       availability: "client-restricted",
       setupNoteKey: "mcpIntegrations.catalog.figma.setupNote",
+      apiFallback: {
+        secretKey: "FIGMA_ACCESS_TOKEN",
+        docsUrl:
+          "https://developers.figma.com/docs/rest-api/personal-access-tokens/",
+      },
     });
     expect(DEFAULT_MCP_INTEGRATIONS).toHaveLength(25);
     expect(

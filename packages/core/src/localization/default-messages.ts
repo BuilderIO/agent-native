@@ -697,7 +697,10 @@ const messages = {
     configure: "Configure",
     connect: "Connect",
     connectWithOAuth: "Connect with OAuth",
+    useApiToken: "Use API token",
     connectSuggestion: "Connect {{name}} to use this link in chat",
+    connectSuggestionWithApiToken:
+      "Connect {{name}} with an API token to use this link in chat",
     dismissSuggestion: "Dismiss integration suggestion",
     backToIntegrations: "Back to integrations",
     customTitle: "Add custom MCP server",
@@ -792,7 +795,7 @@ const messages = {
           "Bring Figma design context and canvas actions into an agent.",
         useCase: "Design files, components, variables, design systems, canvas",
         setupNote:
-          "Figma only allows clients listed in its MCP Catalog. Agent Native needs vendor approval before this remote endpoint can complete a connection; use the existing Figma OAuth connector for app-owned workflows in the meantime.",
+          "Figma MCP only allows clients listed in Figma's MCP Catalog, so this remote endpoint cannot connect from Agent Native yet. Use the Figma REST API fallback with a personal access token for reading file and node context; MCP canvas actions remain unavailable until Figma approves Agent Native.",
       },
       canva: {
         description: "Search, create, and update Canva designs and assets.",

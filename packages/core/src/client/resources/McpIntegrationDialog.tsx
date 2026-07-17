@@ -9,6 +9,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AgentAskPopover } from "../AgentAskPopover.js";
 import { agentNativePath } from "../api-path.js";
+import { openAgentSettings } from "../CommandMenu.js";
 import {
   Dialog,
   DialogContent,
@@ -515,15 +516,30 @@ export function McpIntegrationDialog({
                             {t("mcpIntegrations.connected")}
                           </button>
                         ) : setupOnly ? (
-                          <a
-                            href={integration.docsUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground hover:bg-accent"
-                          >
-                            {t("mcpIntegrations.viewSetup")}
-                            <IconExternalLink className="h-3.5 w-3.5" />
-                          </a>
+                          <>
+                            {integration.apiFallback && (
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  openAgentSettings(
+                                    `secrets:${integration.apiFallback?.secretKey}`,
+                                  )
+                                }
+                                className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md bg-primary px-2.5 text-[12px] font-medium text-primary-foreground hover:bg-primary/90"
+                              >
+                                {t("mcpIntegrations.useApiToken")}
+                              </button>
+                            )}
+                            <a
+                              href={integration.docsUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex h-8 flex-1 items-center justify-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[12px] font-medium text-foreground hover:bg-accent"
+                            >
+                              {t("mcpIntegrations.viewSetup")}
+                              <IconExternalLink className="h-3.5 w-3.5" />
+                            </a>
+                          </>
                         ) : (
                           <button
                             type="button"
