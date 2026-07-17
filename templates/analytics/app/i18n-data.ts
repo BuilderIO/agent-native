@@ -461,6 +461,7 @@ const enUS = {
     featureFlags: "Feature flags",
     featureFlagsDescription:
       "Review registered app flags and make deliberate, reversible rollout changes.",
+    reloadFlags: "Reload flags",
     loading: "Loading",
     flagsUnavailable: "Feature flags are unavailable",
     flagsUnreachable:

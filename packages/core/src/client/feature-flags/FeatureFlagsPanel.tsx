@@ -1,4 +1,22 @@
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@agent-native/toolkit/ui/alert-dialog";
+import { Badge } from "@agent-native/toolkit/ui/badge";
 import { Button } from "@agent-native/toolkit/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuGroup,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@agent-native/toolkit/ui/dropdown-menu";
 import { Input } from "@agent-native/toolkit/ui/input";
 import { Label } from "@agent-native/toolkit/ui/label";
 import {
@@ -11,8 +29,9 @@ import {
 } from "@agent-native/toolkit/ui/select";
 import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
-  IconAdjustmentsHorizontal,
-  IconBolt,
+  IconCheck,
+  IconDots,
+  IconSettings,
   IconLoader2,
   IconUserCheck,
 } from "@tabler/icons-react";
@@ -71,6 +90,15 @@ function rolloutLabel(
       : null,
   ].filter(Boolean);
   return parts.join(" · ") || t("featureFlags.inherited");
+}
+
+function audienceLabel(
+  rules: FeatureFlagRules,
+  t: ReturnType<typeof useT>,
+): string {
+  if (rules.mode === "off") return t("featureFlags.off");
+  if (rules.mode === "on") return t("featureFlags.everyoneAudience");
+  return rolloutLabel(rules, t);
 }
 
 function modeLabel(rules: FeatureFlagRules, t: ReturnType<typeof useT>) {
@@ -136,11 +164,13 @@ function TargetingDialog({
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-xl">
         <DialogHeader>
-          <DialogTitle>{t("featureFlags.advanced")}</DialogTitle>
-          <DialogDescription>
-            {t("featureFlags.targetingDescription", {
+          <DialogTitle>
+            {t("featureFlags.targetingTitle", {
               name: flag.displayName ?? flag.key,
             })}
+          </DialogTitle>
+          <DialogDescription>
+            {t("featureFlags.targetingDescription")}
           </DialogDescription>
         </DialogHeader>
         <div className="grid gap-2">
@@ -201,8 +231,30 @@ function TargetingDialog({
                 onChange={(event) => setPercentage(event.target.value)}
               />
             </div>
+            <p className="text-xs text-muted-foreground">
+              {t("featureFlags.targetingRuleHelp")}
+            </p>
           </div>
         ) : null}
+        <div className="rounded-md bg-muted/50 px-3 py-2 text-sm">
+          {t("featureFlags.targetingSummary", {
+            audience: audienceLabel(
+              normalizeFeatureFlagRules({
+                mode,
+                emails: parseList(emails),
+                orgIds: parseList(orgIds),
+                percentage: normalizeFeatureFlagPercentage(percentage),
+              }),
+              t,
+            ),
+          })}
+          <span className="ms-2 text-xs text-muted-foreground">
+            ·{" "}
+            {flag.defaultValue
+              ? t("featureFlags.defaultOn")
+              : t("featureFlags.defaultOff")}
+          </span>
+        </div>
         <DialogFooter>
           <Button
             type="button"
@@ -225,13 +277,16 @@ function FeatureFlagRow({
   flag,
   onMutate,
   isPending,
+  error,
 }: {
   flag: FeatureFlagMetadata;
   onMutate: (input: SetFeatureFlagInput) => void;
   isPending?: boolean;
+  error?: Error | null;
 }) {
   const t = useT();
   const [targetingOpen, setTargetingOpen] = useState(false);
+  const [disableOpen, setDisableOpen] = useState(false);
   const actor = formatActor(flag.rules.updatedBy);
   const when = formatWhen(flag.rules.updatedAt);
   const metadata = [actor, when].filter(Boolean).join(" · ");
@@ -239,16 +294,24 @@ function FeatureFlagRow({
   return (
     <article
       id={`feature-flag-${flag.key}`}
-      className="grid gap-4 scroll-mt-24 border-b border-border py-5 last:border-b-0 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+      className="grid gap-4 scroll-mt-24 border-b border-border py-5 last:border-b-0 md:grid-cols-[minmax(0,1fr)_auto] md:items-center"
     >
       <div className="min-w-0">
         <div className="flex min-w-0 items-center gap-2">
           <h3 className="truncate text-sm font-medium text-foreground">
             {flag.displayName ?? flag.key}
           </h3>
-          <code className="truncate text-xs text-muted-foreground">
-            {flag.key}
-          </code>
+          {flag.displayName && flag.displayName !== flag.key ? (
+            <code className="truncate text-xs text-muted-foreground">
+              {flag.key}
+            </code>
+          ) : null}
+          <Badge
+            variant={flag.rules.mode === "on" ? "secondary" : "outline"}
+            className="ms-auto shrink-0"
+          >
+            {modeLabel(flag.rules, t)}
+          </Badge>
         </div>
         {flag.description ? (
           <p className="mt-1 text-sm text-muted-foreground">
@@ -257,28 +320,39 @@ function FeatureFlagRow({
         ) : null}
         <div className="mt-3 flex flex-wrap gap-x-3 gap-y-1 text-xs text-muted-foreground">
           <span>
-            {t("featureFlags.rollout")}: {rolloutLabel(flag.rules, t)}
-          </span>
-          <span>
-            {flag.defaultValue
-              ? t("featureFlags.defaultOn")
-              : t("featureFlags.defaultOff")}
-          </span>
-          <span>
-            {t("featureFlags.runtime")}: {modeLabel(flag.rules, t)}
+            {t("featureFlags.enabledFor")}: {audienceLabel(flag.rules, t)}
           </span>
           {metadata ? (
             <span>{t("featureFlags.lastChanged", { metadata })}</span>
           ) : null}
         </div>
+        <div className="mt-2 flex items-center gap-1.5 text-xs font-medium text-foreground">
+          {flag.enabledForCurrentUser === true ? (
+            <>
+              <IconCheck className="size-4 text-emerald-500" />
+              {t("featureFlags.youHaveAccess")}
+            </>
+          ) : flag.enabledForCurrentUser === false ? (
+            <>{t("featureFlags.youDoNotHaveAccess")}</>
+          ) : (
+            <>{t("featureFlags.currentUserUnknown")}</>
+          )}
+        </div>
+        {error ? (
+          <p className="mt-3 text-sm text-destructive">
+            {t("featureFlags.mutationUnverified", {
+              name: flag.displayName ?? flag.key,
+            })}
+          </p>
+        ) : null}
       </div>
-      <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+      <div className="flex flex-wrap items-center gap-2 md:justify-end">
         <Button
           type="button"
           variant="outline"
           size="sm"
           className="text-xs"
-          disabled={isPending}
+          disabled={isPending || flag.enabledForCurrentUser === true}
           onClick={() =>
             onMutate({
               key: flag.key,
@@ -286,34 +360,53 @@ function FeatureFlagRow({
             })
           }
         >
-          <IconUserCheck />
-          {t("featureFlags.enableForMe")}
+          {flag.enabledForCurrentUser === true ? (
+            <IconCheck />
+          ) : (
+            <IconUserCheck />
+          )}
+          {flag.enabledForCurrentUser === true
+            ? t("featureFlags.enabledForMe")
+            : t("featureFlags.enableForMe")}
         </Button>
         <Button
           type="button"
           variant="outline"
           size="sm"
-          className="text-xs text-destructive hover:bg-destructive/10 hover:text-destructive"
-          disabled={isPending}
-          onClick={() => onMutate({ key: flag.key, operation: "off" })}
-        >
-          <IconBolt />
-          {t("featureFlags.immediateOff")}
-        </Button>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          className="size-8 text-muted-foreground"
+          className="text-xs"
           disabled={isPending}
           onClick={() => setTargetingOpen(true)}
-          aria-label={t("featureFlags.advancedFor", {
-            name: flag.displayName ?? flag.key,
-          })}
-          title={t("featureFlags.advanced")}
         >
-          <IconAdjustmentsHorizontal />
+          <IconSettings />
+          {t("featureFlags.editTargeting")}
         </Button>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button
+              type="button"
+              variant="ghost"
+              size="icon"
+              className="size-8 text-muted-foreground"
+              disabled={isPending}
+              aria-label={t("featureFlags.moreActions", {
+                name: flag.displayName ?? flag.key,
+              })}
+            >
+              <IconDots />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuGroup>
+              <DropdownMenuItem
+                className="text-destructive focus:text-destructive"
+                disabled={flag.rules.mode === "off"}
+                onSelect={() => setDisableOpen(true)}
+              >
+                {t("featureFlags.disableForEveryone")}
+              </DropdownMenuItem>
+            </DropdownMenuGroup>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {targetingOpen ? (
         <TargetingDialog
@@ -324,6 +417,29 @@ function FeatureFlagRow({
           isPending={isPending}
         />
       ) : null}
+      <AlertDialog open={disableOpen} onOpenChange={setDisableOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("featureFlags.disableForEveryoneTitle", {
+                name: flag.displayName ?? flag.key,
+              })}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("featureFlags.disableForEveryoneDescription")}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t("featureFlags.cancel")}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+              onClick={() => onMutate({ key: flag.key, operation: "off" })}
+            >
+              {t("featureFlags.disableForEveryone")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </article>
   );
 }
@@ -333,11 +449,15 @@ export function FeatureFlagsEditor({
   onMutate,
   isPending,
   error,
+  errorFlagKey,
+  showHeader = true,
 }: {
   flags: FeatureFlagMetadata[];
   onMutate: (input: SetFeatureFlagInput) => void;
   isPending?: boolean;
   error?: Error | null;
+  errorFlagKey?: string | null;
+  showHeader?: boolean;
 }) {
   const t = useT();
   const sortedFlags = useMemo(
@@ -353,20 +473,25 @@ export function FeatureFlagsEditor({
 
   return (
     <section
-      className="mx-auto w-full max-w-2xl"
-      aria-labelledby="feature-flags-title"
+      className={
+        showHeader ? "mx-auto w-full max-w-2xl" : "mx-auto w-full max-w-4xl"
+      }
+      aria-labelledby={showHeader ? "feature-flags-title" : undefined}
+      aria-label={showHeader ? undefined : t("featureFlags.title")}
     >
-      <header className="border-b border-border pb-5">
-        <h2
-          id="feature-flags-title"
-          className="text-base font-semibold text-foreground"
-        >
-          {t("featureFlags.title")}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t("featureFlags.description")}
-        </p>
-      </header>
+      {showHeader ? (
+        <header className="border-b border-border pb-5">
+          <h2
+            id="feature-flags-title"
+            className="text-base font-semibold text-foreground"
+          >
+            {t("featureFlags.title")}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t("featureFlags.description")}
+          </p>
+        </header>
+      ) : null}
       {sortedFlags.length ? (
         <div>
           {sortedFlags.map((flag) => (
@@ -375,6 +500,7 @@ export function FeatureFlagsEditor({
               flag={flag}
               onMutate={onMutate}
               isPending={isPending}
+              error={errorFlagKey === flag.key ? error : null}
             />
           ))}
         </div>
@@ -383,8 +509,10 @@ export function FeatureFlagsEditor({
           {t("featureFlags.noFlags")}
         </p>
       )}
-      {error ? (
-        <p className="pt-3 text-sm text-destructive">{error.message}</p>
+      {error && !errorFlagKey ? (
+        <p className="pt-3 text-sm text-destructive">
+          {t("featureFlags.mutationUnverifiedGeneric")}
+        </p>
       ) : null}
     </section>
   );

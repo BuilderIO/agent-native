@@ -3,7 +3,7 @@ import { z } from "zod";
 import { defineAction } from "../../action.js";
 import { requireFeatureFlagManager } from "../permissions.js";
 import { listFeatureFlags } from "../registry.js";
-import { getFeatureFlagRules } from "../store.js";
+import { evaluateFeatureFlagRules, getFeatureFlagRules } from "../store.js";
 
 export default defineAction({
   description:
@@ -41,10 +41,22 @@ export default defineAction({
         canManage: true,
       };
     const flags = await Promise.all(
-      definitions.map(async (definition) => ({
-        ...definition,
-        rules: await getFeatureFlagRules(definition.key, manager),
-      })),
+      definitions.map(async (definition) => {
+        const rules = await getFeatureFlagRules(definition.key, manager);
+        return {
+          ...definition,
+          rules,
+          enabledForCurrentUser: evaluateFeatureFlagRules(
+            definition.key,
+            rules,
+            {
+              userEmail: manager.email,
+              userKey: manager.email,
+              orgId: manager.orgId,
+            },
+          ),
+        };
+      }),
     );
     return {
       contractVersion: 1,
