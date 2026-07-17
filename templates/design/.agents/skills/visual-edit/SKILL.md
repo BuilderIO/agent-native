@@ -47,6 +47,28 @@ iframe-backed screens on the infinite canvas.
   and create one screen per URL/path. Shorthand like
   `localhost:1234/onboarding/1` means `http://localhost:1234/onboarding/1`.
 
+## Select And Reprompt
+
+When a chat message begins with `[Reprompt selection]`, the selected subtree is
+a hard write boundary. The only mutation path is `propose-node-rewrite` with
+the exact `repromptId`, target, and `baseVersionHash` captured in
+`design-reprompt-pending:<designId>:<fileId>`. Never use `apply-visual-edit`,
+`apply-source-edit`, `write-source`, `write-local-file`, `edit-design`, or any
+other content-writing action for that request. Clarifying questions are allowed,
+but a requested change must remain a proposal.
+
+Produce one variant by default. Produce two or three only when the instruction
+asks for options. A retry includes `priorProposalId`; keep the same target and
+base version, incorporate the feedback, and call `propose-node-rewrite` again.
+The UI previews the returned subtree without persisting it.
+
+Use `resolve-node-rewrite` for the accept/reject lifecycle. Accept applies the
+chosen variant as one version-checked inline/Yjs content transaction so one
+undo restores the prior structure; reject clears the proposal without changing
+content. For conversational resolution such as “apply the second one,” call
+`view-screen`, read the active `design.reprompt.proposal`, and pass its
+`proposalId` plus the zero-based `variantIndex` to `resolve-node-rewrite`.
+
 ## Review Quality
 
 - Treat the running app as the truth. Preserve its component language, tokens,

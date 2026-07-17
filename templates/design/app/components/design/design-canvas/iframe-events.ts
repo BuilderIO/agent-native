@@ -23,3 +23,21 @@ export interface IframeContextMenuPayload {
   info?: ElementInfo | null;
   layerCandidates?: CanvasLayerHitCandidate[];
 }
+
+export interface IframeNodeHtmlPreviewTarget {
+  nodeId?: string;
+  selector?: string;
+}
+
+export interface IframeNodeHtmlPreviewMessage {
+  type: "node-html-preview";
+  proposalId: string;
+  target: IframeNodeHtmlPreviewTarget;
+  operation: "preview" | "restore";
+  html?: string;
+}
+
+export interface IframeNodeHtmlPreviewAppliedPayload {
+  type: "agent-native:node-html-preview-applied";
+  proposalId: string;
+}

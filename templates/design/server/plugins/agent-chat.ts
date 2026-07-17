@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/server";
 
 import actionsRegistry from "../../.generated/actions-registry.js";
+import { guardRepromptActionRegistry } from "../lib/reprompt-action-guard.js";
 import "../register-secrets.js";
 
 const DESIGN_BACKGROUND_RUN_SOFT_TIMEOUT_MS = 13 * 60_000;
@@ -33,6 +34,7 @@ const INITIAL_TOOL_NAMES = [
   "edit-design",
   "generate-design",
   "present-design-variants",
+  "propose-node-rewrite",
   "insert-asset",
   "connect-assets-mcp",
   "apply-tweaks",
@@ -48,7 +50,9 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "design",
-  actions: loadActionsFromStaticRegistry(actionsRegistry),
+  actions: guardRepromptActionRegistry(
+    loadActionsFromStaticRegistry(actionsRegistry),
+  ),
   initialToolNames: INITIAL_TOOL_NAMES,
   // Enable sandboxed JavaScript execution so Design agents can fetch,
   // paginate, and reduce provider data through providerFetch() without us
@@ -59,6 +63,10 @@ export default createAgentChatPlugin({
   runNoProgressTimeoutMs: DESIGN_BACKGROUND_RUN_NO_PROGRESS_TIMEOUT_MS,
   resolveOrgId: async (event) => (await getOrgContext(event)).orgId,
   systemPrompt: `You are an AI prototyping assistant. You create and edit designs, files, design systems, variants, exports, sharing, and connected repository context through actions and shared application state.
+
+When a user message begins with [Reprompt selection], the design must remain unchanged until the user accepts a preview. Call propose-node-rewrite with the exact repromptId, target, and baseVersionHash from the message. Never call edit-design, update-design, update-file, generate-design, apply-visual-edit, or any other content-writing action for that turn. The proposal action stores preview state only; the frontend-only resolve-node-rewrite action persists a chosen variant after the user presses Accept.
+
+When a user message begins with [Selection question], answer about the captured element and selected subtree without changing the design. You may use read-only actions when more context is needed, but do not call any content-writing action. If the user actually intended an edit, explain that they can choose Preview change from the composer mode menu and resend.
 
 When the user asks for a new design and the current navigation view is list, settings, design-systems, or otherwise has no designId, create a new design first. Do not reuse, delete screens from, or edit a previous design unless the user explicitly names that design or the current navigation state is an editor/present view with that designId.
 
