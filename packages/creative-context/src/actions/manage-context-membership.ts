@@ -1,7 +1,10 @@
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
-import { manageContextMembership } from "../store/index.js";
+import {
+  manageContextMembership,
+  submitLatestContextMembershipUpdate,
+} from "../store/index.js";
 
 const nativeResource = z.object({
   appId: z.string().min(1),
@@ -27,6 +30,13 @@ const schema = z.discriminatedUnion("operation", [
       "Provide itemId or nativeResource",
     ),
   z.object({
+    operation: z.literal("submit-latest"),
+    contextId: z.string().min(1),
+    membershipId: z.string().min(1),
+    note: z.string().max(5000).optional(),
+    confirmBroaderPublication: z.boolean().optional(),
+  }),
+  z.object({
     operation: z.enum(["approve", "request-changes", "withdraw", "remove"]),
     contextId: z.string().min(1),
     membershipId: z.string().min(1),
@@ -36,11 +46,12 @@ const schema = z.discriminatedUnion("operation", [
 
 export default defineAction({
   description:
-    "Submit an artifact to a governed Creative Context, approve or request changes on a pending submission, withdraw it, or remove a published membership.",
+    "Submit an artifact or the latest accessible native-app version to a governed Creative Context, approve or request changes on a pending submission, withdraw it, or remove a published membership.",
   schema,
   agentInputSchema: z.object({
     operation: z.enum([
       "submit",
+      "submit-latest",
       "approve",
       "request-changes",
       "withdraw",
@@ -62,5 +73,8 @@ export default defineAction({
     requiresAuth: true,
     isConsequential: true,
   },
-  run: manageContextMembership,
+  run: (args) =>
+    args.operation === "submit-latest"
+      ? submitLatestContextMembershipUpdate(args)
+      : manageContextMembership(args),
 });

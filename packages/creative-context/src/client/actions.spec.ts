@@ -144,4 +144,30 @@ describe("creative context client action contracts", () => {
       "2026-07-17T12:00:00.000Z",
     );
   });
+
+  it("keeps a bounded inert document block model for read-only rendering", () => {
+    const preview = parseCreativeContextSafePreview({
+      type: "document",
+      headings: ["Launch"],
+      excerpt: "A launch plan.",
+      blocks: [
+        { kind: "heading", level: 2, text: "Launch" },
+        { kind: "paragraph", text: "Ship it", html: "<script>bad()</script>" },
+        { kind: "unsupported", text: "Still plain text" },
+      ],
+      html: "<script>bad()</script>",
+    });
+
+    expect(preview).toEqual({
+      type: "document",
+      headings: ["Launch"],
+      excerpt: "A launch plan.",
+      blocks: [
+        { kind: "heading", level: 2, text: "Launch" },
+        { kind: "paragraph", text: "Ship it" },
+        { kind: "paragraph", text: "Still plain text" },
+      ],
+    });
+    expect(JSON.stringify(preview)).not.toContain("script");
+  });
 });

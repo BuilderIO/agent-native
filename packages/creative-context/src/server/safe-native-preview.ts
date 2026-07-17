@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 
 const MAX_PREVIEW_HTML_BYTES = 512 * 1024;
@@ -100,6 +101,25 @@ async function launchBrowser(chromium: import("playwright").BrowserType) {
   }
 }
 
+async function connectHostedBrowser(
+  chromium: import("playwright").BrowserType,
+): Promise<import("playwright").Browser> {
+  const server = (await import("@agent-native/core/server")) as unknown as {
+    requestBuilderBrowserConnection?: (input: {
+      sessionId: string;
+    }) => Promise<Record<string, unknown>>;
+  };
+  if (!server.requestBuilderBrowserConnection) {
+    throw new Error("Builder Browser is unavailable.");
+  }
+  const connection = await server.requestBuilderBrowserConnection({
+    sessionId: `creative-context-preview-${randomUUID()}`,
+  });
+  const wsUrl = typeof connection.wsUrl === "string" ? connection.wsUrl : "";
+  if (!wsUrl) throw new Error("Builder Browser did not return a connection.");
+  return chromium.connectOverCDP(wsUrl);
+}
+
 export async function renderSafeNativeHtmlPreviews(
   inputs: SafeNativeHtmlPreviewInput[],
 ): Promise<SafeNativeHtmlPreviewResult[]> {
@@ -121,7 +141,9 @@ export async function renderSafeNativeHtmlPreviews(
   let browser: import("playwright").Browser | undefined;
   try {
     const playwright = await importPlaywright();
-    browser = await launchBrowser(playwright.chromium);
+    browser = await connectHostedBrowser(playwright.chromium).catch(() =>
+      launchBrowser(playwright.chromium),
+    );
   } catch {
     return [];
   }

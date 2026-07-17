@@ -821,6 +821,11 @@ interface SafePreviewManifest {
     mimeType: string | null;
     url: string;
   } | null;
+  gallery?: Array<{
+    kind: string;
+    mimeType: string | null;
+    url: string;
+  }>;
   posterUrl?: string;
 }
 
@@ -922,19 +927,67 @@ function StructuredPreview({
     );
   }
   if (preview.type === "document") {
+    const visibleBlocks = preview.blocks.slice(0, compact ? 7 : 40);
     return (
-      <article className="h-full overflow-hidden bg-background p-4">
-        {preview.headings.slice(0, compact ? 2 : 5).map((heading, index) => (
-          <p
-            key={`${heading}-${index}`}
-            className={
-              index === 0 ? "text-sm font-semibold" : "mt-2 text-xs font-medium"
-            }
-          >
-            {heading}
-          </p>
-        ))}
-        {preview.excerpt ? (
+      <article className="h-full overflow-auto bg-background p-4">
+        {visibleBlocks.length ? (
+          <div className="space-y-2">
+            {visibleBlocks.map((block, index) => {
+              if (block.kind === "heading") {
+                return (
+                  <p
+                    key={`${block.kind}-${index}`}
+                    className={
+                      (block.level ?? 2) <= 2
+                        ? "text-sm font-semibold"
+                        : "text-xs font-medium"
+                    }
+                  >
+                    {block.text}
+                  </p>
+                );
+              }
+              if (block.kind === "bullet") {
+                return (
+                  <p
+                    key={`${block.kind}-${index}`}
+                    className="flex gap-2 text-xs leading-relaxed text-muted-foreground before:content-['•']"
+                  >
+                    {block.text}
+                  </p>
+                );
+              }
+              if (block.kind === "quote") {
+                return (
+                  <blockquote
+                    key={`${block.kind}-${index}`}
+                    className="border-s-2 border-border ps-3 text-xs italic leading-relaxed text-muted-foreground"
+                  >
+                    {block.text}
+                  </blockquote>
+                );
+              }
+              if (block.kind === "code") {
+                return (
+                  <pre
+                    key={`${block.kind}-${index}`}
+                    className="overflow-hidden rounded bg-muted p-2 font-mono text-[10px] leading-relaxed"
+                  >
+                    {block.text}
+                  </pre>
+                );
+              }
+              return (
+                <p
+                  key={`${block.kind}-${index}`}
+                  className="text-xs leading-relaxed text-muted-foreground"
+                >
+                  {block.text}
+                </p>
+              );
+            })}
+          </div>
+        ) : preview.excerpt ? (
           <p className="mt-3 line-clamp-6 whitespace-pre-wrap text-xs leading-relaxed text-muted-foreground">
             {preview.excerpt}
           </p>
@@ -1022,6 +1075,12 @@ function ContextPreviewSheet({
   manifest: SafePreviewManifest | null;
   onOpenChange: (open: boolean) => void;
 }) {
+  const [selectedMediaUrl, setSelectedMediaUrl] = useState<string | null>(null);
+  useEffect(() => setSelectedMediaUrl(null), [manifest?.itemVersionId]);
+  const selectedMedia =
+    manifest?.gallery?.find((medium) => medium.url === selectedMediaUrl) ??
+    manifest?.media ??
+    null;
   return (
     <Sheet open={Boolean(manifest)} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full overflow-y-auto sm:max-w-xl">
@@ -1029,15 +1088,40 @@ function ContextPreviewSheet({
           <SheetTitle>{manifest?.title ?? "Context preview"}</SheetTitle>
           <SheetDescription>{manifest?.kind ?? ""}</SheetDescription>
         </SheetHeader>
-        {manifest?.media || manifest?.preview ? (
+        {manifest && (selectedMedia || manifest.preview) ? (
           <div className="mt-5 min-h-56 overflow-hidden rounded-md border border-border">
-            <ContextPreviewVisual manifest={manifest} />
+            <ContextPreviewVisual
+              manifest={{ ...manifest, media: selectedMedia }}
+            />
           </div>
         ) : (
           <div className="mt-5 flex min-h-44 items-center justify-center rounded-md border border-dashed border-border text-sm text-muted-foreground">
             No safe preview is available for this item.
           </div>
         )}
+        {manifest?.gallery && manifest.gallery.length > 1 ? (
+          <div className="mt-3 grid grid-cols-3 gap-2 sm:grid-cols-4">
+            {manifest.gallery.map((medium, index) => (
+              <button
+                key={`${medium.url}-${index}`}
+                type="button"
+                className={`aspect-video overflow-hidden rounded border bg-muted transition-colors ${
+                  medium.url === (selectedMedia?.url ?? manifest.media?.url)
+                    ? "border-foreground"
+                    : "border-border hover:border-foreground/50"
+                }`}
+                onClick={() => setSelectedMediaUrl(medium.url)}
+              >
+                <img
+                  src={medium.url}
+                  alt={`Preview ${index + 1}`}
+                  loading="lazy"
+                  className="h-full w-full object-contain"
+                />
+              </button>
+            ))}
+          </div>
+        ) : null}
       </SheetContent>
     </Sheet>
   );
@@ -1991,6 +2075,9 @@ export function CreativeContextPanel({
                           itemVersionId: item.itemVersionId,
                           preview: item.preview,
                           media: sheetMedium ?? null,
+                          gallery: item.media.filter((candidate) =>
+                            candidate.mimeType?.startsWith("image/"),
+                          ),
                           posterUrl:
                             playbackMedium && imageMedium
                               ? imageMedium.url
@@ -2009,6 +2096,7 @@ export function CreativeContextPanel({
                             itemVersionId: item.itemVersionId,
                             preview: item.preview,
                             media: medium ?? null,
+                            gallery: item.media,
                           }}
                         />
                       </div>
@@ -2059,6 +2147,9 @@ export function CreativeContextPanel({
                               itemVersionId: item.itemVersionId,
                               preview: item.preview,
                               media: medium ?? null,
+                              gallery: item.media.filter((candidate) =>
+                                candidate.mimeType?.startsWith("image/"),
+                              ),
                             })
                           }
                         >

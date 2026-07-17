@@ -5,7 +5,9 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import { accessFilter } from "@agent-native/core/sharing";
 import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
+import { and, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 import { getDashboard } from "./dashboards-store.js";
@@ -30,6 +32,21 @@ export const nativeDashboardCreativeContextAdapter: NativeResourceCaptureAdapter
   {
     appId: "analytics",
     resourceType: "dashboard",
+    async listResourceVersions(resourceIds) {
+      if (!resourceIds.length) return [];
+      return getDb()
+        .select({
+          resourceId: schema.dashboards.id,
+          sourceModifiedAt: schema.dashboards.updatedAt,
+        })
+        .from(schema.dashboards)
+        .where(
+          and(
+            inArray(schema.dashboards.id, [...resourceIds]),
+            accessFilter(schema.dashboards, schema.dashboardShares),
+          ),
+        );
+    },
     async capture(reference) {
       const email = getRequestUserEmail();
       if (!email) throw new Error("no authenticated user");

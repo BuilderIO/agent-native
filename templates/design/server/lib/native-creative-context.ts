@@ -1,8 +1,13 @@
 import { createHash } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
-import { resolveAccess } from "@agent-native/core/sharing";
-import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
+import {
+  renderSafeNativeHtmlPreviews,
+  serializePrivateBlobHandle,
+  type NativeResourceCaptureAdapter,
+} from "@agent-native/creative-context/server";
+import { and, inArray } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
 import { getDb, schema } from "../db/index.js";
@@ -16,10 +21,98 @@ function previewText(value: string, limit = 280) {
     .slice(0, limit);
 }
 
+async function captureDesignPreviewMedia(input: {
+  designId: string;
+  ownerEmail: string;
+  files: Array<{
+    id: string;
+    filename: string;
+    fileType: string;
+    content: string;
+  }>;
+}) {
+  const previewFiles = input.files
+    .filter((file) => file.fileType === "html")
+    .slice(0, 12);
+  const rendered = await renderSafeNativeHtmlPreviews(
+    previewFiles.map((file) => ({
+      id: file.id,
+      html: file.content,
+      width: 1_280,
+      height: 800,
+    })),
+  );
+  const media = new Map<
+    string,
+    {
+      kind: "image";
+      mimeType: "image/png";
+      accessMode: "private";
+      storageKey: string;
+      altText: string;
+      contentHash: string;
+      width: number;
+      height: number;
+      metadata: { role: "design-preview"; fileId: string };
+    }
+  >();
+  await Promise.all(
+    rendered.map(async (preview) => {
+      const contentHash = createHash("sha256")
+        .update(preview.data)
+        .digest("hex");
+      const handle = await putPrivateBlob({
+        data: preview.data,
+        filename: `${input.designId}-${preview.id}.preview.png`,
+        mimeType: "image/png",
+        ownerEmail: input.ownerEmail,
+        key: `creative-context/design/${input.designId}/previews/${contentHash}.png`,
+        metadata: {
+          appId: "design",
+          resourceType: "design-preview",
+          resourceId: input.designId,
+          contentHash,
+        },
+      }).catch(() => null);
+      if (!handle) return;
+      const file = previewFiles.find(
+        (candidate) => candidate.id === preview.id,
+      );
+      media.set(preview.id, {
+        kind: "image",
+        mimeType: "image/png",
+        accessMode: "private",
+        storageKey: serializePrivateBlobHandle(handle),
+        altText: file?.filename ?? "Design preview",
+        contentHash,
+        width: preview.width,
+        height: preview.height,
+        metadata: { role: "design-preview", fileId: preview.id },
+      });
+    }),
+  );
+  return media;
+}
+
 export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
   {
     appId: "design",
     resourceType: "design",
+    async listResourceVersions(resourceIds) {
+      if (!resourceIds.length) return [];
+      return getDb()
+        .select({
+          resourceId: schema.designs.id,
+          sourceModifiedAt: schema.designs.updatedAt,
+        })
+        .from(schema.designs)
+        .where(
+          and(
+            inArray(schema.designs.id, [...resourceIds]),
+            accessFilter(schema.designs, schema.designShares),
+          ),
+        );
+    },
     async capture(reference) {
       const access = await resolveAccess("design", reference.resourceId);
       if (!access) throw new Error("Design not found");
@@ -66,6 +159,11 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
         throw new Error(
           "Private blob storage is required to submit a design to Context.",
         );
+      const previewMedia = await captureDesignPreviewMedia({
+        designId: design.id,
+        ownerEmail: design.ownerEmail,
+        files: snapshot.files,
+      });
       const sourceModifiedAt = design.updatedAt ?? undefined;
       return {
         artifactKey: `design:design:${design.id}`,
@@ -107,6 +205,7 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
                 })),
               },
             },
+            media: [...previewMedia.values()],
             edges: snapshot.files.map((file) => ({
               relation: "contains",
               toExternalId: `native:design:design:${design.id}:frame:${file.id}`,
@@ -138,6 +237,9 @@ export const nativeDesignCreativeContextAdapter: NativeResourceCaptureAdapter =
                   excerpt: previewText(file.content),
                 },
               },
+              media: previewMedia.has(file.id)
+                ? [previewMedia.get(file.id)!]
+                : undefined,
             };
           }),
         ],

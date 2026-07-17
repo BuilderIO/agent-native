@@ -122,6 +122,16 @@ function policyCopy(policy: CreativeContextPolicy) {
   }
 }
 
+function formatResourceTimestamp(value: string | undefined) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return null;
+  return new Intl.DateTimeFormat(undefined, {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(date);
+}
+
 function ResourcePreview({
   resource,
 }: {
@@ -325,6 +335,7 @@ export function CreativeContextShareTab({
     resources,
   );
   const primaryResource = selectedResources[0];
+  const updatedAt = formatResourceTimestamp(primaryResource?.updatedAt);
   const [contextId, setContextId] = useState("");
   const membershipsQuery = useContextMemberships(
     contextId ? { contextId } : null,
@@ -440,9 +451,15 @@ export function CreativeContextShareTab({
           </p>
           <p className="mt-0.5 text-xs text-muted-foreground">
             {selectedResources.length === 1
-              ? primaryResource?.resourceType
+              ? (primaryResource?.preview?.label ??
+                primaryResource?.resourceType)
               : "Each resource is submitted separately"}
           </p>
+          {selectedResources.length === 1 && updatedAt ? (
+            <p className="mt-0.5 text-xs text-muted-foreground">
+              Current version · {updatedAt}
+            </p>
+          ) : null}
         </div>
       </div>
       <Tabs defaultValue="contexts" className="mt-4">

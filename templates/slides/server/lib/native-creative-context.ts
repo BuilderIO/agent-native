@@ -1,17 +1,22 @@
 import { createHash } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import {
   renderSafeNativeHtmlPreviews,
   serializePrivateBlobHandle,
   type NativeResourceCaptureAdapter,
 } from "@agent-native/creative-context/server";
+import { and, inArray } from "drizzle-orm";
 
-import { getAspectRatioDims, type AspectRatio } from "../../shared/aspect-ratios.js";
+import {
+  getAspectRatioDims,
+  type AspectRatio,
+} from "../../shared/aspect-ratios.js";
+import { getDb, schema } from "../db/index.js";
 import { createDeckVersionSnapshot } from "./deck-versions.js";
 
-function hash(value: string) {
+function hash(value: string | Uint8Array) {
   return createHash("sha256").update(value).digest("hex");
 }
 
@@ -67,7 +72,7 @@ async function captureSlidePreviewMedia(input: {
   >();
   await Promise.all(
     rendered.map(async (preview) => {
-      const contentHash = hash(Buffer.from(preview.data).toString("base64"));
+      const contentHash = hash(preview.data);
       const handle = await putPrivateBlob({
         data: preview.data,
         filename: `${input.deckId}-${preview.id}.preview.png`,
@@ -82,7 +87,9 @@ async function captureSlidePreviewMedia(input: {
         },
       }).catch(() => null);
       if (!handle) return;
-      const slide = input.slides.find((candidate) => candidate.id === preview.id);
+      const slide = input.slides.find(
+        (candidate) => candidate.id === preview.id,
+      );
       media.set(preview.id, {
         kind: "image",
         mimeType: "image/png",
@@ -102,6 +109,21 @@ async function captureSlidePreviewMedia(input: {
 export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
   appId: "slides",
   resourceType: "deck",
+  async listResourceVersions(resourceIds) {
+    if (!resourceIds.length) return [];
+    return getDb()
+      .select({
+        resourceId: schema.decks.id,
+        sourceModifiedAt: schema.decks.updatedAt,
+      })
+      .from(schema.decks)
+      .where(
+        and(
+          inArray(schema.decks.id, [...resourceIds]),
+          accessFilter(schema.decks, schema.deckShares),
+        ),
+      );
+  },
   async capture(reference) {
     const access = await resolveAccess("deck", reference.resourceId);
     if (!access) throw new Error("Deck not found");
@@ -142,7 +164,7 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
         "Private blob storage is required to submit a deck to Context.",
       );
     const parsed = JSON.parse(deck.data) as {
-      aspectRatio?: AspectRatio;
+      aspectRatio?: string;
       slides?: Array<{
         id?: string;
         content?: string;
@@ -154,7 +176,13 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
     const slidePreviewMedia = await captureSlidePreviewMedia({
       deckId: deck.id,
       ownerEmail: deck.ownerEmail,
-      aspectRatio: parsed.aspectRatio,
+      aspectRatio:
+        parsed.aspectRatio === "16:9" ||
+        parsed.aspectRatio === "1:1" ||
+        parsed.aspectRatio === "9:16" ||
+        parsed.aspectRatio === "4:5"
+          ? parsed.aspectRatio
+          : undefined,
       slides: slides.slice(0, 12).map((slide, index) => ({
         id: slide.id ?? String(index),
         content: slide.content ?? "",
@@ -224,18 +252,18 @@ export const nativeDeckCreativeContextAdapter: NativeResourceCaptureAdapter = {
             ),
             sourceModifiedAt: deck.updatedAt,
             sourceVersion: version.id ?? contentHash,
-              metadata: {
+            metadata: {
               preview: {
                 type: "slide",
                 index: index + 1,
                 title: previewText(slide.title, 120) || `Slide ${index + 1}`,
                 excerpt: previewText(slide.content),
-                },
               },
-              media: slidePreviewMedia.has(id)
-                ? [slidePreviewMedia.get(id)!]
-                : undefined,
-            };
+            },
+            media: slidePreviewMedia.has(id)
+              ? [slidePreviewMedia.get(id)!]
+              : undefined,
+          };
         }),
       ],
       privateMetadata: {

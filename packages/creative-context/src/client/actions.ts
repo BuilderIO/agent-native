@@ -66,7 +66,16 @@ export type CreativeContextSafePreview =
       fileType: string;
       excerpt: string;
     }
-  | { type: "document"; headings: string[]; excerpt: string }
+  | {
+      type: "document";
+      headings: string[];
+      excerpt: string;
+      blocks: Array<{
+        kind: "heading" | "paragraph" | "bullet" | "quote" | "code";
+        text: string;
+        level?: number;
+      }>;
+    }
   | {
       type: "asset";
       mediaType: "image" | "video";
@@ -123,6 +132,9 @@ export interface CreativeContextMembership {
   purpose: string | null;
   status: "active" | "removed";
   updatedAt?: string | null;
+  nativeUpdateStatus?: {
+    state: "current" | "update-available" | "unknown";
+  } | null;
   publishedItem?: CreativeContextPreviewItem | null;
   pendingSubmission?: {
     id: string;
@@ -194,6 +206,13 @@ export type ManageContextMembershipParams =
       };
       rank?: CreativeContextMembershipRank;
       purpose?: string;
+      note?: string;
+      confirmBroaderPublication?: true;
+    }
+  | {
+      operation: "submit-latest";
+      contextId: string;
+      membershipId: string;
       note?: string;
       confirmBroaderPublication?: true;
     }
@@ -311,10 +330,34 @@ export function parseCreativeContextSafePreview(
           .map((heading) => previewString(heading, 160))
           .filter(Boolean)
       : [];
+    const blocks = Array.isArray(preview.blocks)
+      ? preview.blocks.slice(0, 40).flatMap((entry) => {
+          const block = record(entry);
+          if (!block) return [];
+          const kind: "heading" | "paragraph" | "bullet" | "quote" | "code" =
+            block.kind === "heading" ||
+            block.kind === "bullet" ||
+            block.kind === "quote" ||
+            block.kind === "code"
+              ? block.kind
+              : "paragraph";
+          const text = previewString(block.text, 600);
+          if (!text) return [];
+          const level =
+            kind === "heading" &&
+            typeof block.level === "number" &&
+            block.level >= 1 &&
+            block.level <= 6
+              ? Math.floor(block.level)
+              : undefined;
+          return [{ kind, text, ...(level ? { level } : {}) }];
+        })
+      : [];
     return {
       type: "document",
       headings,
       excerpt: previewString(preview.excerpt, 1_500),
+      blocks,
     };
   }
   if (preview.type === "asset") {
@@ -484,6 +527,14 @@ export function parseContextMemberships(
         purpose: typeof item.purpose === "string" ? item.purpose : null,
         status: item.status === "removed" ? "removed" : "active",
         updatedAt: typeof item.updatedAt === "string" ? item.updatedAt : null,
+        nativeUpdateStatus: (() => {
+          const status = record(item.nativeUpdateStatus)?.state;
+          return status === "current" ||
+            status === "update-available" ||
+            status === "unknown"
+            ? { state: status }
+            : null;
+        })(),
         pendingSubmission: (() => {
           const submission = record(item.pendingSubmission);
           return submission &&

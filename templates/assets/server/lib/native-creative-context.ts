@@ -1,20 +1,42 @@
 import { createHash } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
+import { accessFilter } from "@agent-native/core/sharing";
 import {
   serializePrivateBlobHandle,
   type NativeResourceCaptureAdapter,
 } from "@agent-native/creative-context/server";
+import { and, eq, inArray } from "drizzle-orm";
 
 import {
   getAssetOrThrow,
   requireLibraryAccess,
 } from "../../actions/_helpers.js";
+import { getDb, schema } from "../db/index.js";
 import { getObject } from "./storage.js";
 
 export const nativeAssetCreativeContextAdapter: NativeResourceCaptureAdapter = {
   appId: "assets",
   resourceType: "asset",
+  async listResourceVersions(resourceIds) {
+    if (!resourceIds.length) return [];
+    return getDb()
+      .select({
+        resourceId: schema.assets.id,
+        sourceModifiedAt: schema.assets.updatedAt,
+      })
+      .from(schema.assets)
+      .innerJoin(
+        schema.assetLibraries,
+        eq(schema.assetLibraries.id, schema.assets.libraryId),
+      )
+      .where(
+        and(
+          inArray(schema.assets.id, [...resourceIds]),
+          accessFilter(schema.assetLibraries, schema.assetLibraryShares),
+        ),
+      );
+  },
   async capture(reference) {
     const asset = await getAssetOrThrow(reference.resourceId);
     const libraryAccess = await requireLibraryAccess(asset.libraryId);

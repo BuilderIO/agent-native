@@ -1,8 +1,9 @@
 import { createHash, randomUUID } from "node:crypto";
 
 import { putPrivateBlob } from "@agent-native/core/private-blob";
-import { resolveAccess } from "@agent-native/core/sharing";
+import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
 import type { NativeResourceCaptureAdapter } from "@agent-native/creative-context/server";
+import { and, inArray } from "drizzle-orm";
 
 import { flushOpenDocumentEditorToSql } from "../../actions/_document-flush.js";
 import { getDb, schema } from "../db/index.js";
@@ -25,13 +26,67 @@ function documentPreview(markdown: string) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 1_500);
-  return { type: "document" as const, headings, excerpt };
+  let inCode = false;
+  const blocks = lines.slice(0, 240).flatMap((rawLine) => {
+    const line = rawLine.trim();
+    if (/^```/.test(line)) {
+      inCode = !inCode;
+      return [];
+    }
+    if (!line) return [];
+    if (inCode) {
+      return [{ kind: "code" as const, text: rawLine.slice(0, 600) }];
+    }
+    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+    if (heading) {
+      return [
+        {
+          kind: "heading" as const,
+          text: (heading[2] ?? "").slice(0, 300),
+          level: heading[1]?.length ?? 1,
+        },
+      ];
+    }
+    const bullet = /^(?:[-*+] |\d+[.)] )(.+)$/.exec(line);
+    if (bullet) {
+      return [
+        { kind: "bullet" as const, text: (bullet[1] ?? "").slice(0, 600) },
+      ];
+    }
+    if (line.startsWith(">")) {
+      return [
+        { kind: "quote" as const, text: line.slice(1).trim().slice(0, 600) },
+      ];
+    }
+    return [{ kind: "paragraph" as const, text: line.slice(0, 600) }];
+  });
+  return {
+    type: "document" as const,
+    headings,
+    excerpt,
+    blocks: blocks.slice(0, 40),
+  };
 }
 
 export const nativeDocumentCreativeContextAdapter: NativeResourceCaptureAdapter =
   {
     appId: "content",
     resourceType: "document",
+    async listResourceVersions(resourceIds) {
+      if (!resourceIds.length) return [];
+      return getDb()
+        .select({
+          resourceId: schema.documents.id,
+          sourceModifiedAt: schema.documents.updatedAt,
+        })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.id, [...resourceIds]),
+            accessFilter(schema.documents, schema.documentShares),
+          ),
+        );
+    },
     async capture(reference) {
       const access = await resolveAccess("document", reference.resourceId);
       if (!access) throw new Error("Document not found");
