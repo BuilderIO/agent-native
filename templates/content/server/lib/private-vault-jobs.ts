@@ -250,7 +250,7 @@ function activeEndpointPredicate(principal: PrivateVaultEndpointPrincipal) {
             principal.ownerEmail,
           ),
           eq(schema.contentEncryptedVaultEndpoints.orgId, principal.orgId),
-          eq(schema.contentEncryptedVaultEndpoints.endpointState, "active"),
+          eq(schema.contentEncryptedVaultEndpoints.endpointState, "online"),
         ),
       ),
   );
@@ -375,7 +375,7 @@ export const sqlPrivateVaultJobStore: PrivateVaultJobStore = {
             principal.ownerEmail,
           ),
           eq(schema.contentEncryptedVaultEndpoints.orgId, principal.orgId),
-          eq(schema.contentEncryptedVaultEndpoints.endpointState, "active"),
+          eq(schema.contentEncryptedVaultEndpoints.endpointState, "online"),
         ),
       )
       .limit(1);
@@ -404,7 +404,7 @@ export const sqlPrivateVaultJobStore: PrivateVaultJobStore = {
             schema.contentEncryptedVaultEndpoints.endpointId,
             input.recipientEndpointId,
           ),
-          eq(schema.contentEncryptedVaultEndpoints.endpointState, "active"),
+          eq(schema.contentEncryptedVaultEndpoints.endpointState, "online"),
         ),
       )
       .innerJoin(
@@ -623,7 +623,7 @@ export const sqlPrivateVaultJobStore: PrivateVaultJobStore = {
               principal.ownerEmail,
             ),
             eq(schema.contentEncryptedVaultEndpoints.orgId, principal.orgId),
-            eq(schema.contentEncryptedVaultEndpoints.endpointState, "active"),
+            eq(schema.contentEncryptedVaultEndpoints.endpointState, "online"),
           ),
         )
         .limit(1);

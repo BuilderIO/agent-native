@@ -62,8 +62,11 @@ beforeAll(async () => {
       vaultId: VAULT,
       ownerEmail: OWNER,
       orgId: ORG,
-      endpointState: "active",
-      publicIdentityJson: JSON.stringify({ opaque: true }),
+      endpointState: "online",
+      publicIdentityJson: JSON.stringify({
+        algorithmId: "ed25519",
+        publicIdentity: "synthetic-public-identity",
+      }),
       healthState: "healthy",
       serverReceivedAt: NOW,
     });
