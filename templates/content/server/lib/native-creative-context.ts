@@ -36,37 +36,37 @@ function documentPreview(markdown: string) {
   const blocks = lines
     .slice(0, 240)
     .flatMap<DocumentPreviewBlock>((rawLine) => {
-    const line = rawLine.trim();
-    if (/^```/.test(line)) {
-      inCode = !inCode;
-      return [];
-    }
-    if (!line) return [];
-    if (inCode) {
-      return [{ kind: "code" as const, text: rawLine.slice(0, 600) }];
-    }
-    const heading = /^(#{1,6})\s+(.+)$/.exec(line);
-    if (heading) {
-      return [
-        {
-          kind: "heading" as const,
-          text: (heading[2] ?? "").slice(0, 300),
-          level: heading[1]?.length ?? 1,
-        },
-      ];
-    }
-    const bullet = /^(?:[-*+] |\d+[.)] )(.+)$/.exec(line);
-    if (bullet) {
-      return [
-        { kind: "bullet" as const, text: (bullet[1] ?? "").slice(0, 600) },
-      ];
-    }
-    if (line.startsWith(">")) {
-      return [
-        { kind: "quote" as const, text: line.slice(1).trim().slice(0, 600) },
-      ];
-    }
-    return [{ kind: "paragraph" as const, text: line.slice(0, 600) }];
+      const line = rawLine.trim();
+      if (/^```/.test(line)) {
+        inCode = !inCode;
+        return [];
+      }
+      if (!line) return [];
+      if (inCode) {
+        return [{ kind: "code" as const, text: rawLine.slice(0, 600) }];
+      }
+      const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+      if (heading) {
+        return [
+          {
+            kind: "heading" as const,
+            text: (heading[2] ?? "").slice(0, 300),
+            level: heading[1]?.length ?? 1,
+          },
+        ];
+      }
+      const bullet = /^(?:[-*+] |\d+[.)] )(.+)$/.exec(line);
+      if (bullet) {
+        return [
+          { kind: "bullet" as const, text: (bullet[1] ?? "").slice(0, 600) },
+        ];
+      }
+      if (line.startsWith(">")) {
+        return [
+          { kind: "quote" as const, text: line.slice(1).trim().slice(0, 600) },
+        ];
+      }
+      return [{ kind: "paragraph" as const, text: line.slice(0, 600) }];
     });
   return {
     type: "document" as const,

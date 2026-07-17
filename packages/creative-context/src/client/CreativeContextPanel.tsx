@@ -2208,6 +2208,9 @@ export function CreativeContextPanel({
                   Approved context items appear here after publication.
                 </p>
               ) : null}
+              {reviewError ? (
+                <p className="mt-3 text-sm text-destructive">{reviewError}</p>
+              ) : null}
             </TabsContent>
             <TabsContent value="approvals">
               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
@@ -3531,6 +3534,42 @@ export function CreativeContextPanel({
           if (!open) setPreviewManifest(null);
         }}
       />
+      <AlertDialog
+        open={Boolean(membershipUpdateCandidate)}
+        onOpenChange={(open) => {
+          if (!open && !updatingMembershipId)
+            setMembershipUpdateCandidate(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {t("creativeContext.submitUpdateTitle")}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {t("creativeContext.submitUpdateDescription", {
+                name: membershipUpdateCandidate?.title ?? "",
+              })}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={Boolean(updatingMembershipId)}>
+              {t("creativeContext.cancel")}
+            </AlertDialogCancel>
+            <AlertDialogAction
+              disabled={Boolean(updatingMembershipId)}
+              onClick={(event) => {
+                event.preventDefault();
+                void submitLatestContextMembershipUpdate();
+              }}
+            >
+              {updatingMembershipId
+                ? t("creativeContext.submittingUpdate")
+                : t("creativeContext.submitUpdate")}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
       <AlertDialog
         open={Boolean(deleteSource)}
         onOpenChange={(open) => {
