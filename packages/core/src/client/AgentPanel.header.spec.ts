@@ -41,8 +41,14 @@ function chatTab(
 }
 
 describe("AgentPanel header tab visibility", () => {
-  it("keeps the sidebar chat tabs visible with one main tab", () => {
-    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(true);
+  it("hides sidebar chat tabs until a second main tab is open", () => {
+    expect(shouldShowAgentPanelSidebarChatTabs([chatTab("main")])).toBe(false);
+    expect(
+      shouldShowAgentPanelSidebarChatTabs([
+        chatTab("main"),
+        chatTab("follow-up"),
+      ]),
+    ).toBe(true);
   });
 
   it("does not render a sidebar chat tab strip without a main tab", () => {
