@@ -1,6 +1,10 @@
 #import "PrivateVaultAuthoritySnapshot.h"
+#import "PrivateVaultAuthoritySnapshotInternal.h"
 
 #import "PrivateVaultAncCanonical.h"
+#import "PrivateVaultControlLog.h"
+
+#import <objc/runtime.h>
 
 #include <stdio.h>
 #include <time.h>
@@ -42,6 +46,51 @@ static const uint64_t kAncPrivateVaultMaxSafeInteger = 9007199254740991ULL;
 @property(nonatomic, readwrite) NSString *freshnessMode;
 @end
 @implementation AncPrivateVaultAuthoritySnapshot
+@end
+
+static void AncAuthorityRaiseImmutableMutation(void) {
+  [NSException raise:NSInternalInconsistencyException
+              format:@"verified authority values are immutable"];
+}
+
+@interface AncPrivateVaultImmutableAuthorityMember
+    : AncPrivateVaultAuthorityMember
+@end
+@implementation AncPrivateVaultImmutableAuthorityMember
+- (void)setEndpointId:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRole:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setUnattended:(BOOL)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setSigningPublicKey:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setKeyAgreementPublicKey:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setEnrollmentRef:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncAuthorityRaiseImmutableMutation(); }
+@end
+
+@interface AncPrivateVaultImmutableAuthoritySnapshot
+    : AncPrivateVaultAuthoritySnapshot
+@end
+@implementation AncPrivateVaultImmutableAuthoritySnapshot
+- (void)setVaultId:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setTargetCustodyGeneration:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setPreviousCustodyGeneration:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setPreviousSequence:(NSNumber *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setPreviousHead:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setVerifiedAtMs:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setSequence:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setHeadHash:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setMembershipHash:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setSignedAt:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setSignedAtMs:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setActiveMembers:(NSArray *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRemovedEndpointIds:(NSArray *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setEpoch:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRecoveryGeneration:(uint64_t)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRecoveryId:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRecoverySigningPublicKey:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRecoveryKeyAgreementPublicKey:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setRecoveryWrapHash:(NSData *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setFreshnessMode:(NSString *)value { (void)value; AncAuthorityRaiseImmutableMutation(); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncAuthorityRaiseImmutableMutation(); }
 @end
 
 static BOOL AncAuthorityExactKeys(NSDictionary<NSNumber *, id> *map) {
@@ -442,4 +491,128 @@ NSData *AncPrivateVaultAuthoritySnapshotEncode(
   if (status)
     *status = AncPrivateVaultAuthoritySnapshotStatusOK;
   return encoded;
+}
+
+static AncPrivateVaultAuthoritySnapshot *AncAuthorityFrozenSnapshot(
+    AncPrivateVaultAuthoritySnapshot *source) {
+  NSMutableArray<AncPrivateVaultAuthorityMember *> *members =
+      [NSMutableArray arrayWithCapacity:source.activeMembers.count];
+  for (AncPrivateVaultAuthorityMember *sourceMember in source.activeMembers) {
+    AncPrivateVaultAuthorityMember *member =
+        [[AncPrivateVaultAuthorityMember alloc] init];
+    member.endpointId = [sourceMember.endpointId copy];
+    member.role = [sourceMember.role copy];
+    member.unattended = sourceMember.unattended;
+    member.signingPublicKey = [sourceMember.signingPublicKey copy];
+    member.keyAgreementPublicKey = [sourceMember.keyAgreementPublicKey copy];
+    member.enrollmentRef = [sourceMember.enrollmentRef copy];
+    object_setClass(member, AncPrivateVaultImmutableAuthorityMember.class);
+    [members addObject:member];
+  }
+  AncPrivateVaultAuthoritySnapshot *snapshot =
+      [[AncPrivateVaultAuthoritySnapshot alloc] init];
+  snapshot.vaultId = [source.vaultId copy];
+  snapshot.targetCustodyGeneration = source.targetCustodyGeneration;
+  snapshot.previousCustodyGeneration = source.previousCustodyGeneration;
+  snapshot.previousSequence = [source.previousSequence copy];
+  snapshot.previousHead = [source.previousHead copy];
+  snapshot.verifiedAtMs = source.verifiedAtMs;
+  snapshot.sequence = source.sequence;
+  snapshot.headHash = [source.headHash copy];
+  snapshot.membershipHash = [source.membershipHash copy];
+  snapshot.signedAt = [source.signedAt copy];
+  snapshot.signedAtMs = source.signedAtMs;
+  snapshot.activeMembers = [members copy];
+  snapshot.removedEndpointIds =
+      [[NSArray alloc] initWithArray:source.removedEndpointIds copyItems:YES];
+  snapshot.epoch = source.epoch;
+  snapshot.recoveryGeneration = source.recoveryGeneration;
+  snapshot.recoveryId = [source.recoveryId copy];
+  snapshot.recoverySigningPublicKey =
+      [source.recoverySigningPublicKey copy];
+  snapshot.recoveryKeyAgreementPublicKey =
+      [source.recoveryKeyAgreementPublicKey copy];
+  snapshot.recoveryWrapHash = [source.recoveryWrapHash copy];
+  snapshot.freshnessMode = [source.freshnessMode copy];
+  object_setClass(snapshot, AncPrivateVaultImmutableAuthoritySnapshot.class);
+  return snapshot;
+}
+
+AncPrivateVaultAuthoritySnapshot *
+AncPrivateVaultAuthoritySnapshotCreateFromVerifiedControlState(
+    AncPrivateVaultControlLogState *state, uint64_t targetCustodyGeneration,
+    uint64_t previousCustodyGeneration, NSNumber *previousSequence,
+    NSData *previousHead, uint64_t verifiedAtMs) {
+  if (state == nil || targetCustodyGeneration == 0 || verifiedAtMs == 0 ||
+      targetCustodyGeneration > kAncPrivateVaultMaxSafeInteger ||
+      verifiedAtMs > kAncPrivateVaultMaxSafeInteger ||
+      previousCustodyGeneration >= kAncPrivateVaultMaxSafeInteger ||
+      targetCustodyGeneration != previousCustodyGeneration + 1 ||
+      ((previousSequence == nil) != (previousHead == nil)) ||
+      (previousSequence != nil && previousHead.length != 32))
+    return nil;
+  @try {
+    NSData *headHash = state.headHash;
+    NSData *membershipHash = state.membershipHash;
+    NSData *recoverySigning = state.recoverySigningPublicKey;
+    NSData *recoveryAgreement = state.recoveryKeyAgreementPublicKey;
+    NSData *recoveryWrap = state.recoveryWrapHash;
+    if (headHash == membershipHash || headHash == recoverySigning ||
+        headHash == recoveryAgreement || headHash == recoveryWrap ||
+        membershipHash == recoverySigning ||
+        membershipHash == recoveryAgreement || membershipHash == recoveryWrap ||
+        recoverySigning == recoveryAgreement || recoverySigning == recoveryWrap ||
+        recoveryAgreement == recoveryWrap)
+      return nil;
+    AncPrivateVaultAuthoritySnapshot *candidate =
+        [[AncPrivateVaultAuthoritySnapshot alloc] init];
+    candidate.vaultId = [state.vaultId copy];
+    candidate.targetCustodyGeneration = targetCustodyGeneration;
+    candidate.previousCustodyGeneration = previousCustodyGeneration;
+    candidate.previousSequence = [previousSequence copy];
+    candidate.previousHead = [previousHead copy];
+    candidate.verifiedAtMs = verifiedAtMs;
+    candidate.sequence = state.sequence;
+    candidate.headHash = [headHash copy];
+    candidate.membershipHash = [membershipHash copy];
+    candidate.signedAt = [state.signedAt copy];
+    NSMutableArray<AncPrivateVaultAuthorityMember *> *members =
+        [NSMutableArray arrayWithCapacity:state.activeMembers.count];
+    for (AncPrivateVaultControlLogMember *sourceMember in state.activeMembers) {
+      if (sourceMember.signingPublicKey == sourceMember.keyAgreementPublicKey)
+        return nil;
+      AncPrivateVaultAuthorityMember *member =
+          [[AncPrivateVaultAuthorityMember alloc] init];
+      member.endpointId = [sourceMember.endpointId copy];
+      member.role = [sourceMember.role copy];
+      member.unattended = sourceMember.unattended;
+      member.signingPublicKey = [sourceMember.signingPublicKey copy];
+      member.keyAgreementPublicKey =
+          [sourceMember.keyAgreementPublicKey copy];
+      member.enrollmentRef = [sourceMember.enrollmentRef copy];
+      [members addObject:member];
+    }
+    candidate.activeMembers = [members copy];
+    candidate.removedEndpointIds =
+        [[NSArray alloc] initWithArray:state.removedEndpointIds copyItems:YES];
+    candidate.epoch = state.epoch;
+    candidate.recoveryGeneration = state.recoveryGeneration;
+    candidate.recoveryId = [state.recoveryId copy];
+    candidate.recoverySigningPublicKey = [recoverySigning copy];
+    candidate.recoveryKeyAgreementPublicKey = [recoveryAgreement copy];
+    candidate.recoveryWrapHash = [recoveryWrap copy];
+    candidate.freshnessMode = [state.freshnessMode copy];
+
+    AncPrivateVaultAuthoritySnapshotStatus status;
+    NSData *canonical = AncPrivateVaultAuthoritySnapshotEncode(candidate, &status);
+    AncPrivateVaultAuthoritySnapshot *validated =
+        canonical == nil
+            ? nil
+            : AncPrivateVaultAuthoritySnapshotDecode(canonical, &status);
+    if (validated == nil)
+      return nil;
+    return AncAuthorityFrozenSnapshot(validated);
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
 }

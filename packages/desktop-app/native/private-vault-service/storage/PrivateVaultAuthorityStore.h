@@ -94,15 +94,6 @@ FOUNDATION_EXPORT NSData
     *_Nullable AncPrivateVaultAuthorityFrameDecodeForTesting(
         NSData *frame, NSString *vaultId, uint64_t custodyGeneration,
         NSData *localStateKey, NSData *_Nullable *_Nullable digest);
-@interface AncPrivateVaultVerifiedReplayResult (Testing)
-+ (instancetype)
-    testResultWithExpectedCheckpoint:
-        (AncPrivateVaultAuthorityCheckpoint *_Nullable)checkpoint
-                        nextSnapshot:
-                            (AncPrivateVaultAuthoritySnapshot *)snapshot
-                     epochTransition:
-                         (AncPrivateVaultCustodyEpochTransition)transition;
-@end
 #endif
 
 NS_ASSUME_NONNULL_END

@@ -101,6 +101,8 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultControlLogStatus) {
 @property(nonatomic, readonly) AncPrivateVaultControlLogState *state;
 @property(nonatomic, readonly) NSData *entryHash;
 @property(nonatomic, readonly) BOOL idempotent;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
 @end
 
 @interface AncPrivateVaultControlLog : NSObject

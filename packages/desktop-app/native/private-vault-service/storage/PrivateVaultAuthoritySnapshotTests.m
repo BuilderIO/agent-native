@@ -2,6 +2,9 @@
 
 #import "PrivateVaultAuthoritySnapshot.h"
 #import "PrivateVaultAuthorityStore.h"
+#import "PrivateVaultAuthorityStoreInternal.h"
+
+#import <objc/runtime.h>
 
 #include <stdio.h>
 #include <sys/stat.h>
@@ -94,7 +97,9 @@ static OSStatus AuthorityAdd(CFDictionaryRef raw, CFTypeRef *result) {
   NSString *key = AuthorityStoreKey(attributes);
   if (gAuthorityKeychain[key])
     return errSecDuplicateItem;
-  gAuthorityKeychain[key] = [attributes[(__bridge id)kSecValueData] copy];
+  NSData *value = attributes[(__bridge id)kSecValueData];
+  gAuthorityKeychain[key] =
+      [NSData dataWithBytes:value.bytes length:value.length];
   return errSecSuccess;
 }
 static OSStatus AuthorityUpdate(CFDictionaryRef rawQuery,
@@ -104,7 +109,9 @@ static OSStatus AuthorityUpdate(CFDictionaryRef rawQuery,
   if (!gAuthorityKeychain[key])
     return errSecItemNotFound;
   NSDictionary *attributes = (__bridge NSDictionary *)rawAttributes;
-  gAuthorityKeychain[key] = [attributes[(__bridge id)kSecValueData] copy];
+  NSData *value = attributes[(__bridge id)kSecValueData];
+  gAuthorityKeychain[key] =
+      [NSData dataWithBytes:value.bytes length:value.length];
   return errSecSuccess;
 }
 static OSStatus AuthorityDelete(CFDictionaryRef raw) {
@@ -483,6 +490,46 @@ int main(void) {
                             nextSnapshot:descendant
                          epochTransition:
                              AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch];
+    Class privateVerifiedClass =
+        NSClassFromString(@"AncPrivateVaultImmutableVerifiedReplayResult");
+    CHECK(privateVerifiedClass != Nil);
+    AncPrivateVaultVerifiedReplayResult *forgedPrivate =
+        class_createInstance(privateVerifiedClass, 0);
+    Ivar expectedIvar =
+        class_getInstanceVariable(privateVerifiedClass, "_expectedCheckpoint");
+    Ivar nextIvar =
+        class_getInstanceVariable(privateVerifiedClass, "_nextSnapshot");
+    CHECK(expectedIvar != NULL && nextIvar != NULL);
+    object_setIvar(forgedPrivate, expectedIvar, replay.expectedCheckpoint);
+    object_setIvar(forgedPrivate, nextIvar, replay.nextSnapshot);
+    CHECK(![forgedPrivate
+        respondsToSelector:NSSelectorFromString(
+                               @"internalResultWithExpectedCheckpoint:snapshot:transition:")]);
+    CHECK([store commitVerifiedReplayResult:forgedPrivate
+                                    vaultId:genesis.vaultId
+                               verifiedAtMs:descendant.verifiedAtMs
+                                 checkpoint:nil
+                                      error:nil] ==
+          AncPrivateVaultAuthorityStoreStatusInvalid);
+    CHECK([store commitVerifiedReplayResult:replay
+                                    vaultId:genesis.vaultId
+                               verifiedAtMs:initial.snapshot.verifiedAtMs - 1
+                                 checkpoint:nil
+                                      error:nil] ==
+          AncPrivateVaultAuthorityStoreStatusInvalid);
+    AncPrivateVaultVerifiedReplayResult *tamperedPresentation =
+        [AncPrivateVaultVerifiedReplayResult
+            testResultWithExpectedCheckpoint:initial
+                                nextSnapshot:descendant
+                             epochTransition:
+                                 AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch];
+    object_setIvar(tamperedPresentation, nextIvar, genesis);
+    CHECK([store commitVerifiedReplayResult:tamperedPresentation
+                                    vaultId:genesis.vaultId
+                               verifiedAtMs:descendant.verifiedAtMs
+                                 checkpoint:nil
+                                      error:nil] ==
+          AncPrivateVaultAuthorityStoreStatusInvalid);
     CHECK(replay.nextSnapshot != descendant);
     CHECK([[AncPrivateVaultAuthoritySnapshotEncode(replay.nextSnapshot,
                                                    &snapshotStatus) copy]

@@ -51,6 +51,19 @@ Every signature/hash input begins with UTF-8 `anc/v1/<type>`, one zero byte, the
 
 Removing an endpoint creates a new independent epoch key, rewraps every live DEK to the remaining endpoint set, obtains signed acknowledgements, and destroys the old epoch key on remaining endpoints. Until rotation completes, removal is an explicit alerting state—not success theater.
 
+### Native custody memory boundary
+
+The native 1,088-byte custody record contains five secret values: the endpoint
+signing seed, agreement seed, local-state key, active epoch key, and pending
+epoch key. Outside the `CFData` returned synchronously by Security.framework,
+the complete record exists only in locked, no-access-by-default guarded memory.
+Repository code imports the Keychain bytes during that callback, exposes guarded
+bytes only to synchronous borrows, streams checksum and fence hashing without a
+concatenated stack preimage, and explicitly closes each buffer so protection or
+zeroization failures propagate. Public custody and authority APIs expose only
+the public snapshot plus the existing guarded five-secret handle; they never
+return the serialized record as `NSData`.
+
 ### Crash-safe rotation preparation namespace
 
 Ordinary epoch rotation uses a separate, fixed 512-byte local

@@ -19,6 +19,65 @@ typedef struct AncGuardedCustodySecrets {
 _Static_assert(sizeof(AncGuardedCustodySecrets) == 160,
                "guarded custody handle must remain exactly 160 bytes");
 
+typedef BOOL (^AncCustodyRecordBorrowBlock)(uint8_t *record);
+
+@interface AncCustodyRecordBuffer : NSObject
+@property(nonatomic, strong, readonly) AncPrivateVaultGuardedMemory *memory;
+- (instancetype)initEmpty;
+- (AncPrivateVaultCustodyRepositoryStatus)borrow:
+    (AncCustodyRecordBorrowBlock)block;
+- (AncPrivateVaultCustodyRepositoryStatus)close;
+@end
+
+@implementation AncCustodyRecordBuffer
+
+- (instancetype)initEmpty {
+  self = [super init];
+  if (self == nil)
+    return nil;
+  AncPrivateVaultGuardedMemoryStatus status;
+  _memory = [AncPrivateVaultGuardedMemory
+      memoryWithLength:ANC_PV_CUSTODY_RECORD_BYTES
+                status:&status];
+  if (_memory == nil || status != AncPrivateVaultGuardedMemoryStatusOK)
+    return nil;
+  return self;
+}
+
+- (AncPrivateVaultCustodyRepositoryStatus)borrow:
+    (AncCustodyRecordBorrowBlock)block {
+  if (block == nil || self.memory == nil)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  AncPrivateVaultGuardedMemoryStatus status =
+      [self.memory borrow:^BOOL(uint8_t *bytes, size_t length) {
+        return length == ANC_PV_CUSTODY_RECORD_BYTES && block(bytes);
+      }];
+  switch (status) {
+  case AncPrivateVaultGuardedMemoryStatusOK:
+    return AncPrivateVaultCustodyRepositoryStatusOK;
+  case AncPrivateVaultGuardedMemoryStatusClosed:
+  case AncPrivateVaultGuardedMemoryStatusInvalid:
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  case AncPrivateVaultGuardedMemoryStatusAllocationFailed:
+  case AncPrivateVaultGuardedMemoryStatusProtectionFailed:
+  case AncPrivateVaultGuardedMemoryStatusCallbackFailed:
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  }
+}
+
+- (AncPrivateVaultCustodyRepositoryStatus)close {
+  AncPrivateVaultGuardedMemoryStatus status = [self.memory close];
+  return status == AncPrivateVaultGuardedMemoryStatusOK
+             ? AncPrivateVaultCustodyRepositoryStatusOK
+             : AncPrivateVaultCustodyRepositoryStatusFailed;
+}
+
+- (void)dealloc {
+  [self close];
+}
+
+@end
+
 @interface AncPrivateVaultCustodyHandle ()
 @property(nonatomic, strong, readonly) AncPrivateVaultGuardedMemory *memory;
 - (instancetype)initEmpty;
@@ -257,33 +316,39 @@ AncRepositoryStatusForFence(AncPrivateVaultFenceStatus status) {
   }
 }
 
-static NSData *_Nullable AncCustodyDigest(NSData *record) {
-  if (record.length != ANC_PV_CUSTODY_RECORD_BYTES)
-    return nil;
-  uint8_t input[sizeof kCustodyFenceDigestDomain + ANC_PV_CUSTODY_RECORD_BYTES];
-  memcpy(input, kCustodyFenceDigestDomain, sizeof kCustodyFenceDigestDomain);
-  memcpy(input + sizeof kCustodyFenceDigestDomain, record.bytes,
-         ANC_PV_CUSTODY_RECORD_BYTES);
-  uint8_t digest[32] = {0};
-  if (anc_pv_blake2b_256(digest, input, sizeof input) != ANC_PV_CRYPTO_OK) {
-    anc_pv_zeroize(input, sizeof input);
-    anc_pv_zeroize(digest, sizeof digest);
+static NSData *_Nullable AncCustodyDigest(AncCustodyRecordBuffer *record) {
+  typedef struct AncCustodyDigestBytes {
+    uint8_t bytes[ANC_PV_HASH_BYTES];
+  } AncCustodyDigestBytes;
+  __block AncCustodyDigestBytes digest = {0};
+  __block BOOL hashed = NO;
+  AncPrivateVaultCustodyRepositoryStatus borrowed =
+      [record borrow:^BOOL(uint8_t *bytes) {
+        hashed = anc_pv_blake2b_256_two_part(
+                     digest.bytes,
+                     (const uint8_t *)kCustodyFenceDigestDomain,
+                     sizeof kCustodyFenceDigestDomain, bytes,
+                     ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CRYPTO_OK;
+        return hashed;
+      }];
+  if (borrowed != AncPrivateVaultCustodyRepositoryStatusOK || !hashed) {
+    anc_pv_zeroize(&digest, sizeof digest);
     return nil;
   }
-  NSData *result = [NSData dataWithBytes:digest length:32];
-  anc_pv_zeroize(input, sizeof input);
-  anc_pv_zeroize(digest, sizeof digest);
+  NSData *result = [NSData dataWithBytes:digest.bytes length:32];
+  anc_pv_zeroize(&digest, sizeof digest);
   return result;
 }
 
 static AncPrivateVaultCustodyRepositoryStatus
-AncDecodeRecord(NSData *data, AncPrivateVaultCustodySnapshot *snapshot,
+AncDecodeRecord(AncCustodyRecordBuffer *record,
+                AncPrivateVaultCustodySnapshot *snapshot,
                 AncPrivateVaultCustodyHandle **outHandle) {
   if (outHandle == NULL)
     return AncPrivateVaultCustodyRepositoryStatusInvalid;
   *outHandle = nil;
-  if (data.length != ANC_PV_CUSTODY_RECORD_BYTES)
-    return AncPrivateVaultCustodyRepositoryStatusCorrupt;
+  if (record == nil)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
   AncPrivateVaultCustodyHandle *handle =
       [[AncPrivateVaultCustodyHandle alloc] initEmpty];
   if (handle == nil)
@@ -296,9 +361,14 @@ AncDecodeRecord(NSData *data, AncPrivateVaultCustodySnapshot *snapshot,
           return NO;
         AncPrivateVaultCustodySecretOutputs outputs =
             AncOutputs((AncGuardedCustodySecrets *)bytes);
-        decodeStatus = anc_pv_custody_record_decode(data.bytes, data.length,
-                                                    snapshot, &outputs);
-        return decodeStatus == ANC_PV_CUSTODY_OK;
+        AncPrivateVaultCustodyRepositoryStatus recordBorrow =
+            [record borrow:^BOOL(uint8_t *recordBytes) {
+              decodeStatus = anc_pv_custody_record_decode(
+                  recordBytes, ANC_PV_CUSTODY_RECORD_BYTES, snapshot, &outputs);
+              return decodeStatus == ANC_PV_CUSTODY_OK;
+            }];
+        return recordBorrow == AncPrivateVaultCustodyRepositoryStatusOK &&
+               decodeStatus == ANC_PV_CUSTODY_OK;
       }];
   if (guardedStatus != AncPrivateVaultGuardedMemoryStatusOK ||
       decodeStatus != ANC_PV_CUSTODY_OK) {
@@ -384,49 +454,119 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
 
 - (AncPrivateVaultCustodyRepositoryStatus)readService:(NSString *)service
                                               vaultId:(NSString *)vaultId
-                                                 data:(NSData **)data {
-  return AncRepositoryStatusForKeychain([self.keychain
-      copyDataForService:service
-                 vaultId:vaultId
-                recordId:AncPrivateVaultCustodyRecordId
-                    data:data]);
+                                               record:(AncCustodyRecordBuffer **)
+                                                          outRecord {
+  if (outRecord == NULL)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  *outRecord = nil;
+  __block AncCustodyRecordBuffer *record = nil;
+  __block AncPrivateVaultCustodyRepositoryStatus importStatus =
+      AncPrivateVaultCustodyRepositoryStatusOK;
+  AncPrivateVaultKeychainStatus read = [self.keychain
+      consumeCustodyRecordForService:service
+                             vaultId:vaultId
+                            recordId:AncPrivateVaultCustodyRecordId
+                            consumer:^BOOL(const uint8_t *bytes) {
+                              record = [[AncCustodyRecordBuffer alloc] initEmpty];
+                              if (record == nil) {
+                                importStatus =
+                                    AncPrivateVaultCustodyRepositoryStatusFailed;
+                                return NO;
+                              }
+                              importStatus = [record borrow:^BOOL(uint8_t *target) {
+                                memcpy(target, bytes,
+                                       ANC_PV_CUSTODY_RECORD_BYTES);
+                                return YES;
+                              }];
+                              return importStatus ==
+                                     AncPrivateVaultCustodyRepositoryStatusOK;
+                            }];
+  if (read != AncPrivateVaultKeychainStatusOK) {
+    AncPrivateVaultCustodyRepositoryStatus closed =
+        record == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                      : [record close];
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return closed;
+    return importStatus != AncPrivateVaultCustodyRepositoryStatusOK
+               ? importStatus
+               : AncRepositoryStatusForKeychain(read);
+  }
+  *outRecord = record;
+  return AncPrivateVaultCustodyRepositoryStatusOK;
 }
 
-- (AncPrivateVaultCustodyRepositoryStatus)writeExact:(NSData *)data
+- (AncPrivateVaultCustodyRepositoryStatus)
+    recordsEqual:(AncCustodyRecordBuffer *)left
+            right:(AncCustodyRecordBuffer *)right
+            equal:(BOOL *)equal {
+  if (left == nil || right == nil || equal == NULL)
+    return AncPrivateVaultCustodyRepositoryStatusInvalid;
+  *equal = NO;
+  __block AncPrivateVaultCustodyRepositoryStatus inner =
+      AncPrivateVaultCustodyRepositoryStatusFailed;
+  AncPrivateVaultCustodyRepositoryStatus outer =
+      [left borrow:^BOOL(uint8_t *leftBytes) {
+        inner = [right borrow:^BOOL(uint8_t *rightBytes) {
+          *equal = anc_pv_memcmp(leftBytes, rightBytes,
+                                ANC_PV_CUSTODY_RECORD_BYTES) ==
+                   ANC_PV_CRYPTO_OK;
+          return YES;
+        }];
+        return inner == AncPrivateVaultCustodyRepositoryStatusOK;
+      }];
+  return outer == AncPrivateVaultCustodyRepositoryStatusOK ? inner : outer;
+}
+
+- (AncPrivateVaultCustodyRepositoryStatus)writeExact:
+                                                (AncCustodyRecordBuffer *)record
                                              service:(NSString *)service
                                              vaultId:(NSString *)vaultId {
-  NSData *existing = nil;
-  AncPrivateVaultKeychainStatus read =
-      [self.keychain copyDataForService:service
-                                vaultId:vaultId
-                               recordId:AncPrivateVaultCustodyRecordId
-                                   data:&existing];
-  if (read == AncPrivateVaultKeychainStatusOK && [existing isEqualToData:data])
-    return AncPrivateVaultCustodyRepositoryStatusOK;
-  AncPrivateVaultKeychainStatus write =
-      read == AncPrivateVaultKeychainStatusNotFound
-          ? [self.keychain addData:data
-                        forService:service
-                           vaultId:vaultId
-                          recordId:AncPrivateVaultCustodyRecordId]
-      : read == AncPrivateVaultKeychainStatusOK
-          ? [self.keychain updateData:data
-                           forService:service
-                              vaultId:vaultId
-                             recordId:AncPrivateVaultCustodyRecordId]
-          : read;
+  AncCustodyRecordBuffer *existing = nil;
+  AncPrivateVaultCustodyRepositoryStatus read =
+      [self readService:service vaultId:vaultId record:&existing];
+  BOOL equal = NO;
+  if (read == AncPrivateVaultCustodyRepositoryStatusOK) {
+    AncPrivateVaultCustodyRepositoryStatus compared =
+        [self recordsEqual:existing right:record equal:&equal];
+    AncPrivateVaultCustodyRepositoryStatus closed = [existing close];
+    if (compared != AncPrivateVaultCustodyRepositoryStatusOK)
+      return compared;
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return closed;
+    if (equal)
+      return AncPrivateVaultCustodyRepositoryStatusOK;
+  } else if (read != AncPrivateVaultCustodyRepositoryStatusNotFound) {
+    return read;
+  }
+  __block AncPrivateVaultKeychainStatus write =
+      AncPrivateVaultKeychainStatusFailed;
+  AncPrivateVaultCustodyRepositoryStatus borrowed =
+      [record borrow:^BOOL(uint8_t *bytes) {
+        write = read == AncPrivateVaultCustodyRepositoryStatusNotFound
+                    ? [self.keychain
+                          addCustodyRecord:bytes
+                                     length:ANC_PV_CUSTODY_RECORD_BYTES
+                               forService:service
+                                  vaultId:vaultId
+                                 recordId:AncPrivateVaultCustodyRecordId]
+                    : [self.keychain
+                          updateCustodyRecord:bytes
+                                        length:ANC_PV_CUSTODY_RECORD_BYTES
+                                  forService:service
+                                     vaultId:vaultId
+                                    recordId:AncPrivateVaultCustodyRecordId];
+        return YES;
+      }];
+  if (borrowed != AncPrivateVaultCustodyRepositoryStatusOK)
+    return borrowed;
   if (write != AncPrivateVaultKeychainStatusOK)
     return AncRepositoryStatusForKeychain(write);
-  NSData *observed = nil;
-  AncPrivateVaultKeychainStatus verified =
-      [self.keychain copyDataForService:service
-                                vaultId:vaultId
-                               recordId:AncPrivateVaultCustodyRecordId
-                                   data:&observed];
-  if (verified != AncPrivateVaultKeychainStatusOK)
-    return AncRepositoryStatusForKeychain(verified);
-  if (![observed isEqualToData:data])
-    return AncPrivateVaultCustodyRepositoryStatusConflict;
+  AncCustodyRecordBuffer *observed = nil;
+  read = [self readService:service vaultId:vaultId record:&observed];
+  if (read != AncPrivateVaultCustodyRepositoryStatusOK)
+    return read;
+  AncPrivateVaultCustodyRepositoryStatus compared =
+      [self recordsEqual:observed right:record equal:&equal];
   AncPrivateVaultCustodySnapshot snapshot;
   AncPrivateVaultCustodyHandle *validationHandle = nil;
   AncPrivateVaultCustodyRepositoryStatus decoded =
@@ -434,32 +574,47 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   AncPrivateVaultCustodyRepositoryStatus closed =
       validationHandle == nil ? AncPrivateVaultCustodyRepositoryStatusOK
                               : [validationHandle close];
+  AncPrivateVaultCustodyRepositoryStatus observedClosed = [observed close];
   anc_pv_custody_snapshot_zero(&snapshot);
-  return closed == AncPrivateVaultCustodyRepositoryStatusOK ? decoded : closed;
+  if (compared != AncPrivateVaultCustodyRepositoryStatusOK)
+    return compared;
+  if (!equal)
+    return AncPrivateVaultCustodyRepositoryStatusConflict;
+  if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+    return closed;
+  if (observedClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+    return observedClosed;
+  return decoded;
 }
 
 - (AncPrivateVaultCustodyRepositoryStatus)deleteStageVaultId:
     (NSString *)vaultId {
   AncPrivateVaultKeychainStatus deleted =
-      [self.keychain deleteDataForService:AncPrivateVaultCustodyStageService
-                                  vaultId:vaultId
-                                 recordId:AncPrivateVaultCustodyRecordId];
+      [self.keychain
+          deleteCustodyRecordForService:AncPrivateVaultCustodyStageService
+                                 vaultId:vaultId
+                                recordId:AncPrivateVaultCustodyRecordId];
   if (deleted != AncPrivateVaultKeychainStatusOK)
     return AncRepositoryStatusForKeychain(deleted);
-  NSData *observed = nil;
-  AncPrivateVaultKeychainStatus read =
-      [self.keychain copyDataForService:AncPrivateVaultCustodyStageService
-                                vaultId:vaultId
-                               recordId:AncPrivateVaultCustodyRecordId
-                                   data:&observed];
+  __block BOOL observed = NO;
+  AncPrivateVaultKeychainStatus read = [self.keychain
+      consumeCustodyRecordForService:AncPrivateVaultCustodyStageService
+                             vaultId:vaultId
+                            recordId:AncPrivateVaultCustodyRecordId
+                            consumer:^BOOL(const uint8_t *bytes) {
+                              (void)bytes;
+                              observed = YES;
+                              return YES;
+                            }];
   return read == AncPrivateVaultKeychainStatusNotFound
              ? AncPrivateVaultCustodyRepositoryStatusOK
-         : read == AncPrivateVaultKeychainStatusOK
+         : read == AncPrivateVaultKeychainStatusOK && observed
              ? AncPrivateVaultCustodyRepositoryStatusConflict
              : AncRepositoryStatusForKeychain(read);
 }
 
-- (AncPrivateVaultCustodyRepositoryStatus)finishStage:(NSData *)stage
+- (AncPrivateVaultCustodyRepositoryStatus)
+    finishStage:(AncCustodyRecordBuffer *)stage
                                                digest:(NSData *)digest
                                            generation:(uint64_t)generation
                                               vaultId:(NSString *)vaultId {
@@ -495,41 +650,65 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
       verifiedFence.generation != generation ||
       ![verifiedFence.recordDigest isEqualToData:digest])
     return AncPrivateVaultCustodyRepositoryStatusConflict;
-  NSData *verifiedLive = nil;
+  AncCustodyRecordBuffer *verifiedLive = nil;
   AncPrivateVaultCustodyRepositoryStatus read =
       [self readService:AncPrivateVaultCustodyService
                 vaultId:vaultId
-                   data:&verifiedLive];
+                 record:&verifiedLive];
   if (read != AncPrivateVaultCustodyRepositoryStatusOK)
     return read;
   NSData *liveDigest = AncCustodyDigest(verifiedLive);
-  if (![verifiedLive isEqualToData:stage] || ![liveDigest isEqualToData:digest])
+  BOOL equal = NO;
+  AncPrivateVaultCustodyRepositoryStatus compared =
+      [self recordsEqual:verifiedLive right:stage equal:&equal];
+  AncPrivateVaultCustodyRepositoryStatus closed = [verifiedLive close];
+  if (compared != AncPrivateVaultCustodyRepositoryStatusOK)
+    return compared;
+  if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+    return closed;
+  if (!equal || ![liveDigest isEqualToData:digest])
     return AncPrivateVaultCustodyRepositoryStatusConflict;
   return [self deleteStageVaultId:vaultId];
 }
 
 - (AncPrivateVaultCustodyRepositoryStatus)
     reconcileVaultId:(NSString *)vaultId
-            liveData:(NSData **)outLive
+          liveRecord:(AncCustodyRecordBuffer **)outLive
         liveSnapshot:(AncPrivateVaultCustodySnapshot *)outSnapshot {
   *outLive = nil;
   anc_pv_custody_snapshot_zero(outSnapshot);
-  NSData *live = nil;
-  NSData *stage = nil;
+  __block AncCustodyRecordBuffer *live = nil;
+  __block AncCustodyRecordBuffer *stage = nil;
+  AncPrivateVaultCustodyRepositoryStatus (^closeBoth)(
+      AncPrivateVaultCustodyRepositoryStatus) =
+      ^AncPrivateVaultCustodyRepositoryStatus(
+          AncPrivateVaultCustodyRepositoryStatus result) {
+        AncPrivateVaultCustodyRepositoryStatus liveClosed =
+            live == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                        : [live close];
+        AncPrivateVaultCustodyRepositoryStatus stageClosed =
+            stage == nil ? AncPrivateVaultCustodyRepositoryStatusOK
+                         : [stage close];
+        if (liveClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+          return liveClosed;
+        if (stageClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+          return stageClosed;
+        return result;
+      };
   AncPrivateVaultCustodyRepositoryStatus liveStatus =
       [self readService:AncPrivateVaultCustodyService
                 vaultId:vaultId
-                   data:&live];
+                 record:&live];
   AncPrivateVaultCustodyRepositoryStatus stageStatus =
       [self readService:AncPrivateVaultCustodyStageService
                 vaultId:vaultId
-                   data:&stage];
+                 record:&stage];
   if (liveStatus != AncPrivateVaultCustodyRepositoryStatusOK &&
       liveStatus != AncPrivateVaultCustodyRepositoryStatusNotFound)
-    return liveStatus;
+    return closeBoth(liveStatus);
   if (stageStatus != AncPrivateVaultCustodyRepositoryStatusOK &&
       stageStatus != AncPrivateVaultCustodyRepositoryStatusNotFound)
-    return stageStatus;
+    return closeBoth(stageStatus);
 
   AncPrivateVaultCustodySnapshot liveSnapshot;
   AncPrivateVaultCustodySnapshot stageSnapshot;
@@ -541,11 +720,11 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
         validationHandle == nil ? AncPrivateVaultCustodyRepositoryStatusOK
                                 : [validationHandle close];
     if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
-      return closed;
+      return closeBoth(closed);
     if (decoded != AncPrivateVaultCustodyRepositoryStatusOK)
-      return decoded;
+      return closeBoth(decoded);
     if (!AncSnapshotMatchesVaultId(&liveSnapshot, vaultId))
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
   } else {
     anc_pv_custody_snapshot_zero(&liveSnapshot);
   }
@@ -557,11 +736,11 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
         validationHandle == nil ? AncPrivateVaultCustodyRepositoryStatusOK
                                 : [validationHandle close];
     if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
-      return closed;
+      return closeBoth(closed);
     if (decoded != AncPrivateVaultCustodyRepositoryStatusOK)
-      return decoded;
+      return closeBoth(decoded);
     if (!AncSnapshotMatchesVaultId(&stageSnapshot, vaultId))
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
   } else {
     anc_pv_custody_snapshot_zero(&stageSnapshot);
   }
@@ -569,12 +748,12 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
        AncLifecycleIsTombstone(&liveSnapshot)) ||
       (stage != nil && stageSnapshot.custody_generation == 1 &&
        AncLifecycleIsTombstone(&stageSnapshot)))
-    return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+    return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
   NSData *liveDigest = live == nil ? nil : AncCustodyDigest(live);
   NSData *stageDigest = stage == nil ? nil : AncCustodyDigest(stage);
   if ((live != nil && liveDigest == nil) ||
       (stage != nil && stageDigest == nil))
-    return AncPrivateVaultCustodyRepositoryStatusFailed;
+    return closeBoth(AncPrivateVaultCustodyRepositoryStatusFailed);
 
   AncPrivateVaultFenceSnapshot *fence = nil;
   AncPrivateVaultFenceStatus fenceStatus =
@@ -582,44 +761,51 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
                      recordId:AncPrivateVaultCustodyRecordId
                      snapshot:&fence];
   if (fenceStatus != AncPrivateVaultFenceStatusOK)
-    return AncRepositoryStatusForFence(fenceStatus);
+    return closeBoth(AncRepositoryStatusForFence(fenceStatus));
   if (fence.state == AncPrivateVaultFenceStateAbsent) {
     if (live != nil)
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
     if (stage == nil)
-      return AncPrivateVaultCustodyRepositoryStatusNotFound;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusNotFound);
     if (stageSnapshot.custody_generation != 1)
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
     if (AncLifecycleIsTombstone(&stageSnapshot))
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
     AncPrivateVaultCustodyRepositoryStatus finished =
         [self finishStage:stage
                    digest:stageDigest
                generation:1
                   vaultId:vaultId];
     if (finished != AncPrivateVaultCustodyRepositoryStatusOK)
-      return finished;
+      return closeBoth(finished);
+    AncPrivateVaultCustodyRepositoryStatus closed =
+        closeBoth(AncPrivateVaultCustodyRepositoryStatusOK);
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return closed;
     return [self reconcileVaultId:vaultId
-                         liveData:outLive
+                       liveRecord:outLive
                      liveSnapshot:outSnapshot];
   }
   if (fence.state == AncPrivateVaultFenceStatePending) {
     if (stage == nil || stageSnapshot.custody_generation != fence.generation ||
         ![stageDigest isEqualToData:fence.recordDigest])
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
     if (live == nil && AncLifecycleIsTombstone(&stageSnapshot))
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
     if (live != nil) {
       if (stageSnapshot.custody_generation == liveSnapshot.custody_generation) {
         if (![liveDigest isEqualToData:stageDigest])
-          return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+          return closeBoth(
+              AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
       } else {
         if (liveSnapshot.custody_generation == UINT64_MAX ||
             stageSnapshot.custody_generation !=
                 liveSnapshot.custody_generation + 1)
-          return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+          return closeBoth(
+              AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
         if (!AncTerminalTransitionAllowed(&liveSnapshot, &stageSnapshot))
-          return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+          return closeBoth(
+              AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
       }
     }
     AncPrivateVaultCustodyRepositoryStatus finished =
@@ -628,14 +814,18 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
                generation:fence.generation
                   vaultId:vaultId];
     if (finished != AncPrivateVaultCustodyRepositoryStatusOK)
-      return finished;
+      return closeBoth(finished);
+    AncPrivateVaultCustodyRepositoryStatus closed =
+        closeBoth(AncPrivateVaultCustodyRepositoryStatusOK);
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return closed;
     return [self reconcileVaultId:vaultId
-                         liveData:outLive
+                       liveRecord:outLive
                      liveSnapshot:outSnapshot];
   }
   if (live == nil || liveSnapshot.custody_generation != fence.generation ||
       ![liveDigest isEqualToData:fence.recordDigest])
-    return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+    return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
   if (stage != nil) {
     if (stageSnapshot.custody_generation == fence.generation &&
         [stageDigest isEqualToData:fence.recordDigest]) {
@@ -645,30 +835,41 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
                                vaultId:vaultId
                               recordId:AncPrivateVaultCustodyRecordId];
       if (committed != AncPrivateVaultFenceStatusOK)
-        return AncRepositoryStatusForFence(committed);
+        return closeBoth(AncRepositoryStatusForFence(committed));
       AncPrivateVaultCustodyRepositoryStatus deleted =
           [self deleteStageVaultId:vaultId];
       if (deleted != AncPrivateVaultCustodyRepositoryStatusOK)
-        return deleted;
+        return closeBoth(deleted);
     } else if (fence.generation != UINT64_MAX &&
                stageSnapshot.custody_generation == fence.generation + 1) {
       if (!AncTerminalTransitionAllowed(&liveSnapshot, &stageSnapshot))
-        return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+        return closeBoth(
+            AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
       AncPrivateVaultCustodyRepositoryStatus finished =
           [self finishStage:stage
                      digest:stageDigest
                  generation:stageSnapshot.custody_generation
                     vaultId:vaultId];
       if (finished != AncPrivateVaultCustodyRepositoryStatusOK)
-        return finished;
+        return closeBoth(finished);
+      AncPrivateVaultCustodyRepositoryStatus closed =
+          closeBoth(AncPrivateVaultCustodyRepositoryStatusOK);
+      if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+        return closed;
       return [self reconcileVaultId:vaultId
-                           liveData:outLive
+                         liveRecord:outLive
                        liveSnapshot:outSnapshot];
     } else {
-      return AncPrivateVaultCustodyRepositoryStatusRollbackDetected;
+      return closeBoth(AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
     }
   }
+  AncPrivateVaultCustodyRepositoryStatus stageClosed =
+      stage == nil ? AncPrivateVaultCustodyRepositoryStatusOK : [stage close];
+  if (stageClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+    return closeBoth(stageClosed);
+  stage = nil;
   *outLive = live;
+  live = nil;
   *outSnapshot = liveSnapshot;
   return AncPrivateVaultCustodyRepositoryStatusOK;
 }
@@ -677,31 +878,40 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
     storeLockedSnapshot:(const AncPrivateVaultCustodySnapshot *)snapshot
                 secrets:(const AncPrivateVaultCustodySecretInputs *)secrets
                 vaultId:(NSString *)vaultId {
-  uint8_t encoded[ANC_PV_CUSTODY_RECORD_BYTES] = {0};
   if (!AncSnapshotMatchesVaultId(snapshot, vaultId))
     return AncPrivateVaultCustodyRepositoryStatusInvalid;
-  AncPrivateVaultCustodyRecordStatus encodedStatus =
-      anc_pv_custody_record_encode(snapshot, secrets, encoded, sizeof encoded);
-  if (encodedStatus != ANC_PV_CUSTODY_OK) {
-    anc_pv_zeroize(encoded, sizeof encoded);
-    return AncPrivateVaultCustodyRepositoryStatusInvalid;
-  }
-  NSData *candidate = [NSData dataWithBytes:encoded length:sizeof encoded];
-  anc_pv_zeroize(encoded, sizeof encoded);
-  return [self commitLockedCandidate:candidate
-                            snapshot:snapshot
-                             vaultId:vaultId];
+  AncCustodyRecordBuffer *candidate =
+      [[AncCustodyRecordBuffer alloc] initEmpty];
+  if (candidate == nil)
+    return AncPrivateVaultCustodyRepositoryStatusFailed;
+  __block AncPrivateVaultCustodyRecordStatus encodedStatus =
+      ANC_PV_CUSTODY_INVALID_RECORD;
+  AncPrivateVaultCustodyRepositoryStatus borrowed =
+      [candidate borrow:^BOOL(uint8_t *bytes) {
+        encodedStatus = anc_pv_custody_record_encode(
+            snapshot, secrets, bytes, ANC_PV_CUSTODY_RECORD_BYTES);
+        return encodedStatus == ANC_PV_CUSTODY_OK;
+      }];
+  AncPrivateVaultCustodyRepositoryStatus result =
+      borrowed == AncPrivateVaultCustodyRepositoryStatusOK &&
+              encodedStatus == ANC_PV_CUSTODY_OK
+          ? [self commitLockedCandidate:candidate
+                                snapshot:snapshot
+                                 vaultId:vaultId]
+          : AncPrivateVaultCustodyRepositoryStatusInvalid;
+  AncPrivateVaultCustodyRepositoryStatus closed = [candidate close];
+  return closed == AncPrivateVaultCustodyRepositoryStatusOK ? result : closed;
 }
 
 - (AncPrivateVaultCustodyRepositoryStatus)
-    commitLockedCandidate:(NSData *)candidate
+    commitLockedCandidate:(AncCustodyRecordBuffer *)candidate
                  snapshot:(const AncPrivateVaultCustodySnapshot *)snapshot
                   vaultId:(NSString *)vaultId {
-  NSData *current = nil;
+  AncCustodyRecordBuffer *current = nil;
   AncPrivateVaultCustodySnapshot currentSnapshot;
   AncPrivateVaultCustodyRepositoryStatus reconciled =
       [self reconcileVaultId:vaultId
-                    liveData:&current
+                  liveRecord:&current
                 liveSnapshot:&currentSnapshot];
   if (reconciled != AncPrivateVaultCustodyRepositoryStatusOK &&
       reconciled != AncPrivateVaultCustodyRepositoryStatusNotFound)
@@ -710,15 +920,34 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
     if (snapshot->custody_generation != 1 || AncLifecycleIsTombstone(snapshot))
       return AncPrivateVaultCustodyRepositoryStatusConflict;
   } else {
-    if (snapshot->custody_generation == currentSnapshot.custody_generation)
-      return [candidate isEqualToData:current]
-                 ? AncPrivateVaultCustodyRepositoryStatusOK
-                 : AncPrivateVaultCustodyRepositoryStatusConflict;
+    if (snapshot->custody_generation == currentSnapshot.custody_generation) {
+      BOOL equal = NO;
+      AncPrivateVaultCustodyRepositoryStatus compared =
+          [self recordsEqual:candidate right:current equal:&equal];
+      AncPrivateVaultCustodyRepositoryStatus closed = [current close];
+      if (compared != AncPrivateVaultCustodyRepositoryStatusOK)
+        return compared;
+      if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+        return closed;
+      return equal ? AncPrivateVaultCustodyRepositoryStatusOK
+                   : AncPrivateVaultCustodyRepositoryStatusConflict;
+    }
     if (currentSnapshot.custody_generation == UINT64_MAX ||
-        snapshot->custody_generation != currentSnapshot.custody_generation + 1)
+        snapshot->custody_generation != currentSnapshot.custody_generation + 1) {
+      AncPrivateVaultCustodyRepositoryStatus closed = [current close];
+      if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+        return closed;
       return AncPrivateVaultCustodyRepositoryStatusConflict;
-    if (!AncTerminalTransitionAllowed(&currentSnapshot, snapshot))
+    }
+    if (!AncTerminalTransitionAllowed(&currentSnapshot, snapshot)) {
+      AncPrivateVaultCustodyRepositoryStatus closed = [current close];
+      if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+        return closed;
       return AncPrivateVaultCustodyRepositoryStatusConflict;
+    }
+    AncPrivateVaultCustodyRepositoryStatus closed = [current close];
+    if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+      return closed;
   }
   AncPrivateVaultCustodyRepositoryStatus revoked = AncRevokeHandles(vaultId);
   if (revoked != AncPrivateVaultCustodyRepositoryStatusOK)
@@ -760,10 +989,10 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
 
   __block AncPrivateVaultCustodyRepositoryStatus status;
   dispatch_sync(self.queue, ^{
-    NSData *live = nil;
+    AncCustodyRecordBuffer *live = nil;
     AncPrivateVaultCustodySnapshot current;
     status = [self reconcileVaultId:vaultId
-                           liveData:&live
+                         liveRecord:&live
                        liveSnapshot:&current];
     if (status != AncPrivateVaultCustodyRepositoryStatusOK)
       return;
@@ -776,63 +1005,75 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
         nextPublicSnapshot->custody_generation != expectedGeneration + 1 ||
         !nextPublicSnapshot->authority_anchor_present ||
         !AncSnapshotMatchesVaultId(nextPublicSnapshot, vaultId)) {
-      status = AncPrivateVaultCustodyRepositoryStatusConflict;
+      AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+      status = closed == AncPrivateVaultCustodyRepositoryStatusOK
+                   ? AncPrivateVaultCustodyRepositoryStatusConflict
+                   : closed;
       return;
     }
 
     AncPrivateVaultCustodyHandle *internalHandle = nil;
     AncPrivateVaultCustodySnapshot decoded;
     status = AncDecodeRecord(live, &decoded, &internalHandle);
-    if (status != AncPrivateVaultCustodyRepositoryStatusOK)
+    AncPrivateVaultCustodyRepositoryStatus liveClosed = [live close];
+    if (status != AncPrivateVaultCustodyRepositoryStatusOK ||
+        liveClosed != AncPrivateVaultCustodyRepositoryStatusOK) {
+      if (liveClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = liveClosed;
       return;
-    uint8_t *nextRecord = calloc(ANC_PV_CUSTODY_RECORD_BYTES, 1);
-    if (nextRecord == NULL) {
+    }
+    AncCustodyRecordBuffer *candidate =
+        [[AncCustodyRecordBuffer alloc] initEmpty];
+    if (candidate == nil) {
       status = [internalHandle close];
       if (status == AncPrivateVaultCustodyRepositoryStatusOK)
         status = AncPrivateVaultCustodyRepositoryStatusFailed;
       return;
     }
     __block BOOL encoded = NO;
-    status = [internalHandle
-        borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *currentSecrets) {
-          uint8_t zeroKey[ANC_PV_KEY_BYTES] = {0};
-          AncPrivateVaultCustodySecretInputs nextSecrets = *currentSecrets;
-          if (epochTransition ==
-              AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch) {
-            if (nextPublicSnapshot->active_epoch != current.active_epoch ||
-                nextPublicSnapshot->pending_epoch != current.pending_epoch)
-              return NO;
-          } else {
-            if (current.pending_epoch == 0 ||
-                nextPublicSnapshot->active_epoch != current.pending_epoch ||
-                nextPublicSnapshot->pending_epoch != 0)
-              return NO;
-            nextSecrets.active_epoch_key = currentSecrets->pending_epoch_key;
-            nextSecrets.pending_epoch_key = zeroKey;
-          }
-          encoded = anc_pv_custody_record_encode(
-                        nextPublicSnapshot, &nextSecrets, nextRecord,
-                        ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CUSTODY_OK;
-          anc_pv_zeroize(zeroKey, sizeof zeroKey);
-          return encoded;
-        }];
+    status = [candidate borrow:^BOOL(uint8_t *nextRecord) {
+      AncPrivateVaultCustodyRepositoryStatus secretBorrow = [internalHandle
+          borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *currentSecrets) {
+            uint8_t zeroKey[ANC_PV_KEY_BYTES] = {0};
+            AncPrivateVaultCustodySecretInputs nextSecrets = *currentSecrets;
+            if (epochTransition ==
+                AncPrivateVaultCustodyEpochTransitionCarryCurrentEpoch) {
+              if (nextPublicSnapshot->active_epoch != current.active_epoch ||
+                  nextPublicSnapshot->pending_epoch != current.pending_epoch)
+                return NO;
+            } else {
+              if (current.pending_epoch == 0 ||
+                  nextPublicSnapshot->active_epoch != current.pending_epoch ||
+                  nextPublicSnapshot->pending_epoch != 0)
+                return NO;
+              nextSecrets.active_epoch_key = currentSecrets->pending_epoch_key;
+              nextSecrets.pending_epoch_key = zeroKey;
+            }
+            encoded = anc_pv_custody_record_encode(
+                          nextPublicSnapshot, &nextSecrets, nextRecord,
+                          ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CUSTODY_OK;
+            anc_pv_zeroize(zeroKey, sizeof zeroKey);
+            return encoded;
+          }];
+      return secretBorrow == AncPrivateVaultCustodyRepositoryStatusOK && encoded;
+    }];
     AncPrivateVaultCustodyRepositoryStatus closed = [internalHandle close];
     if (status != AncPrivateVaultCustodyRepositoryStatusOK || !encoded ||
         closed != AncPrivateVaultCustodyRepositoryStatusOK) {
-      anc_pv_zeroize(nextRecord, ANC_PV_CUSTODY_RECORD_BYTES);
-      free(nextRecord);
+      AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
       status = closed != AncPrivateVaultCustodyRepositoryStatusOK
                    ? closed
+               : candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK
+                   ? candidateClosed
                    : AncPrivateVaultCustodyRepositoryStatusInvalid;
       return;
     }
-    NSData *candidate = [NSData dataWithBytes:nextRecord
-                                       length:ANC_PV_CUSTODY_RECORD_BYTES];
-    anc_pv_zeroize(nextRecord, ANC_PV_CUSTODY_RECORD_BYTES);
-    free(nextRecord);
     status = [self commitLockedCandidate:candidate
                                 snapshot:nextPublicSnapshot
                                  vaultId:vaultId];
+    AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
+    if (candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+      status = candidateClosed;
   });
   return status;
 }
@@ -844,16 +1085,19 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
     return AncPrivateVaultCustodyRepositoryStatusInvalid;
   __block AncPrivateVaultCustodyRepositoryStatus status;
   dispatch_sync(self.queue, ^{
-    NSData *live = nil;
+    AncCustodyRecordBuffer *live = nil;
     AncPrivateVaultCustodySnapshot current;
     status = [self reconcileVaultId:vaultId
-                           liveData:&live
+                         liveRecord:&live
                        liveSnapshot:&current];
     if (status != AncPrivateVaultCustodyRepositoryStatusOK)
       return;
     if (current.record_version != ANC_PV_CUSTODY_LEGACY_VERSION ||
         current.custody_generation != expectedGeneration) {
-      status = AncPrivateVaultCustodyRepositoryStatusConflict;
+      AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+      status = closed == AncPrivateVaultCustodyRepositoryStatusOK
+                   ? AncPrivateVaultCustodyRepositoryStatusConflict
+                   : closed;
       return;
     }
     const BOOL terminal = AncLifecycleIsTombstone(&current);
@@ -863,7 +1107,10 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
         (current.pending_kind == ANC_PV_CUSTODY_PENDING_GENESIS ||
          current.enrollment_phase == ANC_PV_CUSTODY_ENROLLMENT_OFFER_PENDING);
     if (!terminal && !unanchoredPending) {
-      status = AncPrivateVaultCustodyRepositoryStatusConflict;
+      AncPrivateVaultCustodyRepositoryStatus closed = [live close];
+      status = closed == AncPrivateVaultCustodyRepositoryStatusOK
+                   ? AncPrivateVaultCustodyRepositoryStatusConflict
+                   : closed;
       return;
     }
     AncPrivateVaultCustodySnapshot next = current;
@@ -879,56 +1126,74 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
       memset(next.expected_previous_head, 0, ANC_PV_HASH_BYTES);
       memset(next.pending_transcript_digest, 0, ANC_PV_HASH_BYTES);
     }
-    uint8_t *record = calloc(ANC_PV_CUSTODY_RECORD_BYTES, 1);
-    if (record == NULL) {
+    AncCustodyRecordBuffer *candidate =
+        [[AncCustodyRecordBuffer alloc] initEmpty];
+    if (candidate == nil) {
+      AncPrivateVaultCustodyRepositoryStatus closed = [live close];
       status = AncPrivateVaultCustodyRepositoryStatusFailed;
+      if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = closed;
       return;
     }
     __block BOOL encoded = NO;
-    if (terminal) {
-      AncGuardedCustodySecrets zero = {0};
-      AncPrivateVaultCustodySecretInputs secrets = {
-          .signing_seed = zero.signingSeed,
-          .box_seed = zero.boxSeed,
-          .local_state_key = zero.localStateKey,
-          .active_epoch_key = zero.activeEpochKey,
-          .pending_epoch_key = zero.pendingEpochKey,
-      };
-      encoded = anc_pv_custody_record_encode(&next, &secrets, record,
-                                             ANC_PV_CUSTODY_RECORD_BYTES) ==
-                ANC_PV_CUSTODY_OK;
-      anc_pv_zeroize(&zero, sizeof zero);
-    } else {
+    status = [candidate borrow:^BOOL(uint8_t *record) {
+      if (terminal) {
+        AncGuardedCustodySecrets zero = {0};
+        AncPrivateVaultCustodySecretInputs secrets = {
+            .signing_seed = zero.signingSeed,
+            .box_seed = zero.boxSeed,
+            .local_state_key = zero.localStateKey,
+            .active_epoch_key = zero.activeEpochKey,
+            .pending_epoch_key = zero.pendingEpochKey,
+        };
+        encoded = anc_pv_custody_record_encode(
+                      &next, &secrets, record,
+                      ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CUSTODY_OK;
+        anc_pv_zeroize(&zero, sizeof zero);
+        return encoded;
+      }
       AncPrivateVaultCustodyHandle *handle = nil;
       AncPrivateVaultCustodySnapshot decoded;
-      status = AncDecodeRecord(live, &decoded, &handle);
-      if (status == AncPrivateVaultCustodyRepositoryStatusOK) {
-        status = [handle
-            borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
-              encoded = anc_pv_custody_record_encode(
-                            &next, secrets, record,
-                            ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CUSTODY_OK;
-              return encoded;
-            }];
-        AncPrivateVaultCustodyRepositoryStatus closed = [handle close];
-        if (closed != AncPrivateVaultCustodyRepositoryStatusOK)
-          status = closed;
-      }
-    }
+      AncPrivateVaultCustodyRepositoryStatus decodedStatus =
+          AncDecodeRecord(live, &decoded, &handle);
+      if (decodedStatus != AncPrivateVaultCustodyRepositoryStatusOK)
+        return NO;
+      AncPrivateVaultCustodyRepositoryStatus secretBorrow = [handle
+          borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+            encoded = anc_pv_custody_record_encode(
+                          &next, secrets, record,
+                          ANC_PV_CUSTODY_RECORD_BYTES) == ANC_PV_CUSTODY_OK;
+            return encoded;
+          }];
+      AncPrivateVaultCustodyRepositoryStatus handleClosed = [handle close];
+      return secretBorrow == AncPrivateVaultCustodyRepositoryStatusOK &&
+             handleClosed == AncPrivateVaultCustodyRepositoryStatusOK &&
+             encoded;
+    }];
+    AncPrivateVaultCustodyRepositoryStatus liveClosed = [live close];
     if (status != AncPrivateVaultCustodyRepositoryStatusOK || !encoded) {
-      anc_pv_zeroize(record, ANC_PV_CUSTODY_RECORD_BYTES);
-      free(record);
+      AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
+      if (liveClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = liveClosed;
+      else if (candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = candidateClosed;
       if (status == AncPrivateVaultCustodyRepositoryStatusOK)
         status = AncPrivateVaultCustodyRepositoryStatusInvalid;
       return;
     }
-    NSData *candidate = [NSData dataWithBytes:record
-                                       length:ANC_PV_CUSTODY_RECORD_BYTES];
-    anc_pv_zeroize(record, ANC_PV_CUSTODY_RECORD_BYTES);
-    free(record);
+    if (liveClosed != AncPrivateVaultCustodyRepositoryStatusOK) {
+      status = liveClosed;
+      AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
+      if (candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = candidateClosed;
+      return;
+    }
     status = [self commitLockedCandidate:candidate
                                 snapshot:&next
                                  vaultId:vaultId];
+    AncPrivateVaultCustodyRepositoryStatus candidateClosed = [candidate close];
+    if (candidateClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+      status = candidateClosed;
   });
   return status;
 }
@@ -966,16 +1231,23 @@ AncLifecycleIsTombstone(const AncPrivateVaultCustodySnapshot *snapshot) {
   __block AncPrivateVaultCustodySnapshot resultSnapshot;
   __block AncPrivateVaultCustodyHandle *resultHandle = nil;
   dispatch_sync(self.queue, ^{
-    NSData *live = nil;
+    AncCustodyRecordBuffer *live = nil;
     AncPrivateVaultCustodySnapshot value;
-    status = [self reconcileVaultId:vaultId liveData:&live liveSnapshot:&value];
+    status = [self reconcileVaultId:vaultId
+                         liveRecord:&live
+                       liveSnapshot:&value];
     if (status != AncPrivateVaultCustodyRepositoryStatusOK)
       return;
     AncPrivateVaultCustodyHandle *custodyHandle = nil;
     AncPrivateVaultCustodySnapshot decoded;
     status = AncDecodeRecord(live, &decoded, &custodyHandle);
-    if (status != AncPrivateVaultCustodyRepositoryStatusOK)
+    AncPrivateVaultCustodyRepositoryStatus liveClosed = [live close];
+    if (status != AncPrivateVaultCustodyRepositoryStatusOK ||
+        liveClosed != AncPrivateVaultCustodyRepositoryStatusOK) {
+      if (liveClosed != AncPrivateVaultCustodyRepositoryStatusOK)
+        status = liveClosed;
       return;
+    }
     if (decoded.custody_generation != value.custody_generation) {
       status = [custodyHandle close];
       if (status == AncPrivateVaultCustodyRepositoryStatusOK)

@@ -47,7 +47,7 @@ static OSStatus Mutate(NSDictionary *query, NSData *_Nullable value,
     if (gStore[key] == nil) return errSecItemNotFound;
     [gStore removeObjectForKey:key];
   } else {
-    gStore[key] = [value copy];
+    gStore[key] = [NSData dataWithBytes:value.bytes length:value.length];
   }
   return gCommitThenErrorMutation == gMutationCount ? errSecInternalComponent
                                                      : errSecSuccess;
@@ -152,7 +152,7 @@ static void TestKeychainExactReadback(void) {
   NSData *two = [@"two" dataUsingEncoding:NSUTF8StringEncoding];
   gCommitThenErrorMutation = 1;
   assert([keychain addData:one
-                forService:AncPrivateVaultCustodyService
+                forService:AncPrivateVaultFenceService
                    vaultId:@"v"
                   recordId:@"custody"] == AncPrivateVaultKeychainStatusOK);
   NSDictionary *add = gQueries.firstObject;
@@ -163,29 +163,29 @@ static void TestKeychainExactReadback(void) {
   assert(context.interactionNotAllowed);
   gCommitThenErrorMutation = 2;
   assert([keychain updateData:two
-                   forService:AncPrivateVaultCustodyService
+                   forService:AncPrivateVaultFenceService
                       vaultId:@"v"
                      recordId:@"custody"] == AncPrivateVaultKeychainStatusOK);
   gCommitThenErrorMutation = 3;
-  assert([keychain deleteDataForService:AncPrivateVaultCustodyService
+  assert([keychain deleteDataForService:AncPrivateVaultFenceService
                                  vaultId:@"v"
                                 recordId:@"custody"] ==
          AncPrivateVaultKeychainStatusOK);
   NSData *missing = nil;
-  assert([keychain copyDataForService:AncPrivateVaultCustodyService
+  assert([keychain copyDataForService:AncPrivateVaultFenceService
                               vaultId:@"v"
                              recordId:@"custody"
                                  data:&missing] ==
          AncPrivateVaultKeychainStatusNotFound);
   gCorruptNextCopy = YES;
   assert([keychain addData:one
-                forService:AncPrivateVaultCustodyStageService
+                forService:AncPrivateVaultFenceService
                    vaultId:@"v"
                   recordId:@"custody"] ==
          AncPrivateVaultKeychainStatusCorrupt);
   gHideNextCopy = YES;
   assert([keychain addData:one
-                forService:AncPrivateVaultCustodyService
+                forService:AncPrivateVaultFenceService
                    vaultId:@"missing-readback"
                   recordId:@"custody"] ==
          AncPrivateVaultKeychainStatusFailed);

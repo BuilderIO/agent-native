@@ -414,15 +414,11 @@ static void anc_pv_clear_disjoint_decode_outputs(
 
 static AncPrivateVaultCustodyRecordStatus
 anc_pv_checksum(uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *record) {
-  uint8_t
-      input[sizeof kAncPrivateVaultCustodyChecksumDomain + ANC_PV_OFF_CHECKSUM];
-  memcpy(input, kAncPrivateVaultCustodyChecksumDomain,
-         sizeof kAncPrivateVaultCustodyChecksumDomain);
-  memcpy(input + sizeof kAncPrivateVaultCustodyChecksumDomain, record,
-         ANC_PV_OFF_CHECKSUM);
   const AncPrivateVaultCryptoStatus status =
-      anc_pv_blake2b_256(output, input, sizeof input);
-  anc_pv_zeroize(input, sizeof input);
+      anc_pv_blake2b_256_two_part(
+          output, kAncPrivateVaultCustodyChecksumDomain,
+          sizeof kAncPrivateVaultCustodyChecksumDomain, record,
+          ANC_PV_OFF_CHECKSUM);
   if (status != ANC_PV_CRYPTO_OK) {
     anc_pv_zeroize(output, ANC_PV_HASH_BYTES);
     return ANC_PV_CUSTODY_CRYPTO_FAILED;

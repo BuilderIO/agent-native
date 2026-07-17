@@ -77,6 +77,12 @@ static int test_fixed_core_vectors(void) {
   CHECK(equal_hex(
       hash, sizeof hash,
       "05d9eaa8c60242e5f03cbc45b173911221113d0e5d5620113cc3910dffceef44"));
+  CHECK(anc_pv_blake2b_256_two_part(
+            hash, hash_message, 17, hash_message + 17,
+            sizeof hash_message - 1 - 17) == ANC_PV_CRYPTO_OK);
+  CHECK(equal_hex(
+      hash, sizeof hash,
+      "05d9eaa8c60242e5f03cbc45b173911221113d0e5d5620113cc3910dffceef44"));
   fill(key, sizeof key, 0x22);
   CHECK(anc_pv_blake2b_256_keyed(hash, hash_message, sizeof hash_message - 1,
                                  key) == ANC_PV_CRYPTO_OK);
@@ -269,6 +275,10 @@ static int test_bounds(void) {
   CHECK(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
   CHECK(strcmp(sodium_version_string(), "1.0.21") == 0);
   CHECK(anc_pv_blake2b_256(output, NULL, 1) == ANC_PV_CRYPTO_INVALID_ARGUMENT);
+  CHECK(anc_pv_blake2b_256_two_part(output, NULL, 1, &one, 1) ==
+        ANC_PV_CRYPTO_INVALID_ARGUMENT);
+  CHECK(anc_pv_blake2b_256_two_part(output, &one, 1, NULL, 1) ==
+        ANC_PV_CRYPTO_INVALID_ARGUMENT);
   uint8_t hash_key[ANC_PV_KEY_BYTES] = {0};
   CHECK(anc_pv_blake2b_256_keyed(output, NULL, 1, hash_key) ==
         ANC_PV_CRYPTO_INVALID_ARGUMENT);

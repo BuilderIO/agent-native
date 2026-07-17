@@ -48,6 +48,12 @@ AncPrivateVaultCryptoStatus
 anc_pv_blake2b_256(uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *message,
                    size_t message_length);
 
+/* Hashes two disjoint message spans without concatenating them in ordinary
+ * memory. The internal streaming state is zeroized before return. */
+AncPrivateVaultCryptoStatus anc_pv_blake2b_256_two_part(
+    uint8_t output[ANC_PV_HASH_BYTES], const uint8_t *first,
+    size_t first_length, const uint8_t *second, size_t second_length);
+
 AncPrivateVaultCryptoStatus
 anc_pv_blake2b_256_keyed(uint8_t output[ANC_PV_HASH_BYTES],
                          const uint8_t *message, size_t message_length,

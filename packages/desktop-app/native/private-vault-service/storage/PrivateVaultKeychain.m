@@ -1,6 +1,7 @@
 #import "PrivateVaultKeychain.h"
 
 #import "PrivateVaultCrypto.h"
+#import "PrivateVaultCustodyRecord.h"
 
 NSString *const AncPrivateVaultFenceService =
     @"com.agentnative.desktop.private-vault.anc-v1.fence";
@@ -25,6 +26,8 @@ static const NSUInteger kMaximumIdentifierBytes = 512;
 static const NSUInteger kMaximumRecordBytes = 2048;
 static const NSUInteger kRotationPreparationRecordBytes = 512;
 static const char kAccountDomain[] = "anc/v1/private-vault/keychain-account";
+static NSString *const kAncCustodyExactBoundaryThreadKey =
+    @"com.agentnative.private-vault.keychain.custody-exact";
 
 #if ANC_PRIVATE_VAULT_TESTING
 static AncPrivateVaultKeychainBoundaryTestHook gAncKeychainBoundaryHook;
@@ -88,6 +91,45 @@ static BOOL AncIsRotationPreparationService(NSString *service) {
       [service isEqualToString:AncPrivateVaultRotationPreparationStageService];
 }
 
+static BOOL AncIsCustodyService(NSString *service) {
+  return [service isEqualToString:AncPrivateVaultCustodyService] ||
+         [service isEqualToString:AncPrivateVaultCustodyStageService];
+}
+
+static NSObject *AncCustodyExactBoundaryToken(void) {
+  static NSObject *token;
+  static dispatch_once_t onceToken;
+  dispatch_once(&onceToken, ^{
+    token = [[NSObject alloc] init];
+  });
+  return token;
+}
+
+static AncPrivateVaultKeychainStatus AncRunCustodyExactBoundary(
+    AncPrivateVaultKeychainStatus (^operation)(void)) {
+  NSMutableDictionary *thread = NSThread.currentThread.threadDictionary;
+  if (thread[kAncCustodyExactBoundaryThreadKey] != nil)
+    return AncPrivateVaultKeychainStatusInvalid;
+  NSNumber *prior = thread[kAncCustodyExactBoundaryThreadKey];
+  thread[kAncCustodyExactBoundaryThreadKey] = AncCustodyExactBoundaryToken();
+  AncPrivateVaultKeychainStatus status = AncPrivateVaultKeychainStatusFailed;
+  @try {
+    status = operation();
+  } @finally {
+    if (prior == nil)
+      [thread removeObjectForKey:kAncCustodyExactBoundaryThreadKey];
+    else
+      thread[kAncCustodyExactBoundaryThreadKey] = prior;
+  }
+  return status;
+}
+
+static BOOL AncCustodyExactBoundaryActive(void) {
+  return NSThread.currentThread
+             .threadDictionary[kAncCustodyExactBoundaryThreadKey] ==
+         AncCustodyExactBoundaryToken();
+}
+
 static BOOL AncRecordLengthAllowed(NSString *service, NSUInteger length) {
   if (AncIsRotationPreparationService(service))
     return length == kRotationPreparationRecordBytes;
@@ -140,6 +182,24 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
 @interface AncPrivateVaultKeychain ()
 @property(nonatomic, assign) AncPrivateVaultSecItemFunctions functions;
 @property(nonatomic, copy) AncPrivateVaultLAContextFactory contextFactory;
+- (AncPrivateVaultKeychainStatus)
+    consumeBytesCoreForService:(NSString *)service
+                       vaultId:(NSString *)vaultId
+                      recordId:(NSString *)recordId
+                      consumer:(AncPrivateVaultKeychainBytesConsumer)consumer
+                  custodyExact:(BOOL)custodyExact;
+- (AncPrivateVaultKeychainStatus)writeBytesCore:(const uint8_t *)bytes
+                                         length:(size_t)length
+                                     forService:(NSString *)service
+                                        vaultId:(NSString *)vaultId
+                                       recordId:(NSString *)recordId
+                                            add:(BOOL)add
+                                   custodyExact:(BOOL)custodyExact;
+- (AncPrivateVaultKeychainStatus)
+    deleteDataCoreForService:(NSString *)service
+                     vaultId:(NSString *)vaultId
+                    recordId:(NSString *)recordId
+                custodyExact:(BOOL)custodyExact;
 @end
 
 @implementation AncPrivateVaultKeychain
@@ -211,9 +271,12 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                             vaultId:(NSString *)vaultId
                                            recordId:(NSString *)recordId
                                                data:(NSData **)data {
-  if (data == NULL || AncIsRotationPreparationService(service))
+  if (data == NULL)
     return AncPrivateVaultKeychainStatusInvalid;
   *data = nil;
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
+      AncIsRotationPreparationService(service))
+    return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *base = [self baseQueryForService:service
                                          vaultId:vaultId
                                         recordId:recordId];
@@ -256,7 +319,25 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                    vaultId:(NSString *)vaultId
                   recordId:(NSString *)recordId
                   consumer:(AncPrivateVaultKeychainBytesConsumer)consumer {
-  if (consumer == nil)
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service))
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self consumeBytesCoreForService:service
+                                  vaultId:vaultId
+                                 recordId:recordId
+                                 consumer:consumer
+                             custodyExact:NO];
+}
+
+- (AncPrivateVaultKeychainStatus)
+    consumeBytesCoreForService:(NSString *)service
+                       vaultId:(NSString *)vaultId
+                      recordId:(NSString *)recordId
+                      consumer:(AncPrivateVaultKeychainBytesConsumer)consumer
+                  custodyExact:(BOOL)custodyExact {
+  const BOOL active = AncCustodyExactBoundaryActive();
+  if (consumer == nil || active != custodyExact ||
+      (custodyExact && !AncIsCustodyService(service)) ||
+      (!custodyExact && AncIsCustodyService(service)))
     return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *base = [self baseQueryForService:service
                                          vaultId:vaultId
@@ -287,8 +368,12 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
   CFDataRef boundary = (CFDataRef)raw;
   AncNotifyBoundary(YES, NO);
   CFIndex boundaryLength = CFDataGetLength(boundary);
+  const BOOL exactLength =
+      boundaryLength == ANC_PV_CUSTODY_RECORD_BYTES;
   if (boundaryLength <= 0 ||
-      !AncRecordLengthAllowed(service, (NSUInteger)boundaryLength)) {
+      (custodyExact ? !exactLength
+                    : !AncRecordLengthAllowed(service,
+                                              (NSUInteger)boundaryLength))) {
     CFRelease(boundary);
     AncNotifyBoundary(NO, NO);
     return AncPrivateVaultKeychainStatusCorrupt;
@@ -305,12 +390,19 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                   : AncPrivateVaultKeychainStatusCorrupt;
 }
 
-- (AncPrivateVaultKeychainStatus)writeBytes:(const uint8_t *)bytes
+- (AncPrivateVaultKeychainStatus)writeBytesCore:(const uint8_t *)bytes
                                      length:(size_t)length
                                  forService:(NSString *)service
                                     vaultId:(NSString *)vaultId
                                    recordId:(NSString *)recordId
-                                        add:(BOOL)add {
+                                        add:(BOOL)add
+                               custodyExact:(BOOL)custodyExact {
+  const BOOL active = AncCustodyExactBoundaryActive();
+  if (active != custodyExact ||
+      (custodyExact && !AncIsCustodyService(service)) ||
+      (!custodyExact && AncIsCustodyService(service)) ||
+      (custodyExact && length != ANC_PV_CUSTODY_RECORD_BYTES))
+    return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *base = [self baseQueryForService:service
                                          vaultId:vaultId
                                         recordId:recordId];
@@ -342,16 +434,17 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
   AncNotifyBoundary(NO, YES);
   __block BOOL equal = NO;
   AncPrivateVaultKeychainStatus readback =
-      [self consumeBytesForService:service
-                           vaultId:vaultId
-                          recordId:recordId
-                          consumer:^BOOL(const uint8_t *observed,
-                                         size_t observedLen) {
-                            equal = observedLen == length &&
-                                    anc_pv_memcmp(observed, bytes, length) ==
-                                        ANC_PV_CRYPTO_OK;
-                            return YES;
-                          }];
+      [self consumeBytesCoreForService:service
+                               vaultId:vaultId
+                              recordId:recordId
+                              consumer:^BOOL(const uint8_t *observed,
+                                             size_t observedLen) {
+                                equal = observedLen == length &&
+                                        anc_pv_memcmp(observed, bytes, length) ==
+                                            ANC_PV_CRYPTO_OK;
+                                return YES;
+                              }
+                          custodyExact:custodyExact];
   if (readback == AncPrivateVaultKeychainStatusOK)
     return equal ? AncPrivateVaultKeychainStatusOK
                  : AncPrivateVaultKeychainStatusCorrupt;
@@ -366,12 +459,15 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                forService:(NSString *)service
                                   vaultId:(NSString *)vaultId
                                  recordId:(NSString *)recordId {
-  return [self writeBytes:bytes
-                   length:length
-               forService:service
-                  vaultId:vaultId
-                 recordId:recordId
-                      add:YES];
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service))
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self writeBytesCore:bytes
+                       length:length
+                   forService:service
+                      vaultId:vaultId
+                     recordId:recordId
+                          add:YES
+                 custodyExact:NO];
 }
 
 - (AncPrivateVaultKeychainStatus)updateBytes:(const uint8_t *)bytes
@@ -379,19 +475,97 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                   forService:(NSString *)service
                                      vaultId:(NSString *)vaultId
                                     recordId:(NSString *)recordId {
-  return [self writeBytes:bytes
-                   length:length
-               forService:service
-                  vaultId:vaultId
-                 recordId:recordId
-                      add:NO];
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service))
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self writeBytesCore:bytes
+                       length:length
+                   forService:service
+                      vaultId:vaultId
+                     recordId:recordId
+                          add:NO
+                 custodyExact:NO];
+}
+
+- (AncPrivateVaultKeychainStatus)
+    consumeCustodyRecordForService:(NSString *)service
+                           vaultId:(NSString *)vaultId
+                          recordId:(NSString *)recordId
+                          consumer:(AncPrivateVaultKeychainCustodyRecordConsumer)
+                                       consumer {
+  if (!AncIsCustodyService(service) || consumer == nil)
+    return AncPrivateVaultKeychainStatusInvalid;
+  return AncRunCustodyExactBoundary(^AncPrivateVaultKeychainStatus {
+    return [self consumeBytesCoreForService:service
+                                    vaultId:vaultId
+                                   recordId:recordId
+                                   consumer:^BOOL(const uint8_t *bytes,
+                                                  size_t length) {
+                                     return length ==
+                                                ANC_PV_CUSTODY_RECORD_BYTES &&
+                                            consumer(bytes);
+                                   }
+                               custodyExact:YES];
+  });
+}
+
+- (AncPrivateVaultKeychainStatus)addCustodyRecord:(const uint8_t *)record
+                                           length:(size_t)length
+                                       forService:(NSString *)service
+                                             vaultId:(NSString *)vaultId
+                                            recordId:(NSString *)recordId {
+  if (!AncIsCustodyService(service) || record == NULL ||
+      length != ANC_PV_CUSTODY_RECORD_BYTES)
+    return AncPrivateVaultKeychainStatusInvalid;
+  return AncRunCustodyExactBoundary(^AncPrivateVaultKeychainStatus {
+    return [self writeBytesCore:record
+                         length:ANC_PV_CUSTODY_RECORD_BYTES
+                     forService:service
+                        vaultId:vaultId
+                       recordId:recordId
+                            add:YES
+                   custodyExact:YES];
+  });
+}
+
+- (AncPrivateVaultKeychainStatus)updateCustodyRecord:(const uint8_t *)record
+                                              length:(size_t)length
+                                          forService:(NSString *)service
+                                                vaultId:(NSString *)vaultId
+                                               recordId:(NSString *)recordId {
+  if (!AncIsCustodyService(service) || record == NULL ||
+      length != ANC_PV_CUSTODY_RECORD_BYTES)
+    return AncPrivateVaultKeychainStatusInvalid;
+  return AncRunCustodyExactBoundary(^AncPrivateVaultKeychainStatus {
+    return [self writeBytesCore:record
+                         length:ANC_PV_CUSTODY_RECORD_BYTES
+                     forService:service
+                        vaultId:vaultId
+                       recordId:recordId
+                            add:NO
+                   custodyExact:YES];
+  });
+}
+
+- (AncPrivateVaultKeychainStatus)
+    deleteCustodyRecordForService:(NSString *)service
+                           vaultId:(NSString *)vaultId
+                          recordId:(NSString *)recordId {
+  if (!AncIsCustodyService(service))
+    return AncPrivateVaultKeychainStatusInvalid;
+  return AncRunCustodyExactBoundary(^AncPrivateVaultKeychainStatus {
+    return [self deleteDataCoreForService:service
+                                  vaultId:vaultId
+                                 recordId:recordId
+                             custodyExact:YES];
+  });
 }
 
 - (AncPrivateVaultKeychainStatus)addData:(NSData *)data
                               forService:(NSString *)service
                                  vaultId:(NSString *)vaultId
                                 recordId:(NSString *)recordId {
-  if (AncIsRotationPreparationService(service))
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
+      AncIsRotationPreparationService(service))
     return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *base = [self baseQueryForService:service
                                          vaultId:vaultId
@@ -428,7 +602,8 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
                                  forService:(NSString *)service
                                     vaultId:(NSString *)vaultId
                                    recordId:(NSString *)recordId {
-  if (AncIsRotationPreparationService(service))
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service) ||
+      AncIsRotationPreparationService(service))
     return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *query = [self baseQueryForService:service
                                           vaultId:vaultId
@@ -461,6 +636,24 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
 - (AncPrivateVaultKeychainStatus)deleteDataForService:(NSString *)service
                                               vaultId:(NSString *)vaultId
                                              recordId:(NSString *)recordId {
+  if (AncCustodyExactBoundaryActive() || AncIsCustodyService(service))
+    return AncPrivateVaultKeychainStatusInvalid;
+  return [self deleteDataCoreForService:service
+                                vaultId:vaultId
+                               recordId:recordId
+                           custodyExact:NO];
+}
+
+- (AncPrivateVaultKeychainStatus)
+    deleteDataCoreForService:(NSString *)service
+                     vaultId:(NSString *)vaultId
+                    recordId:(NSString *)recordId
+                custodyExact:(BOOL)custodyExact {
+  const BOOL active = AncCustodyExactBoundaryActive();
+  if (active != custodyExact ||
+      (custodyExact && !AncIsCustodyService(service)) ||
+      (!custodyExact && AncIsCustodyService(service)))
+    return AncPrivateVaultKeychainStatusInvalid;
   NSDictionary *query = [self baseQueryForService:service
                                           vaultId:vaultId
                                          recordId:recordId];
@@ -469,14 +662,16 @@ static NSString *_Nullable AncAccount(NSString *service, NSString *vaultId,
   OSStatus mutation =
       self.functions.deleteItem((__bridge CFDictionaryRef)query);
   AncPrivateVaultKeychainStatus readback =
-      [self consumeBytesForService:service
-                           vaultId:vaultId
-                          recordId:recordId
-                          consumer:^BOOL(const uint8_t *bytes, size_t length) {
-                            (void)bytes;
-                            (void)length;
-                            return YES;
-                          }];
+      [self consumeBytesCoreForService:service
+                               vaultId:vaultId
+                              recordId:recordId
+                              consumer:^BOOL(const uint8_t *bytes,
+                                             size_t length) {
+                                (void)bytes;
+                                (void)length;
+                                return YES;
+                              }
+                          custodyExact:custodyExact];
   if (readback == AncPrivateVaultKeychainStatusNotFound)
     return AncPrivateVaultKeychainStatusOK;
   if (readback == AncPrivateVaultKeychainStatusOK)

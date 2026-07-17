@@ -19,6 +19,9 @@ static NSUInteger gCommitThenError;
 static BOOL gBlockNextLiveCopy;
 static dispatch_semaphore_t gLiveCopyEntered;
 static dispatch_semaphore_t gReleaseLiveCopy;
+static NSInteger gBoundaryDepth;
+static NSInteger gMaximumBoundaryDepth;
+static NSUInteger gCopyCount;
 
 static NSString *StoreKey(NSDictionary *query) {
   return
@@ -27,6 +30,7 @@ static NSString *StoreKey(NSDictionary *query) {
 }
 
 static OSStatus MockCopy(CFDictionaryRef rawQuery, CFTypeRef *result) {
+  gCopyCount += 1;
   NSDictionary *query = (__bridge NSDictionary *)rawQuery;
   if (gBlockNextLiveCopy &&
       [query[(__bridge id)kSecAttrService]
@@ -54,7 +58,8 @@ static OSStatus Mutation(NSDictionary *query, NSData *_Nullable value,
       return errSecItemNotFound;
     [gStore removeObjectForKey:key];
   } else {
-    gStore[key] = [value copy];
+    gStore[key] = [NSData dataWithBytes:value.bytes length:value.length];
+    assert(gStore[key].bytes != value.bytes);
   }
   return gCommitThenError == gMutationCount ? errSecInternalComponent
                                             : errSecSuccess;
@@ -89,6 +94,9 @@ static void Reset(void) {
   gBlockNextLiveCopy = NO;
   gLiveCopyEntered = nil;
   gReleaseLiveCopy = nil;
+  gBoundaryDepth = 0;
+  gMaximumBoundaryDepth = 0;
+  gCopyCount = 0;
 }
 
 static AncPrivateVaultKeychain *Keychain(void) {
@@ -102,6 +110,215 @@ static AncPrivateVaultKeychain *Keychain(void) {
                                              contextFactory:^LAContext * {
                                                return [[LAContext alloc] init];
                                              }];
+}
+
+static const uint8_t *NullCustodyRecord(void) { return NULL; }
+
+static void AssertGenericCustodySelectorsRejected(
+    AncPrivateVaultKeychain *keychain, NSString *service, NSData *data) {
+  NSData *escaped = data;
+  __block BOOL consumed = NO;
+  assert([keychain copyDataForService:service
+                              vaultId:@"generic-rejected"
+                             recordId:AncPrivateVaultCustodyRecordId
+                                 data:&escaped] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert(escaped == nil);
+  assert([keychain consumeBytesForService:service
+                                  vaultId:@"generic-rejected"
+                                 recordId:AncPrivateVaultCustodyRecordId
+                                 consumer:^BOOL(const uint8_t *bytes,
+                                                size_t length) {
+                                   (void)bytes;
+                                   (void)length;
+                                   consumed = YES;
+                                   return YES;
+                                 }] == AncPrivateVaultKeychainStatusInvalid);
+  assert(!consumed);
+  assert([keychain addBytes:data.bytes
+                     length:data.length
+                 forService:service
+                    vaultId:@"generic-rejected"
+                   recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain updateBytes:data.bytes
+                        length:data.length
+                    forService:service
+                       vaultId:@"generic-rejected"
+                      recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain addData:data
+                forService:service
+                   vaultId:@"generic-rejected"
+                  recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain updateData:data
+                   forService:service
+                      vaultId:@"generic-rejected"
+                     recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain deleteDataForService:service
+                                vaultId:@"generic-rejected"
+                               recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert(gCopyCount == 0 && gMutationCount == 0 && gBoundaryDepth == 0 &&
+         gMaximumBoundaryDepth == 0);
+}
+
+static void TestExactCustodyKeychainBoundary(void) {
+  Reset();
+  AncPrivateVaultKeychain *keychain = Keychain();
+  AncPrivateVaultKeychainSetBoundaryHookForTesting(
+      ^(BOOL opened, BOOL writeBoundary) {
+        (void)writeBoundary;
+        gBoundaryDepth += opened ? 1 : -1;
+        assert(gBoundaryDepth >= 0);
+        if (gBoundaryDepth > gMaximumBoundaryDepth)
+          gMaximumBoundaryDepth = gBoundaryDepth;
+      });
+  NSMutableData *record =
+      [NSMutableData dataWithLength:ANC_PV_CUSTODY_RECORD_BYTES];
+  memset(record.mutableBytes, 0xa5, record.length);
+  NSData *shortRecord = [NSMutableData dataWithLength:17];
+  AssertGenericCustodySelectorsRejected(
+      keychain, AncPrivateVaultCustodyService, shortRecord);
+  AssertGenericCustodySelectorsRejected(
+      keychain, AncPrivateVaultCustodyStageService, shortRecord);
+  assert([keychain addCustodyRecord:record.bytes
+                              length:0
+                          forService:AncPrivateVaultCustodyService
+                             vaultId:@"wrong-length-zero"
+                            recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain addCustodyRecord:record.bytes
+                              length:ANC_PV_CUSTODY_RECORD_BYTES - 1
+                          forService:AncPrivateVaultCustodyService
+                             vaultId:@"wrong-length-short"
+                            recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain updateCustodyRecord:record.bytes
+                                 length:ANC_PV_CUSTODY_RECORD_BYTES + 1
+                             forService:AncPrivateVaultCustodyService
+                                vaultId:@"wrong-length-long"
+                               recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert([keychain addCustodyRecord:NullCustodyRecord()
+                              length:ANC_PV_CUSTODY_RECORD_BYTES
+                          forService:AncPrivateVaultCustodyService
+                             vaultId:@"wrong-length-null"
+                            recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+  assert(gMutationCount == 0 && gBoundaryDepth == 0 &&
+         gMaximumBoundaryDepth == 0);
+  assert([keychain addCustodyRecord:record.bytes
+                              length:record.length
+                        forService:AncPrivateVaultCustodyService
+                           vaultId:@"exact-boundary"
+                          recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusOK);
+  gCopyCount = 0;
+  gMutationCount = 0;
+  gBoundaryDepth = 0;
+  gMaximumBoundaryDepth = 0;
+  __block BOOL consumed = NO;
+  __block AncPrivateVaultKeychainStatus nested =
+      AncPrivateVaultKeychainStatusOK;
+  assert([keychain
+             consumeCustodyRecordForService:AncPrivateVaultCustodyService
+                                    vaultId:@"exact-boundary"
+                                   recordId:AncPrivateVaultCustodyRecordId
+                                   consumer:^BOOL(const uint8_t *bytes) {
+                                     assert(gBoundaryDepth == 1);
+                                     assert(bytes != NULL && bytes[0] == 0xa5);
+                                     NSData *escaped = record;
+                                     __block BOOL genericConsumed = NO;
+                                     assert([keychain
+                                                copyDataForService:
+                                                    AncPrivateVaultFenceService
+                                                             vaultId:@"reentrant"
+                                                            recordId:@"fence"
+                                                                data:&escaped] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     assert(escaped == nil);
+                                     assert([keychain
+                                                consumeBytesForService:
+                                                    AncPrivateVaultFenceService
+                                                             vaultId:@"reentrant"
+                                                            recordId:@"fence"
+                                                            consumer:^BOOL(
+                                                                const uint8_t *raw,
+                                                                size_t length) {
+                                                              (void)raw;
+                                                              (void)length;
+                                                              genericConsumed =
+                                                                  YES;
+                                                              return YES;
+                                                            }] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     assert(!genericConsumed);
+                                     assert([keychain
+                                                addBytes:record.bytes
+                                                   length:record.length
+                                               forService:
+                                                   AncPrivateVaultFenceService
+                                                  vaultId:@"reentrant"
+                                                 recordId:@"fence"] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     assert([keychain
+                                                updateBytes:record.bytes
+                                                      length:record.length
+                                                  forService:
+                                                      AncPrivateVaultFenceService
+                                                     vaultId:@"reentrant"
+                                                    recordId:@"fence"] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     assert([keychain
+                                                addData:record
+                                             forService:
+                                                 AncPrivateVaultFenceService
+                                                vaultId:@"reentrant"
+                                               recordId:@"fence"] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     assert([keychain
+                                                updateData:record
+                                                forService:
+                                                    AncPrivateVaultFenceService
+                                                   vaultId:@"reentrant"
+                                                  recordId:@"fence"] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     assert([keychain
+                                                deleteDataForService:
+                                                    AncPrivateVaultFenceService
+                                                             vaultId:@"reentrant"
+                                                            recordId:@"fence"] ==
+                                            AncPrivateVaultKeychainStatusInvalid);
+                                     nested = [keychain
+                                         consumeCustodyRecordForService:
+                                             AncPrivateVaultCustodyService
+                                                                  vaultId:
+                                                                      @"exact-boundary"
+                                                                 recordId:
+                                                                     AncPrivateVaultCustodyRecordId
+                                                                 consumer:^BOOL(
+                                                                     const uint8_t
+                                                                         *inner) {
+                                                                   (void)inner;
+                                                                   return YES;
+                                                                 }];
+                                     consumed = YES;
+                                     return YES;
+                                   }] == AncPrivateVaultKeychainStatusOK);
+  assert(consumed && nested == AncPrivateVaultKeychainStatusInvalid);
+  assert(gBoundaryDepth == 0 && gMaximumBoundaryDepth == 1 &&
+         gCopyCount == 1 && gMutationCount == 0);
+  assert([keychain addCustodyRecord:record.bytes
+                              length:record.length
+                        forService:AncPrivateVaultFenceService
+                           vaultId:@"wrong-service"
+                          recordId:AncPrivateVaultCustodyRecordId] ==
+         AncPrivateVaultKeychainStatusInvalid);
+
+  AncPrivateVaultKeychainSetBoundaryHookForTesting(nil);
 }
 
 static AncPrivateVaultCustodyRepository *Repository(void) {
@@ -220,13 +437,21 @@ static NSData *LegacyRecord(NSData *v2Record) {
   return legacy;
 }
 
+static AncPrivateVaultKeychainStatus AddCustodyData(
+    AncPrivateVaultKeychain *keychain, NSData *record, NSString *service,
+    NSString *vaultId) {
+  return [keychain addCustodyRecord:record.bytes
+                             length:record.length
+                         forService:service
+                            vaultId:vaultId
+                           recordId:AncPrivateVaultCustodyRecordId];
+}
+
 static void SeedLegacy(AncPrivateVaultKeychain *keychain, NSData *record,
                        NSString *vaultId) {
   NSData *digest = CustodyDigest(record);
-  assert([keychain addData:record
-                forService:AncPrivateVaultCustodyService
-                   vaultId:vaultId
-                  recordId:AncPrivateVaultCustodyRecordId] ==
+  assert(AddCustodyData(keychain, record, AncPrivateVaultCustodyService,
+                        vaultId) ==
          AncPrivateVaultKeychainStatusOK);
   AncPrivateVaultGenerationFence *fence =
       [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
@@ -245,10 +470,8 @@ static void SeedLegacy(AncPrivateVaultKeychain *keychain, NSData *record,
 static void StageLegacy(AncPrivateVaultKeychain *keychain, NSData *record,
                         NSString *vaultId, uint64_t generation) {
   NSData *digest = CustodyDigest(record);
-  assert([keychain addData:record
-                forService:AncPrivateVaultCustodyStageService
-                   vaultId:vaultId
-                  recordId:AncPrivateVaultCustodyRecordId] ==
+  assert(AddCustodyData(keychain, record, AncPrivateVaultCustodyStageService,
+                        vaultId) ==
          AncPrivateVaultKeychainStatusOK);
   AncPrivateVaultGenerationFence *fence =
       [[AncPrivateVaultGenerationFence alloc] initWithKeychain:keychain];
@@ -472,16 +695,15 @@ static void TestCorruptionSwapAndMissing(void) {
                                    length:sizeof swappedBytes];
   anc_pv_zeroize(swappedBytes, sizeof swappedBytes);
   AncPrivateVaultKeychain *keychain = Keychain();
-  assert([keychain addData:swapped
-                forService:AncPrivateVaultCustodyStageService
-                   vaultId:@"vault"
-                  recordId:AncPrivateVaultCustodyRecordId] ==
+  assert(AddCustodyData(keychain, swapped,
+                        AncPrivateVaultCustodyStageService, @"vault") ==
          AncPrivateVaultKeychainStatusOK);
   assert([repository readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
          AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
-  assert([keychain deleteDataForService:AncPrivateVaultCustodyStageService
-                                vaultId:@"vault"
-                               recordId:AncPrivateVaultCustodyRecordId] ==
+  assert([keychain
+             deleteCustodyRecordForService:AncPrivateVaultCustodyStageService
+                                    vaultId:@"vault"
+                                   recordId:AncPrivateVaultCustodyRecordId] ==
          AncPrivateVaultKeychainStatusOK);
   [gStore removeObjectForKey:liveKey];
   assert([repository readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
@@ -532,10 +754,8 @@ static void TestPendingMissingMismatchAndFutureStage(void) {
   TestSecrets futureSecrets;
   MakeActive(&future, &futureSecrets, 3, 29, @"vault");
   AncPrivateVaultKeychain *keychain = Keychain();
-  assert([keychain addData:Encode(&future, &futureSecrets)
-                forService:AncPrivateVaultCustodyStageService
-                   vaultId:@"vault"
-                  recordId:AncPrivateVaultCustodyRecordId] ==
+  assert(AddCustodyData(keychain, Encode(&future, &futureSecrets),
+                        AncPrivateVaultCustodyStageService, @"vault") ==
          AncPrivateVaultKeychainStatusOK);
   assert([repository readVaultId:@"vault" snapshot:&snapshot handle:&handle] ==
          AncPrivateVaultCustodyRepositoryStatusRollbackDetected);
@@ -572,10 +792,8 @@ static void TestGenesisTombstonesFailClosed(void) {
       MakeTombstone(&tombstone, &secrets, 1, lifecycle);
       NSData *record = Encode(&tombstone, &secrets);
       AncPrivateVaultKeychain *keychain = Keychain();
-      assert([keychain addData:record
-                    forService:AncPrivateVaultCustodyStageService
-                       vaultId:@"vault"
-                      recordId:AncPrivateVaultCustodyRecordId] ==
+      assert(AddCustodyData(keychain, record,
+                            AncPrivateVaultCustodyStageService, @"vault") ==
              AncPrivateVaultKeychainStatusOK);
       if (pendingFence == 1) {
         AncPrivateVaultGenerationFence *fence =
@@ -600,16 +818,12 @@ static void TestGenesisTombstonesFailClosed(void) {
       MakeTombstone(&tombstone, &secrets, 1, lifecycle);
       NSData *record = Encode(&tombstone, &secrets);
       AncPrivateVaultKeychain *keychain = Keychain();
-      assert([keychain addData:record
-                    forService:AncPrivateVaultCustodyService
-                       vaultId:@"vault"
-                      recordId:AncPrivateVaultCustodyRecordId] ==
+      assert(AddCustodyData(keychain, record, AncPrivateVaultCustodyService,
+                            @"vault") ==
              AncPrivateVaultKeychainStatusOK);
       if (stableFence == 0) {
-        assert([keychain addData:record
-                      forService:AncPrivateVaultCustodyStageService
-                         vaultId:@"vault"
-                        recordId:AncPrivateVaultCustodyRecordId] ==
+        assert(AddCustodyData(keychain, record,
+                              AncPrivateVaultCustodyStageService, @"vault") ==
                AncPrivateVaultKeychainStatusOK);
       }
       NSData *digest = CustodyDigest(record);
@@ -1369,6 +1583,7 @@ static void TestLegacyCodecMigrations(void) {
 int main(void) {
   @autoreleasepool {
     assert(anc_pv_crypto_init() == ANC_PV_CRYPTO_OK);
+    TestExactCustodyKeychainBoundary();
     TestRoundTripAndMonotonicity();
     TestCrashMatrixAndAmbiguousCommits();
     TestCorruptionSwapAndMissing();

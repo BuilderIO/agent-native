@@ -2,6 +2,7 @@
 #import <LocalAuthentication/LocalAuthentication.h>
 #import <Security/Security.h>
 
+
 NS_ASSUME_NONNULL_BEGIN
 
 FOUNDATION_EXPORT NSString *const AncPrivateVaultFenceService;
@@ -36,6 +37,8 @@ typedef struct AncPrivateVaultSecItemFunctions {
 typedef LAContext *_Nonnull (^AncPrivateVaultLAContextFactory)(void);
 typedef BOOL (^AncPrivateVaultKeychainBytesConsumer)(const uint8_t *bytes,
                                                      size_t length);
+typedef BOOL (^AncPrivateVaultKeychainCustodyRecordConsumer)(
+    const uint8_t *record);
 
 #if ANC_PRIVATE_VAULT_TESTING
 typedef void (^AncPrivateVaultKeychainBoundaryTestHook)(BOOL opened,
@@ -94,6 +97,30 @@ FOUNDATION_EXPORT void AncPrivateVaultKeychainSetBoundaryHookForTesting(
                                   forService:(NSString *)service
                                      vaultId:(NSString *)vaultId
                                     recordId:(NSString *)recordId;
+
+/* Exact secret-bearing custody boundary. These methods accept only the live
+ * and stage custody services and always consume/write exactly 1088 bytes. */
+- (AncPrivateVaultKeychainStatus)
+    consumeCustodyRecordForService:(NSString *)service
+                           vaultId:(NSString *)vaultId
+                          recordId:(NSString *)recordId
+                          consumer:
+                              (AncPrivateVaultKeychainCustodyRecordConsumer)
+                                  consumer;
+- (AncPrivateVaultKeychainStatus)addCustodyRecord:(const uint8_t *)record
+                                           length:(size_t)length
+                                       forService:(NSString *)service
+             vaultId:(NSString *)vaultId
+            recordId:(NSString *)recordId;
+- (AncPrivateVaultKeychainStatus)updateCustodyRecord:(const uint8_t *)record
+                                              length:(size_t)length
+                                          forService:(NSString *)service
+                vaultId:(NSString *)vaultId
+               recordId:(NSString *)recordId;
+- (AncPrivateVaultKeychainStatus)
+    deleteCustodyRecordForService:(NSString *)service
+                           vaultId:(NSString *)vaultId
+                          recordId:(NSString *)recordId;
 
 // Every mutation performs an exact readback. Delete succeeds only after an
 // absent readback; callers never infer durability from SecItem's status alone.

@@ -5,6 +5,8 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 OUTPUT="$(mktemp -d "${TMPDIR:-/tmp}/agent-native-private-vault-repository-tests.XXXXXX")"
 trap 'rm -rf "$OUTPUT"' EXIT
 
+bash "$ROOT/native/private-vault-service/guard-custody-pageable-record.sh"
+
 PRIVATE_VAULT_BUILD_REPOSITORY_TESTS=1 \
   bash "$ROOT/native/build-private-vault-service.sh" "$OUTPUT" >/dev/null
 

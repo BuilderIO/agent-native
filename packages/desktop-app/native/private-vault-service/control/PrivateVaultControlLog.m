@@ -3,6 +3,8 @@
 #import "PrivateVaultAncCanonical.h"
 #import "PrivateVaultCrypto.h"
 
+#import <objc/runtime.h>
+
 static const NSUInteger kControlMaximumBytes = 64 * 1024;
 static const uint64_t kMaximumSafeInteger = UINT64_C(9007199254740991);
 static const NSUInteger kMaximumMembers = 64;
@@ -77,8 +79,60 @@ static const char kLogEntryDomain[] = "anc/v1/log-entry";
 @property(nonatomic, readwrite) AncPrivateVaultControlLogState *state;
 @property(nonatomic, readwrite) NSData *entryHash;
 @property(nonatomic, readwrite) BOOL idempotent;
+@property(nonatomic, readwrite, nullable)
+    AncPrivateVaultControlLogState *authenticatedPriorState;
 @end
 @implementation AncPrivateVaultControlLogReplayResult
+@end
+
+static void AncRaiseImmutableMutation(void) {
+  [NSException raise:NSInternalInconsistencyException
+              format:@"authenticated replay values are immutable"];
+}
+
+@interface AncPrivateVaultAuthenticatedControlLogMember
+    : AncPrivateVaultControlLogMember
+@end
+@implementation AncPrivateVaultAuthenticatedControlLogMember
+- (void)setEndpointId:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRole:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setUnattended:(BOOL)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setSigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setEnrollmentRef:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(); }
+@end
+
+@interface AncPrivateVaultAuthenticatedControlLogState
+    : AncPrivateVaultControlLogState
+@end
+@implementation AncPrivateVaultAuthenticatedControlLogState
+- (void)setVaultId:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setSequence:(uint64_t)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setHeadHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setMembershipHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setSignedAt:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setActiveMembers:(NSArray *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRemovedEndpointIds:(NSArray *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setEpoch:(uint64_t)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRecoveryGeneration:(uint64_t)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRecoveryId:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRecoverySigningPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRecoveryKeyAgreementPublicKey:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setRecoveryWrapHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setFreshnessMode:(NSString *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(); }
+@end
+
+@interface AncPrivateVaultAuthenticatedReplayResult
+    : AncPrivateVaultControlLogReplayResult
+@end
+@implementation AncPrivateVaultAuthenticatedReplayResult
+- (void)setState:(AncPrivateVaultControlLogState *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setEntryHash:(NSData *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setIdempotent:(BOOL)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setAuthenticatedPriorState:(AncPrivateVaultControlLogState *)value { (void)value; AncRaiseImmutableMutation(); }
+- (void)setValue:(id)value forKey:(NSString *)key { (void)value; (void)key; AncRaiseImmutableMutation(); }
 @end
 
 typedef NS_ENUM(NSInteger, AncInnerType) {
@@ -458,6 +512,225 @@ static AncPrivateVaultControlLogState *AncCopyState(AncPrivateVaultControlLogSta
   return copy;
 }
 
+AncPrivateVaultControlLogState *
+AncPrivateVaultControlLogStateCreateImmutableCopy(
+    AncPrivateVaultControlLogState *state) {
+  if (state == nil)
+    return nil;
+  @try {
+    NSMutableArray *members = [NSMutableArray array];
+    for (AncPrivateVaultControlLogMember *source in state.activeMembers) {
+      AncPrivateVaultControlLogMember *member =
+          [[AncPrivateVaultControlLogMember alloc] init];
+      member.endpointId = [source.endpointId copy];
+      member.role = [source.role copy];
+      member.unattended = source.unattended;
+      member.signingPublicKey = [source.signingPublicKey copy];
+      member.keyAgreementPublicKey = [source.keyAgreementPublicKey copy];
+      member.enrollmentRef = [source.enrollmentRef copy];
+      object_setClass(member,
+                      AncPrivateVaultAuthenticatedControlLogMember.class);
+      [members addObject:member];
+    }
+    AncPrivateVaultControlLogState *copy =
+        [[AncPrivateVaultControlLogState alloc] init];
+    copy.vaultId = [state.vaultId copy];
+    copy.sequence = state.sequence;
+    copy.headHash = [state.headHash copy];
+    copy.membershipHash = [state.membershipHash copy];
+    copy.signedAt = [state.signedAt copy];
+    copy.activeMembers = [members copy];
+    copy.removedEndpointIds =
+        [[NSArray alloc] initWithArray:state.removedEndpointIds ?: @[]
+                            copyItems:YES];
+    copy.epoch = state.epoch;
+    copy.recoveryGeneration = state.recoveryGeneration;
+    copy.recoveryId = [state.recoveryId copy];
+    copy.recoverySigningPublicKey = [state.recoverySigningPublicKey copy];
+    copy.recoveryKeyAgreementPublicKey =
+        [state.recoveryKeyAgreementPublicKey copy];
+    copy.recoveryWrapHash = [state.recoveryWrapHash copy];
+    copy.freshnessMode = [state.freshnessMode copy];
+    object_setClass(copy, AncPrivateVaultAuthenticatedControlLogState.class);
+    return copy;
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+@interface AncPrivateVaultReplayEvidence : NSObject
+@property(nonatomic) AncPrivateVaultControlLogState *priorState;
+@property(nonatomic) AncPrivateVaultControlLogState *currentState;
+@property(nonatomic) NSData *priorCanonical;
+@property(nonatomic) NSData *currentCanonical;
+@property(nonatomic) NSData *entryHash;
+@property(nonatomic) BOOL idempotent;
+@end
+@implementation AncPrivateVaultReplayEvidence
+@end
+
+static NSData *AncControlStateCanonical(
+    AncPrivateVaultControlLogState *state) {
+  if (state == nil)
+    return nil;
+  @try {
+    NSMutableArray *members = [NSMutableArray array];
+    for (AncPrivateVaultControlLogMember *member in state.activeMembers) {
+      [members addObject:[AncPrivateVaultCanonicalValue array:@[
+                 [AncPrivateVaultCanonicalValue text:member.endpointId],
+                 [AncPrivateVaultCanonicalValue text:member.role],
+                 [AncPrivateVaultCanonicalValue boolean:member.unattended],
+                 [AncPrivateVaultCanonicalValue bytes:member.signingPublicKey],
+                 [AncPrivateVaultCanonicalValue
+                     bytes:member.keyAgreementPublicKey],
+                 [AncPrivateVaultCanonicalValue text:member.enrollmentRef]
+               ]]];
+    }
+    NSMutableArray *removed = [NSMutableArray array];
+    for (NSString *endpointId in state.removedEndpointIds)
+      [removed addObject:[AncPrivateVaultCanonicalValue text:endpointId]];
+    AncPrivateVaultCanonicalValue *root =
+        [AncPrivateVaultCanonicalValue map:@{
+          @1 : [AncPrivateVaultCanonicalValue text:state.vaultId],
+          @2 : [AncPrivateVaultCanonicalValue integer:(int64_t)state.sequence],
+          @3 : [AncPrivateVaultCanonicalValue bytes:state.headHash],
+          @4 : [AncPrivateVaultCanonicalValue bytes:state.membershipHash],
+          @5 : [AncPrivateVaultCanonicalValue text:state.signedAt],
+          @6 : [AncPrivateVaultCanonicalValue array:members],
+          @7 : [AncPrivateVaultCanonicalValue array:removed],
+          @8 : [AncPrivateVaultCanonicalValue integer:(int64_t)state.epoch],
+          @9 : [AncPrivateVaultCanonicalValue
+              integer:(int64_t)state.recoveryGeneration],
+          @10 : [AncPrivateVaultCanonicalValue text:state.recoveryId],
+          @11 : [AncPrivateVaultCanonicalValue
+              bytes:state.recoverySigningPublicKey],
+          @12 : [AncPrivateVaultCanonicalValue
+              bytes:state.recoveryKeyAgreementPublicKey],
+          @13 : [AncPrivateVaultCanonicalValue bytes:state.recoveryWrapHash],
+          @14 : [AncPrivateVaultCanonicalValue text:state.freshnessMode],
+        }];
+    AncPrivateVaultCanonicalStatus status;
+    return AncPrivateVaultCanonicalEncode(root, &status);
+  } @catch (__unused NSException *exception) {
+    return nil;
+  }
+}
+
+static NSMapTable<AncPrivateVaultControlLogReplayResult *,
+                  AncPrivateVaultReplayEvidence *> *
+AncReplayEvidenceRegistry(void) {
+  static NSMapTable *registry;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{
+    registry = [NSMapTable
+        mapTableWithKeyOptions:NSPointerFunctionsWeakMemory |
+                               NSPointerFunctionsObjectPointerPersonality
+                  valueOptions:NSPointerFunctionsStrongMemory];
+  });
+  return registry;
+}
+
+static NSLock *AncReplayEvidenceLock(void) {
+  static NSLock *lock;
+  static dispatch_once_t once;
+  dispatch_once(&once, ^{ lock = [[NSLock alloc] init]; });
+  return lock;
+}
+
+static BOOL AncRegisterReplayEvidence(
+    AncPrivateVaultControlLogReplayResult *result,
+    AncPrivateVaultControlLogState *prior,
+    AncPrivateVaultControlLogState *current, NSData *entryHash,
+    BOOL idempotent) {
+  NSData *priorCanonical = prior == nil ? [NSData data]
+                                        : AncControlStateCanonical(prior);
+  NSData *currentCanonical = AncControlStateCanonical(current);
+  if (result == nil || current == nil || entryHash.length != 32 ||
+      priorCanonical == nil || currentCanonical == nil)
+    return NO;
+  AncPrivateVaultReplayEvidence *evidence =
+      [[AncPrivateVaultReplayEvidence alloc] init];
+  /* Keep registry state pointer-distinct from the presentation object. The
+   * public result is deliberately inspectable, so even a runtime ivar write on
+   * that object must not race the later evidence copy. */
+  evidence.priorState =
+      prior == nil
+          ? nil
+          : AncPrivateVaultControlLogStateCreateImmutableCopy(prior);
+  evidence.currentState =
+      AncPrivateVaultControlLogStateCreateImmutableCopy(current);
+  if (evidence.currentState == nil ||
+      (prior != nil && evidence.priorState == nil))
+    return NO;
+  evidence.priorCanonical = priorCanonical;
+  evidence.currentCanonical = currentCanonical;
+  evidence.entryHash = [entryHash copy];
+  evidence.idempotent = idempotent;
+  NSLock *lock = AncReplayEvidenceLock();
+  [lock lock];
+  NSMapTable *registry = AncReplayEvidenceRegistry();
+  BOOL allowed = registry.count < 1024;
+  if (allowed)
+    [registry setObject:evidence forKey:result];
+  [lock unlock];
+  return allowed;
+}
+
+BOOL AncPrivateVaultControlLogReplayResultCopyEvidence(
+    AncPrivateVaultControlLogReplayResult *result,
+    AncPrivateVaultControlLogState **priorState,
+    AncPrivateVaultControlLogState **currentState, NSData **entryHash,
+    BOOL *idempotent) {
+  if (currentState == NULL || entryHash == NULL || idempotent == NULL)
+    return NO;
+  if (priorState != NULL)
+    *priorState = nil;
+  *currentState = nil;
+  *entryHash = nil;
+  *idempotent = NO;
+  if (result == nil ||
+      ![result isMemberOfClass:AncPrivateVaultAuthenticatedReplayResult.class])
+    return NO;
+  NSLock *lock = AncReplayEvidenceLock();
+  [lock lock];
+  AncPrivateVaultReplayEvidence *evidence =
+      [AncReplayEvidenceRegistry() objectForKey:result];
+  [lock unlock];
+  if (evidence == nil)
+    return NO;
+  @try {
+    NSData *observedCurrent = AncControlStateCanonical(result.state);
+    NSData *observedPrior =
+        result.authenticatedPriorState == nil
+            ? [NSData data]
+            : AncControlStateCanonical(result.authenticatedPriorState);
+    if (![observedCurrent isEqualToData:evidence.currentCanonical] ||
+        ![observedPrior isEqualToData:evidence.priorCanonical] ||
+        ![result.entryHash isEqualToData:evidence.entryHash] ||
+        result.idempotent != evidence.idempotent)
+      return NO;
+    AncPrivateVaultControlLogState *currentCopy =
+        AncPrivateVaultControlLogStateCreateImmutableCopy(
+            evidence.currentState);
+    AncPrivateVaultControlLogState *priorCopy =
+        evidence.priorState == nil
+            ? nil
+            : AncPrivateVaultControlLogStateCreateImmutableCopy(
+                  evidence.priorState);
+    if (currentCopy == nil ||
+        (evidence.priorState != nil && priorCopy == nil))
+      return NO;
+    if (priorState != NULL)
+      *priorState = priorCopy;
+    *currentState = currentCopy;
+    *entryHash = [evidence.entryHash copy];
+    *idempotent = evidence.idempotent;
+    return YES;
+  } @catch (__unused NSException *exception) {
+    return NO;
+  }
+}
+
 static AncPrivateVaultControlLogMembershipCommit *AncCopyCommit(AncControlInner *inner) {
   AncPrivateVaultControlLogMembershipCommit *copy =
       [[AncPrivateVaultControlLogMembershipCommit alloc] init];
@@ -706,8 +979,21 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
     if (entry.sequence < current.sequence) return AncPrivateVaultControlLogStatusRollback;
     if (entry.sequence == current.sequence) {
       if (![entryHash isEqualToData:current.headHash]) return AncPrivateVaultControlLogStatusFork;
-      AncPrivateVaultControlLogReplayResult *result = [[AncPrivateVaultControlLogReplayResult alloc] init];
-      result.state = current; result.entryHash = entryHash; result.idempotent = YES; *outResult = result;
+      AncPrivateVaultControlLogReplayResult *result =
+          class_createInstance(AncPrivateVaultControlLogReplayResult.class, 0);
+      result.state = AncPrivateVaultControlLogStateCreateImmutableCopy(current);
+      result.entryHash = [entryHash copy];
+      result.idempotent = YES;
+      result.authenticatedPriorState =
+          AncPrivateVaultControlLogStateCreateImmutableCopy(current);
+      if (result.state == nil || result.authenticatedPriorState == nil)
+        return AncPrivateVaultControlLogStatusFailed;
+      object_setClass(result, AncPrivateVaultAuthenticatedReplayResult.class);
+      if (!AncRegisterReplayEvidence(
+              result, result.authenticatedPriorState, result.state,
+              result.entryHash, YES))
+        return AncPrivateVaultControlLogStatusFailed;
+      *outResult = result;
       return AncPrivateVaultControlLogStatusOK;
     }
     if (current.sequence == kMaximumSafeInteger || entry.sequence > current.sequence + 1)
@@ -846,8 +1132,22 @@ static AncPrivateVaultControlLogState *AncNextState(AncPrivateVaultControlLogSta
     return AncPrivateVaultControlLogStatusInvalidTransition;
   if (inner.type == AncInnerContinuity && [signer.role isEqualToString:@"broker"])
     state.freshnessMode = @"eventual_fork_detection";
-  AncPrivateVaultControlLogReplayResult *result = [[AncPrivateVaultControlLogReplayResult alloc] init];
-  result.state = state; result.entryHash = entryHash; result.idempotent = NO; *outResult = result;
+  AncPrivateVaultControlLogReplayResult *result =
+      class_createInstance(AncPrivateVaultControlLogReplayResult.class, 0);
+  result.state = AncPrivateVaultControlLogStateCreateImmutableCopy(state);
+  result.entryHash = [entryHash copy];
+  result.idempotent = NO;
+  result.authenticatedPriorState =
+      current == nil
+          ? nil
+          : AncPrivateVaultControlLogStateCreateImmutableCopy(current);
+  if (result.state == nil || (current != nil && result.authenticatedPriorState == nil))
+    return AncPrivateVaultControlLogStatusFailed;
+  object_setClass(result, AncPrivateVaultAuthenticatedReplayResult.class);
+  if (!AncRegisterReplayEvidence(result, result.authenticatedPriorState,
+                                 result.state, result.entryHash, NO))
+    return AncPrivateVaultControlLogStatusFailed;
+  *outResult = result;
   return AncPrivateVaultControlLogStatusOK;
 }
 
