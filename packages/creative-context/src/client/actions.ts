@@ -56,6 +56,7 @@ export interface CreativeContextSummary {
   memberCount: number;
   updatedAt?: string | null;
   approvalPolicy: CreativeContextPolicy;
+  visibility: "private" | "org" | "public";
 }
 
 export interface CreativeContextMembership {
@@ -179,6 +180,10 @@ function contextSummary(value: unknown): CreativeContextSummary | null {
       source.approvalPolicy === "admins-only"
         ? source.approvalPolicy
         : "open",
+    visibility:
+      source.visibility === "org" || source.visibility === "public"
+        ? source.visibility
+        : "private",
   };
 }
 

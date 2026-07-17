@@ -21,6 +21,7 @@ export default defineAction({
     title: z.string().optional(),
     parentId: z.string().optional(),
   }),
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args) => {
     const reference = await resolveNativeContextCloneReference({
       appId: "content",

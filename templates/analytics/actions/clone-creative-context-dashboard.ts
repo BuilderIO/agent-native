@@ -35,6 +35,7 @@ export default defineAction({
     expectedUpdatedAt: z.string().optional(),
     title: z.string().optional(),
   }),
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args) => {
     const email = getRequestUserEmail();
     if (!email) throw new Error("no authenticated user");

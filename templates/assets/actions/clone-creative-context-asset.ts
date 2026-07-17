@@ -22,6 +22,7 @@ export default defineAction({
     libraryId: z.string(),
     title: z.string().optional(),
   }),
+  publicAgent: { expose: true, readOnly: false, requiresAuth: true },
   run: async (args) => {
     await requireLibrary(args.libraryId);
     const reference = await resolveNativeContextCloneReference({

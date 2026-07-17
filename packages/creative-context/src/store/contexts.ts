@@ -34,7 +34,11 @@ import {
 
 type Rank = "canonical" | "exemplar" | "normal";
 
-function mapContext(row: any, memberCount = 0): CreativeContextSummary {
+function mapContext(
+  row: any,
+  memberCount = 0,
+  role: "viewer" | "editor" | "admin" | "owner" = "viewer",
+): CreativeContextSummary {
   return {
     id: row.id,
     name: row.name,
@@ -47,6 +51,12 @@ function mapContext(row: any, memberCount = 0): CreativeContextSummary {
     memberCount,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
+    access: {
+      role,
+      canSubmit: role !== "viewer",
+      canReview: role !== "viewer",
+      canAdmin: role === "owner" || role === "admin",
+    },
   };
 }
 
@@ -629,7 +639,11 @@ export async function getCreativeContextById(
         eq(schema.creativeContextMemberships.status, "active"),
       ),
     );
-  return mapContext(access.resource, Number(membershipCount?.value ?? 0));
+  return mapContext(
+    access.resource,
+    Number(membershipCount?.value ?? 0),
+    access.role,
+  );
 }
 
 export async function getCreativeContextAppBinding(
@@ -697,8 +711,20 @@ export async function listCreativeContexts(input: {
   const byContext = new Map<string, number>();
   for (const row of counts as any[])
     byContext.set(row.contextId, (byContext.get(row.contextId) ?? 0) + 1);
+  const accessById = new Map(
+    (
+      await Promise.all(
+        page.map(async (row) => [row.id, await resolveAccess("creative-context", row.id)] as const),
+      )
+    ).flatMap(([id, access]) => (access ? [[id, access]] : [])),
+  );
   return {
-    contexts: page.map((row) => mapContext(row, byContext.get(row.id) ?? 0)),
+    contexts: page.flatMap((row) => {
+      const access = accessById.get(row.id);
+      return access
+        ? [mapContext(row, byContext.get(row.id) ?? 0, access.role)]
+        : [];
+    }),
     nextCursor: rows.length > input.limit ? page.at(-1)?.id : undefined,
   };
 }

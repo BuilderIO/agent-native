@@ -508,6 +508,12 @@ export interface CreativeContextSummary {
   memberCount: number;
   createdAt: string;
   updatedAt: string;
+  access: {
+    role: "viewer" | "editor" | "admin" | "owner";
+    canSubmit: boolean;
+    canReview: boolean;
+    canAdmin: boolean;
+  };
 }
 
 export interface CreativeContextMembership {

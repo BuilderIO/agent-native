@@ -21,6 +21,11 @@ export interface NativeResourceCaptureAdapter {
       externalRef?: string;
       upstreamAccess?: "available" | "restricted" | "unknown";
       containerOwnerVerifiedAt?: string;
+      /** Server-derived from the app's source resource; never client input. */
+      access?: {
+        visibility: "private" | "org" | "public";
+        canManage: boolean;
+      };
     };
     items: NormalizedContextItem[];
     /** Persisted only as internal submission metadata; never action output. */

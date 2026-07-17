@@ -1,6 +1,7 @@
 import {
   Badge,
   Button,
+  Checkbox,
   Input,
   Select,
   SelectContent,
@@ -55,12 +56,43 @@ export interface CreativeContextResourceDescriptor {
   title: string;
   preview?: CreativeContextResourcePreview;
   updatedAt?: string;
+  visibility?: "private" | "org" | "public";
 }
 
 export interface CreativeContextShareTabProps {
-  resource: CreativeContextResourceDescriptor;
+  resource?: CreativeContextResourceDescriptor;
+  resources?: readonly CreativeContextResourceDescriptor[];
   canManage?: boolean;
   className?: string;
+}
+
+const MAX_CONTEXT_RESOURCES = 50;
+
+export function normalizeCreativeContextResources(
+  resource?: CreativeContextResourceDescriptor,
+  resources?: readonly CreativeContextResourceDescriptor[],
+): CreativeContextResourceDescriptor[] {
+  const candidates = resources?.length ? resources : resource ? [resource] : [];
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    const key = `${candidate.appId}:${candidate.resourceType}:${candidate.resourceId}`;
+    if (seen.has(key) || seen.size >= MAX_CONTEXT_RESOURCES) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
+const VISIBILITY_RANK = { private: 0, org: 1, public: 2 } as const;
+
+export function requiresBroaderPublication(
+  resource: CreativeContextResourceDescriptor,
+  context: CreativeContextSummary | undefined,
+) {
+  return Boolean(
+    context &&
+      VISIBILITY_RANK[context.visibility] >
+        VISIBILITY_RANK[resource.visibility ?? "private"],
+  );
 }
 
 export function creativeContextSafePreviewUrl(url: string | undefined) {
