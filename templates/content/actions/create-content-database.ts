@@ -15,7 +15,10 @@ import type {
   CreateDatabaseRequest,
 } from "../shared/api.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
-import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import {
+  resolveContentSpaceAccess,
+  type ContentSpaceAccess,
+} from "./_content-space-access.js";
 import {
   organizationContentSpaceId,
   provisionContentSpaces,
@@ -84,24 +87,31 @@ export async function createContentDatabaseCore(
   options: { db?: any } = {},
 ): Promise<ContentDatabaseResponse> {
   const db = options.db ?? getDb();
-  const resolvedSpaceId = await resolveContentDatabaseSpace(args, db);
+  const resolvedSpace = await resolveContentDatabaseSpace(args, db);
   let databaseId: string | null = null;
   if (options.db) {
     databaseId = await createContentDatabaseRecord(args, {
       db,
-      spaceId: resolvedSpaceId,
+      resolvedSpace,
     });
   } else {
     await db.transaction(async (tx: any) => {
       databaseId = await createContentDatabaseRecord(args, {
         db: tx,
-        spaceId: resolvedSpaceId,
+        resolvedSpace,
       });
     });
   }
   if (!databaseId) throw new Error("Content database was not created");
   return getContentDatabaseResponse(databaseId);
 }
+
+export type ResolvedContentDatabaseSpace = {
+  spaceId: string;
+  spaceAccess?: ContentSpaceAccess;
+  document?: any;
+  parent?: any;
+};
 
 async function healLegacyDocumentSpace(db: any, resource: any) {
   const provisioned = await provisionContentSpaces(db, resource.ownerEmail);
@@ -127,7 +137,7 @@ async function healLegacyDocumentSpace(db: any, resource: any) {
 export async function resolveContentDatabaseSpace(
   args: CreateDatabaseRequest,
   db: any,
-): Promise<string> {
+): Promise<ResolvedContentDatabaseSpace> {
   if (args.documentId) {
     const access = await assertAccess("document", args.documentId, "editor");
     const spaceId =
@@ -138,7 +148,10 @@ export async function resolveContentDatabaseSpace(
         "A converted database must keep its document Content space",
       );
     }
-    return spaceId;
+    return {
+      spaceId,
+      document: access.resource,
+    };
   }
   if (args.parentId) {
     const access = await assertAccess("document", args.parentId, "editor");
@@ -148,19 +161,28 @@ export async function resolveContentDatabaseSpace(
     if (args.spaceId && args.spaceId !== spaceId) {
       throw new Error("Nested databases must use their parent Content space");
     }
-    return spaceId;
+    return {
+      spaceId,
+      parent: access.resource,
+    };
   }
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
   const provisioned = await provisionContentSpaces(db, userEmail);
   const spaceId = args.spaceId ?? provisioned.personalSpaceId;
-  await resolveContentSpaceAccess(spaceId, "editor");
-  return spaceId;
+  return {
+    spaceId,
+    spaceAccess: await resolveContentSpaceAccess(spaceId, "editor"),
+  };
 }
 
 export async function createContentDatabaseRecord(
   args: CreateDatabaseRequest,
-  options: { db?: any; spaceId?: string } = {},
+  options: {
+    db?: any;
+    resolvedSpace?: ResolvedContentDatabaseSpace;
+    resolveSpaceAccess?: typeof resolveContentSpaceAccess;
+  } = {},
 ): Promise<string> {
   const db = options.db ?? getDb();
   const now = new Date().toISOString();
@@ -170,7 +192,7 @@ export async function createContentDatabaseRecord(
   let ownerEmail = getRequestUserEmail();
   if (!ownerEmail) throw new Error("no authenticated user");
   let orgId = getRequestOrgId() ?? null;
-  let spaceId = options.spaceId ?? null;
+  let spaceId = options.resolvedSpace?.spaceId ?? null;
   let inheritedShares: Array<{
     principalType: "user" | "org";
     principalId: string;
@@ -178,8 +200,12 @@ export async function createContentDatabaseRecord(
   }> = [];
 
   if (documentId) {
-    const access = await assertAccess("document", documentId, "editor");
-    const document = access.resource;
+    const document =
+      options.resolvedSpace?.document ??
+      (await assertAccess("document", documentId, "editor")).resource;
+    if (document.id !== documentId) {
+      throw new Error("Resolved document access does not match the request");
+    }
     ownerEmail = document.ownerEmail as string;
     orgId = (document.orgId as string | null) ?? null;
     spaceId = (document.spaceId as string | null) ?? spaceId;
@@ -230,8 +256,12 @@ export async function createContentDatabaseRecord(
     let hideFromSearch = 0;
 
     if (parentId) {
-      const parentAccess = await assertAccess("document", parentId, "editor");
-      const parent = parentAccess.resource;
+      const parent =
+        options.resolvedSpace?.parent ??
+        (await assertAccess("document", parentId, "editor")).resource;
+      if (parent.id !== parentId) {
+        throw new Error("Resolved parent access does not match the request");
+      }
       ownerEmail = parent.ownerEmail as string;
       orgId = (parent.orgId as string | null) ?? null;
       spaceId = (parent.spaceId as string | null) ?? spaceId;
@@ -257,7 +287,15 @@ export async function createContentDatabaseRecord(
           "A top-level database requires a resolved Content space",
         );
       }
-      const spaceAccess = await resolveContentSpaceAccess(spaceId, "editor");
+      const spaceAccess =
+        options.resolvedSpace?.spaceAccess ??
+        (await (options.resolveSpaceAccess ?? resolveContentSpaceAccess)(
+          spaceId,
+          "editor",
+        ));
+      if (spaceAccess.space.id !== spaceId) {
+        throw new Error("Resolved Content space does not match the request");
+      }
       ownerEmail = getRequestUserEmail() ?? ownerEmail;
       orgId = spaceAccess.space.orgId;
       visibility = orgId ? "org" : "private";
