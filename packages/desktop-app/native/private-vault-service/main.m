@@ -15,10 +15,12 @@
 #import "PrivateVaultRotationPreparationSpool.h"
 #import "PrivateVaultRotationPreparationStore.h"
 #import "PrivateVaultStateRoot.h"
+#import "PrivateVaultHostedAppendTransport.h"
 
 static SecRequirementRef gClientRequirement = NULL;
 static AncPrivateVaultCustodyRepository *gCustodyRepository = nil;
 static AncPrivateVaultRotationCoordinator *gRotationCoordinator = nil;
+static AncPrivateVaultHostedAppendTransport *gHostedAppendTransport = nil;
 
 static NSURL *PVStateRootURL(void) {
     NSArray<NSString *> *roots =
@@ -122,6 +124,39 @@ static void PVSendSuccess(xpc_connection_t peer, xpc_object_t message,
     xpc_connection_send_message(peer, reply);
 }
 
+static void PVAttemptHostedAppend(NSData *vaultBytes) {
+    if (vaultBytes.length != 16 || gRotationCoordinator == nil ||
+        gHostedAppendTransport == nil) {
+        return;
+    }
+    uint8_t vaultID[16] = {0};
+    [vaultBytes getBytes:vaultID length:sizeof vaultID];
+    AncPrivateVaultHostedAppendRequest *request = nil;
+    AncPrivateVaultRotationCoordinatorStatus status =
+        [gRotationCoordinator prepareHostedAppendVaultId:vaultID
+                                                  request:&request];
+    memset(vaultID, 0, sizeof vaultID);
+    if (status != AncPrivateVaultRotationCoordinatorStatusOK || request == nil) {
+        return;
+    }
+    [gHostedAppendTransport
+        appendBody:request.body
+        proofHeader:request.proofHeader
+        completion:^(AncPrivateVaultHostedAppendTransportStatus transportStatus,
+                     NSData *receipt) {
+          if (transportStatus != AncPrivateVaultHostedAppendTransportStatusOK ||
+              receipt == nil) {
+              return;
+          }
+          uint8_t finalVaultID[16] = {0};
+          [vaultBytes getBytes:finalVaultID length:sizeof finalVaultID];
+          [gRotationCoordinator finalizeHostedAppendVaultId:finalVaultID
+                                                    receipt:receipt
+                                                     result:nil];
+          memset(finalVaultID, 0, sizeof finalVaultID);
+        }];
+}
+
 static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
                              const PVRequest *request) {
     uint8_t vaultID[16] = {0};
@@ -133,6 +168,7 @@ static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
     AncPrivateVaultRotationCoordinatorResult *result = nil;
     AncPrivateVaultRotationCoordinatorStatus status =
         [gRotationCoordinator resumeVaultId:vaultID result:&result];
+    NSData *vaultBytes = [NSData dataWithBytes:vaultID length:sizeof vaultID];
     memset(vaultID, 0, sizeof vaultID);
     NSString *headHash = result == nil ? nil : PVHex(result.headHash);
     if (status != AncPrivateVaultRotationCoordinatorStatusOK || result == nil ||
@@ -157,6 +193,7 @@ static void PVResumeRotation(xpc_connection_t peer, xpc_object_t message,
     xpc_dictionary_set_uint64(reply, "sequence", result.sequence);
     xpc_dictionary_set_string(reply, "headHash", headHash.UTF8String);
     xpc_connection_send_message(peer, reply);
+    PVAttemptHostedAppend(vaultBytes);
 }
 
 static void PVHandleMessage(xpc_connection_t peer, xpc_object_t message) {
@@ -240,9 +277,12 @@ int main(void) {
                       authorityStore:authority
                    custodyRepository:gCustodyRepository
                           controlLog:controlLog];
+        gHostedAppendTransport =
+            [[AncPrivateVaultHostedAppendTransport alloc] init];
         if (stateRoot == nil || keychain == nil || gCustodyRepository == nil ||
             spool == nil || preparation == nil || authority == nil ||
-            controlLog == nil || gRotationCoordinator == nil) {
+            controlLog == nil || gRotationCoordinator == nil ||
+            gHostedAppendTransport == nil) {
             return EXIT_FAILURE;
         }
         OSStatus status = SecRequirementCreateWithString(

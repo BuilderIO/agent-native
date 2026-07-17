@@ -444,6 +444,17 @@ Exit gate:
 
 Estimated size: 25–50 files; 3–5 engineer-weeks.
 
+Fork implementation checkpoint: the signed desktop trust anchor now owns the
+rotation preparation, official custody promotion, authenticated retained-spool
+read, canonical hosted-append body/proof construction, and receipt-gated cleanup
+seams. Its hosted append transport is limited to a build-pinned HTTPS origin and
+fixed path; it carries no browser cookies or ambient credentials, rejects
+redirects, and bounds the content-free receipt before allocation. Native tests
+exercise the coordinator and transport on both arm64 and x86_64. This checkpoint
+does not close PR 5: durable retry/observability, complete enrollment and
+recovery product flows, malicious-directory and stolen-session transcripts, and
+the independently packageable broker exit gate still remain.
+
 ### PR 6 — Feature-gated Content Private Vault vertical slice
 
 Scope:

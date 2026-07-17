@@ -24,6 +24,7 @@ SOURCES=(
   "$SOURCE_ROOT/storage/PrivateVaultRotationPreparationStore.m"
   "$SOURCE_ROOT/storage/PrivateVaultRotationCoordinator.m"
   "$SOURCE_ROOT/storage/PrivateVaultStateRoot.m"
+  "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m"
 )
 INFO_PLIST="$SOURCE_ROOT/Info.plist"
 ENTITLEMENTS="$ROOT/build/entitlements.private-vault-service.plist"
@@ -34,6 +35,12 @@ MACOS="$CONTENTS/MacOS"
 RESOURCES="$CONTENTS/Resources"
 EXECUTABLE="$MACOS/AgentNativePrivateVaultService"
 SDK="$(xcrun --sdk macosx --show-sdk-path)"
+PRIVATE_VAULT_HOSTED_ORIGIN="${PRIVATE_VAULT_HOSTED_ORIGIN:-https://content.agent-native.com}"
+if [[ ! "$PRIVATE_VAULT_HOSTED_ORIGIN" =~ ^https://[A-Za-z0-9.-]+$ ]]; then
+  echo "Private Vault hosted origin must be one exact HTTPS origin" >&2
+  exit 1
+fi
+HOSTED_ORIGIN_DEFINE="-DANC_PRIVATE_VAULT_HOSTED_ORIGIN=\"$PRIVATE_VAULT_HOSTED_ORIGIN\""
 INTERMEDIATES="$(mktemp -d "${TMPDIR:-/tmp}/agent-native-private-vault-service.XXXXXX")"
 VENDOR_SOURCE=""
 VENDOR_FETCH_LOCK="$SOURCE_ROOT/.build/vendor-fetch.lock"
@@ -145,12 +152,15 @@ compile_slice() {
   local output="$2"
   local sodium_root="$3"
   xcrun clang -O2 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+    "$HOSTED_ORIGIN_DEFINE" \
     -isysroot "$SDK" \
     -mmacosx-version-min=13.0 \
     -arch "$architecture" \
     -I"$SOURCE_ROOT/crypto" \
     -I"$SOURCE_ROOT/control" \
     -I"$SOURCE_ROOT/storage" \
+    -I"$SOURCE_ROOT/transport" \
+    -I"$SOURCE_ROOT" \
     -I"$sodium_root/include" \
     -framework Foundation \
     -framework Security \
@@ -242,6 +252,36 @@ case "${PRIVATE_VAULT_BUILD_ENDPOINT_REQUEST_TESTS:-}" in
   compile_endpoint_request_test_slice x86_64 "$X86_64_SODIUM"
   ;;
   *) echo "Invalid Private Vault endpoint-request-test build mode" >&2; exit 1 ;;
+esac
+
+case "${PRIVATE_VAULT_BUILD_HOSTED_APPEND_TRANSPORT_TESTS:-}" in
+  "") ;;
+  1)
+  HOSTED_APPEND_TRANSPORT_TEST_OUTPUT="$OUTPUT_ROOT/.hosted-append-transport-tests"
+  rm -rf "$HOSTED_APPEND_TRANSPORT_TEST_OUTPUT"
+  mkdir -p "$HOSTED_APPEND_TRANSPORT_TEST_OUTPUT"
+  compile_hosted_append_transport_test_slice() {
+    local architecture="$1"
+    local sodium_root="$2"
+    local output="$HOSTED_APPEND_TRANSPORT_TEST_OUTPUT/private-vault-hosted-append-transport-tests-$architecture"
+    xcrun clang -O1 -fobjc-arc -fblocks -Wall -Wextra -Werror \
+      -DANC_PRIVATE_VAULT_TESTING=1 \
+      -isysroot "$SDK" -mmacosx-version-min=13.0 -arch "$architecture" \
+      -I"$SOURCE_ROOT" -I"$SOURCE_ROOT/crypto" -I"$SOURCE_ROOT/control" \
+      -I"$SOURCE_ROOT/transport" -I"$sodium_root/include" \
+      -framework Foundation \
+      "$SOURCE_ROOT/crypto/PrivateVaultCrypto.c" \
+      "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransport.m" \
+      "$SOURCE_ROOT/transport/PrivateVaultHostedAppendTransportTests.m" \
+      "$sodium_root/lib/libsodium.a" -o "$output"
+    lipo "$output" -verify_arch "$architecture"
+  }
+  compile_hosted_append_transport_test_slice arm64 "$ARM64_SODIUM"
+  compile_hosted_append_transport_test_slice x86_64 "$X86_64_SODIUM"
+  ;;
+  *) echo "Invalid Private Vault hosted-append-transport-test build mode" >&2; exit 1 ;;
 esac
 
 case "${PRIVATE_VAULT_BUILD_CONTROL_LOG_TESTS:-}" in
@@ -543,6 +583,7 @@ case "${PRIVATE_VAULT_BUILD_ROTATION_PREPARATION_TESTS:-}" in
       "$SOURCE_ROOT/control/PrivateVaultAncCanonical.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLog.m" \
       "$SOURCE_ROOT/control/PrivateVaultControlLogInternal.m" \
+      "$SOURCE_ROOT/control/PrivateVaultEndpointRequest.m" \
       "$SOURCE_ROOT/control/PrivateVaultRecoveryWrap.m" \
       "$SOURCE_ROOT/storage/PrivateVaultKeychain.m" \
       "$SOURCE_ROOT/storage/PrivateVaultGenerationFence.m" \

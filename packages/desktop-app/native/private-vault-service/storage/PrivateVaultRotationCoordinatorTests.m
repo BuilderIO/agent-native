@@ -1095,6 +1095,77 @@ ResumeSuccessfully(const RotationMaterial *material,
   return result;
 }
 
+static NSDictionary *DecodeProofHeader(NSString *header) {
+  NSString *base64 = [[header stringByReplacingOccurrencesOfString:@"-"
+                                                        withString:@"+"]
+      stringByReplacingOccurrencesOfString:@"_"
+                                  withString:@"/"];
+  while (base64.length % 4 != 0)
+    base64 = [base64 stringByAppendingString:@"="];
+  NSData *bytes = [[NSData alloc] initWithBase64EncodedString:base64 options:0];
+  return bytes == nil
+             ? nil
+             : [NSJSONSerialization JSONObjectWithData:bytes
+                                                options:0
+                                                  error:nil];
+}
+
+static void AssertHostedAppendRequest(
+    const RotationMaterial *material, CoordinatorEnvironment *environment) {
+  AncPrivateVaultHostedAppendRequest *request = nil;
+  assert([environment.coordinator
+             prepareHostedAppendVaultId:material->vaultId
+                                  request:&request] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
+  assert(request != nil &&
+         [request.vaultId isEqualToString:environment.vaultId] &&
+         [request.endpointId
+             isEqualToString:HexBytes(material->endpointId, 16)]);
+  AncPrivateVaultCanonicalStatus canonicalStatus;
+  AncPrivateVaultCanonicalValue *body = AncPrivateVaultCanonicalDecode(
+      request.body, 64 * 1024 + 1024 * 1024 + 256, &canonicalStatus);
+  assert(body.type == AncPrivateVaultCanonicalTypeMap &&
+         body.mapValue.count == 5 &&
+         [body.mapValue[@1].textValue isEqualToString:@"anc/v1"] &&
+         body.mapValue[@2].integerValue == 1 &&
+         [body.mapValue[@3].textValue
+             isEqualToString:@"control-log-rotation-append-request"] &&
+         [body.mapValue[@4].bytesValue
+             isEqualToData:[NSData dataWithBytes:material->signedEntry
+                                           length:material->signedEntryLength]] &&
+         [body.mapValue[@5].bytesValue
+             isEqualToData:[NSData dataWithBytes:material->recoveryWrap
+                                           length:material->recoveryWrapLength]]);
+  NSDictionary *proof = DecodeProofHeader(request.proofHeader);
+  assert(proof.count == 11 && [proof[@"version"] integerValue] == 1 &&
+         [proof[@"suite"] isEqualToString:@"anc/v1"] &&
+         [proof[@"type"] isEqualToString:@"endpoint_request"] &&
+         [proof[@"vaultId"] isEqualToString:request.vaultId] &&
+         [proof[@"endpointId"] isEqualToString:request.endpointId] &&
+         [proof[@"method"] isEqualToString:@"POST"] &&
+         [proof[@"path"]
+             isEqualToString:@"/api/private-vault/control-log/append"] &&
+         [proof[@"issuedAt"] isEqualToString:@"2024-07-18T10:00:03.000Z"] &&
+         [proof[@"bodyHash"] length] == 64 &&
+         [proof[@"nonce"] length] == 32 &&
+         [proof[@"signature"] length] == 128);
+  AncPrivateVaultHostedAppendRequest *retry = nil;
+  assert([environment.coordinator
+             prepareHostedAppendVaultId:material->vaultId
+                                  request:&retry] ==
+         AncPrivateVaultRotationCoordinatorStatusOK);
+  NSDictionary *retryProof = DecodeProofHeader(retry.proofHeader);
+  assert([retry.body isEqualToData:request.body] &&
+         ![retryProof[@"nonce"] isEqualToString:proof[@"nonce"]]);
+  BOOL immutable = NO;
+  @try {
+    [request setValue:[NSData data] forKey:@"body"];
+  } @catch (__unused NSException *exception) {
+    immutable = YES;
+  }
+  assert(immutable);
+}
+
 static void AssertConsumed(const RotationMaterial *material,
                            CoordinatorEnvironment *environment,
                            AncPrivateVaultRotationCoordinatorResult *result,
@@ -1201,6 +1272,10 @@ static void RunHappyPath(const RotationMaterial *material,
   assert(environment != nil);
   NSData *spool = [NSData dataWithContentsOfFile:environment.spoolPath];
   assert(spool.length > 0);
+  assert([environment.coordinator
+             prepareHostedAppendVaultId:material->vaultId
+                                  request:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
   AncPrivateVaultRotationCoordinatorResult *first =
       ResumeSuccessfully(material, environment);
   AssertConsumed(material, environment, first, spool);
@@ -1232,6 +1307,7 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
   AncPrivateVaultRotationCoordinatorResult *consumed =
       ResumeSuccessfully(material, environment);
   AssertConsumed(material, environment, consumed, spool);
+  AssertHostedAppendRequest(material, environment);
   uint64_t recoveryWrapLength =
       consumed.preparationCheckpoint.snapshot.recovery_wrap_length;
   assert(recoveryWrapLength > 0);
@@ -1307,6 +1383,10 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
   assert(cleaned != nil && cleaned.sequence == consumed.sequence &&
          [cleaned.headHash isEqualToData:consumed.headHash]);
   AssertCleaned(material, environment);
+  assert([environment.coordinator
+             prepareHostedAppendVaultId:material->vaultId
+                                  request:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusConflict);
   assert([environment.coordinator
              finalizeHostedAppendVaultId:material->vaultId
                                   receipt:receipt
@@ -1408,6 +1488,10 @@ static void RunHostedAppendCleanup(const RotationMaterial *material,
   assert([NSFileManager.defaultManager
       removeItemAtPath:missingBeforeAck.spoolPath
                  error:nil]);
+  assert([missingBeforeAck.coordinator
+             prepareHostedAppendVaultId:material->vaultId
+                                  request:nil] ==
+         AncPrivateVaultRotationCoordinatorStatusRollbackDetected);
   assert([missingBeforeAck.coordinator
              finalizeHostedAppendVaultId:material->vaultId
                                   receipt:missingReceipt

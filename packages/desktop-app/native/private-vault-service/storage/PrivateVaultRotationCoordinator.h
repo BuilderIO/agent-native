@@ -53,15 +53,25 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
 + (instancetype)new NS_UNAVAILABLE;
 @end
 
+/* Networkable public material for one fresh, exact hosted append attempt. */
+@interface AncPrivateVaultHostedAppendRequest : NSObject
+@property(nonatomic, readonly) NSString *vaultId;
+@property(nonatomic, readonly) NSString *endpointId;
+@property(nonatomic, readonly) NSData *body;
+@property(nonatomic, readonly) NSString *proofHeader;
+- (instancetype)init NS_UNAVAILABLE;
++ (instancetype)new NS_UNAVAILABLE;
+@end
+
 @interface AncPrivateVaultRotationCoordinator : NSObject
 
-- (instancetype)
-    initWithPreparationStore:
-        (AncPrivateVaultRotationPreparationStore *)preparationStore
-              authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
-           custodyRepository:
-               (AncPrivateVaultCustodyRepository *)custodyRepository
-                  controlLog:(AncPrivateVaultControlLog *)controlLog
+- (instancetype)initWithPreparationStore:
+                    (AncPrivateVaultRotationPreparationStore *)preparationStore
+                          authorityStore:
+                              (AncPrivateVaultAuthorityStore *)authorityStore
+                       custodyRepository:
+                           (AncPrivateVaultCustodyRepository *)custodyRepository
+                              controlLog:(AncPrivateVaultControlLog *)controlLog
     NS_DESIGNATED_INITIALIZER;
 - (instancetype)init NS_UNAVAILABLE;
 
@@ -71,9 +81,9 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
  * AWAITING_CONTROL_COMMIT -> CONSUMED CAS have both succeeded. */
 - (AncPrivateVaultRotationCoordinatorStatus)
     resumeVaultId:(const uint8_t *_Nullable)vaultId
-            result:
-                (AncPrivateVaultRotationCoordinatorResult *_Nullable *_Nullable)
-                    result;
+           result:
+               (AncPrivateVaultRotationCoordinatorResult *_Nullable *_Nullable)
+                   result;
 
 /* Trusted Desktop main calls this only after an exact hosted append receipt.
  * The receipt is bound to the final official sequence/head and durably reread
@@ -81,10 +91,17 @@ typedef NS_ENUM(NSInteger, AncPrivateVaultRotationCoordinatorStatus) {
  * spool deletion. */
 - (AncPrivateVaultRotationCoordinatorStatus)
     finalizeHostedAppendVaultId:(const uint8_t *_Nullable)vaultId
-                         receipt:(NSData *)receipt
-                          result:
-                              (AncPrivateVaultRotationCoordinatorResult *_Nullable
-                                   *_Nullable)result;
+                        receipt:(NSData *)receipt
+                         result:(AncPrivateVaultRotationCoordinatorResult
+                                     *_Nullable *_Nullable)result;
+
+/* Rereads and authenticates the exact CONSUMED tuple and spool, then creates a
+ * fresh body-bound proof with the guarded endpoint seed. No caller supplies a
+ * path, endpoint identity, timestamp, nonce, body, or signing material. */
+- (AncPrivateVaultRotationCoordinatorStatus)
+    prepareHostedAppendVaultId:(const uint8_t *_Nullable)vaultId
+                       request:(AncPrivateVaultHostedAppendRequest *_Nullable
+                                    *_Nullable)request;
 
 @end
 

@@ -10,6 +10,14 @@ const serviceRoot = dirname(fileURLToPath(import.meta.url));
 const desktopRoot = join(serviceRoot, "..", "..");
 const source = readFileSync(join(serviceRoot, "main.m"), "utf8");
 const protocol = readFileSync(join(serviceRoot, "Protocol.m"), "utf8");
+const hostedOrigin = readFileSync(
+  join(serviceRoot, "PrivateVaultHostedOrigin.h"),
+  "utf8",
+);
+const buildSource = readFileSync(
+  join(desktopRoot, "native", "build-private-vault-service.sh"),
+  "utf8",
+);
 const identity = readFileSync(
   join(serviceRoot, "PrivateVaultServiceIdentity.h"),
   "utf8",
@@ -80,6 +88,21 @@ describe("Private Vault XPC service contract", () => {
         encoding: "utf8",
       }),
     ).toContain("endpoint request tests passed");
+  }, 120_000);
+
+  it("posts consumed rotation artifacts only through the origin-pinned native transport", () => {
+    expect(source).toContain("PVAttemptHostedAppend(vaultBytes)");
+    expect(source).toContain("prepareHostedAppendVaultId");
+    expect(source).toContain("finalizeHostedAppendVaultId");
+    expect(hostedOrigin).toContain("https://content.agent-native.com");
+    expect(buildSource).toContain("PRIVATE_VAULT_HOSTED_ORIGIN");
+    expect(source).not.toContain("getenv(");
+    expect(source).not.toContain("NSUserDefaults");
+    expect(
+      execFileSync(join(serviceRoot, "run-hosted-append-transport-tests.sh"), {
+        encoding: "utf8",
+      }),
+    ).toContain("hosted append transport tests passed");
   }, 120_000);
 
   it("declares a macOS 13 XPC bundle and a helper-only keychain group", () => {

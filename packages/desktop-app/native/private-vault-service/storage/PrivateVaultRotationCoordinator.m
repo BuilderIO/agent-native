@@ -4,6 +4,7 @@
 #import "PrivateVaultRotationPreparationStoreInternal.h"
 #import "PrivateVaultAuthorityStoreInternal.h"
 #import "PrivateVaultControlLogInternal.h"
+#import "PrivateVaultEndpointRequest.h"
 #import "PrivateVaultRecoveryWrapInternal.h"
 
 #import <math.h>
@@ -51,6 +52,44 @@ static void AncRotationCoordinatorRaiseImmutableMutation(void) {
 @end
 
 @implementation AncPrivateVaultRotationCoordinatorResult
+@end
+
+@interface AncPrivateVaultHostedAppendRequest ()
+@property(nonatomic, readwrite) NSString *vaultId;
+@property(nonatomic, readwrite) NSString *endpointId;
+@property(nonatomic, readwrite) NSData *body;
+@property(nonatomic, readwrite) NSString *proofHeader;
+@end
+
+@interface AncPrivateVaultImmutableHostedAppendRequest
+    : AncPrivateVaultHostedAppendRequest
+@end
+
+@implementation AncPrivateVaultImmutableHostedAppendRequest
+- (void)setVaultId:(NSString *)value {
+  (void)value;
+  AncRotationCoordinatorRaiseImmutableMutation();
+}
+- (void)setEndpointId:(NSString *)value {
+  (void)value;
+  AncRotationCoordinatorRaiseImmutableMutation();
+}
+- (void)setBody:(NSData *)value {
+  (void)value;
+  AncRotationCoordinatorRaiseImmutableMutation();
+}
+- (void)setProofHeader:(NSString *)value {
+  (void)value;
+  AncRotationCoordinatorRaiseImmutableMutation();
+}
+- (void)setValue:(id)value forKey:(NSString *)key {
+  (void)value;
+  (void)key;
+  AncRotationCoordinatorRaiseImmutableMutation();
+}
+@end
+
+@implementation AncPrivateVaultHostedAppendRequest
 @end
 
 @implementation AncPrivateVaultSystemTrustedClock
@@ -400,6 +439,37 @@ AncRotationCoordinatorMakeResult(
   object_setClass(result,
                   AncPrivateVaultImmutableRotationCoordinatorResult.class);
   return result;
+}
+
+static AncPrivateVaultHostedAppendRequest *
+AncRotationCoordinatorMakeHostedAppendRequest(NSString *vaultId,
+                                               NSString *endpointId,
+                                               NSData *body,
+                                               NSString *proofHeader) {
+  if (vaultId.length == 0 || endpointId.length == 0 || body.length == 0 ||
+      proofHeader.length == 0)
+    return nil;
+  AncPrivateVaultHostedAppendRequest *request =
+      class_createInstance(AncPrivateVaultHostedAppendRequest.class, 0);
+  request.vaultId = [vaultId copy];
+  request.endpointId = [endpointId copy];
+  request.body = [body copy];
+  request.proofHeader = [proofHeader copy];
+  object_setClass(request, AncPrivateVaultImmutableHostedAppendRequest.class);
+  return request;
+}
+
+static NSString *AncRotationCoordinatorTimestamp(uint64_t milliseconds) {
+  NSDate *date = [NSDate
+      dateWithTimeIntervalSince1970:(NSTimeInterval)milliseconds / 1000.0];
+  if (date == nil)
+    return nil;
+  NSDateFormatter *formatter = [[NSDateFormatter alloc] init];
+  formatter.locale = [[NSLocale alloc] initWithLocaleIdentifier:@"en_US_POSIX"];
+  formatter.timeZone = [NSTimeZone timeZoneForSecondsFromGMT:0];
+  formatter.dateFormat = @"yyyy-MM-dd'T'HH:mm:ss.SSS'Z'";
+  NSString *value = [formatter stringFromDate:date];
+  return value.length == 24 ? value : nil;
 }
 
 @implementation AncPrivateVaultRotationCoordinator
@@ -917,6 +987,92 @@ AncRotationCoordinatorMakeResult(
       return AncPrivateVaultRotationCoordinatorStatusProtectionFailed;
     if (result != NULL)
       *result = done;
+    return AncPrivateVaultRotationCoordinatorStatusOK;
+  } @catch (__unused NSException *exception) {
+    return AncPrivateVaultRotationCoordinatorStatusProtectionFailed;
+  } @finally {
+    [operationLock unlock];
+  }
+}
+
+- (AncPrivateVaultRotationCoordinatorStatus)
+    prepareHostedAppendVaultId:(const uint8_t[16])vaultId
+                         request:
+                             (AncPrivateVaultHostedAppendRequest **)request {
+  if (request != NULL)
+    *request = nil;
+  if (vaultId == NULL)
+    return AncPrivateVaultRotationCoordinatorStatusInvalid;
+  NSString *vaultHex = AncRotationCoordinatorHex(
+      vaultId, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+  if (vaultHex.length != 32)
+    return AncPrivateVaultRotationCoordinatorStatusInvalid;
+  NSRecursiveLock *operationLock =
+      AncRotationCoordinatorLockForVault(vaultHex);
+  [operationLock lock];
+  @try {
+    uint64_t milliseconds = 0;
+    uint8_t nonceBytes[16] = {0};
+    if (![self.trustedClock readNowMilliseconds:&milliseconds])
+      return AncPrivateVaultRotationCoordinatorStatusClockFailed;
+    if (anc_pv_random(nonceBytes, sizeof nonceBytes) != ANC_PV_CRYPTO_OK) {
+      anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+      return AncPrivateVaultRotationCoordinatorStatusProtectionFailed;
+    }
+    NSString *issuedAt = AncRotationCoordinatorTimestamp(milliseconds);
+    NSString *nonce = AncRotationCoordinatorHex(nonceBytes, sizeof nonceBytes);
+    anc_pv_zeroize(nonceBytes, sizeof nonceBytes);
+    if (issuedAt == nil || nonce.length != 32)
+      return AncPrivateVaultRotationCoordinatorStatusClockFailed;
+
+    __block AncPrivateVaultHostedAppendRequest *prepared = nil;
+    AncPrivateVaultRotationPreparationStoreStatus preparationStatus =
+        [self.preparationStore
+            borrowConsumedHostedAppendVaultId:vaultId
+                               authorityStore:self.authorityStore
+                            custodyRepository:self.custodyRepository
+                                      consumer:^BOOL(
+                                          NSString *authenticatedVaultId,
+                                          NSString *endpointId,
+                                          const uint8_t *signedEntry,
+                                          size_t signedEntryLength,
+                                          const uint8_t *recoveryWrap,
+                                          size_t recoveryWrapLength,
+                                          const uint8_t *signingSeed,
+                                          NSData *signingPublicKey) {
+      NSData *signedData =
+          [NSData dataWithBytesNoCopy:(void *)signedEntry
+                               length:signedEntryLength
+                         freeWhenDone:NO];
+      NSData *wrapData =
+          [NSData dataWithBytesNoCopy:(void *)recoveryWrap
+                               length:recoveryWrapLength
+                         freeWhenDone:NO];
+      AncPrivateVaultEndpointRequestStatus endpointStatus;
+      NSData *body = AncPrivateVaultControlLogAppendRequestEncode(
+          signedData, wrapData, &endpointStatus);
+      NSString *proof =
+          body == nil
+              ? nil
+              : AncPrivateVaultControlLogAppendProofHeaderCreate(
+                    authenticatedVaultId, endpointId, body, issuedAt, nonce,
+                    signingSeed, signingPublicKey, &endpointStatus);
+      prepared = endpointStatus == AncPrivateVaultEndpointRequestStatusOK
+                     ? AncRotationCoordinatorMakeHostedAppendRequest(
+                           authenticatedVaultId, endpointId, body, proof)
+                     : nil;
+      return prepared != nil;
+    }];
+    if (preparationStatus !=
+            AncPrivateVaultRotationPreparationStoreStatusOK ||
+        prepared == nil)
+      return preparationStatus ==
+                     AncPrivateVaultRotationPreparationStoreStatusOK
+                 ? AncPrivateVaultRotationCoordinatorStatusProtectionFailed
+                 : AncRotationCoordinatorStatusForPreparation(
+                       preparationStatus);
+    if (request != NULL)
+      *request = prepared;
     return AncPrivateVaultRotationCoordinatorStatusOK;
   } @catch (__unused NSException *exception) {
     return AncPrivateVaultRotationCoordinatorStatusProtectionFailed;

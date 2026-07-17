@@ -2054,6 +2054,157 @@ BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
 }
 
 - (AncPrivateVaultRotationPreparationStoreStatus)
+    borrowConsumedHostedAppendVaultId:(const uint8_t[16])vaultId
+                       authorityStore:
+                           (AncPrivateVaultAuthorityStore *)authorityStore
+                    custodyRepository:
+                        (AncPrivateVaultCustodyRepository *)custodyRepository
+                              consumer:
+                                  (AncPrivateVaultConsumedHostedAppendConsumer)
+                                      consumer {
+  if (vaultId == NULL || consumer == nil ||
+      object_getClass(self) != AncPrivateVaultRotationPreparationStore.class ||
+      object_getClass(authorityStore) != AncPrivateVaultAuthorityStore.class ||
+      object_getClass(custodyRepository) !=
+          AncPrivateVaultCustodyRepository.class ||
+      AncRotationPreparationInBorrowScope())
+    return AncPrivateVaultRotationPreparationStoreStatusInvalid;
+
+  __block AncPrivateVaultRotationPreparationStoreStatus status;
+  dispatch_sync(self.queue, ^{
+    AncPrivateVaultGuardedRecord *record ANC_ROTATION_GUARDED_LOCAL = nil;
+    NSData *digest = nil;
+    uint64_t generation = 0;
+    AncPrivateVaultRotationPreparationSnapshot preparation;
+    AncPrivateVaultRotationPreparationKeyHandle *preparationHandle = nil;
+    status = [self reconcileVaultId:vaultId
+                             record:&record
+                           snapshot:&preparation
+                             handle:&preparationHandle
+                    fenceGeneration:&generation
+                             digest:&digest];
+    if (status != AncPrivateVaultRotationPreparationStoreStatusOK)
+      return;
+    if (preparation.phase != ANC_PV_ROTATION_PREPARATION_PHASE_CONSUMED) {
+      [preparationHandle close];
+      anc_pv_rotation_preparation_snapshot_zero(&preparation);
+      status = AncPrivateVaultRotationPreparationStoreStatusConflict;
+      return;
+    }
+
+    NSString *vaultHex = AncRotationPreparationHex(
+        vaultId, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+    NSString *endpointId = AncRotationPreparationHex(
+        preparation.endpoint_id, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+    NSString *ceremonyId = AncRotationPreparationHex(
+        preparation.ceremony_id, ANC_PV_ROTATION_PREPARATION_ID_BYTES);
+    AncPrivateVaultAuthorityCheckpoint *authority = nil;
+    NSError *authorityError = nil;
+    AncPrivateVaultAuthorityStoreStatus authorityStatus =
+        [authorityStore loadVaultId:vaultHex
+                         checkpoint:&authority
+                              error:&authorityError];
+    AncPrivateVaultCustodySnapshot custody = {0};
+    AncPrivateVaultCustodyHandle *custodyHandle = nil;
+    AncPrivateVaultCustodyRepositoryStatus custodyStatus =
+        [custodyRepository readVaultId:vaultHex
+                              snapshot:&custody
+                                handle:&custodyHandle];
+    BOOL tuple = vaultHex != nil && endpointId != nil && ceremonyId != nil &&
+                 authorityStatus == AncPrivateVaultAuthorityStoreStatusOK &&
+                 authorityError == nil && authority != nil &&
+                 custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK &&
+                 custodyHandle != nil &&
+                 AncPrivateVaultRotationPreparationOfficialTupleValid(
+                     &preparation, vaultHex, authority, &custody);
+    __block BOOL artifactsBound = NO;
+    __block BOOL consumed = NO;
+    __block AncPrivateVaultRotationPreparationSpoolStatus spoolStatus =
+        AncPrivateVaultRotationPreparationSpoolStatusStorageFailed;
+    if (tuple) {
+      NSData *signingPublicKey =
+          [NSData dataWithBytes:custody.signing_public_key length:32];
+      custodyStatus = [custodyHandle
+          borrow:^BOOL(const AncPrivateVaultCustodySecretInputs *secrets) {
+        spoolStatus = [self.spool
+                readLiveVaultId:vaultId
+                     ceremonyId:preparation.ceremony_id
+      expectedSignedEntryLength:preparation.signed_entry_length
+     expectedRecoveryWrapLength:preparation.recovery_wrap_length
+            expectedFrameDigest:preparation.encrypted_spool_digest
+                     pendingKey:secrets->active_epoch_key
+                       consumer:^BOOL(const uint8_t *signedEntry,
+                                      size_t signedEntryLength,
+                                      const uint8_t *recoveryWrap,
+                                      size_t recoveryWrapLength) {
+          NSData *signedData =
+              [NSData dataWithBytesNoCopy:(void *)signedEntry
+                                   length:signedEntryLength
+                             freeWhenDone:NO];
+          NSData *wrapData =
+              [NSData dataWithBytesNoCopy:(void *)recoveryWrap
+                                   length:recoveryWrapLength
+                             freeWhenDone:NO];
+          NSData *entryHash =
+              AncPrivateVaultControlLogSignedEntryDomainHash(signedData);
+          NSString *signer =
+              AncPrivateVaultControlLogSignedEntrySignerEndpointId(signedData);
+          AncPrivateVaultControlLogState *officialState =
+              AncPrivateVaultControlLogStateCreateFromAuthenticatedCheckpoint(
+                  authority);
+          NSData *wrapHash = nil;
+          NSString *wrapCeremony = nil;
+          artifactsBound =
+              officialState != nil && entryHash.length == 32 &&
+              [entryHash isEqualToData:authority.snapshot.headHash] &&
+              [signer isEqualToString:endpointId] &&
+              AncPrivateVaultRecoveryWrapVerifyCommittedSuccessor(
+                  wrapData, officialState, authority.snapshot.verifiedAtMs,
+                  &wrapHash, &wrapCeremony) &&
+              [wrapHash
+                  isEqualToData:authority.snapshot.recoveryWrapHash] &&
+              [wrapCeremony isEqualToString:ceremonyId];
+          if (artifactsBound)
+            consumed = consumer(vaultHex, endpointId, signedEntry,
+                                signedEntryLength, recoveryWrap,
+                                recoveryWrapLength, secrets->signing_seed,
+                                signingPublicKey);
+          return artifactsBound && consumed;
+        }
+                          error:nil];
+        return spoolStatus ==
+                   AncPrivateVaultRotationPreparationSpoolStatusOK &&
+               artifactsBound && consumed;
+      }];
+      tuple = custodyStatus == AncPrivateVaultCustodyRepositoryStatusOK &&
+              spoolStatus ==
+                  AncPrivateVaultRotationPreparationSpoolStatusOK &&
+              artifactsBound && consumed;
+    }
+    AncPrivateVaultCustodyRepositoryStatus custodyClosed =
+        custodyHandle == nil ? AncPrivateVaultCustodyRepositoryStatusInvalid
+                             : [custodyHandle close];
+    AncPrivateVaultRotationPreparationStoreStatus preparationClosed =
+        [preparationHandle close];
+    anc_pv_custody_snapshot_zero(&custody);
+    anc_pv_rotation_preparation_snapshot_zero(&preparation);
+    if (custodyClosed != AncPrivateVaultCustodyRepositoryStatusOK ||
+        preparationClosed !=
+            AncPrivateVaultRotationPreparationStoreStatusOK) {
+      status = AncPrivateVaultRotationPreparationStoreStatusInaccessible;
+    } else if (!tuple) {
+      status = spoolStatus ==
+                       AncPrivateVaultRotationPreparationSpoolStatusNotFound
+                   ? AncPrivateVaultRotationPreparationStoreStatusRollbackDetected
+                   : AncPrivateVaultRotationPreparationStoreStatusConflict;
+    } else {
+      status = AncPrivateVaultRotationPreparationStoreStatusOK;
+    }
+  });
+  return status;
+}
+
+- (AncPrivateVaultRotationPreparationStoreStatus)
     cleanConsumedVaultId:(const uint8_t[16])vaultId
                   receipt:(NSData *)receiptBytes
                  authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore

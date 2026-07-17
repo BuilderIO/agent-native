@@ -104,6 +104,21 @@ client delete the spool and fsync its containing directory, then CAS to
 missing spool without the exact retained receipt is rollback, never a cleanup
 retry; `CLEANED` idempotence also requires the same receipt bytes.
 
+The fork's native client implements the `CONSUMED` hosted-append boundary as a
+narrow background operation. It rereads the authenticated official
+custody/authority tuple, decrypts the retained spool only during a synchronous
+custody borrow, verifies the committed signer and recovery-wrap bindings, and
+constructs the canonical append body and endpoint proof inside the native
+service. The XPC caller can request rotation resumption, but cannot supply a URL,
+path, method, body, proof, signing key, or receipt. The transport uses a
+build-pinned exact HTTPS origin plus the fixed append path, an ephemeral session
+with no cookies, credential store, redirects, or cache, and accepts only an exact
+200 response with the canonical media type and a declared 1–1024-byte body.
+Transport or receipt failure leaves the state at `CONSUMED` with the encrypted
+spool intact. Only receipt-authenticated finalization can advance to `CLEANED`;
+durable retry scheduling and user-visible observability remain required before
+the product may describe this cleanup as automatic.
+
 Hosted acknowledgement is bound to the exact historical control edge, not to
 the accident of that edge still being the latest head. The server replays and
 authenticates the complete latest log, the edge's canonical stored bytes, its

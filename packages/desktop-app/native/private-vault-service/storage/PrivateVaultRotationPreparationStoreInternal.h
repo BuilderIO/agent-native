@@ -1,5 +1,5 @@
-#import "PrivateVaultRotationPreparationStore.h"
 #import "PrivateVaultCustodyRecord.h"
+#import "PrivateVaultRotationPreparationStore.h"
 
 @class AncPrivateVaultAuthorityCheckpoint;
 @class AncPrivateVaultAuthorityStore;
@@ -16,13 +16,19 @@ NS_ASSUME_NONNULL_BEGIN
 @property(nonatomic, readonly) uint64_t recoveryWrapByteLength;
 @end
 
-FOUNDATION_EXPORT AncPrivateVaultRotationAppendReceipt *_Nullable
-AncPrivateVaultRotationAppendReceiptDecode(NSData *encoded);
+FOUNDATION_EXPORT AncPrivateVaultRotationAppendReceipt
+    *_Nullable AncPrivateVaultRotationAppendReceiptDecode(NSData *encoded);
 
 FOUNDATION_EXPORT BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
     const AncPrivateVaultRotationPreparationSnapshot *preparation,
     NSString *vaultId, AncPrivateVaultAuthorityCheckpoint *authority,
     const AncPrivateVaultCustodySnapshot *custody);
+
+typedef BOOL (^AncPrivateVaultConsumedHostedAppendConsumer)(
+    NSString *vaultId, NSString *endpointId, const uint8_t *signedEntry,
+    size_t signedEntryLength, const uint8_t *recoveryWrap,
+    size_t recoveryWrapLength, const uint8_t *signingSeed,
+    NSData *signingPublicKey);
 
 @interface AncPrivateVaultRotationPreparationStore (CoordinatorInternal)
 /* This capability is deliberately absent from the public store API. It does
@@ -34,9 +40,8 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
              authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
           custodyRepository:
               (AncPrivateVaultCustodyRepository *)custodyRepository
-                 checkpoint:
-                      (AncPrivateVaultRotationPreparationCheckpoint *_Nullable
-                           *_Nullable)checkpoint;
+                 checkpoint:(AncPrivateVaultRotationPreparationCheckpoint
+                                 *_Nullable *_Nullable)checkpoint;
 
 /* Trusted-main hosted acknowledgement is an exact sequence/head/recovery-wrap
  * proof, never a boolean. This method independently rereads the official tuple,
@@ -46,13 +51,24 @@ FOUNDATION_EXPORT BOOL AncPrivateVaultRotationPreparationOfficialTupleValid(
  * proof. */
 - (AncPrivateVaultRotationPreparationStoreStatus)
     cleanConsumedVaultId:(const uint8_t *_Nonnull)vaultId
-                  receipt:(NSData *)receipt
-                 authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
-              custodyRepository:
-                  (AncPrivateVaultCustodyRepository *)custodyRepository
-                     checkpoint:
-                         (AncPrivateVaultRotationPreparationCheckpoint *_Nullable
-                              *_Nullable)checkpoint;
+                 receipt:(NSData *)receipt
+          authorityStore:(AncPrivateVaultAuthorityStore *)authorityStore
+       custodyRepository:(AncPrivateVaultCustodyRepository *)custodyRepository
+              checkpoint:(AncPrivateVaultRotationPreparationCheckpoint
+                              *_Nullable *_Nullable)checkpoint;
+
+/* Authenticates the exact CONSUMED official tuple and retained encrypted spool,
+ * then lends its public append artifacts and guarded signing seed only for the
+ * synchronous callback. No secret pointer or plaintext record escapes. */
+- (AncPrivateVaultRotationPreparationStoreStatus)
+    borrowConsumedHostedAppendVaultId:(const uint8_t *_Nonnull)vaultId
+                       authorityStore:
+                           (AncPrivateVaultAuthorityStore *)authorityStore
+                    custodyRepository:
+                        (AncPrivateVaultCustodyRepository *)custodyRepository
+                             consumer:
+                                 (AncPrivateVaultConsumedHostedAppendConsumer)
+                                     consumer;
 @end
 
 NS_ASSUME_NONNULL_END
